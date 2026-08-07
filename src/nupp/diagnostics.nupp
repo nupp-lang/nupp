@@ -51,7 +51,7 @@ local function writeSourceMark(source, diagnostic)
     local available = math.max(1, #shown - col + 1)
     local length = math.max(1, math.min(diagnostic.length or 1, available))
     io.stderr:write((" %s | %s\n"):format(number, shown))
-    io.stderr:write((" %s | %s^%s\n"):format((""):rep(#number), prefix,
+    io.stderr:write((" %s | %s^%s\n"):format((" "):rep(#number), prefix,
         ("~"):rep(length - 1)))
 end
 
