@@ -37,6 +37,7 @@ local REGISTRY: {{name: string, load: Loader}} = {
     {name = "tasks", load = function(): specMod.Handler return require("nupp.cli.tasks") end},
     {name = "lints", load = function(): specMod.Handler return require("nupp.cli.lints") end},
     {name = "explain", load = function(): specMod.Handler return require("nupp.cli.explain") end},
+    {name = "reference", load = function(): specMod.Handler return require("nupp.cli.reference") end},
     {name = "test", load = function(): specMod.Handler return require("nupp.cli.test") end},
     {name = "doc", load = function(): specMod.Handler return require("nupp.cli.doc") end},
     {name = "fixpoint", load = function(): specMod.Handler return require("nupp.cli.fixpoint") end},

@@ -47,6 +47,8 @@ migration, and [plans/plan.md](plans/plan.md) for the broader roadmap.
     nupp run --profile <file>   sample it; --jit-aborts records what the JIT refused
     nupp import-c <header.h>    eject typed C bindings as a module [--lib name]
     nupp lints                  list the lints and the level each runs at
+    nupp reference              print the whole language in ~4k tokens
+    nupp reference --skill      eject the same reference as an agent skill
     nupp lsp serve [root]       LSP server over stdio
     nupp lsp <operation> ...    semantic inspect, navigation, and refactoring
 
@@ -322,3 +324,20 @@ absolute path.
 it builds its file-type-to-server table when a session starts. See
 [editors/claude-code/plugins/nupp-lsp](editors/claude-code/plugins/nupp-lsp)
 for what that tool does and does not get.
+
+## The language in one piece
+
+No model has been trained on Nupp, and every one of them is fluent in Lua. So
+the reference worth having is not a tutorial but a list of what this language
+adds and what catches each addition being got wrong:
+
+    nupp reference                                  # ~4k tokens of markdown
+    nupp reference --skill -o .claude/skills/nupp/SKILL.md
+
+It comes out of the binary rather than off a website, so a reader always gets
+the reference belonging to the compiler they are running — a reference from
+another version is worse than none, because nothing tells them it is wrong. The
+lint and diagnostic tables are generated from the registries, every example is
+compiled by the test suite, and every code it cites has to resolve in `nupp
+explain`. [docs/reference.md](docs/reference.md) is the same document,
+committed, and the doc site renders it into its `llms.txt`.

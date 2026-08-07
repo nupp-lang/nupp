@@ -18,6 +18,10 @@ when consuming results programmatically; every command that takes it also
 takes `--schema`, which prints the JSON Schema of that output. Colour is off
 whenever output is not a terminal, so piped output never carries escapes.
 
+- `./bin/nupp reference` prints the whole language in about four thousand
+  tokens: every construct, a compiled example of each, and the codes that
+  report misuse. Read it before writing `.nupp` if you have not already.
+  `--format skill` ejects it as an agent skill.
 - `./bin/nupp check --strict [FILE...]` type-checks source.
 - `./bin/nupp check --json [FILE...]` returns structured diagnostics and
   available fixes. Read `help` and `related` before editing, and apply a whole
