@@ -12,6 +12,13 @@ embeds another by reading its file out of the directory named in the
 `scintillua.lexers` property — so what is wanted here is the directory, not the
 module. It is found where `require` would look, which is what keeps it the same
 tree the rest of the toolchain is using.
+
+That property is allowed to name more than one directory, semicolon-separated,
+searched in order. A project's own `lexers` directory is put ahead of the
+installed rock's so it can add a lexer the rock does not carry — an ABNF lexer
+for the grammar reference, say — without vendoring the few hundred lexers the
+rock already ships to do it. `lexer.lua` itself still loads from the rock; only
+the search path a loaded lexer walks to find another gains the extra entry.
 ]]
 
 local lexer = require("nupp.lexer")
@@ -139,7 +146,7 @@ local SCINTILLUA_ALIASES = {
     ["c++"] = "cpp", html = "hypertext", js = "javascript",
     md = "markdown", sh = "bash", shell = "bash", ts = "typescript",
 }
-local scintilluaDirectory, scintilluaLibrary = nil, nil
+local scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary = nil, nil, nil
 local scintilluaLexers = {}
 
 -- Where `require("scintillua.lexers.lexer")` would find its file, asked of the
@@ -158,22 +165,24 @@ local function installedLexers()
 end
 
 local function configureScintillua(root, settings)
-    local candidates = {}
-    -- A project may point at its own tree; otherwise the installed rock is
-    -- found the way `require` would find it.
-    if settings.lexers then candidates[#candidates + 1] = join(root, settings.lexers) end
-    local found = installedLexers()
-    if found then candidates[#candidates + 1] = found end
-    for _, candidate in ipairs(candidates) do
-        if exists(join(candidate, "lexer.lua")) then
-            if scintilluaDirectory ~= candidate then
-                scintilluaDirectory, scintilluaLibrary = candidate, nil
-                scintilluaLexers = {}
-            end
-            return
-        end
+    -- `lexer.lua` itself always loads from the installed rock, found the way
+    -- `require` would find it; a project's `settings.lexers` only extends the
+    -- path a loaded lexer searches for another, ahead of the rock's own.
+    local installed = installedLexers()
+    if not installed or not exists(join(installed, "lexer.lua")) then
+        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
+            nil, nil, nil, {}
+        return
     end
-    scintilluaDirectory, scintilluaLibrary, scintilluaLexers = nil, nil, {}
+    local searchPath = installed
+    if settings.lexers then
+        local custom = join(root, settings.lexers)
+        if exists(custom) then searchPath = custom .. ";" .. installed end
+    end
+    if scintilluaSearchPath ~= searchPath then
+        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
+            installed, searchPath, nil, {}
+    end
 end
 
 local function loadScintillua(language)
@@ -190,7 +199,7 @@ local function loadScintillua(language)
         local ok, library = pcall(chunk)
         if not ok or type(library) ~= "table" then return nil end
         library.property = setmetatable({
-            ["scintillua.lexers"] = scintilluaDirectory,
+            ["scintillua.lexers"] = scintilluaSearchPath,
         }, {
             __index = function() return "" end,
             __newindex = function(t, key, value)

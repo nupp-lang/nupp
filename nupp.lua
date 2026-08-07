@@ -43,6 +43,7 @@ return {
             logo = "images/nupp.svg",
             public = "docs/public",
             customCss = "docs/public/nupp.css",
+            lexers = "docs/lexers",
             pages = {
                {
                   path = "",
