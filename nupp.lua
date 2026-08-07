@@ -58,7 +58,7 @@ return {
                   heroActions = {
                      {
                         text = "Get started",
-                        path = "guide/getting-started",
+                        path = "getting-started/installation",
                         theme = "brand",
                      },
                      {
@@ -92,56 +92,122 @@ return {
                      },
                   },
                },
+               -- The sidebar groups pages by the first segment of their route
+               -- and titles the group from it, so the order here is the order
+               -- a reader meets the sections in.
                {
-                  path = "guide/getting-started",
-                  title = "Getting started",
-                  source = "docs/guides/getting-started.md",
+                  path = "getting-started/installation",
+                  title = "Installation",
+                  source = "docs/start/installation.md",
                },
                {
-                  path = "guide/modules-and-types",
-                  title = "Modules and types",
-                  source = "docs/guides/modules-and-types.md",
+                  path = "getting-started/tour",
+                  title = "A tour of Nupp",
+                  source = "docs/start/tour.md",
                },
                {
-                  path = "guide/c-interop",
-                  title = "Calling C safely",
-                  source = "docs/guides/c-interop.md",
+                  path = "getting-started/why",
+                  title = "Why use Nupp?",
+                  source = "docs/start/why.md",
                },
                {
-                  path = "guide/managing-resources",
-                  title = "Managing resources",
-                  source = "docs/guides/managing-resources.md",
+                  path = "getting-started/syntax",
+                  title = "Nupp syntax",
+                  source = "docs/start/syntax.md",
                },
                {
-                  path = "guide/annotations-and-lints",
-                  title = "Annotations and lints",
-                  source = "docs/guides/annotations-and-lints.md",
+                  path = "getting-started/ownership",
+                  title = "Ownership",
+                  source = "docs/start/ownership.md",
                },
                {
-                  path = "guide/profiling",
+                  path = "getting-started/tooling",
+                  title = "Tooling",
+                  source = "docs/start/tooling.md",
+               },
+
+               {
+                  path = "type-system/overview",
+                  title = "Overview",
+                  source = "docs/type-system/overview.md",
+               },
+               {
+                  path = "type-system/primitives",
+                  title = "Primitive types",
+                  source = "docs/type-system/primitives.md",
+               },
+               {
+                  path = "type-system/records",
+                  title = "Records and structs",
+                  source = "docs/type-system/records.md",
+               },
+               {
+                  path = "type-system/interfaces",
+                  title = "Interfaces",
+                  source = "docs/type-system/interfaces.md",
+               },
+               {
+                  path = "type-system/enums",
+                  title = "Enums",
+                  source = "docs/type-system/enums.md",
+               },
+               {
+                  path = "type-system/generics",
+                  title = "Generics",
+                  source = "docs/type-system/generics.md",
+               },
+               {
+                  path = "type-system/narrowing",
+                  title = "Narrowing",
+                  source = "docs/type-system/narrowing.md",
+               },
+
+               {
+                  path = "tooling/cli",
+                  title = "The nupp command",
+                  source = "docs/tooling/cli.md",
+               },
+               {
+                  path = "tooling/build",
+                  title = "The build system",
+                  source = "docs/tooling/build.md",
+               },
+               {
+                  path = "tooling/fmt",
+                  title = "The formatter",
+                  source = "docs/tooling/fmt.md",
+               },
+               {
+                  path = "tooling/doc",
+                  title = "The documentation generator",
+                  source = "docs/tooling/doc.md",
+               },
+               {
+                  path = "tooling/lsp",
+                  title = "The language server",
+                  source = "docs/tooling/lsp.md",
+               },
+               {
+                  path = "tooling/editors",
+                  title = "Editors",
+                  source = "docs/tooling/editors.md",
+               },
+               {
+                  path = "tooling/testing",
+                  title = "Testing",
+                  source = "docs/tooling/testing.md",
+               },
+               {
+                  path = "tooling/profiling",
                   title = "Profiling",
-                  source = "docs/guides/profiling.md",
+                  source = "docs/tooling/profiling.md",
                },
                {
-                  path = "guide/optimization",
+                  path = "tooling/optimization",
                   title = "Optimization",
-                  source = "docs/guides/optimization.md",
+                  source = "docs/tooling/optimization.md",
                },
-               {
-                  path = "guide/build",
-                  title = "Build system reference",
-                  source = "docs/build.md",
-               },
-               {
-                  path = "guide/modules",
-                  title = "Module reference",
-                  source = "docs/modules.md",
-               },
-               {
-                  path = "guide/ownership",
-                  title = "Ownership reference",
-                  source = "docs/ownership.md",
-               },
+
                -- Generated by `nupp reference` and committed, so the site, the
                -- llms.txt beside it, and the binary all say the same thing.
                -- tests/referencetest.lua fails if it drifts.
@@ -151,9 +217,14 @@ return {
                   source = "docs/reference.md",
                },
                {
-                  path = "reference/annotations",
-                  title = "Annotations",
-                  source = "docs/annotations.md",
+                  path = "reference/grammar",
+                  title = "Grammar",
+                  source = "docs/grammar.md",
+               },
+               {
+                  path = "reference/modules",
+                  title = "Declarations and modules",
+                  source = "docs/modules.md",
                },
                {
                   path = "reference/metamethods",
@@ -161,14 +232,39 @@ return {
                   source = "docs/metamethods.md",
                },
                {
+                  path = "reference/ownership",
+                  title = "Ownership",
+                  source = "docs/ownership.md",
+               },
+               {
+                  path = "reference/with",
+                  title = "Resource scopes",
+                  source = "docs/with.md",
+               },
+               {
+                  path = "reference/c-interop",
+                  title = "C interop",
+                  source = "docs/c-interop.md",
+               },
+               {
+                  path = "reference/annotations",
+                  title = "Annotations",
+                  source = "docs/annotations.md",
+               },
+               {
                   path = "reference/lints",
                   title = "Lints",
                   source = "docs/lints.md",
                },
                {
-                  path = "reference/grammar",
-                  title = "Grammar",
-                  source = "docs/grammar.md",
+                  path = "reference/diagnostics",
+                  title = "Diagnostics",
+                  source = "docs/diagnostics.md",
+               },
+               {
+                  path = "reference/distribution",
+                  title = "Distribution",
+                  source = "docs/distribution.md",
                },
             },
          },

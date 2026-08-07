@@ -166,7 +166,7 @@ configuration before it is hashed, so changing the level invalidates every
 artifact built at the old one rather than leaving a project half compiled at
 each. Switching levels therefore costs a cold build, and cannot produce a
 mixture. `-O0` is the default and performs no rewrite; see the
-[optimization guide](guides/optimization.md).
+[optimization guide](optimization.md).
 
 Warm builds reuse checked module records and generated Lua across processes.
 A source edit checks and generates that module; dependents are only invalidated

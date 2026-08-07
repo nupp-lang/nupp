@@ -571,20 +571,29 @@ declaration order. Moving an individual affine field out of a live record is
 rejected because it would leave a partially initialized owner.
 
 A record may define a custom `@dispose` method. The checker requires that its
-body discharge every affine field:
+body discharge every affine field, and it does that by handing each one to a
+`takes` parameter — the field's own disposer:
 
 ```nupp
+@dispose
+local function closeFile(takes file: File) end
+
 local record Bundle
    first: owned<File>
    second: owned<File>
 
    @dispose
    function close()
-      dispose(self.second)
-      dispose(self.first)
+      closeFile(self.second)
+      closeFile(self.first)
    end
 end
 ```
+
+`dispose(self.second)` does not work here. `dispose` needs a value whose static
+type carries a cleanup list, and a field spelled `owned<File>` records the
+obligation without recording how to discharge it; that reports `NUPP2602` and
+names the fix. The same applies inside a function to a `takes` parameter.
 
 Dynamic collections are different: the checker cannot statically count
 aliased table elements. Put the unsafe storage logic behind an owning

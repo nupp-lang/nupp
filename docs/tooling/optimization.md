@@ -132,7 +132,7 @@ A loop that returns runs its body once, so a function built on the way out is no
 reported.
 
 Like every lint it has a level, and a statement that disagrees writes
-`@allow("loop-invariant-closure")`. See [lints](../../lints.md).
+`@allow("loop-invariant-closure")`. See [lints](../lints.md).
 
 ## What optimization does not change
 

@@ -155,6 +155,13 @@ annotated directly.
 | `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
 | `@dispose` | Implemented | None | `function`, `c-function`, `field` |
 | `@noreturn` | Implemented | None | `function`, `c-function`, `local-binding` |
+| `@jit` | Reserved | None | `function` |
+| `@comptime` | Reserved | None | `local-function` |
+
+A reserved annotation parses and resolves, then reports `NUPP2113` naming what
+it is held for: `@jit` for the trace checker, `@comptime` for compile-time
+evaluation. The names are taken so that a project does not define its own and
+collide later.
 
 `@allow(LINT, ...)` suppresses the named [lints](lints.md) while its statement
 is checked, taking either a lint name or its code. Bare `@allow` and `@allow()`

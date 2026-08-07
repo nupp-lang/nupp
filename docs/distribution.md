@@ -27,10 +27,10 @@ trailer. Not a platform section: an ELF section, a Mach-O segment and a PE
 resource are three formats and three writers, and appending is one that works on
 all of them and on a platform nobody has thought of yet.
 
-What appending costs is code signatures. Adding bytes to a signed Mach-O
-invalidates it, and macOS on arm64 refuses to run an executable whose signature
-does not verify, so the emitter re-signs after appending. That is a real step,
-not an afterthought — see "Signing" below.
+What appending costs is code signatures. A signed Mach-O has a recorded code
+limit, and bytes past it are outside what the signature covers — which turns
+out to be exactly what makes this work, provided nothing touches the signature
+afterwards. Stripping it, or re-signing, both fail. See "Signing" below.
 
     ┌──────────────────────┐
     │ stub executable      │  an ordinary ELF / Mach-O / PE

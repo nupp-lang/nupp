@@ -88,11 +88,28 @@ local function pageLink(prefix, route)
     return prefix .. routeFile(route)
 end
 
+-- `fs.normalize` leaves ".." alone, because a path it is handed may run through a
+-- symlink where resolving one lexically would name a different file. A markdown link is
+-- not a filesystem path: "../ownership.md" beside a page means the page one directory
+-- up, and resolving it here is what lets one link work both when the file is read where
+-- it sits and once the page is routed somewhere else.
+local function resolveDots(path)
+    local parts = {}
+    for segment in path:gmatch("[^/]+") do
+        if segment == ".." and #parts > 0 and parts[#parts] ~= ".." then
+            parts[#parts] = nil
+        elseif segment ~= "." then
+            parts[#parts + 1] = segment
+        end
+    end
+    return table.concat(parts, "/")
+end
+
 local function rewriteConfiguredPageLinks(markdown, candidate, pages, file)
     if not candidate.source then return markdown end
     local routes = {}
     for _, page in ipairs(pages) do
-        if page.source then routes[normalize(page.source)] = page.path end
+        if page.source then routes[resolveDots(normalize(page.source))] = page.path end
     end
     local sourceDirectory = dirname(normalize(candidate.source))
     return (markdown:gsub("(%[[^%]]+%]%()([^%)]+)(%))",
@@ -103,8 +120,8 @@ local function rewriteConfiguredPageLinks(markdown, candidate, pages, file)
         end
         local path, fragment = target:match("^([^#]+)(#.*)$")
         path, fragment = path or target, fragment or ""
-        local route = routes[normalize(join(sourceDirectory, path))]
-            or routes[normalize(path)]
+        local route = routes[resolveDots(normalize(join(sourceDirectory, path)))]
+            or routes[resolveDots(normalize(path))]
         if route == nil then return opening .. target .. closing end
         return opening .. relativePrefix(file) .. routeFile(route)
             .. fragment .. closing

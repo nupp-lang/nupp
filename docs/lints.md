@@ -54,7 +54,14 @@ Every lint has a name and a stable code:
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
 
-`nupp lints` prints the table, with each lint's summary and current level.
+`nupp lints` prints each lint's name, category, effective level and summary,
+marking any the project has moved. The text table has no code column;
+`nupp lints --json` carries `code`, `default` and `moved` as well.
+
+Two of these need a footnote. `lossy-narrowing` is only reachable under
+`--strict`, which is what enables the check that raises it, so its level does
+nothing on its own. `jit-callback` is registered but is not currently raised
+anywhere in the checker; it holds its name and code for the trace work.
 
 ## undocumented-raise
 
@@ -98,16 +105,16 @@ point the decision is being made.
 
 ## Categories
 
-- **correctness** — the program is very likely wrong. Defaults to `error` or
-  `warning`; a project rarely turns these off.
-- **suspicious** — legal and probably not meant. Defaults to `warning`.
-- **style** — it works and reads differently from the rest of the language.
-  Defaults to `note`, or `warning` where two spellings of one thing would
-  otherwise drift apart across a codebase.
-- **pedantic** — opinions a project may not share. Defaults to `off`.
+- **correctness** — the program is very likely wrong. A project rarely turns
+  these off.
+- **suspicious** — legal, and probably not meant.
+- **style** — it works and reads badly.
+- **pedantic** — opinions a project may not share. No lint is in this category
+  yet, so setting it currently moves nothing.
 
-A category can be set as a whole, which is how a project opts into `pedantic`
-without listing its members.
+A category is a grouping, not a level: the default comes from each lint's own
+registry entry, and a category setting in `nupp.lua` moves every member at
+once. That is how a project opts into a whole category without listing it.
 
 ## Configuring a project
 
@@ -198,7 +205,7 @@ That is the whole of it. The level resolves through the registry, the project's
 
 A lint that a build should refuse but an editor should not shout about — one
 whose fix is usually the next thing the author types — gets a row in
-`EDITOR_ADVICE` in `src/nupp/lsp.nupp`:
+`EDITOR_ADVICE` in `src/nupp/lsp/diagnostics.nupp`:
 
 ```nupp
 local EDITOR_ADVICE = {

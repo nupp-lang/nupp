@@ -199,9 +199,9 @@ still use.
 ## Failure
 
 Cleanup runs for normal fallthrough, `return`, `break`, `continue`, a `goto`
-leaving the body, an error raised during acquisition or the body, and
-cooperative cancellation that resumes a coroutine and raises through the
-scope.
+leaving the body, and an error raised during acquisition or the body. An error
+raised through the scope from anywhere is covered, since the whole region is
+protected.
 
 Every resource and every cleanup step is attempted even after one of them
 raises. When more than one thing fails, the errors are ordered rather than
@@ -235,9 +235,16 @@ see [ownership.md](ownership.md#coroutines).
 
 LuaJIT has no `finally`, no stack destructors, and no to-be-closed locals, so
 running cleanup after an arbitrary error needs a protected region. Each
-executed `with` enters one — not one per resource — covering acquisition and
-the body together. Cleanup calls are individually protected on the way out, so
-a failing cleanup cannot prevent the rest.
+executed `with` enters one, not one per resource. Cleanup calls are
+individually protected on the way out, so a failing cleanup cannot prevent the
+rest.
+
+Where the region starts depends on which lowering applies. With several
+bindings, or a body that captures from around it, the acquisitions run inside
+the region alongside the body, so a later acquisition failing still cleans up
+everything already acquired. In the shared form below — one resource, a body
+that captures nothing — the acquisition is emitted ahead of the region, which
+is equivalent because a failure there has acquired nothing to release.
 
 That boundary is deliberately visible in the source as `with`. Ordinary owner
 tracking, `dispose`, and `takes` do not introduce one, so a function that
@@ -277,11 +284,19 @@ trade-offs, including `ffi.gc`.
  NUPP2615   A cleanup signature is invalid, or a non-final step takes.
  NUPP2616   A returned owner retains a borrow of an input.
  NUPP2617   A `goto` enters a scope and bypasses acquisition.
+ NUPP2618   A borrowing return names a parameter the function takes.
+ NUPP2619   A borrowed result or output has no provable source.
 ```
 
-`NUPP2610` through `NUPP2619` are reserved for resource scopes. Where it can,
-a diagnostic points at both the acquisition and the invalid use. The
-live-owner diagnostic outside a scope (NUPP2603) may offer a `with` or a
+`NUPP2610` through `NUPP2617` belong to resource scopes. The last two are
+borrow-provenance codes and are also raised away from a `with`, wherever a
+result claims to borrow from something.
+
+Yielding inside a `with` is `NUPP2603`, the general live-obligation code,
+rather than one of these.
+
+Where it can, a diagnostic points at both the acquisition and the invalid use.
+The live-owner diagnostic outside a scope (NUPP2603) may offer a `with` or a
 `dispose` as a fix, but only when the rewrite preserves control flow rather
 than guessing what was meant.
 
@@ -330,5 +345,5 @@ path and does not block it.
 borrows stored in fields, ownership-preserving generic pass-throughs such as
 an ownership-aware `assert`, destructuring acquisition, and structured child
 coroutines borrowing from a parent scope are not part of it. The reasoning and
-the current state of each are recorded in
-[plans/with.md](../plans/with.md#open-questions).
+the current state of each are recorded in `plans/with.md` in the repository,
+under "open questions".

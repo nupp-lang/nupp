@@ -1,0 +1,151 @@
+# Installation
+
+Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
+to Lua, so building the real one takes a LuaJIT and nothing else.
+
+## What you need
+
+**LuaJIT 2.1.1784535649 or newer.** Generated Nupp is written in the LuaJIT 3.0
+syntax that 2.1 backported — `?.`, `??`, `?:`, the bit operators, compound
+assignment — rather than in a lowering of it. That rolling version is the first
+build carrying those extensions. `bin/nupp` reads `luajit -v` and says which
+build is wanted, so an older interpreter fails with a sentence instead of a
+syntax error on a line nobody wrote.
+
+Everything else is optional and buys one feature each:
+
+```
+ Component      Needed for                        Installed by
+ ─────────────  ────────────────────────────────  ─────────────────────
+ lua-cjson      --json output and the LSP server  luarocks install
+ lunamark       nupp doc                          ./scripts/rocks
+ Scintillua     highlighting in generated sites   ./scripts/rocks
+ Rust toolchain building the binary host stub     rustup
+```
+
+## From a checkout
+
+```bash
+git clone https://github.com/nupp-lang/nupp
+cd nupp
+./bin/nupp build
+```
+
+`bin/nupp` is the entry point and it builds on demand: it runs `build/nupp`
+when that exists and no source is newer, and compiles the compiler first when
+it does not. An edit to the compiler is picked up by the next command rather
+than by the next person who remembers to build.
+
+The one thing it cannot do is start from nothing, since compiling Nupp needs a
+Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
+repository, and it is what a fresh clone uses for its first build.
+
+## The optional libraries
+
+```bash
+./scripts/rocks
+```
+
+This installs lunamark and Scintillua — and, through them, LPeg — into a
+project-local `.rocks` tree that `bin/nupp` and `tests/run` put on the search
+path. Two checkouts can hold different versions without either disturbing the
+other, and nothing lands in a global tree.
+
+`nupp doc` needs lunamark and stops with a message when it is missing.
+Scintillua degrades instead: a fence in a language it cannot load renders as
+escaped text without highlighting.
+
+`lua-cjson` comes from wherever your LuaJIT already looks:
+
+```bash
+luarocks install lua-cjson
+```
+
+Every command's `--json` output and the language server read it.
+
+## Putting `nupp` on PATH
+
+Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
+`bin` on your path, or build a self-contained binary:
+
+```bash
+cargo build --release --manifest-path host/Cargo.toml
+./bin/nupp build --target dist
+```
+
+That writes `build/dist/nupp`, a single file carrying the compiler and its
+standard library with no LuaJIT installed alongside. See
+[distribution](../distribution.md) for the stub-and-payload format it uses, and
+for publishing a host of your own.
+
+## Checking that it works
+
+```bash
+./bin/nupp check
+./bin/nupp test
+```
+
+`check` type-checks the project configured in `nupp.lua`. `test` builds and
+runs the suite, which is plain LuaJIT with no framework behind it.
+
+## Your first project
+
+Two files:
+
+```text
+hello/
+├── nupp.lua
+└── src/
+    └── app/
+        └── main.nupp
+```
+
+`src/app/main.nupp`:
+
+```nupp
+local function greetingFor(name: string): string
+    return "Hello, " .. name .. "!"
+end
+
+print(greetingFor("Nupp"))
+```
+
+`nupp.lua`, the project manifest:
+
+```lua
+return {
+   include = { "src" },
+
+   build = {
+      outDir = "build",
+      default = "app",
+      targets = {
+         app = {
+            kind = "modules",
+            entries = { "app.main" },
+         },
+      },
+   },
+}
+```
+
+`include` names the roots where modules live, so `app.main` resolves to
+`src/app/main.nupp`, and generated Lua keeps that path under `build/`.
+
+Then, from the project root:
+
+```bash
+nupp check                  # type-check the project, writing nothing
+nupp build                  # compile the default target
+nupp run src/app/main.nupp  # compile and run one file
+```
+
+Check the whole project rather than the file you just edited. That is what lets
+Nupp verify module boundaries, ownership contracts, and lint settings together.
+
+[The build system](../tooling/build.md) documents every manifest key.
+
+## Next
+
+- [A tour of Nupp](tour.md) — the whole language in one pass.
+- [Why use Nupp?](why.md) — what each feature is for.

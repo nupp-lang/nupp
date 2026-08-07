@@ -184,6 +184,30 @@ methods keep behavior beside the fields and contracts it relies on, receive an
 implicit `self`, and are still emitted as ordinary `shapes.Path` methods. Use a
 separate qualified method only when adapting a type outside its declaration.
 
+## Conventions
+
+None of this is enforced — there is no naming lint — but it is what the
+compiler's own sources and the generated documentation assume.
+
+Use camelCase for functions, methods, locals, parameters, fields, and module
+filenames. Use PascalCase for nominal types: `User`, `HttpClient`,
+`ReadBuffer`. Names imported from C keep the spelling of the C API, because
+those identify ABI symbols; a camelCase local holding the module
+(`local miniApi = require("native.mini")`) marks the boundary without
+disguising the foreign name.
+
+For a module, keep helpers and internal aliases `local`, attach the exported
+records, structs, functions, and values to the module table, and return that
+table once at the end. Reserve `global` for a contract that genuinely belongs
+to the whole project.
+
+Annotate exported parameters and returns; let obvious locals infer. That keeps
+public contracts stable without making bodies noisy.
+
+Leading underscores mark privacy to the documentation generator: members
+beginning with `_`, source files beginning with `_`, and files under
+`internal/` are omitted unless the docs target opts into private output.
+
 ## Mutual recursion across files
 
 Type resolution runs over declarations, not over loaded modules: a declaration

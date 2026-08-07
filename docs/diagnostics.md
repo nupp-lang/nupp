@@ -5,9 +5,11 @@ agents without requiring prose parsing. Every diagnostic has a stable code,
 severity, complete primary token range, and message. It may also carry:
 
 - `help`: a concrete repair direction;
-- `notes`: context that does not point at source;
 - `related`: labeled secondary source ranges, including other files;
-- `fixes`: titled, machine-applicable edit sets.
+- `fixes`: titled, machine-applicable edit sets;
+- `notes`: context that points at no source. The field is carried end to end
+  and is part of the JSON shape, but nothing in the compiler sets it yet, so it
+  arrives empty.
 
 The first text line keeps the conventional compiler form understood by build
 tools. Source and guidance follow it:
@@ -19,6 +21,15 @@ src/main.nupp:8:13: error: NUPP2004: no field "horizonal" in Point
 help: use the suggested field spelling
 ```
 
+A lint carries its name after the code, so the thing a project would configure
+is visible in the line it printed:
+
+```text
+src/main.nupp:4:5: warning: NUPP2107 enum-exhaustiveness: every branch
+returns, so this handles Color and leaves "blue" unhandled
+help: add branches for "blue" or add an else clause
+```
+
 Written to a terminal, the same report is coloured: the severity and the caret
 run share a colour, the code is dimmed, and the rail beside the quoted source is
 its own. Written anywhere else it is exactly the text above, byte for byte, so
@@ -27,12 +38,28 @@ forces the escapes on for a pager that wants them, `--no-color` (or
 `--color=never`) forces them off, and `NO_COLOR`, `CLICOLOR_FORCE` and
 `TERM=dumb` are honoured in that order before the terminal is asked.
 
-Use `nupp check --json` when consuming diagnostics programmatically. Lines,
-columns, and offsets in this CLI format are 1-based byte positions. Each
-diagnostic contains `file`, `severity`, `code`, `lint`, `message`, `range`,
-`help`, `notes`, `related`, and `fixes`. A fix is all-or-nothing and contains
-one or more byte-ranged edits. The language server converts the same data to
-UTF-16 LSP ranges, `relatedInformation`, diagnostic `data`, and code actions.
+Use `nupp check --json` when consuming diagnostics programmatically, and
+`nupp check --schema` for the JSON Schema of that output. Lines, columns, and
+offsets in this CLI format are 1-based byte positions, and are `0` when the
+file could not be read at all.
+
+Each diagnostic contains `file`, `severity`, `code`, `message`, `range`,
+`fixes`, `notes`, and `related`. `lint` is present only when the code names a
+lint, and `help` only when there is one; the other fields are always there and
+may be empty. A fix is all-or-nothing and contains one or more byte-ranged
+edits. The language server converts the same data to UTF-16 LSP ranges,
+`relatedInformation`, diagnostic `data`, and code actions.
+
+## Explaining a code
+
+```bash
+nupp explain NUPP2119
+```
+
+prints the rule behind a code, a program that reports it, the same program
+corrected, related codes, and a reference into these documents. Every
+diagnostic code that has an entry can be looked up this way, which is usually
+faster than searching for the number.
 
 ## Code families
 
@@ -59,7 +86,7 @@ Remarks are off unless `--remarks` is passed, and they come from `nupp build`
 and `nupp run` rather than `nupp check`, which does not optimize. The code is
 stable across a pass being renamed, split, or merged, so it can be cited in a
 bug report or passed to `-Zno-opt`. See the
-[optimization guide](guides/optimization.md).
+[optimization guide](tooling/optimization.md).
 
 The domain references describe `NUPP2xxx` diagnostics in context:
 
