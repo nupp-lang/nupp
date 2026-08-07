@@ -428,7 +428,9 @@ function M.siteMatchesTheNuppdocPageModel()
          ":::",
          "",
       }, "\n"),
-      ["docs/details.md"] = "# Details\n\nA deeper reference.\n",
+      ["docs/details.md"] = "# Details\n\nA deeper reference.\n\n"
+         .. "<<< @docs/snippet.abnf\n",
+      ["docs/snippet.abnf"] = 'rule = "literal" / other\n',
       ["src/math.nupp"] = SOURCE,
       ["src/engine/init.nupp"] = "--- Engine entry point.\nfunction boot(): nil end\n",
       ["src/engine/audio.nupp"] = "--- Audio helpers.\nfunction play(): nil end\n",
@@ -492,6 +494,15 @@ function M.siteMatchesTheNuppdocPageModel()
       "configured Markdown page link was not rewritten to its public route")
    assert(guide:find('href="llms.txt"', 1, true), guide)
    assert(readFile(dir .. "/site/guide/llms.txt"):find("# Guide", 1, true))
+
+   -- `<<< @path` fetches another file's bytes at build time rather than a page
+   -- carrying a copy that can drift from it
+   local details = readFile(dir .. "/site/reference/details/index.html")
+   assert(details:find('<div class="nuppdoc-code-block" data-lang="abnf">', 1, true),
+      details)
+   assert(details:find('rule = &quot;literal&quot; / other', 1, true), details)
+   assert(not details:find("<<<", 1, true),
+      "embed directive was left in the rendered page")
 
    local module = readFile(dir .. "/site/modules/math/index.html")
    assert(module:find("Module contents", 1, true), module)

@@ -156,6 +156,11 @@ return {
                   title = "Lints",
                   source = "docs/lints.md",
                },
+               {
+                  path = "reference/grammar",
+                  title = "Grammar",
+                  source = "docs/grammar.md",
+               },
             },
          },
       },

@@ -91,6 +91,27 @@ local function loadModules(root, config, settings, requested)
     return modules, errors
 end
 
+-- `<<< @path` on its own line embeds another file's contents as a fenced code block,
+-- language guessed from its extension. A page like the grammar reference is written
+-- this way instead of pasting the grammar in by hand, so the two can never drift: the
+-- build reads whatever bytes docs/grammar.abnf holds, every time it runs.
+local function embedFiles(root, markdown)
+    local out = {}
+    for line in (markdown .. "\n"):gmatch("(.-)\n") do
+        local path = line:match("^<<<%s+@(%S+)%s*$")
+        if path then
+            local contents, err = readFile(join(root, path))
+            if not contents then return nil, err end
+            out[#out + 1] = "```" .. (path:match("%.([%w_]+)$") or "text")
+            out[#out + 1] = (contents:gsub("\n$", ""))
+            out[#out + 1] = "```"
+        else
+            out[#out + 1] = line
+        end
+    end
+    return table.concat(out, "\n")
+end
+
 local function configuredPages(root, settings, title)
     local pages, seen, home = {}, {}, false
     for index, configured in ipairs(settings.pages or {}) do
@@ -118,6 +139,8 @@ local function configuredPages(root, settings, title)
                 local ending = source:find("\n---\n", 5, true)
                 if ending then source = source:sub(ending + 5) end
             end
+            source, err = embedFiles(root, source)
+            if not source then return nil, err end
             candidate.markdown = source
         end
         pages[#pages + 1] = candidate
