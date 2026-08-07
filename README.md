@@ -18,7 +18,7 @@ explicit `unsafe do` blocks. See
 [docs/OWNERSHIP.md](docs/OWNERSHIP.md) and explicit
 [`with` resource scopes](docs/WITH.md). A
 trace-aware checker (types that know what the JIT will compile) is on the
-roadmap ([docs/TODO.md](docs/TODO.md)).
+roadmap ([plans/TODO.md](plans/TODO.md)).
 
 Compiler and lint output includes stable codes, source spans, related
 locations, repair help, and structured fixes; see
@@ -32,7 +32,7 @@ default `@dispose` operations, affine records, checked owned/borrowed C output
 parameters, parameter-effect inference, and raw coroutine suspension. See
 [docs/OWNERSHIP.md](docs/OWNERSHIP.md) for the complete contract reference,
 [docs/OWNERSHIP_MIGRATION.md](docs/OWNERSHIP_MIGRATION.md) for the vocabulary
-migration, and [docs/PLAN.md](docs/PLAN.md) for the broader roadmap.
+migration, and [plans/PLAN.md](plans/PLAN.md) for the broader roadmap.
 
     nupp ast [--json] <file>    dump an indented parsed syntax tree
     nupp check [file...]        check files, or the manifest project graph
@@ -162,7 +162,8 @@ interesting window is one frame rather than the whole run. See
     build/nupp/    generated artifacts (gitignored): the .lua that nupp
                    generates from src (`nupp fixpoint` verifies them)
     tests/         test suite (plain LuaJIT runner, no dependencies)
-    docs/          design documents
+    docs/          reference documentation and guides
+    plans/         design records and the roadmap
 
 ## Development
 
