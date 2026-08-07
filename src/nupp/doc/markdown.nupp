@@ -60,6 +60,18 @@ local function markdownReturns(out, returns, heading)
     out[#out + 1] = ""
 end
 
+-- A raise is a condition and nothing else. There is no type to put beside it, so this
+-- lists where an argument or a result tabulates.
+local function markdownRaises(out, raises, heading)
+    if #raises == 0 then return end
+    out[#out + 1] = heading .. " Raises"
+    out[#out + 1] = ""
+    for _, condition in ipairs(raises) do
+        out[#out + 1] = "- " .. markdownCell(condition)
+    end
+    out[#out + 1] = ""
+end
+
 local function renderMarkdownItem(out, item)
     out[#out + 1] = '<a id="' .. item.path .. '"></a>'
     out[#out + 1] = "### `" .. item.name .. "` _" .. item.kind .. "_"
@@ -85,6 +97,7 @@ local function renderMarkdownItem(out, item)
     end
     markdownArguments(out, item.params, "####")
     markdownReturns(out, item.returns, "####")
+    markdownRaises(out, item.raises, "####")
     local fields, methods = splitMembers(item.members)
     if #methods > 0 then
         out[#out + 1] = "#### Methods"
@@ -103,6 +116,7 @@ local function renderMarkdownItem(out, item)
             out[#out + 1] = ""
             markdownArguments(out, method.params, "######")
             markdownReturns(out, method.returns, "######")
+            markdownRaises(out, method.raises, "######")
         end
     end
     if #fields > 0 then

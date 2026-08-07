@@ -68,6 +68,11 @@ lints.all = {
         category = "suspicious", level = "warning",
         summary = "a loop builds the same function every iteration",
     },
+    lints.Lint{
+        name = "undocumented-raise", code = "NUPP2506",
+        category = "suspicious", level = "warning",
+        summary = "a documented function raises without saying so",
+    },
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is

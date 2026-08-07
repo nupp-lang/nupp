@@ -434,6 +434,7 @@ function functions.install(c: any): any
             stat.isConst)
         local ft = c.checkFuncbody(body)
         c.bindVar(nameTok.text, ft)
+        c.raises.check(stat, body)
         if body.disposeContract then
             registerDefaultDisposer(ft, nameTok.text,
                 body.disposeTok or stat)
@@ -462,6 +463,7 @@ function functions.install(c: any): any
             c.bindVar(fname.base.text, T.any, false, fname.base, "function")
         end
         local ft = c.checkFuncbody(body, selfType)
+        c.raises.check(stat, body)
         -- `function M.f()` puts f on the module table exactly as `M.f = ...` does,
         -- so what it exports records it the same way.
         if not fname.method and ownerKey == c.moduleLocal and memberTok then

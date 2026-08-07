@@ -378,6 +378,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     end
                     local ft = addSelf(c.checkFuncbody(e.body, n), n,
                         isDisposer and "takes" or nil)
+                    c.raises.check(e, e.body)
                     if isDisposer then
                         n.defaultDisposers[#n.defaultDisposers + 1] =
                             "@method:" .. e.name.text

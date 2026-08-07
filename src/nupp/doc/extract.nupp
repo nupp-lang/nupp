@@ -8,6 +8,7 @@ documentation never invokes the checker.
 
 local cst = require("nupp.cst")
 local parser = require("nupp.parser")
+local docblock = require("nupp.docblock")
 local stringsMod = require("nupp.doc.strings")
 local filesMod = require("nupp.doc.files")
 
@@ -29,69 +30,9 @@ local function syntax(node)
     return trim(cst.textOf(node))
 end
 
--- Returns only the final adjacent `---` run. Ordinary comments and blank lines are hard
--- boundaries, so a copyright header cannot accidentally become the documentation for
--- the first declaration.
-local function docLines(node)
-    local token = firstToken(node)
-    local lines, pending = {}, {}
-    for _, trivia in ipairs(token and token.trivia or {}) do
-        if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
-            pending[#pending + 1] = trivia.text:gsub("^%-%-%- ?", "", 1)
-        elseif trivia.kind == "comment" then
-            pending = {}
-        elseif trivia.kind == "whitespace" then
-            local _, newlines = trivia.text:gsub("\n", "")
-            if newlines > 1 then pending = {} end
-        end
-    end
-    for _, line in ipairs(pending) do lines[#lines + 1] = line end
-    return lines
-end
-
-local function parseDoc(lines)
-    local info = {text = "", params = {}, returns = {}, fields = {},
-        typeargs = {}, tags = {}}
-    local body, active, activeName = {}, nil, nil
-    for _, line in ipairs(lines) do
-        local tag, value = line:match("^@([%w_-]+)%s*(.*)$")
-        if tag then
-            active = tag
-            if tag == "param" or tag == "field" or tag == "typearg" then
-                local name, description = value:match("^(%S+)%s*(.*)$")
-                if name then
-                    activeName = name
-                    info[tag .. "s"][name] = description
-                end
-            elseif tag == "return" or tag == "returns" then
-                info.returns[#info.returns + 1] = value
-            else
-                info.tags[tag] = value ~= "" and value or true
-            end
-        elseif active and line:match("^%s+") then
-            local continuation = trim(line)
-            if active == "return" or active == "returns" then
-                local index = #info.returns
-                info.returns[index] = trim((info.returns[index] or "") .. " "
-                    .. continuation)
-            elseif (active == "param" or active == "field" or active == "typearg")
-                and activeName then
-                local descriptions = info[active .. "s"]
-                descriptions[activeName] = trim((descriptions[activeName] or "")
-                    .. " " .. continuation)
-            else
-                body[#body + 1] = line
-            end
-        else
-            active, activeName = nil, nil
-            body[#body + 1] = line
-        end
-    end
-    while #body > 0 and trim(body[1]) == "" do table.remove(body, 1) end
-    while #body > 0 and trim(body[#body]) == "" do table.remove(body) end
-    info.text = table.concat(body, "\n")
-    return info
-end
+-- The `---` run and its tags are read by nupp.docblock, because the checker reads the
+-- same run to ask whether a function that raises documented it.
+local docLines, parseDoc = docblock.linesOf, docblock.parse
 
 -- A declaration's name as it was written, table and all. Readers reach a member as
 -- `cst.Node`, so that is what the signature has to show.
@@ -281,7 +222,8 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
         name = name, kind = kind, signature = signature, doc = info,
         path = itemPath,
         line = firstToken(stat) and firstToken(stat).line or 1,
-        members = {}, values = {}, params = {}, returns = {}, typeargs = {},
+        members = {}, values = {}, params = {}, returns = {},
+        raises = info.raises, typeargs = {},
     }
     local declaredFunction = stat.kind == "localStmt"
         and typeFunction(stat.types and stat.types[1]) or nil
@@ -309,7 +251,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
                     text = fieldInfo.text ~= "" and fieldInfo.text
                     or info.fields[entry.name.text] or "",
                     path = item.path .. "." .. entry.name.text,
-                    params = {}, returns = {},
+                    params = {}, returns = {}, raises = fieldInfo.raises,
                 }
                 local fieldFunction = typeFunction(entry.type)
                 if fieldFunction then
@@ -331,6 +273,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
                     text = methodInfo.text,
                     path = item.path .. "." .. entry.name.text,
                     params = details.params, returns = details.returns,
+                    raises = methodInfo.raises,
                     isFunction = true,
                 }
             elseif entry.name and (includePrivate or not privateName(entry.name.text)) then
@@ -338,7 +281,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
                     name = entry.name.text, type = entry.kind,
                     text = parseDoc(docLines(entry)).text,
                     path = item.path .. "." .. entry.name.text,
-                    params = {}, returns = {},
+                    params = {}, returns = {}, raises = {},
                 }
             end
         end

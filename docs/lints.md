@@ -48,12 +48,53 @@ Every lint has a name and a stable code:
  lossy-narrowing          NUPP2503   suspicious    warning
  customary-operator       NUPP2504   style         warning
  loop-invariant-closure   NUPP2505   suspicious    warning
+ undocumented-raise       NUPP2506   suspicious    warning
 ```
 
 The name is what you write in configuration and suppressions; the code is what
 survives renaming and what tooling keys on. Either is accepted everywhere.
 
 `nupp lints` prints the table, with each lint's summary and current level.
+
+## undocumented-raise
+
+Raising is part of how a function is called. A caller who does not know has no
+reason to be ready, and in Lua there is no signature to find it out from, so the
+`---` run is where it has to be said:
+
+```nupp
+--- Reads a configuration file.
+---
+--- @param path where to read from
+--- @return the parsed table
+--- @raises when the file cannot be read
+function config.load(path: string): table
+    local f = io.open(path)
+    if not f then error("no such file: " .. path) end
+    ...
+end
+```
+
+Three rules are worth stating, because none of them follows from the summary:
+
+- **Only a documented function is judged.** One with no `---` run has promised
+  nothing, and a lint that asked every function in a gradually typed language
+  for a docblock would be a different lint with a different name.
+- **`error` counts and `assert` does not.** There is no reason to write `error`
+  except to raise. Lua writes `assert` both for a caller who passed the wrong
+  thing and for an invariant its author believes cannot fail, and the call does
+  not say which; reading the second as a documented raise would ask for a
+  promise about something that never happens.
+- **A nested function's raises are its own.** The walk stops where a new body
+  begins, which is also what keeps a function that hands a raising body to
+  `pcall` from being asked to document a raise it catches.
+
+The lint judges a function's own body and does not propagate through calls.
+Documenting what a callee raises is a claim the checker cannot verify, and
+enforcing it at every intermediate frame is the trade that made `throws
+Exception` ubiquitous in Java. What a caller needs instead is one hop of
+retrieval: `nupp lsp inspect` on the call shows the callee's `@raises` at the
+point the decision is being made.
 
 ## Categories
 
@@ -111,10 +152,10 @@ Two edits. Nothing about the level lives where the lint is raised, so a default
 is changed in one place and `nupp lints` cannot drift from what the checker
 does.
 
-**1. Declare it** in the `LINTS` registry near the top of `src/nupp/check.nupp`:
+**1. Declare it** in the `lints.all` registry in `src/nupp/lints.nupp`:
 
 ```nupp
-{
+lints.Lint{
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",
     summary = "a project module is used without being required",
@@ -125,8 +166,8 @@ does.
 - `code` — the next free `NUPPxxxx`. It survives the name being reconsidered,
   and is what tooling keys on. Add it to the code list in the file's header
   comment too.
-- `category` — one of the four declared in `LINT_CATEGORIES` beside the
-  registry. A category that is not declared there is rejected at load.
+- `category` — one of the four declared in `CATEGORIES` beside the registry. A
+  category that is not declared there is rejected at load.
 - `level` — the default: `note`, `warning` or `error`. Not `off`; a lint
   nobody sees by default is one nobody knows to turn on.
 - `summary` — one line, lowercase, no full stop. It is what `nupp lints`

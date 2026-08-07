@@ -198,8 +198,15 @@ inline record methods are documented in
 It deliberately skips type checking and code generation, making documentation
 builds proportional to parsing and rendering alone. Adjacent `---` docblocks
 document functions, variables, types, records, structs, interfaces, enums,
-C declarations, and record fields. The usual `@param`, `@return`, `@field`,
-`@typearg`, `@local`, and `@export` annotations are understood.
+C declarations, and record fields. The usual `@param`, `@return`, `@raises`,
+`@field`, `@typearg`, `@local`, and `@export` annotations are understood.
+
+`@raises` says what makes a function raise, one line per condition, and is the
+one docblock tag the checker reads as well as renders: a documented function
+that calls `error` without one is
+[`undocumented-raise`](docs/lints.md#undocumented-raise). Raising is part of how
+a function is called, and a caller who does not know has no reason to be ready
+for it.
 
 Annotations are read wherever a function is declared, including the typed
 bindings and function-typed record fields that declaration files are written

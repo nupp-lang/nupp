@@ -58,6 +58,18 @@ local function inlineNupp(source, links)
     return "<code>" .. highlightNupp(source, links) .. "</code>"
 end
 
+-- A raise is a condition and nothing else. There is no type to put beside it, so this
+-- lists where an argument or a result tabulates.
+local function raisesHtml(raises, heading, links)
+    if #raises == 0 then return "" end
+    local entries = {}
+    for _, condition in ipairs(raises) do
+        entries[#entries + 1] = "<li>" .. markdownHtml(condition, links) .. "</li>"
+    end
+    return "<" .. heading .. ">Raises</" .. heading .. "><ul>"
+        .. table.concat(entries) .. "</ul>"
+end
+
 local function renderHtmlItem(out, item, links)
     out[#out + 1] = '<section class="nuppdoc-api-item" id="'
         .. htmlEscape(item.path) .. '"><h2><code>' .. htmlEscape(item.name)
@@ -95,6 +107,7 @@ local function renderHtmlItem(out, item, links)
         end
         out[#out + 1] = "<h3>Returns</h3>" .. tableHtml({"Type", "Description"}, rows)
     end
+    out[#out + 1] = raisesHtml(item.raises, "h3", links)
     local fields, methods = splitMembers(item.members)
     if #methods > 0 then
         out[#out + 1] = "<h3>Methods</h3>"
@@ -126,6 +139,7 @@ local function renderHtmlItem(out, item, links)
                 out[#out + 1] = "<h5>Returns</h5>"
                     .. tableHtml({"Type", "Description"}, rows)
             end
+            out[#out + 1] = raisesHtml(method.raises, "h5", links)
             out[#out + 1] = "</div>"
         end
     end

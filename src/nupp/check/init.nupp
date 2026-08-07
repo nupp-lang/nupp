@@ -26,6 +26,7 @@ local fixits = require("nupp.check.fixits")
 local annotate = require("nupp.check.annotate")
 local ownership = require("nupp.check.ownership")
 local loopclosure = require("nupp.check.loopclosure")
+local undocumentedraise = require("nupp.check.undocumentedraise")
 local narrow = require("nupp.check.narrow")
 local calls = require("nupp.check.calls")
 local expr = require("nupp.check.expr")
@@ -176,6 +177,10 @@ record checkMod.Checker
     --- Whether a function written inside a loop had to be written there. See
     --- nupp.check.loopclosure.
     loops: any
+
+    --- Whether a function that raises on purpose said so. See
+    --- nupp.check.undocumentedraise.
+    raises: any
 
     --- The lint codes surrounding `@allow` pragmas have asked not to hear about.
     allowed: {any}
@@ -540,6 +545,7 @@ function checkMod.check(result, filename, env, opts)
     -- question, asked at the three places a function body is checked. See
     -- nupp.check.loopclosure.
     c.loops = loopclosure.install(c)
+    c.raises = undocumentedraise.install(c)
     resolve.install(c)
     local ownershipKind = own.ownershipKind
     local ownershipState = own.ownershipState

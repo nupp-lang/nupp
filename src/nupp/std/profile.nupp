@@ -367,10 +367,11 @@ end
 -- looked live.
 local sampling = false
 
---- Starts sampling. Errors if a sample session is already running.
+--- Starts sampling.
 ---
 --- @param options omitted samples every zone at 10 ms to a depth of 16
 --- @return the handle whose `stop` produces the report
+--- @raises when a sample session is already running
 function profile.sample(options: profile.SampleOptions?): profile.SampleSession
     if sampling then
         error("profile.sample: a sample session is already running; stop it first", 2)
@@ -457,7 +458,9 @@ end
 --- cost of one test per sample, and what was recorded on either side of the
 --- pause is kept — which is how a benchmark leaves its setup out.
 ---
---- Idempotent. Errors once the session has stopped.
+--- Idempotent.
+---
+--- @raises once the session has stopped
 function profile.SampleSession:pause()
     if self.stopped then
         error("SampleSession:pause: the session has already stopped", 2)
@@ -465,7 +468,9 @@ function profile.SampleSession:pause()
     self.paused = true
 end
 
---- Resumes recording. Idempotent; errors once the session has stopped.
+--- Resumes recording. Idempotent.
+---
+--- @raises once the session has stopped
 function profile.SampleSession:resume()
     if self.stopped then
         error("SampleSession:resume: the session has already stopped", 2)
@@ -473,11 +478,12 @@ function profile.SampleSession:resume()
     self.paused = false
 end
 
---- Ends the session and reports what it saw. Errors if called twice.
+--- Ends the session and reports what it saw.
 ---
 --- @param filename also write the collapsed-stack text there, replacing
 ---     whatever was in it
 --- @return the report, whose `tostring` is that same text
+--- @raises once the session has stopped, so it cannot be called twice
 function profile.SampleSession:stop(filename: string?): profile.SampleReport
     if self.stopped then
         error("SampleSession:stop: the session has already stopped", 2)
@@ -652,11 +658,11 @@ end
 
 local tracing = false
 
---- Starts collecting trace aborts. Errors if a trace session is already
---- running.
+--- Starts collecting trace aborts.
 ---
 --- @param options omitted leaves the benign trace-formation events out
 --- @return the handle whose `stop` produces the report
+--- @raises when a trace session is already running
 function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     if tracing then
         error("profile.trace: a trace session is already running; stop it first", 2)
@@ -716,7 +722,9 @@ end
 --- cost of one test per abort, and what was counted on either side of the pause
 --- is kept.
 ---
---- Idempotent. Errors once the session has stopped.
+--- Idempotent.
+---
+--- @raises once the session has stopped
 function profile.TraceSession:pause()
     if self.stopped then
         error("TraceSession:pause: the session has already stopped", 2)
@@ -724,7 +732,9 @@ function profile.TraceSession:pause()
     self.paused = true
 end
 
---- Resumes counting. Idempotent; errors once the session has stopped.
+--- Resumes counting. Idempotent.
+---
+--- @raises once the session has stopped
 function profile.TraceSession:resume()
     if self.stopped then
         error("TraceSession:resume: the session has already stopped", 2)
@@ -732,10 +742,11 @@ function profile.TraceSession:resume()
     self.paused = false
 end
 
---- Ends the session and reports what it saw. Errors if called twice.
+--- Ends the session and reports what it saw.
 ---
 --- @param filename also write the CSV there, replacing whatever was in it
 --- @return the report, whose `tostring` is that CSV
+--- @raises once the session has stopped, so it cannot be called twice
 function profile.TraceSession:stop(filename: string?): profile.TraceReport
     if self.stopped then
         error("TraceSession:stop: the session has already stopped", 2)
