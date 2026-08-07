@@ -631,9 +631,23 @@ through idempotency and parse-stability in addition to exact match:
       hover, and semantic tokens; and render it in generated documentation.
       The annotation affects tooling only and emits no runtime behavior.
 - [ ] Grow the registry: the `style` and `pedantic` categories have no members
-      yet, so `nupp lints` is shorter than the idea is.
+      yet, so `nupp lints` is shorter than the idea is. `pedantic` currently has
+      none at all, so setting it in `nupp.lua` moves nothing.
 - [ ] Report an `@allow` that silenced nothing, so stale suppressions get
       removed rather than accumulating.
+- [ ] **`c.result` leaks into four diagnostic messages.** A rename went through
+      string literals: `bindings.nupp:393`, `control.nupp:63`,
+      `control.nupp:75` and `functions.nupp:356` all say `c.result` where they
+      mean `result`. It is user-visible text, so a test should pin the wording
+      once it is fixed.
+- [ ] **`jit-callback` (NUPP2502) is registered but never raised.** No call
+      site anywhere in the checker reports it, so `nupp lints` lists a lint
+      nobody can trigger. Either raise it where a C callback is left on the
+      JIT, or retire the row until the trace work needs it.
+- [ ] **`notes` is plumbed end to end but never populated.** The field is in the
+      diagnostic record, the text renderer, the JSON output and the LSP `data`
+      bag, and no compiler path sets it, so it is always empty. Either give it a
+      first user or drop it from the public shape.
 
 ## Explicit resource scopes
 
@@ -650,6 +664,41 @@ through idempotency and parse-stability in addition to exact match:
 - [x] Reject raw coroutine suspension with live temporal obligations; cover
       rejected capture, generated line counts, incremental ownership
       fingerprints, LSP metadata, and formatter output.
+
+## Documentation
+
+The site was restructured into Getting started, Type system, Tooling,
+Reference and the generated API. What that pass turned up and did not fix:
+
+- [ ] **The tree is not `fmt`-clean.** `nupp fmt --check` lists 101 of 109
+      sources, mostly single-line `if ... then return end` the formatter wants
+      broken across lines. Either reformat the tree in one commit and keep it
+      clean in CI, or decide the formatter should leave a short `if` alone —
+      right now `nupp fmt` cannot be used as a gate on this repository.
+- [ ] **`where` parses, formats and highlights, but nothing checks it.** A
+      refinement clause on a declaration is accepted and ignored, so
+      `local record Odd where 1 + 1 == 3 ... end` reports nothing. Implement it
+      or reject it; documenting a clause that does nothing is worse than either.
+- [ ] **`nupp doc` takes neither `--json` nor `--schema`**, which every other
+      command producing data now does. It reports what it wrote as prose only.
+- [ ] **`nupp import-c`'s usage line is out of date with its own options.** It
+      reads `[-o FILE] [-l NAME|--lib NAME] <header.h>` while the command also
+      accepts `--format`, `--json`, `--text` and `--schema`.
+- [ ] **`EDITOR_ADVICE` is duplicated**, in `lsp/diagnostics.nupp:26` and
+      `lsp/init.nupp:94`. Two copies of a severity override is one too many.
+- [ ] **The Claude Code plugin README is wrong.** It says `documentSymbol` and
+      `workspaceSymbol` "are not implemented yet and return a method-not-found
+      error"; both are implemented and advertised. Only `goToImplementation` and
+      the call hierarchy are genuinely absent.
+- [ ] **`docs/ownership-migration.md` is unpublished and finished.** It
+      describes a rename that completed — `consumes` → `takes`, `into_raw` →
+      `intoRaw` — and no route points at it. Fold anything still useful into
+      [ownership.md](../docs/ownership.md) and delete it, or publish it as a
+      changelog entry.
+- [ ] `nupp.std.resources` has no test coverage. It is the entry example in
+      [with.md](../docs/with.md) and the standard owning wrapper for
+      `LuaFile`, and nothing exercises `open_file`, `open_process`, or
+      `temporary_file`.
 
 ## Housekeeping
 
