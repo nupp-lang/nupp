@@ -1,0 +1,144 @@
+--[[
+Positions, ranges, and edits over a document's bytes.
+
+The protocol counts UTF-16 code units and the lexer counts UTF-8 bytes, so every
+position crossing the wire is converted here rather than wherever it happened to
+be needed. Incremental edits arrive as replaced ranges, and a reply that says
+what changed needs the smallest run of lines that differ.
+]]
+
+local lexer = require("nupp.lexer")
+
+local text = {}
+
+function text.uriToPath(uri)
+    local path = uri:gsub("^file://", "")
+    path = path:gsub("%%(%x%x)", function(hex)
+        return string.char(tonumber(hex, 16) or 0)
+    end)
+    return path
+end
+
+function text.pathToUri(path)
+    return "file://" .. path:gsub("[^%w%-%._~/:]", function(ch)
+        return ("%%%02X"):format(ch:byte())
+    end)
+end
+
+function text.readFile(path)
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local source = f:read("*a")
+    f:close()
+    return source
+end
+
+-- LSP positions count UTF-16 code units; lexer offsets count UTF-8 bytes.
+function text.utf8Char(source, offset)
+    local first = source:byte(offset)
+    if not first or first < 0x80 then return 1, 1 end
+    local len = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
+    return len, len == 4 and 2 or 1
+end
+
+function text.positionAtOffset(source, offset)
+    local line, character, pos = 0, 0, 1
+    while pos < offset and pos <= #source do
+        if source:byte(pos) == 10 then
+            line, character, pos = line + 1, 0, pos + 1
+        else
+            local bytes, units = text.utf8Char(source, pos)
+            character, pos = character + units, pos + bytes
+        end
+    end
+    return {line = line, character = character}
+end
+
+function text.offsetAtPosition(source, target)
+    local line, character, pos = 0, 0, 1
+    while pos <= #source and line < target.line do
+        if source:byte(pos) == 10 then line = line + 1 end
+        pos = pos + 1
+    end
+    if line ~= target.line then return nil end
+    while pos <= #source and source:byte(pos) ~= 10
+        and character < target.character do
+        local bytes, units = text.utf8Char(source, pos)
+        character, pos = character + units, pos + bytes
+    end
+    return pos
+end
+
+function text.tokenRange(source, tok)
+    return {
+        start = text.positionAtOffset(source, tok.offset),
+        ["end"] = text.positionAtOffset(source, tok.offset + #tok.text),
+    }
+end
+
+--- The lines of `text`, each keeping its own newline, so concatenating them reproduces
+--- the text exactly — including a final line with no newline at all.
+function text.splitLines(source)
+    local lines = {}
+    local pos = 1
+    while pos <= #source do
+        local stop = source:find("\n", pos, true)
+        if stop then
+            lines[#lines + 1] = source:sub(pos, stop)
+            pos = stop + 1
+        else
+            lines[#lines + 1] = source:sub(pos)
+            break
+        end
+    end
+    return lines
+end
+
+--- The byte offset each line of `text` starts at, plus one past the end, so a run of
+--- lines converts to a span without counting anything twice.
+function text.lineStarts(source)
+    local starts = {1}
+    for pos = 1, #source do
+        if source:byte(pos) == 10 then starts[#starts + 1] = pos + 1 end
+    end
+    return starts
+end
+
+-- How far ahead a resynchronization is looked for before the rest of the file is called
+-- one changed run. A formatter's edits are local; a gap wider than this is a rewrite,
+-- and describing a rewrite in pieces saves nobody anything.
+local RESYNC = 64
+
+--- The runs of lines turning `before` into `after`, as {from, to, lines} where
+--- `from`..`to` is a half-open span of `before`'s line numbers.
+function text.lineHunks(before, after)
+    local hunks = {}
+    local i, j = 1, 1
+    while i <= #before or j <= #after do
+        if before[i] ~= nil and before[i] == after[j] then
+            i, j = i + 1, j + 1
+        else
+            local skipBefore, skipAfter = nil, nil
+            for distance = 1, RESYNC do
+                for di = 0, distance do
+                    local dj = distance - di
+                    if before[i + di] ~= nil and before[i + di] == after[j + dj] then
+                        skipBefore, skipAfter = di, dj
+                        break
+                    end
+                end
+                if skipBefore then break end
+            end
+            if not skipBefore then
+                skipBefore, skipAfter = #before - i + 1, #after - j + 1
+            end
+            local lines = {}
+            for index = j, j + skipAfter - 1 do lines[#lines + 1] = after[index] end
+            hunks[#hunks + 1] = {from = i, to = i + skipBefore, lines = lines}
+            i, j = i + skipBefore, j + skipAfter
+        end
+    end
+    return hunks
+end
+
+return text

@@ -1,0 +1,134 @@
+--[[
+The outline of a file, and what folds.
+
+Both are read from the tree rather than from the checker: an outline has to be
+there while the code is being written, which is exactly when it does not check.
+]]
+
+local cst = require("nupp.cst")
+local wire = require("nupp.lsp.wire")
+local tree = require("nupp.lsp.tree")
+local text = require("nupp.lsp.text")
+
+local symbols = {}
+
+-- LSP SymbolKind, by the names this compiler uses for the same things.
+symbols.SYMBOL_KINDS = {
+    record = 5, class = 5, struct = 23, interface = 11, enum = 10,
+    type = 5, field = 8, ["function"] = 12, method = 6, enumMember = 22,
+    variable = 13, constant = 14,
+}
+
+--- The members a declaration body holds, as outline children.
+local function declarationChildren(stat, source)
+    local children = {}
+    local function child(nameTok, kind, node)
+        if not nameTok then return end
+        local from, to = tree.nodeBounds(node or nameTok)
+        if not from then return end
+        children[#children + 1] = {
+            name = nameTok.text,
+            kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.field,
+            range = {
+                start = text.positionAtOffset(source, from),
+                ["end"] = text.positionAtOffset(source, to),
+            },
+            selectionRange = text.tokenRange(source, nameTok),
+            children = wire.array({}),
+        }
+    end
+    for _, entry in ipairs(stat.entries or {}) do
+        if entry.kind == "fieldDecl" then
+            child(entry.name, "field", entry)
+        elseif entry.kind == "inlineMethod" then
+            child(entry.name, "method", entry)
+        elseif entry.kind == "metamethodDecl" then
+            child(entry.name, "method", entry)
+        end
+    end
+    for _, item in ipairs(stat.items or {}) do
+        if item.kind == "enumItem" and item.token then
+            local spelling = item.token.text
+            child({text = spelling:sub(2, -2), offset = item.token.offset + 1,
+                trivia = {}}, "enumMember", item)
+        end
+    end
+    return wire.array(children)
+end
+
+--- The declarations a file makes, as a nested outline. A qualified name is written as
+--- its path: `record m.Point` is one declaration called `m.Point`, because that is the
+--- name a reader searches for.
+function symbols.documentSymbols(result, source)
+    local found = wire.array({})
+    local function emit(stat, nameTok, kind, path)
+        if not nameTok then return end
+        local from, to = tree.nodeBounds(stat)
+        if not from then return end
+        found[#found + 1] = {
+            name = path or nameTok.text,
+            kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.variable,
+            range = {
+                start = text.positionAtOffset(source, from),
+                ["end"] = text.positionAtOffset(source, to),
+            },
+            selectionRange = text.tokenRange(source, nameTok),
+            children = declarationChildren(stat, source),
+        }
+    end
+    local function qualified(stat)
+        local parts = {}
+        for _, tok in ipairs(stat.qualifiers or {}) do
+            parts[#parts + 1] = tok.text
+        end
+        parts[#parts + 1] = stat.name and stat.name.text or "?"
+        return table.concat(parts, ".")
+    end
+    for _, block in ipairs(result.root.blocks or {}) do
+        for _, raw in ipairs(block.stats or {}) do
+            local stat = raw
+            while stat and stat.kind == "pragmaStmt" do stat = stat.stat end
+            if not stat then
+            -- nothing to outline
+            elseif stat.kind == "recordDecl" then
+                emit(stat, stat.name, stat.declKind or "record", qualified(stat))
+            elseif stat.kind == "enumDecl" then
+                emit(stat, stat.name, "enum", qualified(stat))
+            elseif stat.kind == "typeAlias" then
+                emit(stat, stat.name, "type", qualified(stat))
+            elseif stat.kind == "localFuncStmt" then
+                emit(stat, stat.name, "function")
+            elseif stat.kind == "funcStmt" then
+                local holder, member = tree.memberHolder(stat)
+                local fname = stat.name
+                local nameTok = member or (fname and fname.base)
+                local path = nil
+                if holder and member then
+                    path = holder.text .. (fname.method and ":" or ".")
+                        .. member.text
+                end
+                emit(stat, nameTok, fname and fname.method and "method"
+                    or "function", path)
+            end
+        end
+    end
+    return found
+end
+
+--- The spans of `result` worth folding, as {from, to} byte ranges.
+---
+--- Anything written across more than one line: a declaration, a function, a branch, a
+--- table. The construct rather than the block inside it, so a fold starts at the line
+--- that says what is being folded — a body alone would collapse to a header the editor
+--- never showed as foldable.
+function symbols.foldableSpans(result)
+    local spans = {}
+    tree.walkNodes(result.root, function(node)
+        if node.kind == "block" or node.kind == "chunk" then return end
+        local from, to = tree.nodeBounds(node)
+        if from and to and to > from then spans[#spans + 1] = {from, to} end
+    end)
+    return spans
+end
+
+return symbols

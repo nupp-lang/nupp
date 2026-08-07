@@ -1,0 +1,40 @@
+--[[
+Declarations for LuaJIT's jit.vmdef module, loaded for `require("jit.vmdef")`.
+
+The name tables the VM was generated with. They are what turns the numbers
+`jit.attach` and `jit.util` hand back into something readable, and they are
+regenerated per LuaJIT build, so an index is only as stable as the build.
+]]
+
+local record JitVmdef
+
+    --- Bytecode opcode names, packed six characters each and space-padded, so
+    --- opcode `n` is `bcnames:sub(n * 6 + 1, n * 6 + 6)` with the padding
+    --- trimmed. One string rather than a table because the VM generator emits
+    --- it that way.
+    bcnames: string
+
+    --- IR opcode names, packed six characters each, read like `bcnames`.
+    irnames: string
+
+    --- Trace error messages, keyed by the error code that a `"trace"` event
+    --- reports on `"abort"`. Each is a `string.format` pattern that the
+    --- accompanying error argument fills in, so most carry a `%s` or `%d`.
+    traceerr: {[integer]: string}
+
+    --- Fast-function names, keyed by the `ffid` that `funcinfo` reports for a
+    --- builtin.
+    ffnames: {[integer]: string}
+
+    --- IR call target names, keyed by the index `ircalladdr` takes.
+    ircall: {[integer]: string}
+
+    --- Names for the fields an IR `FLOAD` can read.
+    irfield: {[integer]: string}
+
+    --- Names for the operations an IR `FPMATH` can perform.
+    irfpm: {[integer]: string}
+end
+
+local vmdef: JitVmdef
+return vmdef

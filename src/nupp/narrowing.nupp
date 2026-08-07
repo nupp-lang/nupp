@@ -1,0 +1,142 @@
+--[[
+The type algebra that narrowing is built from.
+
+Deciding what a test proves is two jobs: reading the condition, which needs the
+checker's scopes and the tree, and computing the residue, which needs only the
+types. This is the second. Removing a possibility from a type, and enumerating
+the values a type still admits, are questions about the types alone — so they are
+answerable, and testable, without a checker.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+
+local narrowing = {}
+
+local isA = relations.isA
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- `t` with every value that fits `rem` removed. An ownership qualifier wraps a value
+--- rather than being one, so the residue is rewrapped rather than dropped: narrowing an
+--- `owned<T?>` leaves an `owned<T>`.
+---
+--- Two members resist removal. A type parameter fits everything while it is
+--- unsubstituted, so subtracting from one would erase it; it is left alone. `boolean`
+--- is the two literals, so removing one leaves the other rather than leaving `boolean`
+--- whole.
+---
+--- @param t the type to narrow
+--- @param rem what the test ruled out
+--- @return what `t` still admits
+function narrowing.subtract(t: Type, rem: Type): Type
+    if t.tag == "owned" then
+        local inner = narrowing.subtract(t.inner, rem)
+        return inner == t.inner and t or T.owned(inner, t.cleanups)
+    elseif t.tag == "borrowed" then
+        local inner = narrowing.subtract(t.inner, rem)
+        return inner == t.inner and t or T.borrowed(inner)
+    elseif t.tag == "pinned" then
+        local inner = narrowing.subtract(t.inner, rem)
+        return inner == t.inner and t or T.pinned(inner)
+    end
+    local function without(m: Type): Type?
+        if m.tag == "typevar" then return m end
+        if m == T.boolean then
+            if isA(T.literal(false, T.boolean), rem) then
+                return T.literal(true, T.boolean)
+            end
+            if isA(T.literal(true, T.boolean), rem) then
+                return T.literal(false, T.boolean)
+            end
+        end
+        if isA(m, rem) then return nil end
+        return m
+    end
+    if t.tag ~= "union" then return without(t) or t end
+    local out: {Type} = {}
+    local changed = false
+    for _, m in ipairs(t.members) do
+        local kept = without(m)
+        if kept ~= m then changed = true end
+        if kept then out[#out + 1] = kept end
+    end
+    -- Subtracting everything leaves the type alone rather than nothing: a
+    -- value still has whatever type it was declared with, and there is no
+    -- empty type to give it.
+    if #out == 0 then return t end
+    if not changed then return t end
+    return T.union(out)
+end
+
+--- The values a type admits, when they can be counted: an enum's members, a single
+--- literal, or a union of literals. Anything else has no finite set to speak of and
+--- yields nil, which is what keeps exhaustiveness from guessing.
+---
+--- @param t the type to enumerate
+--- @return its members, or nil when they cannot be enumerated
+function narrowing.memberSet(t: Type?): {Type}?
+    if not t then return nil end
+    local enumValues = t.tag == "nominal" and t.declKind == "enum"
+        and t.values or nil
+    if enumValues then
+        local out: {Type} = {}
+        for _, v in ipairs(enumValues) do
+            out[#out + 1] = T.literal(v, T.string)
+        end
+        return out
+    end
+    if t.tag == "literal" then return {t} end
+    if t.tag == "union" then
+        local out: {Type} = {}
+        for _, m in ipairs(t.members) do
+            if m.tag ~= "literal" then return nil end
+            out[#out + 1] = m
+        end
+        return out
+    end
+    return nil
+end
+
+--- What a type still admits once one of its members is ruled out. Comparing a value
+--- against a literal in one arm of a chain is what makes the residue in the next arm
+--- computable, and an emptied residue is what says a chain is total.
+---
+--- @param t the type to narrow
+--- @param litT the member a comparison excluded
+--- @return what is left, or nil when there is nothing left or nothing to count
+--- @return whether it was the counting that emptied it
+function narrowing.withoutMember(t: Type?, litT: Type): Type?, boolean?
+    local members = narrowing.memberSet(t)
+    if not members then return nil end
+    local rest: {Type} = {}
+    for _, m in ipairs(members) do
+        if m ~= litT then rest[#rest + 1] = m end
+    end
+    if #rest == 0 then return nil, true end -- nothing left to hold
+    return T.union(rest), false
+end
+
+--- What testing a value for truth proves about it, on each side of the test. Falsy in
+--- Lua is nil or false and nothing else, so the truthy side loses both and the falsy
+--- side keeps only those — which is what lets a function returning `integer | false`
+--- narrow to `integer` when it is tested.
+---
+--- @param vt the type being tested
+--- @return what it holds where the test passed, when that is narrower
+--- @return what it holds where the test failed, when that is narrower
+function narrowing.truthiness(vt: Type): Type?, Type?
+    if vt == T.any then return nil, nil end
+    local FALSE_T = T.literal(false, T.boolean)
+    local truthy = narrowing.subtract(narrowing.subtract(vt, T.nil_), FALSE_T)
+    local falsy: {Type} = {}
+    if vt == T.nil_ or (vt.tag == "union" and vt.hasNil) then
+        falsy[#falsy + 1] = T.nil_
+    end
+    if isA(FALSE_T, vt) then falsy[#falsy + 1] = FALSE_T end
+    if #falsy == 0 then return truthy, nil end
+    return truthy, T.union(falsy)
+end
+
+return narrowing

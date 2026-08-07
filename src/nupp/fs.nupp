@@ -1,0 +1,118 @@
+--[[
+Paths and the filesystem.
+
+One home for what three parts of the compiler were each carrying a copy of. A
+path here is normalized and forward-slashed whatever the platform wrote it as,
+so the same file compares equal however it was named, and a write is atomic:
+content goes to a temporary beside the destination and is renamed over it, which
+is the only way a build interrupted halfway leaves no half-written module behind.
+
+Directory listing shells out, because Lua has no directory API and LuaJIT's FFI
+would need one implementation per platform to get one back.
+]]
+
+local process = require("nupp.build.process")
+
+local fs = {}
+
+local function normalize(path)
+    path = path:gsub("\\", "/"):gsub("/+", "/")
+    path = path:gsub("^%./", ""):gsub("/%./", "/")
+    return (path:gsub("/$", ""))
+end
+
+local function join(left, right)
+    if not left or left == "" or left == "." then return normalize(right) end
+    if not right or right == "" then return normalize(left) end
+    if right:sub(1, 1) == "/" then return normalize(right) end
+    return normalize(left .. "/" .. right)
+end
+
+local function dirname(path)
+    return normalize(path):match("^(.*)/[^/]+$") or "."
+end
+
+local function basename(path)
+    return normalize(path):match("([^/]+)$") or path
+end
+
+local function readFile(path)
+    local f, err = io.open(path, "rb")
+    if not f then return nil, err end
+    local text = f:read("*a")
+    f:close()
+    return text
+end
+
+local function exists(path)
+    local f = io.open(path, "rb")
+    if not f then return false end
+    f:close()
+    return true
+end
+
+local function mkdir(path)
+    if path == "" or path == "." then return true end
+    return process.run(process.mkdirCommand(path)) == 0
+end
+
+local function writeFile(path, text)
+    if not mkdir(dirname(path)) then return nil, "cannot create " .. dirname(path) end
+    local tmp = path .. ".tmp"
+    local f, err = io.open(tmp, "wb")
+    if not f then return nil, err end
+    f:write(text)
+    f:close()
+    local ok, renameErr = os.rename(tmp, path)
+    if not ok and exists(path) then
+        local backup = path .. ".old"
+        os.remove(backup)
+        local moved, moveErr = os.rename(path, backup)
+        if not moved then os.remove(tmp); return nil, moveErr end
+        ok, renameErr = os.rename(tmp, path)
+        if ok then os.remove(backup) else os.rename(backup, path) end
+    end
+    if not ok then os.remove(tmp); return nil, renameErr end
+    return true
+end
+
+local function copyFile(source, destination)
+    local text, err = readFile(source)
+    if not text then return nil, err end
+    return writeFile(destination, text)
+end
+
+local function listFiles(path)
+    local code, output
+    if package.config:sub(1, 1) == "\\" then
+        code, output = process.capture({"cmd", "/c", "dir", "/s", "/b", path})
+    else
+        code, output = process.capture({"find", path, "-type", "f"})
+    end
+    if code ~= 0 then return {} end
+    local files = {}
+    for file in output:gmatch("[^\r\n]+") do files[#files + 1] = normalize(file) end
+    table.sort(files)
+    return files
+end
+
+--- Writes only when the contents would differ, so a file that did not change keeps
+--- its modification time and anything watching it stays quiet.
+local function writeFileIfChanged(path, text)
+    if readFile(path) == text then return true end
+    return writeFile(path, text)
+end
+
+fs.normalize = normalize
+fs.join = join
+fs.dirname = dirname
+fs.basename = basename
+fs.readFile = readFile
+fs.exists = exists
+fs.mkdir = mkdir
+fs.writeFile = writeFile
+fs.writeFileIfChanged = writeFileIfChanged
+fs.copyFile = copyFile
+fs.listFiles = listFiles
+
+return fs

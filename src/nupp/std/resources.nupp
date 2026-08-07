@@ -1,0 +1,48 @@
+--[[
+Owning wrappers for Lua's file handles.
+
+`io.open` hands back a borrowed handle, which means nothing has to close it and
+nothing complains when nobody does. These are the same calls annotated as owners,
+so the checker knows a handle must be discharged and a `with` scope can do it —
+on fallthrough, on error, and on structured control flow alike.
+
+See `docs/OWNERSHIP.md` and `docs/WITH.md`.
+]]
+
+local resources = {}
+
+local function close_file(file: LuaFile)
+    local ok, reason = file:close()
+    if not ok then
+        error(reason or "file close failed")
+    end
+end
+
+@owned(close_file)
+function resources.open_file(path: string, mode: string?): LuaFile
+    local file, reason = io.open(path, mode)
+    if not file then
+        error(reason or "file open failed")
+    end
+    return file
+end
+
+@owned(close_file)
+function resources.open_process(command: string, mode: string?): LuaFile
+    local file, reason = io.popen(command, mode)
+    if not file then
+        error(reason or "process open failed")
+    end
+    return file
+end
+
+@owned(close_file)
+function resources.temporary_file(): LuaFile
+    local file = io.tmpfile()
+    if not file then
+        error("temporary file creation failed")
+    end
+    return file
+end
+
+return resources

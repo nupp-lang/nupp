@@ -1,0 +1,392 @@
+--[[
+The type an annotation names.
+
+An annotation is syntax; this is the type it means. Names are looked up through
+the scopes and then the project, generic applications are instantiated, and the
+shorthands — optionals, pointers, arrays, unions, shapes — are built out of what
+they contain.
+
+It is also where the advice for a name that resolves to nothing is composed,
+because the useful thing to say is rarely "unknown type": it is that the name
+belongs to a module this file has not required, or that a declaration of it
+exists but is not visible here.
+]]
+
+local T = require("nupp.types")
+local generics = require("nupp.generics")
+local cst = require("nupp.cst")
+
+local resolve = {}
+
+local instantiateNominal = generics.instantiate
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- Installs type-annotation resolution on one run.
+---
+--- @param c the run's state
+function resolve.install(c: any)
+    local edits = c.edits
+    local fix, insertBefore = edits.fix, edits.insertBefore
+    local requiredAs, requireBindsName = edits.requiredAs, edits.requireBindsName
+    local requireEdit = edits.requireEdit
+    local pointerShaped = c.pointerShaped
+
+    --- Fixes for an unqualified type name that a project module exports: spell it
+    --- through the module. When this file already requires that module, qualifying is
+    --- the whole edit; otherwise the require comes with it, bound to the module's last
+    --- segment — and only when that name is free, since binding over something already
+    --- in scope would fix a type name by breaking a value one.
+    local function exportingModuleFixes(name: string, base: any): {any}
+        if not c.env or not c.env.modulesExporting or not base then return {} end
+        local fixes = {}
+        for _, moduleName in ipairs(c.env.modulesExporting(c.env, name) or {}) do
+            if moduleName ~= c.result.moduleName then
+                local bound = requiredAs(moduleName)
+                if bound then
+                    fixes[#fixes + 1] = fix(("use %s.%s"):format(bound, name),
+                        insertBefore(base, bound .. "."))
+                else
+                    local short = moduleName:match("([^.]+)$")
+                    local edit = short and not c.lookupEntry(short)
+                        and not requireBindsName(short)
+                        and requireEdit(short, moduleName)
+                    if edit then
+                        fixes[#fixes + 1] = fix(
+                            ("require(%q) and use %s.%s")
+                            :format(moduleName, short, name),
+                            edit, insertBefore(base, short .. "."))
+                    end
+                end
+            end
+        end
+        return fixes
+    end
+
+    local function visibleTypeNames(): {[string]: boolean}
+        local names = {}
+        for name in pairs(T.builtins) do names[name] = true end
+        local scope = c.scope
+        while scope do
+            for name in pairs(scope.types or {}) do names[name] = true end
+            scope = scope.parent
+        end
+        return names
+    end
+
+    -- A generic application means the same thing however the name was reached, so every
+    -- way of resolving a type name ends here rather than only the unqualified one.
+    local function applyTypeArgs(t, node)
+        if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
+            return t
+        end
+        local map = {}
+        for j, tv in ipairs(t.typeParams) do
+            map[tv] = node.typeArgs[j]
+                and c.resolveType(node.typeArgs[j]) or T.any
+        end
+        c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
+        return instantiateNominal(t, map)
+    end
+
+    --- The type an annotation node names.
+    ---
+    --- @param node the type node, when there is one
+    c.resolveType = function(node: Node?): Type
+        if not node then return T.any end
+        local kind = node.kind
+        if kind == "tname" then
+            local base = node.base
+            if not base then return T.any end
+            if base.kind == "nil" then return T.nil_ end
+            if #node > 1 and node[2] and node[2].kind == "." then
+                local names, lastTok = {}, nil
+                for _, child in ipairs(node) do
+                    if cst.isToken(child) and child.kind == "name" then
+                        names[#names + 1] = child.text
+                        lastTok = child
+                    end
+                end
+                local typeName = table.remove(names)
+                local moduleName = table.concat(names, ".")
+                -- Declarations qualified by a table in this file bind under their whole
+                -- path, so `M.Point` resolves here before the prefix is read as a
+                -- module name.
+                if #names == 1 then
+                    local key = moduleName .. "." .. typeName
+                    local declared, declaredDef = c.lookupType(key)
+                    if declared then
+                        c.markToken(lastTok, declaredDef, declared,
+                            declaredDef and declaredDef.kind or "type")
+                        if declared.tag == "nominal"
+                            and declared.declKind == "struct" then
+                            node.reified = declared.runtimePath or key
+                        elseif declared.tag == "nominal"
+                            and declared.declKind == "record" then
+                            node.recordName = declared.runtimePath or key
+                        end
+                        return applyTypeArgs(declared, node)
+                    end
+                end
+                -- A record/interface is also a type namespace for declarations nested
+                -- in its body (`builtins.Transform2D`). Prefer that lexical path before
+                -- treating the prefix as a module name. A declaration attached to a
+                -- table binds under its whole path, so `m.Shapes.Point` starts from the
+                -- `m.Shapes` it declared rather than from a lexical `m`.
+                local lexical, walkFrom = nil, 2
+                if #names >= 2 then
+                    lexical = c.lookupType(names[1] .. "." .. names[2])
+                    if lexical then walkFrom = 3 end
+                end
+                if not lexical then
+                    lexical = names[1] and c.lookupType(names[1]) or nil
+                end
+                if lexical then
+                    for j = walkFrom, #names do
+                        lexical = lexical.tag == "nominal" and lexical.nestedTypes
+                            and lexical.nestedTypes[names[j]] or nil
+                        if not lexical then break end
+                    end
+                    lexical = lexical and lexical.tag == "nominal"
+                        and lexical.nestedTypes and lexical.nestedTypes[typeName] or nil
+                    if lexical then
+                        c.markToken(lastTok, nil, lexical, "type")
+                        if lexical.runtimePath then
+                            if lexical.declKind == "struct" then
+                                node.reified = lexical.runtimePath
+                            elseif lexical.declKind == "record" then
+                                node.recordName = lexical.runtimePath
+                            end
+                        end
+                        return applyTypeArgs(lexical, node)
+                    end
+                end
+                -- `local T = require("nupp.types")` makes T.Type mean a type from
+                -- nupp.types, so resolve through what the name holds rather than
+                -- assuming the local was named for its module.
+                if #names == 1 then
+                    local holder = c.lookupEntry(names[1])
+                    if holder and holder.requiredModule then
+                        moduleName = holder.requiredModule
+                    end
+                end
+                local t, def, resolvedModule = nil, nil, nil
+                if c.env and c.env.resolveQualifiedType then
+                    t, def, resolvedModule = c.env.resolveQualifiedType(
+                        c.env, c.filename, moduleName, typeName)
+                end
+                c.markToken(lastTok, def, t, def and def.kind or "type")
+                if t then
+                    if t.tag == "nominal" and t.declKind == "struct" then
+                        node.reified = ("require(%q).%s")
+                            :format(resolvedModule, typeName)
+                    elseif t.tag == "nominal" and t.declKind == "record" then
+                        node.recordName = ("require(%q).%s")
+                            :format(resolvedModule, typeName)
+                    end
+                    return applyTypeArgs(t, node)
+                end
+                c.diag("NUPP2101", node,
+                    ("unknown exported type %q in module %q")
+                    :format(typeName, moduleName))
+                return T.any
+            end
+            local name = base.text
+            if name == "ctype" and node.typeArgs and node.typeArgs[1] then
+                return T.ctype(c.resolveType(node.typeArgs[1]))
+            end
+            if name == "metatable" and node.typeArgs and node.typeArgs[1] then
+                return T.metatable(c.resolveType(node.typeArgs[1]))
+            end
+            if (name == "owned" or name == "borrowed" or name == "pinned")
+                and node.typeArgs
+                and node.typeArgs[1] and not c.lookupType(name) then
+                local inner = c.resolveType(node.typeArgs[1])
+                if name == "pinned" and not pointerShaped(inner) then
+                    c.diag("NUPP2602", node,
+                        "pinned<T> requires a pointer-shaped T")
+                end
+                if name == "owned" then return T.owned(inner) end
+                if name == "borrowed" then return T.borrowed(inner) end
+                return T.pinned(inner)
+            end
+
+            local t, def, lookupErr, moduleName, visibility, conflicts
+                = T.builtins[name], nil
+            if not t then
+                t, def, lookupErr, moduleName, visibility, conflicts
+                    = c.lookupType(name)
+            end
+            c.markToken(base, def, t, def and def.kind or "type")
+            t = applyTypeArgs(t, node)
+            if t then
+                -- hint for the code generator: this name is a reified struct whose
+                -- runtime ctype is local, global, or project-exported
+                if t.tag == "nominal" and t.declKind == "struct" then
+                    if moduleName and visibility ~= "global" then
+                        node.reified = ("require(%q).%s"):format(moduleName, name)
+                    else
+                        node.reified = name
+                    end
+                    if t.cdefName then node.cdefName = t.cdefName end
+                elseif t.tag == "nominal" and t.declKind == "record" then
+                    -- a record's runtime table is its identity, which is what `is`
+                    -- compares against. An interface has none: it is conformance, not
+                    -- provenance, so it stays uncompilable.
+                    if moduleName and visibility ~= "global" then
+                        node.recordName = ("require(%q).%s"):format(moduleName, name)
+                    else
+                        node.recordName = name
+                    end
+                end
+                return t
+            end
+            if lookupErr then
+                local related, seen = {}, {}
+                for _, entry in ipairs(conflicts or {}) do
+                    local definition = entry.definition
+                    local key = definition and (tostring(definition.filename)
+                        .. ":" .. tostring(definition.token
+                        and definition.token.offset)) or tostring(entry)
+                    if not seen[key] then
+                        seen[key] = true
+                        local item = c.related(definition,
+                            "conflicting global type declared here")
+                        if item then related[#related + 1] = item end
+                    end
+                end
+                c.diag("NUPP2102", node,
+                    ("ambiguous global type %q; a project global must be unique")
+                    :format(name), nil, {related = related,
+                    help = "make all but one declaration local or attach them "
+                    .. "to their module tables"})
+                return T.any
+            end
+            local fixes = exportingModuleFixes(name, base)
+            local spelling = c.edits.nameSpellingFix(base, visibleTypeNames())
+            for _, candidate in ipairs(spelling or {}) do
+                fixes[#fixes + 1] = candidate
+            end
+            c.diag("NUPP2101", base, ("unknown type name %q"):format(name),
+                fixes, {help = #fixes > 0 and "use one of the suggested type names"
+                or "declare the type, qualify its module, or correct the spelling"})
+            return T.any
+        elseif kind == "tliteral" then
+            local literal = node.token
+            if not literal then return T.any end
+            local text = literal.text
+            if text == "true" then return T.literal(true, T.boolean) end
+            if text == "false" then return T.literal(false, T.boolean) end
+            return T.literal(text:sub(2, -2), T.string)
+        elseif kind == "tconst" then
+            return T.constOf(c.resolveType(node.inner))
+        elseif kind == "tcarray" then
+            local elem = c.resolveType(node.element)
+            local count = node.count
+            if not count then return T.carray(elem, nil) end
+            -- A C array's length is a count of elements. The literal is whatever was
+            -- written, so it is made one here rather than assumed to be.
+            local written = tonumber(count.text)
+            return T.carray(elem, written and math.floor(written) or nil)
+        elseif kind == "tpredicate" then
+            -- the value it returns is a boolean; the narrowing it licenses is recorded
+            -- on the function type, not on this one
+            c.resolveType(node.type)
+            return T.boolean
+        elseif kind == "tborrows" then
+            -- the body returns the plain value; the borrow wrapper and the argument it
+            -- is tied to are applied to the function type, the same way @owned wraps an
+            -- annotated return
+            return c.resolveType(node.type)
+        elseif kind == "topt" then
+            return T.optional(c.resolveType(node.inner))
+        elseif kind == "tptr" then
+            return T.ptr(c.resolveType(node.inner))
+        elseif kind == "tunion" then
+            local members = {}
+            for j, m in ipairs(node.types) do members[j] = c.resolveType(m) end
+            return T.union(members)
+        elseif kind == "tarray" then
+            return T.array(c.resolveType(node.element))
+        elseif kind == "tmap" then
+            return T.map(c.resolveType(node.key), c.resolveType(node.value))
+        elseif kind == "ttuple" then
+            local elems = {}
+            for j, e in ipairs(node.types) do elems[j] = c.resolveType(e) end
+            return T.tuple(elems)
+        elseif kind == "tshape" then
+            local fields = {}
+            for _, f in ipairs(node.fields) do
+                if f.kind == "tshapeField" then
+                    local fieldName = f.name
+                    if fieldName then
+                        fields[#fields + 1] = {name = fieldName.text,
+                            type = c.resolveType(f.type)}
+                    end
+                end
+            end
+            return T.shape(fields)
+        elseif kind == "tfunc" then
+            local params, rets, paramModes = {}, {}, {}
+            local vararg = false
+            local varargType = nil
+            local typeParams, typeBounds
+            if node.generics then
+                c.pushScope()
+                typeParams, typeBounds = c.bindGenerics(node.generics, "type-function")
+            end
+            for _, p in ipairs(node.params) do
+                if p.kind == "tfuncParam" then
+                    local first = p[1]
+                    if first and cst.isToken(first) and first.kind == "..." then
+                        vararg = true
+                        if p.type then varargType = c.resolveType(p.type) end
+                    else
+                        params[#params + 1] = p.type and c.resolveType(p.type)
+                            or T.any
+                        local mode = p.modeTok
+                        paramModes[#params] = mode and mode.text or "plain"
+                    end
+                end
+            end
+            for j, r in ipairs(node.rets or {}) do rets[j] = c.resolveType(r) end
+            if node.generics then c.popScope() end
+            return T.func(params, rets, vararg, paramModes, nil,
+                typeParams, typeBounds, nil, nil, nil, nil, varargType)
+        elseif kind == "tparen" then
+            return c.resolveType(node.inner)
+        end
+        return T.any
+    end
+
+    -- Resolves an alias that was hoisted to the top of its block, the first time
+    -- anything names it. `type Type = A | B` and the records A and B name each other by
+    -- construction, so neither can be written first; hoisting binds every declaration
+    -- in a block before any body is checked, and an alias's value waits here until it
+    -- is wanted.
+    c.resolvePendingAlias = function(name, waiting, owner)
+        if c.resolvingAlias[name] then
+            c.diag("NUPP2115", waiting.tok,
+                ("type %q is defined in terms of itself"):format(name))
+            owner.pending[name] = nil
+            owner.types[name] = T.any
+            return T.any
+        end
+        c.resolvingAlias[name] = true
+        local saved = c.scope
+        c.scope = owner
+        local t = c.resolveType(waiting.node)
+        c.scope = saved
+        c.resolvingAlias[name] = nil
+        owner.pending[name] = nil
+        owner.types[name] = t
+        waiting.resolved = t
+        return t
+    end
+end
+
+return resolve

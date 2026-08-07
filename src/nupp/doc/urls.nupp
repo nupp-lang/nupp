@@ -1,0 +1,123 @@
+--[[
+Where everything lives in the built site, and how one page refers to another.
+
+Pages are written as `route/index.html`, so every link out of one is relative to
+its own depth. The symbol index is what lets a name inside a highlighted code
+block become a link to its declaration; a name that two modules both export is
+dropped rather than guessed at.
+]]
+
+local filesMod = require("nupp.doc.files")
+
+local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dirname
+
+local urls = {}
+local function moduleFile(name)
+    return "modules/" .. name:gsub("[^%w._-]", "-"):gsub("%.", "/")
+        .. "/index.html"
+end
+
+local function relativePrefix(file)
+    local _, count = file:gsub("/", "")
+    return string.rep("../", count)
+end
+
+local function addSymbolLink(links, ambiguous, name, url)
+    if not name or name == "" or ambiguous[name] then return end
+    if links[name] and links[name] ~= url then
+        links[name] = nil
+        ambiguous[name] = true
+    else
+        links[name] = url
+    end
+end
+
+local function symbolLinkIndex(modules)
+    local links, ambiguous = {}, {}
+    for _, module in ipairs(modules) do
+        for _, item in ipairs(module.items) do
+            local url = moduleFile(module.name) .. "#" .. item.path
+            addSymbolLink(links, ambiguous, item.path, url)
+            addSymbolLink(links, ambiguous, item.name, url)
+            local tail = item.name:match("([^.]+)$")
+            addSymbolLink(links, ambiguous, tail, url)
+            for _, member in ipairs(item.members) do
+                local memberUrl = moduleFile(module.name) .. "#" .. item.path
+                addSymbolLink(links, ambiguous, member.path, memberUrl)
+                addSymbolLink(links, ambiguous, item.name .. "." .. member.name,
+                    memberUrl)
+            end
+        end
+    end
+    return links
+end
+
+local function symbolLinks(index, module, prefix)
+    local links = {}
+    if module then
+        for _, item in ipairs(module.items) do
+            local url = prefix .. moduleFile(module.name) .. "#" .. item.path
+            links[item.name] = url
+            links[item.name:match("([^.]+)$") or item.name] = url
+            for _, member in ipairs(item.members) do
+                links[item.name .. "." .. member.name] = url
+            end
+        end
+    end
+    return setmetatable(links, {__index = function(_, name)
+        local url = index[name]
+        return url and prefix .. url or nil
+    end})
+end
+
+local function routeFile(route)
+    return route == "" and "index.html" or route .. "/index.html"
+end
+
+local function cleanRoute(route)
+    route = normalize(tostring(route or "")):gsub("^/", "")
+    route = route:gsub("/index%.html$", ""):gsub("%.html$", "")
+    if route == "." then route = "" end
+    for segment in route:gmatch("[^/]+") do
+        if segment == "." or segment == ".." then return nil end
+    end
+    return route
+end
+
+local function pageLink(prefix, route)
+    return prefix .. routeFile(route)
+end
+
+local function rewriteConfiguredPageLinks(markdown, candidate, pages, file)
+    if not candidate.source then return markdown end
+    local routes = {}
+    for _, page in ipairs(pages) do
+        if page.source then routes[normalize(page.source)] = page.path end
+    end
+    local sourceDirectory = dirname(normalize(candidate.source))
+    return (markdown:gsub("(%[[^%]]+%]%()([^%)]+)(%))",
+        function(opening, target, closing)
+        if target:match("^[%w+.-]+:") or target:match("^[/#]")
+            or target:find("%s") then
+            return opening .. target .. closing
+        end
+        local path, fragment = target:match("^([^#]+)(#.*)$")
+        path, fragment = path or target, fragment or ""
+        local route = routes[normalize(join(sourceDirectory, path))]
+            or routes[normalize(path)]
+        if route == nil then return opening .. target .. closing end
+        return opening .. relativePrefix(file) .. routeFile(route)
+            .. fragment .. closing
+    end))
+end
+
+urls.moduleFile = moduleFile
+urls.relativePrefix = relativePrefix
+urls.symbolLinkIndex = symbolLinkIndex
+urls.symbolLinks = symbolLinks
+urls.routeFile = routeFile
+urls.cleanRoute = cleanRoute
+urls.pageLink = pageLink
+urls.rewriteConfiguredPageLinks = rewriteConfiguredPageLinks
+
+return urls

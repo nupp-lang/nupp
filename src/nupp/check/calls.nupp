@@ -1,0 +1,565 @@
+--[[
+Reaching a member, and checking a call against it.
+
+Everything about applying something to arguments: what a member of a type is,
+what a metamethod contract says an operator does, and how a call's arguments are
+checked, its generics instantiated, and its ownership transferred.
+
+Construction goes through here too, because `R{...}` is written as a call and
+the difference is only what the callee turns out to be.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local generics = require("nupp.generics")
+local cst = require("nupp.cst")
+
+local calls = {}
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+local substType = generics.subst
+local unify = generics.unify
+local instantiateNominal = generics.instantiate
+local specializeSelf = generics.specializeSelf
+local dropSelf = generics.dropSelf
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- Installs the call machinery on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk calls
+function calls.install(c: any): any
+    local ops = {}
+
+    local function callDetails(node)
+        local callee = node and node.obj
+        local token = callee and (callee.token or callee.name)
+        local definition = token and token.definition
+        local related = definition and c.related(definition,
+            "called function is declared here") or nil
+        return {related = related and {related} or nil,
+            help = "compare the call with the declared parameter list"}
+    end
+
+    c.fieldType = function(t, name)
+        t = rawType(t)
+        if t.tag == "ptr" then return c.fieldType(t.elem, name) end
+        if t.tag == "typevar" and t.bound then
+            local bound = t.bound as Type
+            local ft, fieldDef = c.fieldType(bound, name)
+            if ft and bound.tag == "nominal" then
+                ft = specializeSelf(bound, ft, t)
+            end
+            return ft, fieldDef
+        end
+        if t.tag == "union" then
+            local parts = {}
+            for _, m in ipairs(t.members) do
+                local ft = c.fieldType(m, name)
+                if not ft then return nil end
+                parts[#parts + 1] = ft
+            end
+            if #parts > 0 then return T.union(parts) end
+            return nil
+        end
+        if t.tag == "shape" then
+            return t.byname[name]
+        elseif t.tag == "nominal" and t.byname then
+            local ft = t.byname[name]
+            return ft and specializeSelf(t, ft, t) or nil,
+                t.fieldDefs and t.fieldDefs[name] or nil
+        elseif t.tag == "map" then
+            if not isA(T.string, t.key) then return nil end
+            return T.optional(t.value)
+        elseif t == T.string and c.env and c.env.stringLib
+            and c.env.stringLib.tag == "shape" then
+            -- string values carry the string library as methods
+            return c.env.stringLib.byname[name]
+        end
+        return nil
+    end
+
+    c.fieldNames = function(t)
+        t = rawType(t)
+        if t.tag == "ptr" then return c.fieldNames(t.elem) end
+        if t.tag == "typevar" and t.bound then return c.fieldNames(t.bound) end
+        if t.tag == "union" then
+            local shared = nil
+            for _, member in ipairs(t.members) do
+                local names = c.fieldNames(member)
+                if not shared then
+                    shared = names
+                else
+                    for name in pairs(shared) do
+                        if not names[name] then shared[name] = nil end
+                    end
+                end
+            end
+            return shared or {}
+        end
+        local names = {}
+        if (t.tag == "shape" or t.tag == "nominal") and t.byname then
+            for name in pairs(t.byname) do names[name] = true end
+        elseif t == T.string and c.env and c.env.stringLib
+            and c.env.stringLib.tag == "shape" then
+            for name in pairs(c.env.stringLib.byname) do names[name] = true end
+        end
+        return names
+    end
+
+    function ops.metamethodOf(t, name)
+        t = rawType(t)
+        if t.tag == "typevar" and t.bound then
+            local bound = t.bound as Type
+            local ft = ops.metamethodOf(bound, name)
+            if ft and bound.tag == "nominal" then
+                return specializeSelf(bound, ft, t)
+            end
+            return ft
+        end
+        if t.tag == "nominal" and t.metamethods then
+            local ft = t.metamethods[name]
+            return ft and specializeSelf(t, ft, t) or nil
+        end
+        return nil
+    end
+
+    -- Method-call receivers are passed implicitly: adapt "function(self, ...)" by
+    -- dropping the first parameter.
+
+    --- A method's type as a plain function, receiver removed.
+
+    ---------------------------------------------------------------------
+    -- Generic instantiation
+    ---------------------------------------------------------------------
+
+    -- Rebuilds `t` with typevars replaced per `map` (unresolved -> any).
+
+    function ops.validateTypeBounds(params, bounds, map, node)
+        for j, tv in ipairs(params or {}) do
+            local bound = bounds and bounds[j]
+            local actual = map[tv]
+            if bound and actual and actual ~= T.any then
+                local ok, why = isA(actual, substType(bound, map))
+                if not ok then
+                    c.diag("NUPP2116", node,
+                        ("type argument %s for %s: %s")
+                        :format(T.tostring(actual), tv.name, why))
+                end
+            end
+        end
+    end
+
+    -- Checks one declared operation contract against already-inferred arguments. Unlike
+    -- inferCall this never evaluates expressions again.
+    function ops.applyContract(ft, ats, argNodes, site, operation)
+        if not ft or ft.tag ~= "func" then
+            c.diag("NUPP2003", site, operation .. " contract is not a function")
+            return T.any
+        end
+        local params, rets = ft.params, ft.rets
+        local varargType = ft.varargType
+        if T.hasTypevar(ft) then
+            local map = {}
+            for j = 1, math.min(#ats, #params) do unify(params[j], ats[j], map) end
+            if varargType then
+                for j = #params + 1, #ats do unify(varargType, ats[j], map) end
+            end
+            for j, tv in ipairs(ft.typeParams or {}) do
+                local bound = ft.typeBounds and ft.typeBounds[j]
+                local actual = map[tv]
+                if bound and actual then
+                    local ok, why = isA(actual, substType(bound, map))
+                    if not ok then
+                        c.diag("NUPP2116", site,
+                            ("type argument %s for %s: %s")
+                            :format(T.tostring(actual), tv.name, why))
+                    end
+                end
+            end
+            local p2, r2 = {}, {}
+            for j, p in ipairs(params) do p2[j] = substType(p, map) end
+            for j, r in ipairs(rets) do r2[j] = substType(r, map) end
+            params, rets = p2, r2
+            if varargType then varargType = substType(varargType, map) end
+        end
+        if varargType then
+            for j = #params + 1, #ats do
+                local ok, why = isA(ats[j], varargType)
+                if not ok then
+                    c.diag("NUPP2006", argNodes[j] or site,
+                        ("%s argument %d: %s"):format(operation, j, why))
+                end
+            end
+        end
+        if #ats > #params and not ft.vararg then
+            c.diag("NUPP2007", site,
+                ("%s takes %d arguments, got %d"):format(operation,
+                #params, #ats))
+        end
+        for j = 1, math.min(#ats, #params) do
+            local ok, why = isA(ats[j], params[j])
+            if not ok then
+                c.diag("NUPP2006", argNodes[j] or site,
+                    ("%s argument %d: %s"):format(operation, j, why))
+            end
+        end
+        return rets[1] or T.nil_
+    end
+
+    -- Returns ret1, full ret list.
+    function ops.inferCall(node, calleeT, argsNode, knownAts)
+        node.signatureType = calleeT
+        if calleeT.ffiOut and #calleeT.ffiOut > 0 then
+            node.ffiOutContracts = calleeT.ffiOut
+        end
+        local args = argsNode and argsNode.exprs or {}
+        if argsNode and argsNode.table then
+            args = {argsNode.table}
+        elseif argsNode and argsNode.str then
+            args = {argsNode.str}
+        end
+        -- struct construction: S{...} named or S(...) positional
+        if calleeT.tag == "nominal"
+            and (calleeT.declKind == "struct" or calleeT.declKind == "record") then
+            local affineValues = {}
+            local tbl = nil
+            if argsNode and argsNode.table then
+                tbl = argsNode.table
+            elseif #args == 1 and not cst.isToken(args[1])
+                and args[1].kind == "tableExpr" then
+                tbl = args[1]
+            end
+            local genericMap = calleeT.typeParams and {} or nil
+            if tbl and calleeT.declKind == "record" then
+                -- tell the generator to stamp the metatable
+                node.recordConstruct = c.pathKey(node.obj) or calleeT.name
+            elseif calleeT.declKind == "record" then
+                local callContract = ops.metamethodOf(calleeT, "__call")
+                if callContract then
+                    return ops.inferCall(node, dropSelf(callContract), argsNode)
+                end
+                c.diag("NUPP2202", node,
+                    ("record %s is constructed with named fields: %s{...}")
+                    :format(calleeT.name, calleeT.name))
+            end
+            if tbl then
+                for _, f in ipairs(tbl.fields) do
+                    if f.kind == "fieldNamed" then
+                        local ft = calleeT.byname[f.name.text]
+                        local fieldDef = calleeT.fieldDefs
+                            and calleeT.fieldDefs[f.name.text] or nil
+                        c.markToken(f.name, fieldDef, ft, "property")
+                        if not ft then
+                            c.diag("NUPP2202", f, ("no field %q in struct %s")
+                                :format(f.name.text, calleeT.name))
+                        else
+                            local vt = c.infer(f.value)
+                            if c.ownershipKind(vt) == "owned"
+                                or c.ownershipKind(vt) == "pinned" then
+                                affineValues[f.name.text] = vt
+                                c.moveExpression(f.value, vt,
+                                    "affine record construction", c.ownershipKind(vt))
+                            end
+                            if genericMap then unify(ft, vt, genericMap) end
+                            local ok, why = isA(vt, ft)
+                            if not ok then
+                                c.diag("NUPP2202", f, ("field %q: %s")
+                                    :format(f.name.text, why))
+                            end
+                        end
+                    else
+                        c.diag("NUPP2202", f,
+                            "struct construction takes named fields only")
+                        if f.value then c.infer(f.value) end
+                    end
+                end
+            else
+                -- positional: values fill fields in declaration order
+                local order = calleeT.fieldOrder or {}
+                if #args > #order then
+                    c.diag("NUPP2202", node, ("too many values (struct %s has %d fields)")
+                        :format(calleeT.name, #order))
+                end
+                for j, arg in ipairs(args) do
+                    if not cst.isToken(arg) then
+                        local at = c.infer(arg)
+                        local fname = order[j]
+                        local ft = fname and calleeT.byname[fname]
+                        if fname and (c.ownershipKind(at) == "owned"
+                            or c.ownershipKind(at) == "pinned") then
+                            affineValues[fname] = at
+                            c.moveExpression(arg, at, "affine record construction",
+                                c.ownershipKind(at))
+                        end
+                        if ft then
+                            local ok, why = isA(at, ft)
+                            if not ok then
+                                c.diag("NUPP2202", arg, ("value %d (field %q): %s")
+                                    :format(j, fname, why))
+                            end
+                        end
+                    end
+                end
+            end
+            if genericMap then
+                -- the type arguments follow from the values supplied
+                ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds,
+                    genericMap, node)
+                local inst = instantiateNominal(calleeT, genericMap)
+                return inst, {inst}
+            end
+            if calleeT.affineFields and #calleeT.affineFields > 0 then
+                local cleanups, opaque = {}, false
+                if calleeT.defaultDisposers
+                    and #calleeT.defaultDisposers == 1 then
+                    cleanups[1] = calleeT.defaultDisposers[1]
+                else
+                    for j = #calleeT.affineFields, 1, -1 do
+                        local name = calleeT.affineFields[j]
+                        local valueT = affineValues[name]
+                        if c.ownershipKind(valueT) == "owned" then
+                            if #(valueT.cleanups or {}) == 0 then
+                                opaque = true
+                            else
+                                for _, cleanup in ipairs(valueT.cleanups) do
+                                    cleanups[#cleanups + 1] =
+                                        "@field|" .. name .. "|" .. cleanup
+                                end
+                            end
+                        elseif c.ownershipKind(valueT) == "pinned" then
+                            cleanups[#cleanups + 1] = "@dropfield|" .. name
+                        end
+                    end
+                end
+                if opaque then cleanups = {} end
+                local owned = T.owned(calleeT, cleanups)
+                return owned, {owned}
+            end
+            return calleeT, {calleeT}
+        end
+
+        if calleeT.tag == "typevar" then
+            local callContract = ops.metamethodOf(calleeT, "__call")
+            if callContract then
+                return ops.inferCall(node, dropSelf(callContract), argsNode)
+            end
+        end
+
+        if calleeT == T.any or calleeT.tag ~= "func" then
+            if calleeT ~= T.any then
+                c.diag("NUPP2005", node,
+                    ("%s is not callable"):format(T.tostring(calleeT)))
+            end
+            -- still check the argument expressions themselves
+            for _, arg in ipairs(args) do
+                if not cst.isToken(arg) then
+                    local argumentType = c.infer(arg)
+                    if c.ownershipKind(argumentType) then
+                        c.diag("NUPP2603", arg,
+                            "an owner or borrow cannot cross an untyped call; "
+                            .. "use intoRaw explicitly to abandon tracking")
+                    end
+                end
+            end
+            return T.any, nil
+        end
+
+        -- infer all argument types up front
+        local ats = knownAts or {}
+        for j, arg in ipairs(args) do
+            if ats[j] then
+            -- A specialized call path already inferred this expression.
+            elseif cst.isToken(arg) then
+                ats[j] = arg.kind == "string" and T.string or T.any
+            else
+                ats[j] = c.infer(arg)
+            end
+        end
+
+        -- instantiate generics by unifying declared params against arguments
+        local params, rets = calleeT.params, calleeT.rets
+        local paramModes = calleeT.paramModes or {}
+        local varargType = calleeT.varargType
+        if T.hasTypevar(calleeT) then
+            local map = {}
+            for j = 1, math.min(#ats, #params) do
+                unify(params[j], ats[j], map)
+            end
+            -- The extra arguments bind the element type too, which is what makes
+            -- `math.min(a, b)` over integers stay an integer.
+            if varargType then
+                for j = #params + 1, #ats do unify(varargType, ats[j], map) end
+            end
+            for j, tv in ipairs(calleeT.typeParams or {}) do
+                local bound = calleeT.typeBounds and calleeT.typeBounds[j]
+                local actual = map[tv]
+                if bound and actual then
+                    local expected = substType(bound, map)
+                    local ok, why = isA(actual, expected)
+                    if not ok then
+                        c.diag("NUPP2116", node,
+                            ("type argument %s for %s: %s")
+                            :format(T.tostring(actual), tv.name, why))
+                    end
+                end
+            end
+            local p2, r2 = {}, {}
+            for j, p in ipairs(params) do p2[j] = substType(p, map) end
+            for j, r in ipairs(rets) do r2[j] = substType(r, map) end
+            params, rets = p2, r2
+            if varargType then varargType = substType(varargType, map) end
+        end
+
+        local nparams = #params
+        if #args > nparams and not calleeT.vararg then
+            c.diag("NUPP2007", node, ("too many arguments (expected %d, got %d)")
+                :format(nparams, #args), nil, callDetails(node))
+        end
+        -- A declared element type applies to every argument past the last named
+        -- parameter; an undeclared `...` still accepts anything.
+        if varargType then
+            for j = nparams + 1, #args do
+                local ok, why = isA(ats[j] or T.any, varargType)
+                if not ok then
+                    c.diag("NUPP2006", cst.isToken(args[j]) and node or args[j],
+                        ("argument %d: %s"):format(j, why), nil,
+                        callDetails(node))
+                end
+            end
+        end
+        for j = 1, math.min(#args, nparams) do
+            local mode = paramModes[j] or "plain"
+            local actualForCheck = ats[j]
+            if node.cdefCall and c.ownershipKind(actualForCheck) == "pinned" then
+                actualForCheck = rawType(actualForCheck)
+                if not cst.isToken(args[j]) then
+                    args[j].passPinnedPointer = true
+                end
+            end
+            local ok, why = isA(actualForCheck, params[j])
+            if not ok then
+                c.diag("NUPP2006", cst.isToken(args[j]) and node or args[j],
+                    ("argument %d: %s"):format(j, why), nil,
+                    callDetails(node))
+            end
+            if mode == "takes" then
+                local withBorrow = c.ownershipKind(ats[j]) == "borrowed"
+                    and not cst.isToken(args[j]) and args[j].withBinding
+                if withBorrow then
+                    c.diag("NUPP2614", args[j],
+                        "a visible 'with' borrow cannot be consumed")
+                end
+                if not withBorrow then
+                    c.moveExpression(cst.isToken(args[j]) and node or args[j],
+                        ats[j], ("argument %d"):format(j))
+                end
+            elseif mode == "inout" then
+                local entry, nameNode = c.ownershipEntry(args[j])
+                entry = c.ownershipState(entry)
+                if c.ownershipKind(ats[j]) == "borrowed" then
+                    c.diag("NUPP2602", args[j] or node,
+                        "inout requires exclusive access, not a shared borrow")
+                elseif entry and (entry.activeBorrows or 0) > 0 then
+                    c.diag("NUPP2602", nameNode or args[j],
+                        "inout cannot invalidate a value while a derived borrow is live")
+                end
+            elseif mode == "borrows" and c.ownershipKind(ats[j]) == "borrowed" then
+            -- Reborrowing is valid and does not alter either lifetime.
+            elseif mode == "plain" and c.ownershipKind(ats[j]) then
+                c.diag("NUPP2603", args[j] or node,
+                    "an owner or borrow needs a borrows, inout, or takes contract")
+            elseif mode == "plain" and node.cdefCall
+                and c.pointerShaped(ats[j]) and c.unsafeDepth == 0 then
+                c.diag("NUPP2604", args[j] or node,
+                    "passing a raw pointer to C requires unsafe do or a "
+                    .. "borrows, inout, takes, retains, or releases contract")
+            elseif mode == "retains" or mode == "releases" then
+                local entry, nameNode = c.ownershipEntry(args[j])
+                entry = c.ownershipState(entry)
+                if not node.cdefCall then
+                    c.diag("NUPP2602", args[j] or node,
+                        mode .. " is an imported C-function contract")
+                elseif c.ownershipKind(ats[j]) ~= "pinned" or not entry then
+                    c.diag("NUPP2602", args[j] or node,
+                        mode .. " argument requires a named pinned<T> handle")
+                elseif entry.moved then
+                -- The name expression already emitted the use-after-move.
+                elseif mode == "retains" then
+                    if entry.retained then
+                        c.diag("NUPP2602", nameNode or args[j],
+                            "C already retains this pinned handle")
+                    else
+                        entry.retained = true
+                    end
+                elseif not entry.retained then
+                    c.diag("NUPP2602", nameNode or args[j],
+                        "releases argument is not currently retained by C")
+                else
+                    entry.retained = false
+                end
+            end
+        end
+        -- A result declared `borrows p` is tied to whatever was passed for that
+        -- parameter, so the call node carries the same borrow link a `borrow(owner)`
+        -- expression would. Everything downstream — binding it, blocking a move of the
+        -- owner, releasing at scope exit — is the machinery lexical borrows already
+        -- use.
+        if calleeT and calleeT.tag == "func"
+            and (calleeT.borrowsParam or calleeT.borrowsSelf
+            or calleeT.borrowsParams) then
+            local sources = {}
+            if calleeT.borrowsSelf then sources[#sources + 1] = node.obj end
+            if calleeT.borrowsParam then
+                sources[#sources + 1] = args[calleeT.borrowsParam]
+            end
+            for _, at in ipairs(calleeT.borrowsParams or {}) do
+                sources[#sources + 1] = args[at]
+            end
+            local owners = {}
+            for _, source in ipairs(sources) do
+                local entry = source and c.ownershipEntry(source)
+                if entry then
+                    owners[#owners + 1] = c.borrowRoot(entry)
+                elseif source then
+                    c.diag("NUPP2619", source,
+                        "a borrowed result needs named arguments to borrow from")
+                end
+            end
+            if #owners == 1 then
+                node.borrowOwner = owners[1]
+                node.returnBorrowOwners = {[1] = owners}
+            elseif #owners > 1 then
+                node.borrowOwners = owners
+                node.returnBorrowOwners = {[1] = owners}
+            end
+        end
+        for _, output in ipairs(calleeT.ffiOut or {}) do
+            if output.kind == "borrowed" then
+                local source = args[output.sourceParam]
+                local entry = source and c.ownershipEntry(source)
+                if entry then
+                    node.returnBorrowOwners = node.returnBorrowOwners or {}
+                    node.returnBorrowOwners[output.returnIndex] = {
+                        c.borrowRoot(entry),
+                    }
+                elseif source then
+                    c.diag("NUPP2619", source,
+                        "a borrowed C output needs a named lifetime source")
+                end
+            end
+        end
+        return rets[1] or T.nil_, rets
+    end
+
+    c.metamethodOf = ops.metamethodOf
+    c.validateTypeBounds = ops.validateTypeBounds
+    c.applyContract = ops.applyContract
+    c.inferCall = ops.inferCall
+    return ops
+end
+
+return calls

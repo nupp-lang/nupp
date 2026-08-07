@@ -1,0 +1,396 @@
+--[[
+Compiling the modules a target reaches, and writing them out.
+
+The entry points name a graph; this walks it, checks and generates each module
+that is not already current, and copies the resources the target declared. What
+"already current" means is the fingerprint of everything the module saw -- its
+own text, the interfaces it imported, the compiler that would compile it -- so a
+change anywhere in that set rebuilds it and a change anywhere else does not.
+]]
+
+local envMod = require("nupp.env")
+local gen = require("nupp.gen")
+local optimize = require("nupp.optimize")
+local hash = require("nupp.build.hash")
+local incremental = require("nupp.incremental")
+local diagnosticMod = require("nupp.diagnostics")
+local fs = require("nupp.fs")
+local cache = require("nupp.build.cache")
+local deps = require("nupp.build.deps")
+
+local normalize, join = fs.normalize, fs.join
+local dirname, basename = fs.dirname, fs.basename
+local readFile, writeFile = fs.readFile, fs.writeFile
+local exists, mkdir = fs.exists, fs.mkdir
+local copyFile, listFiles = fs.copyFile, fs.listFiles
+local stable, hashFile, jsonArray = cache.stable, cache.hashFile, cache.jsonArray
+local expandGlob = deps.expandGlob
+local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
+
+local modules = {}
+
+local function typeFingerprint(t, active)
+    if not t then return "nil" end
+    active = active or {}
+    if active[t] then return "@" .. (t.name or t.tag) end
+    active[t] = true
+    local tag, value = t.tag, nil
+    if tag == "nominal" then
+        local fields = {}
+        for name, fieldType in pairs(t.fields or {}) do
+            fields[#fields + 1] = name .. ":" .. typeFingerprint(fieldType, active)
+        end
+        table.sort(fields)
+        value = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.name)
+            .. "{" .. table.concat(fields, ",") .. "})"
+    elseif tag == "shape" then
+        local fields = {}
+        for _, field in ipairs(t.fields or {}) do
+            fields[#fields + 1] = field.name .. ":" .. typeFingerprint(field.type, active)
+        end
+        value = "shape(" .. table.concat(fields, ",") .. ")"
+    elseif tag == "func" then
+        local params, returns = {}, {}
+        for index, item in ipairs(t.params or {}) do
+            params[#params + 1] = tostring(t.paramModes
+                and t.paramModes[index] or "plain") .. ":"
+                .. typeFingerprint(item, active)
+        end
+        for _, item in ipairs(t.rets or {}) do
+            returns[#returns + 1] = typeFingerprint(item, active)
+        end
+        value = "fn(" .. table.concat(params, ",") .. (t.vararg and ",..." or "")
+            .. ")->(" .. table.concat(returns, ",") .. ")"
+    elseif tag == "array" or tag == "ptr" then
+        value = tag .. "(" .. typeFingerprint(t.elem, active) .. ")"
+    elseif tag == "owned" then
+        value = tag .. "(" .. table.concat(t.cleanups or {}, ",") .. ","
+            .. typeFingerprint(t.inner, active) .. ")"
+    elseif tag == "borrowed" or tag == "pinned" then
+        value = tag .. "(" .. typeFingerprint(t.inner, active) .. ")"
+    elseif tag == "map" then value = "map(" .. typeFingerprint(t.key, active)
+            .. "," .. typeFingerprint(t.value, active) .. ")"
+    elseif tag == "tuple" then
+        local items = {}
+        for _, item in ipairs(t.elems or {}) do
+            items[#items + 1] = typeFingerprint(item, active)
+        end
+        value = "tuple(" .. table.concat(items, ",") .. ")"
+    elseif tag == "union" then
+        local items = {}
+        for _, item in ipairs(t.members or {}) do
+            items[#items + 1] = typeFingerprint(item, active)
+        end
+        table.sort(items); value = "union(" .. table.concat(items, "|") .. ")"
+    elseif tag == "literal" then value = "literal(" .. stable(t.value) .. ")"
+    elseif tag == "typevar" then value = "typevar(" .. t.name .. ")"
+    else value = tag or tostring(t) end
+    active[t] = nil
+    return value
+end
+
+local function resourceRelative(config, path, root)
+    local normalized = normalize(path)
+    local rootPrefix = normalize(root)
+    if rootPrefix ~= "." and normalized:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
+        normalized = normalized:sub(#rootPrefix + 2)
+    end
+    local best = normalized
+    for _, include in ipairs(config.include or {}) do
+        include = normalize(include)
+        if normalized:sub(1, #include + 1) == include .. "/" then
+            local relative = normalized:sub(#include + 2)
+            if #relative < #best then best = relative end
+        end
+    end
+    return best
+end
+
+local function projectIndexFingerprint(inc)
+    local headers = {}
+    for _, path in ipairs(inc.projectFiles()) do
+        local header = inc.projectHeader(path)
+        local declarations = {}
+        for _, declaration in ipairs(header.declarations or {}) do
+            declarations[#declarations + 1] = {
+                name = declaration.name,
+                kind = declaration.kind,
+                statKind = declaration.statKind,
+                visibility = declaration.visibility,
+                signature = declaration.signature,
+            }
+        end
+        headers[#headers + 1] = {
+            path = header.path,
+            moduleName = header.moduleName,
+            declarations = declarations,
+        }
+    end
+    return hash.sha256(stable(headers))
+end
+
+local function copyModuleRecord(record)
+    local dependencies = jsonArray({})
+    for _, name in ipairs(record.dependencies or {}) do
+        dependencies[#dependencies + 1] = name
+    end
+    return {
+        sourceHash = record.sourceHash,
+        interfaceHash = record.interfaceHash,
+        artifactHash = record.artifactHash,
+        dependencies = dependencies,
+        output = record.output,
+    }
+end
+
+local function buildModules(root, outDir, config, target, oldState, newState,
+    checkOnly, strict, stats, diagnostics)
+    local envConfig = {}
+    for key, value in pairs(config) do envConfig[key] = value end
+    envConfig.include = {}
+    for _, include in ipairs(config.include or {}) do
+        envConfig.include[#envConfig.include + 1] = include
+    end
+    envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
+    local inc = incremental.new(root, {config = envConfig, strict = strict})
+    newState.projectIndexHash = projectIndexFingerprint(inc)
+    local cacheCompatible = not checkOnly
+        and oldState.compilerHash == newState.compilerHash
+        and oldState.configHash == newState.configHash
+        and oldState.projectIndexHash == newState.projectIndexHash
+    -- Everything the project is written in, not the closure of its entries.
+    --
+    -- A compiler compiles its source set. Deciding what to compile by walking
+    -- require edges out from an entry answers three questions with one walk —
+    -- what to compile, what to check, and what a bundle carries — and gets two
+    -- of them wrong. A module nothing requires goes unchecked, so `nupp check`
+    -- stops meaning "this project is well typed" and starts meaning "the part I
+    -- could reach is". And a module reached only by `require(name)`, where the
+    -- name is computed, is absent from the build and therefore from the binary,
+    -- which fails at run time in front of a user with a filesystem search path
+    -- that means nothing inside one file.
+    --
+    -- Eliminating dead code is a linker's job and should be invisible when it
+    -- happens. Measured on this compiler, the walk was removing one module out
+    -- of seventy-one.
+    --
+    -- Entries still say where execution starts, and for a bundle which chunk
+    -- becomes the body. They no longer say what exists.
+    local queue, queuedPaths = {}, {}
+    local function seed(name, path)
+        path = normalize(path)
+        if queuedPaths[path] then return end
+        queuedPaths[path] = true
+        queue[#queue + 1] = {name = name, path = path}
+    end
+
+    for _, entry in ipairs(target.entries or {}) do
+        local path, name
+        if entry:match("%.nupp$") or entry:find("[/\\]") then
+            path = join(root, entry)
+            name = envMod.moduleNameForPath(inc.env, path)
+        else
+            name = entry
+            path = inc.modulePath(entry)
+        end
+        if not path then return nil, "entry not found: " .. entry end
+        if not name then return nil, "cannot determine module name for " .. path end
+        seed(name, path)
+    end
+    if #queue == 0 then return nil, "build.entries must contain at least one entry" end
+
+    -- An entry may live outside the include roots — a file named on the command
+    -- line does — so it is seeded first and the source set is added around it.
+    for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
+        local name = envMod.moduleNameForPath(inc.env, path)
+        if name then seed(name, path) end
+    end
+
+    local records, reused, codeFor, paths = {}, {}, {}, {}
+    local order, errors, queued, cursor = {}, {}, {}, 1
+    local checkFailed = false
+    stats = stats or {}
+    stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
+
+    local function enqueue(name, path)
+        if queued[name] or records[name] then return end
+        path = path or inc.modulePath(name)
+        if path then
+            queued[name] = true
+            queue[#queue + 1] = {name = name, path = normalize(path)}
+        end
+    end
+
+    local function compile(name, path, sourceHash)
+        local result = inc.checkFile(path)
+        stats.checkedModules = stats.checkedModules + 1
+        -- A note or a warning is said and stepped over. Only an error stops the
+        -- build, and only an error withholds the file's generated Lua: advice
+        -- about a program is not a reason to refuse to compile it.
+        local fatal = false
+        for _, diag in ipairs(result.diags or {}) do
+            errors[#errors + 1] = diag
+            if isFatal(diag) then
+                checkFailed = true
+                fatal = true
+            end
+        end
+        local depNames = inc.moduleDependencies(path)
+        local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+        local artifactHash, code
+        if not fatal and not checkOnly then
+            local genDiags
+            local remarks = optimize.run(result.result,
+                {level = config._optLevel or 0, filename = path,
+                disabled = config._disabledPasses})
+            if config._remarks then
+                for _, note in ipairs(remarks) do
+                    errors[#errors + 1] = note
+                end
+            end
+            code, genDiags = gen.generate(result.result, path)
+            stats.generatedModules = stats.generatedModules + 1
+            for _, diag in ipairs(genDiags or {}) do
+                errors[#errors + 1] = diag
+            end
+            if #genDiags == 0 then artifactHash = hash.sha256(code) end
+        end
+        records[name] = {
+            sourceHash = sourceHash,
+            interfaceHash = hash.sha256(typeFingerprint(result.moduleType)),
+            artifactHash = artifactHash,
+            dependencies = jsonArray(depNames),
+            output = output,
+        }
+        codeFor[name] = code
+        reused[name] = nil
+        for _, depName in ipairs(depNames) do enqueue(depName) end
+    end
+
+    local function processQueue()
+        while cursor <= #queue do
+            local item = queue[cursor]
+            cursor = cursor + 1
+            queued[item.name] = nil
+            if not records[item.name] then
+                local path = item.path
+                paths[item.name] = path
+                order[#order + 1] = item.name
+                local sourceHash = hashFile(path)
+                local previous = oldState.modules[item.name]
+                local output = join(root, join(outDir,
+                    item.name:gsub("%.", "/") .. ".lua"))
+                if cacheCompatible and previous
+                    and previous.sourceHash == sourceHash
+                    and previous.interfaceHash and previous.artifactHash
+                    and type(previous.dependencies) == "table"
+                    and hashFile(output) == previous.artifactHash then
+                    records[item.name] = copyModuleRecord(previous)
+                    records[item.name].output = output
+                    reused[item.name] = true
+                    for _, depName in ipairs(previous.dependencies) do
+                        enqueue(depName)
+                    end
+                else
+                    compile(item.name, path, sourceHash)
+                end
+            end
+        end
+    end
+
+    processQueue()
+    local invalidated = true
+    while invalidated do
+        invalidated = false
+        for _, name in ipairs(order) do
+            local record = records[name]
+            if reused[name] and record then
+                local dependencyChanged = false
+                for _, depName in ipairs(record.dependencies or {}) do
+                    local depPath = inc.modulePath(depName)
+                    if depPath then
+                        local current = records[depName]
+                        local previous = oldState.modules[depName]
+                        if not current or not previous
+                            or current.interfaceHash ~= previous.interfaceHash then
+                            dependencyChanged = true
+                            break
+                        end
+                    end
+                end
+                if dependencyChanged then
+                    compile(name, paths[name], record.sourceHash)
+                    invalidated = true
+                end
+            end
+        end
+        processQueue()
+    end
+
+    -- Everything gathered is said; only a fatal one ends the build here.
+    local fatal = false
+    for _, e in ipairs(errors) do
+        if isFatal(e) then fatal = true end
+    end
+    if diagnostics then
+        for _, diagnostic in ipairs(errors) do
+            diagnostics[#diagnostics + 1] = diagnostic
+        end
+    elseif #errors > 0 then
+        printErrors(errors)
+    end
+    if fatal then
+        return nil, checkFailed and "project has errors" or "code generation failed"
+    end
+    if checkOnly then return {outputs = {}} end
+
+    -- Every module compiled, with no closure to prune it back to. A stale
+    -- dependency list can still enqueue a name, but a name that is not a source
+    -- file has no path and never entered the queue, and one that is a source
+    -- file belongs in the build regardless of who does or does not require it.
+    local pending, outputs = {}, {}
+    newState.modules = {}
+    for _, name in ipairs(order) do
+        local record = records[name]
+        newState.modules[name] = record
+        outputs[record.output] = true
+        if reused[name] then
+            stats.reusedModules = stats.reusedModules + 1
+        else
+            local code = codeFor[name]
+            if code and hashFile(record.output) ~= record.artifactHash then
+                pending[#pending + 1] = {path = record.output, text = code}
+            end
+        end
+    end
+
+    for _, name in ipairs(order) do
+        if not records[name].artifactHash then
+            return nil, "code generation failed"
+        end
+    end
+
+    for _, pattern in ipairs(target.resources or {}) do
+        for _, source in ipairs(expandGlob(root, pattern)) do
+            local output = join(root, join(outDir, resourceRelative(config, source, root)))
+            local text, err = readFile(source)
+            if not text then return nil, err end
+            outputs[output] = true
+            if hashFile(output) ~= hash.sha256(text) then
+                pending[#pending + 1] = {path = output, text = text}
+            end
+        end
+    end
+    for _, item in ipairs(pending) do
+        local ok, err = writeFile(item.path, item.text)
+        if not ok then return nil, err end
+    end
+    return {outputs = outputs}
+end
+
+
+modules.typeFingerprint = typeFingerprint
+modules.resourceRelative = resourceRelative
+modules.build = buildModules
+
+return modules

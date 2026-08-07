@@ -1,0 +1,434 @@
+--[[
+Checking a declaration, and publishing what it declares.
+
+A record, interface, struct, or enum introduces a nominal type: one identity per
+declaration, never shared with another of the same shape. This is where that
+identity is made, its members are checked and its contracts imported, and where
+the result is published — to the file, to the module, or to the project —
+according to what the declaration said about visibility.
+
+Struct declarations carry the extra requirement that every field be laid out in
+C memory, which is what makes them reifiable.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local generics = require("nupp.generics")
+local cst = require("nupp.cst")
+local operators = require("nupp.check.operators")
+
+local declare = {}
+
+local isA = relations.isA
+local substType = generics.subst
+local addSelf = generics.addSelf
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- Installs the declaration checking on one run.
+---
+--- @param c the run's state
+function declare.install(c: any, reifiableField: any, fix: any,
+    insertBefore: any, validateAnnotation: any)
+
+    c.declaredNominal = function(stat, kind)
+        local t, projectEntry = nil, nil
+        if c.env and c.env.declarationType then
+            t, projectEntry = c.env.declarationType(c.env, c.filename,
+                stat.name.text, kind, c.visibilityOf(stat))
+        end
+        return t or T.nominal(stat.name.text, kind), projectEntry
+    end
+
+    c.publishType = function(stat, t, projectEntry)
+        local name = stat.name.text
+        local def = c.rootScope.typeDefs[c.declKey(stat)]
+        if projectEntry then
+            projectEntry.type = t
+            projectEntry.definition = def or projectEntry.definition
+        end
+        local visibility = c.visibilityOf(stat)
+        -- An unqualified declaration with no modifier has nowhere to live: plain Lua
+        -- would have made the name a global, and a module member has to say which table
+        -- it joins. Declaration files are exempt, where a bare declaration is the
+        -- interface being described and there is no table of the file's own to attach
+        -- it to. One table deep, so the name a declaration binds under and the field it
+        -- is assigned to stay the same thing. Group types inside a record body rather
+        -- than under a nested table.
+        if stat.qualifiers and #stat.qualifiers > 1 then
+            c.diag("NUPP2119", stat.name,
+                ("declaration %q may attach to one table, not a path")
+                :format(name))
+        end
+        -- A qualified name has already said where the declaration lives, and a modifier
+        -- would say something else: `global record m.X` would promise a global whose
+        -- runtime value is a field of m.
+        if stat.qualifiers and (stat.visibility == "local"
+            or stat.visibility == "global") then
+            -- Dropping the modifier is the fix that keeps the name written as it reads.
+            -- Dropping the table instead would move the declaration, which is a
+            -- different program, so it is not offered as an edit.
+            local fixes = {}
+            if stat.modifier then
+                fixes[1] = fix(("drop `%s`"):format(stat.visibility),
+                    {offset = stat.modifier.offset,
+                    length = stat.keyword.offset - stat.modifier.offset,
+                    newText = ""})
+            end
+            c.diag("NUPP2119", stat.name,
+                ("declaration %q says where it lives twice; drop `%s` or the "
+                .. "table it names"):format(name, stat.visibility), fixes)
+        end
+        if visibility == "module" and not stat.qualifiers
+            and not c.declarationFile and not stat.isAnnotationDefinition then
+            local suggestion = c.moduleLocal
+                and ("write it as %s.%s, or mark it local or global")
+                :format(c.moduleLocal, name)
+                or "mark it local or global, or attach it to a table"
+            local fixes = {}
+            if stat.keyword then
+                if c.moduleLocal then
+                    fixes[#fixes + 1] = fix(
+                        ("attach it to %s"):format(c.moduleLocal),
+                        insertBefore(stat.name, c.moduleLocal .. "."))
+                end
+                fixes[#fixes + 1] = fix("mark it local",
+                    insertBefore(stat.keyword, "local "))
+                fixes[#fixes + 1] = fix("mark it global",
+                    insertBefore(stat.keyword, "global "))
+            end
+            c.diag("NUPP2119", stat.name,
+                ("declaration %q has no visibility; %s")
+                :format(name, suggestion), fixes)
+        end
+        if visibility == "module" then
+            c.moduleExports.types[name] = t
+            c.moduleExports.typeDefs[name] = def
+            if t.tag == "nominal" and t.declKind == "struct"
+                and not stat.isAnnotationDefinition then
+                c.moduleExports.values[name] = t
+            end
+        elseif visibility == "global" and c.env then
+            -- Project globals live in the reactive project index. Only
+            -- declaration/prelude checks without an indexed project entry publish into
+            -- the ambient maps, which must not retain removed overlay declarations.
+            if not projectEntry then
+                c.env.globalTypes[name] = t
+                c.env.globalTypeDefs[name] = def
+            end
+            if not projectEntry and not stat.isAnnotationDefinition
+                and t.tag == "nominal"
+                and t.declKind == "struct" then
+                local entry = c.rootScope.vars[name]
+                if entry then
+                    entry.globalModule = c.result.moduleName
+                    c.env.globals[name] = entry
+                end
+            end
+        end
+    end
+
+    c.checkTypedecl = function(stat)
+        local kind = stat.kind
+        if kind == "typeAlias" then
+            local name = c.declKey(stat)
+            local t = stat.hoistedAlias and stat.hoistedAlias.resolved
+            if not t then
+                local owner = c.scope
+                while owner and not (owner.pending
+                    and owner.pending[name]) do
+                    owner = owner.parent
+                end
+                if owner and stat.hoistedAlias then
+                    t = c.resolvePendingAlias(name, stat.hoistedAlias, owner)
+                end
+            end
+            t = t or c.resolveType(stat.value)
+            stat.resolvedType = t
+            c.bindDeclaredType(stat, t)
+            local projectEntry = nil
+            if c.env and c.env.declarationType then
+                local ignored
+                ignored, projectEntry = c.env.declarationType(c.env, c.filename,
+                    stat.name.text, "type", c.visibilityOf(stat))
+            end
+            c.publishType(stat, t, projectEntry)
+        elseif kind == "enumDecl" then
+            local n, projectEntry = stat.hoistedType, stat.hoistedEntry
+            if not n then
+                n, projectEntry = c.declaredNominal(stat, "enum")
+            end
+            n.values = {}
+            stat.resolvedType = n
+            for _, item in ipairs(stat.items) do
+                local raw = item.token.text
+                n.values[#n.values + 1] = raw:sub(2, -2)
+            end
+            c.bindDeclaredType(stat, n)
+            c.bindDeclaredVar(stat, T.any)
+            c.publishType(stat, n, projectEntry)
+        elseif kind == "recordDecl" then
+            local n, projectEntry = stat.hoistedType, stat.hoistedEntry
+            if not n then
+                n, projectEntry = c.declaredNominal(stat, stat.declKind)
+            end
+            -- keep what hoisting already published: the methods declared further down
+            -- the block are on it
+            n.byname = n.byname or {}
+            n.metamethods = n.metamethods or {}
+            n.nestedTypes = n.nestedTypes or {}
+            -- bind the name first so fields may reference the type recursively
+            c.bindDeclaredType(stat, n)
+            -- Every declaration has a private type scope: `self`, generic binders, and
+            -- nested type names must not leak beside it.
+            c.pushScope()
+            n.selfType = c.typevarAt(stat.name, "self")
+            c.bindType("self", n.selfType)
+            -- Inside its own body a declaration answers to its simple name, so a
+            -- recursive field reads `Node?` rather than repeating the table it is
+            -- attached to. The binding dies with the scope.
+            if c.qualifierOf(stat) then c.bindType(stat.name.text, n, nil) end
+            n.typeParams, n.typeBounds = nil, nil
+            if stat.generics then
+                n.typeParams, n.typeBounds = c.bindGenerics(stat.generics,
+                    "nominal")
+            end
+            n.fieldOrder = {}
+            n.fieldDefs = {}
+            stat.resolvedType = n
+
+            -- Hoist nested declarations within the nominal namespace so sibling fields
+            -- and declarations may name them in any order.
+            for _, e in ipairs(stat.entries) do
+                if e.kind == "recordDecl" or e.kind == "enumDecl" then
+                    local nestedKind = e.kind == "enumDecl" and "enum"
+                        or e.declKind
+                    local nested = T.nominal(e.name.text, nestedKind)
+                    e.hoistedType = nested
+                    -- A nested declaration's runtime table hangs off its owner's, which
+                    -- is what `is` has to compare against.
+                    nested.runtimePath = (n.runtimePath or n.name)
+                        .. "." .. e.name.text
+                    c.bindType(e.name.text, nested, e.name)
+                    n.nestedTypes[e.name.text] = nested
+                    if nestedKind == "record" or nestedKind == "struct" then
+                        n.byname[e.name.text] = nested
+                    end
+                end
+            end
+
+            -- `is` includes trusted contracts. It is intentionally not a proof that
+            -- runtime initialization has already filled them.
+            n.supertypes = {}
+            for _, superNode in ipairs(stat.supertypes or {}) do
+                local super = c.resolveType(superNode)
+                if super.tag ~= "nominal" or super.declKind ~= "interface" then
+                    c.diag("NUPP2117", superNode,
+                        ("%s may inherit contracts only from interfaces")
+                        :format(stat.declKind))
+                else
+                    n.supertypes[#n.supertypes + 1] = super
+                    for _, disposer in ipairs(super.defaultDisposers or {}) do
+                        local seen = false
+                        for _, current in ipairs(n.defaultDisposers or {}) do
+                            if current == disposer then seen = true end
+                        end
+                        if not seen then
+                            n.defaultDisposers[#n.defaultDisposers + 1] = disposer
+                        end
+                    end
+                    local selfMap = super.selfType
+                        and {[super.selfType] = n.selfType} or {}
+                    for name, inherited in pairs(super.byname or {}) do
+                        if not n.byname[name] then
+                            n.byname[name] = substType(inherited, selfMap)
+                        end
+                    end
+                    for name, inherited in pairs(super.metamethods or {}) do
+                        if not n.metamethods[name] then
+                            n.metamethods[name] = substType(inherited, selfMap)
+                        end
+                    end
+                end
+            end
+            -- Publish every inline signature before checking any body. This is the
+            -- record-body equivalent of block method hoisting and permits mutually
+            -- recursive inline methods.
+            for _, e in ipairs(stat.entries) do
+                if e.kind == "inlineMethod" and not n.byname[e.name.text] then
+                    n.byname[e.name.text] = c.signatureOf(e.body, n)
+                end
+            end
+            local localMembers, localMetamethods = {}, {}
+            for _, e in ipairs(stat.entries) do
+                if e.kind == "fieldDecl" then
+                    local isDisposer = false
+                    for _, application in ipairs(e.annotations or {}) do
+                        local definition2, valid = validateAnnotation(application,
+                            e, stat)
+                        if definition2 and valid
+                            and application.name.text == "dispose" then
+                            isDisposer = true
+                        end
+                    end
+                    local ft = c.resolveType(e.type)
+                    if c.ownershipKind(ft) == "owned"
+                        or c.ownershipKind(ft) == "pinned" then
+                        n.affineFields = n.affineFields or {}
+                        n.affineFields[#n.affineFields + 1] = e.name.text
+                        n.affineResource = true
+                    end
+                    if isDisposer then
+                        if ft.tag ~= "func" or not ft.params[1]
+                            or ft.paramModes[1] ~= "takes" then
+                            c.diag("NUPP2602", e,
+                                "@dispose member must be a function whose first "
+                                .. "parameter takes the resource")
+                        else
+                            n.defaultDisposers[#n.defaultDisposers + 1] =
+                                "@method:" .. e.name.text
+                        end
+                    end
+                    if localMembers[e.name.text] then
+                        c.diag("NUPP2118", e.name,
+                            ("duplicate record member %q"):format(e.name.text))
+                    end
+                    localMembers[e.name.text] = true
+                    n.byname[e.name.text] = ft
+                    n.fieldDefs[e.name.text] = c.definition(e.name, "property")
+                    n.fieldDefs[e.name.text].type = ft
+                    c.markToken(e.name, n.fieldDefs[e.name.text], ft, "property")
+                    n.fieldOrder[#n.fieldOrder + 1] = e.name.text
+                    if stat.declKind == "struct" and not stat.isAnnotationDefinition
+                        and not reifiableField(ft) then
+                        c.diag("NUPP2201", e, ("struct field %q: %s is not reifiable "
+                            .. "(use a record for GC types, or a pointer)")
+                            :format(e.name.text, T.tostring(ft)))
+                    end
+                elseif e.kind == "arrayPart" then
+                    -- a record that is also a sequence; the entry is written as the
+                    -- array type it stands for
+                    local at = c.resolveType(e.type)
+                    if stat.declKind == "struct" then
+                        c.diag("NUPP2204", e, "a struct has no Lua array part "
+                            .. "(use a fixed C array field, T[N])")
+                    elseif at.tag ~= "array" then
+                        c.diag("NUPP2205", e, ("an array part is written {T}, got %s")
+                            :format(T.tostring(at)))
+                    else
+                        n.arrayOf = at.elem
+                    end
+                elseif e.kind == "metamethodDecl" then
+                    local mt = c.resolveType(e.type)
+                    if stat.declKind == "struct" then
+                        c.diag("NUPP2118", e,
+                            "struct metamethods need runtime ffi.metatype "
+                            .. "installation and cannot be declaration-only")
+                    elseif mt.tag ~= "func" then
+                        c.diag("NUPP2118", e,
+                            "a metamethod contract must be a function type")
+                    elseif not e.name.text:match("^__[%a%d_]+$") then
+                        c.diag("NUPP2118", e.name,
+                            "a metamethod name must begin with '__'",
+                            c.edits.spellingFix(e.name,
+                                operators.contractMetamethod))
+                    elseif not operators.contractMetamethod[e.name.text] then
+                        local fixes = not operators.runtimeMetamethod[e.name.text]
+                            and c.edits.spellingFix(e.name,
+                                operators.contractMetamethod) or nil
+                        c.diag("NUPP2118", e.name,
+                            ("metamethod %s is not dispatched by this LuaJIT "
+                            .. "target"):format(e.name.text), fixes)
+                    elseif localMetamethods[e.name.text] then
+                        c.diag("NUPP2118", e.name,
+                            ("duplicate metamethod contract %q")
+                            :format(e.name.text))
+                    else
+                        localMetamethods[e.name.text] = true
+                        n.metamethods[e.name.text] = mt
+                        c.markToken(e.name, c.definition(e.name, "method"), mt,
+                            "method")
+                    end
+                elseif e.kind == "inlineMethod" then
+                    local isDisposer = false
+                    for _, application in ipairs(e.annotations or {}) do
+                        local definition2, valid = validateAnnotation(application,
+                            e, stat)
+                        if definition2 and valid
+                            and application.name.text == "dispose" then
+                            isDisposer = true
+                        end
+                    end
+                    if stat.declKind == "interface" then
+                        c.diag("NUPP2118", e,
+                            "interface methods declare signatures, not bodies")
+                    end
+                    if localMembers[e.name.text] then
+                        c.diag("NUPP2118", e.name,
+                            ("duplicate record member %q"):format(e.name.text))
+                    end
+                    localMembers[e.name.text] = true
+                    if isDisposer then
+                        e.body.disposeContract = true
+                        e.body.disposeMethod = true
+                    end
+                    local ft = addSelf(c.checkFuncbody(e.body, n), n,
+                        isDisposer and "takes" or nil)
+                    if isDisposer then
+                        n.defaultDisposers[#n.defaultDisposers + 1] =
+                            "@method:" .. e.name.text
+                    end
+                    n.byname[e.name.text] = ft
+                    n.fieldDefs[e.name.text] = c.definition(e.name, "method")
+                    n.fieldDefs[e.name.text].type = ft
+                    c.markToken(e.name, n.fieldDefs[e.name.text], ft, "method")
+                elseif e.kind == "recordDecl" or e.kind == "enumDecl"
+                    or e.kind == "typeAlias" then
+                    if stat.declKind == "struct" then
+                        c.diag("NUPP2201", e,
+                            "struct bodies hold fields only (no nested declarations)")
+                    else
+                        c.checkTypedecl(e) -- nested declarations share the scope (v0)
+                        local nested = e.resolvedType or e.hoistedType
+                        if nested then
+                            if nested.tag == "nominal" and not nested.runtimePath then
+                                nested.runtimePath = (n.runtimePath or n.name)
+                                    .. "." .. e.name.text
+                            end
+                            n.nestedTypes[e.name.text] = nested
+                            if nested.tag == "nominal"
+                                and (nested.declKind == "record"
+                                or nested.declKind == "struct") then
+                                n.byname[e.name.text] = nested
+                                n.fieldDefs[e.name.text] = c.definition(e.name,
+                                    "property")
+                            end
+                        end
+                    end
+                end
+            end
+            c.popScope()
+            if stat.isAnnotationDefinition then
+            -- The declaration is a metadata schema, not a runtime constructor. Its type
+            -- remains available to the checker.
+            elseif stat.declKind == "struct" then
+                -- the name is a value too: the ctype constructor
+                c.bindDeclaredVar(stat, n)
+            elseif stat.declKind == "record" then
+                -- and for records: the runtime table that carries members and stamps
+                -- instances, so R{...} is recognized as a construction rather than an
+                -- ordinary call
+                c.bindDeclaredVar(stat, n)
+            else
+                c.bindDeclaredVar(stat, T.any)
+            end
+            c.publishType(stat, n, projectEntry)
+        end
+    end
+end
+
+return declare

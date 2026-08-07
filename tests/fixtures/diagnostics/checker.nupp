@@ -1,0 +1,8 @@
+local point: {horizontal: number} = {horizontal = 1}
+local value = point.horizonal
+
+local function takes(n: number): number
+    return "bad"
+end
+
+takes("x", 2)

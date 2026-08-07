@@ -1,0 +1,243 @@
+--[[
+Source code as coloured HTML.
+
+Nupp is highlighted by the compiler's own lexer, which is the only highlighter
+that agrees with the compiler about what a token is, and which knows enough to
+turn a name into a link. Every other language in a fenced block is handed to
+Scintillua, whose lexers are vendored; without them a block renders as plain
+escaped text.
+]]
+
+local lexer = require("nupp.lexer")
+local stringsMod = require("nupp.doc.strings")
+local filesMod = require("nupp.doc.files")
+
+local htmlEscape = stringsMod.htmlEscape
+local join, dirname, exists = filesMod.join, filesMod.dirname, filesMod.exists
+
+local highlight = {}
+local TYPE_NAMES = {
+    any = true, boolean = true, cdata = true, integer = true, never = true,
+    metatable = true, number = true, string = true, table = true, thread = true,
+    unknown = true, userdata = true,
+}
+
+local CONTEXTUAL_KEYWORDS = {
+    ["as"] = true, borrows = true, cdef = true, inout = true, takes = true,
+    const = true, enum = true, global = true,
+    interface = true, ["is"] = true, own = true, record = true,
+    metamethod = true, where = true, with = true,
+    releases = true, retains = true, struct = true, unsafe = true,
+}
+
+local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}
+
+local PUNCTUATION = {
+    ["("] = true, [")"] = true, ["["] = true, ["]"] = true,
+    ["{"] = true, ["}"] = true, [","] = true, [";"] = true,
+    [":"] = true, ["."] = true, ["@"] = true,
+}
+
+local TYPE_DECLARATIONS = {
+    enum = true, interface = true, record = true, struct = true, type = true,
+}
+
+local function qualifiedName(tokens, index)
+    local name = tokens[index].text
+    local cursor = index - 1
+    while cursor > 1 and tokens[cursor].text == "."
+        and tokens[cursor - 1].kind == "name" do
+        name = tokens[cursor - 1].text .. "." .. name
+        cursor = cursor - 2
+    end
+    return name
+end
+
+local function tokenStyle(tokens, index)
+    local token = tokens[index]
+    local previous = tokens[index - 1]
+    local following = tokens[index + 1]
+    if token.kind == "name" then
+        if CONTEXTUAL_KEYWORDS[token.text] then return "keyword" end
+        if TYPE_NAMES[token.text] or token.text:match("^%u") then return "type" end
+        if previous and previous.text == "@" then return "meta" end
+        if previous and previous.kind == "function" then return "function" end
+        if previous and previous.text == "metamethod" then return "function" end
+        if previous and TYPE_DECLARATIONS[previous.text] then return "type" end
+        if following and following.text == "(" then return "function" end
+        if previous and (previous.text == "." or previous.text == ":") then
+            return "property"
+        end
+        return "variable"
+    elseif lexer.KEYWORDS[token.kind] then
+        return LITERAL_KEYWORDS[token.text] and "boolean" or "keyword"
+    elseif token.kind == "string" or token.kind == "istringOpen"
+        or token.kind == "istringMid" or token.kind == "istringClose" then
+        return "string"
+    elseif token.kind == "number" then
+        return "number"
+    elseif PUNCTUATION[token.text] then
+        return token.text == "@" and "meta" or "punctuation"
+    end
+    return "operator"
+end
+
+local function tokenClasses(style, text)
+    if style == "type" then return "token class-name nuppdoc-token-type" end
+    if style == "meta" then return "token directive nuppdoc-token-meta" end
+    if style == "keyword" then
+        return "token keyword keyword-" .. text:gsub("[^%w%-]", "-")
+            .. " nuppdoc-token-keyword"
+    end
+    return "token " .. style .. " nuppdoc-token-" .. style
+end
+
+local function declarationName(tokens, index)
+    local previous = tokens[index - 1]
+    return previous and (previous.kind == "function"
+        or previous.text == "metamethod"
+        or TYPE_DECLARATIONS[previous.text])
+end
+
+local function highlightNupp(source, links)
+    local tokens = lexer.lex(source, "documentation-code-block.nupp")
+    local out = {}
+    for index, token in ipairs(tokens) do
+        for _, trivia in ipairs(token.trivia) do
+            if trivia.kind == "comment" or trivia.kind == "hashbang" then
+                out[#out + 1] = '<span class="token comment nuppdoc-token-comment">'
+                    .. htmlEscape(trivia.text) .. "</span>"
+            else
+                out[#out + 1] = htmlEscape(trivia.text)
+            end
+        end
+        if token.kind ~= "eof" then
+            local style = tokenStyle(tokens, index)
+            local rendered = '<span class="' .. tokenClasses(style, token.text)
+                .. '">' .. htmlEscape(token.text) .. "</span>"
+            local url = nil
+            if links and token.kind == "name" and not declarationName(tokens, index) then
+                url = links[qualifiedName(tokens, index)] or links[token.text]
+            end
+            if url then
+                rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-'
+                    .. style .. '" href="' .. htmlEscape(url) .. '">' .. rendered .. "</a>"
+            end
+            out[#out + 1] = rendered
+        end
+    end
+    return table.concat(out)
+end
+
+local SCINTILLUA_ALIASES = {
+    ["c++"] = "cpp", html = "hypertext", js = "javascript",
+    md = "markdown", sh = "bash", shell = "bash", ts = "typescript",
+}
+local scintilluaDirectory, scintilluaLibrary = nil, nil
+local scintilluaLexers = {}
+
+local function configureScintillua(root, settings)
+    local moduleSource = debug.getinfo(1, "S").source
+    moduleSource = moduleSource:sub(1, 1) == "@" and moduleSource:sub(2) or ""
+    local candidates = {}
+    if settings.lexers then candidates[#candidates + 1] = join(root, settings.lexers) end
+    candidates[#candidates + 1] = join(root, "vendor/scintillua")
+    -- A build copies the lexers as resources, which keeps them under vendor/ beside the
+    -- compiled modules rather than inside them. How far above this file that is depends
+    -- on how deep the module itself sits, so every ancestor within reach is offered.
+    local ancestor = moduleSource ~= "" and dirname(moduleSource) or nil
+    for _ = 1, 4 do
+        if not ancestor or ancestor == "." or ancestor == "/" then break end
+        candidates[#candidates + 1] = join(ancestor, "vendor/scintillua")
+        ancestor = dirname(ancestor)
+    end
+    for _, candidate in ipairs(candidates) do
+        if exists(join(candidate, "lexer.lua")) then
+            if scintilluaDirectory ~= candidate then
+                scintilluaDirectory, scintilluaLibrary = candidate, nil
+                scintilluaLexers = {}
+            end
+            return
+        end
+    end
+    scintilluaDirectory, scintilluaLibrary, scintilluaLexers = nil, nil, {}
+end
+
+local function loadScintillua(language)
+    if not scintilluaDirectory then return nil end
+    language = tostring(language or ""):lower()
+    language = SCINTILLUA_ALIASES[language] or language
+    if not language:match("^[%w_+-]+$") then return nil end
+    if scintilluaLexers[language] ~= nil then
+        return scintilluaLexers[language] or nil
+    end
+    if not scintilluaLibrary then
+        local chunk = loadfile(join(scintilluaDirectory, "lexer.lua"))
+        if not chunk then return nil end
+        local ok, library = pcall(chunk)
+        if not ok or type(library) ~= "table" then return nil end
+        library.property = setmetatable({
+            ["scintillua.lexers"] = scintilluaDirectory,
+        }, {
+            __index = function() return "" end,
+            __newindex = function(t, key, value)
+                rawset(t, key, tostring(value))
+            end,
+        })
+        scintilluaLibrary = library
+    end
+    local ok, loaded = pcall(scintilluaLibrary.load, language)
+    scintilluaLexers[language] = ok and loaded or false
+    return ok and loaded or nil
+end
+
+local function scintilluaStyle(tag)
+    local base = tostring(tag or "default"):match("^[^%.]+")
+    if base == "whitespace" or base == "default" then return nil end
+    if base == "comment" then return "comment" end
+    if base == "keyword" then return "keyword" end
+    if base == "string" or base == "regex" then return "string" end
+    if base == "number" then return "number" end
+    if base == "function" or base == "label" then return "function" end
+    if base == "type" or base == "class" then return "type" end
+    if base == "preprocessor" or base == "annotation" then return "meta" end
+    if base == "operator" then return "operator" end
+    if base == "constant" then return "boolean" end
+    if base == "property" then return "property" end
+    if base == "identifier" or base == "variable" then return "variable" end
+    return nil
+end
+
+local function highlightScintillua(source, language)
+    local loaded = loadScintillua(language)
+    if not loaded then return nil end
+    local ok, tags = pcall(loaded.lex, loaded, source)
+    if not ok or type(tags) ~= "table" then return nil end
+    local out, start = {}, 1
+    for index = 1, #tags, 2 do
+        local finish = tonumber(tags[index + 1])
+        if not finish then return nil end
+        local text = source:sub(start, finish - 1)
+        local style = scintilluaStyle(tags[index])
+        if style then
+            out[#out + 1] = '<span class="' .. tokenClasses(style, text)
+                .. '">' .. htmlEscape(text) .. '</span>'
+        else
+            out[#out + 1] = htmlEscape(text)
+        end
+        start = finish
+    end
+    if start <= #source then out[#out + 1] = htmlEscape(source:sub(start)) end
+    return table.concat(out)
+end
+
+local function codeHtml(source, language, links)
+    if language == "nupp" then return highlightNupp(source, links) end
+    return highlightScintillua(source, language) or htmlEscape(source)
+end
+
+highlight.nuppSource = highlightNupp
+highlight.codeHtml = codeHtml
+highlight.configureScintillua = configureScintillua
+
+return highlight

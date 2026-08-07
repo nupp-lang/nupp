@@ -1,0 +1,555 @@
+; Nupp formal grammar — normative reference for src/nupp/parser.lua
+;
+; Notation: ABNF per RFC 5234 with RFC 7405 case-sensitivity — every quoted
+; terminal here is CASE-SENSITIVE (read "if" as %s"if"). Rule layering encodes
+; operator precedence and associativity. Context-sensitive constructs that ABNF
+; cannot express are marked [CS-n] and specified in the Notes section at the
+; bottom. Whitespace and comments (trivia) may appear between any two tokens
+; and are defined in the lexical grammar; the syntactic grammar is written
+; over the token stream.
+;
+; LEVEL 0: the untyped base language — LuaJIT 3.0's Lua dialect per the
+; syntax-extension umbrella issue LuaJIT/LuaJIT#1475, in full: bit
+; operators, customary operators, floor division, ternary conditional,
+; safe navigation, nil-coalescing, compound assignment, continue, const,
+; short functions, named varargs, underscores in numerals, and cdata
+; number literal suffixes. Nupp adds interpolated strings, `??=`, and
+; type annotations on short-function parameters; it takes nothing away.
+; LEVEL 1: the typed layer (annotations, generics, record/interface/
+; enum/struct declarations, cdef C declarations, short-function
+; parameter annotations). Both levels are implemented.
+
+;;; ------------------------------------------------------------------
+;;; Syntactic grammar
+;;; ------------------------------------------------------------------
+
+chunk          = block
+
+block          = *stat [retstat]
+
+stat           = ";"
+               / ifstat
+               / whilestat
+               / dostat
+               / forstat
+               / repeatstat
+               / funcstat
+               / localstat
+               / conststat
+               / withstat
+               / label
+               / "break"
+               / continuestat
+               / gotostat
+               / exprstat
+
+ifstat         = "if" exp "then" block
+                 *("elseif" exp "then" block)
+                 ["else" block]
+                 "end"
+
+whilestat      = "while" exp "do" block "end"
+
+dostat         = "do" block "end"
+
+forstat        = "for" (fornum / forin)
+fornum         = Name "=" exp "," exp ["," exp] "do" block "end"
+forin          = namelist "in" explist "do" block "end"
+
+repeatstat     = "repeat" block "until" exp
+
+continuestat   = %s"continue"                   ; soft keyword [CS-13]
+
+funcstat       = "function" funcname funcbody
+funcname       = Name *("." Name) [":" Name]
+
+localstat      = "local" ("function" Name funcbody
+                          / namelist ["=" explist])
+conststat      = %s"const" ("function" Name funcbody
+                             / namelist ["=" explist]) ; soft keyword [CS-5]
+
+withstat       = %s"with" withbinding *("," withbinding)
+                 "do" block "end"                    ; soft keyword [CS-17]
+withbinding    = bindname "=" exp
+
+label          = "::" Name "::"
+gotostat       = "goto" Name
+
+retstat        = "return" [explist] [";"]
+
+; An expression statement is either an assignment or a call. The parser
+; commits after reading one suffixedexp: "=" or "," continues an assignment;
+; otherwise the suffixedexp must be a call form. [CS-1]
+exprstat       = varlist "=" explist
+               / callexp
+varlist        = var *("," var)
+var            = suffixedexp                    ; must end in a Name or index suffix [CS-1]
+callexp        = suffixedexp                    ; must end in a call suffix [CS-1]
+
+funcbody       = "(" [parlist] ")" block "end"
+parlist        = namelist ["," ("..." / "..." Name)]
+               / "..."
+               / "..." Name                    ; named vararg [CS-12]
+
+namelist       = Name *("," Name)
+explist        = exp *("," exp)
+
+;;; Expressions — precedence encoded by layering, loosest first.
+;;; Binary layers are left-associative unless stated otherwise.
+
+exp            = condexp
+
+; Ternary conditional (LJ 3.0). Right-associative via the recursive third arm.
+; The second arm may not directly contain a method call. [CS-2]
+condexp        = orexp ["?" exp ":" condexp]
+
+; The "customary operators" (! && || !=) are alternate spellings of
+; not/and/or/~= and mean exactly the same thing, so the grammar names both
+; and everything after the lexer sees only the classic form. Writing one
+; raises the `customary-operator` lint, which is a house-style judgement a
+; project turns off; it is not a restriction. [CS-19]
+; Nil-coalescing (LJ 3.0): yields the left unless it is nil, so unlike
+; "or" it keeps a false value. Binds at the same tier as "or".
+orexp          = andexp *(("or" / "||" / "??") andexp)
+andexp         = cmpexp *(("and" / "&&") cmpexp)
+cmpexp         = borexp *(cmpop borexp)
+cmpop          = "<" / ">" / "<=" / ">=" / "~=" / "!=" / "=="
+borexp         = bxorexp *("|" bxorexp)
+bxorexp        = bandexp *("~" bandexp)
+bandexp        = shiftexp *("&" shiftexp)
+shiftexp       = catexp *(shiftop catexp)
+shiftop        = "<<" / ">>" / "~>>"
+catexp         = addexp [".." catexp]           ; right-associative
+addexp         = mulexp *(("+" / "-") mulexp)
+mulexp         = unexp *(mulop unexp)
+mulop          = "*" / "/" / "//" / "%"
+unexp          = unop unexp / powexp
+unop           = "not" / "!" / "#" / "-" / "~"
+powexp         = simpleexp ["^" unexp]          ; right-assoc; binds tighter than
+                                                ; unary on the left: -x^2 = -(x^2)
+
+simpleexp      = Numeral
+               / LiteralString
+               / IString
+               / "nil" / "true" / "false"
+               / "..."
+               / functiondef
+               / shortfn
+               / tableconstructor
+               / suffixedexp
+
+functiondef    = "function" funcbody
+
+; Short function expression (LuaJIT 3.0): |a, b| -> expr / x -> expr /
+; "||" for no parameters / -> do ... end for a block. "||" is one token,
+; shared with `or`, and position decides which it is [CS-19].
+; Nupp extension: parameters may carry type annotations.
+shortfn        = shortparams "->" (exp / "do" block "end")
+shortparams    = Name                              ; single untyped param
+               / "||"                              ; no parameters
+               / "|" [shortparam *("," shortparam)] "|"
+shortparam     = Name [":" posttype]
+               / "..." Name [":" posttype]        ; named vararg [CS-12]
+                                                   ; a top-level union "|"
+                                                   ; would be ambiguous with
+                                                   ; the closing pipe: use
+                                                   ; parens, |v: (A | B)| ->
+
+suffixedexp    = primaryexp *suffix
+primaryexp     = Name / "(" exp ")"
+suffix         = "." Name [ffitypearg]           ; [CS-14]
+ffitypearg     = "<" type ">"                   ; ffi.new<T>, ffi.cast<T>, ...
+               / "[" exp "]"
+               / methodcall                     ; method call [CS-2]
+               / callargs
+               / "?." safesuffix                ; safe navigation (LJ 3.0)
+; A method call takes the safe-navigation check on the receiver (through
+; safesuffix, as obj?.:m()), on the method (obj:m?.()), or on both.
+methodcall     = ":" Name ["?."] callargs
+safesuffix     = Name
+               / "[" exp "]"
+               / callargs
+               / methodcall                     ; obj?.:m(...)
+callargs       = "(" [explist] ")"
+               / tableconstructor
+               / LiteralString
+
+tableconstructor = "{" [fieldlist] "}"
+fieldlist      = field *(fieldsep field) [fieldsep]
+field          = "[" exp "]" "=" exp
+               / Name "=" exp
+               / exp
+fieldsep       = "," / ";"
+
+;;; ------------------------------------------------------------------
+;;; Lexical grammar
+;;; ------------------------------------------------------------------
+
+; A source file is a sequence of tokens with trivia interleaved. A BOM and a
+; hashbang line may only appear at the very start of the file.
+
+Trivia         = Whitespace / Comment / Hashbang / BOM
+Whitespace     = 1*(%x20 / %x09 / %x0A / %x0B / %x0C / %x0D)
+Comment        = "--" (LongBracket / *(%x00-09 / %x0B-10FFFF))   ; to end of line
+Hashbang       = "#" *(%x00-09 / %x0B-10FFFF)                    ; only at offset 0
+BOM            = %xEF.BB.BF                                       ; only at offset 0
+
+Name           = NameStart *NameChar                              ; minus Keyword
+NameStart      = %x41-5A / %x61-7A / "_"
+NameChar       = NameStart / DIGIT
+Keyword        = "and" / "break" / "do" / "else" / "elseif" / "end" / "false"
+               / "for" / "function" / "goto" / "if" / "in" / "local" / "nil"
+               / "not" / "or" / "repeat" / "return" / "then" / "true"
+               / "until" / "while"
+
+Numeral        = (HexNumeral / DecNumeral) [NumSuffix] ; separators [CS-11]
+DecNumeral     = 1*DIGIT ["." *DIGIT] [DecExponent]
+               / "." 1*DIGIT [DecExponent]
+DecExponent    = ("e" / "E") ["+" / "-"] 1*DIGIT
+HexNumeral     = "0" ("x" / "X") 1*HEXDIG ["." *HEXDIG] [HexExponent]
+HexExponent    = ("p" / "P") ["+" / "-"] 1*DIGIT
+; cdata literal suffixes (LuaJIT): 64-bit integers and imaginary numbers.
+; Case-insensitive; ULL order only (no LLU).
+NumSuffix      = IntSuffix / ImagSuffix
+IntSuffix      = [("u" / "U")] ("l" / "L") ("l" / "L")
+ImagSuffix     = "i" / "I"
+; A Numeral immediately followed by a NameChar is malformed. [CS-3]
+
+; Interpolated string (Nupp extension, not in LuaJIT 3.0): backtick-
+; delimited, may span lines, "${" exp "}" splices values (tostring
+; semantics at runtime). Braces inside an interpolation are matched, so
+; table constructors work; interpolations nest. Lexed as a token sequence:
+; istringOpen (`...${), expression tokens, istringMid (}...${) ...,
+; istringClose (}...`); a backtick string with no "${" is a plain
+; LiteralString. [CS-9]
+IString        = "`" *(IChar / Interp) "`"
+Interp         = "${" exp "}"
+IChar          = Escape / %x00-23 / %x25-5B / %x5D-5F / %x61-10FFFF
+               / "$"                                ; '$' not followed by '{'
+
+LiteralString  = ShortString / LongString
+ShortString    = DQUOTE *DQChar DQUOTE / "'" *SQChar "'"
+DQChar         = Escape / %x00-09 / %x0B-21 / %x23-5B / %x5D-10FFFF  ; not " \ NL
+SQChar         = Escape / %x00-09 / %x0B-26 / %x28-5B / %x5D-10FFFF  ; not ' \ NL
+Escape         = "\" %x00-10FFFF                 ; backslash + any char, incl. newline
+LongString     = LongBracket                     ; [CS-4]
+LongBracket    = "[" *"=" "[" *ANYCHAR "]" *"=" "]"
+ANYCHAR        = %x00-10FFFF
+
+;;; ------------------------------------------------------------------
+;;; LEVEL 1 — typed layer
+;;; ------------------------------------------------------------------
+; The typed layer is a strict superset: every level-0 program parses
+; identically under level 1. All new keywords are CONTEXTUAL [CS-5]; no
+; level-0 identifier becomes reserved.
+
+; Compound assignment (LJ 3.0), statement position only, which is what
+; lets "~=" be exclusive-or assignment here while it stays the inequality
+; operator in every expression: Lua has no assignment expression for the
+; two readings to meet in. An indexed target's prefix and key are each
+; evaluated once, and a "?." target suppresses both the read and the
+; write, the value expression included, on a nil receiver. "??=" is a Nupp
+; extension: LuaJIT lists it among the extensions it has not taken.
+stat           =/ compoundstat
+compoundstat   = var compoundop exp
+compoundop     = "+=" / "-=" / "*=" / "/=" / "//=" / "%=" / "&=" / "|="
+               / "~=" / "<<=" / ">>=" / "~>>=" / "..=" / "??="
+
+; The checker resolves the extensible annotation registry and validates each
+; annotation's attachment target. See annotations.md. Parsing remains general
+; so unknown annotations survive losslessly and receive a semantic diagnostic.
+stat           =/ annotatedstat
+annotatedstat  = annotation stat
+annotation     = "@" Name [annotationargs]
+annotationargs = "(" [annotationarg *("," annotationarg)] ")"
+annotationarg  = [Name "="] exp
+; @owned(cleanup, ...) decorates a function with an ordered, erased cleanup
+; contract for its first return. Bare @owned resolves one inherited @dispose
+; operation; @owned(opaque = true) is explicitly transfer-only. On cdef
+; functions, @owned(out = p, cleanup = f, success = zero) and
+; @borrowed(out = p, from = source, success = zero) describe logical outputs.
+
+stat           =/ unsafestat
+unsafestat     = %s"unsafe" "do" block "end"  ; permit unproved FFI operations;
+                                                ; affine checks remain active
+
+; Typed declaration visibility is contextual [CS-5]. `local` is file-private,
+; no modifier exports from the module, and `global` enters the project globals.
+stat           =/ typedeclstat
+localstat      = "local" ("function" Name funcbody
+                          / bindlist ["=" explist])
+conststat      = %s"const" ("function" Name funcbody
+                             / bindlist ["=" explist])
+bindlist       = bindname *("," bindname)
+bindname       = Name [":" type]
+
+typedeclstat   = ["local" / "global"] typedecl
+typedecl       = "type" declname [generics] "=" type
+               / recordkw declname [generics] [contracts] [refinement]
+                 recordbody "end"
+               / "enum" declname *LiteralString "end"
+declname       = Name *("." Name)               ; a qualified name assigns the
+                                                ; declaration to that table,
+                                                ; the way "function M.f" does
+recordkw       = "record" / "interface" / "struct"
+recordbody     = *(arraypart / annotatedentry / typedecl)
+                                                ; nested decls allowed
+contracts      = "is" type *("," type)
+refinement     = "where" exp
+arraypart      = "{" type "}"                  ; the record is also a
+                                                ; sequence of this element
+                                                ; type; a struct has none
+annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod)
+                                                ; metadata attaches to one entry
+fielddecl      = Name ":" type                 ; one explicit type per field;
+                                                ; grouped names are rejected
+                                                ; with a targeted error
+metamethoddecl = "metamethod" Name ":" functype
+inlinemethod   = "function" Name funcbody       ; implicit self receiver
+
+; C declarations [CS-10]: "cdef" is contextual. Fields and parameters use
+; the same one-explicit-type-per-name rule as everywhere else; "..." is a
+; C vararg. @owned(cleanup, ...) marks a returned pointer as caller-owned
+; without changing the ABI type or attaching a runtime finalizer.
+stat           =/ cdefstat
+cdefstat       = "cdef" ("struct" Name *fielddecl "end"
+                         / "function" Name "(" [cdefparlist] ")" [":" cdefret]
+                           [cdeflib])
+cdeflib        = "from" LiteralString            ; resolve through ffi.load;
+                                                 ; omitted = default namespace
+cdefparlist    = cdefparam *("," cdefparam)
+cdefparam      = [cdefmode] Name ":" type
+               / "..."                          ; C varargs, must be last
+cdefret        = type
+cdefmode       = ownershipmode / %s"out"         ; out is logical in Lua and
+                                                ; remains positional in C
+
+; Function signatures (statement and expression positions):
+funcbody       = [generics] "(" [parlist] ")" [":" rettypes] block "end"
+parlist        = param *("," param)
+param          = [ownershipmode] Name [":" type]
+               / "..." [":" type]               ; must be last
+               / "..." Name [":" type]          ; named vararg [CS-12]
+ownershipmode  = %s"takes" / %s"borrows" / %s"inout" / %s"retains" / %s"releases"
+                                                 ; contextual before a name
+rettypes       = predicate / borrowret / (type *("," type))
+                                                ; statement position only [CS-7]
+borrowret      = type %s"borrows" borrowroots   ; [CS-18] the result depends
+                                                ; on every named root
+borrowroots    = Name / "(" Name *("," Name) ")"
+predicate      = Name %s"is" type               ; [CS-16] the function answers
+                                                ; whether that parameter holds
+                                                ; the type; the value returned
+                                                ; is a boolean
+generics       = "<" genericparam *("," genericparam) ">"
+genericparam   = Name ["is" type]
+
+; Expression extensions (contextual operators [CS-6]):
+;   castexp: "e as T" binds at the mulexp tier (tighter than .. and + -)
+;   isexp:   "e is T" binds at the cmpexp tier
+mulexp         =/ unexp *("as" type)
+cmpexp         =/ borexp *("is" type)
+
+; Types:
+type           = posttype *("|" posttype)       ; union
+posttype       = primtype *("?" / "*" / carraysuffix)
+                                                ; optional / pointer / C array,
+                                                ; postfix, left to right:
+                                                ; T*? = nullable ptr
+carraysuffix   = "[" ("?" / Numeral) "]"        ; T[?] variable-length,
+                                                ; T[N] fixed. Zero-based cdata,
+                                                ; unlike the one-based {T}.
+primtype       = ["const"] primtype              ; read-only view [CS-15]
+               / LiteralString                  ; a literal type: the set
+                                                ; containing just that value
+               / "nil"
+               / typename
+               / tabletype
+               / functype
+               / "(" type ")"
+typename       = Name *("." Name) ["<" type *("," type) ">"]
+tabletype      = "{" tablebody "}"
+tablebody      = "[" type "]" ":" type          ; map (Luau-style indexer) [CS-8]
+               / shapefield *("," shapefield)   ; inline shape [CS-8]
+               / type *("," type)               ; one = array, several = tuple
+shapefield     = Name ":" type
+functype       = "function" [generics] "(" [ftparams] ")" [":" ftret]
+ftparams       = ftparam *("," ftparam)
+ftparam        = [ownershipmode] Name ":" type  ; named [CS-8 lookahead]
+               / "..." [":" type]
+               / type
+ftret          = "(" type *("," type) ")"       ; multi-return needs parens [CS-7]
+               / type
+
+;;; ------------------------------------------------------------------
+;;; Notes — context-sensitive rules ABNF cannot express
+;;; ------------------------------------------------------------------
+;
+; [CS-1] Expression statements. The parser reads one suffixedexp, then decides:
+;   a following "=", "," or a compound operator makes the statement an
+;   assignment (each var in the varlist must be an lvalue: a bare Name, or a
+;   suffixedexp whose final suffix is "." Name, "[" exp "]", or a "?." index —
+;   never a call); otherwise the suffixedexp itself must end in a call suffix
+;   (callargs, method call, or "?." callargs). Anything else is a syntax error.
+;
+; [CS-2] Ternary vs. method call. Inside the SECOND arm of condexp (between
+;   "?" and ":"), a method-call suffix is not permitted at any depth unless
+;   enclosed in parentheses, brackets, a table constructor, or call arguments —
+;   the ":" would be ambiguous with the ternary's own ":". This covers the
+;   safe-navigation spellings too, "obj?.:m()" included, even though the "?."
+;   in front of the ":" would tell them apart: LuaJIT refuses them there, and
+;   conformity is worth more than the case. Use "cond ? (obj:m()) : e".
+;   (Follows LuaJIT/LuaJIT#1475.)
+;
+; [CS-3] Numeral boundary. A Numeral token extends through its optional suffix;
+;   if the character immediately after is a NameChar, the whole run is a single
+;   malformed-number error token (e.g. "0x", "12abc", "1LLx").
+;
+; [CS-4] Long brackets. The closing bracket of a LongBracket must contain
+;   exactly as many "=" as the opening bracket ("[==[" closes with "]==]"),
+;   and the body extends to the FIRST such closer. Unterminated long strings
+;   and comments are error tokens extending to end of file.
+;
+; [CS-5] Contextual keywords. A declaration is recognized only when the
+;   declared name sits on the introducer's own line AND the token after it
+;   fits the form: an alias ("type") continues with "=" or generics, a body
+;   form ("record"/"interface"/"struct"/"enum") continues with anything
+;   other than "=" or ",". Two tokens of lookahead are not enough --
+;       local record
+;       i, j = f()
+;   has a name after the introducer and is still ordinary Lua. "type", "record", "interface", "struct", and
+;   "enum" are declaration introducers at statement position, optionally
+;   directly after "local" or "global", only when the next token is a Name.
+;   In every other position they are ordinary identifiers ("local record = 5",
+;   "global = 5", and "type(x)" keep their level-0 meaning). The contextual
+;   declaration shape keeps Lua's `type(x)` builtin unambiguous. The same applies
+;   inside recordbody for nested declarations. A local alias has one deliberate
+;   overlap with level 0: Lua reads `local type Alias = value` as the two
+;   adjacent statements `local type` and `Alias = value`, while level 1 reads
+;   it as an alias. Put a newline or semicolon after `type` to select the Lua
+;   meaning explicitly. Every bare declaration form is invalid Lua.
+;   LuaJIT's `const` is likewise a soft keyword: at statement position it
+;   introduces a block-scoped immutable local when followed by a Name or
+;   `function`; elsewhere it remains an ordinary identifier. A const binding
+;   cannot be assigned or redeclared in the same or an inner scope, including
+;   as a function parameter. The referenced contents of a table remain mutable.
+;
+; [CS-6] Contextual operators. "as" and "is" act as operators only in binary-
+;   operator position (after a complete operand) AND only when they appear on
+;   the same line as the preceding token — so the level-0 statement sequence
+;   "x = a" / "is(b)" on separate lines keeps its meaning. As identifiers
+;   they are untouched. Their right operand is a type, not an expression.
+;
+; [CS-7] Function-type returns. In a TYPE position (annotation, field, param),
+;   a function type's return list after ":" is a single type unless
+;   parenthesized: "function(): (number, string)". In STATEMENT position
+;   (funcbody of a function definition), the return list may be written
+;   without parens ("function f(): number, string") because the following
+;   block delimits it. This avoids ambiguity with the enclosing
+;   comma-separated annotation list.
+;
+; [CS-8] Table types. "{[K]: V}" is a map (explicit indexer), "{x: T, ...}"
+;   an inline shape (disambiguated from array element types by the Name-":"
+;   lookahead), "{T}" an array, "{T, U, ...}" a tuple. The explicit
+;   indexer is what lets inline shapes and maps coexist in one grammar.
+;   The ternary "?" never collides with the optional-type "?": ternary
+;   requires a complete expression on its left inside an expression context,
+;   while the optional marker appears only inside a type context; the two
+;   grammars never overlap on the same token.
+;
+; [CS-9] Interpolated strings. Inside "${ ... }" the lexer counts "{"/"}"
+;   pairs, so a "}" only terminates the interpolation at depth zero (table
+;   constructors inside interpolations work). Backtick strings inside an
+;   interpolation start a nested interpolated string. Backslash escapes
+;   "`" and "$". Raw newlines are permitted.
+;
+; [CS-10] cdef. "from" is contextual too: it introduces the library clause
+;   only directly after a cdef function signature and before a string, so
+;   "local from = 1" keeps its level-0 meaning.
+;   "cdef" introduces a C declaration only when followed by
+;   the contextual name "struct" plus a Name, or by the "function" keyword;
+;   in every other position it is an ordinary identifier ("local cdef = 5"
+;   keeps its level-0 meaning). A bare-name statement is invalid in level
+;   0, so the declaration forms collide with nothing.
+;
+; [CS-11] Numeric separators. After the initial digit of a Numeral, every
+;   underscore is ignored before matching DecNumeral, HexNumeral, exponent,
+;   and suffix syntax. This permits separators anywhere in those components,
+;   including spellings such as "1_000", "0_x_ff", and "1_e_3". A leading
+;   underscore remains part of a Name, and string-to-number conversions do
+;   not apply this source-level rule.
+;
+; [CS-12] Named varargs. The Name in "...Name" must be directly adjacent to
+;   the dots, with no trivia between them, and the parameter must be last.
+;   It binds a const table whose integer keys contain the arguments and whose
+;   `n` field contains their count; the ordinary "..." expression remains
+;   available. Named varargs are also accepted in short-function pipe lists.
+;
+; [CS-13] Continue. "continue" is recognized as a control-flow statement only
+;   when it is the last statement of a nested block. It targets the innermost
+;   enclosing loop and cannot cross a function boundary. In all other
+;   positions it remains an ordinary Name.
+;
+; [CS-14] FFI type arguments. `ffi.new<T>()` and the other operations the
+;   checker knows about take a type between angle brackets. Only those
+;   names accept one, and only when reached through `ffi.`, so the general
+;   ambiguity does not arise: `a < b > (c)` is ordinary Lua everywhere
+;   else, including `t.new < a > b` on a table of your own.
+;
+; [CS-15] The `const` type modifier. `const` is already a statement soft
+;   keyword and may also name a type. In type position it modifies the
+;   type that follows, and only when one does: `x: const` is the type
+;   named const, `x: const?` and `x: const | T` likewise, while
+;   `x: const P*` is a read-only pointer. The only thing lost is naming a
+;   type `const` and immediately following it with another type, which was
+;   never valid.
+;
+; [CS-16] Predicate return types. `is` is a soft keyword already used as an
+;   expression operator. A return annotation of the form `Name is type` is a
+;   predicate: the Name must be a parameter of that function, and the type
+;   must be one that parameter could hold. The function returns a boolean;
+;   what the annotation adds is that a call used as a condition narrows the
+;   argument, exactly as writing `arg is type` there would. The body is
+;   trusted, which is the point: it is where a test the checker cannot see
+;   through gets declared once instead of cast at every use.
+;
+; [CS-17] Explicit resource scopes. "with" begins this production only at
+;   statement position when followed by Name and then "=" or ":". The
+;   parser commits after that bounded lookahead. Unlike CS-5 declarations,
+;   the first binding may begin on the following line.
+;
+; [CS-18] Borrowing returns. `borrows` is already a soft keyword for a
+;   parameter mode; after a return type it names one parameter, or a
+;   parenthesized list of parameters, the result borrows from. The result may
+;   not outlive any named argument, and no source may move while it is live.
+;   On a method the source may be left out by
+;   writing the return as `borrowed<T>`: the receiver is the only thing it
+;   could name. Where the function also carries `@owned`, the result stays
+;   owned and holds the borrow as well, which is what a layered resource is.
+;   A Nupp body must prove the declared result provenance. A bodyless
+;   declaration remains a trusted boundary contract, as foreign ownership is.
+;
+; [CS-19] Customary operators. "!", "&&", "||" and "!=" are alternate
+;   spellings of "not", "and", "or" and "~=". The lexer emits the classic
+;   token kind and keeps the written bytes as its text, so precedence,
+;   associativity, narrowing and code generation know only one form, and only
+;   the `customary-operator` lint and the formatter can tell which was used.
+;   "||" is also the empty parameter list of a short function. That is a
+;   position rather than a spelling: at the start of an operand "||" can only
+;   begin "|| -> e", and after a complete operand it can only be "or". So it
+;   stays one token and the parser, which knows which position it is in,
+;   decides. The consequence is that "a||b" now reads as "a or b" where it
+;   used to be a parse error, and that a union type must be written "A | B"
+;   rather than "A||B", which was never a type either.
+;   The one place the fold is undone is compound assignment. "~=" and "!=" are
+;   one token kind, but only "~=" is exclusive-or assignment: "!=" spells
+;   inequality and nothing else, so "a != b" at statement position stays what
+;   it was, an expression that is not a statement. Diagnostics likewise quote
+;   the spelling that was written rather than the kind it folded to.
+;
+; Associativity summary: "..", "^", and the ternary condexp are right-
+; associative; every other binary layer is left-associative. Precedence from
+; loosest to tightest: ternary; or/||/??; and/&&; comparisons; |; ~ (xor); &;
+; << >> ~>>; ..; + -; * / // %; unary (not ! # - ~); ^; suffixes (. : [] () ?.).
+; (Bit/shift placement follows Lua 5.3's precedence table for conformity;
+; semantics of the operators follow LuaJIT's bit.* library, not Lua 5.3.)

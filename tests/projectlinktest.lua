@@ -1,0 +1,423 @@
+local parser = require("nupp.parser")
+local check = require("nupp.check")
+local envMod = require("nupp.env")
+local fmt = require("nupp.fmt")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local cwdPipe = assert(io.popen("pwd"))
+local currentDir = assert(cwdPipe:read("*l"))
+cwdPipe:close()
+local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/..")
+   or (currentDir .. "/" .. HERE .. "/..")
+
+local function assertEq(got, want, label)
+   if got ~= want then
+      error(("%s: want %s, got %s"):format(label or "mismatch",
+         tostring(want), tostring(got)), 2)
+   end
+end
+
+local function readFile(path)
+   local file = assert(io.open(path, "rb"))
+   local text = file:read("*a")
+   file:close()
+   return text
+end
+
+local function writeFile(path, text)
+   local parent = assert(path:match("^(.*)[/\\]"))
+   assert(os.execute("mkdir -p '" .. parent .. "'") == 0)
+   local file = assert(io.open(path, "wb"))
+   file:write(text)
+   file:close()
+end
+
+local function withProject(files, callback)
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   for path, text in pairs(files) do writeFile(dir .. "/" .. path, text) end
+   local ok, result = pcall(callback, dir)
+   os.execute("rm -rf '" .. dir .. "'")
+   if not ok then error(result, 0) end
+   return result
+end
+
+local function checkFile(env, path)
+   local parsed = parser.parse(readFile(path), path)
+   if #parsed.errors > 0 then return parsed.errors end
+   return check.check(parsed, path, env)
+end
+
+local function projectEnv(dir)
+   return envMod.new(dir, {config = {include = {"src"}}})
+end
+
+local M = {}
+
+function M.ambiguousGlobalsCarryBothDeclarationLocations()
+   withProject({
+      ["src/a.nupp"] = "global record Shared end\n",
+      ["src/b.nupp"] = "global record Shared end\n",
+      ["src/use.nupp"] = "local value: Shared\n",
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2102")
+      assertEq(#(diags[1].related or {}), 2,
+         "both conflicting declarations are related")
+      assert(diags[1].related[1].filename:match("[ab]%.nupp$"),
+         "related location names its file")
+      assert(diags[1].help:find("module tables", 1, true),
+         "diagnostic gives a repair direction")
+   end)
+end
+
+-- A declaration has to say where it lives. Plain Lua would have made an
+-- undecorated name a global, so the same spelling is refused rather than
+-- quietly meaning something else here.
+function M.rejectsADeclarationWithNoVisibility()
+   withProject({
+      ["src/model.nupp"] = "local model = {}\nrecord Loose\n    id: uint32\n"
+         .. "end\nreturn model\n",
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/model.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2119",
+         "a declaration naming no visibility is refused")
+      assert(diags[1].msg:find("model.Loose", 1, true),
+         "the message names the table it would attach to: " .. diags[1].msg)
+   end)
+end
+
+-- Attaching to some other table is not an export: only the table the file
+-- hands back is the module.
+function M.aDeclarationOnAnotherTableStaysFilePrivate()
+   withProject({
+      ["src/model.nupp"] = [[
+local model = {}
+local internal = {}
+
+record internal.Hidden
+    id: uint32
+end
+
+return model
+]],
+      ["src/use.nupp"] = "local model = require(\"model\")\n"
+         .. "local hidden: model.Hidden\n",
+   }, function(dir)
+      local env = projectEnv(dir)
+      assertEq(#checkFile(env, dir .. "/src/model.nupp"), 0,
+         "attaching to a file-local table is fine")
+      local diags = checkFile(env, dir .. "/src/use.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2101",
+         "a declaration on another table is not a module member")
+   end)
+end
+
+-- The module is still the module when it is handed back wrapped.
+function M.recognizesAModuleReturnedThroughSetmetatable()
+   withProject({
+      ["src/model.nupp"] = [[
+local model = {}
+
+record model.Wrapped
+    id: uint32
+end
+
+return setmetatable(model, {})
+]],
+      ["src/use.nupp"] = "local model = require(\"model\")\n"
+         .. "local w: model.Wrapped = model.Wrapped{id = 1}\n",
+   }, function(dir)
+      assertEq(#checkFile(projectEnv(dir), dir .. "/src/use.nupp"), 0,
+         "setmetatable(M, ...) still returns M")
+   end)
+end
+
+function M.linksExportedTypesAndModulesAcrossProject()
+   withProject({
+      ["src/model.nupp"] = [[
+local model = {}
+
+type model.EntityId = uint32
+
+record model.Entity
+    id: model.EntityId
+end
+
+local type Secret = string
+
+model.value = 42
+
+return model
+]],
+      ["src/feature/use.nupp"] = [[
+local model = require("model")
+
+local id: model.EntityId = 7
+local entity: model.Entity
+local value: number = model.value
+]],
+   }, function(dir)
+      local path = dir .. "/src/feature/use.nupp"
+      assertEq(#checkFile(projectEnv(dir), path), 0,
+         "project links through the module a declaration was attached to")
+   end)
+end
+
+function M.keepsLocalTypesFilePrivate()
+   withProject({
+      ["src/model.nupp"] = "local type Secret = string\n",
+      ["src/use.nupp"] = "local value: Secret\n",
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2101",
+         "local type visibility")
+   end)
+end
+
+-- Two modules may each attach an `Item`, because neither name is loose in the
+-- project: reaching one means naming the module it was attached to.
+function M.qualifiesProjectTypesByModule()
+   withProject({
+      ["src/a/shared.nupp"] = "local shared = {}\ntype shared.Item = string\n"
+         .. "return shared\n",
+      ["src/b/shared.nupp"] = "local shared = {}\ntype shared.Item = number\n"
+         .. "return shared\n",
+      ["src/main.nupp"] = [[
+local left: a.shared.Item = "ok"
+local right: b.shared.Item = 1
+]],
+      ["src/unqualified.nupp"] = "local value: Item\n",
+   }, function(dir)
+      local env = projectEnv(dir)
+      assertEq(#checkFile(env, dir .. "/src/main.nupp"), 0,
+         "qualified project types")
+      local diags = checkFile(env, dir .. "/src/unqualified.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2101",
+         "an unqualified project type is simply unknown")
+   end)
+end
+
+-- A module is reached by requiring it. Its basename is not a name in scope, so
+-- adding src/mathutil.nupp cannot give a bare `mathutil` a meaning somewhere
+-- else in the project. Using one without requiring it is a program that does
+-- not work, so a build refuses it rather than leaving it to run time; it is
+-- still reported once per name.
+function M.refusesAModuleUsedWithoutRequiringIt()
+   withProject({
+      ["src/mathutil.nupp"] = "local mathutil = {}\n"
+         .. "function mathutil.double(v: number): number return v * 2 end\n"
+         .. "return mathutil\n",
+      ["src/use.nupp"] = "local a: number = mathutil.double(21)\n"
+         .. "local b: number = mathutil.double(1)\n"
+         .. "local c = neverHeardOf\n",
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
+      assertEq(#diags, 1, "reported once, not per use")
+      assertEq(diags[1].code, "NUPP2120", "a missing require is reported")
+      assertEq(diags[1].severity, "error",
+         "a build refuses it rather than deferring the failure to run time")
+      assert(diags[1].msg:find('require("mathutil")', 1, true),
+         "the message names the require to write: " .. diags[1].msg)
+   end)
+end
+
+-- Advice is for a name nothing has bound. Once the require is written there is
+-- nothing to say, and a file is never told to require itself.
+function M.givesNoRequireAdviceWhenThereIsNothingToFix()
+   withProject({
+      ["src/mathutil.nupp"] = "local mathutil = {}\n"
+         .. "function mathutil.double(v: number): number return v * 2 end\n"
+         .. "return mathutil\n",
+      ["src/fixed.nupp"] = "local mathutil = require(\"mathutil\")\n"
+         .. "local a: number = mathutil.double(21)\n",
+      ["src/selfref.nupp"] = "local m = {}\nlocal x = selfref\nreturn m\n",
+   }, function(dir)
+      local env = projectEnv(dir)
+      assertEq(#checkFile(env, dir .. "/src/fixed.nupp"), 0,
+         "a written require leaves nothing to advise")
+      assertEq(#checkFile(env, dir .. "/src/selfref.nupp"), 0,
+         "a file is not told to require itself")
+   end)
+end
+
+-- The advice replaces the vaguer report rather than joining it, and says
+-- nothing about names no project file answers to.
+function M.strictReportsUnknownNamesThatAreNotModules()
+   withProject({
+      ["src/mathutil.nupp"] = "local mathutil = {}\nreturn mathutil\n",
+      ["src/use.nupp"] = "local a = mathutil.double(21)\n"
+         .. "local b = mathutil.double(1)\n"
+         .. "local c = neverHeardOf\n",
+   }, function(dir)
+      local path = dir .. "/src/use.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      local diags = check.check(parsed, path, projectEnv(dir), {strict = true})
+      local codes = {}
+      for j, d in ipairs(diags) do codes[j] = d.code end
+      assertEq(table.concat(codes, " "), "NUPP2120 NUPP2105",
+         "one advice for the module, one unknown for the name nothing answers to")
+   end)
+end
+
+function M.linksGlobalTypesWithoutImports()
+   withProject({
+      ["src/globals.nupp"] = "global type ProjectId = uint32\n",
+      ["src/use.nupp"] = "local id: ProjectId = 9\n",
+   }, function(dir)
+      assertEq(#checkFile(projectEnv(dir), dir .. "/src/use.nupp"), 0,
+         "global project type")
+   end)
+end
+
+function M.linksTypedAnnotationsAcrossProjectFiles()
+   withProject({
+      ["src/model/traits.nupp"] = [[
+@annotation(targets = {"record"})
+record documentation
+    @annotationValue
+    text: string
+end
+]],
+      ["src/model/user.nupp"] = [[
+@documentation(text = "A user")
+local record User
+    id: uint64
+end
+]],
+   }, function(dir)
+      local path = dir .. "/src/model/user.nupp"
+      local env = projectEnv(dir)
+      assertEq(#checkFile(env, path), 0,
+         "project annotation links must check")
+      local formatEnv = projectEnv(dir)
+      local formatted, errors = fmt.format(readFile(path), path, {
+         annotations = formatEnv.annotations,
+         resolveAnnotation = function(name)
+            return formatEnv.resolveProjectAnnotation(formatEnv, path, name)
+         end,
+      })
+      assertEq(#errors, 0, "project annotation format diagnostics")
+      assert(formatted:find('@documentation("A user")', 1, true), formatted)
+   end)
+end
+
+function M.rejectsAmbiguousProjectAnnotationNames()
+   withProject({
+      ["src/a/traits.nupp"] = [[
+@annotation(targets = {"record"})
+record label
+    value: string
+end
+]],
+      ["src/b/traits.nupp"] = [[
+@annotation(targets = {"record"})
+record label
+    value: string
+end
+]],
+      ["src/use.nupp"] = [[
+@label(value = "ambiguous")
+record Item end
+]],
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2111",
+         "ambiguous annotation name diagnostic")
+      assert(diags[1].msg:find("ambiguous project annotation", 1, true),
+         diags[1].msg)
+   end)
+end
+
+-- A global is the one thing still reachable without saying where it came from,
+-- and reaching it has to pull in the module that creates it.
+function M.cliRunsRequiredModulesAndGlobalStructs()
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["main.nupp"] = [[
+local geometry = require("geometry")
+local mathutil = require("mathutil")
+
+local doubled: number = mathutil.double(21)
+local point: geometry.Point = geometry.Point { x = 3, y = 4 }
+local origin: Origin = Origin { x = 5 }
+print(doubled, point.x + point.y, origin.x)
+]],
+      ["src/mathutil.nupp"] = [[
+local function double(value: number): number
+    return value * 2
+end
+return { double = double }
+]],
+      ["src/geometry.nupp"] = [[
+local geometry = {}
+
+struct geometry.Point
+    x: float
+    y: float
+end
+
+return geometry
+]],
+      ["src/globals.nupp"] = [[
+global struct Origin
+    x: float
+end
+]],
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      local status = os.execute(command)
+      assertEq(status, 0, "required project run: " .. readFile(errors))
+      assertEq(readFile(output), "42\t7\t5\n", "required project output")
+   end)
+end
+
+-- Checking a construction is not enough: a record's runtime table lives on the
+-- module it was attached to, and if the generator does not learn that, it emits
+-- a plain call to a table and the program only fails when it runs.
+function M.cliConstructsRecordsFromAnotherModule()
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["main.nupp"] = [[
+local shapes = require("geom.shapes")
+
+local p: shapes.Point = shapes.Point{x = 3, y = 4}
+local named: shapes.Named = shapes.Named{label = "origin", at = shapes.origin()}
+print(p.x + p.y, named.label, named.at.x, p is shapes.Point)
+]],
+      ["src/geom/shapes.nupp"] = [[
+local shapes = {}
+
+record shapes.Point
+    x: number
+    y: number
+end
+
+record shapes.Named
+    label: string
+    at: shapes.Point
+end
+
+function shapes.origin(): shapes.Point
+    return shapes.Point{x = 0, y = 0}
+end
+
+return shapes
+]],
+   }, function(dir)
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      assertEq(os.execute(command), 0,
+         "cross-module record run: " .. readFile(errors))
+      assertEq(readFile(output), "7\torigin\t0\ttrue\n",
+         "cross-module record output")
+   end)
+end
+
+return M

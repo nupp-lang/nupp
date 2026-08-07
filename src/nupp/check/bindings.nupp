@@ -1,0 +1,400 @@
+--[[
+What a name is bound to, and what a write does to it.
+
+`local` introduces bindings and gives them types, from annotations where there
+are any and from the initializers where there are not. Assignment checks the
+value against what the target already holds, and a compound assignment is the
+operator and the assignment together.
+
+A write is also the thing that invalidates a narrowing, and — when the target is
+the module's own table — what publishes a member of it.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local cst = require("nupp.cst")
+
+local isA = relations.isA
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+local bindings = {}
+
+--- Installs the binding and assignment statements on one run.
+---
+--- @param c the run's state
+function bindings.install(c: any): any
+    local apply, facts = c.apply, c.facts
+    local applyContract, metamethodOf = apply.applyContract, apply.metamethodOf
+    local clearNarrowed, clearAliases = facts.clearNarrowed, facts.clearAliases
+    local inferList, recordModuleField = c.inferList, c.recordModuleField
+    local applyFacts, pathKey = c.applyFacts, c.pathKey
+    local moveExpression = c.moveExpression
+    local ownershipKind, ownershipState = c.ownershipKind, c.ownershipState
+
+    local handlers = {}
+
+    handlers.localStmt = function(stat: cst.LocalStmt)
+        local initializers = stat.exprs or {}
+        local inferred = inferList(stat.exprs, #stat.names)
+        -- A Lua string converts to a C pointer for the duration of a call and no
+        -- longer; keeping the pointer is a dangling read.
+        for _, e in ipairs(initializers) do
+            if e.kind == "call" and e.ffiIntrinsic == "cast" then
+                local castArgs = e.args
+                local source = castArgs and castArgs.kind == "args"
+                    and (castArgs.exprs or {})[1] or nil
+                if source and source.kind == "string" then
+                    c.diag("NUPP2501", e,
+                        "a pointer taken from a Lua string is only valid "
+                        .. "for the call it is passed to")
+                end
+            end
+        end
+        for j, nameTok in ipairs(stat.names) do
+            local ann = stat.types[j] and c.resolveType(stat.types[j]) or nil
+            if c.opts and c.opts.strict and ann and inferred[j] then
+                local NARROW = {
+                    int8 = 1, uint8 = 1, int16 = 2, uint16 = 2,
+                    int32 = 4, uint32 = 4,
+                }
+                local width = NARROW[ann.tag]
+                local from = inferred[j].tag
+                if width and (from == "number" or from == "integer"
+                    or from == "int64" or from == "uint64") then
+                    c.diag("NUPP2503", initializers[j] or stat,
+                        ("%s does not fit every %s; cast if the narrowing "
+                        .. "is intended"):format(T.tostring(inferred[j]),
+                        T.tostring(ann)),
+                        c.edits.castFix(initializers[j], stat.types[j]))
+                end
+            end
+            local init = inferred[j]
+            if ann and init then
+                local ok, why = isA(init, ann)
+                if not ok then
+                    c.diag("NUPP2001", initializers[j] or stat,
+                        ("cannot initialize %s: %s"):format(nameTok.text, why))
+                end
+                if ownershipKind(init) and ownershipKind(init)
+                    ~= ownershipKind(ann) then
+                    c.diag("NUPP2603", initializers[j] or stat,
+                        ownershipKind(init)
+                        .. " value needs a matching ownership annotation")
+                end
+            end
+            -- Inferred types are hints, not shackles — unannotated bindings widen
+            -- so common Lua idioms keep checking: literal shapes stay OPEN ("local
+            -- M = {a=1}; M.b = 2") —
+            --     but shapes RETURNED by calls (modules!) keep their type,
+            -- integer widens ("local i = 1; i = i / 2"), nil init means "declared,
+            -- assigned later". Annotated bindings keep their exact declared type.
+            local bound = ann or init or T.any
+            -- Keep the cleanup list discovered at the initializer even when the
+            -- source spells only `owned<T>`.
+            if ann and init and ownershipKind(ann) == "owned"
+                and ownershipKind(init) == "owned" then
+                bound = init
+            end
+            if not ann then
+                local initNode = initializers[j]
+                if bound.tag == "literal" then
+                    -- an inferred binding holds a value of the type, not that one
+                    -- value; annotate to keep the literal type
+                    bound = bound.base or T.string
+                    if bound == T.integer then bound = T.number end
+                elseif bound.tag == "shape" and initNode
+                    and initNode.kind == "tableExpr" then
+                    bound = T.table_
+                elseif bound == T.nil_ then
+                    bound = T.any
+                end
+            end
+            if (ownershipKind(init) == "owned"
+                or ownershipKind(init) == "pinned") and stat.exprs
+                and initializers[j] then
+                moveExpression(initializers[j], init, "local initialization",
+                    ownershipKind(init))
+            end
+            -- `@noreturn local exit: function(code: any?)` is how a declaration
+            -- file states it, there being no body to read.
+            if stat.noreturnContract and bound.tag == "func" then
+                bound = T.func(bound.params, bound.rets, bound.vararg,
+                    bound.paramModes, bound.predicate, bound.typeParams,
+                    bound.typeBounds, bound.borrowsParam, bound.borrowsSelf,
+                    bound.borrowsParams, bound.ffiOut, bound.varargType,
+                    true)
+            end
+            if ann and nameTok.text == c.moduleLocal then
+                c.moduleLocalAnnotated = true
+            end
+            c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil,
+                stat.isConst)
+            local boundEntry = c.scope.vars[nameTok.text]
+            local initNode = initializers[j]
+            local returnBorrowOwners = nil
+            local exprCount = #initializers
+            local expandedCall = exprCount > 0 and initializers[exprCount] or nil
+            if expandedCall and expandedCall.returnBorrowOwners
+                and j >= exprCount then
+                returnBorrowOwners = expandedCall.returnBorrowOwners[
+                    j - exprCount + 1]
+            end
+            if boundEntry and initNode and initNode.requiredModule then
+                boundEntry.requiredModule = initNode.requiredModule
+                -- Also on the definition, which outlives the scope: a module's
+                -- plain `function m.f` members are values on an open table and so
+                -- have no type to be found through, and which module the name holds
+                -- is the whole of what an editor needs to find where one of them
+                -- was written.
+                if boundEntry.definition then
+                    boundEntry.definition.requiredModule =
+                        initNode.requiredModule
+                end
+            end
+            -- `local kind = node.kind` copies a discriminant out of the value it
+            -- discriminates. Remembering where it came from is what lets a later
+            -- test on the copy narrow the original, which is how dispatch loops are
+            -- actually written.
+            if boundEntry and initNode and not ann
+                and initNode.kind == "dotIndex" then
+                boundEntry.aliasNode = initNode
+                boundEntry.aliasPath = pathKey(initNode)
+            end
+            if boundEntry and (ownershipKind(bound) == "owned"
+                or ownershipKind(bound) == "pinned")
+                and not init then
+                boundEntry.moved = true -- declared storage, no live affine value
+            end
+            local boundKind = ownershipKind(bound)
+            if boundEntry and (boundKind == "borrowed"
+                or boundKind == "owned") and returnBorrowOwners
+                and #returnBorrowOwners == 1 then
+                boundEntry.borrowOwner = returnBorrowOwners[1]
+                returnBorrowOwners[1].activeBorrows =
+                    (returnBorrowOwners[1].activeBorrows or 0) + 1
+            elseif boundEntry and (boundKind == "borrowed"
+                or boundKind == "owned")
+                and initNode and initNode.borrowOwner then
+                boundEntry.borrowOwner = initNode.borrowOwner
+                initNode.borrowOwner.activeBorrows =
+                    (initNode.borrowOwner.activeBorrows or 0) + 1
+            end
+            if boundEntry and (boundKind == "borrowed"
+                or boundKind == "owned") and returnBorrowOwners
+                and #returnBorrowOwners > 1 then
+                boundEntry.borrowOwners = returnBorrowOwners
+                for _, owner in ipairs(returnBorrowOwners) do
+                    owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                end
+            elseif boundEntry and (boundKind == "borrowed"
+                or boundKind == "owned") and initNode
+                and initNode.borrowOwners then
+                boundEntry.borrowOwners = initNode.borrowOwners
+                for _, owner in ipairs(initNode.borrowOwners) do
+                    owner.activeBorrows = (owner.activeBorrows or 0) + 1
+                end
+            end
+        end
+    end
+
+    handlers.assignStmt = function(stat: cst.AssignStmt)
+        local values = stat.exprs
+        local inferred = inferList(stat.exprs, #stat.targets)
+        for _, target in ipairs(stat.targets) do
+            local key = pathKey(target)
+            if key then
+                clearNarrowed(key)
+                clearAliases(key)
+            end
+        end
+        for j, target in ipairs(stat.targets) do
+            local et = inferred[j]
+            local written = values[j]
+            recordModuleField(target, et)
+            local targetTok = target.kind == "name"
+                and target.token or nil
+            if targetTok then
+                local targetName = targetTok.text
+                local entry = c.lookupEntry(targetName)
+                local entryState = ownershipState(entry)
+                c.markToken(targetTok, entry and entry.definition,
+                    entry and entry.t or T.any,
+                    entry and entry.definition and entry.definition.kind
+                    or "variable")
+                if entry and entry.constant then
+                    c.diag("NUPP2008", target,
+                        ("cannot assign to const variable %s")
+                        :format(targetName))
+                elseif entry and entry.withBinding then
+                    c.diag("NUPP2613", target,
+                        ("cannot assign to 'with' binding %q")
+                        :format(targetName))
+                elseif entry and entry.ann and et then
+                    local ok, why = isA(et, entry.decl or entry.t)
+                    if not ok then
+                        c.diag("NUPP2001", written or stat,
+                            ("cannot assign to %s: %s"):format(targetName, why))
+                    end
+                end
+                if entryState and (entryState.activeBorrows or 0) > 0 then
+                    c.diag("NUPP2602", target,
+                        ("%q cannot be assigned while a derived borrow is live")
+                        :format(targetName))
+                end
+                if entry and et and (ownershipKind(et) == "owned"
+                    or ownershipKind(et) == "pinned") then
+                    local incomingKind = ownershipKind(et)
+                    if entry.ann and ownershipKind(entry.t) ~= incomingKind then
+                        c.diag("NUPP2603", written or stat,
+                            incomingKind .. " assignment needs a matching destination")
+                    end
+                    if entry.ownership == incomingKind and not entryState.moved then
+                        c.diag("NUPP2602", target,
+                            ("assignment overwrites live affine value %q")
+                            :format(targetName))
+                    end
+                    if written then
+                        moveExpression(written, et, "assignment",
+                            incomingKind)
+                    end
+                    entry.t, entry.ownership = et, incomingKind
+                    entryState.t, entryState.ownership, entryState.moved =
+                        et, incomingKind, false
+                elseif et and ownershipKind(et) == "borrowed" and written then
+                    c.diag(written.withBinding and "NUPP2612"
+                        or "NUPP2603", written,
+                        "borrowed value cannot escape through assignment")
+                end
+            else
+                local tt = c.infer(target)
+                local contractWrite = false
+                if target.usesIndexContract and et then
+                    local receiver = target.indexObjectType
+                    local keyType = target.indexKeyType
+                    local mm = receiver and metamethodOf(receiver,
+                        "__newindex") or nil
+                    if mm then
+                        local receiverNode = target.kind == "bracketIndex"
+                            and target.obj or target
+                        local keyNode = target.kind == "bracketIndex"
+                            and target.expr or target
+                        applyContract(mm, {receiver, keyType, et},
+                            {receiverNode, keyNode or target, written},
+                            target, "__newindex")
+                        contractWrite = true
+                    end
+                end
+                if et and ownershipKind(et) then
+                    c.diag("NUPP2603", written or stat,
+                        ownershipKind(et)
+                        .. " value cannot be stored through a reference")
+                end
+                -- Writing nil to a table entry is how Lua removes it, so an array
+                -- or map accepts nil whatever its element type says a present value
+                -- holds. A record field is not that: it is declared, and removing
+                -- it would leave the type describing something that is not there.
+                local removing = et == T.nil_
+                    and target.kind == "bracketIndex"
+                    and (target.containerTag == "array"
+                    or target.containerTag == "map"
+                    or target.containerIsSequence)
+                if et and tt and tt ~= T.any and not removing
+                    and not contractWrite then
+                    local ok, why = isA(et, tt)
+                    if not ok then
+                        c.diag("NUPP2001", written or stat,
+                            ("cannot assign: %s"):format(why))
+                    end
+                end
+            end
+        end
+        -- Only now: a variable holds what was just written to it, which is what
+        -- lets `if not x then x = f() end` see a non-nil x. It has to come after
+        -- the checks above, or a target would be compared against the value being
+        -- written to it.
+        for j, target in ipairs(stat.targets) do
+            local key = pathKey(target)
+            local et = inferred[j]
+            if key and et and et ~= T.any then
+                applyFacts({[key] = et})
+            end
+        end
+    end
+
+    handlers.compoundAssign = function(stat: cst.CompoundAssign)
+        local assignTarget, value, opTok = stat.target, stat.value, stat.op
+        if not assignTarget or not value or not opTok then return end
+        local targetT = c.infer(assignTarget)
+        local valueT = c.infer(value)
+        local targetTok = assignTarget.kind == "name"
+            and assignTarget.token or nil
+        if targetTok then
+            local targetName = targetTok.text
+            local entry = c.lookupEntry(targetName)
+            if entry and entry.withBinding then
+                c.diag("NUPP2613", assignTarget,
+                    ("cannot assign to 'with' binding %q")
+                    :format(targetName))
+            end
+            if entry and entry.constant then
+                c.diag("NUPP2008", assignTarget,
+                    ("cannot assign to const variable %s")
+                    :format(targetName))
+                return
+            end
+        end
+        local op = opTok.kind:sub(1, -2) -- drop the '='
+        if op == "??" then
+            if targetTok then
+                local entry = c.lookupEntry(targetTok.text)
+                if entry and entry.ann then
+                    local ok, why = isA(valueT, entry.decl or entry.t)
+                    if not ok then
+                        c.diag("NUPP2001", value,
+                            ("cannot assign: %s"):format(why))
+                    end
+                end
+            end
+        elseif op == ".." then
+            -- Both sides have to be concatenable, and each is reported where it is
+            -- written rather than at the operator.
+            local function concatenable(t: Type, at: Node)
+                if t == T.any or isA(t, T.number) or isA(t, T.string) then
+                    return
+                end
+                c.diag("NUPP2003", at,
+                    ("cannot concatenate %s"):format(T.tostring(t)))
+            end
+            concatenable(targetT, assignTarget)
+            concatenable(valueT, value)
+        else
+            c.numericOperand(targetT, assignTarget, op)
+            c.numericOperand(valueT, value, op)
+        end
+    end
+
+    handlers.callStmt = function(stat: cst.CallStmt)
+        local called = stat.expr
+        if not called then return end
+        local resultT = c.infer(called)
+        local ignoredOwner = ownershipKind(resultT) == "owned"
+        if called.ffiOutContracts then
+            for _, returned in ipairs(c.lastCallRets or {}) do
+                if ownershipKind(returned) == "owned" then ignoredOwner = true end
+            end
+        end
+        if ignoredOwner then
+            c.diag("NUPP2603", called,
+                "owned call c.result is ignored instead of being consumed")
+        end
+    end
+
+    return handlers
+end
+
+return bindings

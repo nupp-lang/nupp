@@ -1,0 +1,337 @@
+--[[
+Building what a project depends on but did not write.
+
+A dependency is fetched if it is remote, built if it is C or Rust, and then
+described to the checker as a typed module so that calling into it is checked
+like anything else. The three providers differ in what they run -- a compiler
+driver, cargo -- and agree on what they hand back: a shared library, the files
+that went into it, and a fingerprint that says whether any of that changed.
+]]
+
+local hash = require("nupp.build.hash")
+local importc = require("nupp.importc")
+local json = require("cjson").new()
+local process = require("nupp.build.process")
+local fs = require("nupp.fs")
+local cache = require("nupp.build.cache")
+
+local normalize, join = fs.normalize, fs.join
+local dirname, basename = fs.dirname, fs.basename
+local readFile, writeFile = fs.readFile, fs.writeFile
+local exists, mkdir = fs.exists, fs.mkdir
+local copyFile, listFiles = fs.copyFile, fs.listFiles
+local stable, hashFiles = cache.stable, cache.hashFiles
+
+local deps = {}
+
+local function globPattern(glob)
+    local out, j = {"^"}, 1
+    while j <= #glob do
+        local ch = glob:sub(j, j)
+        if ch == "*" and glob:sub(j + 1, j + 1) == "*" then
+            out[#out + 1] = ".*"; j = j + 2
+        elseif ch == "*" then out[#out + 1] = "[^/]*"; j = j + 1
+        elseif ch == "?" then out[#out + 1] = "[^/]"; j = j + 1
+        else
+            if ch:match("[%^%$%(%)%%%.%[%]%+%-]") then ch = "%" .. ch end
+            out[#out + 1] = ch; j = j + 1
+        end
+    end
+    out[#out + 1] = "$"
+    return table.concat(out)
+end
+
+local function expandGlob(root, glob)
+    glob = normalize(glob)
+    if not glob:find("[*?]") then
+        local path = join(root, glob)
+        return exists(path) and {path} or {}
+    end
+    local prefix = glob:match("^(.-)[*?]") or "."
+    prefix = prefix:match("^(.*)/") or "."
+    local base = join(root, prefix)
+    local pattern = globPattern(join(root, glob))
+    local matches = {}
+    for _, path in ipairs(listFiles(base)) do
+        if path:match(pattern) then matches[#matches + 1] = path end
+    end
+    return matches
+end
+
+local function sharedLibraryName(name)
+    name = name:gsub("%-", "_")
+    local osName = (jit and jit.os or ""):lower()
+    if osName == "windows" then return name .. ".dll" end
+    if osName == "osx" then return "lib" .. name .. ".dylib" end
+    return "lib" .. name .. ".so"
+end
+
+local function fetchGit(root, name, source)
+    if type(source) ~= "table" or not source.git then return root end
+    if type(source.rev) ~= "string" or source.rev == "" then
+        return nil, "dependency " .. name .. " requires an exact source.rev"
+    end
+    local checkout = join(root, ".nupp/deps/" .. name)
+    if not exists(join(checkout, ".git/HEAD")) then
+        mkdir(dirname(checkout))
+        local code = process.run({"git", "clone", source.git, checkout})
+        if code ~= 0 then return nil, "git clone failed for " .. name end
+    end
+    local code, head = process.capture({"git", "rev-parse", "HEAD"}, {cwd = checkout})
+    if code ~= 0 or normalize(head:gsub("%s+$", "")) ~= source.rev then
+        if process.run({"git", "fetch", "--depth", "1", "origin", source.rev},
+            {cwd = checkout}) ~= 0 then
+            return nil, "git fetch failed for " .. name
+        end
+        if process.run({"git", "checkout", "--detach", "FETCH_HEAD"},
+            {cwd = checkout}) ~= 0 then
+            return nil, "git checkout failed for " .. name
+        end
+    end
+    return checkout
+end
+
+local function dependencyFiles(base, patterns)
+    local files = {}
+    for _, pattern in ipairs(patterns or {}) do
+        local expanded = expandGlob(base, pattern)
+        for _, path in ipairs(expanded) do files[#files + 1] = path end
+    end
+    table.sort(files)
+    return files
+end
+
+local function bindingConfig(dep)
+    if type(dep.bindings) == "table" then return dep.bindings end
+    if dep.header then return {header = dep.header} end
+    return nil
+end
+
+local function generateBinding(root, outDir, name, dep, base, libraryPath,
+    extraCppflags)
+    local binding = bindingConfig(dep)
+    if not binding or not binding.header then return nil end
+    local header = binding.header
+    if header:sub(1, 1) ~= "/" then header = join(base, header) end
+    local text, warnings = importc.import(header, {
+        lib = binding.library or dep.load or libraryPath,
+        cc = dep.cc,
+        cppflags = extraCppflags or dep.cppflags,
+    })
+    if not text then return nil, table.concat(warnings or {}, "; ") end
+    for _, warning in ipairs(warnings or {}) do
+        io.stderr:write("nupp: warning: " .. warning .. "\n")
+    end
+    local output = join(root, binding.out or join(outDir, "generated/" .. name .. ".nupp"))
+    local current = readFile(output)
+    if current ~= text then
+        local ok, err = writeFile(output, text)
+        if not ok then return nil, err end
+    end
+    return output
+end
+
+local function splitFlags(text)
+    local out = {}
+    for flag in text:gmatch("%S+") do out[#out + 1] = flag end
+    return out
+end
+
+local function buildC(root, outDir, name, dep, previous, childResults)
+    local base, fetchErr = fetchGit(root, name, dep.source)
+    if not base then return nil, fetchErr end
+    if dep.source then base = join(base, dep.path or ".")
+    else base = join(root, dep.path or ".") end
+    local sources = dependencyFiles(base, dep.sources or {})
+    local nativeInputs = {}
+    for _, path in ipairs(sources) do nativeInputs[#nativeInputs + 1] = path end
+    for _, path in ipairs(dependencyFiles(base, dep.headers or {})) do
+        nativeInputs[#nativeInputs + 1] = path
+    end
+    local configuredBinding = bindingConfig(dep)
+    if configuredBinding and configuredBinding.header then
+        local header = configuredBinding.header
+        if header:sub(1, 1) ~= "/" then header = join(base, header) end
+        nativeInputs[#nativeInputs + 1] = header
+    end
+    table.sort(nativeInputs)
+    local compiler = dep.cc or "cc"
+    local _, version = process.capture({compiler, "--version"})
+    local pkgFlags = {}
+    if dep.pkgConfig then
+        local code, flags = process.capture({"pkg-config", "--cflags", "--libs", dep.pkgConfig})
+        if code ~= 0 then return nil, "pkg-config failed for " .. dep.pkgConfig .. ": " .. flags end
+        pkgFlags = splitFlags(flags)
+    end
+    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(nativeInputs)
+        .. "\0" .. version .. "\0" .. stable(pkgFlags)
+        .. "\0" .. stable(childResults))
+    local output = nil
+    if #sources > 0 then
+        output = join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
+        if not previous or previous.key ~= key or not exists(output) then
+            mkdir(dirname(output))
+            local stagedOutput = output .. ".tmp"
+            os.remove(stagedOutput)
+            local argv = {compiler}
+            local osName = (jit and jit.os or ""):lower()
+            if osName == "osx" then argv[#argv + 1] = "-dynamiclib"
+            elseif osName ~= "windows" then
+                argv[#argv + 1] = "-shared"; argv[#argv + 1] = "-fPIC"
+            else argv[#argv + 1] = "-shared" end
+            argv[#argv + 1] = "-o"; argv[#argv + 1] = stagedOutput
+            for _, dir in ipairs(dep.includeDirs or {}) do
+                argv[#argv + 1] = "-I" .. join(base, dir)
+            end
+            for _, flag in ipairs(dep.cflags or {}) do argv[#argv + 1] = flag end
+            for _, source in ipairs(sources) do argv[#argv + 1] = source end
+            for _, childName in ipairs(dep.dependencies or {}) do
+                local child = childResults and childResults[childName]
+                if child.output then argv[#argv + 1] = child.output end
+            end
+            for _, flag in ipairs(pkgFlags) do argv[#argv + 1] = flag end
+            for _, flag in ipairs(dep.ldflags or {}) do argv[#argv + 1] = flag end
+            if process.run(argv) ~= 0 then
+                os.remove(stagedOutput)
+                return nil, "C build failed for " .. name
+            end
+            local binary, binaryErr = readFile(stagedOutput)
+            os.remove(stagedOutput)
+            if not binary then return nil, binaryErr end
+            local installed, installErr = writeFile(output, binary)
+            if not installed then return nil, installErr end
+        end
+    end
+    local cppflags = {}
+    for _, flag in ipairs(dep.cppflags or {}) do cppflags[#cppflags + 1] = flag end
+    for _, dir in ipairs(dep.includeDirs or {}) do
+        cppflags[#cppflags + 1] = "-I" .. join(base, dir)
+    end
+    for _, flag in ipairs(pkgFlags) do
+        if flag:match("^-I") or flag:match("^-D") then cppflags[#cppflags + 1] = flag end
+    end
+    local binding, bindingErr = generateBinding(root, outDir, name, dep, base,
+        dep.load or output or dep.pkgConfig, cppflags)
+    if bindingErr then return nil, bindingErr end
+    return {key = key, output = output, binding = binding}
+end
+
+local function cargoSourceFiles(crateDir)
+    local files = {}
+    for _, path in ipairs(listFiles(crateDir)) do
+        if path:match("%.rs$") or basename(path) == "Cargo.toml"
+            or basename(path) == "Cargo.lock" or path:match("build%.rs$") then
+            files[#files + 1] = path
+        end
+    end
+    return files
+end
+
+local function buildCargo(root, outDir, name, dep, previous)
+    local manifest = join(root, dep.manifest or join(dep.path or name, "Cargo.toml"))
+    local crateDir = dirname(manifest)
+    local cargo = dep.cargo or "cargo"
+    local _, version = process.capture({cargo, "--version"})
+    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(cargoSourceFiles(crateDir))
+        .. "\0" .. version)
+    local targetDir = join(root, dep.targetDir or join(outDir, "cargo/" .. name))
+    local profile = dep.profile or "release"
+    local crateName = (dep.library or name):gsub("%-", "_")
+    local targetPart = dep.target and (dep.target .. "/") or ""
+    local artifact = dep.artifactPath or join(targetDir,
+        targetPart .. profile .. "/" .. sharedLibraryName(crateName))
+    local output = join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(crateName)))
+    if not previous or previous.key ~= key or not exists(output) then
+        local argv = {cargo, "build", "--manifest-path", manifest,
+            "--target-dir", targetDir}
+        if profile == "release" then argv[#argv + 1] = "--release"
+        elseif profile ~= "debug" then
+            argv[#argv + 1] = "--profile"; argv[#argv + 1] = profile
+        end
+        if dep.target then argv[#argv + 1] = "--target"; argv[#argv + 1] = dep.target end
+        if dep.locked ~= false then argv[#argv + 1] = "--locked" end
+        if dep.offline then argv[#argv + 1] = "--offline" end
+        if #(dep.features or {}) > 0 then
+            argv[#argv + 1] = "--features"
+            argv[#argv + 1] = table.concat(dep.features, ",")
+        end
+        argv[#argv + 1] = "--message-format=json-render-diagnostics"
+        local cargoCode, cargoOutput = process.capture(argv, {cwd = root})
+        if cargoCode ~= 0 then
+            io.stderr:write(cargoOutput)
+            return nil, "Cargo build failed for " .. name
+        end
+        if not dep.artifactPath then
+            for line in cargoOutput:gmatch("[^\r\n]+") do
+                local parsed, message = pcall(json.decode, line)
+                if parsed and type(message) == "table"
+                    and message.reason == "compiler-artifact"
+                    and message.target and message.target.name:gsub("%-", "_") == crateName then
+                    for _, filename in ipairs(message.filenames or {}) do
+                        if filename:match("%.so$") or filename:match("%.dylib$")
+                            or filename:match("%.dll$") then
+                            artifact = filename
+                        end
+                    end
+                end
+            end
+        end
+        if not exists(artifact) then return nil, "Cargo artifact not found: " .. artifact end
+        local ok, err = copyFile(artifact, output)
+        if not ok then return nil, err end
+    end
+    local binding = bindingConfig(dep)
+    if binding and binding.cbindgen then
+        local header = binding.header or join(outDir, "generated/" .. name .. ".h")
+        header = join(root, header)
+        mkdir(dirname(header))
+        local argv = {binding.command or "cbindgen", "--output", header}
+        if process.run(argv, {cwd = crateDir}) ~= 0 then
+            return nil, "cbindgen failed for " .. name
+        end
+        binding.header = header
+    end
+    local generated, bindingErr = generateBinding(root, outDir, name, dep,
+        crateDir, dep.load or output)
+    if bindingErr then return nil, bindingErr end
+    return {key = key, output = output, binding = generated}
+end
+
+local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo}
+
+local function buildDependencies(root, outDir, config, previous)
+    local results, visiting = {}, {}
+    local function buildOne(name)
+        if results[name] then return results[name] end
+        if visiting[name] then return nil, "dependency cycle involving " .. name end
+        local dep = config.dependencies and config.dependencies[name]
+        if type(dep) ~= "table" then return nil, "unknown dependency " .. tostring(name) end
+        local provider = PROVIDERS[dep.kind]
+        if not provider then return nil, "unsupported dependency kind " .. tostring(dep.kind) end
+        visiting[name] = true
+        local childResults = {}
+        for _, child in ipairs(dep.dependencies or {}) do
+            local childResult, err = buildOne(child)
+            if err then return nil, err end
+            childResults[child] = childResult
+        end
+        local result, err = provider(root, outDir, name, dep, previous[name],
+            childResults)
+        visiting[name] = nil
+        if not result then return nil, err end
+        results[name] = result
+        return result
+    end
+    local targetDeps = config._target.dependencies or {}
+    for _, name in ipairs(targetDeps) do
+        local _, err = buildOne(name)
+        if err then return nil, err end
+    end
+    return results
+end
+
+
+deps.expandGlob = expandGlob
+deps.build = buildDependencies
+
+return deps

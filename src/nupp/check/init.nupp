@@ -1,0 +1,1198 @@
+--[[
+The checker: the walk, and the run it happens in.
+
+A gradual type checker over the CST. Anything unannotated or unresolvable is
+`any` and checks silently, so an untyped LuaJIT program is a valid Nupp program
+that reports nothing; annotations are what turn checking on, one declaration at
+a time.
+
+This module holds the run — the scopes, the diagnostics, the per-file state — and
+the statement walk that drives everything else. The questions the walk asks are
+answered next door: what an expression's type is by `expr`, what a call means by
+`calls`, what a declaration introduces by `declare`, what a condition proves by
+`narrow`, what an annotation says by `annotate`, and what has happened to an
+owned value by `ownership`. Each of those is installed on the checker and reaches
+the run through it.
+
+Diagnostics carry stable `NUPP2xxx` codes; `docs/DIAGNOSTICS.md` is the
+reference for their shape and their families.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local narrowing = require("nupp.narrowing")
+local lints = require("nupp.lints")
+local fixits = require("nupp.check.fixits")
+local annotate = require("nupp.check.annotate")
+local ownership = require("nupp.check.ownership")
+local narrow = require("nupp.check.narrow")
+local calls = require("nupp.check.calls")
+local expr = require("nupp.check.expr")
+local operators = require("nupp.check.operators")
+local declare = require("nupp.check.declare")
+local resolve = require("nupp.check.resolve")
+local bindings = require("nupp.check.bindings")
+local control = require("nupp.check.control")
+local functions = require("nupp.check.functions")
+local cdef = require("nupp.check.cdef")
+local pragma = require("nupp.check.pragma")
+local generics = require("nupp.generics")
+local cst = require("nupp.cst")
+local annotationMod = require("nupp.annotations")
+
+local checkMod = {}
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A node or a token: what a diagnostic can be pointed at.
+local type Child = cst.Child
+
+--- One thing to report about a file.
+type checkMod.Diagnostic = {
+    --- The stable NUPP code, which is what an @allow names.
+    code: string,
+
+    --- What to tell the reader.
+    msg: string,
+    filename: string?,
+
+    --- "error" stops the build; "warning" is advice and does not.
+    severity: string,
+    line: integer,
+    col: integer,
+    offset: integer,
+    length: integer,
+    help: string?,
+    notes: {string}?,
+    related: {any}?,
+    lint: string?,
+    fixes: {any}?,
+}
+
+--- What a condition proves, on each side of it. `t` holds for the branch where the
+--- condition is true and `f` where it is false, each keyed by the reference it speaks
+--- about. `exhausted` names a subject a comparison chain has now covered completely.
+type checkMod.Facts = {
+    t: {[string]: Type},
+    f: {[string]: Type},
+    exhausted: string?,
+}
+
+--- Everything one run of the checker carries: what it is checking, what it has found,
+--- and where it currently is. Declaring it is what lets the walk be split across
+--- modules — a pass reaches the run through this rather than through a closure it has
+--- to be lexically inside of.
+record checkMod.Checker
+    -- What is being checked. Fixed for the whole run.
+
+    --- The parse, which also collects the symbols and side effects the run records.
+    result: any
+
+    --- What to call this file in a diagnostic.
+    filename: string?
+
+    --- The project environment: other modules, globals, the string library.
+    env: any
+
+    --- The caller's options: strict, moduleName, seeded exports, and the rest.
+    opts: any
+
+    --- Whether this file describes an interface it does not own, so its bare
+    --- declarations are that interface rather than a file's private ones.
+    declarationFile: boolean
+
+    --- The table qualified declarations attach to, so `record M.Point` in a file that
+    --- returns M exports Point while `record Other.Point` does not.
+    moduleLocal: string?
+
+    --- Where annotation definitions are registered and looked up.
+    annotationRegistry: any
+
+    --- The definitions this file itself declared, by name.
+    annotationDefinitions: any
+
+    --- A project's `lints` table, so a level resolves the same way wherever a lint is
+    --- raised.
+    lintConfig: any
+
+    --- The edits this run's diagnostics can offer. See nupp.check.fixits.
+    edits: any
+
+    -- What has been found.
+
+    --- The diagnostics, in the order they were raised.
+    diags: {checkMod.Diagnostic}
+
+    --- The type of the file's top-level return, plus its runtime declarations.
+    moduleType: Type?
+
+    --- The types and values this file publishes to the project.
+    moduleExports: any
+
+    --- Declaration sites already recorded, so one is not published twice.
+    seenDefinitions: any
+
+    -- Where the walk currently is. All of this changes as it runs.
+
+    --- The innermost scope, and the file's outermost one.
+    scope: any
+
+    rootScope: any
+
+    --- Return-type annotations of the enclosing functions, or false for one that was
+    --- not annotated and is therefore not checked.
+    retStack: {any}
+
+    --- Raw first-return types for functions whose public result is wrapped by `@owned`.
+    --- The body may return a newly produced raw value or transfer an existing owner;
+    --- the annotation establishes the public obligation.
+    ownReturnStack: {any}
+
+    --- Set while checking a function whose return is declared `borrows p`, so that
+    --- returning a borrow is permitted there and only there.
+    borrowReturnStack: {any}
+
+    --- The owned fields a `@dispose` body still has to discharge.
+    disposerFieldStack: {any}
+
+    --- Cleanup contracts already validated, so one is not re-reported.
+    validatedCleanupContracts: any
+
+    --- How deep inside `unsafe do` the walk is; raw pointer use needs it above zero.
+    unsafeDepth: integer
+
+    --- How deep inside function bodies it is, which is how a capture is recognized.
+    functionDepth: integer
+
+    --- Whether a `with` body has reached out of its own scope, per open scope.
+    captureWatches: {any}
+
+    --- The lint codes surrounding `@allow` pragmas have asked not to hear about.
+    allowed: {any}
+
+    --- Set while the hoisting pre-pass runs. It resolves annotations early to publish
+    --- signatures, and anything wrong with them is reported when the declaration itself
+    --- is checked, so saying it twice helps nobody.
+    hoisting: boolean
+
+    --- Aliases currently being resolved, so one that names itself is caught rather than
+    --- recurring forever.
+    resolvingAlias: any
+
+    --- Every value the last call returned, so a multi-value expansion can reach past
+    --- the first.
+    lastCallRets: {Type}?
+
+    -- The operations a pass reaches the run through. They are fields rather than locals
+    -- so that a pass can live in its own module and still call them.
+
+    --- Reports one diagnostic, unless a surrounding `@allow` or a project's lint levels
+    --- asked not to hear it.
+    diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)
+
+    --- Makes a labeled secondary source location for a diagnostic.
+    related: function(at: any, message: string, filename: string?): any?
+
+    --- The scope entry a name resolves to, narrowing included, or nil.
+    lookupEntry: function(name: string): any
+
+    --- The type a name resolves to, or nil.
+    lookupType: function(name: string): Type?
+
+    --- Records what a token means, for the editor and for go-to-definition.
+    markToken: function(tok: any, def: any, t: Type?, kind: string?)
+
+    --- The type an expression has, with what narrowing knows applied.
+    infer: function(node: Node): Type
+
+    --- The type a plain name currently holds, narrowing included.
+    lookupVar: function(name: string): Type?
+
+    --- Opens and closes a scope. Narrowing lives in the scope it was proved in, so
+    --- leaving one forgets what it knew.
+    pushScope: function()
+
+    popScope: function()
+
+    --- The type an annotation names.
+    resolveType: function(node: Node?): Type
+
+    --- The type a reference currently holds: what narrowing knows, else the declared or
+    --- inferred type reached through its base.
+    refType: function(node: Node?): Type?
+
+    --- The type of a member, reached through whatever the receiver is.
+    fieldType: function(t: Type?, name: string): (Type?, any)
+
+    --- Member names safely available on a type, for spelling fixes.
+    fieldNames: function(t: Type?): {[string]: boolean}
+
+    --- Splits `function a.b:m` into the key naming its owner and the member token.
+    funcOwner: function(fname: any): (string?, any)
+
+    --- Which ownership qualifier a type carries, if any.
+    ownershipKind: function(t: Type?): string?
+
+    --- The entry an ownership fact is recorded on, following a narrowed copy back to
+    --- the binding it came from.
+    ownershipState: function(entry: any): any
+
+    --- Whether values of this type are pointers at run time.
+    pointerShaped: function(t: Type): boolean
+
+    --- Records that an expression's owner has been handed over.
+    moveExpression: function(node: any, t: Type?, why: string, kind: string?)
+
+    --- The binding an expression's ownership is recorded on, and the owner a borrow
+    --- ultimately came from.
+    ownershipEntry: function(node: any): (any, any)
+
+    borrowRoot: function(entry: any): any
+
+    --- The key narrowing tracks a reference under, or nil when it has none.
+    pathKey: function(node: Node): string?
+
+    --- Applies a narrowing map inside the current scope.
+    applyFacts: function(facts: {[string]: Type})
+
+    --- Checks a generic application's arguments against the bounds declared for them.
+    validateTypeBounds: function(params: any, bounds: any, map: any, node: any)
+
+    --- Binds a name in the current scope.
+    bindVar: function(name: string, t: Type?, ann: boolean?, tok: any?,
+        kind: string?, constant: boolean?)
+
+    --- Checks a block, and a function body.
+    checkBlock: function(block: Node?, scopeManaged: boolean?)
+
+    checkFuncbody: function(body: any, selfType: Type?): Type
+
+    --- The `ffi.C` namespace as the program has declared it.
+    cNamespaceType: function(): Type
+
+    --- `t` without nil, which is what a truthiness test leaves.
+    minusNil: function(t: Type): Type
+
+    --- What a condition proves, on each side of it.
+    analyzeCond: function(cond: Node): any
+
+    --- What narrowing currently knows about a reference.
+    lookupNarrowed: function(key: string): Type?
+
+    --- The obligation a coroutine suspension would strand, if any.
+    liveSuspensionObligation: function(): string?
+
+    --- Checks that a value's declared cleanups exist and take it.
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any,
+        code: string?, allowUnknown: boolean?)
+
+    --- Advice for an unknown name a project module is named after.
+    missingRequire: function(name: string): (string?, boolean, any)
+
+    --- Whether an operand is numeric, reporting when it is not.
+    numericOperand: function(t: Type, node: any, op: string): boolean
+
+    --- What has been put on the table this file returns, by name. A module is written
+    --- `local M = {}` and filled in one statement at a time, so what it exports is what
+    --- was added to it rather than what the constructor said.
+    moduleFields: {[string]: Type}
+
+    --- Whether that table was annotated. An annotated binding keeps the type it was
+    --- given, which is how a module says its surface is wider than what can be seen —
+    --- `local M: {[string]: any} = {}`.
+    moduleLocalAnnotated: boolean
+
+    -- Binding names, and the declarations that introduce them.
+
+    --- Binds a type name, and a declaration's name in both namespaces.
+    bindType: function(name: string, t: Type?, tok: any?)
+
+    bindDeclaredType: function(stat: any, t: Type?)
+
+    bindDeclaredVar: function(stat: any, t: Type?)
+
+    --- Binds a generics clause's parameters, returning them and their bounds.
+    bindGenerics: function(generics: any, role: string): (any, any)
+
+    --- A fresh type parameter for one binder.
+    typevarAt: function(tok: any, role: string): Type
+
+    --- The key a qualified declaration binds under, and the table it attaches to.
+    declKey: function(stat: any): string
+
+    qualifierOf: function(stat: any): string?
+
+    --- The effective visibility of a declaration.
+    visibilityOf: function(stat: any): string
+
+    --- Records where a name was declared, for the editor.
+    definition: function(tok: any, kind: string?): any
+
+    --- Resolves an alias hoisted to the top of its block, the first time anything names
+    --- it.
+    resolvePendingAlias: function(name: string, pending: any, owner: any): Type?
+
+    --- A function's type as its annotations give it, without checking the body.
+    signatureOf: function(body: any, selfType: Type?): Type
+
+    --- The nominal a declaration statement introduces, and the project entry it was
+    --- published under.
+    declaredNominal: function(stat: any, kind: string): (any, any)
+
+    --- Publishes a declaration to the module and the project.
+    publishType: function(stat: any, t: Type?, projectEntry: any?)
+
+    --- Checks a record, interface, struct, enum or alias declaration.
+    checkTypedecl: function(stat: any)
+
+    -- The installed passes, as they returned themselves. A statement family reaches
+    -- the operations of another pass through these rather than through a local it
+    -- would have to be lexically inside `check` to see.
+
+    --- Ownership: see nupp.check.ownership.
+    own: any
+
+    --- Narrowing: see nupp.check.narrow.
+    facts: any
+
+    --- Calls and members: see nupp.check.calls.
+    apply: any
+
+    --- Annotations: see nupp.check.annotate.
+    marks: any
+
+    -- The walk itself, for the families that recur into it.
+
+    --- Checks one statement, dispatching on its kind.
+    checkStat: function(stat: Node)
+
+    --- The types of an expression list, expanding a trailing call's extra results.
+    inferList: function(exprs: any, count: integer): {Type}
+
+    --- Records a `function m.f` or `m.x = v` as a member of the returned module.
+    recordModuleField: function(target: Node, t: Type?)
+
+    --- Whether every path out of a block leaves it, and whether every path raises.
+    alwaysExits: function(block: Node?): boolean
+
+    alwaysRaises: function(block: Node?): boolean
+
+    --- Whether a node returns a value anywhere inside it.
+    returnsSomewhere: function(x: Node): boolean
+
+    --- The ownership modes a body's parameters are used with, when it declared none.
+    inferredParameterModes: function(body: any): any
+end
+
+local isA = relations.isA
+
+-- The type algebra and the generic machinery moved out of this file; the names the
+-- checker calls them by are kept, since they read as vocabulary here.
+local subtract = narrowing.subtract
+local memberSet = narrowing.memberSet
+local withoutMember = narrowing.withoutMember
+local truthiness = narrowing.truthiness
+local substType = generics.subst
+local unify = generics.unify
+local instantiateNominal = generics.instantiate
+local specializeSelf = generics.specializeSelf
+local dropSelf = generics.dropSelf
+local addSelf = generics.addSelf
+local rawType = T.unwrapOwnership
+
+-- The lint registry lives in nupp.lints, which `nupp lints` reads too. The checker
+-- keeps the re-exports so a caller that already had them still works.
+checkMod.lints = lints.all
+checkMod.lintCategories = lints.categories
+checkMod.lintLevels = lints.levels
+checkMod.lintLevel = lints.level
+checkMod.lintFor = lints.get
+
+-- The closed reifiable field set: numerics, bool, structs by value, pointers, nullable
+-- pointers. Everything GC-managed is out.
+local REIFIABLE_PRIM = {
+    number = true, float = true, boolean = true, integer = true,
+    int8 = true, int16 = true, int32 = true, int64 = true,
+    uint8 = true, uint16 = true, uint32 = true, uint64 = true,
+}
+
+--- Whether a field of this type can live in reified C memory.
+local function reifiableField(t: Type, isCdef: boolean?): boolean
+    if REIFIABLE_PRIM[t.tag] then return true end
+    -- cstring/voidptr are legal in C-declared structs only: in a GC-managed struct a
+    -- "const char *" field would dangle (no anchor)
+    if isCdef and (t.tag == "cstring" or t.tag == "voidptr") then
+        return true
+    end
+    if t.tag == "nominal" and t.declKind == "struct" then return true end
+    if t.tag == "ptr" then return true end
+    if t.tag == "union" and #t.members == 2 and t.hasNil then
+        local other = t.members[1] == T.nil_ and t.members[2] or t.members[1]
+        -- any pointer-shaped type may be NULL, which is what the nullable spelling
+        -- records
+        if other.tag == "ptr" then return true end
+        if isCdef and (other == T.voidptr or other == T.cstring) then
+            return true
+        end
+        return false
+    end
+    return false
+end
+
+-- Checker state per run.
+--
+-- env (optional): { globals = {name -> entry}, globalTypes = {name -> type}, stringLib
+-- = shape type for string-method calls, resolveModule = function(env, modname) -> type?
+-- } — shared across files. opts may provide declareGlobals (prelude/declaration files),
+-- moduleName, an annotation registry, and a seeded module export interface for
+-- recursive project declarations.
+--
+-- Returns diags, moduleType (top-level return plus runtime declaration exports), and
+-- the module's exported type/value interface.
+function checkMod.check(result, filename, env, opts)
+    opts = opts or {}
+    if opts.strict == nil and env and env.config then
+        opts.strict = env.config.strict == true
+    end
+    result.symbols = {}
+    result.implicitSideEffects = {}
+    result.moduleName = opts and opts.moduleName
+        or env and env.moduleNameForPath
+        and env.moduleNameForPath(env, filename) or nil
+    local registry = opts and opts.annotations
+        or env and env.annotations or annotationMod.default()
+    registry:removeSource(filename)
+
+    -- One run's whole state, so the passes below reach it through `c` rather than by
+    -- being lexically inside one function. See checkMod.Checker.
+    local c = checkMod.Checker{
+        result = result, filename = filename, env = env, opts = opts,
+        -- A declaration file describes an interface it does not own, so its bare
+        -- declarations are that interface and have no table of the file's own to attach
+        -- to. Bundled declarations are checked under their module name rather than a
+        -- path, so they say so directly.
+        declarationFile = (opts and (opts.declarationFile
+        or opts.declareGlobals)) and true
+        or (filename and filename:match("%.d%.nupp$")) and true or false,
+        -- The table qualified declarations attach to, so `record M.Point` in a file
+        -- that returns M exports Point while `record Other.Point` does not.
+        moduleLocal = cst.returnedLocal(result.root),
+        annotationRegistry = registry,
+        annotationDefinitions = {},
+        lintConfig = opts and opts.lints
+        or env and env.config and env.config.lints or nil,
+        -- Fixes and the missing-require advice read the parse and the project index
+        -- rather than anything the walk builds, so they are made once here and asked.
+        -- See nupp.check.fixits.
+        edits = fixits.new(result, env),
+        diags = {},
+        moduleType = nil,
+        moduleExports = opts and opts.initialExports
+        or {types = {}, typeDefs = {}, values = {}},
+        seenDefinitions = {},
+        scope = {vars = {}, types = {}, typeDefs = {},
+        pending = {}, parent = nil},
+        retStack = {}, ownReturnStack = {}, borrowReturnStack = {},
+        disposerFieldStack = {}, validatedCleanupContracts = {},
+        unsafeDepth = 0, functionDepth = 0,
+        captureWatches = {}, allowed = {}, hoisting = false,
+        resolvingAlias = {}, lastCallRets = nil,
+        moduleFields = {}, moduleLocalAnnotated = false,
+    }
+    c.rootScope = c.scope
+    -- Published alongside the module name because the pair is what says a `function
+    -- m.f` in this file is a member of this module. Nothing typed needs it; an editor
+    -- asked where such a member was written does.
+    result.moduleLocal = c.moduleLocal
+
+    c.visibilityOf = function(stat): string
+        return cst.declVisibility(stat, c.moduleLocal)
+    end
+
+    local fix = c.edits.fix
+    local insertBefore = c.edits.insertBefore
+    local missingRequire = c.edits.missingRequire
+    local requiredAs = c.edits.requiredAs
+    local requireBindsName = c.edits.requireBindsName
+    local requireEdit = c.edits.requireEdit
+    c.missingRequire = c.edits.missingRequire
+
+    -- Owners, borrows and pins are tracked on their own; the walk asks where a value
+    -- came from and hands over what it consumes. See nupp.check.ownership.
+    local own = ownership.install(c)
+    c.own = own
+    resolve.install(c)
+    local ownershipKind = own.ownershipKind
+    local ownershipState = own.ownershipState
+    local borrowRoot = own.borrowRoot
+    local pointerShaped = own.pointerShaped
+    local optionalOwned = own.optionalOwned
+    local validateCleanups = own.validateCleanups
+    local resolvedOwnedCleanups = own.resolvedOwnedCleanups
+    local registerDefaultDisposer = own.registerDefaultDisposer
+    local ownershipEntry = own.ownershipEntry
+    local provenanceOwner = own.provenanceOwner
+    local provenanceOwners = own.provenanceOwners
+    local liveSuspensionObligation = own.liveSuspensionObligation
+    local moveExpression = own.moveExpression
+
+    --- Whether a surrounding @allow asked not to hear this lint. A lint is a judgement,
+    --- so a statement may disagree with it at any level; a type error is not a
+    --- judgement, and no annotation reaches one.
+    local function isAllowed(lint, code: string): boolean
+        if not lint then return false end
+        for j = #c.allowed, 1, -1 do
+            local set = c.allowed[j]
+            if set[lint.name] or set[code] or set["*"] then return true end
+        end
+        return false
+    end
+
+    c.related = function(nodeOrTok, message, relatedFilename)
+        local value = nodeOrTok
+        local atFilename = relatedFilename
+        if value and value.token then
+            atFilename = atFilename or value.filename
+            value = value.token
+        end
+        local at = cst.firstToken(value)
+        if not at then return nil end
+        return {message = message, filename = atFilename or filename,
+            line = at.line, col = at.col, offset = at.offset,
+            length = #at.text}
+    end
+
+    c.diag = function(code, nodeOrTok, msg, fixes, details)
+        local lint = lints.get(code)
+        local severity = "error"
+        if lint then
+            severity = lints.level(lint, c.lintConfig)
+            if severity == "off" then return end
+        end
+        if c.hoisting or isAllowed(lint, code) then return end
+        local at = cst.firstToken(nodeOrTok)
+        c.diags[#c.diags + 1] = {
+            code = lint and lint.code or code, lint = lint and lint.name or nil,
+            msg = msg, filename = filename, severity = severity,
+            line = at and at.line or 0, col = at and at.col or 0,
+            offset = at and at.offset or 0,
+            length = at and #at.text or 0,
+            fixes = fixes and #fixes > 0 and fixes or nil,
+            help = details and details.help or nil,
+            notes = details and details.notes or nil,
+            related = details and details.related or nil,
+        }
+    end
+
+    -- A `with` body that resolves a name declared outside itself makes the generated
+    -- region a closure over that binding, and a region with upvalues cannot be shared
+    -- across executions. Every name resolution goes through lookupEntry, so watching it
+    -- there is enough; the stack keeps nested scopes independent, and an inner capture
+    -- is recorded for every enclosing scope it also escapes.
+    c.pushScope = function()
+        c.scope = {vars = {}, types = {}, typeDefs = {},
+            pending = {}, parent = c.scope,
+            depth = (c.scope and c.scope.depth or 0) + 1}
+    end
+    local function auditScope(s)
+        for name, entry in pairs(s.vars or {}) do
+            local state = entry.ownershipOrigin or entry
+            if not entry.ownershipOrigin
+                and ownershipKind and ownershipKind(state.t) == "owned"
+                and not state.moved then
+                c.diag("NUPP2603", entry.definition and entry.definition.token,
+                    ("owned value %q leaves scope without being consumed, "
+                    .. "disposed, returned, or converted with intoRaw")
+                    :format(name))
+            elseif not entry.ownershipOrigin
+                and state.retained and not state.moved then
+                c.diag("NUPP2603", entry.definition and entry.definition.token,
+                    ("pinned handle %q is still retained by C; pass it to a "
+                    .. "declared releases parameter before it leaves scope")
+                    :format(name))
+            end
+        end
+    end
+    c.popScope = function()
+        auditScope(c.scope)
+        for _, entry in pairs(c.scope.vars or {}) do
+            if entry.borrowOwner then
+                entry.borrowOwner.activeBorrows = math.max(0,
+                    (entry.borrowOwner.activeBorrows or 1) - 1)
+            end
+            for _, owner in ipairs(entry.borrowOwners or {}) do
+                owner.activeBorrows = math.max(0,
+                    (owner.activeBorrows or 1) - 1)
+            end
+        end
+        c.scope = c.scope.parent
+    end
+    -- Var entries: { t = type, ann = boolean, constant = boolean }. Assignment
+    -- compatibility is enforced only for annotated bindings; inferred bindings stay
+    -- flexible (e.g. "increment_indent = nil" to disable an inferred local function).
+    c.lookupEntry = function(name)
+        local s = c.scope
+        while s do
+            local v = s.vars[name]
+            if v then
+                for i = #c.captureWatches, 1, -1 do
+                    if (s.depth or 0) < c.captureWatches[i].depth then
+                        c.captureWatches[i].captured = true
+                    end
+                end
+                return v
+            end
+            s = s.parent
+        end
+        if env and env.globals then return env.globals[name] end
+        return nil
+    end
+
+    --- The type a name currently holds.
+    c.lookupVar = function(name: string): Type?
+        local e = c.lookupEntry(name)
+        return e and e.t or nil
+    end
+
+
+
+    -- Set while a hoisted alias is being resolved, so an alias that names itself
+    -- reports rather than recurses forever.
+
+    c.lookupType = function(name)
+        local s = c.scope
+        while s do
+            local t = s.types[name]
+            if t then return t, s.typeDefs[name] end
+            local waiting = s.pending and s.pending[name]
+            if waiting then
+                local resolved = c.resolvePendingAlias(name, waiting, s)
+                if resolved then return resolved, s.typeDefs[name] end
+            end
+            s = s.parent
+        end
+        if env and env.globalTypes then
+            local t = env.globalTypes[name]
+            if t then
+                return t, env.globalTypeDefs and env.globalTypeDefs[name] or nil
+            end
+        end
+        if env and env.resolveProjectType then
+            return env.resolveProjectType(env, filename, name)
+        end
+        return nil
+    end
+    c.definition = function(tok, kind)
+        if not tok then return nil end
+        local def = tok.definition
+        if not def or def.filename ~= filename or def.token ~= tok then
+            def = {filename = filename, token = tok, name = tok.text}
+        end
+        if not c.seenDefinitions[def] then
+            result.symbols[#result.symbols + 1] = def
+            c.seenDefinitions[def] = true
+        end
+        if kind and (not def.kind or def.kind == "variable") then
+            def.kind = kind
+        end
+        tok.definition = def
+        return def
+    end
+    c.markToken = function(tok, def, t, kind)
+        if not tok then return end
+        tok.definition = def
+        tok.inferredType = t
+        tok.semanticKind = kind or def and def.kind or "variable"
+    end
+    c.bindVar = function(name, t, annotated, tok, kind, constant)
+        local old = c.scope.vars[name]
+        if tok then
+            local s = c.scope
+            while s do
+                local existing = s.vars[name]
+                if existing and existing.constant then
+                    c.diag("NUPP2008", tok,
+                        ("cannot re-declare const variable %s"):format(name))
+                    break
+                end
+                s = s.parent
+            end
+        end
+        kind = kind or (t and t.tag == "func" and "function" or "variable")
+        local def = tok and c.definition(tok, kind) or old and old.definition or nil
+        if def then
+            def.type = t
+            def.constant = constant == true
+                or (tok == nil and old and old.constant) or false
+            if not def.kind or def.kind == "variable" then def.kind = kind end
+        end
+        c.scope.vars[name] = {
+            t = t,
+            ann = annotated ~= nil and annotated or old and old.ann or false,
+            constant = constant == true
+            or (tok == nil and old and old.constant) or false,
+            definition = def,
+            ownership = t and (t.tag == "owned" or t.tag == "borrowed"
+            or t.tag == "pinned") and t.tag or nil,
+            moved = false,
+            functionDepth = c.functionDepth,
+        }
+        c.markToken(tok, def, t, def and def.kind or kind)
+    end
+    c.bindType = function(name, t, tok)
+        c.scope.types[name] = t
+        local kind = t and t.tag == "nominal" and t.declKind or "type"
+        if kind == "record" then kind = "type" end
+        if t and t.tag == "typevar" then kind = "typeParameter" end
+        local def = tok and c.definition(tok, kind) or c.scope.typeDefs[name]
+        if def then def.type, def.kind = t, kind end
+        c.scope.typeDefs[name] = def
+        c.markToken(tok, def, t, kind)
+    end
+
+    --- The single table a qualified declaration attaches to, or nil when the name is
+    --- unqualified.
+    c.qualifierOf = function(stat): string?
+        local qualifiers = stat.qualifiers
+        local only = qualifiers and #qualifiers == 1 and qualifiers[1] or nil
+        return only and only.text or nil
+    end
+
+    --- The scope key a declaration binds under. A qualified name binds under its whole
+    --- path, so `record M.Point` is reached as `M.Point` and declares no bare `Point` —
+    --- the same rule `function M.f` follows. The dot keeps the key clear of any
+    --- identifier.
+    c.declKey = function(stat): string
+        local qualifier = c.qualifierOf(stat)
+        if not qualifier then return stat.name.text end
+        return qualifier .. "." .. stat.name.text
+    end
+
+    --- Binds a declaration's type where its name puts it, recording the runtime path a
+    --- qualified declaration lives at.
+    c.bindDeclaredType = function(stat, t)
+        local key = c.declKey(stat)
+        -- The runtime table lives at M.Point, which is what `is` compares and
+        -- construction stamps for references from inside this file.
+        if t and t.tag == "nominal" and c.qualifierOf(stat) then
+            t.runtimePath = key
+        end
+        -- The table a declaration attaches to reads as a namespace, the same as any
+        -- other reference to the module it stands for.
+        for _, qualifier in ipairs(stat.qualifiers or {}) do
+            c.markToken(qualifier, nil, nil, "namespace")
+        end
+        c.bindType(key, t, stat.name)
+        -- The name a reader writes is the whole path, which is what an editor should be
+        -- offering and listing rather than the last segment alone.
+        if c.qualifierOf(stat) and stat.name.definition then
+            stat.name.definition.qualifiedName = key
+        end
+    end
+
+    --- Binds the value a declaration also introduces — a record's runtime table, a
+    --- struct's ctype constructor — under the same key as its type, so `M.Point{...}`
+    --- is recognized as a construction.
+    c.bindDeclaredVar = function(stat, t)
+        c.bindVar(c.declKey(stat), t, false, stat.name)
+    end
+
+    ---------------------------------------------------------------------
+    -- Type annotation resolution
+    ---------------------------------------------------------------------
+
+    c.typevarAt = function(tok, role)
+        return T.typevar(tok.text, filename .. ":" .. tostring(tok.offset)
+            .. ":" .. (role or "generic"))
+    end
+
+    -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
+    -- after each binder is visible.
+    c.bindGenerics = function(generics, role)
+        local params, bounds = {}, {}
+        for j, nameTok in ipairs(generics and generics.names or {}) do
+            local tv = c.typevarAt(nameTok, role)
+            params[j] = tv
+            c.bindType(nameTok.text, tv, nameTok)
+            local boundNode = generics.bounds and generics.bounds[j]
+            if boundNode then
+                bounds[j] = c.resolveType(boundNode)
+                if tv.tag == "typevar" then tv.bound = bounds[j] end
+            end
+        end
+        return params, bounds
+    end
+
+
+
+    ---------------------------------------------------------------------
+    -- Narrowing: facts extracted from conditions
+    ---------------------------------------------------------------------
+
+    -- The C namespace: a shape of everything the program has declared to the FFI, so
+    -- ffi.C and ffi.load both carry real signatures.
+
+    --- The type of `ffi.C`: every symbol the program has cdef'd.
+    c.cNamespaceType = function(): Type
+        local decls = require("nupp.cheader").declaredFunctions(function(tag)
+            local found = c.lookupType(tag)
+            if found and found.tag == "nominal" then return found end
+            return nil
+        end)
+        local fields = {}
+        for name, t in pairs(decls) do
+            fields[#fields + 1] = {name = name, type = t}
+        end
+        if #fields == 0 then return T.any end
+        return T.shape(fields)
+    end
+
+    -- Types an expression list against `count` targets, expanding the last expression's
+    -- extra return values. Only a call expands: `local a, b = f()` takes both of f's
+    -- results, while `local a, b = g` takes g and nothing. Inferring anything else may
+    -- still have left a call's results behind — a function expression whose body calls
+    -- something does — so the expansion asks what the expression is rather than
+    -- trusting what the last call reported.
+    local EXPANDS = {call = true, methodCall = true, safeCall = true}
+
+    local function inferList(exprs, count)
+        local out = {}
+        exprs = exprs or {}
+        for j, e in ipairs(exprs) do
+            c.lastCallRets = nil
+            local t = c.infer(e)
+            local rets = EXPANDS[e.kind] and c.lastCallRets or nil
+            if j == #exprs and rets and #rets > 1 then
+                for k, r in ipairs(rets) do
+                    if not count or j + k - 1 <= count then
+                        out[j + k - 1] = r
+                    end
+                end
+            else
+                out[j] = t
+            end
+        end
+        return out
+    end
+
+    -- Removes members of union `t` that fit `rem`; a full wipe-out keeps `t`.
+
+    --- `t` with everything that fits `rem` removed. Subtracting one of boolean's two
+    --- values leaves the other; a type parameter is left alone, since while
+    --- unsubstituted it fits everything.
+
+    -- What a condition proves, and where it holds, is its own concern; the walk applies
+    -- what it is told. See nupp.check.narrow.
+    local facts = narrow.install(c)
+    c.facts = facts
+    local mergeFacts = facts.mergeFacts
+    local pathKey = facts.pathKey
+    local lookupNarrowed = facts.lookupNarrowed
+    local clearNarrowed = facts.clearNarrowed
+    local clearAliases = facts.clearAliases
+    local analyzeCond = facts.analyzeCond
+    local snapshotNarrowed = facts.snapshotNarrowed
+    local applyFacts = facts.applyFacts
+
+    --- Whether calling this expression never comes back. `error` is recognized by name
+    --- so that untyped code keeps the behaviour it always had; anything else has to say
+    --- so, through `@noreturn` or through a body that only ever raises.
+    ---
+    --- @param call the called expression, if the statement had one
+    local function neverReturns(call: Node?): boolean
+        if not call then return false end
+        local kind = call.kind
+        if kind ~= "call" and kind ~= "methodCall" then return false end
+        local signature = call.signatureType as Type?
+        if signature and signature.tag == "func" and signature.noreturn then
+            return true
+        end
+        if kind == "call" then
+            local callee = call.obj
+            if callee and callee.kind == "name" then
+                local tok = callee.token
+                if tok and tok.text == "error" then return true end
+            end
+        end
+        return false
+    end
+
+    -- True if a block unconditionally leaves the enclosing scope.
+
+    --- Whether control always leaves this block, so it never reaches what follows.
+    local function alwaysExits(block: Node?): boolean
+        local stats = block and block.kind == "block" and block.stats or {}
+        local last = stats[#stats]
+        if not last then return false end
+        local kind = last.kind
+        if kind == "returnStmt" or kind == "breakStmt"
+            or kind == "continueStmt" then
+            return true
+        end
+        if kind == "callStmt" then return neverReturns(last.expr) end
+        return false
+    end
+
+    --- Whether every path out of this block raises rather than returning: the last
+    --- statement is a call that never comes back, or a `do` block or a complete `if`
+    --- chain of which the same is true. This is what makes a helper that only ever
+    --- throws a `@noreturn` function without being told.
+    ---
+    --- @param block the body to judge
+    local function alwaysRaises(block: Node?): boolean
+        local stats = block and block.kind == "block" and block.stats or {}
+        local last = stats[#stats]
+        if not last then return false end
+        local kind = last.kind
+        if kind == "callStmt" then return neverReturns(last.expr) end
+        if kind == "doStmt" then return alwaysRaises(last.body) end
+        if kind == "ifStmt" then
+            local otherwise = last.elseClause
+            if not otherwise then return false end
+            for _, clause in ipairs(last.clauses) do
+                if clause.kind ~= "ifClause" and clause.kind ~= "elseifClause" then
+                    return false
+                end
+                if not alwaysRaises(clause.body) then return false end
+            end
+            if otherwise.kind ~= "elseClause" then return false end
+            return alwaysRaises(otherwise.body)
+        end
+        return false
+    end
+
+    --- Whether anything in this function's own body returns. A nested function's
+    --- returns belong to it, so the walk stops where a new body begins.
+    ---
+    --- @param x the node to search
+    local function returnsSomewhere(x: Node): boolean
+        if x.kind == "returnStmt" then return true end
+        if x.kind == "funcbody" or x.kind == "shortfn" then return false end
+        for _, child in ipairs(x) do
+            if not cst.isToken(child) and returnsSomewhere(child as Node) then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- Reaching a member and checking a call against it, construction included. See
+    -- nupp.check.calls.
+    local apply = calls.install(c)
+    c.apply = apply
+    local metamethodOf = apply.metamethodOf
+    local validateTypeBounds = apply.validateTypeBounds
+    local applyContract = apply.applyContract
+    local inferCall = apply.inferCall
+
+    -- The type an expression has. See nupp.check.expr.
+    expr.install(c)
+
+    ---------------------------------------------------------------------
+    -- Statements
+    ---------------------------------------------------------------------
+
+
+
+
+    -- Whether an annotation is well formed, and what one defines, is its own job; the
+    -- walk only asks. See nupp.check.annotate.
+    local marks = annotate.install(c)
+    c.marks = marks
+    local stringValue = marks.stringValue
+    local validateAnnotation = marks.validateAnnotation
+    local defineAnnotation = marks.defineAnnotation
+
+    -- Checking a declaration and publishing what it declares. See nupp.check.declare.
+    declare.install(c, reifiableField, fix, insertBefore, validateAnnotation)
+
+    --- Checks one statement, in the scope it stands in.
+    ---
+    --- @param stat the statement node
+    -- A module is written `local M = {}` and filled in one statement at a time, so the
+    -- constructor says nothing about what it exports. What is put on it does, and
+    -- remembering that is what lets a caller reach an exported function's type rather
+    -- than an open table's.
+    local function recordModuleField(target: Node, t: Type?)
+        if not c.moduleLocal or target.kind ~= "dotIndex" then return end
+        local base, member = target.obj, target.name
+        if not base or not member or base.kind ~= "name" then return end
+        local baseTok = base.token
+        if not baseTok or baseTok.text ~= c.moduleLocal then return end
+        c.moduleFields[member.text] = t or T.any
+    end
+
+    -- Promoted onto the run so that the statement families below, each in its own
+    -- module, can reach them without being lexically inside this function.
+    c.inferList = inferList
+    c.recordModuleField = recordModuleField
+    c.alwaysExits = alwaysExits
+    c.alwaysRaises = alwaysRaises
+    c.returnsSomewhere = returnsSomewhere
+
+    -- Each statement family is its own module, installed here and reached through one
+    -- table. A kind with no handler is a statement with nothing to check: empty,
+    -- break, goto, label, and the error nodes recovery leaves behind.
+    local statHandlers = {}
+    for _, installed in ipairs({
+        bindings.install(c), control.install(c), functions.install(c),
+        cdef.install(c, reifiableField), pragma.install(c),
+    }) do
+        for kind, handle in pairs(installed) do statHandlers[kind] = handle end
+    end
+    statHandlers.recordDecl = c.checkTypedecl
+    statHandlers.enumDecl = c.checkTypedecl
+    statHandlers.typeAlias = c.checkTypedecl
+
+    local function checkStat(stat: Node)
+        local handle = statHandlers[stat.kind]
+        if handle then handle(stat) end
+    end
+
+    c.checkStat = checkStat
+
+
+    -- Binds every type a block declares before any body is checked, so declarations in
+    -- one block may name each other whatever the order. A nominal is created and bound
+    -- here and filled in when its statement is reached; an alias's value waits until
+    -- something names it.
+    local function hoistDeclarations(block)
+        for _, stat in ipairs(block.stats or {}) do
+            local decl = stat
+            while decl and decl.kind == "pragmaStmt" do decl = decl.stat end
+            local k = decl and decl.kind
+            if (k == "recordDecl" or k == "enumDecl") and decl.name then
+                local declKind = k == "enumDecl" and "enum" or decl.declKind
+                local n, entry = c.declaredNominal(decl, declKind)
+                decl.hoistedType, decl.hoistedEntry = n, entry
+                n.byname = n.byname or {}
+                local key = c.declKey(decl)
+                if c.qualifierOf(decl) then n.runtimePath = key end
+                c.bindType(key, n, nil)
+            elseif k == "typeAlias" and decl.name and decl.value then
+                local waiting = {node = decl.value, tok = decl.name}
+                decl.hoistedAlias = waiting
+                c.scope.pending[c.declKey(decl)] = waiting
+            end
+        end
+        -- Methods, once the types they name are bound: publishing each signature now is
+        -- what lets two methods call each other.
+        local wasHoisting = c.hoisting
+        c.hoisting = true
+        for _, stat in ipairs(block.stats or {}) do
+            local decl = stat
+            while decl and decl.kind == "pragmaStmt" do decl = decl.stat end
+            local fname = decl and decl.kind == "funcStmt" and decl.name
+            local ownerKey, memberTok = nil, nil
+            if fname then ownerKey, memberTok = c.funcOwner(fname) end
+            if ownerKey then
+                local owner = c.lookupType(ownerKey)
+                local member = memberTok and memberTok.text
+                if owner and owner.tag == "nominal" and owner.byname
+                    and member and not owner.byname[member] then
+                    owner.byname[member] = c.signatureOf(decl.body,
+                        fname.method and owner or nil)
+                end
+            end
+        end
+        c.hoisting = wasHoisting
+    end
+
+    --- Checks every statement of a block, hoisting the declarations in it first so they
+    --- may name one another whatever the order.
+    ---
+    --- @param block the block node
+    --- @param scopeManaged whether the caller has already pushed the scope
+    c.checkBlock = function(block: Node?, scopeManaged: boolean?)
+        if not scopeManaged then c.pushScope() end
+        hoistDeclarations(block)
+        local stats = block and block.kind == "block" and block.stats or {}
+        for _, stat in ipairs(stats) do
+            checkStat(stat)
+        end
+        if not scopeManaged then c.popScope() end
+    end
+
+    -- A goto may leave a resource scope (the lowering cleans before re-dispatch), but
+    -- it may not enter one and bypass acquisition.
+    local function auditWithGotos(block)
+        local labels, gotos = {}, {}
+        local function walk(node, regions)
+            if not node or cst.isToken(node) then return end
+            if node.kind == "funcbody" then
+                if node.body then auditWithGotos(node.body) end
+                return
+            end
+            if node.kind == "shortfn" then
+                if node.body then auditWithGotos(node.body) end
+                return
+            end
+            local active = regions
+            if node.kind == "withStmt" then
+                active = {}
+                for region in pairs(regions) do active[region] = true end
+                active[node] = true
+            elseif node.kind == "labelStmt" and node.name then
+                labels[node.name.text] = labels[node.name.text] or {}
+                labels[node.name.text][#labels[node.name.text] + 1] = {
+                    node = node,
+                    regions = active,
+                }
+            elseif node.kind == "gotoStmt" and node.name then
+                gotos[#gotos + 1] = {node = node, regions = active}
+            end
+            for _, child in ipairs(node) do walk(child, active) end
+        end
+        walk(block, {})
+        for _, jump in ipairs(gotos) do
+            local targets = labels[jump.node.name.text]
+            local target = targets and targets[1]
+            if target then
+                for region in pairs(target.regions) do
+                    if not jump.regions[region] then
+                        c.diag("NUPP2617", jump.node,
+                            "goto cannot enter a 'with' resource scope")
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    -- Top-level statements bind into the root scope directly so that declaration files
+    -- can export them and module return types resolve.
+    for _, block in ipairs(result.root.blocks) do
+        c.checkBlock(block, true)
+        auditWithGotos(block)
+    end
+    auditScope(c.rootScope)
+
+    -- A module's type is what it returned. Declarations that carry a runtime value put
+    -- it on that table themselves, so there is nothing to merge in afterwards and
+    -- nothing that could collide with a field already there.
+
+    if opts and opts.declareGlobals and env then
+        env.globals = env.globals or {}
+        env.globalTypes = env.globalTypes or {}
+        for name, entry in pairs(c.rootScope.vars) do
+            env.globals[name] = entry
+        end
+        for name, t in pairs(c.rootScope.types) do
+            env.globalTypes[name] = t
+        end
+        env.globalTypeDefs = env.globalTypeDefs or {}
+        for name, def in pairs(c.rootScope.typeDefs) do
+            env.globalTypeDefs[name] = def
+        end
+    end
+
+    table.sort(c.diags, function(a, b) return a.offset < b.offset end)
+    result.moduleExports = c.moduleExports
+    return c.diags, c.moduleType, c.moduleExports
+end
+
+return checkMod

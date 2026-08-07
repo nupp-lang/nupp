@@ -1,0 +1,105 @@
+#!/bin/sh
+# The nupp launcher.
+#
+# Runs build/nupp when it is there and no source is newer than it, and builds it
+# first when it is not, so an edit to the compiler is picked up by the next
+# command rather than by the next person who remembers to build.
+#
+# What it cannot do is start from nothing. The compiler is written in Nupp, so
+# compiling it needs a Nupp compiler; bootstrap/nupp.lua is that compiler,
+# already lowered to Lua, and it is the one thing here that does not itself need
+# building. A checkout without it has no way in.
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILT="$ROOT/build/nupp/main.lua"
+STAMP="$ROOT/build/.nupp-complete"
+BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
+LUAPATH="package.path=\"$ROOT/build/?.lua;\" .. package.path"
+
+# Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1 backported, and
+# every command here either produces generated code or runs it, so an older
+# interpreter cannot do the job whatever it manages to load. Saying which build
+# is wanted beats a syntax error pointing at a line nobody wrote by hand.
+LUAJIT_FLOOR=1784535649
+
+check_luajit() {
+    command -v luajit >/dev/null 2>&1 || {
+        echo "nupp: luajit is not on PATH" >&2
+        exit 1
+    }
+    reported=$(luajit -v 2>/dev/null | sed -n '1s/^LuaJIT \([0-9.]*\).*/\1/p')
+    # Only the 2.1 series needs the rolling number looked at: 2.0 and older
+    # never had the extensions, and anything past 2.1 was born with them.
+    case "$reported" in
+        "")             return 0 ;; # an unreadable banner proves nothing
+        2.1.*)          [ "${reported#2.1.}" -ge "$LUAJIT_FLOOR" ] 2>/dev/null \
+                            && return 0 ;;
+        1.*|2.0*|2.1)   ;;
+        *)              return 0 ;;
+    esac
+    echo "nupp: LuaJIT $reported is too old; 2.1.$LUAJIT_FLOOR or newer is" \
+        "required for the backported syntax extensions" >&2
+    exit 1
+}
+
+check_luajit
+
+built_exists() {
+    [ -f "$STAMP" ] && [ -f "$BUILT" ]
+}
+
+# The stamp is rewritten by every build, warm ones included, so one source
+# newer than it means the build has not seen that edit. Checking mtimes rather
+# than asking the build system costs ten milliseconds where a warm build costs
+# two seconds, and this runs before every command.
+built_is_current() {
+    built_exists || return 1
+    [ -z "$(find "$ROOT/src" -name '*.nupp' -newer "$STAMP" 2>/dev/null \
+        | head -n 1)" ]
+}
+
+# With the best compiler available: the built one when there is one, since a
+# compiler that has kept up with the sources is likelier to compile them than a
+# bundle from whenever it was last refreshed.
+#
+# When that one cannot build, the bootstrap gets a turn. A build can succeed and
+# still leave a compiler that does not run — that is an ordinary afternoon when
+# the thing being edited is the compiler — and without the second attempt the
+# only way out is knowing to delete build/ by hand.
+build_now() {
+    if built_exists; then
+        (cd "$ROOT" && luajit -e "$LUAPATH" "$BUILT" build) && return 0
+        [ -f "$BOOTSTRAP" ] || return 1
+        echo "nupp: falling back to the bootstrap compiler" >&2
+    fi
+    [ -f "$BOOTSTRAP" ] || return 1
+    (cd "$ROOT" && luajit "$BOOTSTRAP" build)
+}
+
+# `build` and `clean` are the build; running one before them would be doing
+# their job twice or undoing it. `help` and a bare invocation answer without
+# reading a single source file.
+case "${1:-}" in
+    ""|-h|--help|help|build|clean) rebuild=no ;;
+    *) rebuild=yes ;;
+esac
+
+if [ "$rebuild" = yes ] && ! built_is_current; then
+    echo "nupp: sources changed, building the compiler" >&2
+    if ! build_now; then
+        # Mid-edit the compiler often does not compile, and that is no reason
+        # for the rest of the toolchain to stop working. The last compiler that
+        # did build still runs; it is just running behind, and says so.
+        echo "nupp: the compiler did not build; running the last one that did" >&2
+    fi
+fi
+
+if built_exists; then
+    exec luajit -e "$LUAPATH" "$BUILT" "$@"
+fi
+
+if [ -f "$BOOTSTRAP" ]; then
+    exec luajit "$BOOTSTRAP" "$@"
+fi
+
+echo "nupp: no completed build or bootstrap compiler found" >&2
+exit 1

@@ -1,0 +1,151 @@
+--[[
+One documented declaration, as HTML: its signature, its type parameters, its
+arguments and results, its members. The module summary above them is the same
+information as a table, for a reader deciding which declaration to scroll to.
+]]
+
+local stringsMod = require("nupp.doc.strings")
+local htmlMod = require("nupp.doc.html")
+local highlightMod = require("nupp.doc.highlight")
+local extractMod = require("nupp.doc.extract")
+
+local htmlEscape, inlineMarkdown = stringsMod.htmlEscape, stringsMod.inlineMarkdown
+local summaryText = stringsMod.summaryText
+local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
+local highlightNupp = highlightMod.nuppSource
+local splitMembers = extractMod.splitMembers
+
+local api = {}
+local function kindBadge(kind)
+    return '<span class="nuppdoc-kind-badge nuppdoc-kind-'
+        .. htmlEscape(kind) .. '">' .. htmlEscape(kind) .. '</span>'
+end
+
+local function moduleSummary(module)
+    local groups = {
+        {title = "Types", items = {}},
+        {title = "Functions", items = {}},
+        {title = "Values", items = {}},
+    }
+    for _, item in ipairs(module.items) do
+        local callable = item.kind == "function" or item.kind == "method"
+        local group = callable and groups[2]
+            or item.kind == "variable" and groups[3] or groups[1]
+        group.items[#group.items + 1] = item
+    end
+    local out = {'<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>'}
+    for _, group in ipairs(groups) do
+        if #group.items > 0 then
+            local rows = {}
+            for _, item in ipairs(group.items) do
+                rows[#rows + 1] = {
+                    '<a href="#' .. htmlEscape(item.path) .. '"><code>'
+                    .. htmlEscape(item.name) .. '</code></a>',
+                    kindBadge(item.kind),
+                    inlineMarkdown(summaryText(item.doc.text)),
+                }
+            end
+            out[#out + 1] = '<h3>' .. group.title .. '</h3>'
+                .. tableHtml({group.title:sub(1, -2), "Kind", "Description"}, rows)
+        end
+    end
+    out[#out + 1] = "</section>"
+    return table.concat(out)
+end
+
+local function inlineNupp(source, links)
+    return "<code>" .. highlightNupp(source, links) .. "</code>"
+end
+
+local function renderHtmlItem(out, item, links)
+    out[#out + 1] = '<section class="nuppdoc-api-item" id="'
+        .. htmlEscape(item.path) .. '"><h2><code>' .. htmlEscape(item.name)
+        .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-'
+        .. htmlEscape(item.kind) .. '">' .. htmlEscape(item.kind)
+        .. '</span><a class="nuppdoc-header-anchor" href="#'
+        .. htmlEscape(item.path) .. '" aria-label="Link to ' .. htmlEscape(item.name)
+        .. '">#</a></h2>'
+    out[#out + 1] = markdownHtml(item.doc.text, links)
+    out[#out + 1] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
+        .. '<code class="language-nupp">'
+        .. highlightNupp(item.signature, links) .. "</code></pre></div>"
+    if #item.typeargs > 0 then
+        local rows = {}
+        for _, typearg in ipairs(item.typeargs) do
+            rows[#rows + 1] = {"<code>" .. htmlEscape(typearg.name) .. "</code>",
+                markdownHtml(typearg.text, links)}
+        end
+        out[#out + 1] = "<h3>Type parameters</h3>"
+            .. tableHtml({"Name", "Description"}, rows)
+    end
+    if #item.params > 0 then
+        local rows = {}
+        for _, param in ipairs(item.params) do
+            rows[#rows + 1] = {"<code>" .. htmlEscape(param.name) .. "</code>",
+                inlineNupp(param.type, links), markdownHtml(param.text, links)}
+        end
+        out[#out + 1] = "<h3>Arguments</h3>" .. tableHtml({"Name", "Type", "Description"}, rows)
+    end
+    if #item.returns > 0 then
+        local rows = {}
+        for _, value in ipairs(item.returns) do
+            rows[#rows + 1] = {inlineNupp(value.type, links),
+                markdownHtml(value.text, links)}
+        end
+        out[#out + 1] = "<h3>Returns</h3>" .. tableHtml({"Type", "Description"}, rows)
+    end
+    local fields, methods = splitMembers(item.members)
+    if #methods > 0 then
+        out[#out + 1] = "<h3>Methods</h3>"
+        for _, method in ipairs(methods) do
+            out[#out + 1] = '<div class="nuppdoc-api-member" id="'
+                .. htmlEscape(method.path) .. '"><h4><code>'
+                .. htmlEscape(method.name) .. "</code></h4>"
+            out[#out + 1] = markdownHtml(method.text, links)
+            out[#out + 1] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>'
+                .. '<code class="language-nupp">'
+                .. highlightNupp(method.name .. ": " .. method.type, links)
+                .. "</code></pre></div>"
+            if #method.params > 0 then
+                local rows = {}
+                for _, param in ipairs(method.params) do
+                    rows[#rows + 1] = {"<code>" .. htmlEscape(param.name)
+                        .. "</code>", inlineNupp(param.type, links),
+                        markdownHtml(param.text, links)}
+                end
+                out[#out + 1] = "<h5>Arguments</h5>"
+                    .. tableHtml({"Name", "Type", "Description"}, rows)
+            end
+            if #method.returns > 0 then
+                local rows = {}
+                for _, value in ipairs(method.returns) do
+                    rows[#rows + 1] = {inlineNupp(value.type, links),
+                        markdownHtml(value.text, links)}
+                end
+                out[#out + 1] = "<h5>Returns</h5>"
+                    .. tableHtml({"Type", "Description"}, rows)
+            end
+            out[#out + 1] = "</div>"
+        end
+    end
+    if #fields > 0 then
+        local rows = {}
+        for _, field in ipairs(fields) do
+            rows[#rows + 1] = {"<code>" .. htmlEscape(field.name) .. "</code>",
+                inlineNupp(field.type, links), markdownHtml(field.text, links)}
+        end
+        out[#out + 1] = "<h3>Fields</h3>" .. tableHtml({"Name", "Type", "Description"}, rows)
+    end
+    if #item.values > 0 then
+        local values = {}
+        for _, value in ipairs(item.values) do values[#values + 1] = "<li><code>"
+                .. htmlEscape(value) .. "</code></li>" end
+        out[#out + 1] = "<h3>Values</h3><ul>" .. table.concat(values) .. "</ul>"
+    end
+    out[#out + 1] = "</section>"
+end
+
+api.moduleSummary = moduleSummary
+api.renderHtmlItem = renderHtmlItem
+
+return api

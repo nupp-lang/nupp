@@ -1,0 +1,330 @@
+--[[
+Applying something to arguments.
+
+The type of a call is the type its callee returns, but getting there means
+answering what the callee is first: an intrinsic the compiler implements, a
+`require` whose module can be resolved to a type, a contract like `pairs` whose
+result depends on what it was handed, or an ordinary function whose signature
+says. The FFI intrinsics are next door; everything else is here.
+
+A method call is the same thing with the receiver threaded in as the first
+argument, which is all `:` means.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local generics = require("nupp.generics")
+local lexer = require("nupp.lexer")
+local cst = require("nupp.cst")
+local operators = require("nupp.check.operators")
+local ffiMod = require("nupp.check.ffi")
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+local dropSelf = generics.dropSelf
+
+local callexpr = {}
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A token, as the lexer produced it.
+local type Token = lexer.Token
+
+--- Installs the call expressions on one run.
+---
+--- @param c the run's state
+function callexpr.install(c: any): any
+    local inferFfiIntrinsic = ffiMod.install(c)
+
+    local handlers = {}
+
+    handlers.call = function(node: cst.Call | cst.SafeCall): Type
+        -- The intrinsic dispatch below asks the same three questions of every call
+        -- — what is being called, what it is dotted off, and what was passed — so
+        -- they are answered once here. An empty name matches nothing, which is what
+        -- a callee of another shape is.
+        local callee = node.obj
+        local calleeName, baseName, memberName = "", "", ""
+        local typeArg: Node? = nil
+        if callee then
+            if callee.kind == "name" then
+                local calleeTok = callee.token
+                calleeName = calleeTok and calleeTok.text or ""
+            elseif callee.kind == "dotIndex" then
+                local memberTok = callee.name
+                memberName = memberTok and memberTok.text or ""
+                typeArg = callee.ffiTypeArg
+                local base = callee.obj
+                if base and base.kind == "name" then
+                    local baseTok = base.token
+                    baseName = baseTok and baseTok.text or ""
+                end
+            end
+        end
+        local argsNode = node.args
+        local argExprs: {Node} = {}
+        local argStr: lexer.Token? = nil
+        local argTable: Node? = nil
+        if argsNode and argsNode.kind == "args" then
+            argExprs = argsNode.exprs or {}
+            argStr = argsNode.str
+            argTable = argsNode.table
+        end
+        if baseName == "coroutine" and memberName == "yield" then
+            local obligation = c.liveSuspensionObligation()
+            if obligation then
+                c.diag("NUPP2603", node,
+                    ("cannot suspend while temporal obligation %q is live")
+                    :format(obligation))
+            end
+        end
+        if calleeName ~= "" and not c.lookupEntry(calleeName) then
+            local intrinsic = calleeName
+            local args = argExprs
+            if intrinsic == "intoRaw" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 then
+                    c.diag("NUPP2602", node, "intoRaw expects one owned value")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node,
+                        "intoRaw requires an unsafe do block")
+                end
+                c.moveExpression(args[1] or node, valueT, "intoRaw")
+                node.ownershipIntrinsic = "intoRaw"
+                return rawType(valueT)
+            elseif intrinsic == "borrow" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 or c.ownershipKind(valueT) ~= "owned" then
+                    c.diag("NUPP2602", node, "borrow expects one live owned value")
+                end
+                node.ownershipIntrinsic = "borrow"
+                node.borrowOwner = c.borrowRoot(c.ownershipEntry(args[1]))
+                return T.borrowed(rawType(valueT))
+            elseif intrinsic == "borrowFrom" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if args[2] then c.infer(args[2]) end
+                local source = args[2] and c.ownershipEntry(args[2]) or nil
+                if #args ~= 2 or c.ownershipKind(valueT)
+                    or not c.pointerShaped(valueT) or not source then
+                    c.diag("NUPP2602", node,
+                        "borrowFrom expects a raw pointer and a named source")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node,
+                        "borrowFrom requires an unsafe do block")
+                end
+                node.ownershipIntrinsic = "borrowFrom"
+                node.borrowOwner = c.borrowRoot(source)
+                return T.borrowed(rawType(valueT))
+            elseif intrinsic == "pin" then
+                local pointerT = args[1] and c.infer(args[1]) or T.any
+                if args[2] then c.infer(args[2]) end
+                if #args ~= 2 or not c.pointerShaped(pointerT) then
+                    c.diag("NUPP2602", node,
+                        "pin expects a pointer and its managed anchor")
+                end
+                if c.unsafeDepth == 0 then
+                    local pointerOwner = args[1] and args[1].borrowOwner
+                    local anchorEntry = args[2] and c.ownershipEntry(args[2])
+                    if c.ownershipKind(pointerT) ~= "borrowed"
+                        or not pointerOwner or pointerOwner ~= anchorEntry then
+                        c.diag("NUPP2604", node,
+                            "pin must prove the pointer derives from its anchor; "
+                            .. "use unsafe do for an opaque derivation")
+                    end
+                end
+                node.ownershipIntrinsic = "pin"
+                return T.pinned(rawType(pointerT))
+            elseif intrinsic == "fromRaw" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local cleanups = {}
+                for j = 2, #args do
+                    local cleanupT = c.infer(args[j])
+                    local cleanupNode = args[j]
+                    local cleanupTok = cleanupNode.kind == "name"
+                        and cleanupNode.token or nil
+                    if not cleanupTok then
+                        c.diag("NUPP2602", args[j],
+                            "fromRaw cleanup arguments must be function names")
+                    else
+                        cleanups[#cleanups + 1] = cleanupTok.text
+                    end
+                    if cleanupT ~= T.any and (cleanupT.tag ~= "func"
+                        or not cleanupT.params[1]
+                        or not isA(rawType(valueT), cleanupT.params[1])) then
+                        c.diag("NUPP2602", args[j],
+                            "fromRaw cleanup must accept the pointer type")
+                    end
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node,
+                        "fromRaw requires an unsafe do block")
+                end
+                if c.ownershipKind(valueT) or not c.pointerShaped(valueT) then
+                    c.diag("NUPP2602", args[1] or node,
+                        "fromRaw expects an unmanaged pointer")
+                end
+                node.ownershipIntrinsic = "fromRaw"
+                node.ownerCleanups = cleanups
+                return T.owned(rawType(valueT), cleanups)
+            elseif intrinsic == "dispose" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 then
+                    c.diag("NUPP2602", node, "dispose expects one owned value")
+                end
+                local withBorrow = args[1] and args[1].withBinding
+                if withBorrow then
+                    c.diag("NUPP2614", args[1],
+                        "a visible 'with' borrow cannot be disposed")
+                end
+                if not withBorrow then
+                    c.moveExpression(args[1] or node, valueT, "dispose")
+                end
+                if c.ownershipKind(valueT) == "owned"
+                    and #(valueT.cleanups or {}) == 0 then
+                    c.diag("NUPP2602", args[1] or node,
+                        "dispose needs @owned cleanup functions; transfer this owner "
+                        .. "to a declared takes parameter")
+                end
+                c.validateCleanups(valueT, valueT.cleanups,
+                    args[1] or node)
+                node.ownershipIntrinsic = "dispose"
+                node.ownerCleanups = valueT.cleanups or {}
+                return T.nil_
+            end
+        end
+        if calleeName ~= "" then
+            local entry = c.lookupEntry(calleeName)
+            node.cdefCall = entry and entry.definition
+                and entry.definition.cdef or false
+        end
+        -- require("mod") resolves to the module's type when the module can be found
+        -- (c.env-driven; unresolved modules stay any)
+        if calleeName == "require"
+            and c.env and c.env.resolveModule then
+            local tok = nil
+            if argsNode then
+                local e1 = argExprs[1]
+                if e1 and e1.kind == "string" then tok = e1.token end
+                if argStr then tok = argStr end
+            end
+            if tok then
+                local text = tok.text
+                local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+                if modname then
+                    node.requiredModule = modname
+                    local mt = c.env.resolveModule(c.env, modname)
+                    if mt then return mt end
+                end
+            end
+            return T.any
+        end
+        -- The same operations written the way LuaJIT has always been written: a
+        -- constant type string is read by the compiler, so existing FFI code gets
+        -- types without being rewritten. A string built at run time yields cdata
+        -- rather than any, which keeps leaving the typed path visible.
+        local intrinsic = inferFfiIntrinsic(node, calleeName, baseName,
+            memberName, typeArg, argExprs, argStr)
+        if intrinsic then return intrinsic end
+        local calleeT = callee and c.infer(callee) or T.any
+        node.calleeType = rawType(calleeT)
+        local knownAts = nil
+        -- LuaJIT's pairs accepts every table, including nominal record instances.
+        -- Preserve the precise map overload from the prelude, but use an erased
+        -- iterator contract for records.
+        local pairParams = calleeT.tag == "func" and calleeT.typeParams
+        local pairMap = calleeT.tag == "func" and calleeT.params[1]
+        local isPairsContract = calleeName == "pairs" and pairParams
+            and #pairParams == 2 and pairMap and pairMap.tag == "map"
+            and pairMap.key == pairParams[1]
+            and pairMap.value == pairParams[2]
+        if isPairsContract then
+            local args = argExprs
+            if #args == 1 then
+                local at = c.infer(args[1])
+                if at.tag == "nominal" or (at.tag == "typevar"
+                    and at.bound and at.bound.tag == "nominal") then
+                    local iterator = T.func({}, {T.any, T.any}, false)
+                    c.lastCallRets = {iterator}
+                    return iterator
+                end
+                knownAts = {at}
+            end
+        end
+        -- A direct metatable literal is an ordinary runtime value, but a misspelled
+        -- double-underscore key is almost certainly a broken contract.
+        -- Computed/generic metatables stay unchecked.
+        if calleeName == "setmetatable" then
+            local args = argExprs
+            local mt = args[2]
+            if mt and mt.kind == "tableExpr" then
+                for _, field in ipairs(mt.fields or {}) do
+                    if field.kind == "fieldNamed" then
+                        local name = field.name.text
+                        if name:match("^__")
+                            and not operators.runtimeMetamethod[name] then
+                            c.diag("NUPP2118", field.name,
+                                ("unknown metatable key %q"):format(name),
+                                c.edits.spellingFix(field.name,
+                                    operators.runtimeMetamethod))
+                        end
+                    end
+                end
+            end
+        end
+        local first, rets = c.inferCall(node, calleeT, node.args, knownAts)
+        c.lastCallRets = rets
+        return first
+    end
+    handlers.safeCall = handlers.call
+
+    handlers.methodCall = function(node: cst.MethodCall): Type
+        local receiver, member = node.obj, node.name
+        if not receiver or not member then return T.any end
+        local ot = c.infer(receiver)
+        -- `o?.:m()` tolerates a nil receiver and `o:m?.()` a nil method;
+        -- either check makes the whole call optional, and both drop the nil
+        -- they check for before the lookup that follows.
+        local optional = node.safeObj ~= nil or node.safeMethod ~= nil
+        local function withoutNil(t: Type): Type
+            if t.tag ~= "union" then return t end
+            local nonnil = {}
+            for _, m in ipairs(t.members) do
+                if m ~= T.nil_ then nonnil[#nonnil + 1] = m end
+            end
+            return T.union(nonnil)
+        end
+        if node.safeObj then ot = withoutNil(ot) end
+        local mt, fieldDef = c.fieldType(ot, member.text)
+        if mt and node.safeMethod then mt = withoutNil(mt) end
+        if mt then
+            c.markToken(member, fieldDef, mt,
+                mt.tag == "func" and "method" or "property")
+            -- o:m(...) desugars to m(o, ...): drop the self parameter
+            local first, rets = c.inferCall(node,
+                mt.tag == "func" and dropSelf(mt) or mt, node.args)
+            c.lastCallRets = rets
+            return optional and T.optional(first) or first
+        end
+        if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
+            if ot.tag == "shape" or (ot.tag == "nominal" and ot.declKind ~= "enum") then
+                local fixes = c.edits.nameSpellingFix(member,
+                    c.fieldNames(ot))
+                c.diag("NUPP2004", member, ("no method %q in %s")
+                    :format(member.text, T.tostring(ot)), fixes,
+                    {help = fixes and "use the suggested method spelling"
+                    or "check the receiver type and available methods"})
+            end
+        end
+        if node.args then c.inferCall(node, T.any, node.args) end
+        return T.any
+    end
+    return handlers
+end
+
+return callexpr

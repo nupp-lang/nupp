@@ -1,0 +1,395 @@
+--[[
+The statements that branch, repeat, and leave.
+
+Control flow is where narrowing is made and unmade: a condition proves something
+on each side of itself, a loop body may run zero times, and joining the branches
+of an `if` keeps only what every path agreed on. It is also where an affine value
+can escape — by being returned, or by outliving the `with` scope that owns it —
+so the ownership questions are asked here too.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local narrowing = require("nupp.narrowing")
+local cst = require("nupp.cst")
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+local memberSet = narrowing.memberSet
+
+local control = {}
+
+--- Installs the control-flow statements on one run.
+---
+--- @param c the run's state
+function control.install(c: any): any
+    local own, facts = c.own, c.facts
+    local mergeFacts, snapshotNarrowed = facts.mergeFacts, facts.snapshotNarrowed
+    local optionalOwned, provenanceOwners = own.optionalOwned, own.provenanceOwners
+    local alwaysExits = c.alwaysExits
+    local analyzeCond, applyFacts = c.analyzeCond, c.applyFacts
+    local borrowRoot, moveExpression = c.borrowRoot, c.moveExpression
+    local ownershipKind, ownershipState = c.ownershipKind, c.ownershipState
+    local validateCleanups = c.validateCleanups
+
+    local handlers = {}
+
+    handlers.returnStmt = function(stat: cst.ReturnStmt)
+        local annotated = c.retStack[#c.retStack]
+        local ts = {}
+        for j, e in ipairs(stat.exprs or {}) do ts[j] = c.infer(e) end
+        for j, valueT in ipairs(ts) do
+            local borrowContract = j == 1
+                and c.borrowReturnStack[#c.borrowReturnStack] or nil
+            if borrowContract then
+                local expected, missing = {}, nil
+                for _, sourceToken in ipairs(borrowContract.params
+                    or {borrowContract.param}) do
+                    local source = ownershipState(c.lookupEntry(sourceToken.text))
+                    if source then expected[#expected + 1] = borrowRoot(source) end
+                end
+                local actual = provenanceOwners(stat.exprs[j])
+                for _, source in ipairs(expected) do
+                    local found = false
+                    for _, candidate in ipairs(actual) do
+                        if candidate == source then found = true end
+                    end
+                    if not found then missing = true end
+                end
+                if missing then
+                    c.diag("NUPP2619", stat.exprs[j] or stat,
+                        "cannot prove all declared borrowed-c.result sources")
+                end
+            end
+            if ownershipKind(valueT) == "borrowed"
+                and not (j == 1 and c.borrowReturnStack[#c.borrowReturnStack]
+                and not (stat.exprs[j] or stat).withBinding) then
+                local expr = stat.exprs[j] or stat
+                local ownCode = c.ownReturnStack[#c.ownReturnStack]
+                    and "NUPP2616" or nil
+                c.diag(expr.withBinding and "NUPP2612" or ownCode or "NUPP2603",
+                    expr, expr.withBinding
+                    and "a visible 'with' borrow cannot be returned"
+                    or ownCode and "an owning c.result cannot retain an input borrow"
+                    or "borrowed value cannot be returned")
+            elseif ownershipKind(valueT) == "owned"
+                or ownershipKind(valueT) == "pinned" then
+                local valueKind = ownershipKind(valueT)
+                local expected = c.retStack[#c.retStack]
+                    and c.retStack[#c.retStack][j] or nil
+                if #c.retStack == 0 then
+                    c.diag("NUPP2603", stat.exprs[j] or stat,
+                        valueKind .. " value cannot be exported as module state")
+                elseif not expected or ownershipKind(expected) ~= valueKind then
+                    c.diag("NUPP2603", stat.exprs[j] or stat,
+                        valueKind .. " return needs a matching annotation")
+                else
+                    moveExpression(stat.exprs[j], valueT, "return", valueKind)
+                end
+            end
+        end
+        if #c.retStack == 0 and not c.moduleType then
+            c.moduleType = ts[1] -- top-level return: the module's type
+            -- The table widened to `table` when it was built, a literal constructor
+            -- being open so that fields may be added to it. They were, and what was
+            -- added is what a caller reaches, so the surface replaces it. An
+            -- annotated table said its own surface and is left alone.
+            local returned = stat.exprs and stat.exprs[1]
+            local returnedName = returned and returned.kind == "name"
+                and returned.token or nil
+            if c.moduleType == T.table_ and not c.moduleLocalAnnotated
+                and returnedName and returnedName.text == c.moduleLocal then
+                local fields = {}
+                for name, ft in pairs(c.moduleFields) do
+                    fields[#fields + 1] = {name = name, type = ft}
+                end
+                if #fields > 0 then c.moduleType = T.shape(fields) end
+            end
+            if c.opts and c.opts.strict and c.moduleType then
+                -- A module's boundary is its contract: under --strict nothing
+                -- crosses it untyped.
+                local function untyped(t)
+                    if t == T.any then return true end
+                    if t.tag == "func" then
+                        for _, p in ipairs(t.params) do
+                            if p == T.any then return true end
+                        end
+                        for _, r in ipairs(t.rets) do
+                            if r == T.any then return true end
+                        end
+                    end
+                    return false
+                end
+                local shape = c.moduleType
+                if shape.tag == "shape" then
+                    for _, field in ipairs(shape.fields) do
+                        if untyped(field.type) then
+                            c.diag("NUPP2106", stat,
+                                ("exported %q needs a type annotation")
+                                :format(field.name))
+                        end
+                    end
+                elseif untyped(shape) then
+                    c.diag("NUPP2106", stat,
+                        "the module's exported value needs a type annotation")
+                end
+            end
+        end
+        if annotated then
+            for j, rt in ipairs(annotated) do
+                local got = ts[j] or T.nil_
+                local expected = rt
+                if j == 1 and c.ownReturnStack[#c.ownReturnStack]
+                    and ownershipKind(got) ~= "owned" then
+                    expected = c.ownReturnStack[#c.ownReturnStack]
+                end
+                local ok, why = isA(got, expected)
+                if not ok then
+                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat,
+                        ("return %d: %s"):format(j, why))
+                end
+            end
+            if #ts > #annotated then
+                c.diag("NUPP2002", stat, ("too many return values (expected %d, got %d)")
+                    :format(#annotated, #ts))
+            end
+        end
+    end
+
+    handlers.withStmt = function(stat: cst.WithStmt)
+        c.pushScope()
+        for _, binding in ipairs(stat.bindings or {}) do
+            local acquired = c.infer(binding.expr)
+            local cleanups = acquired.tag == "owned" and acquired.cleanups
+                or {}
+            binding.acquiredType = acquired
+            binding.ownerCleanups = cleanups
+            if ownershipKind(acquired) ~= "owned" or optionalOwned(acquired) then
+                c.diag("NUPP2610", binding.expr,
+                    "a 'with' acquisition must be a non-optional owned value")
+            elseif #cleanups == 0 then
+                c.diag("NUPP2611", binding.expr,
+                    "a 'with' acquisition needs @owned cleanup functions", nil,
+                    {help = "declare an inherited @dispose operation or name "
+                    .. "the cleanup in @owned(cleanup)"})
+            end
+            if binding.type then
+                local declared = c.resolveType(binding.type)
+                local ok, why = isA(rawType(acquired), declared)
+                if not ok then
+                    c.diag("NUPP2001", binding.expr,
+                        ("cannot initialize %s: %s")
+                        :format(binding.name.text, why))
+                end
+            end
+            validateCleanups(acquired, cleanups, binding.expr, "NUPP2615")
+            if ownershipKind(acquired) == "owned" then
+                moveExpression(binding.expr, acquired, "with acquisition")
+            end
+            local visible = ownershipKind(acquired) == "owned"
+                and T.borrowed(rawType(acquired)) or T.any
+            c.bindVar(binding.name.text, visible, binding.type ~= nil,
+                binding.name)
+            local entry = c.scope.vars[binding.name.text]
+            if entry then entry.withBinding = binding end
+        end
+        -- The bindings live in this scope, so a body reference to one of them
+        -- resolves at this depth and is not a capture: the generator passes them as
+        -- parameters.
+        c.captureWatches[#c.captureWatches + 1] =
+            {depth = c.scope.depth, captured = false}
+        c.checkBlock(stat.body, true)
+        stat.capturesEnclosing =
+            c.captureWatches[#c.captureWatches].captured
+        c.captureWatches[#c.captureWatches] = nil
+        c.popScope()
+    end
+
+    handlers.ifStmt = function(stat: cst.IfStmt)
+        local accumulatedElse = {}
+        local firstFacts = nil
+        -- Exhaustiveness: a chain that dispatches on an enum and leaves through
+        -- every branch is claiming to handle every member, so the ones it never
+        -- mentions are worth naming. A chain that falls through is ordinary partial
+        -- handling and is left alone.
+        local dispatchKey, dispatchStart, dispatchTotal = nil, nil, false
+        local allBranchesLeave = true
+        -- What each path that reaches the end of the statement knows. Joining them
+        -- is what lets a variable assigned in one branch and tested in another be
+        -- known afterwards.
+        local paths = {}
+        for _, clause in ipairs(stat.clauses) do
+            -- analyze under the accumulated else-facts so that subtraction chains
+            -- compose ("elseif v is number" sees v already minus the earlier
+            -- branches)
+            c.pushScope()
+            applyFacts(accumulatedElse)
+            local facts = {t = {}, f = {}}
+            local cond, body = nil, nil
+            if clause.kind == "ifClause" or clause.kind == "elseifClause" then
+                cond, body = clause.cond, clause.body
+            end
+            if cond then
+                c.infer(cond)
+                facts = analyzeCond(cond)
+            end
+            firstFacts = firstFacts or facts
+            applyFacts(facts.t)
+            c.checkBlock(body, true)
+            if not alwaysExits(body) then
+                paths[#paths + 1] = snapshotNarrowed()
+            end
+            c.popScope()
+            accumulatedElse = mergeFacts(accumulatedElse, facts.f)
+            if cond then
+                local key, seen = nil, 0
+                for k in pairs(facts.t) do key = k; seen = seen + 1 end
+                if seen == 1 and (dispatchKey == nil or dispatchKey == key) then
+                    if not dispatchKey then
+                        dispatchKey = key
+                        local test = cond
+                        if test.kind == "binop" then
+                            dispatchStart = (test.lhs and c.refType(test.lhs))
+                                or (test.rhs and c.refType(test.rhs))
+                        end
+                    end
+                    if facts.exhausted == key then dispatchTotal = true end
+                else
+                    dispatchKey = false -- not a single-subject chain
+                end
+            end
+            if not alwaysExits(body) then
+                allBranchesLeave = false
+            end
+        end
+        if dispatchKey and dispatchKey ~= false and not stat.elseClause
+            and allBranchesLeave and not dispatchTotal
+            and memberSet(dispatchStart) then
+            local remaining = accumulatedElse[dispatchKey]
+            local missing = remaining and memberSet(remaining) or nil
+            if missing and #missing > 0 then
+                local names = {}
+                for j, m in ipairs(missing) do
+                    names[j] = ("%q"):format(
+                        m.tag == "literal" and m.constant or "?")
+                end
+                table.sort(names)
+                c.diag("NUPP2107", stat,
+                    ("every branch returns, so this handles %s and leaves "
+                    .. "%s unhandled"):format(T.tostring(dispatchStart),
+                    table.concat(names, ", ")), nil,
+                    {help = "add branches for " .. table.concat(names, ", ")
+                    .. " or add an else clause"})
+            end
+        end
+        local otherwise = stat.elseClause
+        if otherwise then
+            local elseBody = otherwise.kind == "elseClause"
+                and otherwise.body or nil
+            c.pushScope()
+            applyFacts(accumulatedElse)
+            c.checkBlock(elseBody, true)
+            if not alwaysExits(elseBody) then
+                paths[#paths + 1] = snapshotNarrowed()
+            end
+            c.popScope()
+        else
+            -- the implicit else: everything the conditions ruled out
+            c.pushScope()
+            applyFacts(accumulatedElse)
+            paths[#paths + 1] = snapshotNarrowed()
+            c.popScope()
+        end
+        -- Join: a key is known afterwards only if every surviving path says
+        -- something about it, and then it holds the union of what they say. A key
+        -- one path is silent about could be anything there, so it stays at its
+        -- declared type.
+        if #paths > 0 then
+            local joined = {}
+            for key, t in pairs(paths[1]) do
+                local members = {t}
+                local everywhere = true
+                for j = 2, #paths do
+                    local other = paths[j][key]
+                    if not other then
+                        everywhere = false
+                        break
+                    end
+                    members[#members + 1] = other
+                end
+                if everywhere then joined[key] = T.union(members) end
+            end
+            applyFacts(joined)
+        end
+    end
+
+    handlers.whileStmt = function(stat: cst.WhileStmt)
+        local cond = stat.cond
+        if cond then
+            c.infer(cond)
+            local facts = analyzeCond(cond)
+            c.pushScope()
+            applyFacts(facts.t)
+            c.checkBlock(stat.body, true)
+            c.popScope()
+        end
+    end
+
+    handlers.repeatStmt = function(stat: cst.RepeatStmt)
+        -- repeat scope extends over the until condition
+        c.pushScope()
+        c.checkBlock(stat.body, true)
+        if stat.cond then c.infer(stat.cond) end
+        c.popScope()
+    end
+
+    handlers.doStmt = function(stat: cst.DoStmt)
+        c.pushScope(); c.checkBlock(stat.body, true); c.popScope()
+    end
+
+    handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
+        c.unsafeDepth = c.unsafeDepth + 1
+        c.pushScope(); c.checkBlock(stat.body, true); c.popScope()
+        c.unsafeDepth = c.unsafeDepth - 1
+    end
+
+    handlers.fornumStmt = function(stat: cst.FornumStmt)
+        local from, to, var = stat.start, stat.stop, stat.var
+        if not from or not to or not var then return end
+        local st = c.infer(from)
+        local et = c.infer(to)
+        if stat.step then c.infer(stat.step) end
+        c.numericOperand(st, from, "for")
+        c.numericOperand(et, to, "for")
+        c.pushScope()
+        c.bindVar(var.text,
+            (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number,
+            false, var)
+        c.checkBlock(stat.body, true)
+        c.popScope()
+    end
+
+    handlers.forinStmt = function(stat: cst.ForinStmt)
+        -- the iterator's return types type the loop variables (e.g. pairs(m: {[K]:
+        -- V}) instantiates to function(): (K, V))
+        local iterT = nil
+        for j, e in ipairs(stat.exprs or {}) do
+            local t = c.infer(e)
+            if j == 1 then iterT = t end
+        end
+        c.pushScope()
+        for j, nameTok in ipairs(stat.names) do
+            local vt = T.any
+            if iterT and iterT.tag == "func" and iterT.rets[j] then
+                vt = iterT.rets[j]
+            end
+            c.bindVar(nameTok.text, vt, false, nameTok)
+        end
+        c.checkBlock(stat.body, true)
+        c.popScope()
+    end
+
+    return handlers
+end
+
+return control

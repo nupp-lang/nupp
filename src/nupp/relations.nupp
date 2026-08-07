@@ -1,0 +1,518 @@
+--[[
+The subtyping relation over interned types.
+
+`isA(a, b)` answers whether a value of type `a` may be used where `b` is
+expected, as either true, or false plus a reason a person can read. Because
+structural types are interned, identity settles reflexivity, and results cache on
+identity pairs.
+
+The doctrine is structural for shape and nominal for provenance. It is gradual:
+`any` is compatible in both directions.
+]]
+
+local T = require("nupp.types")
+
+local relations = {}
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- True when nil is a member of `t`: an optional, `any`, or nil itself. A shape field
+--- of such a type need not be present at all.
+local function admitsNil(t: Type): boolean
+    if t == T.nil_ or t == T.any then return true end
+    return t.tag == "union" and t.hasNil or false
+end
+
+-- Numeric widening: tag -> set of tags it silently widens to. Sized integers widen to
+-- `integer` and `number`; float widens to number. (Real cdata coercion rules land with
+-- reification; this is the checking approximation.)
+local WIDENS: {[string]: {[string]: boolean}} = {}
+local function widen(from: string, toList: {string})
+    local into = WIDENS[from] or {}
+    WIDENS[from] = into
+    for _, to in ipairs(toList) do into[to] = true end
+end
+widen("integer", {"number"})
+widen("float", {"number"})
+for _, t in ipairs({"int8", "int16", "int32", "int64",
+    "uint8", "uint16", "uint32", "uint64"}) do
+    widen(t, {"integer", "number"})
+end
+
+local CDATA_NUM: {[string]: boolean} = {
+    float = true, int8 = true, int16 = true, int32 = true, int64 = true,
+    uint8 = true, uint16 = true, uint32 = true, uint64 = true,
+}
+
+--- Answers already computed, keyed on the identity of both types. Weak keys, so an
+--- interned type that goes away takes its answers with it.
+local cache: {[Type]: {[Type]: boolean | string}} =
+    setmetatable({}, {__mode = "k"})
+
+local isA: function(a: Type, b: Type): (boolean, string?)
+
+--- The plain form of a negative answer, when no detail helps.
+local function fail(a: Type, b: Type): boolean, string?
+    return false, ("%s is not a %s"):format(T.tostring(a), T.tostring(b))
+end
+
+local function sameCleanups(a: {string}?, b: {string}?): boolean
+    local left: {string} = a or {}
+    local right: {string} = b or {}
+    if #left ~= #right then return false end
+    for j, name in ipairs(left) do
+        if name ~= right[j] then return false end
+    end
+    return true
+end
+
+--- Decides `isA` for one pair, without consulting the cache.
+---
+--- The order of the rules is the doctrine: ownership first, then unions, then the
+--- numeric and C-boundary conversions, then structure.
+local function check(a: Type, b: Type): boolean, string?
+    if a == b then return true end
+    local atag, btag = a.tag, b.tag
+    if atag == "any" or btag == "any" then return true end
+    -- Unsubstituted type parameters behave gradually (call-site instantiation replaces
+    -- them before real checking).
+    if atag == "typevar" then
+        if a.bound then return isA(a.bound, b) end
+        return true
+    end
+    if btag == "typevar" then return true end
+
+    -- Ownership is affine metadata over pointer values. Owners and borrows erase to
+    -- cdata. Pinned handles deliberately do not: their runtime table must cross C only
+    -- through a declared FFI parameter mode.
+    if atag == "owned" then
+        if btag == "owned" then
+            -- An empty expected list is an opaque, transfer-only owner. It may accept a
+            -- more specific owner, but cannot manufacture cleanups for an opaque
+            -- source.
+            if #(b.cleanups or {}) > 0
+                and not sameCleanups(a.cleanups, b.cleanups) then
+                return fail(a, b)
+            end
+            return isA(a.inner, b.inner)
+        end
+        if btag == "borrowed" then
+            return isA(a.inner, b.inner)
+        end
+        return isA(a.inner, b)
+    end
+    if atag == "borrowed" then
+        if btag == "borrowed" then return isA(a.inner, b.inner) end
+        if btag == "owned" then return fail(a, b) end
+        return isA(a.inner, b)
+    end
+    if atag == "pinned" then
+        if btag == "pinned" then return isA(a.inner, b.inner) end
+        return fail(a, b)
+    end
+    if btag == "owned" or btag == "borrowed" or btag == "pinned" then
+        return fail(a, b)
+    end
+
+    -- unions: every member of a must fit b; a non-union fits b if it fits any member.
+    if atag == "union" then
+        for _, m in ipairs(a.members) do
+            local ok = isA(m, b)
+            if not ok then
+                return false, ("%s is not a %s (member %s does not fit)")
+                    :format(T.tostring(a), T.tostring(b), T.tostring(m))
+            end
+        end
+        return true
+    end
+    if btag == "union" then
+        for _, m in ipairs(b.members) do
+            if isA(a, m) then return true end
+        end
+        return fail(a, b)
+    end
+
+    -- A declared `is` edge is a trusted contract inclusion. Runtime registration may
+    -- fill the inherited surface later (as tecs does for component and event type
+    -- tables), so it is not re-proved structurally.
+    if atag == "nominal" then
+        for _, parent in ipairs(a.supertypes or {}) do
+            if parent == b or isA(parent, b) then return true end
+        end
+    end
+
+    -- numeric widening
+    local widensFrom = WIDENS[atag]
+    if widensFrom and widensFrom[btag] then return true end
+
+    -- cdata numeric slots (float, sized ints) accept any numeric value — storing a Lua
+    -- number into them converts, as in C. `integer` and `number` remain strict against
+    -- each other.
+    if CDATA_NUM[btag] and (atag == "number" or atag == "integer"
+        or widensFrom) then
+        return true
+    end
+
+    -- C boundary: nil is a valid NULL for any pointer-shaped parameter, and LuaJIT
+    -- implicitly takes a struct's address for T* parameters. `nil` is NULL, and NULL
+    -- belongs to a nullable pointer only: keeping it out of T* is the whole reason both
+    -- spellings exist.
+    if a == T.nil_ and (btag == "ptr" or btag == "voidptr"
+        or btag == "cstring") then
+        return false, ("nil is not a %s; write %s? for a pointer that may be "
+            .. "NULL"):format(T.tostring(b), T.tostring(b))
+    end
+    if btag == "ptr" and atag == "nominal" and a.declKind == "struct"
+        and b.elem == a then
+        return true
+    end
+
+    -- C boundary: Lua strings convert to "const char *" arguments; any pointer degrades
+    -- to void *. Neither converts back implicitly.
+    if btag == "cstring" and (a == T.string
+        or (atag == "nominal" and a.declKind == "enum")) then
+        return true
+    end
+    if btag == "voidptr" and (atag == "ptr" or atag == "cstring"
+        or (atag == "nominal" and a.declKind == "struct")) then
+        return true
+    end
+
+    -- Two applications of the same generic declaration compare by their arguments, so
+    -- Box<integer> fits Box<number> exactly as integer fits number. Covariant, like the
+    -- array rule above.
+    if atag == "nominal" and btag == "nominal" and a.origin
+        and a.origin == b.origin then
+        local aArgs = a.typeArgs or {}
+        local bArgs = b.typeArgs or {}
+        for j, at in ipairs(aArgs) do
+            local bt = bArgs[j]
+            if bt and not isA(at, bt) then
+                return false, ("%s is not a %s (argument %d)")
+                    :format(T.tostring(a), T.tostring(b), j)
+            end
+        end
+        return true
+    end
+
+    -- Const is a promise not to write, so a mutable value satisfies a const one; the
+    -- reverse discards the promise and does not.
+    if btag == "const" then
+        return isA(atag == "const" and a.inner or a, b.inner)
+    end
+    if atag == "const" then
+        return false, ("%s is read-only; %s is not")
+            :format(T.tostring(a), T.tostring(b))
+    end
+
+    -- every FFI value is a cdata; going the other way needs a cast
+    if btag == "cdata" then
+        if atag == "ptr" or atag == "carray" or atag == "cstring"
+            or atag == "voidptr" or atag == "ctype"
+            or (atag == "nominal" and a.declKind == "struct") then
+            return true
+        end
+    end
+
+    -- a string literal is a string, and is the enum member it names
+    if atag == "literal" then
+        if b == (a.base or T.string) then return true end
+        local enumValues = btag == "nominal" and b.declKind == "enum"
+            and b.values or nil
+        if enumValues then
+            for _, v in ipairs(enumValues) do
+                if v == a.constant then return true end
+            end
+            return false, ("%q is not a member of %s")
+                :format(a.constant, T.tostring(b))
+        end
+        -- otherwise a literal behaves exactly as its base type does
+        return isA(a.base or T.string, b)
+    end
+
+    -- Interfaces conform structurally: a type satisfies one by carrying its members. A
+    -- member function's receiver is not compared, since each implementation names
+    -- itself there.
+    if btag == "nominal" and b.declKind == "interface" and b.byname then
+        local lookup
+        if atag == "nominal" and a.byname then
+            lookup = a.byname
+        elseif atag == "shape" then
+            lookup = a.byname
+        end
+        if lookup then
+            for name, want in pairs(b.byname) do
+                local have = lookup[name]
+                if not have then
+                    return false, ("%s is not a %s (no member %q)")
+                        :format(T.tostring(a), T.tostring(b), name)
+                end
+                local ok = true
+                if have.tag == "func" and want.tag == "func"
+                    and #have.params >= 1 and #want.params >= 1 then
+                    local hp, wp = {}, {}
+                    for j = 2, #have.params do hp[#hp + 1] = have.params[j] end
+                    for j = 2, #want.params do wp[#wp + 1] = want.params[j] end
+                    local hm, wm = {}, {}
+                    for j = 2, #have.params do
+                        hm[#hm + 1] = have.paramModes
+                            and have.paramModes[j] or "plain"
+                    end
+                    for j = 2, #want.params do
+                        wm[#wm + 1] = want.paramModes
+                            and want.paramModes[j] or "plain"
+                    end
+                    ok = isA(T.func(hp, have.rets, have.vararg, hm, nil, nil,
+                        nil, nil, nil, nil, nil, have.varargType),
+                        T.func(wp, want.rets, want.vararg, wm, nil, nil,
+                        nil, nil, nil, nil, nil, want.varargType))
+                else
+                    ok = isA(have, want)
+                end
+                if not ok then
+                    return false, ("%s is not a %s (member %q does not match)")
+                        :format(T.tostring(a), T.tostring(b), name)
+                end
+            end
+            for name, want in pairs(b.metamethods or {}) do
+                local have = atag == "nominal" and a.metamethods
+                    and a.metamethods[name] or nil
+                if not have then
+                    return false, ("%s is not a %s (metamethod %q does not match)")
+                        :format(T.tostring(a), T.tostring(b), name)
+                end
+                if not isA(have, want) then
+                    return false, ("%s is not a %s (metamethod %q does not match)")
+                        :format(T.tostring(a), T.tostring(b), name)
+                end
+            end
+            return true
+        end
+    end
+
+    -- enums are string-valued
+    if atag == "nominal" and a.declKind == "enum" and b == T.string then
+        return true
+    end
+
+    if btag == "table" then
+        -- every table-ish structure fits the plain `table` primitive
+        if atag == "array" or atag == "map" or atag == "tuple"
+            or atag == "shape"
+            or atag == "metatable"
+            or (atag == "nominal" and a.declKind ~= "enum") then
+            return true
+        end
+        return fail(a, b)
+    end
+
+    -- `table` is gradual toward table-shaped types: an untyped table literal ({} infers
+    -- as `table`) may initialize any table structure.
+    if atag == "table" then
+        if btag == "array" or btag == "map" or btag == "tuple"
+            or btag == "shape"
+            or btag == "metatable"
+            or (btag == "nominal" and b.declKind ~= "enum") then
+            return true
+        end
+        return fail(a, b)
+    end
+
+    if btag == "metatable" then
+        if atag == "shape" or atag == "map" or atag == "table"
+            or atag == "metatable" then
+            return true
+        end
+        return fail(a, b)
+    end
+
+    if atag == "array" and btag == "array" then
+        local ok = isA(a.elem, b.elem)
+        if ok then return true end
+        return fail(a, b)
+    end
+
+    if atag == "tuple" and btag == "tuple" then
+        if #a.elems ~= #b.elems then return fail(a, b) end
+        for j, e in ipairs(a.elems) do
+            if not isA(e, b.elems[j]) then return fail(a, b) end
+        end
+        return true
+    end
+
+    -- a homogeneous-enough tuple fits an array
+    if atag == "tuple" and btag == "array" then
+        for _, e in ipairs(a.elems) do
+            if not isA(e, b.elem) then return fail(a, b) end
+        end
+        return true
+    end
+
+    -- A table written with string keys and one value type is a map of it: {float =
+    -- true, int8 = true} fits {[string]: boolean}.
+    if b.tag == "map" and a.tag == "shape" then
+        if not isA(T.string, b.key) then return fail(a, b) end
+        for _, f in ipairs(a.fields) do
+            if not isA(f.type, b.value) then
+                return false, ("%s is not a %s (field %q: %s is not a %s)")
+                    :format(T.tostring(a), T.tostring(b), f.name,
+                    T.tostring(f.type), T.tostring(b.value))
+            end
+        end
+        return true
+    end
+
+    if atag == "map" and btag == "map" then
+        -- invariant keys, covariant values
+        if isA(a.key, b.key) and isA(b.key, a.key)
+            and isA(a.value, b.value) then
+            return true
+        end
+        return fail(a, b)
+    end
+
+    -- a record with an array part is a sequence of that element type, so it goes where
+    -- {T} is wanted (ipairs, #, and the rest of the array world)
+    local arrayPart = a.tag == "nominal" and a.arrayOf or nil
+    if b.tag == "array" and arrayPart then
+        if isA(arrayPart, b.elem) then return true end
+        return fail(a, b)
+    end
+
+    -- width subtyping into shapes: from shapes and from nominal records/
+    -- structs/interfaces (nominal-to-structural erosion is allowed; the reverse never
+    -- is).
+    if btag == "shape" then
+        local lookup
+        if atag == "shape" then
+            lookup = a.byname
+        elseif atag == "nominal" and a.byname then
+            lookup = a.byname
+        end
+        if lookup then
+            for _, f in ipairs(b.fields) do
+                local at = lookup[f.name]
+                if not at then
+                    -- An absent field reads as nil, so a field whose type admits nil is
+                    -- satisfied by leaving it out. That is what makes `missing:
+                    -- boolean?` optional rather than merely nullable.
+                    if admitsNil(f.type) then
+                        at = nil
+                    else
+                        return false, ("%s is not a %s (missing field %q)")
+                            :format(T.tostring(a), T.tostring(b), f.name)
+                    end
+                end
+                if at == nil then goto nextField end
+                local ok = isA(at, f.type)
+                if not ok then
+                    return false, ("%s is not a %s (field %q: %s is not a %s)")
+                        :format(T.tostring(a), T.tostring(b), f.name,
+                        T.tostring(at), T.tostring(f.type))
+                end
+                ::nextField::
+            end
+            return true
+        end
+        return fail(a, b)
+    end
+
+    -- carrays match on their element type; a carray is also a pointer to its first
+    -- element, which is how C passes one
+    if atag == "carray" and btag == "carray" then
+        -- a fixed-length array is usable where any length is accepted
+        if a.elem == b.elem and (b.count == nil or a.count == b.count) then
+            return true
+        end
+        return fail(a, b)
+    end
+    if atag == "carray" and btag == "voidptr" then return true end
+    if atag == "carray" and btag == "ptr" and b.elem == a.elem then
+        return true
+    end
+
+    if atag == "ptr" and btag == "ptr" then
+        -- invariant pointee
+        if isA(a.elem, b.elem) and isA(b.elem, a.elem) then return true end
+        return fail(a, b)
+    end
+
+    if atag == "func" and btag == "func" then
+        -- Ignoring arguments is ordinary Lua: a callback that takes the value and not
+        -- the key is usable wherever both are passed. Wanting more than will ever be
+        -- supplied is not, since the extra ones read as nil.
+        if #a.params > #b.params and not b.vararg then
+            return false, ("%s is not a %s (parameter count %d vs %d)")
+                :format(T.tostring(a), T.tostring(b), #a.params, #b.params)
+        end
+        -- math.min would widen the count to number, and an index has to stay an integer
+        local n = #a.params
+        if #b.params < n then n = #b.params end
+        for j = 1, n do
+            local am = a.paramModes and a.paramModes[j] or "plain"
+            local bm = b.paramModes and b.paramModes[j] or "plain"
+            if am ~= bm then
+                return false, ("%s is not a %s (parameter %d ownership mode)")
+                    :format(T.tostring(a), T.tostring(b), j)
+            end
+            -- contravariant parameters
+            if not isA(b.params[j], a.params[j]) then
+                return false, ("%s is not a %s (parameter %d)")
+                    :format(T.tostring(a), T.tostring(b), j)
+            end
+        end
+        -- Never returning is a promise, so it may be kept where an ordinary function is
+        -- wanted but not the other way round.
+        if b.noreturn and not a.noreturn then
+            return false, ("%s is not a %s (it can return)")
+                :format(T.tostring(a), T.tostring(b))
+        end
+        -- The extra arguments are a parameter position too, so what a declared element
+        -- accepts is compared contravariantly. An untyped `...` on either side accepts
+        -- anything and says nothing.
+        if a.varargType and b.varargType
+            and not isA(b.varargType, a.varargType) then
+            return false, ("%s is not a %s (extra arguments)")
+                :format(T.tostring(a), T.tostring(b))
+        end
+        local rn = #a.rets
+        if #b.rets < rn then rn = #b.rets end
+        for j = 1, rn do
+            -- covariant returns
+            if not isA(a.rets[j], b.rets[j]) then
+                return false, ("%s is not a %s (return %d)")
+                    :format(T.tostring(a), T.tostring(b), j)
+            end
+        end
+        return true
+    end
+
+    -- nominal vs nominal: identity only (interface conformance lands later)
+    return fail(a, b)
+end
+
+--- May a value of type `a` be used where `b` is expected? Returns true, or false and a
+--- reason a diagnostic can print.
+---
+--- Because structural types are interned, identity settles reflexivity and the answer
+--- caches on the identity pair.
+---
+--- @param a the type a value has
+--- @param b the type the position wants
+isA = function(a: Type, b: Type): boolean, string?
+    local perA = cache[a] or {}
+    cache[a] = perA
+    local hit = perA[b]
+    if hit ~= nil then
+        if hit == true then return true end
+        return false, tostring(hit)
+    end
+    local ok, why = check(a, b)
+    perA[b] = ok or why or false
+    return ok, why
+end
+
+relations.isA = isA
+
+return relations

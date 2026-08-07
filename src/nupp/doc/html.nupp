@@ -1,0 +1,240 @@
+--[[
+Markdown as HTML.
+
+A deliberately small subset: headings, tables, lists, quotes, rules, paragraphs,
+and fenced code, plus the `::: code-group` blocks the guides use. Anything the
+site needs that markdown cannot say is written as HTML in the first place rather
+than added to this grammar.
+]]
+
+local stringsMod = require("nupp.doc.strings")
+local highlightMod = require("nupp.doc.highlight")
+
+local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
+local inlineMarkdown, headingId = stringsMod.inlineMarkdown, stringsMod.headingId
+local codeHtml = highlightMod.codeHtml
+
+local html = {}
+local function tableHtml(headers, rows)
+    local out = {"<table><thead><tr>"}
+    for _, header in ipairs(headers) do out[#out + 1] = "<th>" .. header .. "</th>" end
+    out[#out + 1] = "</tr></thead><tbody>"
+    for _, row in ipairs(rows) do
+        out[#out + 1] = "<tr>"
+        for _, cell in ipairs(row) do out[#out + 1] = "<td>" .. cell .. "</td>" end
+        out[#out + 1] = "</tr>"
+    end
+    out[#out + 1] = "</tbody></table>"
+    return table.concat(out)
+end
+
+local function tableCells(line)
+    line = trim(line):gsub("^|", ""):gsub("|$", "")
+    local cells = {}
+    for cell in (line .. "|"):gmatch("(.-)|") do cells[#cells + 1] = trim(cell) end
+    return cells
+end
+
+local function markdownOutline(text)
+    local out, fenced = {}, false
+    for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+        if line:match("^```") then
+            fenced = not fenced
+        elseif not fenced then
+            local hashes, heading = line:match("^(#+)%s+(.+)$")
+            if hashes and #hashes <= 3 then
+                out[#out + 1] = {path = headingId(heading),
+                    name = heading:gsub("[`*_]", ""), level = #hashes}
+            end
+        end
+    end
+    return out
+end
+
+local codeGroupIndex = 0
+
+-- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt
+-- starts somewhere other than the top of a file.
+local function lineNumberStart(options)
+    if not options or not options:find(":line-numbers", 1, true) then return nil end
+    return tonumber(options:match(":line%-numbers=(%d+)")) or 1
+end
+
+-- A gutter beside the code rather than numbers woven into it: a highlighted token
+-- can span lines, and splitting the markup to number each one would cut it in half.
+local function lineNumbersHtml(source, start)
+    local out, number = {'<span class="nuppdoc-line-numbers" aria-hidden="true">'},
+        start
+    for _ in (source .. "\n"):gmatch("(.-)\n") do
+        out[#out + 1] = "<span>" .. tostring(number) .. "</span>"
+        number = number + 1
+    end
+    out[#out + 1] = "</span>"
+    return table.concat(out)
+end
+
+local function codeBlockHtml(source, language, links, firstLine)
+    language = language ~= "" and language or "text"
+    return '<div class="nuppdoc-code-block'
+        .. (firstLine and " has-line-numbers" or "") .. '" data-lang="'
+        .. htmlEscape(language) .. '"><pre>'
+        .. (firstLine and lineNumbersHtml(source, firstLine) or "")
+        .. '<code class="language-'
+        .. htmlEscape(language) .. '">' .. codeHtml(source, language, links)
+        .. "</code></pre></div>"
+end
+
+local function codeGroupHtml(blocks, links)
+    local labeled = {}
+    for _, block in ipairs(blocks) do
+        if block.caption then labeled[#labeled + 1] = block end
+    end
+    if #labeled == 0 then
+        local out = {'<div class="nuppdoc-code-group" role="group">'}
+        for _, block in ipairs(blocks) do
+            out[#out + 1] = codeBlockHtml(block.source, block.language, links,
+                block.firstLine)
+        end
+        out[#out + 1] = "</div>"
+        return table.concat(out)
+    end
+    codeGroupIndex = codeGroupIndex + 1
+    local name = "nuppdoc-code-group-" .. tostring(codeGroupIndex)
+    local out = {'<div class="nuppdoc-code-group" role="radiogroup"'
+        .. ' aria-label="Code examples">'}
+    for index, block in ipairs(labeled) do
+        local id = name .. "-" .. tostring(index)
+        out[#out + 1] = '<input class="nuppdoc-code-tab-input" type="radio"'
+            .. ' name="' .. name .. '" id="' .. id .. '"'
+            .. (index == 1 and " checked" or "")
+            .. '><label class="nuppdoc-code-tab" for="' .. id .. '">'
+            .. htmlEscape(block.caption) .. '</label><figure class="nuppdoc-code-panel">'
+            .. codeBlockHtml(block.source, block.language, links, block.firstLine)
+            .. '</figure>'
+    end
+    out[#out + 1] = "</div>"
+    return table.concat(out)
+end
+
+local function markdownHtml(text, links, headingShift)
+    if not text or text == "" then return "" end
+    if headingShift == nil then headingShift = 1 end
+    local lines, out, index = {}, {}, 1
+    for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+    while index <= #lines do
+        local line = lines[index]
+        local language, fenceOptions = line:match("^```%s*([%w_+-]*)%s*(.-)%s*$")
+        if trim(line) == "::: code-group" then
+            local blocks = {}
+            index = index + 1
+            while index <= #lines and trim(lines[index]) ~= ":::" do
+                local blockLanguage, options = lines[index]:match(
+                    "^```%s*([%w_+-]*)%s*(.-)%s*$")
+                if blockLanguage then
+                    local code = {}
+                    index = index + 1
+                    while index <= #lines and not lines[index]:match("^```%s*$") do
+                        code[#code + 1] = lines[index]
+                        index = index + 1
+                    end
+                    blocks[#blocks + 1] = {
+                        language = blockLanguage ~= "" and blockLanguage or "text",
+                        caption = options:match("%[([^%]]+)%]"),
+                        firstLine = lineNumberStart(options),
+                        source = table.concat(code, "\n"),
+                    }
+                end
+                index = index + 1
+            end
+            out[#out + 1] = codeGroupHtml(blocks, links)
+        elseif language then
+            local code = {}
+            index = index + 1
+            while index <= #lines and not lines[index]:match("^```%s*$") do
+                code[#code + 1] = lines[index]
+                index = index + 1
+            end
+            language = language ~= "" and language or "text"
+            local rendered = codeBlockHtml(table.concat(code, "\n"), language, links,
+                lineNumberStart(fenceOptions))
+            local caption = fenceOptions:match("%[([^%]]+)%]")
+            if caption then
+                rendered = '<figure class="nuppdoc-labeled-code"><figcaption>'
+                    .. htmlEscape(caption) .. '</figcaption>' .. rendered .. '</figure>'
+            end
+            out[#out + 1] = rendered
+        else
+            local hashes, heading = line:match("^(#+)%s+(.+)$")
+            local separator = lines[index + 1] and lines[index + 1]:match(
+                "^%s*|?%s*:?-+%s*:?(%s*|%s*:?-+%s*:?)+%s*|?%s*$")
+            if hashes then
+                local level = math.min(#hashes + headingShift, 6)
+                local id = headingId(heading)
+                out[#out + 1] = '<h' .. level .. ' id="' .. htmlEscape(id) .. '">'
+                    .. inlineMarkdown(heading) .. '<a class="nuppdoc-header-anchor" href="#'
+                    .. htmlEscape(id) .. '" aria-label="Link to ' .. htmlEscape(heading)
+                    .. '">#</a></h' .. level .. '>'
+            elseif line:find("|", 1, true) and separator then
+                local headers, rows = tableCells(line), {}
+                index = index + 2
+                while index <= #lines and lines[index]:find("|", 1, true)
+                    and trim(lines[index]) ~= "" do
+                    local cells, rendered = tableCells(lines[index]), {}
+                    for cellIndex, cell in ipairs(cells) do
+                        rendered[cellIndex] = inlineMarkdown(cell)
+                    end
+                    rows[#rows + 1] = rendered
+                    index = index + 1
+                end
+                local renderedHeaders = {}
+                for headerIndex, header in ipairs(headers) do
+                    renderedHeaders[headerIndex] = inlineMarkdown(header)
+                end
+                out[#out + 1] = tableHtml(renderedHeaders, rows)
+                index = index - 1
+            elseif line:match("^%s*[-*]%s+") then
+                local list = {"<ul>"}
+                while index <= #lines and lines[index]:match("^%s*[-*]%s+") do
+                    list[#list + 1] = "<li>" .. inlineMarkdown(
+                        lines[index]:gsub("^%s*[-*]%s+", "")) .. "</li>"
+                    index = index + 1
+                end
+                list[#list + 1] = "</ul>"
+                out[#out + 1] = table.concat(list)
+                index = index - 1
+            elseif line:match("^>%s?") then
+                local quote = {}
+                while index <= #lines and lines[index]:match("^>%s?") do
+                    quote[#quote + 1] = lines[index]:gsub("^>%s?", "")
+                    index = index + 1
+                end
+                out[#out + 1] = "<blockquote><p>"
+                    .. inlineMarkdown(table.concat(quote, " ")) .. "</p></blockquote>"
+                index = index - 1
+            elseif line:match("^%s*[-*_][-*_][-*_]+%s*$") then
+                out[#out + 1] = "<hr>"
+            elseif trim(line) ~= "" then
+                local paragraph = {trim(line)}
+                index = index + 1
+                while index <= #lines and trim(lines[index]) ~= ""
+                    and not lines[index]:match("^#+%s+")
+                    and not lines[index]:match("^```")
+                    and not lines[index]:match("^%s*[-*]%s+") do
+                    paragraph[#paragraph + 1] = trim(lines[index])
+                    index = index + 1
+                end
+                out[#out + 1] = "<p>" .. inlineMarkdown(
+                    table.concat(paragraph, " ")) .. "</p>"
+                index = index - 1
+            end
+        end
+        index = index + 1
+    end
+    return table.concat(out, "\n")
+end
+
+html.tableHtml = tableHtml
+html.markdownHtml = markdownHtml
+html.markdownOutline = markdownOutline
+
+return html

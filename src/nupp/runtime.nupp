@@ -1,0 +1,65 @@
+--[[
+Loading a `.nupp` module at run time.
+
+A loader installed into `package.loaders`, after `package.preload` and before the
+ordinary Lua loader. It compiles `.nupp` sources and loads plain Lua from the
+same project roots, so a Nupp program can `require` either without knowing which
+it is getting. Declaration files are never executed, and a name this loader
+cannot resolve — a C module, most often — continues through Lua's normal loader
+chain untouched.
+]]
+
+local envMod = require("nupp.env")
+
+local runtime = {}
+
+-- Installs a loader backed by the project's checker environment. `compile`
+-- receives (path, env) and returns generated Lua source or nil plus an error.
+-- The returned function removes this exact loader, even if other loaders were
+-- added while the program was running.
+function runtime.install(env, compile)
+    local loaders = package.loaders
+    assert(loaders, "this Lua runtime does not expose package loaders")
+    assert(type(compile) == "function", "compile callback must be a function")
+
+    local function loadLjppModule(name)
+        local path = envMod.findRuntimeModulePath(env, name)
+        if not path then
+            return ("\n\tno nupp source for module '%s'"):format(name)
+        end
+
+        local chunk, loadErr
+        if path:match("%.nupp$") then
+            local code, compileErr = compile(path, env)
+            if not code then
+                error(("error compiling nupp module '%s' from '%s': %s")
+                    :format(name, path, compileErr or "compilation failed"), 0)
+            end
+            chunk, loadErr = loadstring(code, "@" .. path)
+        else
+            chunk, loadErr = loadfile(path)
+        end
+        if not chunk then
+            error(("error loading project module '%s' "
+                .. "from '%s': %s"):format(name, path, tostring(loadErr)), 0)
+        end
+        return chunk
+    end
+
+    -- package.preload remains authoritative, matching Lua's normal semantics.
+    table.insert(loaders, 2, loadLjppModule)
+
+    local installed = true
+    return function()
+        if not installed then return end
+        installed = false
+        for j, loader in ipairs(loaders) do
+            if loader == loadLjppModule then
+                table.remove(loaders, j)
+                return
+            end
+        end
+    end
+end
+
+return runtime

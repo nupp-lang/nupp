@@ -1,0 +1,212 @@
+-- SYNTAX TEST "source.nupp" "Nupp highlighting"
+
+local record Task
+-- <- storage.modifier.local.nupp
+--    ^^^^^^ storage.type.declaration.nupp
+--           ^^^^ entity.name.type.nupp
+   id: uint32
+--     ^^^^^^ support.type.builtin.nupp
+   title: string?
+--        ^^^^^^ support.type.builtin.nupp
+end
+-- <- keyword.control.nupp
+
+local interface Callable<T>
+   metamethod __call: function(self, value: T): self
+-- ^^^^^^^^^^ storage.type.function.nupp
+--            ^^^^^^ entity.name.function.nupp
+   function describe(prefix: string): string return prefix end
+-- ^^^^^^^^ storage.type.function.nupp
+--          ^^^^^^^^ entity.name.function.nupp
+end
+
+local mt: metatable<Task>
+--        ^^^^^^^^^ support.type.builtin.nupp
+
+while true do
+   continue
+-- ^^^^^^^^ keyword.control.nupp
+end
+
+local separated = 1_234 + 0_x_ff + 1_e_3
+--                ^^^^^ constant.numeric.decimal.nupp
+--                        ^^^^^^ constant.numeric.hex.nupp
+--                                 ^^^^^ constant.numeric.decimal.nupp
+
+record ProjectTask
+-- <- storage.type.declaration.nupp
+--     ^^^^^^^^^^^ entity.name.type.nupp
+   id: uint32
+end
+
+global struct ProjectPoint
+-- <- storage.modifier.global.nupp
+--     ^^^^^^ storage.type.declaration.nupp
+--            ^^^^^^^^^^^^ entity.name.type.nupp
+   x: float
+end
+
+local type ProjectId = uint64
+-- <- storage.modifier.local.nupp
+--    ^^^^ storage.type.declaration.nupp
+--         ^^^^^^^^^ entity.name.type.nupp
+
+local function render(task: Task): string
+-- <- storage.modifier.local.nupp
+--    ^^^^^^^^ storage.type.function.nupp
+--             ^^^^^^ entity.name.function.nupp
+   local suffix = task.title ~= '' and `title: ${task.title}` or 'none'
+--                           ^^ keyword.operator.nupp
+--                              ^^ string.quoted.single.nupp
+--                                     ^^^^^^^^^^^^^^^^^^^^^ string.quoted.other.interpolated.nupp
+--                                             ^^ punctuation.section.interpolation.begin.nupp
+--                                               ^^^^ source.nupp.embedded
+   return task.id > 0 ? suffix : "missing"
+-- ^^^^^^ keyword.control.nupp
+--                    ^ keyword.operator.nupp
+--                               ^^^^^^^^^ string.quoted.double.nupp
+end
+
+local function isTask(value: Task): value is Task
+--                                        ^^ keyword.control.nupp
+   return value is Task
+--              ^^ keyword.operator.word.nupp
+end
+
+--- Renders one task.
+-- <- comment.line.documentation.nupp
+--- @param task the task to render
+--  ^^^^^^^^^^^ comment.line.documentation.nupp
+--- @return the rendered title
+--  ^^^^^^^^^^^^ comment.line.documentation.nupp
+--- ```nupp
+--  ^^^ punctuation.definition.markdown.nupp
+--     ^^^^ fenced_code.block.language.nupp
+--- local function renderExample(value: Task): string
+--  ^^^^^ storage.modifier.local.nupp
+--        ^^^^^^^^ storage.type.function.nupp
+--                 ^^^^^^^^^^^^^ entity.name.function.nupp
+--  ^^^^^ source.nupp.embedded
+---    return value.title
+--     ^^^^^^ keyword.control.nupp
+--- end
+--  ^^^ keyword.control.nupp
+--- ```
+--  ^^^ punctuation.definition.markdown.nupp
+local function documented(task: Task): string
+   return task.title
+end
+
+const MAX_TASKS: integer = 100
+-- <- storage.modifier.const.nupp
+--    ^^^^^^^^^ variable.other.constant.nupp
+
+const function taskLimit(): integer return MAX_TASKS end
+-- <- storage.modifier.const.nupp
+--    ^^^^^^^^ storage.type.function.nupp
+--             ^^^^^^^^^ entity.name.function.nupp
+
+local const = taskLimit
+--    ^^^^^ source.nupp - storage.modifier.const.nupp
+
+function renderer.Task:draw()
+-- <- storage.type.function.nupp
+--                     ^^^^ entity.name.function.nupp
+end
+
+--[[ a long comment ]]
+-- <- comment.block.nupp
+local mask: integer = 0x10ULL << 2
+--                    ^^^^^^^ constant.numeric.hex.nupp
+--                            ^^ keyword.operator.nupp
+
+@jit local function hot() end
+-- <- punctuation.definition.annotation.nupp
+-- <~--- entity.name.tag.nupp
+
+cdef struct Pair
+-- <- storage.modifier.cdef.nupp
+--   ^^^^^^ storage.type.declaration.nupp
+--          ^^^^ entity.name.type.nupp
+   left: int32
+--       ^^^^^ support.type.builtin.nupp
+   data: voidptr
+--       ^^^^^^^ support.type.builtin.nupp
+end
+
+@owned(free)
+-- <- punctuation.definition.annotation.nupp
+cdef function allocate(size: uint64): voidptr
+-- <- storage.modifier.cdef.nupp
+--   ^^^^^^^^ storage.type.function.nupp
+--            ^^^^^^^^ entity.name.function.nupp
+--                                    ^^^^^^^ support.type.builtin.nupp
+
+local cdef = 5
+--    ^^^^ source.nupp - storage.modifier.cdef.nupp
+local own = cdef
+--    ^^^ source.nupp - storage.modifier.cdef.nupp
+
+local function closeResource(takes value: owned<voidptr>)
+--                           ^^^^^ storage.modifier.ownership.nupp
+--                                              ^^^^^^^ support.type.builtin.nupp
+end
+
+local function resetResource(inout value: voidptr)
+--                           ^^^^^ storage.modifier.ownership.nupp
+end
+
+cdef function remember(retains value: cstring)
+--                     ^^^^^^^ storage.modifier.ownership.nupp
+cdef function forget(releases value: cstring)
+--                   ^^^^^^^^ storage.modifier.ownership.nupp
+cdef function allocate(out result: voidptr*, size: uint64): int32
+--                     ^^^ storage.modifier.ownership.nupp
+local handle: pinned<cstring>
+--            ^^^^^^ support.type.builtin.nupp
+
+unsafe do
+-- <- keyword.control.nupp
+   local restored: owned<voidptr>
+--                 ^^^^^ support.type.builtin.nupp
+end
+
+with resource = makeResource() do
+-- <- keyword.control.nupp
+   use(resource)
+end
+
+local with = 1
+--    ^^^^ source.nupp - keyword.control.nupp
+
+local function peek(borrows p: Widget): Widget borrows p
+--                  ^^^^^^^ storage.modifier.ownership.nupp
+--                                             ^^^^^^^ storage.modifier.ownership.nupp
+
+with handle: Widget = makeResource() do
+-- <- keyword.control.nupp
+   use(handle)
+end
+
+record shapes.Point
+-- <- storage.type.declaration.nupp
+--     ^^^^^^^ entity.name.namespace.nupp
+--            ^^^^^ entity.name.type.nupp
+   x: number
+end
+
+type shapes.Drawable = shapes.Point
+-- <- storage.type.declaration.nupp
+--   ^^^^^^ entity.name.namespace.nupp
+--          ^^^^^^^^ entity.name.type.nupp
+
+local ready = !done && (left || right) != none
+--            ^ keyword.operator.nupp
+--                  ^^ keyword.operator.nupp
+--                           ^^ keyword.operator.nupp
+--                                     ^^ keyword.operator.nupp
+
+local reply = handler?.:respond?.(payload) ?? fallback
+--                   ^^ keyword.operator.nupp
+--                             ^^ keyword.operator.nupp
+--                                         ^^ keyword.operator.nupp

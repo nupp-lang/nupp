@@ -1,0 +1,253 @@
+--[[
+Extensible, typed annotation definitions.
+
+Names are open through `Registry:define()`, but every name must be registered
+before checking begins. Targets are named as semantic language categories rather
+than CST kind strings, so the registry stays stable when the parser changes.
+]]
+
+local annotations = {}
+
+local KNOWN_TARGETS = {
+    statement = true,
+    declaration = true,
+    binding = true,
+    ["local-binding"] = true,
+    ["function"] = true,
+    ["local-function"] = true,
+    ["named-function"] = true,
+    ["type-declaration"] = true,
+    record = true,
+    interface = true,
+    struct = true,
+    enum = true,
+    alias = true,
+    ["c-declaration"] = true,
+    ["c-function"] = true,
+    block = true,
+    loop = true,
+    conditional = true,
+    assignment = true,
+    call = true,
+    field = true,
+}
+
+local CATEGORIES = {
+    localStmt = {declaration = true, binding = true, ["local-binding"] = true},
+    localFuncStmt = {
+        declaration = true,
+        ["function"] = true,
+        ["local-function"] = true,
+    },
+    funcStmt = {
+        declaration = true,
+        ["function"] = true,
+        ["named-function"] = true,
+    },
+    inlineMethod = {
+        declaration = true,
+        ["function"] = true,
+        ["named-function"] = true,
+    },
+    typeAlias = {declaration = true, ["type-declaration"] = true, alias = true},
+    enumDecl = {declaration = true, ["type-declaration"] = true, enum = true},
+    cdefFunc = {
+        declaration = true,
+        ["c-declaration"] = true,
+        ["c-function"] = true,
+    },
+    cdefStruct = {
+        declaration = true,
+        ["type-declaration"] = true,
+        struct = true,
+        ["c-declaration"] = true,
+    },
+    doStmt = {block = true},
+    unsafeStmt = {block = true},
+    withStmt = {block = true},
+    ifStmt = {conditional = true},
+    whileStmt = {loop = true},
+    repeatStmt = {loop = true},
+    fornumStmt = {loop = true},
+    forinStmt = {loop = true},
+    assignStmt = {assignment = true},
+    compoundAssignStmt = {assignment = true},
+    callStmt = {call = true},
+    fieldDecl = {field = true},
+}
+
+local Registry = {}
+Registry.__index = Registry
+
+local function identifier(name)
+    return type(name) == "string" and name:match("^[%a_][%w_]*$") ~= nil
+end
+
+function Registry:define(spec)
+    if type(spec) ~= "table" then
+        return nil, "annotation definition must be a table"
+    end
+    if not identifier(spec.name) then
+        return nil, "annotation name must be an identifier"
+    end
+    local previous = self.byname[spec.name]
+    if previous and (not spec.source or previous.source ~= spec.source) then
+        return nil, ("annotation @%s is already defined"):format(spec.name)
+    end
+    if spec.arguments ~= "none" and spec.arguments ~= "names"
+        and spec.arguments ~= "owned"
+        and spec.arguments ~= "warnings" and spec.arguments ~= "typed"
+        and spec.arguments ~= "definition" then
+        return nil, "unknown annotation argument policy"
+    end
+    if spec.arguments == "warnings" and spec.name ~= "allow" then
+        return nil, "the warnings argument policy is reserved for @allow"
+    end
+    if type(spec.targets) ~= "table" or #spec.targets == 0 then
+        return nil, "annotation definition must name at least one target"
+    end
+
+    local targetSet, targets = {}, {}
+    for j, target in ipairs(spec.targets) do
+        if not KNOWN_TARGETS[target] then
+            return nil, ("unknown annotation target %q"):format(tostring(target))
+        end
+        if not targetSet[target] then
+            targetSet[target] = true
+            targets[#targets + 1] = target
+        end
+    end
+
+    local definition = {
+        name = spec.name,
+        arguments = spec.arguments,
+        targets = targets,
+        targetSet = targetSet,
+        reserved = spec.reserved,
+        members = spec.members,
+        memberOrder = spec.memberOrder,
+        singleValue = spec.singleValue,
+        declaration = spec.declaration,
+        source = spec.source,
+    }
+    self.byname[definition.name] = definition
+    return definition
+end
+
+function Registry:removeSource(source)
+    for name, definition in pairs(self.byname) do
+        if definition.source == source then self.byname[name] = nil end
+    end
+end
+
+function Registry:get(name)
+    return self.byname[name]
+end
+
+local function categories(node)
+    local out = {}
+    if node and node.kind ~= "fieldDecl" then out.statement = true end
+    local fixed = node and CATEGORIES[node.kind]
+    for name in pairs(fixed or {}) do out[name] = true end
+    if node and node.kind == "recordDecl" then
+        out.declaration = true
+        out["type-declaration"] = true
+        out[node.declKind or "record"] = true
+    end
+    return out
+end
+
+function Registry:accepts(definition, node)
+    local actual = categories(node)
+    for target in pairs(definition.targetSet) do
+        if actual[target] then return true end
+    end
+    return false
+end
+
+function Registry:describeTargets(definition)
+    return table.concat(definition.targets, ", ")
+end
+
+local BUILTINS = {
+    {
+        name = "annotation",
+        arguments = "definition",
+        targets = {"record", "struct"},
+    },
+    {
+        name = "annotationValue",
+        arguments = "none",
+        targets = {"field"},
+    },
+    {
+        name = "ref",
+        arguments = "none",
+        targets = {"field"},
+    },
+    {
+        name = "allow",
+        arguments = "warnings",
+        targets = {"statement"},
+    },
+    {
+        name = "owned",
+        arguments = "owned",
+        targets = {"function", "c-function"},
+    },
+    {
+        name = "borrowed",
+        arguments = "owned",
+        targets = {"c-function"},
+    },
+    {
+        name = "dispose",
+        arguments = "none",
+        targets = {"function", "c-function", "field"},
+    },
+    {
+        name = "noreturn",
+        arguments = "none",
+        targets = {"function", "c-function", "local-binding"},
+    },
+    {
+        name = "jit",
+        arguments = "none",
+        targets = {"function"},
+        reserved = "the trace checker",
+    },
+    {
+        name = "comptime",
+        arguments = "none",
+        targets = {"local-function"},
+        reserved = "compile-time evaluation",
+    },
+}
+
+function annotations.new(withBuiltins)
+    -- Keep the methods as explicit fields as well as on __index. That makes
+    -- the public shape visible to nupp's gradual checker; it deliberately does
+    -- not infer structural fields through arbitrary metatables.
+    local registry = setmetatable({
+        byname = {},
+        define = Registry.define,
+        get = Registry.get,
+        accepts = Registry.accepts,
+        describeTargets = Registry.describeTargets,
+        removeSource = Registry.removeSource,
+    }, Registry)
+    if withBuiltins ~= false then
+        for _, spec in ipairs(BUILTINS) do
+            assert(registry:define(spec))
+        end
+    end
+    return registry
+end
+
+local defaultRegistry = annotations.new()
+
+function annotations.default()
+    return defaultRegistry
+end
+
+return annotations

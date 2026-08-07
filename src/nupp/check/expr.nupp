@@ -1,0 +1,388 @@
+--[[
+The type an expression has.
+
+One dispatch over the expression kinds, in the scope the walk is currently in and
+with what narrowing knows applied. It is called for effect as well as for the
+answer: it records what later passes need on the node, and reports what the
+expression itself gets wrong.
+
+The FFI intrinsics live here too. `ffi.new<T>` and the rest take a type rather
+than a value, and the constant type strings that ordinary LuaJIT code is written
+with are read the same way, so existing code types without being rewritten.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local narrowing = require("nupp.narrowing")
+local generics = require("nupp.generics")
+local cst = require("nupp.cst")
+local cheader = require("nupp.cheader")
+local lexer = require("nupp.lexer")
+local operators = require("nupp.check.operators")
+local index = require("nupp.check.index")
+local callexpr = require("nupp.check.callexpr")
+
+local expr = {}
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+local subtract = narrowing.subtract
+local dropSelf = generics.dropSelf
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A token, as the lexer produced it.
+local type Token = lexer.Token
+
+--- Installs the expression walk on one run.
+---
+--- @param c the run's state
+function expr.install(c: any)
+
+    local function visibleNames()
+        local names = {}
+        local scope = c.scope
+        while scope do
+            for name in pairs(scope.vars or {}) do names[name] = true end
+            scope = scope.parent
+        end
+        for name in pairs(c.env and c.env.globals or {}) do names[name] = true end
+        return names
+    end
+
+    c.numericOperand = function(t, node, op)
+        if t == T.any or isA(t, T.number) then return true end
+        c.diag("NUPP2003", node,
+            ("cannot apply '%s' to %s"):format(op, T.tostring(t)))
+        return false
+    end
+
+    -- Ordering follows LuaJIT's primitive families. The gradual checker also accepts
+    -- one optional numeric/string family: unannotated Lua routinely compares a tonumber
+    -- c.result after a lexical guard the facts engine cannot yet express. Unrelated
+    -- union members remain rejected.
+    local function orderingFamily(t)
+        if t == T.any then return "any" end
+        if isA(t, T.number) then return "number" end
+        if isA(t, T.string) then return "string" end
+        if t.tag == "union" then
+            local family = nil
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ then
+                    local found = orderingFamily(member)
+                    if not found or found == "any" then return found end
+                    if family and family ~= found then return nil end
+                    family = found
+                end
+            end
+            return family
+        end
+        return nil
+    end
+
+    --- The type a numeric literal has, suffixes and radix included.
+    local function numberLiteralType(text: string): Type
+        local lower = text:gsub("_", ""):lower()
+        if lower:find("ull", 1, true) then return T.uint64 end
+        if lower:find("ll", 1, true) then return T.int64 end
+        if lower:sub(-1) == "i" then return T.number end -- imaginary: complex later
+        if lower:find("x", 1, true) then
+            if lower:find("%.") or lower:find("p") then return T.number end
+            return T.integer
+        end
+        if lower:find("%.") or lower:find("e") then return T.number end
+        return T.integer
+    end
+
+    -- Infers the type of a field access on `t`; returns nil if unknowable.
+
+    -- Each expression family is its own module, installed here and reached through one
+    -- table. What is left in this file is the syntax whose type is the syntax itself:
+    -- the literals, a name, and the forms built directly out of other expressions.
+    local handlers = {}
+    for _, installed in ipairs({
+        operators.install(c), index.install(c), callexpr.install(c),
+    }) do
+        for kind, handle in pairs(installed) do handlers[kind] = handle end
+    end
+
+    --- The type an expression has, with the facts narrowing currently knows applied.
+    --- Called for effect as well as for the answer: it records what later passes need
+    --- on the node and reports what the expression itself gets wrong.
+    ---
+    --- @param node the expression
+    c.infer = function(node: Node): Type
+        local handle = handlers[node.kind]
+        if handle then return handle(node) end
+        local kind = node.kind
+        if kind == "number" then
+            local literal = node.token
+            if not literal then return T.number end
+            local base = numberLiteralType(literal.text)
+            local value = tonumber((literal.text:gsub("_", "")))
+            if value and (base == T.integer or base == T.number) then
+                return T.literal(value, base)
+            end
+            return base
+        elseif kind == "string" then
+            local literal = node.token
+            if not literal then return T.string end
+            local text = literal.text
+            local body = text:match("^[\"']") and text:sub(2, -2) or nil
+            if body then return T.literal(body, T.string) end
+            return T.string
+        elseif kind == "nilExpr" then
+            return T.nil_
+        elseif kind == "trueExpr" then
+            return T.literal(true, T.boolean)
+        elseif kind == "falseExpr" then
+            return T.literal(false, T.boolean)
+        elseif kind == "vararg" then
+            return T.any
+        elseif kind == "name" then
+            local nameTok = node.token
+            if not nameTok then return T.any end
+            local nameText = nameTok.text
+            local entry = c.lookupEntry(nameText)
+            if entry and entry.withBinding then
+                node.withBinding = entry.withBinding
+            end
+            if entry and entry.borrowOwner then
+                node.borrowOwner = entry.borrowOwner
+            end
+            if entry and entry.borrowOwners then
+                node.borrowOwners = entry.borrowOwners
+            end
+            if entry then
+                local state = c.ownershipState(entry)
+                if state.moved then
+                    local related = state.movedAt and c.related(state.movedAt,
+                        "owner was moved here") or nil
+                    c.diag("NUPP2601", node,
+                        ("owner %q was moved and cannot be used")
+                        :format(nameText), nil,
+                        {related = related and {related} or nil,
+                        help = "use the owner before this transfer, or borrow it "
+                        .. "instead of moving it"})
+                    node.ownershipUseReported = true
+                elseif c.ownershipKind(entry.t)
+                    and (entry.functionDepth or 0) < c.functionDepth then
+                    c.diag(entry.withBinding and "NUPP2612" or "NUPP2603", node,
+                        ("%s value %q cannot be captured by a closure")
+                        :format(c.ownershipKind(entry.t), nameText))
+                end
+            end
+            if entry and entry.globalModule
+                and entry.globalModule ~= c.result.moduleName then
+                c.result.implicitSideEffects[entry.globalModule] = true
+            end
+            if not entry and c.env and c.env.resolveProjectValue then
+                local valueType, valueDef, valueErr, sideEffectModule, conflicts
+                    = c.env.resolveProjectValue(c.env, c.filename, nameText)
+                if valueType then
+                    -- A global struct's ctype is created by the module that declares
+                    -- it, so reaching the name means that module has to have been
+                    -- loaded.
+                    if sideEffectModule then
+                        c.result.implicitSideEffects[sideEffectModule] = true
+                    end
+                    c.markToken(nameTok, valueDef, valueType,
+                        valueDef and valueDef.kind or "variable")
+                    return valueType
+                elseif valueErr then
+                    local related, seen = {}, {}
+                    for _, conflict in ipairs(conflicts or {}) do
+                        local definition = conflict.definition
+                        local key = definition and (tostring(definition.filename)
+                            .. ":" .. tostring(definition.token
+                            and definition.token.offset)) or tostring(conflict)
+                        if not seen[key] then
+                            seen[key] = true
+                            local item = c.related(definition,
+                                "conflicting global value declared here")
+                            if item then related[#related + 1] = item end
+                        end
+                    end
+                    c.diag("NUPP2104", node,
+                        ("ambiguous global %q; a project global must be unique")
+                        :format(nameText), nil, {related = related,
+                        help = "make all but one declaration local or attach "
+                        .. "them to their module tables"})
+                    return T.any
+                end
+            end
+            c.markToken(nameTok, entry and entry.definition,
+                entry and entry.t or T.any,
+                entry and entry.definition and entry.definition.kind or "variable")
+            if not entry then
+                -- An unknown name is `any` and says nothing, which is right for a name
+                -- nobody has heard of. When a project file is named after it, the
+                -- likely story is a missing `require`, and staying quiet defers that to
+                -- run time.
+                local advice, isModule, fixes = c.missingRequire(nameText)
+                if advice then
+                    c.diag("missing-require", node, advice, fixes)
+                elseif not isModule and c.opts and c.opts.strict then
+                    fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
+                    c.diag("NUPP2105", nameTok,
+                        ("unknown variable %q"):format(nameText), fixes,
+                        {help = fixes and "use the suggested visible name"
+                        or "declare the value, require its module, or correct "
+                        .. "the spelling"})
+                end
+            end
+            return entry and entry.t or T.any -- unknown names are any unless --strict
+        elseif kind == "paren" then
+            local inner = node.expr
+            return inner and c.infer(inner) or T.any
+        elseif kind == "ternary" then
+            local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
+            if not cond or not ifTrue or not ifFalse then return T.any end
+            c.infer(cond)
+            local facts = c.analyzeCond(cond)
+            c.pushScope()
+            c.applyFacts(facts.t)
+            local tt = c.infer(ifTrue)
+            c.popScope()
+            c.pushScope()
+            c.applyFacts(facts.f)
+            local ft = c.infer(ifFalse)
+            c.popScope()
+            return T.union({tt, ft})
+        elseif kind == "castExpr" then
+            local cast = node.expr
+            if not cast then return c.resolveType(node.type) end
+            local source = c.infer(cast)
+            local target = c.resolveType(node.type)
+            if c.ownershipKind(target) then
+                if c.ownershipKind(target) == "pinned"
+                    and c.ownershipKind(source) ~= "pinned" then
+                    c.diag("NUPP2604", node,
+                        "a pinned<T> value must be constructed with pin(pointer, anchor)")
+                end
+                return target
+            end
+            if source.tag == "owned" then
+                return T.owned(target, source.cleanups)
+            elseif c.ownershipKind(source) == "borrowed" then
+                return T.borrowed(target)
+            elseif c.ownershipKind(source) == "pinned" then
+                return T.pinned(target)
+            end
+            return target
+        elseif kind == "isExpr" then
+            local subject = node.expr
+            if subject then c.infer(subject) end
+            c.resolveType(node.type)
+            return T.boolean
+        elseif kind == "funcExpr" then
+            local body = node.body
+            return body and c.checkFuncbody(body) or T.any
+        elseif kind == "shortfn" then
+            c.pushScope()
+            local params = {}
+            local vararg = false
+            for _, p in ipairs(node.params) do
+                if p.kind == "param" then
+                    local pt = p.type and c.resolveType(p.type) or T.any
+                    local pname = p.name
+                    if p.namedVararg then
+                        vararg = true
+                        if pname then
+                            c.bindVar(pname.text, T.table_, false, pname,
+                                "parameter", true)
+                        end
+                    else
+                        params[#params + 1] = pt
+                        if pname then
+                            c.bindVar(pname.text, pt, p.type ~= nil, pname,
+                                "parameter")
+                        end
+                    end
+                end
+            end
+            local rets
+            if node.expr then
+                rets = {c.infer(node.expr)} -- expr body: one inferred return
+            else
+                c.retStack[#c.retStack + 1] = false
+                c.checkBlock(node.body, true)
+                c.retStack[#c.retStack] = nil
+                rets = {T.any}
+            end
+            c.popScope()
+            return T.func(params, rets, vararg)
+        elseif kind == "istring" then
+            -- every ${...} part is tostring-ed; the whole literal is a string
+            for _, e in ipairs(node.parts) do c.infer(e) end
+            return T.string
+        elseif kind == "tableExpr" then
+            local positional, named = {}, {}
+            -- A positional entry widens: an array built from literals is an array of
+            -- their base type, or writing to it later would fail against the one value
+            -- it was built from. A named field keeps its literal, which is the only way
+            -- to build a value of a discriminated union. An unannotated local holding a
+            -- table literal becomes plain `table` below, so nothing is pinned to a
+            -- literal by accident.
+            local function widened(t)
+                if t.tag == "literal" then return t.base or T.string end
+                return t
+            end
+            -- An owner stored in a table escapes the checking that tracks it, whichever
+            -- way the entry was written.
+            local function refuseOwner(value: Node, valueT: Type)
+                if not c.ownershipKind(valueT) then return end
+                c.diag(value.withBinding and "NUPP2612" or "NUPP2603", value,
+                    c.ownershipKind(valueT) .. " value cannot be stored in a table")
+            end
+            for _, f in ipairs(node.fields) do
+                if f.kind == "fieldItem" then
+                    local value = f.value
+                    if value then
+                        local valueT = c.infer(value)
+                        refuseOwner(value, valueT)
+                        positional[#positional + 1] = widened(valueT)
+                    end
+                elseif f.kind == "fieldNamed" then
+                    local value, fieldName = f.value, f.name
+                    if value and fieldName then
+                        local valueT = c.infer(value)
+                        refuseOwner(value, valueT)
+                        -- A string literal in a named field is kept: that is how a
+                        -- discriminant is written, and keeping it is the only way to
+                        -- build a value of a discriminated union. Numbers widen, since
+                        -- a counter initialized to 1 is not a value of the type 1.
+                        local keep = valueT.tag == "literal"
+                            and valueT.base == T.string
+                        named[#named + 1] = {
+                            name = fieldName.text,
+                            type = keep and valueT or widened(valueT),
+                        }
+                    end
+                elseif f.kind == "fieldBracket" then
+                    local value = f.value
+                    if f.key then c.infer(f.key) end
+                    if value then refuseOwner(value, c.infer(value)) end
+                    return T.table_ -- computed keys: generic table in v0
+                end
+            end
+            if #named > 0 and #positional == 0 then
+                return T.shape(named)
+            elseif #positional > 0 and #named == 0 then
+                return T.array(T.union(positional))
+            elseif #positional == 0 and #named == 0 then
+                return T.table_ -- {} is compatible with any table type
+            end
+            return T.table_
+        elseif kind == "errorExpr" then
+            return T.any
+        end
+        return T.any
+    end
+end
+
+return expr

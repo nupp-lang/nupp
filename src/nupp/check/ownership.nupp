@@ -1,0 +1,332 @@
+--[[
+The affine bookkeeping.
+
+An owner is a value some later operation must discharge; a borrow may not outlive
+what it came from; a pinned handle pairs a pointer with the Lua anchor keeping it
+alive. Tracking that is a concern of its own: it asks where a value came from and
+what has already happened to it, not what type an expression has.
+
+See `docs/OWNERSHIP.md` and `docs/WITH.md`.
+]]
+
+local T = require("nupp.types")
+local relations = require("nupp.relations")
+local cst = require("nupp.cst")
+
+local ownership = {}
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
+--- Installs the ownership bookkeeping on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk calls
+function ownership.install(c: any): any
+    local own = {}
+
+    function own.ownershipKind(t)
+        return t and (t.tag == "owned" or t.tag == "borrowed"
+            or t.tag == "pinned") and t.tag or nil
+    end
+
+    function own.ownershipState(entry)
+        return entry and (entry.ownershipOrigin or entry) or nil
+    end
+
+    function own.borrowRoot(entry)
+        entry = own.ownershipState(entry)
+        local seen = {}
+        while entry and entry.borrowOwner and not seen[entry] do
+            seen[entry] = true
+            entry = own.ownershipState(entry.borrowOwner)
+        end
+        return entry
+    end
+
+    --- The value type behind any ownership qualifier.
+
+    --- Whether values of this type are pointers at run time.
+    function own.pointerShaped(t: Type): boolean
+        t = rawType(t)
+        if t.tag == "ptr" or t == T.cstring or t == T.voidptr then return true end
+        if t.tag == "union" and t.hasNil then
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ and not own.pointerShaped(member) then return false end
+            end
+            return true
+        end
+        return false
+    end
+
+    function own.optionalOwned(t)
+        local inner = rawType(t)
+        return own.ownershipKind(t) == "owned" and inner.tag == "union"
+            and inner.hasNil
+    end
+
+    function own.validateCleanups(valueT, cleanups, at, code, allowUnknown)
+        code = code or "NUPP2602"
+        local signature = {rawType(valueT).id}
+        for _, cleanup in ipairs(cleanups or {}) do
+            local cleanupT = c.lookupVar(cleanup)
+            signature[#signature + 1] = cleanup .. ":"
+                .. (cleanupT and cleanupT.id or "?")
+        end
+        local contractKey = table.concat(signature, "|")
+        if c.validatedCleanupContracts[contractKey] then return end
+        c.validatedCleanupContracts[contractKey] = true
+        for j, cleanup in ipairs(cleanups or {}) do
+            if cleanup:match("^@method:") or cleanup:match("^@field|")
+                or cleanup:match("^@dropfield|") then
+                goto continue
+            end
+            local cleanupT = c.lookupVar(cleanup)
+            local cleanupFunc = cleanupT and cleanupT.tag == "func"
+                and cleanupT or nil
+            local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
+            if not cleanupT and not allowUnknown then
+                c.diag(code, at, ("@owned cleanup %q is not declared"):format(cleanup))
+            elseif cleanupT and cleanupT ~= T.any and (not firstParam
+                or not isA(rawType(valueT), firstParam)) then
+                c.diag(code, at, ("@owned cleanup %q must accept %s"):format(
+                    cleanup, T.tostring(rawType(valueT))))
+            elseif cleanupFunc and j < #(cleanups or {})
+                and cleanupFunc.paramModes[1] == "takes" then
+                c.diag("NUPP2615", at,
+                    ("@owned cleanup %q takes before the final step")
+                    :format(cleanup))
+            end
+            ::continue::
+        end
+    end
+
+    function own.resolvedOwnedCleanups(valueT, cleanups, opaque, at)
+        local resource = rawType(valueT)
+        if resource.tag == "union" then
+            for _, member in ipairs(resource.members) do
+                if member ~= T.nil_ then resource = member; break end
+            end
+        end
+        if resource.tag == "nominal" then resource.affineResource = true end
+        if #(cleanups or {}) > 0 or opaque then return cleanups or {} end
+        local base = resource
+        local defaults = base.tag == "nominal" and base.defaultDisposers or nil
+        if not defaults or #defaults == 0 then
+            c.diag("NUPP2602", at,
+                "bare @owned needs exactly one inherited @dispose operation; "
+                .. "use @owned(cleanup) or @owned(opaque = true)")
+            return {}
+        elseif #defaults > 1 then
+            c.diag("NUPP2602", at,
+                "bare @owned has multiple inherited @dispose operations; "
+                .. "choose one with @owned(cleanup)")
+            return {}
+        end
+        return {defaults[1]}
+    end
+
+    function own.registerDefaultDisposer(ft, path, at)
+        if not ft or ft.tag ~= "func" or not ft.params[1]
+            or ft.paramModes[1] ~= "takes" then
+            c.diag("NUPP2602", at,
+                "@dispose requires a function whose first parameter takes "
+                .. "the resource")
+            return
+        end
+        local base = rawType(ft.params[1])
+        if base.tag ~= "nominal" then return end
+        local defaults = base.defaultDisposers or {}
+        base.defaultDisposers = defaults
+        for _, current in ipairs(defaults) do
+            if current == path then return end
+        end
+        defaults[#defaults + 1] = path
+    end
+
+    function own.ownershipEntry(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        if expr and expr.kind == "name" then
+            return own.ownershipState(c.lookupEntry(expr.token.text)), expr
+        end
+        return nil, expr
+    end
+
+    function own.provenanceOwner(expr)
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+            expr = expr.expr
+        end
+        if not expr then return nil end
+        if expr.borrowOwner then return own.borrowRoot(expr.borrowOwner) end
+        if expr.kind == "name" then
+            local entry = own.ownershipState(c.lookupEntry(expr.token.text))
+            return own.borrowRoot(entry and (entry.borrowOwner or entry))
+        elseif expr.kind == "dotIndex" or expr.kind == "safeIndex"
+            or expr.kind == "bracketIndex" or expr.kind == "safeBracket" then
+            return own.provenanceOwner(expr.obj)
+        elseif expr.kind == "tableExpr" then
+            for _, field in ipairs(expr.fields or {}) do
+                local owner = own.provenanceOwner(field.value)
+                if owner then return owner end
+            end
+        elseif expr.kind == "call" and expr.recordConstruct then
+            local arguments = expr.args and expr.args.exprs or {}
+            if expr.args and expr.args.table then arguments = {expr.args.table} end
+            for _, argument in ipairs(arguments) do
+                local owner = own.provenanceOwner(argument)
+                if owner then return owner end
+            end
+        end
+        return nil
+    end
+
+    function own.provenanceOwners(expr, out, seen)
+        out, seen = out or {}, seen or {}
+        if not expr or cst.isToken(expr) then return out end
+        if expr.borrowOwners then
+            for _, owner in ipairs(expr.borrowOwners) do
+                owner = own.borrowRoot(owner)
+                if owner and not seen[owner] then
+                    seen[owner], out[#out + 1] = true, owner
+                end
+            end
+            return out
+        end
+        local one = own.provenanceOwner(expr)
+        if one and not seen[one] then seen[one], out[#out + 1] = true, one end
+        if expr.kind == "tableExpr" then
+            for _, field in ipairs(expr.fields or {}) do
+                own.provenanceOwners(field.value, out, seen)
+            end
+        elseif expr.kind == "call" and expr.recordConstruct then
+            local arguments = expr.args and expr.args.exprs or {}
+            if expr.args and expr.args.table then arguments = {expr.args.table} end
+            for _, argument in ipairs(arguments) do
+                own.provenanceOwners(argument, out, seen)
+            end
+        end
+        return out
+    end
+
+    function own.liveSuspensionObligation()
+        local current, seen = c.scope, {}
+        while current do
+            for name, entry in pairs(current.vars or {}) do
+                local state = own.ownershipState(entry)
+                if state and not seen[state]
+                    and (state.functionDepth or 0) == c.functionDepth
+                    and not state.moved then
+                    seen[state] = true
+                    if own.ownershipKind(state.t) or state.retained
+                        or (state.activeBorrows or 0) > 0 then
+                        return name
+                    end
+                end
+            end
+            current = current.parent
+        end
+        return nil
+    end
+
+    function own.moveExpression(expr, t, reason, expectedKind)
+        expectedKind = expectedKind or "owned"
+        local disposer = c.disposerFieldStack[#c.disposerFieldStack]
+        if disposer and expectedKind == "owned" and expr
+            and expr.kind == "dotIndex" and expr.obj
+            and expr.obj.kind == "name" and expr.obj.token.text == disposer.root then
+            local field = expr.name.text
+            if disposer.allowed[field] then
+                if disposer.done[field] then
+                    c.diag("NUPP2602", expr,
+                        ("owned field %q is disposed more than once"):format(field))
+                    return false
+                end
+                disposer.done[field] = true
+                return true
+            end
+        end
+        local entry, nameNode = own.ownershipEntry(expr)
+        entry = own.ownershipState(entry)
+        if own.ownershipKind(t) ~= expectedKind then
+            c.diag("NUPP2602", expr,
+                (reason or "ownership transfer") .. " requires a "
+                .. expectedKind .. " value")
+            return false
+        end
+        if expr and (expr.kind == "dotIndex" or expr.kind == "bracketIndex")
+            and expectedKind == "owned" then
+            c.diag("NUPP2602", expr,
+                "partial moves from affine records are not supported; "
+                .. "move or dispose the whole record")
+            return false
+        end
+        if entry then
+            if own.ownershipKind(entry.t) ~= expectedKind then
+                c.diag("NUPP2602", expr,
+                    (reason or "ownership transfer") .. " requires a "
+                    .. expectedKind .. " value")
+                return false
+            end
+            if entry.moved then
+                if not nameNode.ownershipUseReported then
+                    local related = entry.movedAt and c.related(entry.movedAt,
+                        "owner was moved here") or nil
+                    c.diag("NUPP2601", nameNode,
+                        ("owner %q was already moved"):format(nameNode.token.text),
+                        nil, {related = related and {related} or nil,
+                        help = "use the owner before this transfer, or borrow it "
+                        .. "instead of moving it"})
+                end
+                return false
+            end
+            if (entry.activeBorrows or 0) > 0 then
+                c.diag("NUPP2602", nameNode,
+                    ("owner %q cannot move while it is borrowed")
+                    :format(nameNode.token.text))
+                return false
+            end
+            if expectedKind == "pinned" and entry.retained then
+                c.diag("NUPP2602", nameNode,
+                    ("pinned handle %q cannot move while C retains it")
+                    :format(nameNode.token.text))
+                return false
+            end
+            entry.moved = true
+            entry.movedAt = nameNode or expr
+            -- An owner that retained a borrow releases it when it is discharged, so the
+            -- source becomes free at that point rather than at the end of the scope.
+            if entry.borrowOwner then
+                entry.borrowOwner.activeBorrows =
+                    math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
+                entry.borrowOwner = nil
+            end
+            for _, owner in ipairs(entry.borrowOwners or {}) do
+                owner.activeBorrows = math.max(0,
+                    (owner.activeBorrows or 1) - 1)
+            end
+            entry.borrowOwners = nil
+        end
+        -- Owned temporaries (principally calls returning `own`) transfer directly and
+        -- need no variable state update.
+        return true
+    end
+
+    -- Also on the checker, so a pass in another module reaches them the same way the
+    -- walk does.
+    c.ownershipKind = own.ownershipKind
+    c.ownershipState = own.ownershipState
+    c.pointerShaped = own.pointerShaped
+    c.moveExpression = own.moveExpression
+    c.borrowRoot = own.borrowRoot
+    c.ownershipEntry = own.ownershipEntry
+    c.liveSuspensionObligation = own.liveSuspensionObligation
+    c.validateCleanups = own.validateCleanups
+    return own
+end
+
+return ownership

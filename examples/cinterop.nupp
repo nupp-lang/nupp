@@ -1,0 +1,63 @@
+-- cinterop.nupp — typed C interop without writing `ffi.` anywhere.
+--
+-- cdef declarations bind libc with checked signatures; @owned tracks explicit
+-- cleanup obligations; structs are cdata; string.buffer is typed;
+-- and short functions + interpolation keep the glue small.
+-- Run: nupp run examples/cinterop.nupp
+
+cdef function getpid(): int32
+cdef function strlen(s: cstring): uint64
+cdef function free(takes value: voidptr)
+@owned(free)
+cdef function malloc(size: uint64): voidptr
+
+cdef struct timeval
+    tv_sec: int64
+    tv_usec: int32
+end
+
+cdef function gettimeofday(tv: timeval*, tz: voidptr?): int32
+
+local buffer = require('string.buffer')
+
+-- a reified struct: this is cdata, not a table
+local struct Sample
+    value: float
+    weight: float
+end
+
+local function weightedMean(samples: {Sample}): number
+    local total, weights = 0, 0
+    for _, s in ipairs(samples) do
+        total = total + s.value * s.weight
+        weights = weights + s.weight
+    end
+    return weights > 0 ? total / weights : 0
+end
+
+local samples: {Sample} = {}
+for i = 1, 5 do
+    table.insert(samples, Sample{
+        value = i * 1.5,
+        weight = i % 2 == 0 ? 2 : 1,
+    })
+end
+
+-- structs pass to T* parameters by address; nil is NULL
+local now = timeval()
+gettimeofday(now, nil)
+
+local report = buffer.new()
+report:put(`pid ${getpid()} at epoch ${tonumber(now.tv_sec)}s\n`)
+report:putf('weighted mean of %d samples: %.3f\n', #samples, weightedMean(samples))
+
+local text = report:tostring()
+print(text)
+
+-- the C world and the Lua world agree on the bytes
+print(`strlen agrees with #: ${tonumber(strlen(text)) == #text}`)
+
+-- @owned voidptr: explicit deterministic cleanup, checked on every path
+local scratch = malloc(4096)
+print(`scratch allocated: ${scratch ~= nil ? 'yes' : 'no'}`)
+dispose(scratch)

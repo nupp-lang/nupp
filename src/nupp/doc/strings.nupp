@@ -1,0 +1,75 @@
+--[[
+Escaping and trimming.
+
+Every renderer here writes into one of three grammars — markdown tables, HTML, or
+a JavaScript string literal — and each of them has a character it cannot take
+literally.
+]]
+
+local strings = {}
+local function trim(text)
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function markdownEscape(text)
+    return text:gsub("([\\`*_%[%]<>])", "\\%1")
+end
+
+-- A description is markdown and renders as markdown; only the table syntax around it is
+-- escaped. Escaping the markdown as well would turn `like this` into visible backticks
+-- in every cell.
+local function markdownCell(text)
+    return (text:gsub("([\\|])", "\\%1"):gsub("\n", " "))
+end
+
+local function htmlEscape(text)
+    return tostring(text or ""):gsub("&", "&amp;"):gsub("<", "&lt;")
+        :gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&#39;")
+end
+
+local function inlineMarkdown(text)
+    text = htmlEscape(text)
+    text = text:gsub("%[([^%]]+)%]%(([^%)]+)%)", '<a href="%2">%1</a>')
+    text = text:gsub("`([^`]+)`", "<code>%1</code>")
+    text = text:gsub("%*%*([^*]+)%*%*", "<strong>%1</strong>")
+    text = text:gsub("%*([^*]+)%*", "<em>%1</em>")
+    return text
+end
+
+local function headingId(text)
+    local id = text:lower():gsub("`", ""):gsub("<[^>]+>", "")
+        :gsub("[^%w%s_-]", ""):gsub("[%s_]+", "-"):gsub("%-+", "-")
+        :gsub("^%-", ""):gsub("%-$", "")
+    return id ~= "" and id or "section"
+end
+
+local function summaryText(text)
+    text = tostring(text or ""):gsub("```[%s%S]-```", " ")
+        :gsub("%[([^%]]+)%]%([^%)]+%)", "%1"):gsub("`([^`]*)`", "%1")
+        :gsub("[*_~#]", ""):gsub("%s+", " ")
+        :gsub("^%s+", ""):gsub("%s+$", "")
+    local sentence = text:match("^(.-[.!?])%s")
+    text = sentence or text
+    if #text > 120 then
+        text = text:sub(1, 117):match("^(.*)%s+%S*$") or text:sub(1, 117)
+        text = text .. "..."
+    end
+    return text ~= "" and text or "—"
+end
+
+local function escapeJs(text)
+    return (tostring(text or ""):gsub("\\", "\\\\")
+        :gsub('"', '\\"'):gsub("\r", "\\r"):gsub("\n", "\\n")
+        :gsub("</", "<\\/"))
+end
+
+strings.trim = trim
+strings.markdownEscape = markdownEscape
+strings.markdownCell = markdownCell
+strings.htmlEscape = htmlEscape
+strings.inlineMarkdown = inlineMarkdown
+strings.headingId = headingId
+strings.summaryText = summaryText
+strings.escapeJs = escapeJs
+
+return strings

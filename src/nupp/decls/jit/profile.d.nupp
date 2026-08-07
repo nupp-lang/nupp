@@ -1,0 +1,67 @@
+--[[
+Declarations for LuaJIT's jit.profile module, loaded for
+`require("jit.profile")`.
+
+The low-level sampling profiler: a timer interrupt, a callback, and a stack
+dumper. It samples and attributes; deciding what a report looks like is the
+caller's job, which is why there is no report type here.
+
+One profiler runs at a time, and `start` while one is running replaces it.
+]]
+
+local record JitProfile
+
+    --- Starts sampling, calling `cb` for each batch of samples.
+    ---
+    --- `mode` is a string of option characters:
+    ---
+    ---   * `"f"` — sample the function, `"l"` the line, `"z"` the zone (see
+    ---     the bundled `jit.zone` module).
+    ---   * `"i<n>"` — sample every `n` milliseconds, 10 by default. Below
+    ---     about 10 the timer starts taking real time away from the thread it
+    ---     is measuring.
+    ---   * `"r"` — report raw sample counts rather than accumulating.
+    ---   * `"v"` — report the VM state.
+    ---
+    --- The callback runs on the interrupted thread, so it must not allocate
+    --- heavily or raise; it is also the only place `dumpstack` sees the
+    --- sampled stack. `vmstate` is one character: `"N"` running compiled code,
+    --- `"I"` interpreting, `"C"` in a C function, `"G"` collecting, `"J"`
+    --- compiling.
+    ---
+    --- @param mode the option string described above
+    --- @param cb receives the sampled thread, how many samples this batch
+    ---     stands for, and the VM state
+    start: function(mode: string, cb: function(thread: any, samples: integer, vmstate: string))
+
+    --- Stops the running profiler. Safe to call when none is running.
+    stop: function()
+
+    --- Renders a sampled stack as text.
+    ---
+    --- `fmt` is a template applied once per frame: `"p"` is the function,
+    --- `"f"` its name, `"F"` the name with its source, and `"l"` the source
+    --- line. Anything else is a literal, so the tail of the format is the
+    --- separator between frames.
+    ---
+    --- `"Z"` is not a frame at all: it stops the format there on the last
+    --- frame, which is how the separator is kept from trailing. `"lZ;"` is
+    --- `a;b;c`, where `"l;"` would be `a;b;c;`.
+    ---
+    --- `depth` counts frames from the top; a negative count walks from the
+    --- bottom instead, which is the order a collapsed-stack profile wants.
+    --- Frames the JIT inlined into a trace are not there to walk, so a
+    --- compiled call chain arrives shorter than its source reads.
+    ---
+    --- Meaningful only for the thread handed to a `start` callback, and only
+    --- while that callback is running.
+    ---
+    --- @param thread the sampled thread; omit for the current one
+    --- @param fmt the per-frame format described above
+    --- @param depth how many frames, negative to walk bottom-up
+    --- @return the rendered stack
+    dumpstack: function(thread: any, fmt: string, depth: integer): string
+end
+
+local profile: JitProfile
+return profile

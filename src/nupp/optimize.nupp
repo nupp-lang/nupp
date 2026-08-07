@@ -1,0 +1,233 @@
+--[[
+Rewrites the checked tree before it is generated.
+
+`check` annotates and `gen` erases; neither may change what a program does. This
+is the phase that may. A pass hangs directives on nodes for `gen` to read, and
+returns remarks describing both what it did and what it declined to do, because
+a language whose premise is that types make code faster owes the user an answer
+when a declared intention did not reach the generated code.
+
+Every pass carries a stable code, `OPT-n`, assigned when it lands and never
+reused. Names change when a pass is split, merged, or renamed; the code in a
+bug report or a `-Zno-opt` does not.
+
+The constraint is line attribution, not line count: a rewrite may make a line as
+long as it needs to be, but may not move code to a line it was not on. Both
+passes here rewrite where they stand, so attribution is unchanged.
+
+See `docs/OPTIMIZATIONS.md`.
+]]
+
+local cst = require("nupp.cst")
+
+local optimize = {}
+
+local isToken = cst.isToken
+local firstToken = cst.firstToken
+
+--- The passes, by stable code: the name a person uses, the lowest `-O` level
+--- that runs the pass, and one line saying what it is for.
+optimize.passes = {
+    ["OPT-1"] = {
+        name = "presize",
+        level = 1,
+        summary = "size a table built field by field when it is created",
+    },
+}
+
+-- Presizing pays from two fields up. An empty table grows its hash part by
+-- rehashing, so a single field costs one rehash, and replacing the constructor
+-- with a call to buy that back is not a trade worth making.
+local PRESIZE_MIN = 2
+
+-- The identifier a bare-name expression names.
+local function nameText(node)
+    if not node or isToken(node) then return nil end
+    if node.kind ~= "name" then return nil end
+    return node.token and node.token.text or nil
+end
+
+-- How many times `name` is mentioned anywhere in the subtree. Counting rather
+-- than testing is what lets a statement be judged: a write to a field mentions
+-- the local exactly once, so a statement whose only mentions are the ones being
+-- counted as writes has not let the table go anywhere else.
+local function occurrences(node, name)
+    if not node then return 0 end
+    if isToken(node) then
+        return (node.kind == "name" and node.text == name) and 1 or 0
+    end
+    local total = 0
+    for _, child in ipairs(node) do
+        total = total + occurrences(child, name)
+    end
+    return total
+end
+
+-- The local whose field an assignment target writes. `t.x` and `t[k]` answer
+-- "t"; a bare `t`, a deeper path like `t.a.b`, and anything else answer nil,
+-- because only a one-level write leaves the table binding itself alone.
+local function fieldTargetBase(target)
+    if not target or isToken(target) then return nil end
+    if target.kind ~= "dotIndex" and target.kind ~= "bracketIndex" then
+        return nil
+    end
+    return nameText(target.obj)
+end
+
+-- The key a write adds, as a kind and a value: a name or a string literal is a
+-- hash key that can be told apart from other hash keys, a positive integer
+-- literal claims an array slot, and anything else is one hash slot of unknown
+-- identity.
+local function writtenKey(target)
+    if target.kind == "dotIndex" then
+        return "hash", target.name and target.name.text or nil
+    end
+    local key = target.expr
+    if key and not isToken(key) then
+        if key.kind == "string" then
+            local token = firstToken(key)
+            return "hash", token and token.text or nil
+        end
+        if key.kind == "number" then
+            local token = firstToken(key)
+            local value = token and tonumber(token.text) or nil
+            if value and value >= 1 and value == math.floor(value) then
+                return "array", value
+            end
+        end
+    end
+    return "opaque", nil
+end
+
+-- The writes to `name` a statement makes as one-level field assignments.
+local function fieldWrites(stat, name)
+    if stat.kind ~= "assignStmt" then return {} end
+    local writes = {}
+    for _, target in ipairs(stat.targets or {}) do
+        if fieldTargetBase(target) == name then
+            writes[#writes + 1] = target
+        end
+    end
+    return writes
+end
+
+-- Reads the run of statements that follow a `local t = {}` and decides how big
+-- the table wants to be.
+--
+-- The scan walks forward until the local is mentioned by something other than a
+-- write to one of its fields, which is where the count stops being a count and
+-- starts being a guess. A statement that does not mention the local at all is
+-- stepped over: until the table escapes, nothing else can reach it.
+--
+-- Over-counting is safe — a table sized for more than it receives wastes a
+-- little memory and nothing else — so a conditional write is counted, an opaque
+-- key is counted as one slot, and a run that is cut short simply keeps what it
+-- had. Under-counting is safe too. Capacity is not observable, which is what
+-- makes this pass free of any promise about behaviour.
+local function planPresize(stats, at, name)
+    local hashKeys, opaque, array = {}, 0, 0
+    local hashCount = 0
+    local stoppedAt = nil
+    for j = at + 1, #stats do
+        local stat = stats[j]
+        local writes = fieldWrites(stat, name)
+        if occurrences(stat, name) ~= #writes then
+            stoppedAt = stat
+            break
+        end
+        for _, target in ipairs(writes) do
+            local kind, value = writtenKey(target)
+            if kind == "array" then
+                if value > array then array = value end
+            elseif kind == "hash" and value then
+                if not hashKeys[value] then
+                    hashKeys[value] = true
+                    hashCount = hashCount + 1
+                end
+            else
+                opaque = opaque + 1
+            end
+        end
+    end
+    return array, hashCount + opaque, stoppedAt
+end
+
+-- Whether an expression is `{}` written with no entries at all. A constructor
+-- with entries is already sized by LuaJIT from the constructor itself, so only
+-- the empty one is left needing help.
+local function isEmptyTable(node)
+    return node and not isToken(node) and node.kind == "tableExpr"
+        and #(node.fields or {}) == 0
+end
+
+local function remark(remarks, node, code, message, related)
+    local token = firstToken(node)
+    remarks[#remarks + 1] = {
+        code = code,
+        severity = "note",
+        msg = message,
+        line = token and token.line or 0,
+        col = token and token.col or 0,
+        offset = token and token.offset or 0,
+        length = token and #token.text or 1,
+        related = related,
+    }
+end
+
+local function presizeBlock(stats, remarks)
+    for i, stat in ipairs(stats) do
+        if not isToken(stat) and stat.kind == "localStmt"
+            and stat.names and #stat.names == 1
+            and stat.exprs and #stat.exprs == 1
+            and isEmptyTable(stat.exprs[1]) then
+            local name = stat.names[1].text
+            local constructor = stat.exprs[1]
+            local array, hash, stoppedAt = planPresize(stats, i, name)
+            if array + hash >= PRESIZE_MIN then
+                constructor.presize = {narr = array, nhash = hash}
+                remark(remarks, constructor, "OPT-1",
+                    ("presize: %s is created with room for %d array and %d "
+                    .. "hash entries"):format(name, array, hash))
+            elseif stoppedAt then
+                local token = firstToken(stoppedAt)
+                remark(remarks, constructor, "OPT-1",
+                    ("presize: %s is not presized, because it is used for "
+                    .. "something other than a field assignment before its "
+                    .. "fields are known"):format(name),
+                    token and {{
+                        line = token.line, col = token.col,
+                        offset = token.offset, length = #token.text,
+                        message = "used here",
+                    }} or nil)
+            end
+        end
+    end
+end
+
+local function walk(node, remarks)
+    if not node or isToken(node) then return end
+    if node.stats then presizeBlock(node.stats, remarks) end
+    for _, child in ipairs(node) do walk(child, remarks) end
+end
+
+--- Runs the passes a level asks for over a parsed and checked file, annotating
+--- it in place.
+---
+--- @param result the parse result, whose `root` is rewritten
+--- @param opts `level` is the `-O` level; `disabled` is a set of codes to skip
+--- @return the remarks the passes produced, in source order
+function optimize.run(result: any, opts: any): {any}
+    opts = opts or {}
+    local level = opts.level or 0
+    local disabled = opts.disabled or {}
+    local remarks = {}
+    if level >= optimize.passes["OPT-1"].level and not disabled["OPT-1"] then
+        walk(result.root, remarks)
+    end
+    for _, entry in ipairs(remarks) do
+        entry.filename = result.filename or opts.filename
+    end
+    return remarks
+end
+
+return optimize

@@ -1,0 +1,101 @@
+-- todo.nupp — a tour of Nupp in one small program.
+
+local enum Priority 'low' 'normal' 'high' end
+
+local type TaskId = uint32
+
+local record Task
+    id: TaskId
+    title: string
+    priority: Priority
+    done: boolean
+    due: string? -- optional field: string | nil
+end
+
+-- structs are real: this lowers to ffi.typeof (8.4x on hot loops, see
+-- docs/spike-reification.md)
+local struct Vec2
+    x: float
+    y: float
+end
+
+local nextId: number = 0
+
+local function newTask(title: string, priority: Priority): Task
+    nextId = nextId + 1
+    return {
+        id = nextId as TaskId,
+        title = title,
+        priority = priority,
+        done = false,
+    } as Task
+end
+
+-- generics: V is inferred at every call site
+local function filter<V>(xs: {V}, keep: function(V): boolean): {V}
+    local out: {V} = {}
+    for _, x in ipairs(xs) do
+        if keep(x) then
+            table.insert(out, x)
+        end
+    end
+    return out
+end
+
+-- unions + narrowing: `is` proves which member we hold
+local function render(v: number | string): string
+    if v is string then
+        return v:upper()
+    end
+    return string.format('%.2f', v)
+end
+
+local function describe(t: Task): string
+    -- ternary + string interpolation
+    local due = t.due
+    local suffix: string = due ~= nil ? ` (due ${due})` : ''
+    local mark: string = t.done ? 'x' : ' '
+    return `[${mark}] #${t.id} ${t.title}${suffix}`
+end
+
+local function firstDue(tasks: {Task}): string?
+    for _, t in ipairs(tasks) do
+        if t.due ~= nil then return t.due end
+    end
+    return nil
+end
+
+local function lerp(a: Vec2, b: Vec2, t: number): Vec2
+    return Vec2{x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t}
+end
+
+-- bit operators compile to LuaJIT's bit.* semantics
+local FLAG_URGENT: integer = 1 << 0
+local FLAG_STARRED: integer = 1 << 1
+local flags: integer = FLAG_URGENT | FLAG_STARRED & ~0x4
+
+local tasks: {Task} = {}
+table.insert(tasks, newTask('write the parser', 'high' as Priority))
+table.insert(tasks, newTask('write the checker', 'high' as Priority))
+table.insert(tasks, newTask('water the plants', 'low' as Priority))
+tasks[2].done = true
+
+-- short functions: |params| -> expr
+local urgent = filter(tasks, |t: Task| -> t.priority == 'high' and not t.done)
+
+for _, t in ipairs(urgent) do
+    print(describe(t))
+end
+
+print(render(#urgent), render('flags: ' .. flags))
+
+-- guard-clause narrowing: after the early return, `due` is a plain string
+local due = firstDue(tasks)
+if not due then
+    print('nothing is due')
+else
+    print(`next due: ${due}`)
+end
+
+local mid = lerp(Vec2{x = 0, y = 0}, Vec2{x = 10, y = 20}, 0.5)
+print(`midpoint: ${mid.x}, ${mid.y} (cdata: ${mid is Vec2})`)

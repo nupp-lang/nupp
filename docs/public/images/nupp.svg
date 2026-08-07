@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Nupp programming language icon</title>
+  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a blue circle.</desc>
+
+  <!-- Theme accent blue disc behind the figure. -->
+  <circle cx="64" cy="64" r="62" fill="#176b8a"/>
+
+  <!-- The nuppeppo, scaled down and flattened to a single silhouette colour. -->
+  <g transform="translate(64,64) scale(0.72) translate(-65.5,-63.5)"
+     fill="#e6dfc0" stroke="#e6dfc0" stroke-linejoin="round" stroke-linecap="round">
+
+    <!-- Two broad, grounded feet. -->
+    <g stroke-width="3.2">
+      <path d="M42 98c-10 1-17 8-16 16 1 6 7 9 12 5 3 5 10 5 13 0 4 4 11 1 11-5 0-8-8-16-20-16Z"/>
+      <path d="M86 98c10 1 17 8 16 16-1 6-7 9-12 5-3 5-10 5-13 0-4 4-11 1-11-5 0-8 8-16 20-16Z"/>
+    </g>
+
+    <!-- Heavy egg-shaped torso, ending above the feet. -->
+    <path d="M61 10
+             C82 8 95 24 96 46
+             C97 59 102 70 103 82
+             C105 94 98 102 87 106
+             C75 110 58 110 45 106
+             C33 103 26 95 28 83
+             C29 71 34 60 33 47
+             C32 26 42 12 61 10Z"
+          stroke-width="5"/>
+
+    <!-- Two low arms merge into the torso. -->
+    <g stroke-width="3.8">
+      <path d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
+      <path d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
+    </g>
+  </g>
+
+</svg>

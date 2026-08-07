@@ -1,0 +1,6 @@
+.nupp/
+/build/
+.claude/
+.DS_Store
+scratch/
+host/target/
