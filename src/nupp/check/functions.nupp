@@ -458,6 +458,7 @@ function functions.install(c: any): any
         -- so what it exports records it the same way.
         if not fname.method and ownerKey == c.moduleLocal and memberTok then
             c.moduleFields[memberTok.text] = ft
+            c.moduleFieldTokens[memberTok.text] = memberTok
         end
         if body.disposeContract and not owner then
             registerDefaultDisposer(ft,

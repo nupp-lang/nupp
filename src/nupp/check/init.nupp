@@ -39,6 +39,7 @@ local pragma = require("nupp.check.pragma")
 local generics = require("nupp.generics")
 local cst = require("nupp.cst")
 local annotationMod = require("nupp.annotations")
+local lexer = require("nupp.lexer")
 
 local checkMod = {}
 
@@ -301,6 +302,11 @@ record checkMod.Checker
     --- was added to it rather than what the constructor said.
     moduleFields: {[string]: Type}
 
+    --- Where each `moduleFields` entry was written. A field's export diagnostic points
+    --- here rather than at the module's `return`, which is often lines away from the
+    --- declaration a fix actually touches.
+    moduleFieldTokens: {[string]: lexer.Token}
+
     --- Whether that table was annotated. An annotated binding keeps the type it was
     --- given, which is how a module says its surface is wider than what can be seen —
     --- `local M: {[string]: any} = {}`.
@@ -501,7 +507,7 @@ function checkMod.check(result, filename, env, opts)
         unsafeDepth = 0, functionDepth = 0,
         captureWatches = {}, allowed = {}, hoisting = false,
         resolvingAlias = {}, lastCallRets = nil,
-        moduleFields = {}, moduleLocalAnnotated = false,
+        moduleFields = {}, moduleFieldTokens = {}, moduleLocalAnnotated = false,
     }
     c.rootScope = c.scope
     -- Published alongside the module name because the pair is what says a `function
@@ -1024,6 +1030,7 @@ function checkMod.check(result, filename, env, opts)
         local baseTok = base.token
         if not baseTok or baseTok.text ~= c.moduleLocal then return end
         c.moduleFields[member.text] = t or T.any
+        c.moduleFieldTokens[member.text] = member
     end
 
     -- Promoted onto the run so that the statement families below, each in its own

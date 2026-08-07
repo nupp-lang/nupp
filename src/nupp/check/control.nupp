@@ -124,7 +124,8 @@ function control.install(c: any): any
                 if shape.tag == "shape" then
                     for _, field in ipairs(shape.fields) do
                         if untyped(field.type) then
-                            c.diag("NUPP2106", stat,
+                            c.diag("NUPP2106",
+                                c.moduleFieldTokens[field.name] or stat,
                                 ("exported %q needs a type annotation")
                                 :format(field.name))
                         end
