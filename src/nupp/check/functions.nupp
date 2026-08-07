@@ -470,6 +470,16 @@ function functions.install(c: any): any
             c.moduleFields[memberTok.text] = ft
             c.moduleFieldTokens[memberTok.text] = memberTok
         end
+        -- ...and a later reference has to find it the same way too. An assignment
+        -- records the path it wrote, which is how `m.f = function() end` gives a
+        -- following `m.f()` a type at all; a declaration that skipped this left
+        -- `m.f` reading through an open table as `any`, so every annotation on it
+        -- was accepted and then meant nothing — `@owned` included, which is how
+        -- this was found. A nominal owner already has its member on `byname`,
+        -- where the type namespace rather than the value path answers for it.
+        if not fname.method and not owner and ownerKey and memberTok then
+            c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
+        end
         if body.disposeContract and not owner then
             registerDefaultDisposer(ft,
                 fname.base and fname.base.text or "<dispose>",

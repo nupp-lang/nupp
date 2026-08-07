@@ -1187,4 +1187,59 @@ function M.ownershipLoweringPreservesLineCount()
       "generated output has the source line count plus terminal newline")
 end
 
+-- `function m.f()` has to put f on the table the way `m.f = ...` does, which
+-- means recording the path a later reference reads back. It did not, so `m.f`
+-- resolved through an open table as `any`, and every annotation on it was
+-- accepted and then meant nothing. `@owned` is how that was noticed: the
+-- obligation simply never existed.
+function M.aQualifiedFunctionCarriesItsOwnedContract()
+   assertEq(codes(table.concat({
+      "local m = {}",
+      "local function closeFile(file: LuaFile)",
+      "   file:close()",
+      "end",
+      "@owned(closeFile)",
+      "function m.open(path: string): LuaFile",
+      "   local file = io.open(path, 'r')",
+      "   if not file then error('cannot open') end",
+      "   return file",
+      "end",
+      "local handle = m.open('x')",
+   }, "\n")), "NUPP2603",
+      "the owner from m.open still has to be discharged")
+end
+
+-- The same fix without the ownership: a qualified function is a typed function,
+-- so its argument and its result are checked at the call.
+function M.aQualifiedFunctionIsTypedAtItsCallSite()
+   assertEq(codes(table.concat({
+      "local m = {}",
+      "function m.width(text: string): integer",
+      "   return #text",
+      "end",
+      "local n: string = m.width(1)",
+   }, "\n")), "NUPP2001 NUPP2006",
+      "both the result and the argument are checked")
+end
+
+function M.aQualifiedFunctionAcquiresIntoAWith()
+   assertClean(table.concat({
+      "local m = {}",
+      "local function closeFile(file: LuaFile)",
+      "   file:close()",
+      "end",
+      "@owned(closeFile)",
+      "function m.open(path: string): LuaFile",
+      "   local file = io.open(path, 'r')",
+      "   if not file then error('cannot open') end",
+      "   return file",
+      "end",
+      "function m.slurp(path: string): string",
+      "   with file = m.open(path) do",
+      "      return file:read('*a')",
+      "   end",
+      "end",
+   }, "\n"))
+end
+
 return M

@@ -185,7 +185,15 @@ function control.install(c: any): any
                         :format(binding.name.text, why))
                 end
             end
-            validateCleanups(acquired, cleanups, binding.expr, "NUPP2615")
+            -- Unknown names are allowed here, and only here. A cleanup is named by
+            -- the module that declared the owner and is usually local to it, so an
+            -- acquisition in another file cannot see it — and could not act on
+            -- being told about it either. The declaration site validated the
+            -- contract when it was written, which is where a misspelled or
+            -- wrong-typed cleanup is both reported and fixable. What an acquisition
+            -- still has to know is checked above: that the value is owned, and that
+            -- something will close it.
+            validateCleanups(acquired, cleanups, binding.expr, "NUPP2615", true)
             if ownershipKind(acquired) == "owned" then
                 moveExpression(binding.expr, acquired, "with acquisition")
             end

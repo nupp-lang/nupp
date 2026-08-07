@@ -420,4 +420,69 @@ return shapes
    end)
 end
 
+-- A cleanup is named by the module that declared the owner and is usually local
+-- to it, so an acquisition in another file cannot see the name. Reporting it
+-- there told a reader about a function they could not reach and could not fix,
+-- and the declaring module had already checked the contract.
+function M.anOwnerCrossesAModuleBoundaryIntoAWith()
+   withProject({
+      ["src/res.nupp"] = [[
+local res = {}
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+@owned(closeFile)
+function res.open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+return res
+]],
+      ["src/use.nupp"] = [[
+local res = require("res")
+
+local use = {}
+
+function use.slurp(path: string): string
+    with file = res.open(path) do
+        return file:read("*a")
+    end
+end
+
+return use
+]],
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
+      assertEq(#diags, 0, "acquiring another module's owner: "
+         .. (diags[1] and (diags[1].code .. " " .. diags[1].msg) or ""))
+   end)
+end
+
+-- The name still has to resolve where it was written, which is the one place a
+-- misspelling can be fixed.
+function M.aMisspelledCleanupIsReportedAtItsDeclaration()
+   withProject({
+      ["src/res.nupp"] = [[
+local res = {}
+
+@owned(closeFyle)
+function res.open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+return res
+]],
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/res.nupp")
+      assertEq(diags[1] and diags[1].code, "NUPP2615",
+         "an unresolvable cleanup is still caught where it is written")
+   end)
+end
+
 return M

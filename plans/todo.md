@@ -675,25 +675,35 @@ through idempotency and parse-stability in addition to exact match:
 - [x] Reject raw coroutine suspension with live temporal obligations; cover
       rejected capture, generated line counts, incremental ownership
       fingerprints, LSP metadata, and formatter output.
-- [ ] **`@owned` does not survive a qualified function name.** It attaches to
-      `local function open(...)` and the result is an owner; it does not attach
-      to `function m.open(...)`, and the result is an ordinary value, so
-      acquiring it is NUPP2610 "a 'with' acquisition must be a non-optional
-      owned value". No diagnostic is reported at the declaration, which is the
-      part that makes it expensive: the annotation is accepted and then means
-      nothing.
+- [x] **A qualified function carries its type, and so its `@owned` contract.**
+      `function m.f()` recorded nothing a later reference could read back, so
+      `m.f` resolved through an open table as `any` and every annotation on it
+      was accepted and then meant nothing — arguments and results went
+      unchecked, and `@owned` created no obligation at all. It now records the
+      path the equivalent `m.f = ...` assignment does. Found through `@owned`,
+      but the silence was the whole module-table surface.
+- [x] **A cleanup name is resolved where it was written, not where the owner is
+      acquired.** A cleanup is usually local to the module declaring the owner,
+      so an acquisition in another file could not see the name and was told
+      NUPP2615 about a function it could neither reach nor fix. The declaration
+      site validates the contract, which is where a misspelling is reported and
+      repairable; an acquisition still has to be owned (NUPP2610) and still has
+      to have cleanups (NUPP2611).
+- [ ] **`nupp.std.*` is untyped outside the compiler's own tree.** Module
+      resolution searches a project's `include` roots, and the standard library
+      is not among them, so `require("nupp.std.resources")` in a user project
+      yields `any`: `local h: string = resources.open_file("x", "r")` reports
+      nothing. Inside this tree it checks correctly, which is why the two fixes
+      above are not visible from outside it.
 
-      This is why `nupp.std.resources` cannot be used by anything. Every one of
-      its wrappers is a module member, so no consumer can acquire one, and the
-      worked example in [with.md](../docs/with.md) — `with file =
-      resources.open_file("input.txt", "r")` — does not compile. The shipped
-      resource library and the document teaching the feature are both currently
-      wrong, which is worth fixing before either is put in front of anyone.
-
-      The ownership and `with` examples in `src/nupp/reference.nupp` are
-      written in the `local function` form to compile at all. Move them to the
-      module-member form once this is fixed; that is the idiom worth teaching,
-      and `tests/referencetest.lua` will hold the change honest.
+      The consequence is that the opening example of [with.md](../docs/with.md)
+      still does not compile for the reader it is written for, and the shipped
+      resource wrappers cannot be used as owners by anyone. Left alone because
+      it is a design decision rather than a repair: it needs a view on what the
+      shipped standard surface is, whether it ships as source or as `.d.nupp`
+      declarations, and how it reaches a project — `env.nupp` deliberately
+      embeds "only the compiler's own declarations, and deliberately not a
+      general virtual filesystem", so extending that is the author's call.
 
 ## Documentation
 

@@ -281,14 +281,14 @@ end
 --- @return an owned handle
 --- @raises when the file cannot be opened
 @owned(closeFile)
-local function open(path: string): LuaFile
+function m.open(path: string): LuaFile
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file
 end
 
 function m.slurp(path: string): string
-    with file = open(path) do
+    with file = m.open(path) do
         return file:read("*a")
     end
 end
@@ -317,7 +317,7 @@ local function closeFile(file: LuaFile)
 end
 
 @owned(closeFile)
-local function open(path: string, mode: string): LuaFile
+function m.open(path: string, mode: string): LuaFile
     local file = io.open(path, mode)
     if not file then error("cannot open " .. path) end
     return file
@@ -325,8 +325,8 @@ end
 
 function m.copy(from: string, to: string): nil
     with
-        input = open(from, "rb"),
-        output = open(to, "wb")
+        input = m.open(from, "rb"),
+        output = m.open(to, "wb")
     do
         output:write(input:read("*a"))
     end
