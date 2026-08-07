@@ -167,12 +167,19 @@ interesting window is one frame rather than the whole run. See
 
 ## Development
 
+    ./scripts/rocks       install the Lua libraries into ./.rocks
     ./bin/nupp build      rebuild the compiler from nupp.lua
     ./bin/nupp clean      remove all configured build outputs
     ./bin/nupp tasks      list the configured build targets
     ./bin/nupp check      check the configured project graph
-    ./bin/nupp test       build, then run tests (requires LuaJIT, cjson, LPeg)
+    ./bin/nupp test       build, then run tests (requires LuaJIT and cjson)
     ./bin/nupp fixpoint   verify the byte-identical self-hosting rebuild
+
+`scripts/rocks` installs lunamark and Scintillua — and, through them, LPeg —
+into a project-local `.rocks` tree that `bin/nupp` and `tests/run` put on the
+search path. Nothing is installed globally and nothing is vendored, so two
+checkouts can hold different versions without either breaking the other. The
+compiler itself does not need them; `nupp doc` does.
 
 The toolchain compiles and runs generated code, so it needs the same LuaJIT
 generated code does: **2.1.1784535649 or newer**, the first build carrying the
@@ -214,13 +221,17 @@ Site output is a responsive three-column layout with its own color system,
 typography, navigation, badges, code treatment, and light/dark behavior. Both
 side columns have matching header controls and remember their collapsed state. Non-home pages add previous and next links, while the left
 navigation becomes a hamburger drawer on small screens. Nupp code uses the
-compiler lexer; bundled Scintillua lexers highlight fenced Lua, GLSL, shell,
+compiler lexer; Scintillua's lexers highlight fenced Lua, GLSL, shell,
 JSON, and other languages. Every page links to a colocated `llms.txt`; the site
 root also contains an index at `llms.txt` and the combined reference at
 `llms-full.txt`.
 `both` writes the static site plus `api.md` into the output directory.
-Scintillua uses LPeg; if LPeg or a requested lexer is unavailable, nuppdoc
-still emits safely escaped code without highlighting that block.
+
+Markdown is rendered by [lunamark](https://github.com/jgm/lunamark), which is
+required: `nupp doc` says so and stops if it is not installed. Scintillua is
+optional and degrades — if it or a requested lexer is unavailable, nuppdoc
+still emits safely escaped code without highlighting that block. Both come from
+`scripts/rocks`.
 
 Documentation is also a build target kind, so it participates in the ordinary
 manifest workflow:

@@ -4,8 +4,14 @@ Source code as coloured HTML.
 Nupp is highlighted by the compiler's own lexer, which is the only highlighter
 that agrees with the compiler about what a token is, and which knows enough to
 turn a name into a link. Every other language in a fenced block is handed to
-Scintillua, whose lexers are vendored; without them a block renders as plain
+Scintillua, installed by `scripts/rocks`; without it a block renders as plain
 escaped text.
+
+Scintillua's lexers find each other by path rather than by `require` — a lexer
+embeds another by reading its file out of the directory named in the
+`scintillua.lexers` property — so what is wanted here is the directory, not the
+module. It is found where `require` would look, which is what keeps it the same
+tree the rest of the toolchain is using.
 ]]
 
 local lexer = require("nupp.lexer")
@@ -136,21 +142,28 @@ local SCINTILLUA_ALIASES = {
 local scintilluaDirectory, scintilluaLibrary = nil, nil
 local scintilluaLexers = {}
 
-local function configureScintillua(root, settings)
-    local moduleSource = debug.getinfo(1, "S").source
-    moduleSource = moduleSource:sub(1, 1) == "@" and moduleSource:sub(2) or ""
-    local candidates = {}
-    if settings.lexers then candidates[#candidates + 1] = join(root, settings.lexers) end
-    candidates[#candidates + 1] = join(root, "vendor/scintillua")
-    -- A build copies the lexers as resources, which keeps them under vendor/ beside the
-    -- compiled modules rather than inside them. How far above this file that is depends
-    -- on how deep the module itself sits, so every ancestor within reach is offered.
-    local ancestor = moduleSource ~= "" and dirname(moduleSource) or nil
-    for _ = 1, 4 do
-        if not ancestor or ancestor == "." or ancestor == "/" then break end
-        candidates[#candidates + 1] = join(ancestor, "vendor/scintillua")
-        ancestor = dirname(ancestor)
+-- Where `require("scintillua.lexers.lexer")` would find its file, asked of the
+-- search path directly rather than through `package.searchpath`: what is wanted
+-- is the directory, and walking the templates is the same walk with the last
+-- step left off. The module's path carries no `%`, so it stands in for the `?`
+-- as a plain replacement.
+local LEXER_MODULE = "scintillua/lexers/lexer"
+
+local function installedLexers()
+    for template in package.path:gmatch("[^;]+") do
+        local candidate = template:gsub("%?", LEXER_MODULE)
+        if exists(candidate) then return dirname(candidate) end
     end
+    return nil
+end
+
+local function configureScintillua(root, settings)
+    local candidates = {}
+    -- A project may point at its own tree; otherwise the installed rock is
+    -- found the way `require` would find it.
+    if settings.lexers then candidates[#candidates + 1] = join(root, settings.lexers) end
+    local found = installedLexers()
+    if found then candidates[#candidates + 1] = found end
     for _, candidate in ipairs(candidates) do
         if exists(join(candidate, "lexer.lua")) then
             if scintilluaDirectory ~= candidate then

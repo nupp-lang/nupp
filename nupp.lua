@@ -12,8 +12,6 @@ return {
             resources = {
                "src/nupp/decls/*.d.nupp",
                "src/nupp/decls/jit/*.d.nupp",
-               "vendor/scintillua/*.lua",
-               "vendor/scintillua/LICENSE",
             },
          },
          -- Nupp stamped into the host as one self-contained executable. It is

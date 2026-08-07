@@ -2959,6 +2959,7 @@ local pragma = require ( "nupp.check.pragma" )
 local generics = require ( "nupp.generics" )
 local cst = require ( "nupp.cst" )
 local annotationMod = require ( "nupp.annotations" )
+local lexer = require ( "nupp.lexer" )
 
 local checkMod = { }
 
@@ -3007,6 +3008,34 @@ local checkMod = { }
 
 
 checkMod.Checker = {} checkMod.Checker.__index = checkMod.Checker
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3419,9 +3448,10 @@ pending = { } , parent = nil } ,
 retStack = { } , ownReturnStack = { } , borrowReturnStack = { } ,
 disposerFieldStack = { } , validatedCleanupContracts = { } ,
 unsafeDepth = 0 , functionDepth = 0 ,
-captureWatches = { } , allowed = { } , hoisting = false ,
+captureWatches = { } , loopStack = { } , inReturn = false ,
+allowed = { } , hoisting = false ,
 resolvingAlias = { } , lastCallRets = nil ,
-moduleFields = { } , moduleLocalAnnotated = false ,
+moduleFields = { } , moduleFieldTokens = { } , moduleLocalAnnotated = false ,
 } , checkMod.Checker)
 c . rootScope = c . scope
 
@@ -3518,6 +3548,55 @@ c . scope = { vars = { } , types = { } , typeDefs = { } ,
 pending = { } , parent = c . scope ,
 depth = ( c . scope and c . scope . depth or 0 ) + 1 }
 end
+
+
+
+
+c . pushLoop = function ( )
+c . loopStack [ # c . loopStack + 1 ] =
+{ depth = c . scope . depth , functionDepth = c . functionDepth }
+end
+c . popLoop = function ( )
+c . loopStack [ # c . loopStack ] = nil
+end
+
+
+
+
+
+
+
+
+
+
+c . beginLoopClosure = function ( enclosing )
+if c . inReturn then return nil end
+local loop = c . loopStack [ # c . loopStack ]
+if not loop or loop . functionDepth ~= enclosing then return nil end
+local watch = { depth = c . scope . depth , floor = loop . depth , captured = false }
+c . captureWatches [ # c . captureWatches + 1 ] = watch
+return watch
+end
+
+
+
+
+
+c . endLoopClosure = function ( watch , at )
+if not watch then return end
+for i = # c . captureWatches , 1 , - 1 do
+if c . captureWatches [ i ] == watch then
+table . remove ( c . captureWatches , i )
+break
+end
+end
+if watch . captured then return end
+c . diag ( "NUPP2505" , at ,
+"this function is built once per iteration but does not use the "
+.. "iteration, so every one of them is the same function" ,
+nil ,
+{ help = "declare it once above the loop and pass the name" } )
+end
 local function auditScope ( s )
 for name , entry in pairs ( s . vars or { } ) do
 local state = entry . ownershipOrigin or entry
@@ -3560,8 +3639,15 @@ while s do
 local v = s . vars [ name ]
 if v then
 for i = # c . captureWatches , 1 , - 1 do
-if ( s . depth or 0 ) < c . captureWatches [ i ] . depth then
-c . captureWatches [ i ] . captured = true
+
+
+
+
+
+local watch = c . captureWatches [ i ]
+local at = s . depth or 0
+if at < watch . depth and at >= ( watch . floor or 0 ) then
+watch . captured = true
 end
 end
 return v
@@ -3944,6 +4030,7 @@ if not base or not member or base . kind ~= "name" then return end
 local baseTok = base . token
 if not baseTok or baseTok . text ~= c . moduleLocal then return end
 c . moduleFields [ member . text ] = t or T . any
+c . moduleFieldTokens [ member . text ] = member
 end
 
 
@@ -6009,7 +6096,10 @@ local handlers = { }
 handlers . returnStmt = function ( stat )
 local annotated = c . retStack [ # c . retStack ]
 local ts = { }
+local wasReturning = c . inReturn
+c . inReturn = true
 for j , e in ipairs ( stat . exprs or { } ) do ts [ j ] = c . infer ( e ) end
+c . inReturn = wasReturning
 for j , valueT in ipairs ( ts ) do
 local borrowContract = j == 1
 and c . borrowReturnStack [ # c . borrowReturnStack ] or nil
@@ -6096,7 +6186,8 @@ local shape = c . moduleType
 if shape . tag == "shape" then
 for _ , field in ipairs ( shape . fields ) do
 if untyped ( field . type ) then
-c . diag ( "NUPP2106" , stat ,
+c . diag ( "NUPP2106" ,
+c . moduleFieldTokens [ field . name ] or stat ,
 ( "exported %q needs a type annotation" )
 : format ( field . name ) )
 end
@@ -6302,7 +6393,9 @@ c . infer ( cond )
 local facts = analyzeCond ( cond )
 c . pushScope ( )
 applyFacts ( facts . t )
+c . pushLoop ( )
 c . checkBlock ( stat . body , true )
+c . popLoop ( )
 c . popScope ( )
 end
 end
@@ -6310,7 +6403,9 @@ end
 handlers . repeatStmt = function ( stat )
 
 c . pushScope ( )
+c . pushLoop ( )
 c . checkBlock ( stat . body , true )
+c . popLoop ( )
 if stat . cond then c . infer ( stat . cond ) end
 c . popScope ( )
 end
@@ -6337,7 +6432,9 @@ c . pushScope ( )
 c . bindVar ( var . text ,
 ( isA ( st , T . integer ) and isA ( et , T . integer ) ) and T . integer or T . number ,
 false , var )
+c . pushLoop ( )
 c . checkBlock ( stat . body , true )
+c . popLoop ( )
 c . popScope ( )
 end
 
@@ -6357,7 +6454,9 @@ vt = iterT . rets [ j ]
 end
 c . bindVar ( nameTok . text , vt , false , nameTok )
 end
+c . pushLoop ( )
 c . checkBlock ( stat . body , true )
+c . popLoop ( )
 c . popScope ( )
 end
 
@@ -7113,6 +7212,11 @@ end
 end
 end
 local rets
+
+
+local loopClosure = c . beginLoopClosure ( c . functionDepth )
+local wasReturning = c . inReturn
+c . inReturn = false
 if node . expr then
 rets = { c . infer ( node . expr ) }
 else
@@ -7121,6 +7225,8 @@ c . checkBlock ( node . body , true )
 c . retStack [ # c . retStack ] = nil
 rets = { T . any }
 end
+c . inReturn = wasReturning
+c . endLoopClosure ( loopClosure , node )
 c . popScope ( )
 return T . func ( params , rets , vararg )
 elseif kind == "istring" then
@@ -7957,7 +8063,16 @@ disposerContext = { root = root , allowed = owned , done = { } }
 end
 end
 c . disposerFieldStack [ # c . disposerFieldStack + 1 ] = disposerContext or false
+
+
+local loopClosure = c . beginLoopClosure ( c . functionDepth - 1 )
+
+
+local wasReturning = c . inReturn
+c . inReturn = false
 c . checkBlock ( body . body , true )
+c . inReturn = wasReturning
+c . endLoopClosure ( loopClosure , body )
 if body . disposeContract and disposeRoot and disposeRoot ~= "self" then
 local terminal = ownershipState ( c . lookupEntry ( disposeRoot ) )
 if terminal then terminal . moved = true end
@@ -8147,6 +8262,7 @@ local ft = c . checkFuncbody ( body , selfType )
 
 if not fname . method and ownerKey == c . moduleLocal and memberTok then
 c . moduleFields [ memberTok . text ] = ft
+c . moduleFieldTokens [ memberTok . text ] = memberTok
 end
 if body . disposeContract and not owner then
 registerDefaultDisposer ( ft ,
@@ -12033,7 +12149,7 @@ local prefix = shown : sub ( 1 , col - 1 ) : gsub ( "[^\t]" , " " )
 local available = math . max ( 1 , # shown - col + 1 )
 local length = math . max ( 1 , math . min ( diagnostic . length or 1 , available ) )
 io . stderr : write ( ( " %s | %s\n" ) : format ( number , shown ) )
-io . stderr : write ( ( " %s | %s^%s\n" ) : format ( ( "" ) : rep ( # number ) , prefix ,
+io . stderr : write ( ( " %s | %s^%s\n" ) : format ( ( " " ) : rep ( # number ) , prefix ,
 ( "~" ) : rep ( length - 1 ) ) )
 end
 
@@ -12500,9 +12616,10 @@ local htmlMod = require ( "nupp.doc.html" )
 local highlightMod = require ( "nupp.doc.highlight" )
 local extractMod = require ( "nupp.doc.extract" )
 
-local htmlEscape , inlineMarkdown = stringsMod . htmlEscape , stringsMod . inlineMarkdown
+local htmlEscape = stringsMod . htmlEscape
 local summaryText = stringsMod . summaryText
 local markdownHtml , tableHtml = htmlMod . markdownHtml , htmlMod . tableHtml
+local inlineHtml = htmlMod . inlineHtml
 local highlightNupp = highlightMod . nuppSource
 local splitMembers = extractMod . splitMembers
 
@@ -12533,7 +12650,7 @@ rows [ # rows + 1 ] = {
 '<a href="#' .. htmlEscape ( item . path ) .. '"><code>'
 .. htmlEscape ( item . name ) .. '</code></a>' ,
 kindBadge ( item . kind ) ,
-inlineMarkdown ( summaryText ( item . doc . text ) ) ,
+inlineHtml ( summaryText ( item . doc . text ) ) ,
 }
 end
 out [ # out + 1 ] = '<h3>' .. group . title .. '</h3>'
@@ -13489,6 +13606,12 @@ package.preload["nupp.doc.highlight"] = function(...)
 
 
 
+
+
+
+
+
+
 local lexer = require ( "nupp.lexer" )
 local stringsMod = require ( "nupp.doc.strings" )
 local filesMod = require ( "nupp.doc.files" )
@@ -13617,21 +13740,28 @@ md = "markdown" , sh = "bash" , shell = "bash" , ts = "typescript" ,
 local scintilluaDirectory , scintilluaLibrary = nil , nil
 local scintilluaLexers = { }
 
-local function configureScintillua ( root , settings )
-local moduleSource = debug . getinfo ( 1 , "S" ) . source
-moduleSource = moduleSource : sub ( 1 , 1 ) == "@" and moduleSource : sub ( 2 ) or ""
-local candidates = { }
-if settings . lexers then candidates [ # candidates + 1 ] = join ( root , settings . lexers ) end
-candidates [ # candidates + 1 ] = join ( root , "vendor/scintillua" )
 
 
 
-local ancestor = moduleSource ~= "" and dirname ( moduleSource ) or nil
-for _ = 1 , 4 do
-if not ancestor or ancestor == "." or ancestor == "/" then break end
-candidates [ # candidates + 1 ] = join ( ancestor , "vendor/scintillua" )
-ancestor = dirname ( ancestor )
+
+
+local LEXER_MODULE = "scintillua/lexers/lexer"
+
+local function installedLexers ( )
+for template in package . path : gmatch ( "[^;]+" ) do
+local candidate = template : gsub ( "%?" , LEXER_MODULE )
+if exists ( candidate ) then return dirname ( candidate ) end
 end
+return nil
+end
+
+local function configureScintillua ( root , settings )
+local candidates = { }
+
+
+if settings . lexers then candidates [ # candidates + 1 ] = join ( root , settings . lexers ) end
+local found = installedLexers ( )
+if found then candidates [ # candidates + 1 ] = found end
 for _ , candidate in ipairs ( candidates ) do
 if exists ( join ( candidate , "lexer.lua" ) ) then
 if scintilluaDirectory ~= candidate then
@@ -13734,11 +13864,23 @@ package.preload["nupp.doc.html"] = function(...)
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 local stringsMod = require ( "nupp.doc.strings" )
 local highlightMod = require ( "nupp.doc.highlight" )
 
 local trim , htmlEscape = stringsMod . trim , stringsMod . htmlEscape
-local inlineMarkdown , headingId = stringsMod . inlineMarkdown , stringsMod . headingId
+local headingId = stringsMod . headingId
 local codeHtml = highlightMod . codeHtml
 
 local html = { }
@@ -13753,13 +13895,6 @@ out [ # out + 1 ] = "</tr>"
 end
 out [ # out + 1 ] = "</tbody></table>"
 return table . concat ( out )
-end
-
-local function tableCells ( line )
-line = trim ( line ) : gsub ( "^|" , "" ) : gsub ( "|$" , "" )
-local cells = { }
-for cell in ( line .. "|" ) : gmatch ( "(.-)|" ) do cells [ # cells + 1 ] = trim ( cell ) end
-return cells
 end
 
 local function markdownOutline ( text )
@@ -13783,7 +13918,9 @@ local codeGroupIndex = 0
 
 
 local function lineNumberStart ( options )
-if not options or not options : find ( ":line-numbers" , 1 , true ) then return nil end
+if not options or not options : find ( ":line-numbers" , 1 , true ) then
+return nil
+end
 return tonumber ( options : match ( ":line%-numbers=(%d+)" ) ) or 1
 end
 
@@ -13814,7 +13951,9 @@ end
 local function codeGroupHtml ( blocks , links )
 local labeled = { }
 for _ , block in ipairs ( blocks ) do
-if block . caption then labeled [ # labeled + 1 ] = block end
+if block . caption then
+labeled [ # labeled + 1 ] = block
+end
 end
 if # labeled == 0 then
 local out = { '<div class="nuppdoc-code-group" role="group">' }
@@ -13843,125 +13982,160 @@ out [ # out + 1 ] = "</div>"
 return table . concat ( out )
 end
 
-local function markdownHtml ( text , links , headingShift )
-if not text or text == "" then return "" end
-if headingShift == nil then headingShift = 1 end
+
+
+local function readFence ( lines , index )
+local language , options = lines [ index ] : match ( "^```%s*([%w_+-]*)%s*(.-)%s*$" )
+if not language then
+return nil , index
+end
+local code = { }
+index = index + 1
+while index <= # lines and not lines [ index ] : match ( "^```%s*$" ) do
+code [ # code + 1 ] = lines [ index ]
+index = index + 1
+end
+return {
+language = language ~= "" and language or "text" ,
+caption = options : match ( "%[([^%]]+)%]" ) ,
+firstLine = lineNumberStart ( options ) ,
+source = table . concat ( code , "\n" ) ,
+} , index + 1
+end
+
+
+
+
+local function extractBlocks ( text , links , rendered )
 local lines , out , index = { } , { } , 1
 for line in ( text .. "\n" ) : gmatch ( "(.-)\n" ) do lines [ # lines + 1 ] = line end
+local function placeholder ( markup )
+rendered [ # rendered + 1 ] = markup
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = ( "<!--nuppdoc-block-%d-->" ) : format ( # rendered )
+out [ # out + 1 ] = ""
+end
 while index <= # lines do
 local line = lines [ index ]
-local language , fenceOptions = line : match ( "^```%s*([%w_+-]*)%s*(.-)%s*$" )
 if trim ( line ) == "::: code-group" then
 local blocks = { }
 index = index + 1
 while index <= # lines and trim ( lines [ index ] ) ~= ":::" do
-local blockLanguage , options = lines [ index ] : match (
-"^```%s*([%w_+-]*)%s*(.-)%s*$" )
-if blockLanguage then
-local code = { }
-index = index + 1
-while index <= # lines and not lines [ index ] : match ( "^```%s*$" ) do
-code [ # code + 1 ] = lines [ index ]
-index = index + 1
-end
-blocks [ # blocks + 1 ] = {
-language = blockLanguage ~= "" and blockLanguage or "text" ,
-caption = options : match ( "%[([^%]]+)%]" ) ,
-firstLine = lineNumberStart ( options ) ,
-source = table . concat ( code , "\n" ) ,
-}
-end
-index = index + 1
-end
-out [ # out + 1 ] = codeGroupHtml ( blocks , links )
-elseif language then
-local code = { }
-index = index + 1
-while index <= # lines and not lines [ index ] : match ( "^```%s*$" ) do
-code [ # code + 1 ] = lines [ index ]
-index = index + 1
-end
-language = language ~= "" and language or "text"
-local rendered = codeBlockHtml ( table . concat ( code , "\n" ) , language , links ,
-lineNumberStart ( fenceOptions ) )
-local caption = fenceOptions : match ( "%[([^%]]+)%]" )
-if caption then
-rendered = '<figure class="nuppdoc-labeled-code"><figcaption>'
-.. htmlEscape ( caption ) .. '</figcaption>' .. rendered .. '</figure>'
-end
-out [ # out + 1 ] = rendered
+local block , after = readFence ( lines , index )
+if block then
+blocks [ # blocks + 1 ] = block
+index = after
 else
-local hashes , heading = line : match ( "^(#+)%s+(.+)$" )
-local separator = lines [ index + 1 ] and lines [ index + 1 ] : match (
-"^%s*|?%s*:?-+%s*:?(%s*|%s*:?-+%s*:?)+%s*|?%s*$" )
-if hashes then
-local level = math . min ( # hashes + headingShift , 6 )
-local id = headingId ( heading )
-out [ # out + 1 ] = '<h' .. level .. ' id="' .. htmlEscape ( id ) .. '">'
-.. inlineMarkdown ( heading ) .. '<a class="nuppdoc-header-anchor" href="#'
-.. htmlEscape ( id ) .. '" aria-label="Link to ' .. htmlEscape ( heading )
-.. '">#</a></h' .. level .. '>'
-elseif line : find ( "|" , 1 , true ) and separator then
-local headers , rows = tableCells ( line ) , { }
-index = index + 2
-while index <= # lines and lines [ index ] : find ( "|" , 1 , true )
-and trim ( lines [ index ] ) ~= "" do
-local cells , rendered = tableCells ( lines [ index ] ) , { }
-for cellIndex , cell in ipairs ( cells ) do
-rendered [ cellIndex ] = inlineMarkdown ( cell )
-end
-rows [ # rows + 1 ] = rendered
 index = index + 1
 end
-local renderedHeaders = { }
-for headerIndex , header in ipairs ( headers ) do
-renderedHeaders [ headerIndex ] = inlineMarkdown ( header )
 end
-out [ # out + 1 ] = tableHtml ( renderedHeaders , rows )
-index = index - 1
-elseif line : match ( "^%s*[-*]%s+" ) then
-local list = { "<ul>" }
-while index <= # lines and lines [ index ] : match ( "^%s*[-*]%s+" ) do
-list [ # list + 1 ] = "<li>" .. inlineMarkdown (
-lines [ index ] : gsub ( "^%s*[-*]%s+" , "" ) ) .. "</li>"
-index = index + 1
+placeholder ( codeGroupHtml ( blocks , links ) )
+elseif lines [ index ] : match ( "^```" ) then
+local block , after = readFence ( lines , index )
+index = after - 1
+local markup = codeBlockHtml ( block . source , block . language , links ,
+block . firstLine )
+if block . caption then
+markup = '<figure class="nuppdoc-labeled-code"><figcaption>'
+.. htmlEscape ( block . caption ) .. '</figcaption>' .. markup
+.. '</figure>'
 end
-list [ # list + 1 ] = "</ul>"
-out [ # out + 1 ] = table . concat ( list )
-index = index - 1
-elseif line : match ( "^>%s?" ) then
-local quote = { }
-while index <= # lines and lines [ index ] : match ( "^>%s?" ) do
-quote [ # quote + 1 ] = lines [ index ] : gsub ( "^>%s?" , "" )
-index = index + 1
-end
-out [ # out + 1 ] = "<blockquote><p>"
-.. inlineMarkdown ( table . concat ( quote , " " ) ) .. "</p></blockquote>"
-index = index - 1
-elseif line : match ( "^%s*[-*_][-*_][-*_]+%s*$" ) then
-out [ # out + 1 ] = "<hr>"
-elseif trim ( line ) ~= "" then
-local paragraph = { trim ( line ) }
-index = index + 1
-while index <= # lines and trim ( lines [ index ] ) ~= ""
-and not lines [ index ] : match ( "^#+%s+" )
-and not lines [ index ] : match ( "^```" )
-and not lines [ index ] : match ( "^%s*[-*]%s+" ) do
-paragraph [ # paragraph + 1 ] = trim ( lines [ index ] )
-index = index + 1
-end
-out [ # out + 1 ] = "<p>" .. inlineMarkdown (
-table . concat ( paragraph , " " ) ) .. "</p>"
-index = index - 1
-end
+placeholder ( markup )
+else
+out [ # out + 1 ] = line
 end
 index = index + 1
 end
 return table . concat ( out , "\n" )
 end
 
+
+
+
+local function headingSlugs ( text )
+local slugs = { }
+for line in ( text .. "\n" ) : gmatch ( "(.-)\n" ) do
+local hashes , heading = line : match ( "^(#+)%s+(.+)$" )
+if hashes then
+slugs [ # slugs + 1 ] = { id = headingId ( heading ) , text = heading }
+end
+end
+return slugs
+end
+
+
+
+
+local parse , headings , headingIndex , headingShiftBy = nil , { } , 0 , 1
+
+local function buildParser ( )
+local ok , lunamark = pcall ( require , "lunamark" )
+if not ok then
+return nil , lunamark
+end
+local writer = lunamark . writer . html . new ( )
+writer . header = function ( content , level )
+headingIndex = headingIndex + 1
+local heading = headings [ headingIndex ]
+local id = heading and heading . id or "section"
+local label = heading and heading . text or ""
+level = math . min ( level + headingShiftBy , 6 )
+return { "<h" , level , ' id="' , htmlEscape ( id ) , '">' , content ,
+'<a class="nuppdoc-header-anchor" href="#' , htmlEscape ( id ) ,
+'" aria-label="Link to ' , htmlEscape ( label ) , '">#</a></h' , level , ">" }
+end
+return lunamark . reader . markdown . new ( writer , {
+fenced_code_blocks = true ,
+header_attributes = true ,
+pipe_tables = true ,
+} )
+end
+
+local function markdownHtml ( text , links , headingShift )
+text = tostring ( text or "" )
+if text == "" then
+return ""
+end
+if not parse then
+local built , err = buildParser ( )
+if not built then
+error ( "nupp doc needs lunamark; run scripts/rocks (" ..
+tostring ( err ) .. ")" , 0 )
+end
+parse = built
+end
+local rendered = { }
+
+
+
+
+local prepared = extractBlocks ( text .. "\n" , links , rendered )
+headings , headingIndex = headingSlugs ( prepared ) , 0
+headingShiftBy = headingShift == nil and 1 or headingShift
+local out = parse ( prepared .. "\n" )
+out = out : gsub ( "<!%-%-nuppdoc%-block%-(%d+)%-%->" , function ( index )
+
+
+return rendered [ tonumber ( index ) ] or ""
+end )
+return trim ( out )
+end
+
+
+
+
+local function inlineHtml ( text , links )
+local out = markdownHtml ( text , links )
+local inner = out : match ( "^<p>(.*)</p>$" )
+if inner and not inner : find ( "<p>" , 1 , true ) then
+return inner
+end
+return out
+end
+
 html . tableHtml = tableHtml
 html . markdownHtml = markdownHtml
+html . inlineHtml = inlineHtml
 html . markdownOutline = markdownOutline
 
 return html
@@ -14488,15 +14662,6 @@ return tostring ( text or "" ) : gsub ( "&" , "&amp;" ) : gsub ( "<" , "&lt;" )
 : gsub ( ">" , "&gt;" ) : gsub ( '"' , "&quot;" ) : gsub ( "'" , "&#39;" )
 end
 
-local function inlineMarkdown ( text )
-text = htmlEscape ( text )
-text = text : gsub ( "%[([^%]]+)%]%(([^%)]+)%)" , '<a href="%2">%1</a>' )
-text = text : gsub ( "`([^`]+)`" , "<code>%1</code>" )
-text = text : gsub ( "%*%*([^*]+)%*%*" , "<strong>%1</strong>" )
-text = text : gsub ( "%*([^*]+)%*" , "<em>%1</em>" )
-return text
-end
-
 local function headingId ( text )
 local id = text : lower ( ) : gsub ( "`" , "" ) : gsub ( "<[^>]+>" , "" )
 : gsub ( "[^%w%s_-]" , "" ) : gsub ( "[%s_]+" , "-" ) : gsub ( "%-+" , "-" )
@@ -14528,7 +14693,6 @@ strings . trim = trim
 strings . markdownEscape = markdownEscape
 strings . markdownCell = markdownCell
 strings . htmlEscape = htmlEscape
-strings . inlineMarkdown = inlineMarkdown
 strings . headingId = headingId
 strings . summaryText = summaryText
 strings . escapeJs = escapeJs
@@ -14764,11 +14928,26 @@ pipe : close ( )
 return files
 end
 
+
+
+local function isBookkeepingPath ( path , outDir )
+local generated = path == outDir or path : sub ( 1 , # outDir + 1 ) == outDir .. "/"
+local hidden = ( "/" .. path ) : find ( "/%." ) ~= nil
+return generated or hidden
+end
+
+local function outDirFor ( env )
+local rootDir = env . rootDir or "."
+local build = ( env . config or { } ) . build or { }
+return normalizePath ( rootDir .. "/" .. ( build . outDir or "build" ) )
+end
+
 function envMod . listProjectFiles ( env )
 local files , seen = { } , { }
+local outDir = outDirFor ( env )
 for _ , root in ipairs ( env . roots or { } ) do
 for _ , path in ipairs ( listLjppFiles ( root ) ) do
-if not seen [ path ] then
+if not seen [ path ] and not isBookkeepingPath ( path , outDir ) then
 seen [ path ] = true
 files [ # files + 1 ] = path
 end
@@ -14804,17 +14983,11 @@ for _ , dir in ipairs ( ( env . config or { } ) . include or { } ) do
 roots [ # roots + 1 ] = rootDir .. "/" .. dir
 end
 if # roots == 0 then roots [ 1 ] = rootDir end
-local build = ( env . config or { } ) . build or { }
-local outDir = normalizePath ( rootDir .. "/" .. ( build . outDir or "build" ) )
+local outDir = outDirFor ( env )
 local files , seen = { } , { }
 for _ , root in ipairs ( roots ) do
 for _ , path in ipairs ( listLjppFiles ( root , withDeclarations ) ) do
-
-
-local generated = path == outDir
-or path : sub ( 1 , # outDir + 1 ) == outDir .. "/"
-local hidden = ( "/" .. path ) : find ( "/%." ) ~= nil
-if not seen [ path ] and not generated and not hidden then
+if not seen [ path ] and not isBookkeepingPath ( path , outDir ) then
 seen [ path ] = true
 files [ # files + 1 ] = path
 end
@@ -19398,6 +19571,11 @@ summary = "lossy integer narrowing" ,
 name = "customary-operator" , code = "NUPP2504" ,
 category = "style" , level = "warning" ,
 summary = "a customary operator where Lua has a word" ,
+} , lints.Lint) , setmetatable(
+{
+name = "loop-invariant-closure" , code = "NUPP2505" ,
+category = "suspicious" , level = "warning" ,
+summary = "a loop builds the same function every iteration" ,
 } , lints.Lint) ,
 }
 
@@ -21136,6 +21314,11 @@ else for _ , symbol in ipairs ( values ) do printSymbol ( symbol , 0 ) end end
 return true
 end
 
+
+local function latestFirst ( left , right )
+return left . from > right . from
+end
+
 local function rewrittenFiles ( client , rawChanges )
 local rewritten , previews , grouped , seen = { } , { } , { } , { }
 for uri , rawEdits in pairs ( rawChanges or { } ) do
@@ -21163,7 +21346,7 @@ edits [ # edits + 1 ] = { from = from , to = to , newText = edit . newText ,
 oldText = source : sub ( from , to - 1 ) ,
 range = rangeValue ( client , path , edit . range ) }
 end
-table . sort ( edits , function ( left , right ) return left . from > right . from end )
+table . sort ( edits , latestFirst )
 local last = # source + 1
 local text = source
 for _ , edit in ipairs ( edits ) do
@@ -29462,7 +29645,7 @@ Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/OPTIMIZATIONS.md.
+mixing artifacts compiled at two different levels. See plans/optimizations.md.
 ]]
 
 HELP . clean = [[Remove build outputs configured in nupp.lua
@@ -29489,7 +29672,7 @@ project moves one in nupp.lua by name or by category:
 
   lints = { ["missing-require"] = "warning", pedantic = "warning" }
 
-A statement waves one away with @allow("missing-require"). See docs/LINTS.md.
+A statement waves one away with @allow("missing-require"). See docs/lints.md.
 
 Options:
   -h, --help       Show this help

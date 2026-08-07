@@ -549,4 +549,60 @@ function M.siteMatchesTheNuppdocPageModel()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- Markdown is lunamark's now. These are the cases the pattern-based renderer
+-- it replaced got wrong, so they are the ones worth pinning.
+function M.markdownIsRenderedByLunamark()
+   local html = require("nupp.doc.html")
+   local cases = {
+      {"**a *nested* b**", "<strong>a <em>nested</em> b</strong>"},
+      {"a \\*escaped\\* b", "a *escaped* b"},
+      {"[l](http://x.com/a(b))", '<a href="http://x.com/a(b)">l</a>'},
+      {"a * b * c * d", "a * b * c * d"},
+      {"use `a * b` here", "<code>a * b</code>"},
+   }
+   for _, case in ipairs(cases) do
+      local out = html.markdownHtml(case[1], {})
+      assert(out:find(case[2], 1, true),
+         ("%s\n  want: %s\n  got:  %s"):format(case[1], case[2], out))
+   end
+   -- Every block wraps the same way whether or not the source ended in a blank
+   -- line; a table cell full of summaries depends on it.
+   assert(html.markdownHtml("one\n\ntwo", {}):find("<p>two</p>", 1, true))
+   -- A summary is a sentence, so the one paragraph around it goes.
+   assert(html.inlineHtml("a **bold** one") == "a <strong>bold</strong> one")
+end
+
+-- Fenced regions are lifted out before lunamark sees them, which is what keeps
+-- the fence options working: an info string is not something markdown parses.
+function M.fencedBlocksKeepTheirOptions()
+   local html = require("nupp.doc.html")
+   local labeled = html.markdownHtml(
+      "```lua [example.lua] :line-numbers=12\nprint(1)\n```", {})
+   assert(labeled:find("nuppdoc-labeled-code", 1, true), labeled)
+   assert(labeled:find("<figcaption>example.lua</figcaption>", 1, true), labeled)
+   assert(labeled:find("has-line-numbers", 1, true), labeled)
+   assert(labeled:find("<span>12</span>", 1, true), labeled)
+
+   local group = html.markdownHtml(table.concat({
+      "::: code-group", "", "```lua [one]", "print(1)", "```", "",
+      "```sh [two]", "echo", "```", "", ":::", "", "after",
+   }, "\n"), {})
+   assert(group:find("nuppdoc-code-group", 1, true), group)
+   assert(group:find(">one</label>", 1, true), group)
+   assert(group:find(">two</label>", 1, true), group)
+   -- and the prose on the far side of the block is still prose
+   assert(group:find("<p>after</p>", 1, true), group)
+end
+
+-- The id is Nupp's slug rather than lunamark's, and each heading keeps the
+-- anchor the stylesheet draws.
+function M.headingsKeepTheirAnchors()
+   local html = require("nupp.doc.html")
+   local out = html.markdownHtml("# One `two`\n\nbody", {})
+   assert(out:find('id="one-two"', 1, true), out)
+   assert(out:find('class="nuppdoc-header-anchor"', 1, true), out)
+   assert(out:find("<h2 ", 1, true), out) -- shifted by one by default
+   assert(html.markdownHtml("# One", {}, 0):find("<h1 ", 1, true))
+end
+
 return M

@@ -15,6 +15,16 @@ STAMP="$ROOT/build/.nupp-complete"
 BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
 LUAPATH="package.path=\"$ROOT/build/?.lua;\" .. package.path"
 
+# The project's own rock tree, from `scripts/rocks`. Exported rather than passed
+# with -e, because the toolchain starts other interpreters — `nupp run`, the
+# configured test command — and a library the compiler can see should be one
+# they can see too. A trailing empty entry is where Lua substitutes the default
+# path, so nothing already installed is hidden.
+ROCKS="$ROOT/.rocks"
+LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
+LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
+export LUA_PATH LUA_CPATH
+
 # Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1 backported, and
 # every command here either produces generated code or runs it, so an older
 # interpreter cannot do the job whatever it manages to load. Saying which build

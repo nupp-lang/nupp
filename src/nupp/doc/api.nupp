@@ -9,9 +9,10 @@ local htmlMod = require("nupp.doc.html")
 local highlightMod = require("nupp.doc.highlight")
 local extractMod = require("nupp.doc.extract")
 
-local htmlEscape, inlineMarkdown = stringsMod.htmlEscape, stringsMod.inlineMarkdown
+local htmlEscape = stringsMod.htmlEscape
 local summaryText = stringsMod.summaryText
 local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
+local inlineHtml = htmlMod.inlineHtml
 local highlightNupp = highlightMod.nuppSource
 local splitMembers = extractMod.splitMembers
 
@@ -42,7 +43,7 @@ local function moduleSummary(module)
                     '<a href="#' .. htmlEscape(item.path) .. '"><code>'
                     .. htmlEscape(item.name) .. '</code></a>',
                     kindBadge(item.kind),
-                    inlineMarkdown(summaryText(item.doc.text)),
+                    inlineHtml(summaryText(item.doc.text)),
                 }
             end
             out[#out + 1] = '<h3>' .. group.title .. '</h3>'

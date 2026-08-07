@@ -77,9 +77,9 @@ local function bundleText(root, config, target, banner, modules)
     -- build, and their trees are full of `.lua` that is examples and scripts —
     -- one of lua-cjson's opens with a hashbang, a syntax error the moment a
     -- preload wraps it in a function. And a resource that happens to end in
-    -- `.lua` is not a module: the scintillua lexers are opened by path, never
-    -- required, and preloading them added sixteen thousand lines to the bundle
-    -- that nothing could ever have asked for.
+    -- `.lua` is not a module: a table of lexers opened by path, never required,
+    -- once added sixteen thousand lines to the bundle that nothing could ever
+    -- have asked for.
     --
     -- The build already knows the difference, and it knows the module's name
     -- rather than a path a name has to be guessed back out of.

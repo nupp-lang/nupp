@@ -27,15 +27,6 @@ local function htmlEscape(text)
         :gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&#39;")
 end
 
-local function inlineMarkdown(text)
-    text = htmlEscape(text)
-    text = text:gsub("%[([^%]]+)%]%(([^%)]+)%)", '<a href="%2">%1</a>')
-    text = text:gsub("`([^`]+)`", "<code>%1</code>")
-    text = text:gsub("%*%*([^*]+)%*%*", "<strong>%1</strong>")
-    text = text:gsub("%*([^*]+)%*", "<em>%1</em>")
-    return text
-end
-
 local function headingId(text)
     local id = text:lower():gsub("`", ""):gsub("<[^>]+>", "")
         :gsub("[^%w%s_-]", ""):gsub("[%s_]+", "-"):gsub("%-+", "-")
@@ -67,7 +58,6 @@ strings.trim = trim
 strings.markdownEscape = markdownEscape
 strings.markdownCell = markdownCell
 strings.htmlEscape = htmlEscape
-strings.inlineMarkdown = inlineMarkdown
 strings.headingId = headingId
 strings.summaryText = summaryText
 strings.escapeJs = escapeJs

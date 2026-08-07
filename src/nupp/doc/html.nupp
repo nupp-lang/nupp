@@ -1,17 +1,29 @@
 --[[
 Markdown as HTML.
 
-A deliberately small subset: headings, tables, lists, quotes, rules, paragraphs,
-and fenced code, plus the `::: code-group` blocks the guides use. Anything the
-site needs that markdown cannot say is written as HTML in the first place rather
-than added to this grammar.
+The markdown itself is lunamark's, which is a PEG grammar rather than a pile of
+patterns, and so gets the things patterns get wrong: nested emphasis, escapes,
+a link whose URL contains a bracket, a `*` inside a code span.
+
+What is not lunamark's is the fenced blocks. A fence here carries more than a
+language — an optional `[caption]`, `:line-numbers` with an optional start — and
+a `::: code-group` gathers several fences into one tabbed widget. Rather than
+teach a markdown grammar about any of that, every fenced region is lifted out
+before lunamark sees the document and an HTML comment is left in its place;
+markdown does not touch a comment, so the rendered block goes back exactly where
+it came from afterwards. Reading the fences here also avoids the trap of reading
+them back out of the output, where the whole info string has been folded into
+one class attribute and `lua [caption]` no longer matches `lua`.
+
+Headings are the other thing kept: the id is Nupp's own slug, and each carries
+the anchor link the site's stylesheet expects.
 ]]
 
 local stringsMod = require("nupp.doc.strings")
 local highlightMod = require("nupp.doc.highlight")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
-local inlineMarkdown, headingId = stringsMod.inlineMarkdown, stringsMod.headingId
+local headingId = stringsMod.headingId
 local codeHtml = highlightMod.codeHtml
 
 local html = {}
@@ -26,13 +38,6 @@ local function tableHtml(headers, rows)
     end
     out[#out + 1] = "</tbody></table>"
     return table.concat(out)
-end
-
-local function tableCells(line)
-    line = trim(line):gsub("^|", ""):gsub("|$", "")
-    local cells = {}
-    for cell in (line .. "|"):gmatch("(.-)|") do cells[#cells + 1] = trim(cell) end
-    return cells
 end
 
 local function markdownOutline(text)
@@ -53,15 +58,17 @@ end
 
 local codeGroupIndex = 0
 
--- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt
--- starts somewhere other than the top of a file.
+-- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt starts
+-- somewhere other than the top of a file.
 local function lineNumberStart(options)
-    if not options or not options:find(":line-numbers", 1, true) then return nil end
+    if not options or not options:find(":line-numbers", 1, true) then
+        return nil
+    end
     return tonumber(options:match(":line%-numbers=(%d+)")) or 1
 end
 
--- A gutter beside the code rather than numbers woven into it: a highlighted token
--- can span lines, and splitting the markup to number each one would cut it in half.
+-- A gutter beside the code rather than numbers woven into it: a highlighted token can
+-- span lines, and splitting the markup to number each one would cut it in half.
 local function lineNumbersHtml(source, start)
     local out, number = {'<span class="nuppdoc-line-numbers" aria-hidden="true">'},
         start
@@ -87,7 +94,9 @@ end
 local function codeGroupHtml(blocks, links)
     local labeled = {}
     for _, block in ipairs(blocks) do
-        if block.caption then labeled[#labeled + 1] = block end
+        if block.caption then
+            labeled[#labeled + 1] = block
+        end
     end
     if #labeled == 0 then
         local out = {'<div class="nuppdoc-code-group" role="group">'}
@@ -116,125 +125,160 @@ local function codeGroupHtml(blocks, links)
     return table.concat(out)
 end
 
-local function markdownHtml(text, links, headingShift)
-    if not text or text == "" then return "" end
-    if headingShift == nil then headingShift = 1 end
+-- Reads one fence, starting at its opening line, and returns the block it describes
+-- plus the index of the line after its closer.
+local function readFence(lines, index)
+    local language, options = lines[index]:match("^```%s*([%w_+-]*)%s*(.-)%s*$")
+    if not language then
+        return nil, index
+    end
+    local code = {}
+    index = index + 1
+    while index <= #lines and not lines[index]:match("^```%s*$") do
+        code[#code + 1] = lines[index]
+        index = index + 1
+    end
+    return {
+        language = language ~= "" and language or "text",
+        caption = options:match("%[([^%]]+)%]"),
+        firstLine = lineNumberStart(options),
+        source = table.concat(code, "\n"),
+    }, index + 1
+end
+
+-- Lifts every fenced region out of the document, rendering each and leaving a comment
+-- in its place. Markdown has nothing to say about a comment, so it arrives in the
+-- output untouched and is swapped back for the block.
+local function extractBlocks(text, links, rendered)
     local lines, out, index = {}, {}, 1
     for line in (text .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+    local function placeholder(markup)
+        rendered[#rendered + 1] = markup
+        out[#out + 1] = ""
+        out[#out + 1] = ("<!--nuppdoc-block-%d-->"):format(#rendered)
+        out[#out + 1] = ""
+    end
     while index <= #lines do
         local line = lines[index]
-        local language, fenceOptions = line:match("^```%s*([%w_+-]*)%s*(.-)%s*$")
         if trim(line) == "::: code-group" then
             local blocks = {}
             index = index + 1
             while index <= #lines and trim(lines[index]) ~= ":::" do
-                local blockLanguage, options = lines[index]:match(
-                    "^```%s*([%w_+-]*)%s*(.-)%s*$")
-                if blockLanguage then
-                    local code = {}
+                local block, after = readFence(lines, index)
+                if block then
+                    blocks[#blocks + 1] = block
+                    index = after
+                else
                     index = index + 1
-                    while index <= #lines and not lines[index]:match("^```%s*$") do
-                        code[#code + 1] = lines[index]
-                        index = index + 1
-                    end
-                    blocks[#blocks + 1] = {
-                        language = blockLanguage ~= "" and blockLanguage or "text",
-                        caption = options:match("%[([^%]]+)%]"),
-                        firstLine = lineNumberStart(options),
-                        source = table.concat(code, "\n"),
-                    }
                 end
-                index = index + 1
             end
-            out[#out + 1] = codeGroupHtml(blocks, links)
-        elseif language then
-            local code = {}
-            index = index + 1
-            while index <= #lines and not lines[index]:match("^```%s*$") do
-                code[#code + 1] = lines[index]
-                index = index + 1
+            placeholder(codeGroupHtml(blocks, links))
+        elseif lines[index]:match("^```") then
+            local block, after = readFence(lines, index)
+            index = after - 1
+            local markup = codeBlockHtml(block.source, block.language, links,
+                block.firstLine)
+            if block.caption then
+                markup = '<figure class="nuppdoc-labeled-code"><figcaption>'
+                    .. htmlEscape(block.caption) .. '</figcaption>' .. markup
+                    .. '</figure>'
             end
-            language = language ~= "" and language or "text"
-            local rendered = codeBlockHtml(table.concat(code, "\n"), language, links,
-                lineNumberStart(fenceOptions))
-            local caption = fenceOptions:match("%[([^%]]+)%]")
-            if caption then
-                rendered = '<figure class="nuppdoc-labeled-code"><figcaption>'
-                    .. htmlEscape(caption) .. '</figcaption>' .. rendered .. '</figure>'
-            end
-            out[#out + 1] = rendered
+            placeholder(markup)
         else
-            local hashes, heading = line:match("^(#+)%s+(.+)$")
-            local separator = lines[index + 1] and lines[index + 1]:match(
-                "^%s*|?%s*:?-+%s*:?(%s*|%s*:?-+%s*:?)+%s*|?%s*$")
-            if hashes then
-                local level = math.min(#hashes + headingShift, 6)
-                local id = headingId(heading)
-                out[#out + 1] = '<h' .. level .. ' id="' .. htmlEscape(id) .. '">'
-                    .. inlineMarkdown(heading) .. '<a class="nuppdoc-header-anchor" href="#'
-                    .. htmlEscape(id) .. '" aria-label="Link to ' .. htmlEscape(heading)
-                    .. '">#</a></h' .. level .. '>'
-            elseif line:find("|", 1, true) and separator then
-                local headers, rows = tableCells(line), {}
-                index = index + 2
-                while index <= #lines and lines[index]:find("|", 1, true)
-                    and trim(lines[index]) ~= "" do
-                    local cells, rendered = tableCells(lines[index]), {}
-                    for cellIndex, cell in ipairs(cells) do
-                        rendered[cellIndex] = inlineMarkdown(cell)
-                    end
-                    rows[#rows + 1] = rendered
-                    index = index + 1
-                end
-                local renderedHeaders = {}
-                for headerIndex, header in ipairs(headers) do
-                    renderedHeaders[headerIndex] = inlineMarkdown(header)
-                end
-                out[#out + 1] = tableHtml(renderedHeaders, rows)
-                index = index - 1
-            elseif line:match("^%s*[-*]%s+") then
-                local list = {"<ul>"}
-                while index <= #lines and lines[index]:match("^%s*[-*]%s+") do
-                    list[#list + 1] = "<li>" .. inlineMarkdown(
-                        lines[index]:gsub("^%s*[-*]%s+", "")) .. "</li>"
-                    index = index + 1
-                end
-                list[#list + 1] = "</ul>"
-                out[#out + 1] = table.concat(list)
-                index = index - 1
-            elseif line:match("^>%s?") then
-                local quote = {}
-                while index <= #lines and lines[index]:match("^>%s?") do
-                    quote[#quote + 1] = lines[index]:gsub("^>%s?", "")
-                    index = index + 1
-                end
-                out[#out + 1] = "<blockquote><p>"
-                    .. inlineMarkdown(table.concat(quote, " ")) .. "</p></blockquote>"
-                index = index - 1
-            elseif line:match("^%s*[-*_][-*_][-*_]+%s*$") then
-                out[#out + 1] = "<hr>"
-            elseif trim(line) ~= "" then
-                local paragraph = {trim(line)}
-                index = index + 1
-                while index <= #lines and trim(lines[index]) ~= ""
-                    and not lines[index]:match("^#+%s+")
-                    and not lines[index]:match("^```")
-                    and not lines[index]:match("^%s*[-*]%s+") do
-                    paragraph[#paragraph + 1] = trim(lines[index])
-                    index = index + 1
-                end
-                out[#out + 1] = "<p>" .. inlineMarkdown(
-                    table.concat(paragraph, " ")) .. "</p>"
-                index = index - 1
-            end
+            out[#out + 1] = line
         end
         index = index + 1
     end
     return table.concat(out, "\n")
 end
 
+-- The slug of each heading, in the order they appear. lunamark hands the writer a
+-- heading's rendered content, which is HTML by then; the id has to come from the source
+-- text, so it is computed here and matched up by position.
+local function headingSlugs(text)
+    local slugs = {}
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        local hashes, heading = line:match("^(#+)%s+(.+)$")
+        if hashes then
+            slugs[#slugs + 1] = {id = headingId(heading), text = heading}
+        end
+    end
+    return slugs
+end
+
+-- One parser, built once: lunamark compiles a PEG grammar, which is not something to do
+-- per doc comment. The heading state it reads is reset by every call into markdownHtml,
+-- which is the only caller.
+local parse, headings, headingIndex, headingShiftBy = nil, {}, 0, 1
+
+local function buildParser()
+    local ok, lunamark = pcall(require, "lunamark")
+    if not ok then
+        return nil, lunamark
+    end
+    local writer = lunamark.writer.html.new()
+    writer.header = function(content, level)
+        headingIndex = headingIndex + 1
+        local heading = headings[headingIndex]
+        local id = heading and heading.id or "section"
+        local label = heading and heading.text or ""
+        level = math.min(level + headingShiftBy, 6)
+        return {"<h", level, ' id="', htmlEscape(id), '">', content,
+            '<a class="nuppdoc-header-anchor" href="#', htmlEscape(id),
+            '" aria-label="Link to ', htmlEscape(label), '">#</a></h', level, ">"}
+    end
+    return lunamark.reader.markdown.new(writer, {
+        fenced_code_blocks = true,
+        header_attributes = true,
+        pipe_tables = true,
+    })
+end
+
+local function markdownHtml(text, links, headingShift)
+    text = tostring(text or "")
+    if text == "" then
+        return ""
+    end
+    if not parse then
+        local built, err = buildParser()
+        if not built then
+            error("nupp doc needs lunamark; run scripts/rocks (" ..
+                tostring(err) .. ")", 0)
+        end
+        parse = built
+    end
+    local rendered = {}
+    -- The trailing blank line is not decoration: without one lunamark reads the last
+    -- block as a bare run of inline text rather than a paragraph, and a doc comment
+    -- almost never ends with one. Every block then wraps the same way, which is what a
+    -- table cell full of them depends on.
+    local prepared = extractBlocks(text .. "\n", links, rendered)
+    headings, headingIndex = headingSlugs(prepared), 0
+    headingShiftBy = headingShift == nil and 1 or headingShift
+    local out = parse(prepared .. "\n")
+    out = out:gsub("<!%-%-nuppdoc%-block%-(%d+)%-%->", function(index)
+        -- A block's markup is returned by a function so that a `%` in it is never read
+        -- as a capture reference.
+        return rendered[tonumber(index)] or ""
+    end)
+    return trim(out)
+end
+
+-- The same renderer where a paragraph would be in the way: a summary in a table cell is
+-- a sentence, not a block. Only a document that is exactly one paragraph is unwrapped,
+-- so anything longer keeps its structure.
+local function inlineHtml(text, links)
+    local out = markdownHtml(text, links)
+    local inner = out:match("^<p>(.*)</p>$")
+    if inner and not inner:find("<p>", 1, true) then
+        return inner
+    end
+    return out
+end
+
 html.tableHtml = tableHtml
 html.markdownHtml = markdownHtml
+html.inlineHtml = inlineHtml
 html.markdownOutline = markdownOutline
 
 return html
