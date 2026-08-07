@@ -37,10 +37,9 @@ function control.install(c: any): any
     handlers.returnStmt = function(stat: cst.ReturnStmt)
         local annotated = c.retStack[#c.retStack]
         local ts = {}
-        local wasReturning = c.inReturn
-        c.inReturn = true
+        local wasReturning = c.loops.setReturning(true)
         for j, e in ipairs(stat.exprs or {}) do ts[j] = c.infer(e) end
-        c.inReturn = wasReturning
+        c.loops.setReturning(wasReturning)
         for j, valueT in ipairs(ts) do
             local borrowContract = j == 1
                 and c.borrowReturnStack[#c.borrowReturnStack] or nil
@@ -334,9 +333,9 @@ function control.install(c: any): any
             local facts = analyzeCond(cond)
             c.pushScope()
             applyFacts(facts.t)
-            c.pushLoop()
+            c.loops.push(stat.body)
             c.checkBlock(stat.body, true)
-            c.popLoop()
+            c.loops.pop()
             c.popScope()
         end
     end
@@ -344,9 +343,9 @@ function control.install(c: any): any
     handlers.repeatStmt = function(stat: cst.RepeatStmt)
         -- repeat scope extends over the until condition
         c.pushScope()
-        c.pushLoop()
+        c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
-        c.popLoop()
+        c.loops.pop()
         if stat.cond then c.infer(stat.cond) end
         c.popScope()
     end
@@ -373,9 +372,9 @@ function control.install(c: any): any
         c.bindVar(var.text,
             (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number,
             false, var)
-        c.pushLoop()
+        c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
-        c.popLoop()
+        c.loops.pop()
         c.popScope()
     end
 
@@ -395,9 +394,9 @@ function control.install(c: any): any
             end
             c.bindVar(nameTok.text, vt, false, nameTok)
         end
-        c.pushLoop()
+        c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
-        c.popLoop()
+        c.loops.pop()
         c.popScope()
     end
 

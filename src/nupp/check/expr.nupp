@@ -308,9 +308,8 @@ function expr.install(c: any)
             local rets
             -- A short function does not count itself into functionDepth, so the loop
             -- it might sit in was seen at the depth still current here.
-            local loopClosure = c.beginLoopClosure(c.functionDepth)
-            local wasReturning = c.inReturn
-            c.inReturn = false
+            local loopClosure = c.loops.begin(c.functionDepth)
+            local wasReturning = c.loops.setReturning(false)
             if node.expr then
                 rets = {c.infer(node.expr)} -- expr body: one inferred return
             else
@@ -319,8 +318,8 @@ function expr.install(c: any)
                 c.retStack[#c.retStack] = nil
                 rets = {T.any}
             end
-            c.inReturn = wasReturning
-            c.endLoopClosure(loopClosure, node)
+            c.loops.setReturning(wasReturning)
+            c.loops.finish(loopClosure, node)
             c.popScope()
             return T.func(params, rets, vararg)
         elseif kind == "istring" then

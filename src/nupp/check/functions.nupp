@@ -270,14 +270,13 @@ function functions.install(c: any): any
         c.disposerFieldStack[#c.disposerFieldStack + 1] = disposerContext or false
         -- Started here rather than with the scope: the parameters are bound by now, so
         -- the body reading one of them resolves inside the watch and is not a capture.
-        local loopClosure = c.beginLoopClosure(c.functionDepth - 1)
+        local loopClosure = c.loops.begin(c.functionDepth - 1)
         -- Judged before the flag is cleared, so that being the value of a `return` is
         -- what excuses this function, not what its own body happens to do.
-        local wasReturning = c.inReturn
-        c.inReturn = false
+        local wasReturning = c.loops.setReturning(false)
         c.checkBlock(body.body, true) -- scope already pushed
-        c.inReturn = wasReturning
-        c.endLoopClosure(loopClosure, body)
+        c.loops.setReturning(wasReturning)
+        c.loops.finish(loopClosure, body)
         if body.disposeContract and disposeRoot and disposeRoot ~= "self" then
             local terminal = ownershipState(c.lookupEntry(disposeRoot))
             if terminal then terminal.moved = true end

@@ -145,6 +145,33 @@ end
 ]], "a loop that returns runs its body once, so there is nothing repeated")
 end
 
+function M.allowsALoopThatBreaksOnItsFirstPass()
+   assertQuiet([[
+for _, item in ipairs(items) do
+   register(function() return 1 end)
+   break
+end
+]], "the body leaves on the first pass, so it builds one function")
+end
+
+function M.stillFlagsWhenTheBreakIsConditional()
+   assertFlagged([[
+for _, item in ipairs(items) do
+   register(function() return 1 end)
+   if item.last then break end
+end
+]], "a conditional break is a loop that can still go round again")
+end
+
+function M.stillFlagsWhenTheLoopOnlyContinues()
+   assertFlagged([[
+for _, item in ipairs(items) do
+   register(function() return 1 end)
+   continue
+end
+]], "continue ends an iteration, not the loop")
+end
+
 function M.stillFlagsInsideAFunctionThatWasReturned()
    assertFlagged([[
 local function outer(items)
