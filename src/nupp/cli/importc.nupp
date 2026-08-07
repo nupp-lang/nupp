@@ -1,0 +1,53 @@
+--[[
+`nupp import-c`: a C header, as typed Nupp declarations.
+
+What comes out is a module rather than a declaration file: its cdef statements
+generate the ffi bindings at runtime, so the result is something a program
+requires, not something the checker merely reads.
+]]
+
+local spec = require("nupp.cli.spec")
+
+local command = spec.command{
+    name = "import-c",
+    summary = "Generate typed Nupp bindings from a C header",
+    usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] <header.h>"},
+    options = {
+        {name = "-o", value = "FILE", key = "out",
+            help = "Write the generated module to FILE"},
+        {names = {"-l", "--lib"}, value = "NAME", key = "lib",
+            help = "Name the native library loaded by the bindings"},
+    },
+}
+
+local function run(parsed: any): integer
+    local paths: {string} = parsed.positional
+    if #paths ~= 1 then
+        return command:usageError("exactly one C header is required")
+    end
+    local header = paths[1]
+    local importc = require("nupp.importc")
+    local text, warnings = importc.import(header, {lib = parsed.values.lib})
+    if not text then
+        for _, warning in ipairs(warnings) do
+            io.stderr:write("nupp: " .. warning .. "\n")
+        end
+        return 1
+    end
+    for _, warning in ipairs(warnings) do
+        io.stderr:write("nupp: warning: " .. warning .. "\n")
+    end
+    local out = parsed.values.out
+        or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local handle, writeErr = io.open(out, "wb")
+    if not handle then
+        io.stderr:write("nupp: " .. tostring(writeErr) .. "\n")
+        return 1
+    end
+    handle:write(text)
+    handle:close()
+    io.write(out .. "\n")
+    return 0
+end
+
+return spec.Handler{spec = command, run = run}

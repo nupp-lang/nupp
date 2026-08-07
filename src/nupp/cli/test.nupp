@@ -1,0 +1,32 @@
+--[[
+`nupp test`: build, then run whatever the project calls its test command.
+
+The one command whose arguments are not its own. Everything after the name is
+appended to `test.argv` from nupp.lua and belongs to the program that ends up
+running, so nothing here reads it — including `--color`, which is why this
+command's grammar says it does not accept the options every other one does.
+]]
+
+local spec = require("nupp.cli.spec")
+
+local command = spec.command{
+    name = "test",
+    summary = "Build and run the configured test command",
+    usage = {"nupp test [args...]"},
+    universal = false,
+    options = {spec.helpOption},
+    detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
+a test argument named --help.]],
+}
+
+local function run(args: any): integer
+    -- A leading `--` was how the caller said the rest is the test's, including a
+    -- `--help` that would otherwise have been answered here.
+    if args[1] == "--" then
+        table.remove(args, 1)
+    end
+    local project = require("nupp.build.project")
+    return project.test(".", args)
+end
+
+return spec.Handler{spec = command, raw = true, run = run}

@@ -345,7 +345,10 @@ function doc.build(root, config, settings, opts)
     return 0
 end
 
-local function manifestSettings(config)
+--- The documentation settings a manifest configured, either as its own `docs`
+--- table or as a build target of that kind. Exported because the command line
+--- needs to read them before it can let options override them.
+function doc.manifestSettings(config)
     if type(config.docs) == "table" then return config.docs end
     for name, target in pairs(config.build and config.build.targets or {}) do
         if type(target) == "table" and target.kind == "docs" then
@@ -358,43 +361,14 @@ local function manifestSettings(config)
     return {}
 end
 
-function doc.command(root, args)
-    root = root or "."
-    local config = {}
-    local manifest = loadfile(join(root, "nupp.lua"))
-    if manifest then
-        local ok, loaded = pcall(manifest)
-        if not ok then io.stderr:write("nupp: " .. tostring(loaded) .. "\n"); return 1 end
-        if type(loaded) == "table" then config = loaded end
-    end
-    local settings = manifestSettings(config)
-    local opts = {sources = {}}
-    local index = 1
-    if args[1] == "site" or args[1] == "markdown" or args[1] == "md"
-        or args[1] == "both" then
-        opts.format = args[1] == "md" and "markdown" or args[1]
-        index = 2
-    end
-    while index <= #args do
-        local value = args[index]
-        if value == "-o" or value == "--output" then
-            opts.output = args[index + 1]; index = index + 2
-        elseif value == "--title" then
-            opts.title = args[index + 1]; index = index + 2
-        elseif value == "--all" then
-            settings.all = true; index = index + 1
-        elseif value == "--help" or value == "-h" then
-            io.write("usage: nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [PATH...]\n")
-            return 0
-        elseif value:sub(1, 1) == "-" then
-            io.stderr:write("nupp: unknown doc option " .. value .. "\n")
-            return 2
-        else
-            opts.sources[#opts.sources + 1] = value; index = index + 1
-        end
-    end
-    if #opts.sources == 0 then opts.sources = nil end
-    return doc.build(root, config, settings, opts)
+--- Reads the manifest a project root configured, or an empty configuration when it
+--- has none. Returns nil and a message when there is one and it does not load.
+function doc.loadConfig(root)
+    local manifest = loadfile(join(root or ".", "nupp.lua"))
+    if not manifest then return {} end
+    local ok, loaded = pcall(manifest)
+    if not ok then return nil, tostring(loaded) end
+    return type(loaded) == "table" and loaded or {}
 end
 
 doc.theme = THEME

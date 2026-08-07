@@ -1,0 +1,34 @@
+--[[
+`nupp clean`: remove what a build wrote.
+
+The refusal to delete anything outside the project, or the project root itself,
+lives in `nupp.build.project` rather than here — it is a property of cleaning,
+not of the command line, and a caller reaching it another way should meet it too.
+]]
+
+local spec = require("nupp.cli.spec")
+
+local command = spec.command{
+    name = "clean",
+    summary = "Remove build outputs configured in nupp.lua",
+    usage = {"nupp clean [--target NAME] [--dry-run]"},
+    options = {
+        {name = "--target", value = "NAME",
+            help = "Clean only the named build target"},
+        {name = "--dry-run", help = "Print output paths without removing them"},
+    },
+    detail = [[With no target, cleans every configured target output. Paths outside the
+project and paths that resolve to the project root are always rejected.]],
+}
+
+local function run(parsed: any): integer
+    local positional: {string} = parsed.positional
+    if #positional > 0 then
+        return command:usageError("unexpected argument " .. positional[1])
+    end
+    local project = require("nupp.build.project")
+    return project.clean(".", {target = parsed.values.target,
+        dryRun = parsed.values.dryRun})
+end
+
+return spec.Handler{spec = command, run = run}

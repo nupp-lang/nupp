@@ -1,17 +1,21 @@
 --[[
-Command-line access to the language server's semantic operations.
+`nupp lsp`: the language server, and its operations asked one at a time.
 
 Everything the server answers over stdio — inspect, definition, references,
 symbols, rename, actions — asked once from a shell and printed as text or as
 JSON. The point is that a script, or a person, can ask the compiler what it knows
 without speaking the protocol, and get an answer computed by exactly the same
 code an editor would have got.
+
+This is the one command that is a group rather than a command, so it takes its
+arguments raw and gives each operation a grammar of its own. An option is then
+unknown to the operations that do not take it, rather than known everywhere and
+rejected afterwards.
 ]]
 
 local json = require("cjson").new()
 local lsp = require("nupp.lsp")
-
-local cli = {}
+local spec = require("nupp.cli.spec")
 
 local type CodeActionContext = {
     diagnostics: {any},
@@ -133,10 +137,101 @@ local function fromLspPosition(source, position)
     return {line = line, column = offset - start + 1, offset = offset}
 end
 
+local optionsMod = require("nupp.cli.options")
+
+-- Every operation takes a root and a format; the rest differ, so each operation
+-- declares its own and the ones it does not declare are simply not its options.
+local function operationSpec(name: string, summary: string, usage: string,
+    extra: {any}): spec.Command
+    local declared: {any} = {
+        {name = "--root", value = "DIR",
+            help = "Project root (default: current directory)"},
+    }
+    for _, option in ipairs(extra) do declared[#declared + 1] = option end
+    for _, option in ipairs(optionsMod.format()) do
+        declared[#declared + 1] = option
+    end
+    return spec.command{
+        name = "lsp " .. name,
+        -- An operation is reached through its group, so a wrong option here
+        -- points at `nupp help lsp`, which is a thing somebody can type.
+        helpName = "lsp",
+        summary = summary,
+        usage = {usage},
+        options = declared,
+    }
+end
+
+local OPERATION_SPECS: {[string]: spec.Command} = {
+    inspect = operationSpec("inspect", "Describe the symbol at a position",
+        "nupp lsp inspect [options] <file> <line> <column>", {}),
+    definition = operationSpec("definition",
+        "Find where the symbol at a position is defined",
+        "nupp lsp definition [options] <file> <line> <column>", {}),
+    references = operationSpec("references",
+        "Find the semantic references to the symbol at a position",
+        "nupp lsp references [options] <file> <line> <column>", {
+            {name = "--include-declaration",
+                help = "Include the declaration among the references"},
+        }),
+    symbols = operationSpec("symbols", "Search workspace or document symbols",
+        "nupp lsp symbols [options] [--file FILE] [pattern]", {
+            {name = "--file", value = "FILE",
+                help = "Search one document instead of the workspace"},
+        }),
+    rename = operationSpec("rename",
+        "Rename a symbol and every semantic reference to it",
+        "nupp lsp rename [options] <file> <line> <column> <new-name>", {
+            {names = {"-w", "--write"},
+                help = "Apply the rename instead of previewing it"},
+        }),
+    actions = operationSpec("actions",
+        "List the code actions available at a position",
+        "nupp lsp actions [options] <file> <line> <column>", {
+            {name = "--only", value = "KIND", choices = {"quickfix", "refactor"},
+                help = "Narrow the results to quickfix or refactor"},
+        }),
+}
+
+local command = spec.command{
+    name = "lsp",
+    summary = "Language-server and semantic source operations",
+    usage = {
+        "nupp lsp [root]",
+        "nupp lsp serve [root]",
+        "nupp lsp inspect [options] <file> <line> <column>",
+        "nupp lsp definition [options] <file> <line> <column>",
+        "nupp lsp references [options] [--include-declaration] <file> <line> <column>",
+        "nupp lsp symbols [options] [--file FILE] [pattern]",
+        "nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>",
+        "nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>",
+    },
+    universal = false,
+    options = {
+        {name = "--root", value = "DIR",
+            help = "Project root (default: current directory)"},
+        {name = "--format", value = "FORMAT",
+            help = "Output format: text (default) or json"},
+        {name = "--json", help = "Shorthand for --format json"},
+        {name = "--text", help = "Shorthand for --format text"},
+        {name = "--include-declaration",
+            help = "references only: include the declaration"},
+        {name = "--file", value = "FILE",
+            help = "symbols only: search one document instead of the workspace"},
+        {name = "--only", value = "KIND",
+            help = "actions only: narrow to quickfix or refactor"},
+        {names = {"-w", "--write"},
+            help = "rename only: apply the rename instead of previewing it"},
+        spec.helpOption,
+    },
+    detail = [[With no operation, or with only a root, runs the language server over stdio for
+compatibility. `serve` names that mode explicitly. Source positions are 1-based
+byte line and column numbers, matching compiler diagnostics. Rename previews by
+default and changes files only with --write.]],
+}
+
 local function usageError(message)
-    io.stderr:write("nupp: " .. message .. "\n")
-    io.stderr:write("Try 'nupp help lsp' for more information.\n")
-    return 2
+    return command:usageError(message)
 end
 
 local function newClient(root)
@@ -270,67 +365,16 @@ local function parsePositive(value, label)
     return number
 end
 
+--- Parses one operation's arguments against its own grammar, and fills in the two
+--- defaults every operation shares. What comes back is the shape the operations
+--- already expected: values by name, with the leftovers under `positional`.
 local function parseOptions(operation, args)
-    local opts = {root = ".", format = "text", positional = {}}
-    local formatSet = false
-    local index = 1
-    while index <= #args do
-        local value = args[index]
-        if value == "--root" or value == "--format" or value == "--file"
-            or value == "--only" then
-            local nextValue = args[index + 1]
-            if not nextValue or nextValue == "" or nextValue:sub(1, 1) == "-" then
-                return nil, "option " .. value .. " requires a value"
-            end
-            if value == "--root" then opts.root = nextValue
-            elseif value == "--file" then opts.file = nextValue
-            elseif value == "--only" then opts.only = nextValue
-            else
-                if formatSet then return nil, "output format was specified more than once" end
-                opts.format, formatSet = nextValue, true
-            end
-            index = index + 2
-        elseif value == "--json" or value == "--text" then
-            if formatSet then return nil, "output format was specified more than once" end
-            opts.format = value == "--json" and "json" or "text"
-            formatSet = true
-            index = index + 1
-        elseif value == "--include-declaration" then
-            opts.includeDeclaration = true
-            index = index + 1
-        elseif value == "-w" or value == "--write" then
-            opts.write = true
-            index = index + 1
-        elseif value == "--" then
-            for rest = index + 1, #args do
-                opts.positional[#opts.positional + 1] = args[rest]
-            end
-            break
-        elseif value:sub(1, 1) == "-" then
-            return nil, "unknown option " .. value
-        else
-            opts.positional[#opts.positional + 1] = value
-            index = index + 1
-        end
-    end
-    if opts.format ~= "text" and opts.format ~= "json" then
-        return nil, "unknown output format " .. opts.format
-    end
-    if opts.includeDeclaration and operation ~= "references" then
-        return nil, "--include-declaration is only valid for references"
-    end
-    if opts.file and operation ~= "symbols" then
-        return nil, "--file is only valid for symbols"
-    end
-    if opts.only and operation ~= "actions" then
-        return nil, "--only is only valid for actions"
-    end
-    if opts.only and opts.only ~= "quickfix" and opts.only ~= "refactor" then
-        return nil, "--only must be quickfix or refactor"
-    end
-    if opts.write and operation ~= "rename" then
-        return nil, "--write is only valid for rename"
-    end
+    local parsed, err = OPERATION_SPECS[operation]:parse(args)
+    if not parsed then return nil, err end
+    local opts = parsed.values
+    opts.root = opts.root or "."
+    opts.format = opts.format or "text"
+    opts.positional = parsed.positional
     return opts
 end
 
@@ -646,7 +690,7 @@ local OPERATIONS = {
     actions = runActions,
 }
 
-function cli.run(args: {string}): integer
+local function dispatch(args: any): integer
     if #args == 0 then return lsp.run(".") end
     local operation = args[1]
     if operation == "serve" or operation == "server" then
@@ -665,7 +709,13 @@ function cli.run(args: {string}): integer
     local rest = {}
     for index = 2, #args do rest[#rest + 1] = args[index] end
     local opts, optionErr = parseOptions(operation, rest)
-    if not opts then return usageError(optionErr) end
+    if not opts then return OPERATION_SPECS[operation]:usageError(optionErr) end
+    if opts.help then
+        io.write(OPERATION_SPECS[operation]:help())
+        return 0
+    end
+    local ansi = require("nupp.ansi")
+    if type(opts.color) == "string" then ansi.setMode(opts.color) end
     local client, clientErr = newClient(opts.root)
     if not client then io.stderr:write("nupp: " .. clientErr .. "\n"); return 1 end
     local ok, runErr = run(client, opts)
@@ -673,4 +723,4 @@ function cli.run(args: {string}): integer
     return 0
 end
 
-return cli
+return spec.Handler{spec = command, raw = true, run = dispatch}

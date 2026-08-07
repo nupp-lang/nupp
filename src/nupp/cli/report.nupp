@@ -1,0 +1,113 @@
+--[[
+Diagnostics as JSON, for the reader that is a program.
+
+The text form lives in `nupp.diagnostics`, where the build and the command line
+share it. This is the other reader: `--json` promises line, column, and offset for
+every range, including the ranges inside fixes and related locations, and a
+diagnostic carries only a byte offset, so each file it mentions is read once and
+walked to turn offsets into positions.
+
+See `docs/diagnostics.md` for what the fields mean.
+]]
+
+local fs = require("nupp.fs")
+
+local report = {}
+
+local REPORTED = {note = "note", warning = "warning"}
+
+--- Walks a source to the line and column an offset falls on. Positions are 1-based byte
+--- counts, matching what the text form prints.
+local function positionAtByte(source: string?, offset: number?): any
+    if not source or not offset or offset < 1 then
+        return {line = 0, column = 0, offset = offset or 0}
+    end
+    local line: integer, lineStart: integer, cursor: integer = 1, 1, 1
+    while cursor < offset and cursor <= #source do
+        if source:byte(cursor) == 10 then
+            line, lineStart = line + 1, cursor + 1
+        end
+        cursor = cursor + 1
+    end
+    return {line = line, column = offset - lineStart + 1, offset = offset}
+end
+
+--- Reads each file at most once, however many diagnostics point into it.
+local function sourceReader(): function(string?): string?
+    local sources: {[string]: any} = {}
+    return function(path: string?): string?
+        if not path then
+            return nil
+        end
+        if sources[path] == nil then
+            sources[path] = fs.readFile(path) or false
+        end
+        return sources[path] or nil
+    end
+end
+
+local function rangeAt(source: string?, offset: number?, length: number?): any
+    local start = positionAtByte(source, offset or 1)
+    local span = length or 0
+    if source then
+        return {start = start,
+            ["end"] = positionAtByte(source,
+            math.min(#source + 1, (offset or 1) + span))}
+    end
+    return {start = start, ["end"] = {line = start.line,
+        column = start.column + (length or 1),
+        offset = start.offset + (length or 1)}}
+end
+
+--- Writes `{"diagnostics": [...]}` to stdout. Never coloured: the reader is a program,
+--- and an escape code in a JSON string is a bug in whatever printed it.
+function report.json(diagnostics: {any})
+    local encoder = require("cjson").new()
+    encoder.encode_empty_table_as_object(false)
+    encoder.encode_invalid_numbers(false)
+    local read = sourceReader()
+    local values: {any} = {}
+    for _, e in ipairs(diagnostics) do
+        local source = read(e.filename)
+        local fixes: {any} = {}
+        for _, fix in ipairs(e.fixes or {}) do
+            local edits: {any} = {}
+            for _, edit in ipairs(fix.edits or {}) do
+                edits[#edits + 1] = {
+                    file = e.filename,
+                    range = {start = positionAtByte(source, edit.offset),
+                    ["end"] = positionAtByte(source,
+                    edit.offset + edit.length)},
+                    newText = edit.newText,
+                }
+            end
+            fixes[#fixes + 1] = {title = fix.title, edits = edits}
+        end
+        local related: {any} = {}
+        for _, item in ipairs(e.related or {}) do
+            local relatedFile = item.filename or e.filename
+            related[#related + 1] = {file = relatedFile, message = item.message,
+                range = rangeAt(read(relatedFile), item.offset, item.length)}
+        end
+        values[#values + 1] = {
+            file = e.filename,
+            severity = REPORTED[e.severity] or "error",
+            code = e.code,
+            lint = e.lint,
+            message = e.msg,
+            range = rangeAt(source, e.offset, e.length),
+            fixes = fixes,
+            help = e.help,
+            notes = e.notes or {},
+            related = related,
+        }
+    end
+    io.write(encoder.encode({diagnostics = values}) .. "\n")
+end
+
+--- Whether a diagnostic stops the work. Only an error does.
+function report.fatal(diagnostic: any): boolean
+    return REPORTED[diagnostic.severity] == nil
+end
+
+return report

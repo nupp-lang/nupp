@@ -19,6 +19,14 @@ src/main.nupp:8:13: error: NUPP2004: no field "horizonal" in Point
 help: use the suggested field spelling
 ```
 
+Written to a terminal, the same report is coloured: the severity and the caret
+run share a colour, the code is dimmed, and the rail beside the quoted source is
+its own. Written anywhere else it is exactly the text above, byte for byte, so
+nothing that reads compiler output has to strip anything. `--color=always`
+forces the escapes on for a pager that wants them, `--no-color` (or
+`--color=never`) forces them off, and `NO_COLOR`, `CLICOLOR_FORCE` and
+`TERM=dumb` are honoured in that order before the terminal is asked.
+
 Use `nupp check --json` when consuming diagnostics programmatically. Lines,
 columns, and offsets in this CLI format are 1-based byte positions. Each
 diagnostic contains `file`, `severity`, `code`, `lint`, `message`, `range`,

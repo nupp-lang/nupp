@@ -1,0 +1,127 @@
+--[[
+`nupp build`: source files, or a target the manifest configured.
+
+Two shapes with one name. Naming files builds those files and everything they
+require; naming none builds the manifest's default target. The manifest options
+and the file options describe different jobs, so asking for both is refused
+rather than resolved.
+]]
+
+local spec = require("nupp.cli.spec")
+local optionsMod = require("nupp.cli.options")
+
+local command = spec.command{
+    name = "build",
+    summary = "Build source files or a configured project target",
+    usage = {
+        "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]",
+        "nupp build [--strict] [-O<n>] [-o DIR] <file...>",
+    },
+    options = optionsMod.join(
+        {name = "--target", value = "NAME", help = "Build a named manifest target"},
+        -- Two directories, not two spellings of one: --out-dir moves a manifest
+        -- target's output, -o says where a named file's Lua goes. Distinct keys, so
+        -- giving both is a contradiction the command can see.
+        {name = "--out-dir", value = "DIR", key = "projectOutDir",
+            help = "Override the manifest target's output directory"},
+        {name = "-o", value = "DIR", key = "outDir",
+            help = "Output directory for explicit source-file builds"},
+        optionsMod.strict,
+        optionsMod.optimize()),
+    detail = [[Manifest target options cannot be combined with explicit source files.
+Use 'nupp tasks' to discover target names and configuration.
+
+The level is part of the build key, so changing it rebuilds rather than
+mixing artifacts compiled at two different levels. See plans/optimizations.md.]],
+}
+
+local function run(parsed: any): integer
+    local values = parsed.values
+    local paths: {string} = parsed.positional
+    -- `-o` and `--out-dir` both name a directory but answer different questions, so
+    -- they are separate keys rather than aliases of one.
+    local outDir, projectOutDir = values.outDir, values.projectOutDir
+    local target = values.target
+    if #paths > 0 and (projectOutDir or target) then
+        return command:usageError(
+            "--target and --out-dir cannot be used with explicit source files")
+    end
+    if #paths == 0 and outDir then
+        return command:usageError("-o requires at least one explicit source file")
+    end
+    local compile = require("nupp.cli.compile")
+    local settings = compile.settings(values)
+    if #paths == 0 then
+        local project = require("nupp.build.project")
+        return project.build(".", {outDir = projectOutDir, target = target,
+            strict = settings.strict, optLevel = settings.optLevel,
+            remarks = settings.remarks, disabled = settings.disabled})
+    end
+    local process = require("nupp.build.process")
+    if outDir and process.run(process.mkdirCommand(outDir)) ~= 0 then
+        io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
+        return 1
+    end
+    local env = require("nupp.env").new(".")
+    local failed = false
+    local written: {[string]: boolean} = {}
+    local function emitModule(path: string): boolean
+        if written[path] then
+            return true
+        end
+        written[path] = true
+        local code = compile.module(path, env, settings)
+        if not code then
+            return false
+        end
+        local outPath: string
+        if outDir then
+            local base = path:match("([^/\\]+)%.nupp$") or path
+            outPath = outDir .. "/" .. base .. ".lua"
+        else
+            outPath = path:gsub("%.nupp$", "") .. ".lua"
+        end
+        local out, err = io.open(outPath, "wb")
+        if not out then
+            io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            return false
+        end
+        out:write(code)
+        out:close()
+        return true
+    end
+
+    for _, path in ipairs(paths) do
+        if not emitModule(path) then
+            failed = true
+        end
+    end
+
+    -- Building an entry builds what it requires: checking the entry populated the
+    -- environment with every module it reached, and each of those needs generated Lua
+    -- of its own to be loadable at runtime. Declaration files (.d.nupp) describe an
+    -- interface and emit nothing.
+    local pending = true
+    while pending do
+        pending = false
+        local reached: {string} = {}
+        for _, record in pairs(env.loaded or {}) do
+            if record.path then
+                reached[#reached + 1] = record.path
+            end
+        end
+        table.sort(reached)
+        for _, path in ipairs(reached) do
+            if path:match("%.nupp$") and not path:match("%.d%.nupp$")
+                and not written[path] then
+                pending = true
+                if not emitModule(path) then
+                    failed = true
+                end
+            end
+        end
+    end
+    return failed and 1 or 0
+end
+
+return spec.Handler{spec = command, run = run}
