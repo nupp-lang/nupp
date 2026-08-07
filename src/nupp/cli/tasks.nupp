@@ -15,6 +15,39 @@ local command = spec.command{
     summary = "List or inspect project tasks from nupp.lua",
     usage = {"nupp tasks [--format text|json]", "nupp tasks <name> [--format text|json]"},
     options = optionsMod.format(),
+    schema = {
+        description = "The task list, or one task's effective configuration when "
+            .. "a name was given.",
+        type = "object",
+        properties = {
+            tasks = {
+                type = "array",
+                description = "Present when no name was given.",
+                items = {["$ref"] = "#/definitions/task"},
+            },
+        },
+        definitions = {
+            task = {
+                type = "object",
+                properties = {
+                    name = {type = "string"},
+                    ["default"] = {type = "boolean"},
+                    description = {type = "string"},
+                    kind = {type = "string"},
+                    category = {type = "string"},
+                    command = {type = "array", items = {type = "string"}},
+                    outDir = {type = "string"},
+                    buildTarget = {type = "string"},
+                    entries = {type = "array", items = {type = "string"}},
+                    sources = {type = "array", items = {type = "string"}},
+                    resources = {type = "array", items = {type = "string"}},
+                    dependencies = {type = "array", items = {type = "string"}},
+                    argv = {type = "array", items = {type = "string"}},
+                },
+                required = {"name"},
+            },
+        },
+    },
     detail = [[With no name, lists build targets plus configured test and self-host actions.
 With a name, prints the task's effective configuration.]],
 }

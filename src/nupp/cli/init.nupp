@@ -36,6 +36,7 @@ local REGISTRY: {{name: string, load: Loader}} = {
     {name = "clean", load = function(): specMod.Handler return require("nupp.cli.clean") end},
     {name = "tasks", load = function(): specMod.Handler return require("nupp.cli.tasks") end},
     {name = "lints", load = function(): specMod.Handler return require("nupp.cli.lints") end},
+    {name = "explain", load = function(): specMod.Handler return require("nupp.cli.explain") end},
     {name = "test", load = function(): specMod.Handler return require("nupp.cli.test") end},
     {name = "doc", load = function(): specMod.Handler return require("nupp.cli.doc") end},
     {name = "fixpoint", load = function(): specMod.Handler return require("nupp.cli.fixpoint") end},
@@ -161,10 +162,14 @@ function cli.main(argv: {string}): integer
             "Try 'nupp help' for a list of commands.")
     end
     if command.raw then
-        -- A raw command's arguments are not this parser's to read, so `--help` is only
-        -- honoured where it cannot already mean something else.
+        -- A raw command's arguments are not this parser's to read, so these are only
+        -- honoured where they cannot already mean something else.
         if rest[1] == "-h" or rest[1] == "--help" then
             io.write(command.spec:help())
+            return 0
+        end
+        if rest[1] == "--schema" and command.spec.schema then
+            require("nupp.cli.report").write(command.spec.schema)
             return 0
         end
         return command.run(rest)
@@ -176,6 +181,13 @@ function cli.main(argv: {string}): integer
     applyColor(parsed.values)
     if parsed.values.help then
         io.write(command.spec:help())
+        return 0
+    end
+    if parsed.values.schema then
+        -- Answered here rather than in the command, so what is printed is the
+        -- schema the grammar carries and not something the command composed
+        -- on its way past.
+        require("nupp.cli.report").write(command.spec.schema)
         return 0
     end
     return command.run(parsed)

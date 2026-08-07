@@ -14,9 +14,66 @@ local command = spec.command{
     summary = "Build and run the configured test command",
     usage = {"nupp test [args...]"},
     universal = false,
-    options = {spec.helpOption},
+    options = {
+        {name = "--json",
+            help = "Ask the test command for one JSON document instead of "
+                .. "progress text"},
+        spec.helpOption,
+    },
+    schema = {
+        type = "object",
+        description = "One run: the totals, and a record per test. This is what "
+            .. "the runner in tests/run.lua writes; a project that configures a "
+            .. "different test command is the one answering for its --json.",
+        properties = {
+            ok = {type = "boolean"},
+            total = {type = "integer"},
+            passed = {type = "integer"},
+            failed = {type = "integer"},
+            durationMs = {type = "number",
+                description = "Wall-clock milliseconds for the whole run."},
+            tests = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        suite = {type = "string",
+                            description = "The test file, without its extension."},
+                        name = {type = "string"},
+                        status = {type = "string", enum = {"passed", "failed"}},
+                        durationMs = {type = "number"},
+                        file = {type = "string",
+                            description = "Where the test is defined."},
+                        line = {type = "integer",
+                            description = "1-based, as everywhere else."},
+                        failure = {
+                            type = "object",
+                            description = "Absent when the test passed.",
+                            properties = {
+                                message = {type = "string"},
+                                file = {type = "string",
+                                    description = "Where the error came from, "
+                                        .. "which is often not where the test "
+                                        .. "is defined."},
+                                line = {type = "integer",
+                                    description = "1-based. A Lua error carries "
+                                        .. "no column, so none is reported."},
+                            },
+                            required = {"message"},
+                        },
+                    },
+                    required = {"suite", "name", "status", "durationMs"},
+                },
+            },
+        },
+        required = {"ok", "total", "passed", "failed", "tests"},
+    },
     detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
-a test argument named --help.]],
+a test argument named --help.
+
+--json is passed along to the test command rather than interpreted here, since
+the arguments past this point are that command's. --schema describes what the
+runner in tests/run.lua writes for it.]],
 }
 
 local function run(args: any): integer

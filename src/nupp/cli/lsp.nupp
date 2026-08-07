@@ -141,8 +141,10 @@ local optionsMod = require("nupp.cli.options")
 
 -- Every operation takes a root and a format; the rest differ, so each operation
 -- declares its own and the ones it does not declare are simply not its options.
+local reportMod = require("nupp.cli.report")
+
 local function operationSpec(name: string, summary: string, usage: string,
-    extra: {any}): spec.Command
+    extra: {any}, schema: any): spec.Command
     local declared: {any} = {
         {name = "--root", value = "DIR",
             help = "Project root (default: current directory)"},
@@ -159,37 +161,115 @@ local function operationSpec(name: string, summary: string, usage: string,
         summary = summary,
         usage = {usage},
         options = declared,
+        schema = schema,
     }
 end
 
+-- One symbol, as inspect describes it and as the symbol searches list it.
+local SYMBOL = {
+    type = "object",
+    properties = {
+        name = {type = "string"},
+        kind = {type = "string",
+            description = "The LSP symbol kind, spelled as a word."},
+        type = {type = "string"},
+        detail = {type = "string"},
+        documentation = {type = "string"},
+        container = {type = "string"},
+        definition = reportMod.LOCATION,
+        location = reportMod.LOCATION,
+        range = reportMod.RANGE,
+        children = {type = "array", items = {["$ref"] = "#/definitions/symbol"}},
+    },
+}
+
+local EDIT = {
+    type = "object",
+    properties = {file = {type = "string"}, range = reportMod.RANGE,
+        newText = {type = "string"}},
+    required = {"file", "range", "newText"},
+}
+
 local OPERATION_SPECS: {[string]: spec.Command} = {
     inspect = operationSpec("inspect", "Describe the symbol at a position",
-        "nupp lsp inspect [options] <file> <line> <column>", {}),
+        "nupp lsp inspect [options] <file> <line> <column>", {}, {
+            type = "object",
+            description = "The symbol at the position, or null where there is "
+                .. "nothing to describe.",
+            properties = {symbol = {["$ref"] = "#/definitions/symbol"}},
+            definitions = {symbol = SYMBOL},
+        }),
     definition = operationSpec("definition",
         "Find where the symbol at a position is defined",
-        "nupp lsp definition [options] <file> <line> <column>", {}),
+        "nupp lsp definition [options] <file> <line> <column>", {}, {
+            type = "object",
+            properties = {definition = reportMod.LOCATION},
+        }),
     references = operationSpec("references",
         "Find the semantic references to the symbol at a position",
         "nupp lsp references [options] <file> <line> <column>", {
             {name = "--include-declaration",
                 help = "Include the declaration among the references"},
+        }, {
+            type = "object",
+            properties = {
+                declarationIncluded = {type = "boolean"},
+                references = {type = "array", items = reportMod.LOCATION},
+            },
+            required = {"declarationIncluded", "references"},
         }),
     symbols = operationSpec("symbols", "Search workspace or document symbols",
         "nupp lsp symbols [options] [--file FILE] [pattern]", {
             {name = "--file", value = "FILE",
                 help = "Search one document instead of the workspace"},
+        }, {
+            type = "object",
+            properties = {symbols = {type = "array",
+                items = {["$ref"] = "#/definitions/symbol"}}},
+            required = {"symbols"},
+            definitions = {symbol = SYMBOL},
         }),
     rename = operationSpec("rename",
         "Rename a symbol and every semantic reference to it",
         "nupp lsp rename [options] <file> <line> <column> <new-name>", {
             {names = {"-w", "--write"},
                 help = "Apply the rename instead of previewing it"},
+        }, {
+            type = "object",
+            properties = {
+                oldName = {type = "string"},
+                newName = {type = "string"},
+                written = {type = "boolean",
+                    description = "False for a preview, which is the default."},
+                edits = {type = "array", items = EDIT},
+            },
+            required = {"newName", "written", "edits"},
         }),
     actions = operationSpec("actions",
         "List the code actions available at a position",
         "nupp lsp actions [options] <file> <line> <column>", {
             {name = "--only", value = "KIND", choices = {"quickfix", "refactor"},
                 help = "Narrow the results to quickfix or refactor"},
+        }, {
+            type = "object",
+            properties = {
+                actions = {
+                    type = "array",
+                    items = {
+                        type = "object",
+                        properties = {
+                            kind = {type = "string"},
+                            title = {type = "string"},
+                            diagnostic = {type = "object", properties = {
+                                code = {type = "string"},
+                                message = {type = "string"}}},
+                            edits = {type = "array", items = EDIT},
+                        },
+                        required = {"title", "edits"},
+                    },
+                },
+            },
+            required = {"actions"},
         }),
 }
 
@@ -222,6 +302,9 @@ local command = spec.command{
             help = "actions only: narrow to quickfix or refactor"},
         {names = {"-w", "--write"},
             help = "rename only: apply the rename instead of previewing it"},
+        {name = "--schema",
+            help = "Print the JSON Schema of an operation's --json output; each "
+                .. "operation answers with its own"},
         spec.helpOption,
     },
     detail = [[With no operation, or with only a root, runs the language server over stdio for
@@ -708,10 +791,16 @@ local function dispatch(args: any): integer
     end
     local rest = {}
     for index = 2, #args do rest[#rest + 1] = args[index] end
+    -- The operation was found above, so its grammar was too.
+    local grammar = assert(OPERATION_SPECS[operation])
     local opts, optionErr = parseOptions(operation, rest)
-    if not opts then return OPERATION_SPECS[operation]:usageError(optionErr) end
+    if not opts then return grammar:usageError(optionErr) end
     if opts.help then
-        io.write(OPERATION_SPECS[operation]:help())
+        io.write(grammar:help())
+        return 0
+    end
+    if opts.schema then
+        reportMod.write(grammar.schema)
         return 0
     end
     local ansi = require("nupp.ansi")

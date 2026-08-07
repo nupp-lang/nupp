@@ -19,6 +19,40 @@ project moves one in nupp.lua by name or by category:
   lints = { ["missing-require"] = "warning", pedantic = "warning" }
 
 A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
+    options = require("nupp.cli.options").format(),
+    schema = {
+        type = "object",
+        properties = {
+            lints = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string",
+                            description = "What an @allow suppression writes."},
+                        code = {type = "string",
+                            description = "The diagnostic code it reports under, "
+                                .. "which survives the name being reconsidered."},
+                        category = {type = "string"},
+                        level = {type = "string",
+                            enum = {"off", "note", "warning", "error"},
+                            description = "The level this project runs it at."},
+                        default = {type = "string",
+                            enum = {"off", "note", "warning", "error"},
+                            description = "The level it runs at when a project "
+                                .. "says nothing."},
+                        moved = {type = "boolean",
+                            description = "Whether this project moved it off "
+                                .. "its default."},
+                        summary = {type = "string"},
+                    },
+                    required = {"name", "code", "category", "level", "default",
+                        "moved", "summary"},
+                },
+            },
+        },
+        required = {"lints"},
+    },
 }
 
 -- A level is a severity in everything but name, so it is painted like one; the two
@@ -44,9 +78,9 @@ local function run(parsed: any): integer
     for _, lint in ipairs(lints.all) do
         local level = lints.level(lint, lintConfig)
         rows[#rows + 1] = {
-            name = lint.name, category = lint.category,
-            level = level, summary = lint.summary,
-            moved = level ~= lint.level and lint.level or nil,
+            name = lint.name, code = lint.code, category = lint.category,
+            level = level, summary = lint.summary, default = lint.level,
+            moved = level ~= lint.level,
         }
         if #lint.name > nameWidth then
             nameWidth = #lint.name
@@ -56,6 +90,10 @@ local function run(parsed: any): integer
         end
     end
     table.sort(rows, function(a: any, b: any): boolean return a.name < b.name end)
+    if parsed.values.format == "json" then
+        require("nupp.cli.report").write({lints = rows})
+        return 0
+    end
     -- Padded before styling, since an escape code has width in bytes and none on
     -- screen, and one write at the end rather than one per row.
     local out: {string} = {}
@@ -68,7 +106,7 @@ local function run(parsed: any): integer
     for _, row in ipairs(rows) do
         local summary = row.summary
         if row.moved then
-            summary = summary .. style.faint((" (default %s)"):format(row.moved))
+            summary = summary .. style.faint((" (default %s)"):format(row.default))
         end
         local level = pad(row.level, 7)
         local severity = LEVEL_SEVERITY[row.level]

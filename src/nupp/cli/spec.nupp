@@ -112,6 +112,11 @@ record spec.Command
     --- Prose after the options.
     detail: string?
 
+    --- The JSON Schema of what `--json` writes, for the commands that write it.
+    --- Declaring one adds `--schema`, so a command that can be asked for JSON can
+    --- always be asked what that JSON will look like first.
+    schema: any?
+
     --- Stops parsing at the first argument that is not an option, leaving it and
     --- everything after it positional. `nupp run` needs this: past the program name the
     --- arguments stop being the compiler's.
@@ -247,6 +252,13 @@ local UNIVERSAL: {any} = {
 --- honestly claim to accept the rest.
 spec.helpOption = UNIVERSAL[3]
 
+-- Added only to a command that declared a schema, so `--schema` never appears on
+-- one with no JSON to describe.
+local SCHEMA_OPTION = {
+    name = "--schema",
+    help = "Print the JSON Schema of --json output and exit",
+}
+
 --- Builds a command from its declaration, resolving every spelling once.
 ---
 --- Set `universal = false` when a command passes its arguments to something else and
@@ -257,6 +269,7 @@ function spec.command(raw: any): spec.Command
     local patterned: {spec.Option} = {}
     local declared: {any} = {}
     for _, entry in ipairs(raw.options or {}) do declared[#declared + 1] = entry end
+    if raw.schema then declared[#declared + 1] = SCHEMA_OPTION end
     if raw.universal ~= false then
         for _, entry in ipairs(UNIVERSAL) do declared[#declared + 1] = entry end
     end
@@ -276,6 +289,7 @@ function spec.command(raw: any): spec.Command
         options = options,
         intro = raw.intro,
         detail = raw.detail,
+        schema = raw.schema,
         stopAtPositional = raw.stopAtPositional,
         byName = byName,
         patterned = patterned,

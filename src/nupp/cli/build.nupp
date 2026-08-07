@@ -27,12 +27,32 @@ local command = spec.command{
         {name = "-o", value = "DIR", key = "outDir",
             help = "Output directory for explicit source-file builds"},
         optionsMod.strict,
-        optionsMod.optimize()),
+        optionsMod.optimize(),
+        optionsMod.format()),
+    schema = {
+        type = "object",
+        description = "What a build reported and what it produced.",
+        properties = {
+            diagnostics = require("nupp.cli.report").DIAGNOSTICS,
+            target = {type = "string",
+                description = "The manifest target that was built. Absent for a "
+                    .. "build of explicitly named source files."},
+            written = {type = "array", items = {type = "string"},
+                description = "Every output path the build produced, sorted."},
+            ok = {type = "boolean",
+                description = "Whether the build completed. False when a "
+                    .. "diagnostic stopped it."},
+        },
+        required = {"ok", "diagnostics", "written"},
+    },
     detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See plans/optimizations.md.]],
+mixing artifacts compiled at two different levels. See plans/optimizations.md.
+
+--json reports the same diagnostics as 'nupp check --json' alongside what the
+build wrote, so one call answers both what went wrong and what landed.]],
 }
 
 local function run(parsed: any): integer
@@ -49,22 +69,40 @@ local function run(parsed: any): integer
     if #paths == 0 and outDir then
         return command:usageError("-o requires at least one explicit source file")
     end
+    local reportMod = require("nupp.cli.report")
+    local asJson = values.format == "json"
+    -- Under --json the diagnostics belong in the document rather than on stderr as
+    -- they are found, so both build shapes are handed somewhere to put them.
+    local diagnostics: {any} = {}
     local compile = require("nupp.cli.compile")
-    local settings = compile.settings(values)
+    local settings = compile.settings(values, asJson and diagnostics or nil)
+    local function finish(code: integer, builtTarget: any, outputs: {string}): integer
+        if asJson then
+            reportMod.write({ok = code == 0,
+                diagnostics = reportMod.diagnosticValues(diagnostics),
+                target = builtTarget, written = outputs})
+        end
+        return code
+    end
     if #paths == 0 then
         local project = require("nupp.build.project")
-        return project.build(".", {outDir = projectOutDir, target = target,
+        local produced: {[string]: any} = {}
+        local code = project.build(".", {outDir = projectOutDir, target = target,
             strict = settings.strict, optLevel = settings.optLevel,
-            remarks = settings.remarks, disabled = settings.disabled})
+            remarks = settings.remarks, disabled = settings.disabled,
+            diagnostics = asJson and diagnostics or nil,
+            produced = asJson and produced or nil})
+        return finish(code, produced.target, produced.outputs or {})
     end
     local process = require("nupp.build.process")
     if outDir and process.run(process.mkdirCommand(outDir)) ~= 0 then
         io.stderr:write("nupp: cannot create output directory " .. outDir .. "\n")
-        return 1
+        return finish(1, nil, {})
     end
     local env = require("nupp.env").new(".")
     local failed = false
     local written: {[string]: boolean} = {}
+    local outputs: {string} = {}
     local function emitModule(path: string): boolean
         if written[path] then
             return true
@@ -88,6 +126,7 @@ local function run(parsed: any): integer
         end
         out:write(code)
         out:close()
+        outputs[#outputs + 1] = outPath
         return true
     end
 
@@ -121,7 +160,8 @@ local function run(parsed: any): integer
             end
         end
     end
-    return failed and 1 or 0
+    table.sort(outputs)
+    return finish(failed and 1 or 0, nil, outputs)
 end
 
 return spec.Handler{spec = command, run = run}

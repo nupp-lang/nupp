@@ -17,6 +17,11 @@ local command = spec.command{
         optionsMod.strict,
         {name = "--target", value = "NAME", help = "Check a named manifest target"},
         optionsMod.format()),
+    schema = {
+        type = "object",
+        properties = {diagnostics = require("nupp.cli.report").DIAGNOSTICS},
+        required = {"diagnostics"},
+    },
     detail = "With no files, checks the default target from nupp.lua.",
 }
 

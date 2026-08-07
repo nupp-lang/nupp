@@ -82,13 +82,46 @@ bodies, an ambiguous global cannot decide which public declaration should
 change visibility, and a resource without cleanup metadata cannot guess which
 function owns that responsibility.
 
+## Machine-readable output
+
+Every command whose result is data rather than a side effect takes
+`--format json` (or `--json`), and every command that takes it also takes
+`--schema`, which prints the JSON Schema of what `--json` writes and exits. The
+schema is declared beside the code that writes it and a test validates real
+output against it, so the two cannot drift.
+
+```
+ Command     --json reports
+ ──────────  ────────────────────────────────────────────────
+ check       diagnostics
+ build       diagnostics, the target, and every path written
+ fmt         unformatted, written, and failed, kept apart
+ test        totals and a record per test, with file and line
+ lints       every lint, its level here, and its default
+ tasks       the task list, or one task's configuration
+ ast         the lossless syntax tree
+ clean       the paths removed, or that would be
+ fixpoint    whether it reproduced, and why not
+ import-c    the module written and any warnings
+ explain     a code's rule and worked examples
+ lsp         per operation; each has its own schema
+```
+
+`nupp run` is absent because the program's own output is the output, and
+`nupp doc` because it writes a site rather than an answer.
+
 ## Suggested agent workflow
 
 1. Run `./bin/nupp check --json --strict`.
 2. Apply a complete fix from `diagnostics[].fixes` when its title matches the
    intended repair.
-3. Inspect `related` locations before changing cross-file declarations or
+3. Read `docs` on a diagnostic, or run `./bin/nupp explain <code> --json`, when
+   the message alone does not say what the rule is. `explain` gives the rule, a
+   program that reports the code, and the same program corrected.
+4. Inspect `related` locations before changing cross-file declarations or
    ownership transfers.
-4. Use `./bin/nupp lsp inspect`, `definition`, and `references` when more
+5. Use `./bin/nupp lsp inspect`, `definition`, and `references` when more
    semantic context is needed.
-5. Re-run the check after each edit group and `./bin/nupp test` before commit.
+6. Re-run the check after each edit group, then `./bin/nupp test --json` before
+   commit, which reports the failing test's name, message, file and line rather
+   than a wall of progress text.

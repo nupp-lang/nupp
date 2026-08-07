@@ -18,11 +18,30 @@ local command = spec.command{
 --binary makes the same claim about packaging: the target named by
 selfHost.binary is stamped, and the binary that comes out stamps another
 identical to itself. It is what the payload format's determinism rests on.]],
-    options = {
+    options = require("nupp.cli.options").join(
         {name = "--update-bootstrap",
             help = "Refresh the tracked stage-0 bundle after verification"},
         {name = "--binary",
             help = "Verify the packaged binary instead of the compiler"},
+        require("nupp.cli.options").format()),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean",
+                description = "Whether the rebuild reproduced itself."},
+            kind = {type = "string", enum = {"compiler", "binary"},
+                description = "Which claim was checked: the compiler compiling "
+                    .. "itself twice, or the packaged binary stamping another."},
+            target = {type = "string",
+                description = "The manifest target that was verified."},
+            bytes = {type = "integer",
+                description = "The size of the verified binary, for --binary."},
+            updatedBootstrap = {type = "boolean",
+                description = "Whether the tracked stage-0 bundle was refreshed."},
+            reason = {type = "string",
+                description = "Why it failed. Absent when ok is true."},
+        },
+        required = {"ok", "kind"},
     },
 }
 
@@ -36,11 +55,24 @@ local function run(parsed: any): integer
         return command:usageError(
             "--binary verifies the packaged binary and has no bootstrap to refresh")
     end
+    local asJson = values.format == "json"
     local project = require("nupp.build.project")
+    -- The collector doubles as the request to stay quiet: what it fills is what
+    -- gets said, so the human line does not land in front of the document.
+    local result: {[string]: any} = {}
+    local code: integer
     if values.binary then
-        return project.binaryFixpoint(".")
+        code = project.binaryFixpoint(".", {result = asJson and result or nil})
+    else
+        code = project.fixpoint(".", {updateBootstrap = values.updateBootstrap,
+            result = asJson and result or nil})
     end
-    return project.fixpoint(".", {updateBootstrap = values.updateBootstrap})
+    if asJson then
+        result.ok = code == 0
+        result.kind = values.binary and "binary" or "compiler"
+        require("nupp.cli.report").write(result)
+    end
+    return code
 end
 
 return spec.Handler{spec = command, run = run}

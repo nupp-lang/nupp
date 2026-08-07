@@ -27,12 +27,42 @@ formatted are listed and the exit status is 1, so a build can gate on it;
 --check asks that question of whatever it was given, so a build can gate on
 the files a change touched. Nothing is written and nothing goes to stdout but
 the list; the exit status is 1 if it is not empty.]],
-    options = {
+    options = require("nupp.cli.options").join(
         {names = {"-w", "--write"},
-        help = "Rewrite files in place instead of writing to stdout"},
+            help = "Rewrite files in place instead of writing to stdout"},
         {name = "--check",
             help = "Report which files are not formatted; write nothing"},
+        require("nupp.cli.options").format()),
+    schema = {
+        type = "object",
+        description = "Which files are not formatted, and what was done about it.",
+        properties = {
+            unformatted = {type = "array", items = {type = "string"},
+                description = "Files whose formatting differs from the "
+                    .. "formatter's. Under --write these are the files that "
+                    .. "were rewritten."},
+            written = {type = "boolean",
+                description = "Whether the files listed were rewritten rather "
+                    .. "than merely reported."},
+            failed = {
+                type = "array",
+                description = "Files that could not be formatted at all, which "
+                    .. "is a different answer from being unformatted.",
+                items = {
+                    type = "object",
+                    properties = {file = {type = "string"},
+                        diagnostics = require("nupp.cli.report").DIAGNOSTICS},
+                    required = {"file", "diagnostics"},
+                },
+            },
+            ok = {type = "boolean",
+                description = "True when nothing was left unformatted and "
+                    .. "nothing failed."},
+        },
+        required = {"ok", "unformatted", "written", "failed"},
     },
+    detail = [[--json always reports the list, whichever form was asked for, and separates a
+file that could not be formatted from one that merely is not.]],
 }
 
 local function run(parsed: any): integer
@@ -47,18 +77,29 @@ local function run(parsed: any): integer
     local fmt = require("nupp.fmt")
     local envMod = require("nupp.env")
     local diagnosticMod = require("nupp.diagnostics")
+    local reportMod = require("nupp.cli.report")
+    local asJson = values.format == "json"
     local env = envMod.new(".")
     local paths: {string} = parsed.positional
     local wholeProject = #paths == 0
     -- The project form and --check both ask rather than transform, so both report a
     -- list; naming files without --check stays the filter it has always been.
-    local reporting = asking or wholeProject
+    -- Asking for JSON is asking for the answer, so it reports whatever it was given.
+    local reporting = asking or wholeProject or asJson
+    local failures: {any} = {}
+    local function finish(code: integer, unformatted: {string}): integer
+        if asJson then
+            reportMod.write({ok = code == 0, written = write and true or false,
+                unformatted = unformatted, failed = failures})
+        end
+        return code
+    end
     if wholeProject then
         paths = envMod.listSourceFiles(env)
         if #paths == 0 then
             io.stderr:write("nupp: no source files found under the project's "
                 .. "include roots\n")
-            return 1
+            return finish(1, {})
         end
     end
     local failed = false
@@ -66,7 +107,15 @@ local function run(parsed: any): integer
     for _, path in ipairs(paths) do
         local source, err = fs.readFile(path)
         if not source then
-            io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            if asJson then
+                failures[#failures + 1] = {file = path, diagnostics =
+                    reportMod.diagnosticValues({{filename = path, line = 0,
+                    col = 0, offset = 0, length = 0, code = "NUPP0001",
+                    msg = err,
+                    help = "check that the path exists and is readable"}})}
+            else
+                io.stderr:write("nupp: " .. tostring(err) .. "\n")
+            end
             failed = true
         else
             local formatted, errors = fmt.format(source, path, {
@@ -76,7 +125,14 @@ local function run(parsed: any): integer
                 end,
             })
             if #errors > 0 then
-                diagnosticMod.report(errors)
+                -- Could not be formatted, which is a different answer from being
+                -- unformatted, and the list form cannot tell them apart.
+                if asJson then
+                    failures[#failures + 1] = {file = path,
+                        diagnostics = reportMod.diagnosticValues(errors)}
+                else
+                    diagnosticMod.report(errors)
+                end
                 failed = true
             elseif write then
                 if formatted ~= source then
@@ -98,7 +154,7 @@ local function run(parsed: any): integer
         end
     end
     if reporting then
-        if #unformatted > 0 then
+        if #unformatted > 0 and not asJson then
             io.write(table.concat(unformatted, "\n"), "\n")
         end
         -- Rewriting them answered the question, so only the form that merely asked it
@@ -107,7 +163,7 @@ local function run(parsed: any): integer
             failed = true
         end
     end
-    return failed and 1 or 0
+    return finish(failed and 1 or 0, unformatted)
 end
 
 return spec.Handler{spec = command, run = run}

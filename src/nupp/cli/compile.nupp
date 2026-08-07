@@ -29,6 +29,11 @@ record compile.Settings
 
     --- Passes turned off by -Zno-opt, keyed by their stable code.
     disabled: {[string]: boolean}
+
+    --- Where diagnostics go when the caller is reporting them itself. Present for
+    --- `--json`, which has to put them in a document rather than let each one say
+    --- itself as it is found. Same favour `nupp.build.project` already does.
+    diagnostics: {any}?
 end
 
 -- The level arrives as the digit the option captured. The grammar has already refused
@@ -38,12 +43,14 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 
 --- Reads the settings out of a parse. Every command that compiles takes the same
 --- options, so every one of them reads them the same way.
-function compile.settings(values: {[string]: any}): compile.Settings
+function compile.settings(values: {[string]: any},
+    collected: {any}?): compile.Settings
     return compile.Settings{
         strict = values.strict,
         optLevel = LEVELS[values.optLevel] or 0,
         remarks = values.remarks and true or false,
         disabled = values.disabled or {},
+        diagnostics = collected,
     }
 end
 
@@ -51,31 +58,49 @@ end
 --- reason after having reported the diagnostics that stopped it.
 function compile.module(path: string, env: any,
     settings: compile.Settings): string?, string?
+    local collected = settings.diagnostics
+    -- Says each diagnostic, or puts it by for the caller to say later, and either
+    -- way answers whether an error was among them.
+    local function say(values: {any}): boolean
+        if not collected then return diagnosticMod.report(values) end
+        local fatal = false
+        for _, diagnostic in ipairs(values) do
+            collected[#collected + 1] = diagnostic
+            if diagnosticMod.isFatal(diagnostic) then fatal = true end
+        end
+        return fatal
+    end
     local source, readErr = fs.readFile(path)
     if not source then
-        io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        if collected then
+            collected[#collected + 1] = {filename = path, line = 0, col = 0,
+                offset = 0, length = 0, code = "NUPP0001", msg = readErr,
+                help = "check that the path exists and is readable"}
+        else
+            io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        end
         return nil, readErr
     end
     local parser = require("nupp.parser")
     local result = parser.parse(source, path)
     if #result.errors > 0 then
-        diagnosticMod.report(result.errors)
+        say(result.errors)
         return nil, "syntax errors"
     end
     local check = require("nupp.check")
     local diags = check.check(result, path, env, {strict = settings.strict})
-    if diagnosticMod.report(diags) then
+    if say(diags) then
         return nil, "type errors"
     end
     local remarks = require("nupp.optimize").run(result, {level = settings.optLevel,
         filename = path, disabled = settings.disabled})
     if settings.remarks then
-        diagnosticMod.report(remarks)
+        say(remarks)
     end
     local gen = require("nupp.gen")
     local code, genDiags = gen.generate(result, path)
     if #genDiags > 0 then
-        diagnosticMod.report(genDiags)
+        say(genDiags)
         return nil, "code generation errors"
     end
     return code

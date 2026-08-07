@@ -173,6 +173,12 @@ function project.build(root, opts)
         if not newState.outputs[output] then os.remove(output) end
     end
     newState.targets[targetKey] = mine
+    -- What the build produced, for a caller that has to report it rather than
+    -- leave it on disk to be discovered. Same shape of favour as opts.diagnostics.
+    if opts.produced then
+        opts.produced.target = targetKey
+        opts.produced.outputs = mine
+    end
     local ok, stateErr = saveState(statePath, newState)
     if not ok then io.stderr:write("nupp: " .. stateErr .. "\n"); return 1 end
     local completed, completionErr = writeFile(completionPath,
@@ -263,14 +269,19 @@ function project.clean(root, opts)
         end
         if not covered then selected[#selected + 1] = path end
     end
+    -- A caller that collects is reporting the paths itself, so saying them here
+    -- too would put prose in front of whatever it is about to write.
+    local collected = opts.removed
     for _, path in ipairs(selected) do
-        if opts.dryRun then
+        if not opts.dryRun and removeTree(join(root, path)) ~= 0 then
+            io.stderr:write("nupp: cannot remove build output " .. path .. "\n")
+            return 1
+        end
+        if collected then
+            collected[#collected + 1] = path
+        elseif opts.dryRun then
             io.write("would remove " .. path .. "\n")
         else
-            if removeTree(join(root, path)) ~= 0 then
-                io.stderr:write("nupp: cannot remove build output " .. path .. "\n")
-                return 1
-            end
             io.write("removed " .. path .. "\n")
         end
     end
@@ -322,7 +333,7 @@ end
 --- Stage one is stamped by whatever compiler is running now. Stage two is
 --- stamped by stage one, from the same sources, which is the part that would
 --- catch a payload that quietly depends on the machine that wrote it.
-function project.binaryFixpoint(root)
+function project.binaryFixpoint(root, opts)
     root = root or "."
     local config, err = project.loadManifest(root)
     if not config then io.stderr:write(err .. "\n"); return 1 end
@@ -375,11 +386,18 @@ function project.binaryFixpoint(root)
     if first ~= second then
         io.stderr:write(("nupp: packaging fixpoint mismatch: %d bytes then %d; "
             .. "%s kept for inspection\n"):format(#first, #second, stage1))
+        if opts and opts.result then
+            opts.result.reason = "the stamped binary stamped a different one"
+        end
         return 1
     end
     os.remove(stage1)
-    io.write(("packaging fixpoint ok: %s stamps out a binary identical to "
-        .. "itself (%d bytes)\n"):format(targetName, #first))
+    if opts and opts.result then
+        opts.result.target, opts.result.bytes = targetName, #first
+    else
+        io.write(("packaging fixpoint ok: %s stamps out a binary identical to "
+            .. "itself (%d bytes)\n"):format(targetName, #first))
+    end
     return 0
 end
 
@@ -406,6 +424,9 @@ function project.fixpoint(root, opts)
     local second = treeDigest(join(root, stage2))
     if first ~= second then
         io.stderr:write("nupp: self-hosting fixpoint mismatch; stages kept for inspection\n")
+        if opts.result then
+            opts.result.reason = "the two stages differ"
+        end
         return 1
     end
     local destination = join(root, target.outDir or "build")
@@ -417,7 +438,12 @@ function project.fixpoint(root, opts)
         if not updated then io.stderr:write("nupp: " .. updateErr .. "\n"); return 1 end
     end
     removeTree(join(root, stage1)); removeTree(join(root, stage2))
-    io.write("fixpoint ok: compiler rebuilds itself byte-identically\n")
+    if opts.result then
+        opts.result.target = targetName
+        opts.result.updatedBootstrap = opts.updateBootstrap and true or false
+    else
+        io.write("fixpoint ok: compiler rebuilds itself byte-identically\n")
+    end
     return 0
 end
 
