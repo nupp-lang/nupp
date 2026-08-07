@@ -635,6 +635,17 @@ through idempotency and parse-stability in addition to exact match:
       none at all, so setting it in `nupp.lua` moves nothing.
 - [ ] Report an `@allow` that silenced nothing, so stale suppressions get
       removed rather than accumulating.
+- [ ] **Grow the worked examples in `explain.nupp`.** Seven codes carry a
+      `wrong`/`right` pair; every other code answers through its family, which
+      states the rule but cannot show the mistake. Two things now lean on that
+      table: `nupp explain` is the retrieval path a reader reaches from a
+      diagnostic's `docs` anchor, and `nupp reference` lists the codes an
+      example can say more about. Both get better per entry added, and
+      `tests/explaintest.lua` already compiles each pair, so an entry cannot be
+      added wrongly. The eleven the reference cites and cannot yet expand are
+      NUPP2002, NUPP2101, NUPP2108, NUPP2118, NUPP2120, NUPP2203, NUPP2504,
+      NUPP2506, NUPP2603, NUPP2610 and NUPP2615: a reader is pointed at those
+      having just met the construct, so they are worth the most per entry.
 - [ ] **`c.result` leaks into four diagnostic messages.** A rename went through
       string literals: `bindings.nupp:393`, `control.nupp:63`,
       `control.nupp:75` and `functions.nupp:356` all say `c.result` where they
@@ -664,6 +675,25 @@ through idempotency and parse-stability in addition to exact match:
 - [x] Reject raw coroutine suspension with live temporal obligations; cover
       rejected capture, generated line counts, incremental ownership
       fingerprints, LSP metadata, and formatter output.
+- [ ] **`@owned` does not survive a qualified function name.** It attaches to
+      `local function open(...)` and the result is an owner; it does not attach
+      to `function m.open(...)`, and the result is an ordinary value, so
+      acquiring it is NUPP2610 "a 'with' acquisition must be a non-optional
+      owned value". No diagnostic is reported at the declaration, which is the
+      part that makes it expensive: the annotation is accepted and then means
+      nothing.
+
+      This is why `nupp.std.resources` cannot be used by anything. Every one of
+      its wrappers is a module member, so no consumer can acquire one, and the
+      worked example in [with.md](../docs/with.md) — `with file =
+      resources.open_file("input.txt", "r")` — does not compile. The shipped
+      resource library and the document teaching the feature are both currently
+      wrong, which is worth fixing before either is put in front of anyone.
+
+      The ownership and `with` examples in `src/nupp/reference.nupp` are
+      written in the `local function` form to compile at all. Move them to the
+      module-member form once this is fixed; that is the idiom worth teaching,
+      and `tests/referencetest.lua` will hold the change honest.
 
 ## Documentation
 
