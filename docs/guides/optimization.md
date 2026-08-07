@@ -8,7 +8,7 @@ compiler structurally cannot: costs paid before it ever sees the code, and
 information only a type checker has.
 
 The list is therefore short, deliberately, and grows only when a benchmark says
-a pass earns its place with the JIT enabled. `docs/OPTIMIZATIONS.md` records the
+a pass earns its place with the JIT enabled. `plans/OPTIMIZATIONS.md` records the
 full catalog and the reasoning behind what is and is not on it.
 
 ## Levels

@@ -1,4 +1,8 @@
-# Explicit resource scopes
+# Explicit resource scopes — design record
+
+The reference for using `with` is [docs/WITH.md](../docs/WITH.md). This file
+records why it is shaped the way it is, what was rejected, and what is
+deferred.
 
 Status: implemented language design. Result provenance, affine owned fields,
 default `@dispose` contracts, and suspension checks now share the same resource
@@ -659,7 +663,7 @@ single-region design:
 ## Historical implementation sequence
 
 The original V1 work landed in this order. Later ownership additions are
-documented in [OWNERSHIP.md](OWNERSHIP.md).
+documented in [OWNERSHIP.md](../docs/OWNERSHIP.md).
 
 1. Generalize `owned<T>` and `borrowed<T>` from pointer-shaped values to
    arbitrary values while retaining the stricter raw-pointer operations.

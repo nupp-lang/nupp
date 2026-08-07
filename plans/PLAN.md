@@ -66,7 +66,7 @@ and running the real subsystem rather than only its focused fixtures.
   `string.buffer`, `cjson`, `cjson.safe`, and `ffi`, which a project's
   own files may shadow; module resolution with `require()` typing; module
   members reached through the table they were declared on, with stable nominal
-  identity ([MODULES.md](MODULES.md)).
+  identity ([MODULES.md](../docs/MODULES.md)).
 - **M1.5 Reification spike.** Thesis validated: 8.4x AoS loop, 3.9x
   method dispatch, 5.6x memory (bench/reification.lua).
 - **Formatter.** The doctrine below, implemented: 4-space indent,
@@ -118,7 +118,7 @@ and running the real subsystem rather than only its focused fixtures.
   `R{...}` builds a checked instance stamped with the record's metatable
   (its identity); struct members dispatch through `ffi.metatype`.
   Inline ordinary method bodies use the same namespaces. Trusted, erased
-  [metamethod contracts](METAMETHODS.md), `self`, `record X is Y`, and
+  [metamethod contracts](../docs/METAMETHODS.md), `self`, `record X is Y`, and
   bounded generics type runtime protocols without taking ownership of
   metatable construction. Multi-value returns expand across an assignment's
   targets.
@@ -137,7 +137,7 @@ and running the real subsystem rather than only its focused fixtures.
   operator raises the `customary-operator` lint, which is a house-style
   judgement rather than a restriction. `metamethod`, declaration-head
   `is`/`where`, and generic bounds are contextual additions documented in
-  [METAMETHODS.md](METAMETHODS.md).
+  [METAMETHODS.md](../docs/METAMETHODS.md).
 - **Runtime floor.** LuaJIT 2.1 backported almost all of the 3.0 syntax, so
   generated code is that syntax rather than a lowering of it, and the floor is
   2.1.1784535649. What 2.1 did not take — floor division, the named vararg —
@@ -153,10 +153,10 @@ and running the real subsystem rather than only its focused fixtures.
 - **Runtime protocols are trusted declarations.** `record X is Interface`
   includes a nominal contract and rebinds its declaration-scoped `self`;
   undeclared satisfaction remains structural. `metamethod __call: function`
-  and the other supported [metamethod contracts](METAMETHODS.md) type runtime
-  dispatch but emit no metatable setup. Ordinary Lua or a foreign registrar
-  fulfills the promise. Inline ordinary methods use `function name(...)` and
-  do emit onto the record or struct method namespace.
+  and the other supported [metamethod contracts](../docs/METAMETHODS.md) type
+  runtime dispatch but emit no metatable setup. Ordinary Lua or a foreign
+  registrar fulfills the promise. Inline ordinary methods use
+  `function name(...)` and do emit onto the record or struct method namespace.
 - **Declaration visibility and project linking.** A declaration says where it
   lives with the spelling Lua already uses for definitions: `local` keeps it
   to the file, a qualified name (`record models.User`) makes it a member of
@@ -172,14 +172,14 @@ and running the real subsystem rather than only its focused fixtures.
   afterwards. Global structs still add a loader side-effect edge, `.d.nupp`
   declaration files keep bare declarations as the interface they describe, and
   ordinary bare Lua assignments retain `_G` semantics. Written up with worked
-  examples in [MODULES.md](MODULES.md).
+  examples in [MODULES.md](../docs/MODULES.md).
 - **Lints are not type errors.** A type error says the program does not mean
   what it says it means: not configurable, not suppressible, always fatal. A
   lint says the program means something its author probably did not intend, so
   it carries a name, a category and a level (`off`/`note`/`warning`/`error`) a
   project moves in `nupp.lua` and a statement waves away with `@allow`. Only an
   error stops a build, and an editor may show a lint more quietly than a build
-  enforces it. See [LINTS.md](LINTS.md).
+  enforces it. See [LINTS.md](../docs/LINTS.md).
 - **Unions:** arbitrary member types are legal; narrowing is best-effort
   and succeeds exactly when members are runtime-distinguishable
   (`type()` tags, nominal identity, discriminant fields). Sum types are
@@ -196,7 +196,7 @@ and running the real subsystem rather than only its focused fixtures.
 
 ## Roadmap
 
-The working list, ordered by user impact, lives in **docs/TODO.md**. Tier 1 and
+The working list, ordered by user impact, lives in **plans/TODO.md**. Tier 1 and
 Tier 2 language baselines are landed: manifest builds, record/struct methods,
 generic nominals and upper bounds, structural and declared interface
 contracts, metamethod dispatch, literal/discriminant narrowing, enums,
@@ -521,7 +521,7 @@ never a black-box shim), named accordingly: `import-tl`.
 - Incrementality is asserted with compute counters, not wall clock.
 - Benchmarks are tracked (bench/reification.lua) as a regression fence.
 - The bootstrap fixpoint (`nupp fixpoint`) runs in CI once CI exists.
-- Full testing strategy and the formatter golden corpus: docs/TODO.md.
+- Full testing strategy and the formatter golden corpus: plans/TODO.md.
 
 ## Distribution
 

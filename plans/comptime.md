@@ -47,7 +47,7 @@ The following are deliberately outside this feature:
 Consequently, comptime will not materialize metamethod declarations produced
 by another dialect's macro system. `import-tl` must eject those as explicit
 contracts or visible translation residue; see
-[METAMETHODS.md](METAMETHODS.md#deliberate-exclusions).
+[METAMETHODS.md](../docs/METAMETHODS.md#deliberate-exclusions).
 
 If a transformation such as `@soa` proves valuable, it should be a separately
 specified, compiler-owned language feature. It must not be an escape hatch to

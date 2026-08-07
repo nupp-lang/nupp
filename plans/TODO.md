@@ -196,7 +196,7 @@ by how quickly a real user hits the gap. Milestone references are to
       assignment, arithmetic, concatenation, length, and comparison. Runtime
       fulfillment remains ordinary Lua. Inline ordinary methods use
       `function name(...) ... end`; nested nominal namespaces lower to nested
-      runtime values. See [METAMETHODS.md](METAMETHODS.md).
+      runtime values. See [METAMETHODS.md](../docs/METAMETHODS.md).
 - [ ] **Protocol-contract follow-ups.** The syntax and primary tecs use cases
       are landed; the remaining checks are deliberately visible:
   - [ ] enforce parsed `where` predicates rather than only preserving,
@@ -609,11 +609,12 @@ through idempotency and parse-stability in addition to exact match:
 - [x] **Annotations are typed, extensible metadata.** Records and structs
       annotated with `@annotation` define their members and semantic target
       limits; `@annotationValue` selects a canonical single-value spelling.
-      See [annotations.md](annotations.md). Undefined, misplaced, malformed,
-      and reserved annotations are errors rather than silently erased markers.
+      See [annotations.md](../docs/annotations.md). Undefined, misplaced,
+      malformed, and reserved annotations are errors rather than silently
+      erased markers.
 - [x] Every diagnostic carries a severity: `note` and `warning` are reported
       and stepped over, `error` stops the build. A lint additionally carries
-      `off`. See [LINTS.md](LINTS.md).
+      `off`. See [LINTS.md](../docs/LINTS.md).
 - [x] Lints are a registry separate from type errors — name, code, category,
       default level — so a level lives in one place and `nupp lints` cannot
       drift from what the checker does.
