@@ -644,7 +644,7 @@ end
 
 -- A record's namespace table is the metatable its instances are stamped with,
 -- so installing a declared contract is an ordinary assignment to it. The cast
--- is because the contract is not a field: see docs/METAMETHODS.md.
+-- is because the contract is not a field: see docs/metamethods.md.
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring =

@@ -375,7 +375,7 @@ function M.nestedScopesPropagateReturnAfterInnerCleanup()
    assertEq(calls, "io")
 end
 
--- The container-as-owner pattern documented in OWNERSHIP.md: `takes` moves
+-- The container-as-owner pattern documented in ownership.md: `takes` moves
 -- an element in, an `@owned` method moves one back out, and the container's
 -- own cleanup closes whatever is left.
 function M.owningContainersTransferElementsAcrossTheirBoundary()

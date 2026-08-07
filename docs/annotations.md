@@ -45,7 +45,7 @@ An annotation definition is registered project-wide under its own name, which
 is why it is written without a visibility: applications spell an unqualified
 `@name`, so the name has to be unique across the project and there is no table
 to reach it through. It is the one declaration exempt from
-[NUPP2119](MODULES.md) for that reason. Definitions and applications may live
+[NUPP2119](modules.md) for that reason. Definitions and applications may live
 in different files; no runtime import is required. The definition record itself
 and every application are erased from generated Lua.
 
@@ -156,7 +156,7 @@ annotated directly.
 | `@dispose` | Implemented | None | `function`, `c-function`, `field` |
 | `@noreturn` | Implemented | None | `function`, `c-function`, `local-binding` |
 
-`@allow(LINT, ...)` suppresses the named [lints](LINTS.md) while its statement
+`@allow(LINT, ...)` suppresses the named [lints](lints.md) while its statement
 is checked, taking either a lint name or its code. Bare `@allow` and `@allow()`
 suppress every lint in that statement. It reaches a lint at any level,
 including one a build would fail on, because a lint is a judgement a project
@@ -187,7 +187,7 @@ declaration is believed anyway so one mistake does not cascade.
 `@dispose` marks a consuming function, method, or interface field as a type's
 default disposal operation. A disposal contract must take its resource, and a
 bare `@owned` result is rejected unless exactly one default applies. See
-[Ownership and FFI safety](OWNERSHIP.md) for the complete model and examples.
+[Ownership and FFI safety](ownership.md) for the complete model and examples.
 
 `with` scopes use `@owned` producers with arbitrary return types; the returned
 type does not need to implement a cleanup interface. The annotation belongs to

@@ -6,7 +6,7 @@ nothing complains when nobody does. These are the same calls annotated as owners
 so the checker knows a handle must be discharged and a `with` scope can do it —
 on fallthrough, on error, and on structured control flow alike.
 
-See `docs/OWNERSHIP.md` and `docs/WITH.md`.
+See `docs/ownership.md` and `docs/with.md`.
 ]]
 
 local resources = {}

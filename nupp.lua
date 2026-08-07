@@ -131,17 +131,17 @@ return {
                {
                   path = "guide/build",
                   title = "Build system reference",
-                  source = "docs/BUILD.md",
+                  source = "docs/build.md",
                },
                {
                   path = "guide/modules",
                   title = "Module reference",
-                  source = "docs/MODULES.md",
+                  source = "docs/modules.md",
                },
                {
                   path = "guide/ownership",
                   title = "Ownership reference",
-                  source = "docs/OWNERSHIP.md",
+                  source = "docs/ownership.md",
                },
                {
                   path = "reference/annotations",
@@ -151,12 +151,12 @@ return {
                {
                   path = "reference/metamethods",
                   title = "Metamethods",
-                  source = "docs/METAMETHODS.md",
+                  source = "docs/metamethods.md",
                },
                {
                   path = "reference/lints",
                   title = "Lints",
-                  source = "docs/LINTS.md",
+                  source = "docs/lints.md",
                },
             },
          },

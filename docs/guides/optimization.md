@@ -8,7 +8,7 @@ compiler structurally cannot: costs paid before it ever sees the code, and
 information only a type checker has.
 
 The list is therefore short, deliberately, and grows only when a benchmark says
-a pass earns its place with the JIT enabled. `plans/OPTIMIZATIONS.md` records the
+a pass earns its place with the JIT enabled. `plans/optimizations.md` records the
 full catalog and the reasoning behind what is and is not on it.
 
 ## Levels
@@ -103,6 +103,36 @@ in the bug report you filed.
 
 The `-Z` prefix marks the spelling as unstable. It is a debugging aid, not an
 interface, and it may change or disappear.
+
+## What the compiler will not do for you
+
+Some waste is better removed from the source than worked around in the output.
+A function written inside a loop that does not use the iteration is built afresh
+every time round and is the same function every time:
+
+    for _, item in ipairs(items) do
+        register(item, |e| -> e.kind == "click")
+    end
+
+A compiler could cache that, and it would cost a stored slot, a branch on every
+evaluation, and the guarantee that two closures from one place are two objects —
+a great deal of machinery to avoid moving one line. So it does not. The
+`loop-invariant-closure` lint says so instead, and the fix leaves the source
+faster and clearer at once:
+
+    local isClick = |e| -> e.kind == "click"
+    for _, item in ipairs(items) do
+        register(item, isClick)
+    end
+
+Invariant means invariant for the innermost loop it sits in, so a function that
+uses the outer loop's variable is still reported inside the inner one; lifting it
+out of the inner loop is a real saving even though it cannot leave the outer.
+A loop that returns runs its body once, so a function built on the way out is not
+reported.
+
+Like every lint it has a level, and a statement that disagrees writes
+`@allow("loop-invariant-closure")`. See [lints](../../lints.md).
 
 ## What optimization does not change
 

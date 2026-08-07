@@ -28,7 +28,7 @@ project rather than the open documents.
 
 `documentSymbol`, `workspaceSymbol`, `goToImplementation` and the call
 hierarchy are not implemented yet and return a method-not-found error; see
-[PLAN.md](../../../../docs/PLAN.md#lsp-follow-up). The server also serves
+[plan.md](../../../../plans/plan.md#lsp-follow-up). The server also serves
 diagnostics, completion, signature help, rename, semantic tokens, formatting,
 and code actions, which that tool does not expose but an editor client does —
 see [editors/vscode](../../../vscode).

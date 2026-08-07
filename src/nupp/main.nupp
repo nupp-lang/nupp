@@ -122,7 +122,7 @@ Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See docs/OPTIMIZATIONS.md.
+mixing artifacts compiled at two different levels. See plans/optimizations.md.
 ]]
 
 HELP.clean = [[Remove build outputs configured in nupp.lua
@@ -149,7 +149,7 @@ project moves one in nupp.lua by name or by category:
 
   lints = { ["missing-require"] = "warning", pedantic = "warning" }
 
-A statement waves one away with @allow("missing-require"). See docs/LINTS.md.
+A statement waves one away with @allow("missing-require"). See docs/lints.md.
 
 Options:
   -h, --help       Show this help

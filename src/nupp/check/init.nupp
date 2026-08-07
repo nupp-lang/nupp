@@ -14,7 +14,7 @@ answered next door: what an expression's type is by `expr`, what a call means by
 owned value by `ownership`. Each of those is installed on the checker and reaches
 the run through it.
 
-Diagnostics carry stable `NUPP2xxx` codes; `docs/DIAGNOSTICS.md` is the
+Diagnostics carry stable `NUPP2xxx` codes; `docs/diagnostics.md` is the
 reference for their shape and their families.
 ]]
 
@@ -172,6 +172,15 @@ record checkMod.Checker
     --- Whether a `with` body has reached out of its own scope, per open scope.
     captureWatches: {any}
 
+    --- The loops open in the current function, innermost last, each carrying the scope
+    --- depth it binds at so a closure inside it can be told whether it depends on the
+    --- iteration or only on things that were already there.
+    loopStack: {any}
+
+    --- Set while a `return` statement's values are being checked. A loop that returns
+    --- runs its body once, so a function built there is built once.
+    inReturn: boolean
+
     --- The lint codes surrounding `@allow` pragmas have asked not to hear about.
     allowed: {any}
 
@@ -218,6 +227,20 @@ record checkMod.Checker
     pushScope: function()
 
     popScope: function()
+
+    --- Opens and closes a loop, so that a function written inside one can be asked
+    --- whether it depends on the iteration.
+    pushLoop: function()
+
+    popLoop: function()
+
+    --- Begins judging a function body written inside a loop, given the function depth
+    --- the loop would have been seen at. Answers nil when there is no such loop.
+    beginLoopClosure: function(enclosing: integer): any
+
+    --- Ends that judgement, reporting `loop-invariant-closure` when nothing the body
+    --- read came from the iteration.
+    endLoopClosure: function(watch: any, at: any)
 
     --- The type an annotation names.
     resolveType: function(node: Node?): Type
@@ -505,7 +528,8 @@ function checkMod.check(result, filename, env, opts)
         retStack = {}, ownReturnStack = {}, borrowReturnStack = {},
         disposerFieldStack = {}, validatedCleanupContracts = {},
         unsafeDepth = 0, functionDepth = 0,
-        captureWatches = {}, allowed = {}, hoisting = false,
+        captureWatches = {}, loopStack = {}, inReturn = false,
+        allowed = {}, hoisting = false,
         resolvingAlias = {}, lastCallRets = nil,
         moduleFields = {}, moduleFieldTokens = {}, moduleLocalAnnotated = false,
     }
@@ -604,6 +628,55 @@ function checkMod.check(result, filename, env, opts)
             pending = {}, parent = c.scope,
             depth = (c.scope and c.scope.depth or 0) + 1}
     end
+
+    -- A loop, remembered while its body is checked. The depth is the scope the loop
+    -- binds its variables in, which is also the scope its body extends, so anything at
+    -- or below it belongs to one iteration.
+    c.pushLoop = function()
+        c.loopStack[#c.loopStack + 1] =
+            {depth = c.scope.depth, functionDepth = c.functionDepth}
+    end
+    c.popLoop = function()
+        c.loopStack[#c.loopStack] = nil
+    end
+
+    -- Starts judging whether a function written inside a loop has to be written there.
+    -- Answers nil when there is no enclosing loop in this same function, which is the
+    -- common case and costs one comparison.
+    --
+    -- Call once the body's scope is pushed and its parameters are bound, so that a
+    -- reference to a parameter resolves inside the watch rather than through it.
+    -- `enclosing` is the function depth the loop would have been seen at, which the
+    -- caller knows and this cannot: `funcbody` has already counted itself, a short
+    -- function never does.
+    c.beginLoopClosure = function(enclosing: integer): any
+        if c.inReturn then return nil end
+        local loop = c.loopStack[#c.loopStack]
+        if not loop or loop.functionDepth ~= enclosing then return nil end
+        local watch = {depth = c.scope.depth, floor = loop.depth, captured = false}
+        c.captureWatches[#c.captureWatches + 1] = watch
+        return watch
+    end
+
+    -- Reports `loop-invariant-closure` when nothing the body read came from the
+    -- iteration. Such a function is the same function every time round, so the loop is
+    -- allocating one per iteration to no end, and lifting it above the loop says so in
+    -- the source rather than leaving a reader to notice.
+    c.endLoopClosure = function(watch, at)
+        if not watch then return end
+        for i = #c.captureWatches, 1, -1 do
+            if c.captureWatches[i] == watch then
+                table.remove(c.captureWatches, i)
+                break
+            end
+        end
+        if watch.captured then return end
+        c.diag("NUPP2505", at,
+            "this function is built once per iteration but does not use the "
+            .. "iteration, so every one of them is the same function",
+            nil,
+            {help = "declare it once above the loop and pass the name"})
+    end
     local function auditScope(s)
         for name, entry in pairs(s.vars or {}) do
             local state = entry.ownershipOrigin or entry
@@ -646,8 +719,15 @@ function checkMod.check(result, filename, env, opts)
             local v = s.vars[name]
             if v then
                 for i = #c.captureWatches, 1, -1 do
-                    if (s.depth or 0) < c.captureWatches[i].depth then
-                        c.captureWatches[i].captured = true
+                    -- A watch asks about the scopes between its floor and itself.
+                    -- `with` sets no floor and so hears about every outward
+                    -- resolution; a closure being judged for hoisting sets the
+                    -- floor at its loop, because a name that was already bound
+                    -- before the loop is the same name on every iteration.
+                    local watch = c.captureWatches[i]
+                    local at = s.depth or 0
+                    if at < watch.depth and at >= (watch.floor or 0) then
+                        watch.captured = true
                     end
                 end
                 return v

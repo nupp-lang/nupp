@@ -1,5 +1,5 @@
 -- Ownership lowering spike: measures the runtime cost of every way an NUPP
--- program can release a C allocation, before docs/WITH.md steps 5-7 commit to
+-- program can release a C allocation, before plans/with.md steps 5-7 commit to
 -- a lowering. Run: luajit bench/ownership.lua
 --
 -- The arms are hand-written compiler OUTPUT, the same approach reification.lua

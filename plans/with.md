@@ -1,6 +1,6 @@
 # Explicit resource scopes — design record
 
-The reference for using `with` is [docs/WITH.md](../docs/WITH.md). This file
+The reference for using `with` is [docs/with.md](../docs/with.md). This file
 records why it is shaped the way it is, what was rejected, and what is
 deferred.
 
@@ -663,7 +663,7 @@ single-region design:
 ## Historical implementation sequence
 
 The original V1 work landed in this order. Later ownership additions are
-documented in [OWNERSHIP.md](../docs/OWNERSHIP.md).
+documented in [ownership.md](../docs/ownership.md).
 
 1. Generalize `owned<T>` and `borrowed<T>` from pointer-shaped values to
    arbitrary values while retaining the stricter raw-pointer operations.

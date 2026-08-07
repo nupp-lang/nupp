@@ -15,14 +15,14 @@ resources are affine: `@owned(...)` records deterministic cleanup obligations,
 `pinned<T>` handles keep Lua-managed pointers alive across declared
 `retains`/`releases` C calls. Raw-pointer reconstruction is confined to
 explicit `unsafe do` blocks. See
-[docs/OWNERSHIP.md](docs/OWNERSHIP.md) and explicit
-[`with` resource scopes](docs/WITH.md). A
+[docs/ownership.md](docs/ownership.md) and explicit
+[`with` resource scopes](docs/with.md). A
 trace-aware checker (types that know what the JIT will compile) is on the
-roadmap ([plans/TODO.md](plans/TODO.md)).
+roadmap ([plans/todo.md](plans/todo.md)).
 
 Compiler and lint output includes stable codes, source spans, related
 locations, repair help, and structured fixes; see
-[docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md).
+[docs/diagnostics.md](docs/diagnostics.md).
 
 <img src="docs/public/images/nupp.png" alt="Nupp" width="460" align="center"/>
 
@@ -30,9 +30,9 @@ Status: pre-0.1, with the typed checker, incremental query core, C interop,
 and editor tooling under active development. The resource model also covers
 default `@dispose` operations, affine records, checked owned/borrowed C output
 parameters, parameter-effect inference, and raw coroutine suspension. See
-[docs/OWNERSHIP.md](docs/OWNERSHIP.md) for the complete contract reference,
-[docs/OWNERSHIP_MIGRATION.md](docs/OWNERSHIP_MIGRATION.md) for the vocabulary
-migration, and [plans/PLAN.md](plans/PLAN.md) for the broader roadmap.
+[docs/ownership.md](docs/ownership.md) for the complete contract reference,
+[docs/ownership-migration.md](docs/ownership-migration.md) for the vocabulary
+migration, and [plans/plan.md](plans/plan.md) for the broader roadmap.
 
     nupp ast [--json] <file>    dump an indented parsed syntax tree
     nupp check [file...]        check files, or the manifest project graph
@@ -87,12 +87,12 @@ A declaration that names none of the three is refused (NUPP2119): plain Lua
 would have made the name a global, so the same silence is not reused for a
 different meaning. Inside its own body a declaration answers to its simple
 name, so a recursive field reads `User?` rather than `models.User?`. See
-[docs/MODULES.md](docs/MODULES.md) for the full rules and worked examples.
+[docs/modules.md](docs/modules.md) for the full rules and worked examples.
 
 Records and interfaces can declare trusted metamethod contracts, bounded
 generic surfaces, and ordinary inline method bodies. Runtime metatable setup
 remains explicit Lua rather than compiler-generated behavior; see
-[docs/METAMETHODS.md](docs/METAMETHODS.md).
+[docs/metamethods.md](docs/metamethods.md).
 
 LuaJIT's soft-keyword `const` declaration is supported for immutable local
 bindings, including typed bindings and local functions:
@@ -129,7 +129,7 @@ producer and expose a borrow inside the body:
 
 Cleanup runs on fallthrough, errors, and structured control flow. Suspending a
 raw coroutine while the cleanup obligation is live is rejected because the
-coroutine may never resume. See [docs/WITH.md](docs/WITH.md) for ordering,
+coroutine may never resume. See [docs/with.md](docs/with.md) for ordering,
 failure, and lifetime rules.
 
 ## Profiling
@@ -180,10 +180,10 @@ backported syntax extensions. `./bin/nupp` checks and says which build is
 wanted, rather than letting a run fail on a line nobody wrote.
 
 The project build, C and Cargo dependency providers, cache behavior, and
-bootstrap workflow are documented in [docs/BUILD.md](docs/BUILD.md).
+bootstrap workflow are documented in [docs/build.md](docs/build.md).
 Metamethod contracts, `self`, contract inheritance, bounded generics, and
 inline record methods are documented in
-[docs/METAMETHODS.md](docs/METAMETHODS.md).
+[docs/metamethods.md](docs/metamethods.md).
 
 ## Documentation
 

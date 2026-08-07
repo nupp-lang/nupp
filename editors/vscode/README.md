@@ -27,7 +27,7 @@ Refactorings are offered wherever they apply, whether or not anything is wrong
 with the file: **Wrap in a 'with' scope** on an owned local, and **Unwrap
 'with' into explicit disposals** on a `with` statement. Neither is offered
 where the rewrite would change what the program does — see
-[docs/WITH.md](../../docs/WITH.md#editor-rewrites).
+[docs/with.md](../../docs/with.md#editor-rewrites).
 
 ## Development
 

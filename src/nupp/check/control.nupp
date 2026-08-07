@@ -37,7 +37,10 @@ function control.install(c: any): any
     handlers.returnStmt = function(stat: cst.ReturnStmt)
         local annotated = c.retStack[#c.retStack]
         local ts = {}
+        local wasReturning = c.inReturn
+        c.inReturn = true
         for j, e in ipairs(stat.exprs or {}) do ts[j] = c.infer(e) end
+        c.inReturn = wasReturning
         for j, valueT in ipairs(ts) do
             local borrowContract = j == 1
                 and c.borrowReturnStack[#c.borrowReturnStack] or nil
@@ -331,7 +334,9 @@ function control.install(c: any): any
             local facts = analyzeCond(cond)
             c.pushScope()
             applyFacts(facts.t)
+            c.pushLoop()
             c.checkBlock(stat.body, true)
+            c.popLoop()
             c.popScope()
         end
     end
@@ -339,7 +344,9 @@ function control.install(c: any): any
     handlers.repeatStmt = function(stat: cst.RepeatStmt)
         -- repeat scope extends over the until condition
         c.pushScope()
+        c.pushLoop()
         c.checkBlock(stat.body, true)
+        c.popLoop()
         if stat.cond then c.infer(stat.cond) end
         c.popScope()
     end
@@ -366,7 +373,9 @@ function control.install(c: any): any
         c.bindVar(var.text,
             (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number,
             false, var)
+        c.pushLoop()
         c.checkBlock(stat.body, true)
+        c.popLoop()
         c.popScope()
     end
 
@@ -386,7 +395,9 @@ function control.install(c: any): any
             end
             c.bindVar(nameTok.text, vt, false, nameTok)
         end
+        c.pushLoop()
         c.checkBlock(stat.body, true)
+        c.popLoop()
         c.popScope()
     end
 

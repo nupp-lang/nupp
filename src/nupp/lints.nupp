@@ -8,7 +8,7 @@ judgement, so it carries a level a project can move and a suppression a statemen
 can apply.
 
 A lint's level lives here and nowhere else, so changing a default is one edit and
-`nupp lints` cannot drift from what the checker does. See `docs/LINTS.md`.
+`nupp lints` cannot drift from what the checker does. See `docs/lints.md`.
 ]]
 
 local lints = {}
@@ -62,6 +62,11 @@ lints.all = {
         name = "customary-operator", code = "NUPP2504",
         category = "style", level = "warning",
         summary = "a customary operator where Lua has a word",
+    },
+    lints.Lint{
+        name = "loop-invariant-closure", code = "NUPP2505",
+        category = "suspicious", level = "warning",
+        summary = "a loop builds the same function every iteration",
     },
 }
 

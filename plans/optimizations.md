@@ -24,7 +24,7 @@ structurally cannot do:
   anything, and all statically known to nupp.
 - **NYI avoidance.** Falling off a trace costs more than any lookup a
   compiler could hoist. A checker that knows what the trace compiler
-  will do (plans/PLAN.md, §Vision) can rewrite or diagnose the
+  will do (plans/plan.md, §Vision) can rewrite or diagnose the
   constructs that abort recording.
 
 Every one of these depends on type and ownership information that only
@@ -67,7 +67,7 @@ Each entry is tagged with where its win lands:
 - `core` **Method devirtualization.** When the checker knows the
   receiver's type, `obj:m()` resolves to the defining table's field
   without walking `__index`. Note that a metamethod contract is trusted,
-  not verified (docs/METAMETHODS.md) — the checker is told how dispatch
+  not verified (docs/metamethods.md) — the checker is told how dispatch
   behaves but does not install it, so devirtualization inherits the
   contract's trust rather than proving anything.
 - `core` **Static module binding.** `require("x").y` resolved at compile
@@ -96,7 +96,7 @@ Each entry is tagged with where its win lands:
 - `core` **Scratch reuse.** An `ffi.new` inside a loop is hoisted and
   reused when ownership proves the value does not escape the iteration.
   This is what `@owned` and non-escaping borrows already establish
-  (docs/OWNERSHIP.md); the optimization is reading the analysis that the
+  (docs/ownership.md); the optimization is reading the analysis that the
   resource model computes anyway.
 - `core` **Table promotion.** A local table with a statically known,
   fixed field set that provably does not escape becomes cdata. Removes
@@ -147,7 +147,7 @@ Each entry is tagged with where its win lands:
 - `core` **Pin elision.** Drop `pinned<T>` machinery where the checker
   proves no GC point falls between the pin and the use.
 - `core` **`with`-scope pooling.** Deterministic reuse of `@owned`
-  resources across entries to the same scope (plans/WITH.md).
+  resources across entries to the same scope (plans/with.md).
 
 ### Trace awareness
 
@@ -179,7 +179,7 @@ unusual thing" is not available.
 ### Line attribution
 
 Codegen is line-count-invariant, which is what buys correct stack traces
-with no sourcemaps (plans/PLAN.md, §Pillars). The property optimizations
+with no sourcemaps (plans/plan.md, §Pillars). The property optimizations
 must preserve is narrower than the name suggests, and stating it
 precisely frees most of the catalog.
 
@@ -218,7 +218,7 @@ attribution exactly, with no map and no change to the toolchain.
 not on*, not *does this change the line count*. Only chain hoisting,
 module-scope import hoisting, and LICM answer yes. Their cost is
 bounded and describable — a hoisted read that throws reports the hoist
-site rather than the use site — and belongs in docs/DIAGNOSTICS.md as a
+site rather than the use site — and belongs in docs/diagnostics.md as a
 documented consequence of `-O2` rather than as a reason to build a map.
 
 **Inlining is a separate question.** Emitting a callee's body on the
@@ -248,7 +248,7 @@ correctly. The second is better and is more work.
 ### Metamethod contracts are trusted, not verified
 
 The checker knows how declared metamethods behave; it does not install
-them (docs/METAMETHODS.md). Any optimization keyed on a metamethod
+them (docs/metamethods.md). Any optimization keyed on a metamethod
 contract — devirtualization, treating a read as pure, assuming no
 `__index` — is sound only to the extent the contract is honored at
 runtime. This is acceptable and is the existing bargain, but it should
@@ -265,7 +265,7 @@ individual transformation being hard.
 
 Nearly every entry reduces to a single question: can this call observe
 or invalidate what I am about to cache. Parameter-effect inference
-(docs/OWNERSHIP.md) is the seed. It needs to carry reads, writes,
+(docs/ownership.md) is the seed. It needs to carry reads, writes,
 allocations, yields, and calls-to-unknown, propagated across the call
 graph, defaulting to the worst case for anything it cannot see. An
 effect system that is optimistic about unknown callees is worse than no
@@ -432,7 +432,7 @@ escapes has types that silently failed to do their job, and nothing
 tells them so.
 
 Report it as a diagnostic. The machinery exists: stable codes, spans,
-related locations, and repair help (docs/DIAGNOSTICS.md). A missed
+related locations, and repair help (docs/diagnostics.md). A missed
 optimization has exactly that shape — promotion did not fire here, the
 value escapes at this related location, and this is the change that
 would let it. Remarks stay off by default and are requested per

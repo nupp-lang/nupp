@@ -22,7 +22,7 @@ is the part Python's context managers and Java's try-with-resources do not
 have.
 
 The complete ownership model — `@owned`, `takes`, `borrows`, pins, raw
-pointers, affine records — is in [OWNERSHIP.md](OWNERSHIP.md). This page is
+pointers, affine records — is in [ownership.md](ownership.md). This page is
 about the scope construct itself: how it is written, what it does with the
 value, what order things happen in, and what happens when something fails.
 
@@ -229,7 +229,7 @@ captured by a coroutine. Moving the owner into the coroutine transfers the
 obligation instead, and then the coroutine has to account for it.
 
 This is the same rule the rest of the resource model applies to suspension;
-see [OWNERSHIP.md](OWNERSHIP.md#coroutines).
+see [ownership.md](ownership.md#coroutines).
 
 ## Cost
 
@@ -331,4 +331,4 @@ borrows stored in fields, ownership-preserving generic pass-throughs such as
 an ownership-aware `assert`, destructuring acquisition, and structured child
 coroutines borrowing from a parent scope are not part of it. The reasoning and
 the current state of each are recorded in
-[plans/WITH.md](../plans/WITH.md#open-questions).
+[plans/with.md](../plans/with.md#open-questions).

@@ -55,11 +55,11 @@ bug report or passed to `-Zno-opt`. See the
 
 The domain references describe `NUPP2xxx` diagnostics in context:
 
-- [modules and project names](MODULES.md#diagnostics);
-- [metamethods and contracts](METAMETHODS.md#diagnostics);
-- [ownership and unsafe operations](OWNERSHIP.md);
-- [`with` resource scopes](WITH.md#diagnostics);
-- [lints, configuration, and suppression](LINTS.md).
+- [modules and project names](modules.md#diagnostics);
+- [metamethods and contracts](metamethods.md#diagnostics);
+- [ownership and unsafe operations](ownership.md);
+- [`with` resource scopes](with.md#diagnostics);
+- [lints, configuration, and suppression](lints.md).
 
 ## Repairs
 

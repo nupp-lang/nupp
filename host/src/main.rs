@@ -5,7 +5,7 @@
 //! what makes a stub testable before anything has been stamped into it and
 //! usable while the thing that stamps is still being written.
 //!
-//! The container is specified in `docs/DISTRIBUTION.md`; this is its first
+//! The container is specified in `docs/distribution.md`; this is its first
 //! implementation, and deliberately its simplest.
 
 use sha2::{Digest, Sha256};

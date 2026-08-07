@@ -6,7 +6,7 @@ what it came from; a pinned handle pairs a pointer with the Lua anchor keeping i
 alive. Tracking that is a concern of its own: it asks where a value came from and
 what has already happened to it, not what type an expression has.
 
-See `docs/OWNERSHIP.md` and `docs/WITH.md`.
+See `docs/ownership.md` and `docs/with.md`.
 ]]
 
 local T = require("nupp.types")

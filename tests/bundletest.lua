@@ -2,7 +2,7 @@
 --
 -- The file is the deliverable on its own — it runs under a plain luajit with
 -- nothing beside it — and it is also the payload a stub carries, so what is
--- asserted here is what docs/DISTRIBUTION.md promises about payloads.
+-- asserted here is what docs/distribution.md promises about payloads.
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
    local p = assert(io.popen("pwd"))

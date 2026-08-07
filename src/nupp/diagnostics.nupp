@@ -6,7 +6,7 @@ The one place that turns a diagnostic into the conventional
 under it and a caret run marking the range. The CLI and the build both report
 through here, so a compiler error looks the same wherever it surfaced.
 
-See `docs/DIAGNOSTICS.md` for the shape of what is being rendered, and
+See `docs/diagnostics.md` for the shape of what is being rendered, and
 `nupp check --json` for the form meant for programs.
 ]]
 

@@ -489,6 +489,11 @@ local function runSymbols(client, opts)
     return true
 end
 
+-- Edits are applied back to front, so that applying one does not move the next.
+local function latestFirst(left, right)
+    return left.from > right.from
+end
+
 local function rewrittenFiles(client, rawChanges)
     local rewritten, previews, grouped, seen = {}, {}, {}, {}
     for uri, rawEdits in pairs(rawChanges or {}) do
@@ -516,7 +521,7 @@ local function rewrittenFiles(client, rawChanges)
                 oldText = source:sub(from, to - 1),
                 range = rangeValue(client, path, edit.range)}
         end
-        table.sort(edits, function(left, right) return left.from > right.from end)
+        table.sort(edits, latestFirst)
         local last = #source + 1
         local text = source
         for _, edit in ipairs(edits) do

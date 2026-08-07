@@ -7,7 +7,7 @@ Trusted metamethod contracts, declared interface inclusion, upper-bounded
 generics, declaration-scoped `self`, nested type namespaces, and inline
 record/struct methods are also landed. This file tracks what remains, ordered
 by how quickly a real user hits the gap. Milestone references are to
-[PLAN.md](PLAN.md).
+[plan.md](plan.md).
 
 ## P0 — self-hosting  ✅ untyped stage done
 
@@ -143,7 +143,7 @@ by how quickly a real user hits the gap. Milestone references are to
 - [x] **Runtime module loading.** A `package.loaders` hook compiles and loads
       required `.nupp` and `init.nupp` modules from project include roots,
       while preserving preload, plain Lua, C-module, cache, and cycle semantics.
-- [x] **Build system** (design in PLAN.md §Build system): `build`
+- [x] **Build system** (design in plan.md §Build system): `build`
       section in the `nupp.lua` manifest; `nupp build` with no args
       builds the project.
   - [x] the source set is what a build compiles: every module under the include
@@ -196,7 +196,7 @@ by how quickly a real user hits the gap. Milestone references are to
       assignment, arithmetic, concatenation, length, and comparison. Runtime
       fulfillment remains ordinary Lua. Inline ordinary methods use
       `function name(...) ... end`; nested nominal namespaces lower to nested
-      runtime values. See [METAMETHODS.md](../docs/METAMETHODS.md).
+      runtime values. See [metamethods.md](../docs/metamethods.md).
 - [ ] **Protocol-contract follow-ups.** The syntax and primary tecs use cases
       are landed; the remaining checks are deliberately visible:
   - [ ] enforce parsed `where` predicates rather than only preserving,
@@ -332,7 +332,7 @@ by how quickly a real user hits the gap. Milestone references are to
       understood rather than merely ignored. Cancelling work in flight needs
       input readable without blocking, which this loop does not have; that,
       graceful stale-request results and real multi-root sessions remain —
-      see [PLAN.md](PLAN.md#lsp-follow-up));
+      see [plan.md](plan.md#lsp-follow-up));
       doc comments as checked grammar
       (`@param` names verified, `[[Type]]` cross-refs resolved); docgen
       (static HTML plus a JSON output mode so external site generators
@@ -396,7 +396,7 @@ by how quickly a real user hits the gap. Milestone references are to
 - [ ] **M7:** ~~fixed arrays `T[N]`~~ (landed), struct unions/bitfields
       (tagged C union lowering), malloc-backed big arrays, `nupp-cargo`
       Rust helper, hot-reload typing.
-- [ ] **Dialect interop / `import-tl`** (design in PLAN.md §Dialect
+- [ ] **Dialect interop / `import-tl`** (design in plan.md §Dialect
       interop): declaration reader (.d.tl subset → interned types, wired
       into module resolution); source translator CLI (eject model,
       visible residue comments, `any` fallbacks); build-system `.tl`
@@ -614,7 +614,7 @@ through idempotency and parse-stability in addition to exact match:
       erased markers.
 - [x] Every diagnostic carries a severity: `note` and `warning` are reported
       and stepped over, `error` stops the build. A lint additionally carries
-      `off`. See [LINTS.md](../docs/LINTS.md).
+      `off`. See [lints.md](../docs/lints.md).
 - [x] Lints are a registry separate from type errors — name, code, category,
       default level — so a level lives in one place and `nupp lints` cannot
       drift from what the checker does.
@@ -637,7 +637,7 @@ through idempotency and parse-stability in addition to exact match:
 
 ## Explicit resource scopes
 
-- [x] Implement the [`with` design](WITH.md): generalize ownership to user
+- [x] Implement the [`with` design](with.md): generalize ownership to user
       values, consume owners into non-escaping resource scopes, preserve manual
       `dispose` and transfer, and lower one visible protected boundary per
       `with` rather than implicitly closing every owned local.
@@ -667,7 +667,7 @@ through idempotency and parse-stability in addition to exact match:
       checker, and LSP sessions; the remaining language-mode fields are
       unimplemented.
 - [ ] **Single-binary host:** vendor pinned LuaJIT and OpenResty
-      lua-cjson sources in the Rust host (PLAN.md §Distribution) once the
+      lua-cjson sources in the Rust host (plan.md §Distribution) once the
       toolchain surface stabilizes; releases require neither system
       LuaJIT nor a C-module search path.
   - [ ] register `cjson` and `cjson.safe` in `package.preload`

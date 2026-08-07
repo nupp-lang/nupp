@@ -39,14 +39,15 @@ than one switch:
 Every lint has a name and a stable code:
 
 ```
- name                  code       category      default
- ────────────────────  ─────────  ────────────  ───────
- missing-require       NUPP2120   correctness   error
- enum-exhaustiveness   NUPP2107   correctness   warning
- string-pointer        NUPP2501   suspicious    warning
- jit-callback          NUPP2502   suspicious    warning
- lossy-narrowing       NUPP2503   suspicious    warning
- customary-operator    NUPP2504   style         warning
+ name                     code       category      default
+ ───────────────────────  ─────────  ────────────  ───────
+ missing-require          NUPP2120   correctness   error
+ enum-exhaustiveness      NUPP2107   correctness   warning
+ string-pointer           NUPP2501   suspicious    warning
+ jit-callback             NUPP2502   suspicious    warning
+ lossy-narrowing          NUPP2503   suspicious    warning
+ customary-operator       NUPP2504   style         warning
+ loop-invariant-closure   NUPP2505   suspicious    warning
 ```
 
 The name is what you write in configuration and suppressions; the code is what
