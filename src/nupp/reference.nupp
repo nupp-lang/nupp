@@ -813,7 +813,6 @@ function reference.markdown(opts: {level: integer?}?): string
     out[#out + 1] = heading(base + 1, "Working with the toolchain")
     out[#out + 1] = ""
     out[#out + 1] = (reference.tooling:gsub("^%s+", ""):gsub("%s+$", ""))
-    out[#out + 1] = ""
     return table.concat(out, "\n")
 end
 

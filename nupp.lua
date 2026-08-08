@@ -324,6 +324,11 @@ return {
                   source = "docs/annotations.md",
                },
                {
+                  path = "reference/effects",
+                  title = "Effect contracts",
+                  source = "docs/effects.md",
+               },
+               {
                   path = "reference/lints",
                   title = "Lints",
                   source = "docs/lints.md",

@@ -36,6 +36,7 @@ end
 - [The type system](type-system/overview.md) — gradual typing, records,
   structs, interfaces, generics, and narrowing.
 - [Ownership](start/ownership.md) — resources that are hard to leak.
+- [Effect contracts](effects.md) — what calls may observe, change, or expose.
 - [Tooling](start/tooling.md) — the checker, build system, formatter, language
   server, documentation generator, and profiler.
 - [The language reference](reference.md) — every construct and the codes that

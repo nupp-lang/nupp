@@ -96,13 +96,13 @@ end
 The proof is more than replacing the iterator with `1, #xs`. The source literal
 proves the initial boundary; the alias analysis then checks structural writes
 through every known local alias across the containing function. Calls use
-pessimistic effect summaries, including captured-table effects and return
-aliases. An unknown call, an unresolved argument that may be mutated, a yield,
-a metatable effect, or a possible shape change keeps the original `ipairs`
-loop. The builtin itself is recognized by definition, not spelling, and its
-declaration is `const`, so a shadowed or replaceable `ipairs` is never
-rewritten. Neither `#t` nor the array type alone supplies the missing boundary
-proof.
+pessimistic [effect summaries](../effects.md), including captured-table effects
+and return aliases. An unknown call, an unresolved argument that may be
+mutated, a yield, a metatable effect, or a possible shape change keeps the
+original `ipairs` loop. The builtin itself is recognized by definition, not
+spelling, and its declaration is `const`, so a shadowed or replaceable `ipairs`
+is never rewritten. Neither `#t` nor the array type alone supplies the missing
+boundary proof.
 
 `bench/numeric-ipairs.lua` compares the exact generic and numeric shapes with
 the JIT enabled. Using a dynamic raw length was flat and sometimes slower after

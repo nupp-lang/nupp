@@ -216,13 +216,15 @@ cdef function fill(buffer: uint8*, count: uint64): integer
 ```
 
 The list members are `reads`, `writes`, `shapes`, `metatables`, `escapes`,
-`calls`, and `returns`. Their strings are paths rooted at a parameter name,
-`self`, `$capture`, or `$global`. Return aliases use `N=path`, such as
-`"1=value"`. The boolean members are `allocates`, `yields`, `raises`, and
-`external`. Every member defaults to empty or false, so `@effects()` means the
-function has no observable effects; it does not mean “infer these later.” An
-unknown call widens a visible function to unknown effects and therefore cannot
-be hidden by an empty contract.
+`calls`, and `returns`. The boolean members are `allocates`, `yields`,
+`raises`, and `external`. Every member defaults to empty or false, so
+`@effects()` means the function has no observable effects; it does not mean
+“infer these later.”
+
+See [Effect contracts](effects.md) for the path vocabulary, every member's
+meaning, inference and fixed-point propagation, return aliases, unknown-call
+behavior, trusted declarations, optimizer interaction, current limitations,
+and complete examples.
 
 ## Const declaration bindings
 
