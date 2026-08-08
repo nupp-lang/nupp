@@ -53,6 +53,9 @@ interface cst.Hints
     --- A checker-recognized call to the stable prelude `ipairs` binding.
     builtinIpairs: any
 
+    --- A call to a stable LuaJIT table builtin, lowered to one module-local binding.
+    tableIntrinsic: string?
+
     --- The optimizer's proof and selected lowering for a numeric array loop.
     numericIpairs: any
 

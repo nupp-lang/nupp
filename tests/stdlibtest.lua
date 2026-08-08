@@ -129,6 +129,8 @@ function M.tableLibrary()
    assertClean("local t: {number} = {}\ntable.insert(t, 5)")
    assertClean("local s: string = table.concat({'a', 'b'}, ',')")
    assertClean("local t = table.new(16, 0)")
+   assertClean("local t = table.new(16, 0)\ntable.clear(t)")
+   assertEq((diagsOf("table.clear = function() end")), "NUPP2009:1")
 end
 
 function M.stringBufferModule()

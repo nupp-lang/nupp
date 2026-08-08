@@ -252,6 +252,19 @@ function callexpr.install(c: any): any
         end
         local calleeT = callee and c.infer(callee) or T.any
         node.calleeType = rawType(calleeT)
+        -- LuaJIT exposes these functions through builtin modules rather than before
+        -- startup. Recognize the stable prelude path by definition, never by spelling:
+        -- a local named `table` remains an ordinary call.
+        local tableGlobal = c.env and c.env.globals and c.env.globals.table or nil
+        local tableBase = callee and callee.kind == "dotIndex" and callee.obj or nil
+        local tableToken = tableBase and tableBase.kind == "name"
+            and tableBase.token or nil
+        if node.kind == "call" and callee and callee.kind == "dotIndex"
+            and callee.immutablePath and tableToken and tableGlobal
+            and tableToken.definition == tableGlobal.definition
+            and (memberName == "new" or memberName == "clear") then
+            node.tableIntrinsic = memberName
+        end
         local knownAts = nil
         -- LuaJIT's pairs accepts every table, including nominal record instances.
         -- Preserve the precise map overload from the prelude, but use an erased

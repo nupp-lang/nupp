@@ -371,7 +371,7 @@ local string: {
 
 --- Table manipulation. These functions work on the array part of a table: the integer
 --- keys 1 through `#t`.
-local table: {
+const table: {
     --- Joins the elements `t[i]` through `t[j]`, each of which must be a string or a
     --- number, into a single string.
     ---
@@ -421,13 +421,13 @@ local table: {
     --- @param narray how many array slots to reserve
     --- @param nhash how many hash slots to reserve
     --- @return the new table
-    new: function(narray: number, nhash: number): table,
+    readonly new: function(narray: number, nhash: number): table,
 
     --- Removes every key from `t` while keeping the space it has already allocated, so
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    clear: function(t: table),
+    readonly clear: function(t: table),
 }
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua

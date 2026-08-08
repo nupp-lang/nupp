@@ -738,7 +738,7 @@ local function directImmutableCall(stat)
     end
     if call.ffiOutContracts or call.ffiIntrinsic or call.carrayElem
         or call.cheaderCdef or call.recordConstruct or call.ownershipIntrinsic
-        or call.cdefCall then
+        or call.cdefCall or call.tableIntrinsic then
         return nil
     end
     local callee = call.obj

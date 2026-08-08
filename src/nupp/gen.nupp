@@ -202,6 +202,8 @@ function gen.generate(result, filename)
     local needsArrayCache = false
     local needsLibs = false
     local needsNewTab = false
+    local needsClearTab = false
+    local newTabName, clearTabName
     local needsWith = false
     local withPackName, withIdName, withFailureName
     -- Generated `with` code calls library functions by name, so those names are bound
@@ -215,6 +217,25 @@ function gen.generate(result, filename)
     local withStack = {}
     local emitLoopDepth = 0
     local emitFunctionDepth = 0
+
+    local function reservedName(preferred)
+        if not usedNames[preferred] then
+            usedNames[preferred] = true
+            return preferred
+        end
+        return nextTemp()
+    end
+
+    local function tableIntrinsicName(name)
+        if name == "new" then
+            needsNewTab = true
+            newTabName = newTabName or reservedName("__nuppNew")
+            return newTabName
+        end
+        needsClearTab = true
+        clearTabName = clearTabName or reservedName("__nuppClear")
+        return clearTabName
+    end
 
     local function diag(tok, code, msg, help)
         diags[#diags + 1] = {code = code, msg = msg, filename = filename,
@@ -406,6 +427,13 @@ function gen.generate(result, filename)
         end
         if kind == "call" and x.staticCallee then
             e(x.staticCallee, sourceLine(x))
+            if x.args then
+                emit(x.args)
+            end
+            return
+        end
+        if kind == "call" and x.tableIntrinsic then
+            e(tableIntrinsicName(x.tableIntrinsic), sourceLine(x))
             if x.args then
                 emit(x.args)
             end
@@ -1534,8 +1562,8 @@ function gen.generate(result, filename)
             -- OPT-1: `{}` sized for the fields the optimizer counted. The call replaces
             -- the constructor where it stands, so the line it is attributed to does not
             -- move.
-            needsNewTab = true
-            e(("__nuppNew(%d,%d)"):format(x.presize.narr, x.presize.nhash),
+            local name = tableIntrinsicName("new")
+            e(("%s(%d,%d)"):format(name, x.presize.narr, x.presize.nhash),
                 sourceLine(x))
 
         elseif kind == "param" then
@@ -1611,8 +1639,13 @@ function gen.generate(result, filename)
             .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
             .. code
     end
+    if needsClearTab then
+        code = ("local %s = require(\"table.clear\"); "):format(clearTabName)
+            .. code
+    end
     if needsNewTab then
-        code = 'local __nuppNew = require("table.new"); ' .. code
+        code = ("local %s = require(\"table.new\"); "):format(newTabName)
+            .. code
     end
     if needsFfi then
         -- joins line 1 without adding a line (the invariant holds)
