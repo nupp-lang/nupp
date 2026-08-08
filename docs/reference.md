@@ -551,6 +551,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2106 | An exported declaration needs a type annotation |
 | NUPP2107 | An enum dispatch leaves members unhandled |
 | NUPP2119 | A declaration does not say where it lives |
+| NUPP2122 | A 'where' refinement is not checked |
 
 ## Working with the toolchain
 

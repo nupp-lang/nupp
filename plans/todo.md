@@ -646,19 +646,19 @@ through idempotency and parse-stability in addition to exact match:
       NUPP2002, NUPP2101, NUPP2108, NUPP2118, NUPP2120, NUPP2203, NUPP2504,
       NUPP2506, NUPP2603, NUPP2610 and NUPP2615: a reader is pointed at those
       having just met the construct, so they are worth the most per entry.
-- [ ] **`c.result` leaks into four diagnostic messages.** A rename went through
-      string literals: `bindings.nupp:393`, `control.nupp:63`,
-      `control.nupp:75` and `functions.nupp:356` all say `c.result` where they
-      mean `result`. It is user-visible text, so a test should pin the wording
-      once it is fixed.
-- [ ] **`jit-callback` (NUPP2502) is registered but never raised.** No call
-      site anywhere in the checker reports it, so `nupp lints` lists a lint
-      nobody can trigger. Either raise it where a C callback is left on the
-      JIT, or retire the row until the trace work needs it.
-- [ ] **`notes` is plumbed end to end but never populated.** The field is in the
-      diagnostic record, the text renderer, the JSON output and the LSP `data`
-      bag, and no compiler path sets it, so it is always empty. Either give it a
-      first user or drop it from the public shape.
+- [x] **A rename ran through string literals**, so four diagnostics named
+      `c.result` — an expression in the checker, not a word in the reader's
+      program. `diagnosticgoldentest` now reads the sources rather than the
+      output, because a message nothing exercises drifts the same way.
+- [x] **`jit-callback` (NUPP2502) raises.** It sat in the registry with no call
+      site, so `nupp lints` listed a lint nobody could trigger. It reports
+      inside `unsafe`, where casting a Lua function to a C callback is
+      permitted and the thing left to say is that the callback stays registered
+      and no trace compiles through it. Outside `unsafe` the error says enough.
+- [x] **`notes` has a first user.** A cleanup is a bare name resolved where the
+      owner is consumed, so a producer in another module naming a file-local
+      disposer reported at the use site with nothing to go on. The note gives
+      the rule the message cannot.
 
 ## Explicit resource scopes
 
@@ -708,37 +708,36 @@ through idempotency and parse-stability in addition to exact match:
 ## Documentation
 
 The site was restructured into Getting started, Type system, Tooling,
-Reference and the generated API. What that pass turned up and did not fix:
+Reference and the generated API. What that pass turned up:
 
-- [ ] **The tree is not `fmt`-clean.** `nupp fmt --check` lists 101 of 109
-      sources, mostly single-line `if ... then return end` the formatter wants
-      broken across lines. Either reformat the tree in one commit and keep it
-      clean in CI, or decide the formatter should leave a short `if` alone —
-      right now `nupp fmt` cannot be used as a gate on this repository.
-- [ ] **`where` parses, formats and highlights, but nothing checks it.** A
-      refinement clause on a declaration is accepted and ignored, so
-      `local record Odd where 1 + 1 == 3 ... end` reports nothing. Implement it
-      or reject it; documenting a clause that does nothing is worse than either.
-- [ ] **`nupp doc` takes neither `--json` nor `--schema`**, which every other
-      command producing data now does. It reports what it wrote as prose only.
-- [ ] **`nupp import-c`'s usage line is out of date with its own options.** It
-      reads `[-o FILE] [-l NAME|--lib NAME] <header.h>` while the command also
-      accepts `--format`, `--json`, `--text` and `--schema`.
-- [ ] **`EDITOR_ADVICE` is duplicated**, in `lsp/diagnostics.nupp:26` and
-      `lsp/init.nupp:94`. Two copies of a severity override is one too many.
-- [ ] **The Claude Code plugin README is wrong.** It says `documentSymbol` and
-      `workspaceSymbol` "are not implemented yet and return a method-not-found
-      error"; both are implemented and advertised. Only `goToImplementation` and
-      the call hierarchy are genuinely absent.
-- [ ] **`docs/ownership-migration.md` is unpublished and finished.** It
-      describes a rename that completed — `consumes` → `takes`, `into_raw` →
-      `intoRaw` — and no route points at it. Fold anything still useful into
-      [ownership.md](../docs/ownership.md) and delete it, or publish it as a
-      changelog entry.
-- [ ] `nupp.std.resources` has no test coverage. It is the entry example in
-      [with.md](../docs/with.md) and the standard owning wrapper for
-      `LuaFile`, and nothing exercises `open_file`, `open_process`, or
-      `temporary_file`.
+- [x] `where` is rejected rather than ignored. It parses, formats, and reaches
+      a rendered signature, and no checker code reads the expression, so a
+      declaration stating a constraint got none. NUPP2122 says so. Implementing
+      it is still open, and would replace that diagnostic.
+- [x] `nupp doc` answers in JSON and describes what it answers, which was the
+      last command producing data without either.
+- [x] Usage lines name `--format` wherever the command takes it.
+- [x] `EDITOR_ADVICE` and `PROTOCOL_SEVERITY` exist once.
+- [x] The Claude Code plugin README no longer claims `documentSymbol` and
+      `workspaceSymbol` are unimplemented.
+- [x] `docs/ownership-migration.md` is gone; the rename it described finished.
+- [ ] **The tree is not `fmt`-clean, and it is not obvious which side is
+      wrong.** `nupp fmt --check` lists 101 of 109 sources, almost entirely
+      single-line `if ... then return end`, which the compiler is written in
+      throughout and which the formatter breaks across lines by a rule its own
+      source calls deliberate. So either the house style or the rule has to
+      give, and it is a taste decision rather than a defect.
+
+      Reformatting is not a free mechanical pass, which is the part worth
+      knowing before starting: generated Lua preserves the source line count,
+      so moving a statement to a new line changes every artifact the compiler
+      emits, which changes the compiler's own build, which means
+      `fixpoint --update-bootstrap` and a new tracked `bootstrap/nupp.lua` in
+      the same commit. Until it is settled, `nupp fmt` cannot gate this
+      repository.
+- [ ] `nupp.std.resources` has no test coverage, and cannot get any until
+      `@owned` survives a qualified function name — every wrapper is a module
+      member, so nothing can acquire one. Blocked on the entry above.
 
 ## Housekeeping
 
