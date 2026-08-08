@@ -95,7 +95,7 @@ alongside:
  lua-cjson            linked into the stub         --json and the LSP
  LPeg, luautf8        linked into the stub         nupp doc's renderer
  lunamark             in the payload               nupp doc's markdown
- Scintillua (44)      in the payload               highlighting fences
+ Scintillua (45)      in the payload               highlighting fences
 ```
 
 The lexers are a chosen set rather than all hundred and sixty Scintillua

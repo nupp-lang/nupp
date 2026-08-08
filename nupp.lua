@@ -12,8 +12,9 @@
 -- leaving one out breaks the lexer that wanted it rather than only itself.
 local LEXERS = {
    "lexer", "awk", "bash", "batch", "c", "clojure", "cmake", "coffeescript",
-   "cpp", "csharp", "css", "diff", "dockerfile", "elixir", "erlang", "go",
-   "haskell", "html", "ini", "java", "javascript", "json", "julia", "latex",
+   "cpp", "csharp", "css", "diff", "dockerfile", "elixir", "erlang", "fish",
+   "go", "haskell", "html", "ini", "java", "javascript", "json", "julia",
+   "latex",
    "lua", "makefile", "markdown", "nim", "perl", "php", "powershell", "python",
    "r", "ruby", "rust", "scala", "sql", "swift", "text", "toml", "typescript",
    "xml", "yaml", "zig",
