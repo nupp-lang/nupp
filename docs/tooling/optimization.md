@@ -167,14 +167,14 @@ end
 
 #### Nested immutable paths
 
-`const M.field` fixes one named slot. A `const` field inside its fresh table
-fixes that edge; ordinary fields remain mutable. `const... M.field` is the
+`const M = {}` fixes the module-table binding, not the table. `const M.field`
+fixes one named slot; ordinary fields remain mutable. `const... M.field` is the
 auto-deep form for every named field in a fresh table graph.
 
 ::: code-group
 ```nupp [Original Nupp]
 -- settings.nupp
-local M = {}
+const M = {}
 const M.mixed = {
     const NAME = "nupp",
     count = 0,
@@ -192,7 +192,7 @@ print(Settings.mixed.NAME, Settings.mixed.count,
 
 ```lua [Optimized Lua]
 -- settings.lua
-local M = {}
+const M = {}
 M.mixed = {NAME = "nupp", count = 0}
 M.deep = {nested = {VERSION = 1}}
 return M
@@ -204,7 +204,7 @@ print("nupp", Settings.mixed.count, 1)
 
 ```lua [Unoptimized Lua]
 -- settings.lua
-local M = {}
+const M = {}
 M.mixed = {NAME = "nupp", count = 0}
 M.deep = {nested = {VERSION = 1}}
 return M
