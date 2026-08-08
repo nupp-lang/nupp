@@ -331,7 +331,14 @@ function bindings.install(c: any): any
                     and (target.containerTag == "array"
                     or target.containerTag == "map"
                     or target.containerIsSequence)
-                if et and tt and tt ~= T.any and not removing
+                if et and tt and target.metamethodName then
+                    -- The name is a contract the receiver declared, so this
+                    -- assignment is the installation that fulfils it and the
+                    -- contract is what the value answers to.
+                    c.checkMetamethodValue(written or stat,
+                        target.metamethodName, et, tt,
+                        target.metamethodReceiver)
+                elseif et and tt and tt ~= T.any and not removing
                     and not contractWrite then
                     local ok, why = isA(et, tt)
                     if not ok then

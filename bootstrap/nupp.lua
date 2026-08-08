@@ -7558,7 +7558,14 @@ and target . kind == "bracketIndex"
 and ( target . containerTag == "array"
 or target . containerTag == "map"
 or target . containerIsSequence )
-if et and tt and tt ~= T . any and not removing
+if et and tt and target . metamethodName then
+
+
+
+c . checkMetamethodValue ( written or stat ,
+target . metamethodName , et , tt ,
+target . metamethodReceiver )
+elseif et and tt and tt ~= T . any and not removing
 and not contractWrite then
 local ok , why = isA ( et , tt )
 if not ok then
@@ -8213,6 +8220,23 @@ for name in pairs ( members or { } ) do names [ name ] = true end
 elseif t == T . string and c . env and c . env . stringLib
 and c . env . stringLib . tag == "shape" then
 for name in pairs ( c . env . stringLib . byname ) do names [ name ] = true end
+end
+return names
+end
+
+
+
+c . metamethodNames = function ( t )
+t = rawType ( t )
+if t . tag == "ptr" then
+return c . metamethodNames ( t . elem )
+end
+if t . tag == "typevar" and t . bound then
+return c . metamethodNames ( t . bound )
+end
+local names = { }
+if t . tag == "nominal" then
+for name in pairs ( t . metamethods or { } ) do names [ name ] = true end
 end
 return names
 end
@@ -12090,6 +12114,20 @@ c . diag ( "NUPP2009" , member ,
 or "read through a view that grants read access" } )
 return T . any
 end
+
+
+
+
+local contract = c . metamethodOf ( base , memberName )
+if contract then
+node . metamethodName = memberName
+node . metamethodReceiver = base
+c . markToken ( member , nil , contract , "property" )
+local installed = kind == "safeIndex"
+and T . optional ( contract ) or contract
+node . resolvedType = installed
+return installed
+end
 local contractName = writing and "__newindex" or "__index"
 local mm = c . metamethodOf ( base , contractName )
 if mm then
@@ -12109,9 +12147,18 @@ return exported
 end
 local fixes = c . edits . nameSpellingFix ( member ,
 c . fieldNames ( base , writing ) )
+
+
+
+local contracted = memberName : sub ( 1 , 2 ) == "__"
+if not fixes and contracted then
+fixes = c . edits . spellingFix ( member , c . metamethodNames ( base ) )
+end
 c . diag ( "NUPP2004" , member , ( "no field %q in %s" )
 : format ( memberName , T . tostring ( base ) ) , fixes ,
-{ help = fixes and "use the suggested field spelling"
+{ help = fixes and ( contracted
+and "use the suggested contract spelling"
+or "use the suggested field spelling" )
 or "check the receiver type and available fields" } )
 return T . any
 end
@@ -18764,6 +18811,14 @@ package.preload["nupp.cst"] = function(...)
 local lexer = require ( "nupp.lexer" )
 
 local cst = { }
+
+
+
+
+
+
+
+
 
 
 

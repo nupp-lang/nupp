@@ -190,6 +190,23 @@ function calls.install(c: any): any
         return names
     end
 
+    -- The names a receiver contracts for, so a misspelled installation on its own
+    -- table can be told from a field that is simply not there.
+    c.metamethodNames = function(t)
+        t = rawType(t)
+        if t.tag == "ptr" then
+            return c.metamethodNames(t.elem)
+        end
+        if t.tag == "typevar" and t.bound then
+            return c.metamethodNames(t.bound)
+        end
+        local names = {}
+        if t.tag == "nominal" then
+            for name in pairs(t.metamethods or {}) do names[name] = true end
+        end
+        return names
+    end
+
     function ops.metamethodOf(t, name)
         t = rawType(t)
         if t.tag == "typevar" and t.bound then

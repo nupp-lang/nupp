@@ -137,6 +137,20 @@ function index.install(c: any): any
                     or "read through a view that grants read access"})
                 return T.any
             end
+            -- A record's runtime table is the metatable its instances carry, so a
+            -- declared metamethod is a name on it and installing one is written the way
+            -- it reads. Asked before the index contract, which says what happens to the
+            -- names the declaration does not have.
+            local contract = c.metamethodOf(base, memberName)
+            if contract then
+                node.metamethodName = memberName
+                node.metamethodReceiver = base
+                c.markToken(member, nil, contract, "property")
+                local installed = kind == "safeIndex"
+                    and T.optional(contract) or contract
+                node.resolvedType = installed
+                return installed
+            end
             local contractName = writing and "__newindex" or "__index"
             local mm = c.metamethodOf(base, contractName)
             if mm then
@@ -156,9 +170,18 @@ function index.install(c: any): any
             end
             local fixes = c.edits.nameSpellingFix(member,
                 c.fieldNames(base, writing))
+            -- A double-underscore name is reaching for a contract rather than a field,
+            -- so it is spelled against the ones the receiver declares. Without this the
+            -- misspelling and the absence read alike.
+            local contracted = memberName:sub(1, 2) == "__"
+            if not fixes and contracted then
+                fixes = c.edits.spellingFix(member, c.metamethodNames(base))
+            end
             c.diag("NUPP2004", member, ("no field %q in %s")
                 :format(memberName, T.tostring(base)), fixes,
-                {help = fixes and "use the suggested field spelling"
+                {help = fixes and (contracted
+                and "use the suggested contract spelling"
+                or "use the suggested field spelling")
                 or "check the receiver type and available fields"})
             return T.any
         end

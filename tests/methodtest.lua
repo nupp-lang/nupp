@@ -714,6 +714,29 @@ function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
       "NUPP2118:3")
 end
 
+-- A record's runtime table is the metatable its instances carry, so writing a
+-- declared metamethod on it is how a contract is fulfilled. It used to be
+-- refused as a missing field, with the same message a typo got.
+function M.aContractIsInstalledOnTheRecordsOwnTable()
+   local i64 = table.concat({
+      "local record I64",
+      "   v: integer",
+      "   metamethod __tostring: function(self): string",
+      "end",
+   }, "\n")
+   assertEq(run(i64 .. table.concat({
+      "",
+      "I64.__tostring = function(self: I64): string",
+      "   return 'I64(' .. tostring(self.v) .. ')'",
+      "end",
+      "return tostring(new I64 {v = 7})",
+   }, "\n")), "I64(7)")
+   -- the value is held to the contract it fulfils
+   assertEq(diagsOf(i64 .. "\nI64.__tostring = 42"), "NUPP2123:5")
+   -- and a misspelled one is still absent, now with the spelling to reach for
+   assertEq(diagsOf(i64 .. "\nI64.__totring = tostring"), "NUPP2004:5")
+end
+
 -- A `metatable<T>` annotation says whose metatable it is as readily as a
 -- parameter does, so the literal under one is held to the same rules wherever
 -- it is written.
