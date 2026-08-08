@@ -4,6 +4,7 @@
 -- is now one declaration parsed by one loop, so the cases that used to be
 -- spread across thirteen hand-written loops are worth stating once, here.
 local spec = require("nupp.cli.spec")
+local sharedOptions = require("nupp.cli.options")
 local ansi = require("nupp.ansi")
 local cli = require("nupp.cli")
 
@@ -119,6 +120,20 @@ function M.anAttachedOnlyOptionRefusesItsBareForm()
       "the bare form is refused rather than eating the next argument")
    local disabled = parse({"-Zno-opt=a", "-Zno-opt=b"}).disabled
    assert(disabled.a and disabled.b, "repeats accumulate into a set")
+end
+
+function M.optimizerRelaxationsAreRepeatableAndClosed()
+   local command = spec.command{
+      name = "opt", summary = "optimizer", usage = {"nupp opt"},
+      options = sharedOptions.optimize(),
+   }
+   local parsed = assert(command:parse({
+      "--relax=frames", "--relax=function-identity",
+   }))
+   assert(parsed.values.relaxed.frames, "records frames")
+   assert(parsed.values.relaxed["function-identity"], "records identity")
+   local invalid, err = command:parse({"--relax=magic"})
+   assert(invalid == nil and err:find("expected", 1, true), tostring(err))
 end
 
 function M.theLiteralTerminatorEndsOptionParsing()

@@ -392,6 +392,22 @@ function control.install(c: any): any
             local t = c.infer(e)
             if j == 1 then iterT = t end
         end
+        local iterator = stat.exprs and stat.exprs[1]
+        local callee = iterator and iterator.kind == "call" and iterator.obj or nil
+        local calleeTok = callee and callee.kind == "name" and callee.token or nil
+        local global = c.env and c.env.globals and c.env.globals.ipairs or nil
+        local args = nil
+        if iterator and iterator.kind == "call" then args = iterator.args end
+        local operands = args and args.kind == "args" and args.exprs or {}
+        local operand = #operands == 1 and operands[1] or nil
+        local operandType = operand and c.refType(operand) or nil
+        if calleeTok and calleeTok.text == "ipairs" and global
+            and calleeTok.definition == global.definition and operand
+            and global.definition and global.definition.stable
+            and operand.kind == "name" and operandType
+            and operandType.tag == "array" then
+            stat.builtinIpairs = {operand = operand, type = operandType}
+        end
         c.pushScope()
         for j, nameTok in ipairs(stat.names) do
             local vt = T.any

@@ -24,6 +24,26 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- A complete `@effects` contract, normalized by the checker.
+    effectContract: any
+
+    --- Whether `@stable` promises a bodyless exported binding stays unchanged.
+    stableContract: boolean?
+
+    --- Observable guarantees an optimization may change at this declaration.
+    relaxedGuarantees: any
+
+    --- Conservative effect facts inferred for a visible function body.
+    effectSummary: any
+
+    --- A checker-recognized call to the stable prelude `ipairs` binding.
+    builtinIpairs: any
+
+    --- The optimizer's proof and selected lowering for a numeric array loop.
+    numericIpairs: any
+    numericIpairsProof: any
+    numericIpairsDeclined: any
+
     --- The runtime name of a reified struct's ctype.
     reified: string?
 

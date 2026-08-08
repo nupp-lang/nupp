@@ -91,6 +91,7 @@ local function run(parsed: any): integer
         local code = project.build(".", {outDir = projectOutDir, target = target,
             strict = settings.strict, optLevel = settings.optLevel,
             remarks = settings.remarks, disabled = settings.disabled,
+            relaxed = settings.relaxed,
             diagnostics = asJson and diagnostics or nil,
             produced = asJson and produced or nil})
         return finish(code, produced.target, produced.outputs or {})

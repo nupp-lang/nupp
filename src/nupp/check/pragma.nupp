@@ -29,6 +29,63 @@ function pragma.install(c: any): any
     local stringValue = marks.stringValue
 
     local handlers = {}
+    local RELAXATIONS = {
+        ["function-identity"] = true, ["load-order"] = true,
+        ["error-site"] = true, frames = true, ["gc-timing"] = true,
+        ["table-order"] = true,
+    }
+
+    local function effectContract(application)
+        local listMembers = {
+            reads = true, writes = true, shapes = true, metatables = true,
+            escapes = true, calls = true, returns = true,
+        }
+        local boolMembers = {
+            allocates = true, yields = true, raises = true, external = true,
+        }
+        local contract = {
+            reads = {}, writes = {}, shapes = {}, metatables = {},
+            escapes = {}, calls = {}, returns = {},
+            allocates = false, yields = false, raises = false, external = false,
+        }
+        local seen = {}
+        for _, arg in ipairs(application.annotationArgs or {}) do
+            local name = arg.name and arg.name.text or nil
+            if not name or seen[name] or not (listMembers[name] or boolMembers[name]) then
+                c.diag("NUPP2112", arg,
+                    "@effects arguments must be unique named effect members")
+            elseif listMembers[name] then
+                seen[name] = true
+                local expr = arg.expr
+                if not expr or expr.kind ~= "tableExpr" then
+                    c.diag("NUPP2112", arg,
+                        ("@effects.%s must be an array of strings"):format(name))
+                else
+                    for _, field in ipairs(expr.fields or {}) do
+                        local value = field.kind == "fieldItem"
+                            and stringValue(field.value) or nil
+                        if not value then
+                            c.diag("NUPP2112", field,
+                                ("@effects.%s entries must be strings"):format(name))
+                        else
+                            contract[name][#contract[name] + 1] = value
+                        end
+                    end
+                end
+            else
+                seen[name] = true
+                local expr = arg.expr
+                if not expr or (expr.kind ~= "trueExpr"
+                    and expr.kind ~= "falseExpr") then
+                    c.diag("NUPP2112", arg,
+                        ("@effects.%s must be true or false"):format(name))
+                else
+                    contract[name] = expr.kind == "trueExpr"
+                end
+            end
+        end
+        return contract
+    end
 
     handlers.pragmaStmt = function(stat: cst.PragmaStmt)
         local annotationName = stat.name
@@ -64,6 +121,67 @@ function pragma.install(c: any): any
             if valid and target and targetKind == "recordDecl" then
                 defineAnnotation(stat, target)
             end
+            return
+        end
+
+        if written == "effects" then
+            if valid and target then
+                local contract = effectContract(stat)
+                target.effectContract = contract
+                if targetBody then targetBody.effectContract = contract end
+            end
+            if stat.stat then c.checkStat(stat.stat) end
+            if valid and target and target.kind == "localStmt"
+                and target.effectContract then
+                for _, name in ipairs(target.names or {}) do
+                    if name.definition then
+                        name.definition.effectContract = target.effectContract
+                    end
+                end
+            end
+            return
+        end
+
+        if written == "stable" then
+            if not c.declarationFile then
+                c.diag("NUPP2112", stat,
+                    "@stable is for bodyless declaration surfaces; visible Nupp "
+                    .. "bindings are analyzed directly")
+            elseif target and target.kind == "localStmt"
+                and #(target.exprs or {}) > 0 then
+                c.diag("NUPP2112", stat,
+                    "@stable requires a bodyless declaration binding")
+            elseif valid and target and target.kind == "localStmt" then
+                target.stableContract = true
+            end
+            if stat.stat then c.checkStat(stat.stat) end
+            if target and target.kind == "localStmt" and target.stableContract then
+                for _, name in ipairs(target.names or {}) do
+                    if name.definition then name.definition.stable = true end
+                end
+            end
+            return
+        end
+
+        if written == "relax" then
+            local relaxed = {}
+            for _, arg in ipairs(stat.annotationArgs or {}) do
+                local expr = arg.expr
+                local value = expr and expr.kind == "name" and expr.token.text
+                    or stringValue(expr)
+                if not value or not RELAXATIONS[value] then
+                    c.diag("NUPP2112", arg,
+                        "@relax names function-identity, load-order, error-site, "
+                        .. "frames, gc-timing, or table-order")
+                else
+                    relaxed[value] = true
+                end
+            end
+            if valid and target then
+                target.relaxedGuarantees = relaxed
+                if targetBody then targetBody.relaxedGuarantees = relaxed end
+            end
+            if stat.stat then c.checkStat(stat.stat) end
             return
         end
 

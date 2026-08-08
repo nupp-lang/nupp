@@ -101,9 +101,11 @@ target's output directory. They are different options, and using one in the
 other's mode is an error.
 
 `-O0` is the default and performs no rewrite at all. `-O1` and `-O2` currently
-run the same single pass. `--remarks` reports what the optimizer did and what
+run the same two passes. `--remarks` reports what the optimizer did and what
 it declined to do; `-Zno-opt=CODE` turns off one pass by its stable code, and
-the `-Z` prefix marks that spelling as unstable.
+the `-Z` prefix marks that spelling as unstable. Repeatable
+`--relax=GUARANTEE` flags opt in to a named observable tradeoff; no current
+pass requires one.
 
 `--json` reports the diagnostics, the target, and every path written, so one
 call says both what failed and what landed.

@@ -460,6 +460,13 @@ Applications spell an unqualified `@name`, so a definition is registered
 project-wide and is the one declaration exempt from the visibility rule. Both the
 definition and every application are erased from the generated Lua.
 
+Built-in contracts use the same surface. `@effects` is a complete effect
+summary: visible bodies are checked against it and bodyless declarations are
+trusted. `@stable` is the exceptional shallow identity promise for a bodyless
+binding in a `.d.nupp`; ordinary modules are analyzed and cannot apply it.
+`@relax` records a closed set of observable guarantees an optimization may
+change, locally to one function.
+
 ```nupp
 local m = {}
 

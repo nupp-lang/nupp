@@ -175,11 +175,12 @@ target settings, and dependency inputs. Generated files are rewritten only
 when their content changes. A missing or malformed state file causes a cold
 build.
 
-The optimization level is one of those keys. `nupp build -O2` reaches the
-configuration before it is hashed, so changing the level invalidates every
-artifact built at the old one rather than leaving a project half compiled at
-each. Switching levels therefore costs a cold build, and cannot produce a
-mixture. `-O0` is the default and performs no rewrite; see the
+The optimization level and the set of `--relax` guarantees are among those
+keys. `nupp build -O2` reaches the configuration before it is hashed, so
+changing either invalidates every artifact built with the old optimizer
+contract rather than leaving a project half compiled under each. Switching
+therefore costs a cold build, and cannot produce a mixture. `-O0` is the
+default and performs no rewrite; see the
 [optimization guide](optimization.md).
 
 Warm builds reuse checked module records and generated Lua across processes.

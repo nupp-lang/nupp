@@ -221,6 +221,10 @@ function bindings.install(c: any): any
                     c.diag("NUPP2008", target,
                         ("cannot assign to const variable %s")
                         :format(targetName))
+                elseif entry and entry.definition and entry.definition.stable then
+                    c.diag("NUPP2112", target,
+                        ("cannot assign to @stable binding %s")
+                        :format(targetName))
                 elseif entry and entry.withBinding then
                     c.diag("NUPP2613", target,
                         ("cannot assign to 'with' binding %q")

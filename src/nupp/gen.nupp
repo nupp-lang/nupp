@@ -1095,6 +1095,33 @@ function gen.generate(result, filename)
             ctx.gotos[x.name.text] = true
             e(("return %q"):format("goto:" .. x.name.text), sourceLine(x))
 
+        elseif kind == "forinStmt" and x.numericIpairs then
+            local holder, index = nextTemp(), nextTemp()
+            local operand = x.numericIpairs.operand
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or sourceLine(x)
+            e(("do local %s="):format(holder), line)
+            emit(operand)
+            e((";for %s=1,%d do"):format(index, x.numericIpairs.length))
+            local names = x.names or {}
+            if names[1] then e(("local %s=%s;"):format(names[1].text, index)) end
+            if names[2] then
+                e(("local %s=%s[%s];"):format(names[2].text, holder, index))
+            end
+            for j = 3, #names do e(("local %s=nil;"):format(names[j].text)) end
+            emitLoopDepth = emitLoopDepth + 1
+            if x.body then emit(x.body) end
+            emitLoopDepth = emitLoopDepth - 1
+            local endTok
+            for j = #x, 1, -1 do
+                local child = x[j]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end end", endTok and endTok.line or nil)
+
         elseif kind == "whileStmt" or kind == "fornumStmt"
             or kind == "forinStmt" or kind == "repeatStmt" then
             for _, child in ipairs(x) do

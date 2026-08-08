@@ -1,0 +1,816 @@
+--[[
+Conservative effect and alias facts for optimization.
+
+The lattice is intentionally one-sided: a fact may widen to `top`, but an
+unknown operation never becomes harmless. Function summaries are expressed in
+parameter-rooted paths so a direct call can substitute its arguments. Alias
+classes are flow-insensitive within one body; that loses opportunities after a
+reassignment, but cannot manufacture a proof.
+
+This first consumer is numeric `ipairs` lowering. The public summary shape is
+kept independent of that pass so escape analysis and other optimizations can
+reuse it without teaching the optimizer how calls work.
+]]
+
+local cst = require("nupp.cst")
+
+local analysis = {}
+
+local LISTS = {"reads", "writes", "shapes", "metatables", "escapes", "calls"}
+local FLAGS = {"allocates", "yields", "raises", "external"}
+
+local function setOf(values)
+    local out = {}
+    for _, value in ipairs(values or {}) do out[value] = true end
+    return out
+end
+
+local function summary()
+    return {
+        reads = {}, writes = {}, shapes = {}, metatables = {},
+        escapes = {}, calls = {}, returns = {},
+        allocates = false, yields = false, raises = false, external = false,
+        top = false,
+    }
+end
+
+local function fromContract(contract)
+    local out = summary()
+    for _, name in ipairs(LISTS) do out[name] = setOf(contract[name]) end
+    for _, value in ipairs(contract.returns or {}) do out.returns[value] = true end
+    for _, name in ipairs(FLAGS) do out[name] = contract[name] == true end
+    return out
+end
+
+local function copy(value)
+    local out = summary()
+    out.top = value.top == true
+    for _, name in ipairs(LISTS) do
+        for path in pairs(value[name] or {}) do out[name][path] = true end
+    end
+    for value2 in pairs(value.returns or {}) do out.returns[value2] = true end
+    for _, name in ipairs(FLAGS) do out[name] = value[name] == true end
+    return out
+end
+
+local function join(into, other)
+    local changed = false
+    if other.top and not into.top then
+        into.top, changed = true, true
+    end
+    for _, name in ipairs(LISTS) do
+        for path in pairs(other[name] or {}) do
+            if not into[name][path] then
+                into[name][path], changed = true, true
+            end
+        end
+    end
+    for value in pairs(other.returns or {}) do
+        if not into.returns[value] then
+            into.returns[value], changed = true, true
+        end
+    end
+    for _, name in ipairs(FLAGS) do
+        if other[name] and not into[name] then
+            into[name], changed = true, true
+        end
+    end
+    return changed
+end
+
+local function same(a, b)
+    local left, right = copy(a), copy(b)
+    return not join(left, right) and not join(right, left)
+end
+
+local function unwrap(stat)
+    while stat and stat.kind == "pragmaStmt" do stat = stat.stat end
+    return stat
+end
+
+local function directName(expr)
+    while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+        expr = expr.expr
+    end
+    return expr and expr.kind == "name" and expr.token or nil
+end
+
+local function callName(call)
+    local callee = call and call.obj
+    if not callee then
+        return nil
+    end
+    if callee.kind == "name" then
+        return callee.token and callee.token.text
+    end
+    if callee.kind == "dotIndex" and callee.obj and callee.obj.kind == "name" then
+        return callee.obj.token.text .. "." .. callee.name.text
+    end
+    return nil
+end
+
+local function callArgs(call)
+    local args = call and call.args
+    if not args or args.kind ~= "args" then
+        return {}
+    end
+    if args.table then
+        return {args.table}
+    end
+    return args.exprs or {}
+end
+
+local function definitionOfFunction(stat)
+    if stat.kind == "localFuncStmt" then
+        return stat.name and stat.name.definition
+    elseif stat.kind == "funcStmt" then
+        local name = stat.name
+        if not name then
+            return nil
+        end
+        local token = name.method or name.base
+        for _, child in ipairs(name) do
+            if cst.isToken(child) and child.kind == "name" then
+                token = child
+            end
+        end
+        return token and token.definition
+    elseif stat.kind == "inlineMethod" or stat.kind == "cdefFunc" then
+        return stat.name and stat.name.definition
+    end
+    return nil
+end
+
+local function collectFunctions(root)
+    local functions, byDefinition = {}, {}
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local target = unwrap(node)
+        local kind = target and target.kind
+        if kind == "localFuncStmt" or kind == "funcStmt"
+            or kind == "inlineMethod" then
+            local body = target.body
+            local info = {
+                node = target, body = body, definition = definitionOfFunction(target),
+                params = {}, paramNames = {}, contract = target.effectContract
+                or body and body.effectContract,
+                summary = summary(),
+            }
+            if target.name and target.name.method then
+                info.paramNames[1] = "self"
+            end
+            for _, param in ipairs(body and body.params or {}) do
+                if param.name and not param.namedVararg then
+                    local at = #info.paramNames + 1
+                    info.params[param.name.definition] = at
+                    info.paramNames[at] = param.name.text
+                end
+            end
+            functions[#functions + 1] = info
+            if info.definition then
+                byDefinition[info.definition] = info
+            end
+            if body and body.body then
+                walk(body.body)
+            end
+            return
+        elseif kind == "cdefFunc" then
+            local info = {
+                node = target, definition = definitionOfFunction(target), params = {},
+                paramNames = {}, contract = target.effectContract,
+                summary = target.effectContract and fromContract(target.effectContract)
+                or summary(), external = true,
+            }
+            if not target.effectContract then
+                info.summary.top = true
+            end
+            for _, param in ipairs(target.params or {}) do
+                if param.name then
+                    local at = #info.paramNames + 1
+                    info.params[param.name.definition] = at
+                    info.paramNames[at] = param.name.text
+                end
+            end
+            functions[#functions + 1] = info
+            if info.definition then
+                byDefinition[info.definition] = info
+            end
+            return
+        end
+        for _, child in ipairs(node) do walk(child) end
+    end
+    walk(root)
+    return functions, byDefinition
+end
+
+local PURE_BUILTINS = {
+    type = true, tonumber = true, select = true, rawequal = true,
+    rawget = true, rawlen = true, ipairs = true, pairs = true, next = true,
+}
+
+local function inferFunction(info, byDefinition)
+    local out = summary()
+    local parent, localDefinitions = {}, {}
+    local function find(value)
+        if not value then
+            return nil
+        end
+        parent[value] = parent[value] or value
+        if parent[value] ~= value then
+            parent[value] = find(parent[value])
+        end
+        return parent[value]
+    end
+    local function union(a, b)
+        a, b = find(a), find(b)
+        if a and b and a ~= b then
+            parent[b] = a
+        end
+    end
+    for definition, index in pairs(info.params) do
+        localDefinitions[definition] = true
+    end
+
+    -- Direct local aliases keep a parameter-rooted effect parameter-rooted. This is
+    -- flow-insensitive on purpose: merging aliases that existed at different times only
+    -- makes a summary more conservative.
+    local function collectBindings(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt" then
+            if node.name and node.name.definition then
+                localDefinitions[node.name.definition] = true
+            end
+            return
+        elseif kind == "funcStmt" or kind == "inlineMethod"
+            or kind == "funcExpr" or kind == "shortfn" then
+            return
+        elseif kind == "localStmt" then
+            for j, name in ipairs(node.names or {}) do
+                if name.definition then
+                    localDefinitions[name.definition] = true
+                end
+                local source = directName(node.exprs and node.exprs[j])
+                if source then
+                    union(name.definition, source.definition)
+                end
+            end
+        elseif kind == "fornumStmt" then
+            if node.name and node.name.definition then
+                localDefinitions[node.name.definition] = true
+            end
+        elseif kind == "forinStmt" then
+            for _, name in ipairs(node.names or {}) do
+                if name.definition then
+                    localDefinitions[name.definition] = true
+                end
+            end
+        elseif kind == "assignStmt" then
+            for j, target in ipairs(node.targets or {}) do
+                local targetName = directName(target)
+                local source = directName(node.exprs and node.exprs[j])
+                if targetName and source then
+                    union(targetName.definition, source.definition)
+                end
+            end
+        end
+        for _, child in ipairs(node) do collectBindings(child) end
+    end
+    collectBindings(info.body and info.body.body)
+    local rooted = {}
+    for definition, index in pairs(info.params) do
+        rooted[find(definition)] = info.paramNames[index]
+    end
+
+    local function rootOf(expr)
+        local token = directName(expr)
+        return token and rooted[find(token.definition)] or nil
+    end
+
+    local function substitute(path, callee, args)
+        if path:sub(1, 1) == "$" then
+            return path
+        end
+        local root, rest = path:match("^([%a_][%w_]*)(.*)$")
+        if not root then
+            return "$capture"
+        end
+        local index
+        for j, name in ipairs(callee.paramNames or {}) do
+            if name == root then
+                index = j; break
+            end
+        end
+        if not index then
+            return "$capture"
+        end
+        local actual = rootOf(args[index])
+        if actual then
+            return actual .. rest
+        end
+        local token = directName(args[index])
+        if token and localDefinitions[token.definition] then
+            return nil
+        end
+        return "$capture"
+    end
+
+    local function applyCall(call)
+        local callee = call.obj
+        local token = callee and (callee.token or callee.name)
+        local known = token and byDefinition[token.definition] or nil
+        local args = callArgs(call)
+        if known then
+            local effects = known.summary
+            if effects.top then
+                out.top = true
+            end
+            for _, list in ipairs(LISTS) do
+                for path in pairs(effects[list] or {}) do
+                    local mapped = substitute(path, known, args)
+                    if mapped then
+                        out[list][mapped] = true
+                    end
+                end
+            end
+            for _, flag in ipairs(FLAGS) do
+                if effects[flag] then
+                    out[flag] = true
+                end
+            end
+            return
+        end
+        local name = callName(call)
+        if PURE_BUILTINS[name or ""] then
+            local root = rootOf(args[1])
+            if root then
+                out.reads[root .. "[*]"] = true
+            end
+        elseif name == "error" or name == "assert" then
+            out.raises = true
+        elseif name == "coroutine.yield" then
+            out.yields = true
+        else
+            out.top = true
+        end
+    end
+
+    local function returnedRoots(expr)
+        local direct = rootOf(expr)
+        if direct then return {[1] = direct} end
+        if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
+            return {}
+        end
+        local callee = expr.obj
+        local token = callee and (callee.token or callee.name)
+        local known = token and byDefinition[token.definition] or nil
+        if not known or known.summary.top then return {} end
+        local args, roots = callArgs(expr), {}
+        for value in pairs(known.summary.returns or {}) do
+            local resultIndex, root = value:match("^(%d+)=([%a_][%w_]*)$")
+            if resultIndex and root then
+                for j, name in ipairs(known.paramNames or {}) do
+                    if name == root then
+                        local actual = rootOf(args[j])
+                        if actual then roots[tonumber(resultIndex)] = actual end
+                    end
+                end
+            end
+        end
+        return roots
+    end
+
+    local walk
+    walk = function(node, targetContext)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt" or kind == "funcStmt"
+            or kind == "inlineMethod" or kind == "funcExpr"
+            or kind == "shortfn" then
+            out.allocates = true
+            return
+        elseif kind == "tableExpr" then
+            out.allocates = true
+        elseif kind == "call" or kind == "methodCall" then
+            applyCall(node)
+        elseif kind == "name" and not targetContext then
+            local root = node.token and rooted[find(node.token.definition)]
+            if root then
+                out.reads[root] = true
+            end
+        elseif kind == "assignStmt" then
+            for _, target in ipairs(node.targets or {}) do
+                local base = target
+                while base and (base.kind == "dotIndex" or base.kind == "bracketIndex"
+                    or base.kind == "safeIndex" or base.kind == "safeBracket") do
+                    base = base.obj
+                end
+                local token = directName(base)
+                local root = token and rooted[find(token.definition)]
+                if root and target ~= base then
+                    out.writes[root .. "[*]"] = true
+                    out.shapes[root] = true
+                elseif target ~= base and token
+                    and not localDefinitions[token.definition] then
+                    out.writes["$capture[*]"] = true
+                    out.shapes["$capture"] = true
+                end
+                walk(target, true)
+            end
+            for j, expr in ipairs(node.exprs or {}) do
+                local escaped = rootOf(expr)
+                local target = node.targets and node.targets[j]
+                local targetName = directName(target)
+                if escaped and target and ((targetName
+                    and not localDefinitions[targetName.definition])
+                    or not targetName) then
+                    out.escapes[escaped] = true
+                end
+                walk(expr, false)
+            end
+            return
+        elseif kind == "compoundAssign" then
+            local base = node.target
+            while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
+                base = base.obj
+            end
+            local token = directName(base)
+            local root = token and rooted[find(token.definition)]
+            if root and node.target ~= base then
+                out.writes[root .. "[*]"] = true
+            end
+            if root and node.target ~= base then
+                out.shapes[root] = true
+            end
+            if node.target ~= base and token
+                and not localDefinitions[token.definition] then
+                out.writes["$capture[*]"] = true
+                out.shapes["$capture"] = true
+            end
+        elseif kind == "returnStmt" then
+            local exprs = node.exprs or {}
+            for index, expr in ipairs(exprs) do
+                local roots = returnedRoots(expr)
+                if index == #exprs then
+                    for resultIndex, root in pairs(roots) do
+                        local output = index + resultIndex - 1
+                        out.returns[tostring(output) .. "=" .. root] = true
+                    end
+                elseif roots[1] then
+                    out.returns[tostring(index) .. "=" .. roots[1]] = true
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(child, targetContext)
+            end
+        end
+    end
+    walk(info.body and info.body.body, false)
+    return out
+end
+
+local function contractContains(contract, inferred)
+    local declared = fromContract(contract)
+    if inferred.top then
+        return false, "calls code with unknown effects"
+    end
+    for _, list in ipairs(LISTS) do
+        for path in pairs(inferred[list]) do
+            if not declared[list][path] then
+                return false, ("is missing %s = %q"):format(list, path)
+            end
+        end
+    end
+    for _, flag in ipairs(FLAGS) do
+        if inferred[flag] and not declared[flag] then
+            return false, "is missing " .. flag .. " = true"
+        end
+    end
+    for value in pairs(inferred.returns) do
+        if not declared.returns[value] then
+            return false, "is missing returns = " .. string.format("%q", value)
+        end
+    end
+    return true
+end
+
+-- A flow-insensitive alias class is enough to refuse structural writes through any
+-- spelling of the iterated table. Reassignment may merge classes that never coexist;
+-- that is a conservative missed optimization.
+local function aliasClasses(body, byDefinition)
+    local parent = {}
+    local function find(value)
+        if not value then
+            return nil
+        end
+        parent[value] = parent[value] or value
+        if parent[value] ~= value then
+            parent[value] = find(parent[value])
+        end
+        return parent[value]
+    end
+    local function union(a, b)
+        a, b = find(a), find(b)
+        if a and b and a ~= b then
+            parent[b] = a
+        end
+    end
+    local function returnedAlias(expr, resultIndex)
+        local direct = directName(expr)
+        if direct then
+            return {direct}
+        end
+        if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
+            return {}
+        end
+        local callee = expr.obj
+        local token = callee and (callee.token or callee.name)
+        local known = token and byDefinition[token.definition] or nil
+        local args = callArgs(expr)
+        local aliases = {}
+        if known and not known.summary.top then
+            local prefix = tostring(resultIndex or 1) .. "="
+            for value in pairs(known.summary.returns or {}) do
+                if value:sub(1, #prefix) == prefix then
+                    local root = value:sub(#prefix + 1):match("^([%a_][%w_]*)")
+                    for j, name in ipairs(known.paramNames or {}) do
+                        if name == root then
+                            local actual = directName(args[j])
+                            if actual then
+                                aliases[#aliases + 1] = actual
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            -- An opaque call may hand any direct argument back. Treating all of them as
+            -- aliases loses opportunities but prevents a later mutation through its
+            -- result from evading the proof.
+            for _, arg in ipairs(args) do
+                local actual = directName(arg)
+                if actual then
+                    aliases[#aliases + 1] = actual
+                end
+            end
+        end
+        return aliases
+    end
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt" or kind == "funcStmt"
+            or kind == "inlineMethod" or kind == "funcExpr" or kind == "shortfn" then
+            return
+        elseif kind == "localStmt" then
+            for j, name in ipairs(node.names or {}) do
+                local exprs = node.exprs or {}
+                local expr = exprs[j] or (#exprs == 1 and exprs[1] or nil)
+                local resultIndex = #exprs == 1 and j or 1
+                for _, source in ipairs(returnedAlias(expr, resultIndex)) do
+                    union(name.definition, source.definition)
+                end
+            end
+        elseif kind == "assignStmt" then
+            for j, target in ipairs(node.targets or {}) do
+                local targetName = directName(target)
+                local exprs = node.exprs or {}
+                local expr = exprs[j] or (#exprs == 1 and exprs[1] or nil)
+                local resultIndex = #exprs == 1 and j or 1
+                for _, source in ipairs(returnedAlias(expr, resultIndex)) do
+                    if targetName then
+                        union(targetName.definition, source.definition)
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node) do walk(child) end
+    end
+    walk(body)
+    return find
+end
+
+local function proveLoops(body, byDefinition)
+    local find = aliasClasses(body, byDefinition)
+    local literalLengths = {}
+    local function collectLiteralLengths(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt" or kind == "funcStmt"
+            or kind == "inlineMethod" or kind == "funcExpr"
+            or kind == "shortfn" then
+            return
+        end
+        if kind == "localStmt" then
+            for j, name in ipairs(node.names or {}) do
+                local value = node.exprs and node.exprs[j]
+                if value and value.kind == "tableExpr" then
+                    local length, dense = 0, true
+                    for _, field in ipairs(value.fields or {}) do
+                        if field.kind == "fieldItem" then
+                            length = length + 1
+                        else
+                            dense = false
+                        end
+                    end
+                    if dense and name.definition then
+                        literalLengths[name.definition] = length
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node) do collectLiteralLengths(child) end
+    end
+    collectLiteralLengths(body)
+    local function definitionReferences(node, definition)
+        if not node then return 0 end
+        if cst.isToken(node) then
+            return node.kind == "name" and node.definition == definition and 1 or 0
+        end
+        local count = 0
+        for _, child in ipairs(node) do
+            count = count + definitionReferences(child, definition)
+        end
+        return count
+    end
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "localFuncStmt" or node.kind == "funcStmt"
+            or node.kind == "inlineMethod" or node.kind == "funcExpr"
+            or node.kind == "shortfn" then
+            return
+        end
+        if node.kind == "forinStmt" and node.builtinIpairs then
+            local operand = node.builtinIpairs.operand
+            local wanted = operand.token and find(operand.token.definition)
+            local length = operand.token
+                and literalLengths[operand.token.definition] or nil
+            local stable, reason, related = length ~= nil, nil, nil
+            if length == nil then
+                reason = "the array's dense entry length is not statically known"
+                related = operand
+            elseif definitionReferences(body, operand.token.definition) > 2 then
+                stable = false
+                reason = "the literal array has another use that may alias or expose it"
+                related = operand
+            end
+            local function inspect(value)
+                if not value or cst.isToken(value) or not stable then
+                    return
+                end
+                if value == node then
+                    inspect(value.body)
+                    return
+                end
+                local kind = value.kind
+                if kind == "localFuncStmt" or kind == "funcStmt"
+                    or kind == "inlineMethod" or kind == "funcExpr"
+                    or kind == "shortfn" then
+                    return
+                end
+                if kind == "assignStmt" then
+                    for _, target in ipairs(value.targets or {}) do
+                        local base = target
+                        while base and (base.kind == "dotIndex"
+                            or base.kind == "bracketIndex") do base = base.obj end
+                        local token = directName(base)
+                        if target ~= base and token
+                            and find(token.definition) == wanted then
+                            stable, reason, related = false,
+                                "the array may change shape in the loop", target
+                            return
+                        end
+                    end
+                elseif kind == "compoundAssign" then
+                    local base = value.target
+                    while base and (base.kind == "dotIndex"
+                        or base.kind == "bracketIndex") do base = base.obj end
+                    local token = directName(base)
+                    if value.target ~= base and token
+                        and find(token.definition) == wanted then
+                        stable, reason, related = false,
+                            "the array may change shape in the loop", value.target
+                        return
+                    end
+                elseif kind == "call" or kind == "methodCall" then
+                    local callee = value.obj
+                    local token = callee and (callee.token or callee.name)
+                    local known = token and byDefinition[token.definition] or nil
+                    if not known or known.summary.top or known.summary.external
+                        or known.summary.yields
+                        or next(known.summary.metatables) then
+                        stable, reason, related = false,
+                            "a call in the loop may mutate or expose the array", value
+                        return
+                    end
+                    local args = callArgs(value)
+                    for path in pairs(known.summary.shapes) do
+                        if path:sub(1, 1) == "$" then
+                            stable, reason, related = false,
+                                "a call may change a captured table's shape", value
+                            return
+                        end
+                        local root = path:match("^([%a_][%w_]*)")
+                        local index
+                        for j, name in ipairs(known.paramNames) do
+                            if name == root then
+                                index = j; break
+                            end
+                        end
+                        local actual = index and directName(args[index]) or nil
+                        if not actual then
+                            stable, reason, related = false,
+                                "a call may change an unresolved argument's shape",
+                                value
+                            return
+                        elseif find(actual.definition) == wanted then
+                            stable, reason, related = false,
+                                "a call may change the array's shape", value
+                            return
+                        end
+                    end
+                end
+                for _, child in ipairs(value) do inspect(child) end
+            end
+            -- The literal establishes density. Inspecting the whole containing body
+            -- (not just the loop) conservatively rules out a hole or append before
+            -- entry as well as a changing bound during traversal.
+            inspect(body)
+            if stable then
+                node.numericIpairsProof = {operand = operand, length = length}
+            else
+                node.numericIpairsDeclined = {message = reason, related = related}
+            end
+        end
+        for _, child in ipairs(node) do walk(child) end
+    end
+    walk(body)
+end
+
+function analysis.run(result: any, checker: any?): any
+    local functions, byDefinition = collectFunctions(result.root)
+    for _, info in ipairs(functions) do
+        if info.contract then
+            info.summary = fromContract(info.contract)
+        end
+    end
+    for _ = 1, #functions + 1 do
+        local changed = false
+        for _, info in ipairs(functions) do
+            if info.body then
+                local inferred = inferFunction(info, byDefinition)
+                local nextSummary = info.contract and fromContract(info.contract)
+                    or inferred
+                if not same(info.summary, nextSummary) then
+                    info.summary, changed = nextSummary, true
+                end
+                info.inferred = inferred
+                info.body.effectSummary = nextSummary
+            end
+        end
+        if not changed then
+            break
+        end
+    end
+    if checker then
+        for _, info in ipairs(functions) do
+            if info.body and info.contract then
+                local ok, why = contractContains(info.contract, info.inferred)
+                if not ok then
+                    checker.diag("NUPP2112", info.node,
+                        "@effects contract " .. tostring(why))
+                end
+            end
+        end
+    end
+    for _, block in ipairs(result.root.blocks or {}) do
+        proveLoops(block, byDefinition)
+    end
+    for _, info in ipairs(functions) do
+        if info.body and info.body.body then
+            proveLoops(info.body.body, byDefinition)
+        end
+    end
+    result.analysis = {functions = functions, byDefinition = byDefinition}
+    return result.analysis
+end
+
+analysis.summary = summary
+analysis.join = join
+analysis.fromContract = fromContract
+
+return analysis

@@ -275,7 +275,8 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             local genDiags
             local remarks = optimize.run(result.result,
                 {level = config._optLevel or 0, filename = path,
-                disabled = config._disabledPasses})
+                disabled = config._disabledPasses,
+                relaxed = config._relaxedGuarantees})
             if config._remarks then
                 for _, note in ipairs(remarks) do
                     mine[#mine + 1] = note

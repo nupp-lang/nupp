@@ -33,6 +33,11 @@ optimize.passes = {
         level = 1,
         summary = "size a table built field by field when it is created",
     },
+    ["OPT-2"] = {
+        name = "numeric-ipairs",
+        level = 1,
+        summary = "iterate a stable declared array with a numeric for loop",
+    },
 }
 
 -- Presizing pays from two fields up. An empty table grows its hash part by
@@ -210,6 +215,27 @@ local function walk(node, remarks)
     for _, child in ipairs(node) do walk(child, remarks) end
 end
 
+local function numericIpairsWalk(node, remarks)
+    if not node or isToken(node) then return end
+    if node.kind == "forinStmt" and node.builtinIpairs then
+        if node.numericIpairsProof then
+            node.numericIpairs = node.numericIpairsProof
+            remark(remarks, node, "OPT-2",
+                "numeric-ipairs: the declared array has a stable shape in this loop")
+        elseif node.numericIpairsDeclined then
+            local declined = node.numericIpairsDeclined
+            local token = declined.related and firstToken(declined.related) or nil
+            remark(remarks, node, "OPT-2",
+                "numeric-ipairs: not rewritten because " .. declined.message,
+                token and {{
+                    line = token.line, col = token.col, offset = token.offset,
+                    length = #token.text, message = "proof stopped here",
+                }} or nil)
+        end
+    end
+    for _, child in ipairs(node) do numericIpairsWalk(child, remarks) end
+end
+
 --- Runs the passes a level asks for over a parsed and checked file, annotating
 --- it in place.
 ---
@@ -223,6 +249,9 @@ function optimize.run(result: any, opts: any): {any}
     local remarks = {}
     if level >= optimize.passes["OPT-1"].level and not disabled["OPT-1"] then
         walk(result.root, remarks)
+    end
+    if level >= optimize.passes["OPT-2"].level and not disabled["OPT-2"] then
+        numericIpairsWalk(result.root, remarks)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

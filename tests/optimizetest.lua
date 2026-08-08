@@ -1,6 +1,11 @@
 local parser = require("nupp.parser")
 local optimize = require("nupp.optimize")
 local gen = require("nupp.gen")
+local check = require("nupp.check")
+local envMod = require("nupp.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -13,11 +18,12 @@ local function assertTrue(cond, label)
    if not cond then error(label or "expected true", 2) end
 end
 
--- Optimize at `level`, then generate. Presizing reads only the shape of the
--- tree, so checking is not needed to exercise it.
+-- Optimize at `level`, then generate. The effect-based passes consume definition
+-- and type facts left by checking; presizing remains syntax-only.
 local function compile(src, level)
    local result = parser.parse(src, "test")
    assertEq(#result.errors, 0, "syntax errors in test source")
+   check.check(result, "test", env)
    local remarks = optimize.run(result, {level = level or 2})
    local code, diags = gen.generate(result, "test")
    assertEq(#diags, 0, "gen diagnostics for " .. src)
@@ -197,6 +203,140 @@ end
 function M.levelZeroRemarksNothing()
    local _, remarks = compile("local t = {}\nt.a = 1\nt.b = 2\nreturn t", 0)
    assertEq(#remarks, 0, "a pass that did not run has nothing to report")
+end
+
+function M.rewritesStableDeclaredArrayIteration()
+   local code, remarks = compile(
+      "local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
+      .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum")
+   assertTrue(code:find("for __nuppT", 1, true) ~= nil,
+      "numeric loop uses a proved static bound: " .. code)
+   assertEq(run("local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
+      .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum"),
+      6, "numeric loop result")
+   local found = false
+   for _, entry in ipairs(remarks) do
+      if entry.code == "OPT-2" then found = true end
+   end
+   assertTrue(found, "the rewrite emits an OPT-2 remark")
+end
+
+function M.rewritesProvenLoopsInsideFunctions()
+   local code = compile(table.concat({
+      "local function total(): number",
+      "   local xs: {integer} = {2, 3}",
+      "   local sum = 0",
+      "   for _, value in ipairs(xs) do sum = sum + value end",
+      "   return sum",
+      "end",
+      "return total()",
+   }, "\n"))
+   assertTrue(code:find("for __nuppT", 1, true) ~= nil,
+      "function-local loops use the same proof: " .. code)
+end
+
+function M.keepsIpairsWhenDenseEntryIsNotProven()
+   local code = compile(table.concat({
+      "local function total(xs: {integer}): number",
+      "   local sum = 0",
+      "   for _, value in ipairs(xs) do sum = sum + value end",
+      "   return sum",
+      "end",
+   }, "\n"))
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "an array type alone does not prove its Lua boundary: " .. code)
+end
+
+function M.keepsIpairsWhenArrayShapeChanges()
+   local code, remarks = compile(
+      "local xs: {integer} = {1, 2, 3}\nlocal seen = 0\n"
+      .. "for i, value in ipairs(xs) do\n"
+      .. "   seen = seen + 1\n   if i == 2 then xs[4] = 4 end\nend\n"
+      .. "return seen")
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "mutating iteration keeps ipairs: " .. code)
+   assertEq(run("local xs: {integer} = {1, 2, 3}\nlocal seen = 0\n"
+      .. "for i, value in ipairs(xs) do\n"
+      .. "   seen = seen + 1\n   if i == 2 then xs[4] = 4 end\nend\n"
+      .. "return seen"), 4, "ipairs observes an append")
+   local declined = false
+   for _, entry in ipairs(remarks) do
+      if entry.code == "OPT-2" and entry.msg:find("not rewritten", 1, true) then
+         declined = true
+      end
+   end
+   assertTrue(declined, "the declined proof is reported")
+end
+
+function M.keepsIpairsWhenACalledClosureMutatesTheArray()
+   local code = compile(table.concat({
+      "local xs: {integer} = {1, 2, 3}",
+      "local function grow() xs[4] = 4 end",
+      "for i, value in ipairs(xs) do if i == 2 then grow() end end",
+   }, "\n"))
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "a captured shape effect stops the rewrite: " .. code)
+end
+
+function M.tracksAliasesReturnedByVisibleFunctions()
+   local code = compile(table.concat({
+      "local xs: {integer} = {1, 2, 3}",
+      "local function same(values: {integer}): {integer} return values end",
+      "local alias = same(xs)",
+      "for i, value in ipairs(xs) do if i == 2 then alias[4] = 4 end end",
+   }, "\n"))
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "a returned alias stops the rewrite: " .. code)
+end
+
+function M.keepsIpairsForAliasesStoredInTables()
+   local code = compile(table.concat({
+      "local xs: {integer} = {1, 2, 3}",
+      "local aliases = {xs}",
+      "local alias = aliases[1]",
+      "for i, value in ipairs(xs) do if i == 2 then alias[4] = 4 end end",
+   }, "\n"))
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "an alias that entered a table stops the rewrite: " .. code)
+end
+
+function M.keepsIpairsAfterTheArrayBindingIsReassigned()
+   local code = compile(table.concat({
+      "local xs: {integer} = {1, 2, 3}",
+      "xs = {4, 5, 6, 7}",
+      "for _, value in ipairs(xs) do print(value) end",
+   }, "\n"))
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "the original literal bound does not survive reassignment: " .. code)
+end
+
+function M.allowsCallsWhoseShapeEffectsStayLocal()
+   local code = compile(table.concat({
+      "local function scratch()",
+      "   local temporary: {integer} = {1}",
+      "   temporary[2] = 2",
+      "end",
+      "local xs: {integer} = {1, 2, 3}",
+      "for _, value in ipairs(xs) do scratch() end",
+   }, "\n"))
+   assertTrue(code:find("for __nuppT", 1, true) ~= nil,
+      "unrelated local mutation leaves the proof intact: " .. code)
+end
+
+function M.doesNotRewriteShadowedIpairs()
+   local code = compile(
+      "local function ipairs(xs) return next, xs, nil end\n"
+      .. "local xs: {integer} = {7}\nfor i, value in ipairs(xs) do break end")
+   assertEq(code:find("for __nuppT", 1, true), nil,
+      "a shadowed iterator is not the builtin")
+end
+
+function M.levelZeroKeepsIpairs()
+   local code = compile(
+      "local xs: {integer} = {1}\nfor _, value in ipairs(xs) do print(value) end",
+      0)
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "-O0 keeps generic iteration")
 end
 
 return M

@@ -237,7 +237,7 @@ Incremental rebuilds cut off on interface hashes: a module is not
 re-checked when a dependency's interface is unchanged. An optimization
 that makes module A's *output* depend on module B's *body* — inlining
 across the boundary, binding a module member statically, trusting that
-B's exports are frozen — makes A's codegen sensitive to changes cutoff
+B's declaration bindings are stable — makes A's codegen sensitive to changes cutoff
 is designed to absorb.
 
 Either such optimizations are confined to a whole-program build mode
@@ -285,9 +285,10 @@ Every `cold`-tagged item needs "this binding never changes," and
 inferring that across a program is defeated by a single `load`,
 `setfenv`, or write through `_G`. `const` already exists and means the
 binding cannot be reassigned (plans/comptime.md, §Decision). What is
-missing is the same guarantee at module granularity: frozen exports, so
-that `math.max` or `models.User` is stable by declaration rather than by
-whole-program analysis.
+missing is an exceptional guarantee for bodyless declaration surfaces:
+`@stable` bindings, so a declared host function such as `math.max` is stable
+by contract rather than by whole-program analysis. Visible Nupp modules should
+be analyzed directly; `@stable` is not a module-freezing mechanism.
 
 This is the highest-leverage language change in this document. It
 converts a class of optimizations from "requires an analysis that any

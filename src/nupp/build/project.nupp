@@ -78,6 +78,7 @@ function project.build(root, opts)
     config._optLevel = opts.optLevel or 0
     config._remarks = opts.remarks and true or false
     config._disabledPasses = opts.disabled or {}
+    config._relaxedGuarantees = opts.relaxed or {}
     if target.kind == "docs" then
         -- A documentation target declares dependencies like any other, and its
         -- are the renderer's own: lunamark is a rock, not something a checkout

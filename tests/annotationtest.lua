@@ -40,6 +40,134 @@ local function checked(src)
     return table.concat(codes, " "), result, diags
 end
 
+function M.effectContractsAreNormalizedAndVerified()
+    local source = table.concat({
+        '@effects(reads = {"value"}, returns = {"1=value"})',
+        "local function identity(value: table): table",
+        "    return value",
+        "end",
+    }, "\n")
+    local codes, result = checked(source)
+    assertEq(codes, "")
+    local declaration = result.root.blocks[1].stats[1].stat
+    assertEq(declaration.effectContract.reads[1], "value")
+    assertEq(declaration.body.effectSummary.returns["1=value"], true)
+end
+
+function M.effectContractsCannotHideBodyEffects()
+    assertEq(checked(table.concat({
+        "@effects()",
+        "local function mutate(values: {integer})",
+        "    values[1] = 2",
+        "end",
+    }, "\n")), "NUPP2112")
+    assertEq(checked(table.concat({
+        "@effects()",
+        "local function opaque(value: table)",
+        "    unknown(value)",
+        "end",
+    }, "\n")), "NUPP2112")
+end
+
+function M.returnAliasesPropagateThroughVisibleCalls()
+    local source = table.concat({
+        '@effects(reads = {"value"}, returns = {"1=value"})',
+        "local function same(value: table): table return value end",
+        '@effects(reads = {"value"}, returns = {"1=value"})',
+        "local function wrapped(value: table): table return same(value) end",
+    }, "\n")
+    local codes, result = checked(source)
+    assertEq(codes, "")
+    local wrapped = result.root.blocks[1].stats[2].stat
+    assertEq(wrapped.body.effectSummary.returns["1=value"], true)
+end
+
+function M.effectMembersHaveClosedShapes()
+    assertEq(checked("@effects(reads = true)\nlocal function f() end"),
+        "NUPP2112")
+    assertEq(checked("@effects(allocates = {})\nlocal function f() end"),
+        "NUPP2112")
+    assertEq(checked("@effects(mystery = true)\nlocal function f() end"),
+        "NUPP2112")
+end
+
+function M.relaxationsUseAClosedSetOfObservableGuarantees()
+    local codes, result = checked(table.concat({
+        '@relax("frames", "error-site")',
+        "local function dispatch() end",
+    }, "\n"))
+    assertEq(codes, "")
+    local declaration = result.root.blocks[1].stats[1].stat
+    assertEq(declaration.relaxedGuarantees.frames, true)
+    assertEq(declaration.relaxedGuarantees["error-site"], true)
+    assertEq(checked('@relax("magic")\nlocal function dispatch() end'),
+        "NUPP2112")
+end
+
+function M.stableMarksBodylessDeclarationBindings()
+    local source = table.concat({
+        "@stable", "local service: function(): integer",
+        "return {service = service}",
+    }, "\n")
+    local result = parser.parse(source, "service.d.nupp")
+    assertEq(#result.errors, 0, "syntax")
+    local diags = check.check(result, "service.d.nupp",
+        envMod.new(HERE .. "/.."))
+    assertEq(#diags, 0, "diagnostics")
+    local declaration = result.root.blocks[1].stats[1].stat
+    assertEq(declaration.stableContract, true)
+    assertEq(declaration.names[1].definition.stable, true)
+end
+
+function M.stableIsRejectedForVisibleModules()
+    assertEq(checked("@stable\nlocal M = {}\nreturn M"), "NUPP2112")
+end
+
+function M.stableOnlyDecoratesLocalBindings()
+    local result = parser.parse(
+        "@stable\nlocal function service(): integer return 1 end",
+        "service.d.nupp")
+    assertEq(#result.errors, 0, "syntax")
+    local diags = check.check(result, "service.d.nupp",
+        envMod.new(HERE .. "/.."))
+    assertEq(diags[1] and diags[1].code, "NUPP2112")
+end
+
+function M.stableRequiresABodylessDeclaration()
+    local result = parser.parse("@stable\nlocal service: integer = 1",
+        "service.d.nupp")
+    assertEq(#result.errors, 0, "syntax")
+    local diags = check.check(result, "service.d.nupp",
+        envMod.new(HERE .. "/.."))
+    assertEq(diags[1] and diags[1].code, "NUPP2112")
+end
+
+function M.effectContractsAttachToDeclarationBindings()
+    local source = table.concat({
+        '@effects(raises = true)',
+        "@stable",
+        "local fail: function(message: string): never",
+        "return {fail = fail}",
+    }, "\n")
+    local result = parser.parse(source, "failure.d.nupp")
+    assertEq(#result.errors, 0, "syntax")
+    local diags = check.check(result, "failure.d.nupp",
+        envMod.new(HERE .. "/.."))
+    assertEq(#diags, 0, "diagnostics")
+    local declaration = result.root.blocks[1].stats[1].stat.stat
+    assertEq(declaration.names[1].definition.effectContract.raises, true)
+    assertEq(declaration.names[1].definition.stable, true)
+end
+
+function M.stableBindingsCannotBeReassigned()
+    local codes = checked(table.concat({
+        "ipairs = function(values)",
+        "    return next, values, nil",
+        "end",
+    }, "\n"))
+    assert(codes:find("NUPP2112", 1, true), codes)
+end
+
 function M.unknownAnnotationsAreErrors()
     assertEq(diagsOf("@inline local function f() end"), "NUPP2111")
 end

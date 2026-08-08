@@ -50,6 +50,11 @@ function options.optimize(): {any}
             help = "Optimization level (default -O0, which rewrites nothing)"},
         {name = "--remarks",
             help = "Report what the optimizer did and what it declined to do"},
+        {name = "--relax", value = "GUARANTEE", form = "attached",
+            key = "relaxed", repeats = true, set = true,
+            choices = {"function-identity", "load-order", "error-site", "frames",
+                "gc-timing", "table-order"}, display = "--relax=GUARANTEE",
+            help = "Allow optimizations to change one named observable guarantee"},
         {name = "-Zno-opt", value = "CODE", form = "attached", key = "disabled",
             repeats = true, set = true, display = "-Zno-opt=CODE",
             help = "Turn off one pass, named by its stable code, to bisect a "

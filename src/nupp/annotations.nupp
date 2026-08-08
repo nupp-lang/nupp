@@ -94,6 +94,7 @@ function Registry:define(spec)
     end
     if spec.arguments ~= "none" and spec.arguments ~= "names"
         and spec.arguments ~= "owned"
+        and spec.arguments ~= "effects"
         and spec.arguments ~= "warnings" and spec.arguments ~= "typed"
         and spec.arguments ~= "definition" then
         return nil, "unknown annotation argument policy"
@@ -202,6 +203,21 @@ local BUILTINS = {
         name = "dispose",
         arguments = "none",
         targets = {"function", "c-function", "field"},
+    },
+    {
+        name = "effects",
+        arguments = "effects",
+        targets = {"function", "c-function", "local-binding"},
+    },
+    {
+        name = "stable",
+        arguments = "none",
+        targets = {"local-binding"},
+    },
+    {
+        name = "relax",
+        arguments = "names",
+        targets = {"function"},
     },
     {
         name = "jit",

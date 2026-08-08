@@ -154,6 +154,9 @@ annotated directly.
 | `@owned` | Implemented | Cleanup/default/opaque/output contract | `function`, `c-function` |
 | `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
 | `@dispose` | Implemented | None | `function`, `c-function`, `field` |
+| `@effects` | Implemented | Named effect members | `function`, `c-function`, `local-binding` |
+| `@stable` | Implemented | None | A bodyless local binding in `.d.nupp` |
+| `@relax` | Implemented | Observable guarantee names | `function` |
 | `@jit` | Reserved | None | `function` |
 | `@comptime` | Reserved | None | `local-function` |
 
@@ -194,6 +197,73 @@ bare `@owned` result is rejected unless exactly one default applies. See
 type does not need to implement a cleanup interface. The annotation belongs to
 the producer, not the type, so different producers of the same type may carry
 different cleanup contracts.
+
+## Effect contracts
+
+`@effects` is a complete, pessimistic contract. A function with a visible Nupp
+body is analyzed and the checker rejects a contract that omits one of its
+effects. A bodyless declaration is a trust boundary: the annotation records
+what the implementation promises, just as its type signature records what
+values it accepts and returns.
+
+```nupp
+@effects(reads = {"value"}, returns = {"1=value"})
+local function identity(value: table): table
+    return value
+end
+
+@effects(writes = {"buffer[*]"}, shapes = {"buffer"})
+cdef function fill(buffer: uint8*, count: uint64): integer
+```
+
+The list members are `reads`, `writes`, `shapes`, `metatables`, `escapes`,
+`calls`, and `returns`. Their strings are paths rooted at a parameter name,
+`self`, `$capture`, or `$global`. Return aliases use `N=path`, such as
+`"1=value"`. The boolean members are `allocates`, `yields`, `raises`, and
+`external`. Every member defaults to empty or false, so `@effects()` means the
+function has no observable effects; it does not mean “infer these later.” An
+unknown call widens a visible function to unknown effects and therefore cannot
+be hidden by an empty contract.
+
+## Stable declaration bindings
+
+`@stable` says that a bodyless binding keeps the same runtime value. It is a
+shallow identity promise, not deep immutability: applying it to a module value
+does not freeze the module's fields.
+
+```nupp
+-- clock.d.nupp: a declaration for an implementation outside this source
+@stable
+local monotonicNow: function(): number
+
+return {monotonicNow = monotonicNow}
+```
+
+This annotation should almost never appear in an ordinary module. In fact the
+checker rejects it there: visible Nupp bindings can be analyzed directly, so a
+trusted promise would add risk without adding information. Its intended home is
+`.d.nupp` files and similar bodyless declaration surfaces. Reassigning a stable
+binding is also an error. The standard declaration of `ipairs` uses `@stable`;
+that identity fact is one part of the proof for numeric array-loop lowering.
+
+## Relaxing observable guarantees
+
+Some future rewrites may deliberately trade a named observable property for
+speed. A function can opt in locally with `@relax`, and a compilation can opt
+in with repeatable `--relax=GUARANTEE` flags:
+
+```nupp
+@relax("frames", "error-site")
+local function dispatch(handler: function()): nil
+    handler()
+end
+```
+
+The closed set is `function-identity`, `load-order`, `error-site`, `frames`,
+`gc-timing`, and `table-order`. Recording a relaxation does not itself request
+a rewrite; a pass must name and check the guarantee it would change. The
+current numeric `ipairs` rewrite needs no relaxation because it preserves the
+language's observable behavior under its proof.
 
 Compiler integrations can still add definitions directly through the
 extensible `nupp.annotations` registry. Source declarations are the normal

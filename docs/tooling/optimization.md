@@ -21,7 +21,7 @@ no rewrite at all. Generated Lua at `-O0` is what the language means, with types
 erased and nothing else done to it. When an optimization goes wrong, `-O0` is
 the way to keep working without waiting for a release.
 
-`-O1` and `-O2` currently run the same single pass. The levels are separated now
+`-O1` and `-O2` currently run the same two passes. The levels are separated now
 so that the flag does not have to change later.
 
 The level is part of the build key. Changing it rebuilds rather than leaving
@@ -33,6 +33,7 @@ never produces a mixture.
 | Code | Name | Level | What it does |
 | --- | --- | --- | --- |
 | `OPT-1` | presize | `-O1` | Creates a table at the size it is about to reach |
+| `OPT-2` | numeric-ipairs | `-O1` | Lowers proven dense, stable array traversal to a numeric loop |
 
 ### `OPT-1`, presizing
 
@@ -61,6 +62,36 @@ local is used for anything other than writing one of its fields, because that is
 where a count stops being a count. Both kinds of error are harmless: a table
 sized for more or fewer entries than it receives behaves exactly the same, since
 capacity is not something a program can observe.
+
+### `OPT-2`, numeric `ipairs`
+
+For a declared dense array, `ipairs(xs)` visits the raw integer slots from one
+through the first nil. When a visible dense literal establishes the entry
+length and the checker can also prove the table's shape cannot change, the
+compiler evaluates `xs` once and emits a numeric `for` with that static bound.
+
+```nupp
+local xs: {integer} = {1, 2, 3}
+for index, value in ipairs(xs) do
+    use(index, value)
+end
+```
+
+The proof is more than replacing the iterator with `1, #xs`. The source literal
+proves the initial boundary; the alias analysis then checks structural writes
+through every known local alias across the containing function. Calls use
+pessimistic effect summaries, including captured-table effects and return
+aliases. An unknown call, an unresolved argument that may be mutated, a yield,
+a metatable effect, or a possible shape change keeps the original `ipairs`
+loop. The builtin itself is recognized by definition, not spelling, and its
+declaration is `@stable`, so a shadowed or replaceable `ipairs` is never
+rewritten. Neither `#t` nor the array type alone supplies the missing boundary
+proof.
+
+`bench/numeric-ipairs.lua` compares the exact generic and numeric shapes with
+the JIT enabled. Using a dynamic raw length was flat and sometimes slower after
+tracing, which is why the pass requires a static literal bound rather than
+rewriting every typed array loop.
 
 ## Finding out what happened
 
@@ -94,7 +125,7 @@ so it does not produce them.
 
 ## When an optimization is wrong
 
-    nupp build -O2 -Zno-opt=OPT-1
+    nupp build -O2 -Zno-opt=OPT-2
 
 That turns off one pass, named by its code, so a suspected miscompile can be
 bisected without dropping to `-O0` and losing everything else. Codes are stable:
@@ -140,9 +171,10 @@ Nothing observable, so far.
 
 Some optimizations trade an observable property for speed — caching a closure
 changes function identity, hoisting a global changes when it is read. None of
-those have landed, and when one does it will be spelled as a `--preserve=` flag
-naming the guarantee you keep, rather than a pass you switch off. Until then,
-`-O2` and `-O0` differ only in how fast the program runs.
+those have landed. The opt-in surface is a repeatable flag such as
+`--relax=function-identity`, with the same names accepted locally by `@relax`.
+Until a pass explicitly checks one of those relaxations, `-O2` and `-O0` differ
+only in how fast the program runs.
 
 The compiler's own build is the standing check on that claim: a compiler built
 at `-O2` has to produce output byte-identical to one built at `-O0`, across

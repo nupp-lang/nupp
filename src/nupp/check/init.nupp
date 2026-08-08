@@ -27,6 +27,7 @@ local annotate = require("nupp.check.annotate")
 local ownership = require("nupp.check.ownership")
 local loopclosure = require("nupp.check.loopclosure")
 local undocumentedraise = require("nupp.check.undocumentedraise")
+local analysis = require("nupp.analysis")
 local narrow = require("nupp.check.narrow")
 local calls = require("nupp.check.calls")
 local expr = require("nupp.check.expr")
@@ -1228,6 +1229,7 @@ function checkMod.check(result, filename, env, opts)
         end
     end
 
+    analysis.run(result, c)
     table.sort(c.diags, function(a, b) return a.offset < b.offset end)
     result.moduleExports = c.moduleExports
     return c.diags, c.moduleType, c.moduleExports
