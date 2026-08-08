@@ -770,37 +770,38 @@ through idempotency and parse-stability in addition to exact match:
       context would mean a closure per owner, which is the allocation this model
       exists to avoid. Real in FFI and unaddressed; worth a design before
       someone hits it, and independent of the reference question above.
-- [ ] **`nupp.std.*` is untyped outside the compiler's own tree.** Module
-      resolution searches a project's `include` roots and `BUNDLED` in
-      `env.nupp`, which registers `ffi`, `string.buffer`, `cjson`, `cjson.safe`
-      and the `jit.*` submodules and nothing else. So
-      `require("nupp.std.zone")` in a user project yields `any`. The modules
-      are compiled into the closure and reach `package.preload`, so they run;
-      what is missing is anything to check a call against. Inside this tree
-      they check correctly, which is why the fixes above are not visible from
-      outside it.
+- [x] **`nupp.std.*` is typed outside this tree.** Module resolution searched a
+      project's `include` roots and `BUNDLED` in `env.nupp`, which registered
+      `ffi`, `string.buffer`, `cjson`, `cjson.safe` and the `jit.*` submodules
+      and nothing else, so `require("nupp.std.zone")` in a user project yielded
+      `any`. The modules reach `package.preload` and so ran; what was missing
+      was anything to check a call against — `zone.pushhh("x")` was silent,
+      which the profiling guide teaches both of.
 
-      For `zone` and `profile` that costs the checking only — `zone.pushhh("x")`
-      is silent — which is a shame given the profiling guide teaches both. For
-      `resources` it is fatal: ownership cannot ride on `any`, so
-      `with file = resources.open_file(path)` is NUPP2610 and every wrapper the
-      module exports is unusable by anyone.
+      Carried as source rather than described by a `.d.nupp` overlay. That was
+      the idiomatic shape and it has a blocker: `@owned` targets `function`, and
+      a declaration file spells its exports as typed bindings, so a cleanup
+      contract has nowhere to attach — confirmed by writing one. Source also
+      avoids keeping a second copy of a surface that already exists with nothing
+      holding the two together, and keeps `close_file` private, which a
+      declaration naming it as a cleanup could not.
 
-      Left alone because it is a design decision rather than a repair. It needs
-      a view on what the shipped standard surface is and how it reaches a
-      project: `env.nupp` deliberately embeds "only the compiler's own
-      declarations, and deliberately not a general virtual filesystem", so
-      extending that is the author's call. A `.d.nupp` overlay per module is
-      the idiomatic shape and has one question to settle first — `@owned`
-      targets `function`, and a declaration file spells its exports as typed
-      bindings, so a cleanup contract has nowhere to attach. Parsing the
-      implementations instead avoids that and costs every project a parse of
-      `profile.nupp` on every check.
+      Loaded on demand rather than per environment. Checking all of them eagerly
+      doubled a small project's check — 0.04s to 0.08s — for modules it never
+      required, so `env.bundled` resolves through a metatable and a project that
+      names none of them pays nothing. That covers the bundled declarations too,
+      which were eager before this.
+- [ ] **A standard-library owner cannot be discharged yet.** Its wrappers return
+      owners whose cleanups are module-local free functions, so acquiring one
+      reports NUPP2620 — the contract crosses, and there is no way to name the
+      cleanup from the acquiring module. `LuaFile` is a builtin, so the
+      `@dispose` repair is not open to it either.
 
-      `with.md`, the README and the tour teach a locally declared producer
-      rather than the shipped wrappers, so no page depends on this. What is
-      still blocked is test coverage for `nupp.std.resources`, since nothing
-      outside this tree can acquire from it.
+      Everything short of discharge works: arguments and results are checked,
+      and an owner that is never discharged is still NUPP2603. This clears when
+      a cleanup becomes a resolved reference, above; there is nothing separate
+      to do here. `with.md`, the README and the tour all teach a locally
+      declared producer, so no page depends on it.
 
 ## Documentation
 

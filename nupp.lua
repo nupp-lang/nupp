@@ -71,6 +71,7 @@ return {
             resources = {
                "src/nupp/decls/*.d.nupp",
                "src/nupp/decls/jit/*.d.nupp",
+               "src/nupp/std/*.nupp",
             },
          },
          -- Nupp stamped into the host as one self-contained executable. It is
@@ -89,6 +90,7 @@ return {
             resources = {
                "src/nupp/decls/*.d.nupp",
                "src/nupp/decls/jit/*.d.nupp",
+               "src/nupp/std/*.nupp",
             },
             stub = "build/host/release/nupp-host",
             output = "build/dist/nupp",

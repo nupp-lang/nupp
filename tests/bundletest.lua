@@ -281,4 +281,67 @@ function M.theBootstrapIsProducedByTheGeneralBundler()
       "and preloads its modules the way every bundle does")
 end
 
+-- The standard library is this compiler's own Nupp, and it is carried as source
+-- rather than described by a second declaration of itself. A project outside the
+-- tree therefore types against exactly what was compiled into the binary it runs.
+-- Before this it resolved to nothing, and gradual typing turned that into `any`
+-- without a word — which then surfaced three steps later as an ownership error.
+local STD_MANIFEST = 'return {include = {"."}}\n'
+
+function M.theStandardLibraryIsTypedOutsideThisTree()
+   local dir = tempProject({
+      ["nupp.lua"] = STD_MANIFEST,
+      ["typed.nupp"] = [[
+local resources = require("nupp.std.resources")
+
+local wrong: integer = resources.open_file("x", "r")
+
+return wrong
+]],
+   })
+   local out = run(dir, "'" .. NUPP .. "' check --strict typed.nupp")
+   assert(out:find("NUPP2001", 1, true),
+      "the std surface is typed, not any: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- Typed is not enough on its own: the `@owned` contract has to cross too, or a
+-- `with` cannot acquire what the library hands back and nothing has to close it.
+function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
+   local dir = tempProject({
+      ["nupp.lua"] = STD_MANIFEST,
+      ["input.txt"] = "hello\n",
+      ["acquire.nupp"] = [[
+local resources = require("nupp.std.resources")
+
+with file = resources.open_file("input.txt", "r") do
+    print(file:read("*a"))
+end
+]],
+      ["leak.nupp"] = [[
+local resources = require("nupp.std.resources")
+
+local handle = resources.open_file("input.txt", "r")
+
+return 1
+]],
+   })
+   -- NUPP2620 rather than NUPP2610 is the whole assertion. NUPP2610 would mean
+   -- the value arrived as an ordinary one and the `@owned` contract never
+   -- crossed; NUPP2620 means it did cross, and the only thing missing is a way
+   -- to name its cleanup from here. Discharging becomes possible when a cleanup
+   -- is a resolved reference rather than a spelling — see plans/todo.md.
+   local acquired = run(dir, "'" .. NUPP .. "' check --strict acquire.nupp")
+   assert(acquired:find("NUPP2620", 1, true),
+      "the owned contract crosses, but its private cleanup cannot be called "
+      .. "from here: " .. acquired)
+
+   -- The obligation crosses too, which is the other half of the contract being
+   -- real rather than erased at the boundary.
+   local leaked = run(dir, "'" .. NUPP .. "' check --strict leak.nupp")
+   assert(leaked:find("NUPP2603", 1, true),
+      "an owner that is never discharged is still reported: " .. leaked)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 return M
