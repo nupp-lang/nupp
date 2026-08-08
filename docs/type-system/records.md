@@ -58,6 +58,31 @@ with it.
 A value with no metatable, another record's instance, and the declaration's own
 table all answer `false`.
 
+### The name holds the table
+
+`Point` is a type and also a value: the runtime table above. That table is the
+metatable its instances carry, so the value has the type of one.
+
+```nupp
+local mt: metatable<Point> = Point
+local p: Point = new Point {x = 3, y = 4}
+```
+
+Neither stands where the other is wanted. `Point` may be passed to
+`setmetatable`, held under a `metatable<Point>` annotation, and written to when a
+[metamethod contract](../metamethods.md) is installed; `p` may not. `p` may be
+read for its fields and passed where a `Point` is wanted; `Point` may not.
+`Point is Point` is answered without running, because a declaration's own table is
+never one of the values it stamps.
+
+Reaching a member through the table reaches the record's, so `Point.length`,
+`Point.make(...)` and a nested `Point.Inner` all resolve as they always did. A
+function that takes a declaration's table rather than an instance says so:
+
+```nupp
+local function register<P is Shape>(shape: metatable<P>)
+```
+
 Construction is by name. A record has no positional form, because field order
 in a table is not meaningful.
 

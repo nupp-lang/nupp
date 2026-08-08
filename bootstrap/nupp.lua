@@ -37671,6 +37671,13 @@ declaring a constructor closes the literal form for that declaration. Failing
 either is **NUPP2208**. `constructor` is contextual, so a field may still be
 called one.
 
+The name is a value too: the runtime table `new` stamps on the instances it
+builds. That table is their metatable, so it holds `metatable<Point>` rather
+than `Point`, and the two do not stand for each other — the table may be passed
+to `setmetatable` or have a metamethod contract installed on it, an instance may
+not, and `Point is Point` is false without running. A function that wants a
+declaration rather than one of its values takes `metatable<P>`.
+
 One explicit type per field: grouped names are rejected.
 ]=] ,
 example = [=[
