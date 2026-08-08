@@ -11,6 +11,11 @@ When complete, delete the worktree. Leave no attribution in commits,
 do not use conventional commits, use imperative language, and keep commit
 lines under 72 characters.
 
+## Responding to prompts
+
+Answer directly and keep the bottom line up front. Do not label it explicitly
+as "BLUF" or bottom line up front. Just say the answer, then give details.
+
 ## Language tools
 
 Source positions are 1-based byte line and column numbers. Prefer `--json`
