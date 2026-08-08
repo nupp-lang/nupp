@@ -214,6 +214,11 @@ return {
                   source = "docs/type-system/interfaces.md",
                },
                {
+                  path = "type-system/properties",
+                  title = "Property capabilities",
+                  source = "docs/type-system/properties.md",
+               },
+               {
                   path = "type-system/unions",
                   title = "Unions",
                   source = "docs/type-system/unions.md",
