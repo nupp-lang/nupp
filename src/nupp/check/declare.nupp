@@ -272,11 +272,26 @@ function declare.install(c: any, reifiableField: any, fix: any,
         -- Every declared field that cannot hold nil has to be filled, or the
         -- value the constructor hands back does not match its own declaration.
         local assigned = assignedFields(e.body)
-        local missing = {}
+        -- Everything the declaration has, not only what it wrote: a field it
+        -- takes from an interface is as much a part of the value it hands back
+        -- as one declared here, and leaving that one out is the same nil.
+        local order, seen = {}, {}
         for _, name in ipairs(n.fieldOrder or {}) do
+            order[#order + 1] = name
+            seen[name] = true
+        end
+        local inherited = {}
+        for name in pairs(n.byname or {}) do
+            if not seen[name] then inherited[#inherited + 1] = name end
+        end
+        table.sort(inherited)
+        for _, name in ipairs(inherited) do order[#order + 1] = name end
+
+        local missing = {}
+        for _, name in ipairs(order) do
             local ft2 = n.byname[name]
-            if ft2 and ft2.tag ~= "func" and not assigned[name]
-                and not isA(T.nil_, ft2) then
+            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "nominal"
+                and not assigned[name] and not isA(T.nil_, ft2) then
                 missing[#missing + 1] = name
             end
         end

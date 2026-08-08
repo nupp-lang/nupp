@@ -9713,11 +9713,26 @@ c . raises . check ( e , e . body )
 
 
 local assigned = assignedFields ( e . body )
-local missing = { }
+
+
+
+local order , seen = { } , { }
 for _ , name in ipairs ( n . fieldOrder or { } ) do
+order [ # order + 1 ] = name
+seen [ name ] = true
+end
+local inherited = { }
+for name in pairs ( n . byname or { } ) do
+if not seen [ name ] then inherited [ # inherited + 1 ] = name end
+end
+table . sort ( inherited )
+for _ , name in ipairs ( inherited ) do order [ # order + 1 ] = name end
+
+local missing = { }
+for _ , name in ipairs ( order ) do
 local ft2 = n . byname [ name ]
-if ft2 and ft2 . tag ~= "func" and not assigned [ name ]
-and not isA ( T . nil_ , ft2 ) then
+if ft2 and ft2 . tag ~= "func" and ft2 . tag ~= "nominal"
+and not assigned [ name ] and not isA ( T . nil_ , ft2 ) then
 missing [ # missing + 1 ] = name
 end
 end

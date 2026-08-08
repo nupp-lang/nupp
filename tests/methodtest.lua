@@ -614,6 +614,27 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "    end",
       "end",
    }, "\n"))
+   -- a field taken from an interface is as much part of the value as one
+   -- declared here, so leaving it out is the same nil
+   assertEq(diagsOf(table.concat({
+      "local interface Named",
+      "   name: string",
+      "end",
+      "local record Person is Named",
+      "   constructor()",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2208:5")
+   assertClean(table.concat({
+      "local interface Named",
+      "   name: string",
+      "end",
+      "local record Person is Named",
+      "   constructor(n: string)",
+      "      self.name = n",
+      "   end",
+      "end",
+   }, "\n"))
    -- an interface builds nothing
    assertEq(diagsOf(table.concat({
       "local interface I",
