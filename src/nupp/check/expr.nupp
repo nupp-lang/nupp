@@ -390,6 +390,13 @@ function expr.install(c: any)
                     and isA(present, target) then
                     node.provenStatically = true
                     node.provenNeedsNil = admitsNil
+                -- A declaration's own table is not one of the values it stamps, so
+                -- this pairing is settled the other way and the test would spend a
+                -- metatable lookup to say false. The only pairing answered so: `as`
+                -- stays the way to override what the checker decided.
+                elseif rawType(present).tag == "metatable"
+                    and target.tag == "nominal" then
+                    node.refutedStatically = true
                 end
             end
             return T.boolean

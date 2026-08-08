@@ -29,6 +29,16 @@ local function assertClean(src)
    assertEq(diagsOf(src), "", "expected clean:\n" .. src)
 end
 
+local function generate(src)
+   local result = parser.parse(src, "test")
+   assertEq(#result.errors, 0, "syntax errors")
+   local diags = check.check(result, "test", env)
+   assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
+   local code, genDiags = gen.generate(result, "test")
+   assertEq(#genDiags, 0, "gen diagnostics")
+   return code
+end
+
 local function run(src)
    local result = parser.parse(src, "test")
    assertEq(#result.errors, 0, "syntax errors")
@@ -743,6 +753,48 @@ function M.aRecordsTableIsNotAnInstanceOfIt()
       "local made = new Outer.Inner {n = 4}",
       "return made.n",
    }, "\n")), 4)
+end
+
+-- Now that the table and an instance are different types, `is` between them is
+-- settled without running: a declaration's own table is not one of the values it
+-- stamps, and the test would spend a metatable lookup to say so.
+function M.aTableIsNotAnInstanceAndIsSaysSoWithoutAsking()
+   local foo = table.concat({
+      "local record Foo",
+      "   v: integer",
+      "end",
+      "local instance = new Foo {v = 1}",
+   }, "\n")
+   assertEq(run(foo .. table.concat({
+      "",
+      "return (instance is Foo and 1 or 0) + (Foo is Foo and 100 or 0)",
+   }, "\n")), 1)
+   local code = generate(foo .. "\nlocal answer = Foo is Foo\nreturn answer")
+   assert(code:find("( false )", 1, true),
+      "the refuted test is not emitted: " .. code)
+end
+
+-- A metamethod written on an instance puts a function where the operator never
+-- looks. The declaration's table is the metatable, so that is where it belongs.
+function M.aMetamethodOnAnInstanceIsRefused()
+   local i64 = table.concat({
+      "local record I64",
+      "   v: integer",
+      "   metamethod __tostring: function(self): string",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(i64 .. table.concat({
+      "",
+      "local x = new I64 {v = 1}",
+      "x.__tostring = tostring",
+   }, "\n")), "NUPP2004:6")
+   -- and on the table it is the installation
+   assertClean(i64 .. table.concat({
+      "",
+      "I64.__tostring = function(self: I64): string",
+      "   return tostring(self.v)",
+      "end",
+   }, "\n"))
 end
 
 -- A record's runtime table is the metatable its instances carry, so it is a

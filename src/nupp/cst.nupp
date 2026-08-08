@@ -92,6 +92,10 @@ interface cst.Hints
     --- Set on an `is` whose answer the subject's own type already settles.
     provenStatically: boolean?
 
+    --- Set on an `is` the subject's own type settles the other way, so the test is
+    --- false without running.
+    refutedStatically: boolean?
+
     --- Whether that subject still admits nil, which is then the only question
     --- left to ask at run time.
     provenNeedsNil: boolean?

@@ -10762,6 +10762,13 @@ if present ~= T . never and present . tag ~= "typevar"
 and isA ( present , target ) then
 node . provenStatically = true
 node . provenNeedsNil = admitsNil
+
+
+
+
+elseif rawType ( present ) . tag == "metatable"
+and target . tag == "nominal" then
+node . refutedStatically = true
 end
 end
 return T . boolean
@@ -12174,7 +12181,7 @@ end
 
 
 local contract = c . metamethodOf ( base , memberName )
-if contract then
+if contract and base . tag == "metatable" then
 node . metamethodName = memberName
 node . metamethodReceiver = base
 c . markToken ( member , nil , contract , "property" )
@@ -12182,6 +12189,15 @@ local installed = kind == "safeIndex"
 and T . optional ( contract ) or contract
 node . resolvedType = installed
 return installed
+elseif contract then
+
+
+c . diag ( "NUPP2004" , member ,
+( "%s is a metamethod of %s, not a field of one" )
+: format ( memberName , T . tostring ( base ) ) , nil ,
+{ help = ( "write it on the declaration's own table, which is "
+.. "the metatable an instance carries" ) } )
+return T . any
 end
 local contractName = writing and "__newindex" or "__index"
 local mm = c . metamethodOf ( base , contractName )
@@ -18900,6 +18916,10 @@ package.preload["nupp.cst"] = function(...)
 local lexer = require ( "nupp.lexer" )
 
 local cst = { }
+
+
+
+
 
 
 
@@ -27659,6 +27679,10 @@ e ( "~= nil )" )
 else
 e ( "( true )" , firstTok and firstTok . line )
 end
+elseif x . refutedStatically then
+
+
+e ( "( false )" , firstTok and firstTok . line )
 elseif t . kind == "tname" and t . base . kind == "nil" then
 e ( "(" , firstTok and firstTok . line )
 emit ( x . expr )

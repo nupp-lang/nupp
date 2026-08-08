@@ -140,12 +140,12 @@ function index.install(c: any): any
                     or "read through a view that grants read access"})
                 return T.any
             end
-            -- A record's runtime table is the metatable its instances carry, so a
-            -- declared metamethod is a name on it and installing one is written the way
-            -- it reads. Asked before the index contract, which says what happens to the
-            -- names the declaration does not have.
+            -- A declared metamethod is a name on the metatable, so reaching one through
+            -- a `metatable<R>` is reaching the contract and writing one is installing
+            -- it. Asked before the index contract, which says what happens to the names
+            -- the declaration does not have.
             local contract = c.metamethodOf(base, memberName)
-            if contract then
+            if contract and base.tag == "metatable" then
                 node.metamethodName = memberName
                 node.metamethodReceiver = base
                 c.markToken(member, nil, contract, "property")
@@ -153,6 +153,15 @@ function index.install(c: any): any
                     and T.optional(contract) or contract
                 node.resolvedType = installed
                 return installed
+            elseif contract then
+                -- On an instance the same name is an ordinary field, and writing it
+                -- puts a function somewhere the operator never looks.
+                c.diag("NUPP2004", member,
+                    ("%s is a metamethod of %s, not a field of one")
+                    :format(memberName, T.tostring(base)), nil,
+                    {help = ("write it on the declaration's own table, which is "
+                    .. "the metatable an instance carries")})
+                return T.any
             end
             local contractName = writing and "__newindex" or "__index"
             local mm = c.metamethodOf(base, contractName)

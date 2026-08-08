@@ -699,6 +699,10 @@ function gen.generate(result, filename)
                 else
                     e("( true )", firstTok and firstTok.line)
                 end
+            elseif x.refutedStatically then
+                -- Settled the other way, and by the same reasoning: the subject is
+                -- a path, so nothing is lost by not evaluating it.
+                e("( false )", firstTok and firstTok.line)
             elseif t.kind == "tname" and t.base.kind == "nil" then
                 e("(", firstTok and firstTok.line)
                 emit(x.expr)
