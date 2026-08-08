@@ -189,7 +189,13 @@ declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
 The word is contextual — a name has to follow it on the same line — so a
-variable named `new` still means what it did.
+variable named `new` still means what it did. A construction's brace stands off
+its type, `new Point {x = 1}`, because the fields belong to the type rather than
+being an argument to it; the `f{...}` call sugar it is otherwise spelled like
+still hugs.
+
+`local p: Point` declares storage and constructs nothing, so it holds nil until
+something assigns to it and reading it before that is **NUPP2207**.
 
 One explicit type per field: grouped names are rejected.
 
@@ -207,13 +213,13 @@ record m.Point
     end
 end
 
-local origin = new m.Point{x = 0, y = 0}
+local origin = new m.Point {x = 0, y = 0}
 local d = origin:lengthSquared()
 
 return m
 ```
 
-Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`. `nupp explain <code>` says more.
+Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`, `NUPP2207`. `nupp explain <code>` says more.
 
 ## Interfaces
 
@@ -558,7 +564,7 @@ return models
 ```nupp
 local models = require("models")
 
-local user: models.User = new models.User{id = 1, name = "ada"}
+local user: models.User = new models.User {id = 1, name = "ada"}
 
 return user
 ```
@@ -671,6 +677,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2122 | A 'where' refinement is not checked |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
+| NUPP2207 | A binding is read before it holds a value |
 
 ## Working with the toolchain
 

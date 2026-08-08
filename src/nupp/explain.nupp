@@ -220,7 +220,7 @@ local ENTRIES: {any} = {
         wrong = "local record Point\n    x: integer\nend\n\n"
             .. "local p = Point{x = 1}\n\nreturn p\n",
         right = "local record Point\n    x: integer\nend\n\n"
-            .. "local p = new Point{x = 1}\n\nreturn p\n",
+            .. "local p = new Point {x = 1}\n\nreturn p\n",
         related = {"NUPP2206"},
         docs = "docs/reference.md#records",
     },
@@ -234,11 +234,29 @@ local ENTRIES: {any} = {
             .. "operand is answered as a type rather than through whatever "
             .. "value stands under the name, because an interface binds none.",
         wrong = "local interface Named\n    name: string\nend\n\n"
-            .. "local n = new Named{name = \"ada\"}\n\nreturn n\n",
+            .. "local n = new Named {name = \"ada\"}\n\nreturn n\n",
         right = "local interface Named\n    name: string\nend\n\n"
             .. "local record User is Named\n    name: string\nend\n\n"
-            .. "local n = new User{name = \"ada\"}\n\nreturn n\n",
+            .. "local n = new User {name = \"ada\"}\n\nreturn n\n",
         related = {"NUPP2202"},
+        docs = "docs/reference.md#records",
+    },
+    {
+        code = "NUPP2207",
+        summary = "A binding is read before it holds a value",
+        rule = "`local v: Vec2` used to construct one where it was declared, "
+            .. "which was a construction the source did not say. It no longer "
+            .. "does, so the binding holds nil until something assigns to it, "
+            .. "and reading it before that indexes nil at run time rather than "
+            .. "yielding a value of the declared type. Assign it first, or "
+            .. "declare it optional if it is meant to start empty. A "
+            .. "declaration file states what exists elsewhere and assigns "
+            .. "nothing, so it is exempt.",
+        wrong = "local record Point\n    x: integer\nend\n\n"
+            .. "local p: Point\n\nreturn p.x\n",
+        right = "local record Point\n    x: integer\nend\n\n"
+            .. "local p: Point = new Point {x = 0}\n\nreturn p.x\n",
+        related = {"NUPP2202", "NUPP2206"},
         docs = "docs/reference.md#records",
     },
 }
@@ -291,7 +309,7 @@ function explain.lookup(code: string): explain.Entry?
     end
     local lint = lintFor(code)
     if entry then
-        return new explain.Entry{
+        return new explain.Entry {
             code = code,
             summary = entry.summary,
             rule = entry.rule,
@@ -303,7 +321,7 @@ function explain.lookup(code: string): explain.Entry?
             family = false,
         }
     end
-    return new explain.Entry{
+    return new explain.Entry {
         code = code,
         summary = lint and lint.summary or family.summary,
         rule = lint and ("A lint, reported at " .. lint.level

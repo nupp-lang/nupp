@@ -270,6 +270,19 @@ function expr.install(c: any)
                         .. "the spelling"})
                 end
             end
+            if entry and entry.unassigned then
+                c.diag("NUPP2207", nameTok,
+                    ("%s is read before it holds a value"):format(nameText),
+                    nil, {related = entry.unassignedAt
+                    and {c.related({filename = c.filename,
+                    token = entry.unassignedAt, name = nameText},
+                    "declared here, with no value")} or nil,
+                    help = ("assign it first, or declare it as %s? if it is "
+                    .. "meant to start empty"):format(T.tostring(entry.t))})
+                -- Said once. A binding nobody assigned is usually read more than
+                -- once, and the second report adds nothing to the first.
+                entry.unassigned = nil
+            end
             return entry and entry.t or T.any -- unknown names are any unless --strict
         elseif kind == "paren" then
             local inner = node.expr

@@ -24,7 +24,7 @@ local record Circle
     radius: number
 end
 
-local n: Named = new Circle{name = "c", radius = 1}   -- fine
+local n: Named = new Circle {name = "c", radius = 1}   -- fine
 ```
 
 A plain table shape works too:

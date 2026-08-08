@@ -146,6 +146,18 @@ function bindings.install(c: any): any
                 returnBorrowOwners = expandedCall.returnBorrowOwners[
                     j - exprCount + 1]
             end
+            -- `local v: Vec2` used to construct one, which was a construction the
+            -- source did not say. It no longer does, so the binding holds nil
+            -- until something puts a value in it, and reading it before that is
+            -- an indexing error waiting to happen rather than a value of the
+            -- declared type. A declaration file states what exists elsewhere and
+            -- assigns nothing, so it is not making this mistake.
+            if boundEntry and ann and not initNode and not c.declarationFile
+                and ann.tag == "nominal"
+                and (ann.declKind == "record" or ann.declKind == "struct") then
+                boundEntry.unassigned = true
+                boundEntry.unassignedAt = nameTok
+            end
             if boundEntry and initNode and initNode.requiredModule then
                 boundEntry.requiredModule = initNode.requiredModule
                 -- Also on the definition, which outlives the scope: a module's plain
@@ -231,6 +243,10 @@ function bindings.install(c: any): any
                     entry and entry.t or T.any,
                     entry and entry.definition and entry.definition.kind
                     or "variable")
+                -- Whatever else the assignment turns out to be, the binding now
+                -- holds something. The walk is in source order, so a read that
+                -- came before this one has already been answered.
+                if entry then entry.unassigned = nil end
                 if entry and entry.constant then
                     c.diag("NUPP2008", target,
                         ("cannot assign to const variable %s")

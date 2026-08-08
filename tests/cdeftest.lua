@@ -147,7 +147,7 @@ function M.cdefStructRuntime()
       "   a: int32",
       "   b: int32",
       "end",
-      "local p = new nuppTestPair{a = 3, b = 9}",
+      "local p = new nuppTestPair {a = 3, b = 9}",
       "return p.a + p.b",
    }, "\n")), 12)
 end

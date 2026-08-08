@@ -49,7 +49,7 @@ local PRELUDE = table.concat({
    "end",
    "@owned(close_resource)",
    "local function open_resource(name: string): Resource",
-   "   return new Resource{name = name}",
+   "   return new Resource {name = name}",
    "end",
 }, "\n")
 
@@ -401,7 +401,7 @@ function M.owningContainersTransferElementsAcrossTheirBoundary()
       "end",
       "@owned(close_pool)",
       "local function open_pool(): Pool",
-      "   return new Pool{items = {}}",
+      "   return new Pool {items = {}}",
       "end",
       "local function run()",
       "   with pool = open_pool() do",

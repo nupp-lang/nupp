@@ -182,7 +182,7 @@ function M.projectIndexTracksOverlaysAndDependents()
    modelFile:close()
    local mainFile = assert(io.open(mainPath, "wb"))
    mainFile:write(table.concat({
-      "local item: Shared",
+      "local item: Shared = new Shared {}",
       "local value: number = item.value",
    }, "\n"))
    mainFile:close()

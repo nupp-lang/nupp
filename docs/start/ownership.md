@@ -29,7 +29,7 @@ end
 
 @owned
 local function openFile(): File
-    return new File{closed = false}
+    return new File {closed = false}
 end
 ```
 
@@ -52,7 +52,7 @@ end
 
 @owned(closeSession)
 local function openSession(id: integer): Session
-    return new Session{id = id}
+    return new Session {id = id}
 end
 ```
 
@@ -173,7 +173,7 @@ local record Bundle
     output: owned<Session>
 end
 
-local bundle = new Bundle{input = openSession(1), output = openSession(2)}
+local bundle = new Bundle {input = openSession(1), output = openSession(2)}
 dispose(bundle)
 ```
 

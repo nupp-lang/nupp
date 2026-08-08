@@ -55,11 +55,11 @@ local TASK = table.concat({
 local M = {}
 
 function M.recordMethodsTypeAtCallSites()
-   assertClean(TASK .. "\nlocal t: Task\nlocal s: string = t:describe()")
-   assertEq(diagsOf(TASK .. "\nlocal t: Task\nlocal n: number = t:describe()"),
+   assertClean(TASK .. "\nlocal t: Task = new Task {}\nlocal s: string = t:describe()")
+   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task {}\nlocal n: number = t:describe()"),
       "NUPP2001:8")
-   assertEq(diagsOf(TASK .. "\nlocal t: Task\nt:describe(1)"), "NUPP2007:8")
-   assertEq(diagsOf(TASK .. "\nlocal t: Task\nt:nosuch()"), "NUPP2004:8")
+   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task {}\nt:describe(1)"), "NUPP2007:8")
+   assertEq(diagsOf(TASK .. "\nlocal t: Task = new Task {}\nt:nosuch()"), "NUPP2004:8")
 end
 
 function M.selfIsBoundInsideMethods()
@@ -90,7 +90,7 @@ end
 function M.recordMethodsRunAtRuntime()
    assertEq(run(TASK .. table.concat({
       "",
-      "local t = new Task{title = 'ok'}",
+      "local t = new Task {title = 'ok'}",
       "return t:describe()",
    }, "\n")), "ok")
 end
@@ -104,7 +104,7 @@ function M.structMethodsDispatchThroughMetatype()
       "function Vec2:len(): number",
       "    return (self.x * self.x + self.y * self.y) ^ 0.5",
       "end",
-      "local v = new Vec2{x = 3, y = 4}",
+      "local v = new Vec2 {x = 3, y = 4}",
       "return v:len()",
    }, "\n")
    assertClean(src)
@@ -117,7 +117,7 @@ function M.structMethodsDispatchThroughMetatype()
       "function P:twice(): number",
       "    return self.n * 2",
       "end",
-      "local p = new P{n = 21}",
+      "local p = new P {n = 21}",
       "return p:twice()",
    }, "\n")), 42)
 end
@@ -161,7 +161,7 @@ function M.onlyACallExpandsAcrossTargets()
       "    one: function(n: string?): string?",
       "    two: function(n: string?): (string?, any)",
       "end",
-      "local b = new m.Box{}",
+      "local b = new m.Box {}",
       "b.one = function(n)",
       "    if n == 'x' then return b.one(n) end",
       "    return b.two(n)",
@@ -188,8 +188,8 @@ function M.newConstructsRecordsAndStructs()
       "    x: float",
       "    y: float",
       "end",
-      "local a = new Account{name = 'Hina', balance = 500}",
-      "local named = new V2{x = 3.0, y = 4.0}",
+      "local a = new Account {name = 'Hina', balance = 500}",
+      "local named = new V2 {x = 3.0, y = 4.0}",
       "local positional = new V2(1.0, 2.0)",
       "a:deposit(20)",
       "return a.balance + named.x + named.y + positional.x + positional.y",
@@ -207,7 +207,7 @@ function M.newStaysAnOrdinaryNameElsewhere()
       "local new = id",
       "local held = new",
       "id(R)",
-      "local built = new R{n = 5}",
+      "local built = new R {n = 5}",
       "return built.n + (held == id and 1 or 0)",
    }, "\n")), 6)
 end

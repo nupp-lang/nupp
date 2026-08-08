@@ -151,7 +151,7 @@ function docblock.parse(lines: {string}): docblock.Doc
     end
     while #body > 0 and trim(body[1]) == "" do table.remove(body, 1) end
     while #body > 0 and trim(body[#body]) == "" do table.remove(body) end
-    return new docblock.Doc{
+    return new docblock.Doc {
         text = table.concat(body, "\n"),
         params = params, returns = returns, raises = raises,
         fields = fields, typeargs = typeargs, tags = tags,

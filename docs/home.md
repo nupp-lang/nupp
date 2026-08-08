@@ -15,7 +15,7 @@ end
 
 @owned
 local function openSession(): Session
-    return new Session{closed = false}
+    return new Session {closed = false}
 end
 
 with session = openSession() do

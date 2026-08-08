@@ -332,6 +332,12 @@ local function sep(prev, tok)
         if prev.contextualOp then
             return " "
         end
+        -- A construction is spelled as call sugar and is not one: the fields belong
+        -- to the type rather than being an argument to it, so the brace stands off
+        -- it.
+        if prev.constructTarget then
+            return " "
+        end
         return prev.kind == "name" and "" or " "
     end
     return " "

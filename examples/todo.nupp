@@ -89,7 +89,7 @@ local function firstDue(tasks: {Task}): string?
 end
 
 local function lerp(a: Vec2, b: Vec2, t: number): Vec2
-    return new Vec2{x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t}
+    return new Vec2 {x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t}
 end
 
 -- bit operators compile to LuaJIT's bit.* semantics
@@ -121,5 +121,5 @@ else
     print(`next due: ${due}`)
 end
 
-local mid = lerp(new Vec2{x = 0, y = 0}, new Vec2{x = 10, y = 20}, 0.5)
+local mid = lerp(new Vec2 {x = 0, y = 0}, new Vec2 {x = 10, y = 20}, 0.5)
 print(`midpoint: ${mid.x}, ${mid.y} (cdata: ${mid is Vec2})`)

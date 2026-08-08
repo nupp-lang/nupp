@@ -64,14 +64,14 @@ function M.aRecordCanHaveAnArrayPart()
       "end",
    }, "\n")
    assertEq(diagsOf(decl .. "\n" .. table.concat({
-      'local n = new Node{kind = "if"}',
-      'n[1] = new Node{kind = "x"}',
+      'local n = new Node {kind = "if"}',
+      'n[1] = new Node {kind = "x"}',
       "n[#n + 1] = n[1]",
       "local k: string = n[1].kind",
       "for _, child in ipairs(n) do print(child.kind) end",
    }, "\n")), "", "index, length, append and ipairs all work")
    -- and the element type is enforced
-   assertEq(diagsOf(decl .. '\nlocal n = new Node{kind = "if"}\nn[1] = 5'),
+   assertEq(diagsOf(decl .. '\nlocal n = new Node {kind = "if"}\nn[1] = 5'),
       "NUPP2001")
 end
 
@@ -138,7 +138,7 @@ function M.recordIdentityCompiles()
       "local record R",
       "    x: integer",
       "end",
-      "local v = new R{x = 1}",
+      "local v = new R {x = 1}",
       "print(v is R)",
    }, "\n"))
    assert(code:find("getmetatable", 1, true),
@@ -237,14 +237,14 @@ function M.writingNilRemovesAContainerEntry()
       "local record R",
       "    x: integer",
       "end",
-      "local r = new R{x = 1}",
+      "local r = new R {x = 1}",
       'r["x"] = nil',
    }, "\n")), "NUPP2004", "a record is not bracket-indexable to begin with")
    assertEq(diagsOf(table.concat({
       "local record R",
       "    x: integer",
       "end",
-      "local r = new R{x = 1}",
+      "local r = new R {x = 1}",
       "r.x = nil",
    }, "\n")), "NUPP2001", "and a declared field cannot be removed")
 end
@@ -257,7 +257,7 @@ function M.assignmentIsCheckedBeforeItNarrows()
       "local record R",
       "    x: integer",
       "end",
-      "local r = new R{x = 1}",
+      "local r = new R {x = 1}",
       'r.x = "no"',
    }, "\n")), "NUPP2001")
    assertEq(diagsOf(table.concat({
@@ -366,7 +366,7 @@ function M.aGenericFunctionPreservesItsArgumentType()
       "local function keep<T>(x: T?): T?",
       "    return x",
       "end",
-      "local n: N? = keep(new N{kind = 'a'})",
+      "local n: N? = keep(new N {kind = 'a'})",
       "print(n and n.kind)",
    }, "\n")), "")
 end
@@ -381,7 +381,7 @@ function M.narrowingKeepsATypeParameter()
       "end",
       "local function first<T>(xs: {N}, x: T?): T?",
       "    if x ~= nil then",
-      "        xs[#xs + 1] = new N{kind = 'a'}",
+      "        xs[#xs + 1] = new N {kind = 'a'}",
       "    end",
       "    return x",
       "end",
@@ -534,7 +534,7 @@ function M.nestedTypesResolveThroughTheirOwnersTable()
       "    end",
       "    type Id = uint32",
       "end",
-      "local p: m.Shapes.Point = new m.Shapes.Point{x = 1}",
+      "local p: m.Shapes.Point = new m.Shapes.Point {x = 1}",
       "local i: m.Shapes.Id = 1",
       "local ok: boolean = p is m.Shapes.Point",
       "return m",
@@ -565,7 +565,7 @@ function M.methodsAttachToAQualifiedRecord()
       "function m.Counter:bump(): integer",
       "    return self.n + 1",
       "end",
-      "local c: m.Counter = new m.Counter{n = 1}",
+      "local c: m.Counter = new m.Counter {n = 1}",
       "local got: integer = c:bump()",
       "return m",
    }, "\n")), "")

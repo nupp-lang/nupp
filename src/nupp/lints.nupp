@@ -33,42 +33,42 @@ end
 
 --- Every lint, in the order `nupp lints` reports them.
 lints.all = {
-    new lints.Lint{
+    new lints.Lint {
         name = "missing-require", code = "NUPP2120",
         category = "correctness", level = "error",
         summary = "a project module is used without being required",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "exhaustiveness", code = "NUPP2107",
         category = "correctness", level = "warning",
         summary = "a dispatch leaves members of a closed set unhandled",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "string-pointer", code = "NUPP2501",
         category = "suspicious", level = "warning",
         summary = "a pointer taken from a Lua string",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "jit-callback", code = "NUPP2502",
         category = "suspicious", level = "warning",
         summary = "a C callback left on the JIT",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "lossy-narrowing", code = "NUPP2503",
         category = "suspicious", level = "warning",
         summary = "lossy integer narrowing",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "customary-operator", code = "NUPP2504",
         category = "style", level = "warning",
         summary = "a customary operator where Lua has a word",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "loop-invariant-closure", code = "NUPP2505",
         category = "suspicious", level = "warning",
         summary = "a loop builds the same function every iteration",
     },
-    new lints.Lint{
+    new lints.Lint {
         name = "undocumented-raise", code = "NUPP2506",
         category = "suspicious", level = "warning",
         summary = "a documented function raises without saying so",

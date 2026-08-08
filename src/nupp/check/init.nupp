@@ -510,7 +510,7 @@ function checkMod.check(result, filename, env, opts)
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See checkMod.Checker.
-    local c = new checkMod.Checker{
+    local c = new checkMod.Checker {
         result = result, filename = filename, env = env, opts = opts,
         -- A declaration file describes an interface it does not own, so its bare
         -- declarations are that interface and have no table of the file's own to attach

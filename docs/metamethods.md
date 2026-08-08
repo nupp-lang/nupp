@@ -77,7 +77,7 @@ The body of `newEvent` remains gradual where it builds a metatable for generic
 `E`. The bound still checks every call to `newEvent`, and the concrete
 `OnSpawn` declaration checks calls made after registration.
 
-Records retain their existing runtime namespace table. `new R{...}` stamps that
+Records retain their existing runtime namespace table. `new R {...}` stamps that
 table as the instance metatable, and the table carries `__index = R` for
 ordinary method lookup. A metamethod contract does not add a field to that
 namespace and does not change this lowering.
@@ -193,7 +193,7 @@ local record Counter
     end
 end
 
-local counter = new Counter{value = 0}
+local counter = new Counter {value = 0}
 counter:increment(2)
 ```
 

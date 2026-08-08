@@ -59,7 +59,7 @@ function M.newStaysContextual()
    local src = table.concat({
       "local new = 1",
       "print(new)",
-      "local built = new Point{x = 1}",
+      "local built = new Point {x = 1}",
       "local qualified = new m.Point(1, 2)",
       "local held = new",
       "print(held)",

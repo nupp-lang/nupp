@@ -1336,28 +1336,6 @@ function gen.generate(result, filename)
             end
             e("end", x.endTok and x.endTok.line or nil)
 
-        elseif kind == "localStmt" then
-            emitChildren(x)
-            -- implicit zero-init: "local v: Vec2" (no initializer) constructs the
-            -- struct — never a nil struct binding
-            if not x.exprs or #x.exprs == 0 then
-                local inits, lastStruct = {}, 0
-                for j = 1, #x.names do
-                    local tnode = x.types and x.types[j]
-                    if tnode and tnode.reified then
-                        inits[j] = tnode.reified .. "()"
-                        lastStruct = j
-                    else
-                        inits[j] = "nil"
-                    end
-                end
-                if lastStruct > 0 then
-                    needsFfi = true
-                    e("=")
-                    e(table.concat(inits, ", ", 1, lastStruct))
-                end
-            end
-
         elseif kind == "tableExpr" and x.presize then
             -- OPT-1: `{}` sized for the fields the optimizer counted. The call replaces
             -- the constructor where it stands, so the line it is attributed to does not

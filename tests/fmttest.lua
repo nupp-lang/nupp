@@ -47,6 +47,19 @@ function M.propertyCapabilities()
       "local interface Cell\n    readonly value: string\n    writeonly value: integer\nend\n")
 end
 
+-- A construction is spelled as call sugar and is not one: the fields belong to
+-- the type rather than being an argument to it, so the brace stands off it while
+-- an ordinary `f{...}` keeps hugging its callee.
+function M.constructionBracesStandOffTheirType()
+   assertEq(fmt1("local a = new R{n = 1}"), "local a = new R {n = 1}\n")
+   assertEq(fmt1("local a = new R  {n = 1}"), "local a = new R {n = 1}\n")
+   assertEq(fmt1("local a = new m.Point{x = 1}"), "local a = new m.Point {x = 1}\n")
+   -- parentheses stay hugged, the way every other call's do
+   assertEq(fmt1("local a = new V2 (1, 2)"), "local a = new V2(1, 2)\n")
+   -- and the sugar this is spelled like is untouched
+   assertEq(fmt1("f{a = 1}"), "f{a = 1}\n")
+end
+
 function M.methodCallParensDefaultOn()
    assertEq(fmt1("obj:m{a = 1}"), "obj:m({a = 1})\n")
    assertEq(fmt1('obj:m"lit"'), 'obj:m("lit")\n')

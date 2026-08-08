@@ -236,7 +236,7 @@ return m
 
     new reference.Section {
         title = "Records",
-        codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206"},
+        codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206", "NUPP2207"},
         body = [=[
 A record is a table with declared fields. It may carry inline methods, whose
 `self` is implicit, and it is built with `new`.
@@ -248,7 +248,13 @@ declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
 a record or a struct is **NUPP2206**.
 
 The word is contextual — a name has to follow it on the same line — so a
-variable named `new` still means what it did.
+variable named `new` still means what it did. A construction's brace stands off
+its type, `new Point {x = 1}`, because the fields belong to the type rather than
+being an argument to it; the `f{...}` call sugar it is otherwise spelled like
+still hugs.
+
+`local p: Point` declares storage and constructs nothing, so it holds nil until
+something assigns to it and reading it before that is **NUPP2207**.
 
 One explicit type per field: grouped names are rejected.
 ]=],

@@ -302,8 +302,8 @@ function M.genericIndexContracts()
       "   metamethod __index: function<T>(self, key: Key<T>): T",
       "   metamethod __newindex: function<T>(self, key: Key<T>, value: T)",
       "end",
-      "local store: Store",
-      "local key: Key<string>",
+      "local store: Store = new Store {}",
+      "local key: Key<string> = new Key {}",
       "local value: string = store[key]",
       "store[key] = 'saved'",
    }, "\n"))
@@ -314,11 +314,11 @@ function M.arithmeticAndLengthContracts()
       "local record I64",
       "   metamethod __add: function(self: I64, other: I64): I64",
       "end",
-      "local a, b: I64, I64",
+      "local a, b: I64, I64 = new I64 {}, new I64 {}",
       "local c: I64 = a + b",
    }, "\n"))
    assertEq((diagsOf("local n = #true")), "NUPP2003:1")
-   assertEq((diagsOf("local record A end\nlocal record B end\nlocal x: A\nlocal y: B\nprint(x < y)")),
+   assertEq((diagsOf("local record A end\nlocal record B end\nlocal x: A = new A {}\nlocal y: B = new B {}\nprint(x < y)")),
       "NUPP2003:5")
 end
 
@@ -326,7 +326,7 @@ function M.metatableTypeIsACompilerKnownPhantom()
    assertClean(table.concat({
       "local record R end",
       "local mt: metatable<R> = {__index = {}}",
-      "local r: R",
+      "local r: R = new R {}",
       "setmetatable(r, mt)",
       "setmetatable(r, nil)",
    }, "\n"))
@@ -349,7 +349,7 @@ function M.inlineMethodsAreHoistedAndNestedAliasesAreQualified()
       "   end",
       "end",
       "local id: Types.Id = 1",
-      "local counter: Types.Counter",
+      "local counter: Types.Counter = new Types.Counter {}",
       "local yes: boolean = counter:even(id)",
    }, "\n"))
 end
@@ -359,12 +359,12 @@ function M.recordsWorkWithPairsAndMetatableTyposAreRejected()
       "local record R",
       "   value: number",
       "end",
-      "local r: R",
+      "local r: R = new R {}",
       "for key, value in pairs(r) do print(key, value) end",
    }, "\n"))
    assertEq((diagsOf(table.concat({
       "local record R end",
-      "local r: R",
+      "local r: R = new R {}",
       "setmetatable(r, {__cal = function() end})",
    }, "\n"))), "NUPP2118:3")
 end
@@ -372,7 +372,7 @@ end
 function M.metamethodTyposCarrySafeFixes()
    local literal = table.concat({
       "local record R end",
-      "local r: R",
+      "local r: R = new R {}",
       "setmetatable(r, {__cal = function() end})",
    }, "\n")
    local _, literalDiags = diagsOf(literal)
@@ -532,14 +532,14 @@ function M.recordDeclarationsCheck()
       "   x: number",
       "   y: number",
       "end",
-      "local p: Point",
+      "local p: Point = new Point {}",
       "local n: number? = p?.x",
    }, "\n"))
    assertEq((diagsOf(table.concat({
       "local record Point",
       "   x: number",
       "end",
-      "local p: Point",
+      "local p: Point = new Point {}",
       "local v = p.z",
    }, "\n"))), "NUPP2004:5")
 end
@@ -553,7 +553,7 @@ function M.nominalProvenance()
       "local record B",
       "   v: number",
       "end",
-      "local a: A",
+      "local a: A = new A {}",
       "local b: B = a",
    }, "\n"))), "NUPP2001:8")
    -- but a record erodes to a matching structural shape
@@ -561,7 +561,7 @@ function M.nominalProvenance()
       "local record A",
       "   v: number",
       "end",
-      "local a: A",
+      "local a: A = new A {}",
       "local s: {v: number} = a",
    }, "\n"))
 end
@@ -634,7 +634,7 @@ function M.unknownNeedsNarrowingOrACast()
       "local record P",
       "   x: integer",
       "end",
-      "local a: unknown = new P{x = 1}",
+      "local a: unknown = new P {x = 1}",
       "if a is P then print(a.x) end",
    }, "\n"))
 end

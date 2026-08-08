@@ -222,4 +222,4 @@ local function run(parsed: any): integer
     return finish(failed and 1 or 0, unformatted)
 end
 
-return new spec.Handler{spec = command, run = run}
+return new spec.Handler {spec = command, run = run}

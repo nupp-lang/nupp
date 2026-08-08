@@ -395,7 +395,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         error("profile.sample: stackDepth must be at least 1", 2)
     end
 
-    local session = new profile.SampleSession{
+    local session = new profile.SampleSession {
         intervalMs = intervalMs,
         zoneFilter = opts.zone,
         root = opts.root,
@@ -436,7 +436,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
         local sample = cachedStacks[stack]
         if not sample then
-            sample = new profile.Sample{
+            sample = new profile.Sample {
                 zonePath = path, stack = stack, count = 0,
                 compiled = 0, interpreted = 0, cCode = 0,
                 collecting = 0, compiling = 0,
@@ -524,7 +524,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
                     or sample.stack
                 local row = merged[path .. "\0" .. stack]
                 if not row then
-                    row = new profile.Sample{
+                    row = new profile.Sample {
                         zonePath = path, stack = stack, count = 0,
                         compiled = 0, interpreted = 0, cCode = 0,
                         collecting = 0, compiling = 0,
@@ -542,7 +542,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         end
     end
 
-    local report = new profile.SampleReport{
+    local report = new profile.SampleReport {
         intervalMs = self.intervalMs,
         samples = samples,
         stacks = #kept,
@@ -700,7 +700,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     end
 
     local opts: profile.TraceOptions = options or {}
-    local session = new profile.TraceSession{
+    local session = new profile.TraceSession {
         includeBenign = opts.includeBenign or false,
         startedAt = os.time() as integer,
         paused = false,
@@ -738,7 +738,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         if site then
             site.count = site.count + 1
         else
-            session.sites[key] = new profile.AbortSite{
+            session.sites[key] = new profile.AbortSite {
                 severity = severity, count = 1, reason = reason,
                 location = location, zonePath = path,
             }
@@ -806,7 +806,7 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         return a.location < b.location
     end)
 
-    local report = new profile.TraceReport{
+    local report = new profile.TraceReport {
         durationSec = (os.time() as integer) - self.startedAt,
         totalAborts = self.totalAborts,
         blacklisted = self.blacklisted,

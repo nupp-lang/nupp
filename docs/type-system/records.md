@@ -10,7 +10,7 @@ layout. Choosing between them is choosing a representation.
  Runtime                Lua table + metatable       FFI cdata
  Field access           Hash lookup                 Offset
  Field types            Anything                    C-representable only
- Construction           new R{x = 1}                    new S{x = 1} or S(1, 2)
+ Construction           new R {x = 1}                    new S {x = 1} or S(1, 2)
  Uninitialized          Not nil-able; needs a value Zero-initialized
  Garbage collected      Yes                         Managed by the FFI
  Array part {T}         Allowed                     Rejected
@@ -33,7 +33,7 @@ local record Point
     end
 end
 
-local p = new Point{x = 3, y = 4}
+local p = new Point {x = 3, y = 4}
 print(p:length())
 ```
 
@@ -112,7 +112,7 @@ record m.Shapes
     type Id = uint32
 end
 
-local p: m.Shapes.Point = new m.Shapes.Point{x = 1}
+local p: m.Shapes.Point = new m.Shapes.Point {x = 1}
 ```
 
 ## Structs
@@ -136,7 +136,7 @@ Real memory, real widths. A `float` field truncates the way a C `float` does.
 Three construction forms:
 
 ```nupp
-local a = new Vec2{x = 1.0, y = 2.0}   -- named
+local a = new Vec2 {x = 1.0, y = 2.0}   -- named
 local b = Vec2(1.0, 2.0)           -- positional, in field order
 local c: Vec2                      -- zero-initialized
 ```

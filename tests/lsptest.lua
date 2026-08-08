@@ -250,7 +250,7 @@ function M.republishesDependentDiagnostics()
    local modelUri = "file://" .. projectDir .. "/model.nupp"
    local consumerUri = "file://" .. projectDir .. "/consumer.nupp"
    local consumer = table.concat({
-      "local item: Shared",
+      "local item: Shared = new Shared {}",
       "local value: number = item.value",
    }, "\n")
    local out = runSession({
@@ -401,7 +401,7 @@ function M.definitionLocations()
       "local record Point",
       "   x: number",
       "end",
-      "local p: Point",
+      "local p: Point = new Point {}",
       "local function length(v: Point): number",
       "   return v.x + p.x",
       "end",
@@ -456,7 +456,7 @@ function M.languageFeaturesAndCdefTooling()
       "local function sum(pair: Pair, amount: int32): int32",
       "   return cAdd(pair.value, amount)",
       "end",
-      "local pair: Pair",
+      "local pair: Pair = new Pair {}",
       "local result = sum(pair, 2)",
       "local cdef = 1",
       "local own = cdef",
@@ -902,7 +902,7 @@ function M.qualifiedMembersNavigateAcrossFiles()
    local uri = "file://" .. usePath
    -- column 34 sits on `Point` in the annotation
    local source = "local shapes = require(\"shapes\")\n"
-      .. "local p: shapes.Point = new shapes.Point{x = 1}\n"
+      .. "local p: shapes.Point = new shapes.Point {x = 1}\n"
    local out = runSession({
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
       { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
@@ -978,7 +978,7 @@ function M.renamesTheMemberAndNotItsTable()
    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
    local uri = "file://" .. projectDir .. "/shapes.nupp"
    local source = "local shapes = {}\n\nrecord shapes.Point\n   x: number\nend\n"
-      .. "\nlocal p: shapes.Point = new shapes.Point{x = 1}\n\nreturn shapes\n"
+      .. "\nlocal p: shapes.Point = new shapes.Point {x = 1}\n\nreturn shapes\n"
    local out = runSession({
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
       { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
@@ -1257,7 +1257,7 @@ function M.completionAfterAValueDotOffersItsFields()
       "    end",
       "end",
       "",
-      "local p: shapes.Point = new shapes.Point{x = 1, y = 2}",
+      "local p: shapes.Point = new shapes.Point {x = 1, y = 2}",
       "local n = p.x",
       "",
       "return shapes",
@@ -2021,7 +2021,7 @@ local OUTLINE = table.concat({
    "type shapes.Colour = 'red' | 'blue'",
    "",
    "function shapes.origin(): shapes.Point",
-   "    return new shapes.Point{x = 0, y = 0}",
+   "    return new shapes.Point {x = 0, y = 0}",
    "end",
    "",
    "local function helper(): number",
@@ -2296,7 +2296,7 @@ function M.codeActionCorrectsAMetamethodTypo()
    local projectDir = tempProject()
    local source = table.concat({
       "local record R end",
-      "local r: R",
+      "local r: R = new R {}",
       "setmetatable(r, {__cal = function() end})",
    }, "\n")
    local actions, _, rewritten, diagnostics = codeActionSession(projectDir,
@@ -2439,7 +2439,7 @@ local OWNER_PRELUDE = table.concat({
    "",
    "@owned(close_resource)",
    "local function open_resource(name: string): Resource",
-   "    return new Resource{name = name}",
+   "    return new Resource {name = name}",
    "end",
    "",
    "local function use(value: Resource)",

@@ -41,20 +41,20 @@ local M = {}
 function M.nilChecksNarrowThroughFieldPaths()
    assertClean(CFG .. table.concat({
       "",
-      "local c: Cfg",
+      "local c: Cfg = new Cfg {}",
       "if c.port ~= nil then",
       "    local p: number = c.port",
       "end",
    }, "\n"))
    -- and outside the guard the field is still optional
-   assertEq(diagsOf(CFG .. "\nlocal c: Cfg\nlocal p: number = c.port"),
+   assertEq(diagsOf(CFG .. "\nlocal c: Cfg = new Cfg {}\nlocal p: number = c.port"),
       "NUPP2001:6")
 end
 
 function M.narrowingSurvivesTheElseBranch()
    assertClean(CFG .. table.concat({
       "",
-      "local c: Cfg",
+      "local c: Cfg = new Cfg {}",
       "if c.port == nil then",
       "else",
       "    local p: number = c.port",
@@ -66,7 +66,7 @@ function M.assignmentForgetsWhatWasNarrowed()
    -- writing through the path invalidates the refinement
    assertEq(diagsOf(CFG .. table.concat({
       "",
-      "local c: Cfg",
+      "local c: Cfg = new Cfg {}",
       "if c.port ~= nil then",
       "    c.port = nil",
       "    local p: number = c.port",

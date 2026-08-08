@@ -107,7 +107,7 @@ name shows where it came from:
 
     local models = require("models")
 
-    local user: models.User = new models.User{id = 1}
+    local user: models.User = new models.User {id = 1}
 
 A module path also names a type directly, as in `models.user.User`. Only a
 `global` is reachable without saying where it comes from. Runtime module

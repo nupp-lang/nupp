@@ -1033,7 +1033,7 @@ record cst.Paren is cst.Hints
     expr: cst.Node?
 end
 
---- `new T(...)`, `new T{...}`: the only way to construct a record or a struct.
+--- `new T(...)`, `new T {...}`: the only way to construct a record or a struct.
 ---
 --- The construction is written as a call so that Lua's existing call sugar covers
 --- every form, and so that a qualified name reaches its declaration through the

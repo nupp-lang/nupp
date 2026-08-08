@@ -162,7 +162,7 @@ does.
 **1. Declare it** in the `lints.all` registry in `src/nupp/lints.nupp`:
 
 ```nupp
-new lints.Lint{
+new lints.Lint {
     name = "missing-require", code = "NUPP2120",
     category = "correctness", level = "error",
     summary = "a project module is used without being required",
