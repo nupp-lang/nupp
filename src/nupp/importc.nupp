@@ -9,8 +9,10 @@ emitted as typed `cdef` declarations. Anything the Nupp C surface cannot express
 is ejected as a comment — the output is a committed, hand-editable file, never a
 black box.
 
-A second `-dM` pass collects the object-like macros the header defines itself and
-emits the numerically evaluable ones as typed constants.
+Constants come from two places and land together: an enum's members, which
+LuaJIT's model carries with the type, and a second `-dM` pass over the object-like
+macros the header defines itself, of which the numerically evaluable ones are
+emitted. A name declared twice keeps its first meaning.
 ]]
 
 local importc = {}
@@ -100,14 +102,27 @@ local function stripLinemarkers(text)
     return table.concat(out, "\n")
 end
 
+-- In declaration order, which is the only order C can read them in: a typedef
+-- names a type that an earlier one had to introduce. Darwin's headers reach
+-- `ino_t` through `__darwin_ino64_t` through `__uint64_t`, so any other order
+-- hands LuaJIT a name it has not met yet. Sorting these to make the output
+-- deterministic bought determinism the header already had, and paid for it by
+-- failing on every real system header.
+--
+-- A name repeated by two headers keeps its first spelling; a later identical
+-- typedef is legal C and adds nothing.
 local function collectTypedefs(stmts)
-    local defs = {}
+    local defs, seen = {}, {}
     for _, stmt in ipairs(stmts) do
         if stmt:match("^typedef%f[%W]") and not stmt:find("[{}()]") then
             local body = stmt:gsub("^typedef%s+", "")
             local base, name = body:match("^(.-)%s*%f[%w_]([%a_][%w_]*)$")
-            if base and name and base:match("%S") then
-                defs[name] = (base:gsub("^%s+", ""):gsub("%s+$", ""))
+            if base and name and base:match("%S") and not seen[name] then
+                seen[name] = true
+                defs[#defs + 1] = {
+                    name = name,
+                    base = (base:gsub("^%s+", ""):gsub("%s+$", "")),
+                }
             end
         end
     end
@@ -253,18 +268,28 @@ function importc.import(headerPath, opts)
     -- The type vocabulary comes from the whole translation unit: a header's
     -- own declarations are usually written in typedefs that live in the
     -- headers it includes, and those were filtered out above.
-    local typedefs = collectTypedefs(
-        statements(normalize(stripLinemarkers(preprocessed))))
-    local typedefText = {}
-    for name, base in pairs(typedefs) do
-        typedefText[#typedefText + 1] = ("typedef %s %s;"):format(base, name)
+    --
+    -- What the target header declares itself is left out of it. Those
+    -- statements are about to be parsed as the target, and a name LuaJIT
+    -- already holds cannot be declared twice — pre-declaring one here would
+    -- fail the parse of the very header being imported.
+    local ownTypedefs = {}
+    for _, def in ipairs(collectTypedefs(statements(text))) do
+        ownTypedefs[def.name] = true
     end
-    table.sort(typedefText)
+    local typedefText = {}
+    for _, def in ipairs(collectTypedefs(
+        statements(normalize(stripLinemarkers(preprocessed))))) do
+        if not ownTypedefs[def.name] then
+            typedefText[#typedefText + 1] =
+                ("typedef %s %s;"):format(def.base, def.name)
+        end
+    end
 
     -- LuaJIT's parser is the arbiter and the source of the declarations we
     -- render. Included simple typedefs supply the vocabulary removed when
     -- the target header was isolated through cpp linemarkers.
-    local parsed, ffiErr = cdecl.inspect(text, table.concat(typedefText, "\n"))
+    local parsed, ffiErr = cdecl.inspect(text, typedefText)
     if not parsed then
         return nil, {"LuaJIT cdef: " .. tostring(ffiErr)}
     end
@@ -337,16 +362,33 @@ function importc.import(headerPath, opts)
     end
 
     -- constants
-    local values = macroValues(dm)
     local constLines = {}
+    local taken = {}
+    local function constant(name, typeName, expr)
+        if not identifier(name) or taken[name] then return end
+        taken[name] = true
+        constLines[#constLines + 1] = ("local %s: %s = %s")
+            :format(name, typeName, expr)
+        exports[#exports + 1] = name
+    end
+
+    -- An enum's members, which are what a header declares an enum for. The
+    -- type itself is already an integer everywhere it appears — C's own enum
+    -- tag checks nothing a caller could rely on — so the members come across
+    -- as the named constants they are, and are usable anywhere `int32` is.
+    for _, declaration in ipairs(parsed.enums or {}) do
+        for _, member in ipairs(declaration.values) do
+            constant(member.name, "int32", tostring(member.value))
+        end
+    end
+
+    local values = macroValues(dm)
     for _, name in ipairs(headerMacroNames(raw)) do
         local value = values[name]
         if value then
             local expr, vtype = constantExpr(value)
             if expr then
-                constLines[#constLines + 1] = ("local %s: %s = %s")
-                    :format(name, vtype == "string" and "string" or "number", expr)
-                exports[#exports + 1] = name
+                constant(name, vtype == "string" and "string" or "number", expr)
             end
         end
     end

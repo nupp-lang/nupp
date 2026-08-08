@@ -3,8 +3,9 @@ The shared, LuaJIT-backed model of C declarations.
 
 LuaJIT already contains the C parser whose answers matter at run time. This
 module gives both `cheader` and import-c a neutral view of those answers:
-structs, fields, functions, and recursively decoded C types. Consumers either
-turn the model into compiler types or render it back as Nupp source.
+structs, fields, functions, enum constants, and recursively decoded C types.
+Consumers either turn the model into compiler types or render it back as Nupp
+source.
 ]]
 
 local ffi = require("ffi")
@@ -16,6 +17,7 @@ local cdecl = {}
 local CT_NUM, CT_STRUCT, CT_PTR, CT_ARRAY = 0, 1, 2, 3
 local CT_VOID, CT_ENUM, CT_FUNC = 4, 5, 6
 local CT_TYPEDEF, CT_ATTRIB, CT_FIELD = 7, 8, 9
+local CT_CONSTVAL = 11
 
 local CTF_BOOL = 0x08000000
 local CTF_FP = 0x04000000
@@ -144,22 +146,84 @@ local function decodeStruct(id, entry)
     }
 end
 
+local INT32_MAX, UINT32 = 2147483647, 4294967296
+
+-- One enumerator's value.
+--
+-- LuaJIT keeps it in the `size` slot of the constant's entry, where -1 is
+-- indistinguishable from the sentinel that means "this has no size" and comes
+-- back as nil — and `ERROR = -1` is a common thing for a header to say. Reading
+-- the name back through the C namespace asks LuaJIT what it would use, which is
+-- the answer that matters, and the entry is only the fallback.
+--
+-- Enums are modelled as signed 32-bit here because that is what LuaJIT reports
+-- for every one of them, including a header's unsigned enumerators, so a value
+-- above the signed range is one that already wrapped.
+local function enumeratorValue(name, entry)
+    local ok, value = pcall(function() return ffi.C[name] end)
+    if not ok or type(value) ~= "number" then value = entry.size end
+    if type(value) ~= "number" then return nil end
+    if value > INT32_MAX then value = value - UINT32 end
+    return value
+end
+
+-- Enumerators in the order the header declares them, which is the order they
+-- are worth reading in and the only one that carries meaning.
+local function decodeEnum(id, entry)
+    local values = {}
+    local child = entry.sib
+    while child do
+        local centry = info(child)
+        if not centry then break end
+        if kindOf(centry.info) == CT_CONSTVAL and centry.name then
+            local value = enumeratorValue(centry.name, centry)
+            if value then
+                values[#values + 1] = {name = centry.name, value = value}
+            end
+        end
+        child = centry.sib
+    end
+    return {
+        kind = "enum",
+        id = id,
+        name = entry.name,
+        bits = (entry.size or 4) * 8,
+        values = values,
+    }
+end
+
 -- Content caching also prevents a second consumer from redeclaring the same
 -- C text in LuaJIT's process-global ctype registry.
 local inspectCache = {}
 
+-- `prelude` is a list of declarations, or one string holding a single
+-- declaration; either way the cache key is the same text.
+local function preludeList(prelude)
+    if type(prelude) == "table" then return prelude end
+    if type(prelude) == "string" and #prelude > 0 then return {prelude} end
+    return {}
+end
+
 function cdecl.inspect(text, prelude)
-    prelude = prelude or ""
-    local key = prelude .. "\0" .. text
+    local declarations = preludeList(prelude)
+    local key = table.concat(declarations, "\n") .. "\0" .. text
     local hit = inspectCache[key]
     if hit then return hit end
 
     -- A filtered header can depend on typedefs from its include closure.
     -- Declare that vocabulary before the snapshot so it is available while
     -- parsing but cannot become an exported declaration of the target.
-    if #prelude > 0 then
-        local preludeOk, preludeErr = pcall(ffi.cdef, prelude)
-        if not preludeOk then return nil, tostring(preludeErr) end
+    --
+    -- One at a time, and a failure is dropped rather than fatal. A system
+    -- header's vocabulary is a chain, and the chain runs through spellings
+    -- this vocabulary does not carry — Darwin reaches `__darwin_mbstate_t`
+    -- through a `union` body — so an unresolvable link costs the declarations
+    -- that needed it and nothing else. Redeclaring a name LuaJIT already holds
+    -- fails the same way and is equally harmless: the registry is global and
+    -- process-wide, so a second import of an overlapping header meets its own
+    -- earlier work.
+    for _, declaration in ipairs(declarations) do
+        pcall(ffi.cdef, declaration)
     end
 
     local before = {}
@@ -170,19 +234,26 @@ function cdecl.inspect(text, prelude)
     local ok, err = pcall(ffi.cdef, text)
     if not ok then return nil, tostring(err) end
 
-    local structs, functions = {}, {}
+    local structs, functions, enums = {}, {}, {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
-        if entry and entry.name and not before[id] then
+        if entry and not before[id] then
             local kind = kindOf(entry.info)
-            if kind == CT_STRUCT then
-                structs[#structs + 1] = decodeStruct(id, entry)
-            elseif kind == CT_FUNC then
-                functions[#functions + 1] = decodeFunction(entry)
+            -- An enum carries its constants whether or not it is named:
+            -- `typedef enum { ... } Mode;` names the type and nothing else,
+            -- and its members are the point of declaring it.
+            if kind == CT_ENUM then
+                enums[#enums + 1] = decodeEnum(id, entry)
+            elseif entry.name then
+                if kind == CT_STRUCT then
+                    structs[#structs + 1] = decodeStruct(id, entry)
+                elseif kind == CT_FUNC then
+                    functions[#functions + 1] = decodeFunction(entry)
+                end
             end
         end
     end
-    local result = {structs = structs, functions = functions}
+    local result = {structs = structs, functions = functions, enums = enums}
     inspectCache[key] = result
     return result
 end

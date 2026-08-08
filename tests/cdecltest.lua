@@ -34,4 +34,44 @@ function M.preludeTypesAreNotExported()
    assertEq(parsed.structs[1].name, "NuppCdeclOwned")
 end
 
+function M.enumMembersComeBackInDeclarationOrder()
+   local parsed, err = cdecl.inspect(table.concat({
+      "enum NuppCdeclStatus { NUPP_CDECL_OK = 0, NUPP_CDECL_LAST = 7 };",
+      "typedef enum { NUPP_CDECL_ANON = 3 } NuppCdeclAnon;",
+   }, "\n"))
+   assert(parsed, err)
+   assertEq(#parsed.enums, 2)
+   assertEq(parsed.enums[1].name, "NuppCdeclStatus")
+   assertEq(parsed.enums[1].values[1].name, "NUPP_CDECL_OK")
+   assertEq(parsed.enums[1].values[1].value, 0)
+   assertEq(parsed.enums[1].values[2].name, "NUPP_CDECL_LAST")
+   assertEq(parsed.enums[1].values[2].value, 7)
+   -- an anonymous enum has no name of its own and its members still count
+   assertEq(parsed.enums[2].name, nil)
+   assertEq(parsed.enums[2].values[1].name, "NUPP_CDECL_ANON")
+   assertEq(parsed.enums[2].values[1].value, 3)
+end
+
+function M.negativeEnumMembersAreReadBack()
+   -- LuaJIT keeps the value where -1 means "no size", so it cannot be read
+   -- from the entry alone.
+   local parsed, err = cdecl.inspect(
+      "enum NuppCdeclSigned { NUPP_CDECL_ERR = -1, NUPP_CDECL_NONE = 0 };")
+   assert(parsed, err)
+   assertEq(parsed.enums[1].values[1].value, -1)
+   assertEq(parsed.enums[1].values[2].value, 0)
+end
+
+function M.anUnusablePreludeEntryCostsOnlyItself()
+   -- A system header's vocabulary is a chain, and a link this reader cannot
+   -- spell must not take the declarations that do not need it with it.
+   local parsed, err = cdecl.inspect(
+      "struct NuppCdeclKept { int n; };",
+      {"typedef struct NuppCdeclNoSuchThing *NuppCdeclFine;",
+       "typedef __nupp_cdecl_never_declared_t NuppCdeclBroken;"})
+   assert(parsed, err)
+   assertEq(#parsed.structs, 1)
+   assertEq(parsed.structs[1].name, "NuppCdeclKept")
+end
+
 return M

@@ -79,6 +79,86 @@ function M.libraryClauseIsEmitted()
    assert(#result.errors == 0, "output with library clauses parses")
 end
 
+local enumsText -- shared across cases (import once)
+
+local function enumsImported()
+   if not enumsText then
+      local text, warnings = importc.import(HERE .. "/fixtures/enums.h")
+      assert(text, "import failed: " .. table.concat(warnings or {}, "; "))
+      enumsText = text
+   end
+   return enumsText
+end
+
+function M.enumMembersBecomeNamedConstants()
+   local text = enumsImported()
+   assertContains(text, "local MINI_OK: int32 = 0")
+   assertContains(text, "local MINI_BUSY: int32 = 1")
+   assertContains(text, "local MINI_GONE: int32 = 7")
+   assertContains(text, "MINI_GONE = MINI_GONE", "and are exported")
+end
+
+function M.anonymousEnumsCarryTheirMembers()
+   local text = enumsImported()
+   assertContains(text, "local MINI_READ: int32 = 1")
+   assertContains(text, "local MINI_WRITE: int32 = 2")
+end
+
+function M.negativeEnumMembersSurvive()
+   assertContains(enumsImported(), "local MINI_ERROR: int32 = -1")
+end
+
+function M.aConstantKeepsItsFirstMeaning()
+   local text = enumsImported()
+   local _, count = text:gsub("local MINI_OK[:%s]", "")
+   assert(count == 1, "MINI_OK declared " .. count .. " times:\n" .. text)
+   assert(not text:find("MINI_OK: number", 1, true),
+      "the later macro must not redeclare the enum member:\n" .. text)
+end
+
+function M.enumOutputParsesAndChecksCleanly()
+   local text = enumsImported()
+   local result = parser.parse(text, "enums.d.nupp")
+   assert(#result.errors == 0, "generated file must parse: "
+      .. (result.errors[1] and result.errors[1].msg or ""))
+   local diags = check.check(result, "enums.d.nupp")
+   assert(#diags == 0, "generated file must check: "
+      .. (diags[1] and diags[1].msg or ""))
+end
+
+function M.anEnumMemberIsAcceptedWhereItsFunctionWantsIt()
+   -- The point of importing the members: a C enum parameter is an integer
+   -- everywhere it appears, and the constant fits it without a cast.
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local f = assert(io.open(dir .. "/enums.d.nupp", "wb"))
+   f:write(enumsImported())
+   f:close()
+   local env = envMod.new(dir)
+
+   local result = parser.parse(table.concat({
+      "local e = require('enums')",
+      "local rc: number = e.mini_status(e.MINI_BUSY)",
+   }, "\n"), "consumer")
+   assert(#result.errors == 0, "consumer must parse")
+   local diags = check.check(result, "consumer", env)
+   assert(#diags == 0, "consumer should check cleanly: "
+      .. (diags[1] and diags[1].msg or ""))
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.typedefsAreDeclaredInTheOrderCCanReadThem()
+   -- chain_base.h reaches chain_size_t through names that sort before the
+   -- ones they are built from, which is how Darwin spells its own.
+   local text, warnings = importc.import(HERE .. "/fixtures/chain.h")
+   assert(text, "chain import failed: "
+      .. table.concat(warnings or {}, "; "))
+   assertContains(text, "chain_len(s: cstring): uint64",
+      "the chain resolved to its base type")
+end
+
 function M.outputParsesAndChecksCleanly()
    local text = imported()
    local result = parser.parse(text, "mini.d.nupp")
