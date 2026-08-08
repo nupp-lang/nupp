@@ -771,20 +771,36 @@ through idempotency and parse-stability in addition to exact match:
       exists to avoid. Real in FFI and unaddressed; worth a design before
       someone hits it, and independent of the reference question above.
 - [ ] **`nupp.std.*` is untyped outside the compiler's own tree.** Module
-      resolution searches a project's `include` roots, and the standard library
-      is not among them, so `require("nupp.std.resources")` in a user project
-      yields `any`: `local h: string = resources.open_file("x", "r")` reports
-      nothing. Inside this tree it checks correctly, which is why the two fixes
-      above are not visible from outside it.
+      resolution searches a project's `include` roots and `BUNDLED` in
+      `env.nupp`, which registers `ffi`, `string.buffer`, `cjson`, `cjson.safe`
+      and the `jit.*` submodules and nothing else. So
+      `require("nupp.std.zone")` in a user project yields `any`. The modules
+      are compiled into the closure and reach `package.preload`, so they run;
+      what is missing is anything to check a call against. Inside this tree
+      they check correctly, which is why the fixes above are not visible from
+      outside it.
 
-      The consequence is that the opening example of [with.md](../docs/with.md)
-      still does not compile for the reader it is written for, and the shipped
-      resource wrappers cannot be used as owners by anyone. Left alone because
-      it is a design decision rather than a repair: it needs a view on what the
-      shipped standard surface is, whether it ships as source or as `.d.nupp`
-      declarations, and how it reaches a project — `env.nupp` deliberately
-      embeds "only the compiler's own declarations, and deliberately not a
-      general virtual filesystem", so extending that is the author's call.
+      For `zone` and `profile` that costs the checking only — `zone.pushhh("x")`
+      is silent — which is a shame given the profiling guide teaches both. For
+      `resources` it is fatal: ownership cannot ride on `any`, so
+      `with file = resources.open_file(path)` is NUPP2610 and every wrapper the
+      module exports is unusable by anyone.
+
+      Left alone because it is a design decision rather than a repair. It needs
+      a view on what the shipped standard surface is and how it reaches a
+      project: `env.nupp` deliberately embeds "only the compiler's own
+      declarations, and deliberately not a general virtual filesystem", so
+      extending that is the author's call. A `.d.nupp` overlay per module is
+      the idiomatic shape and has one question to settle first — `@owned`
+      targets `function`, and a declaration file spells its exports as typed
+      bindings, so a cleanup contract has nowhere to attach. Parsing the
+      implementations instead avoids that and costs every project a parse of
+      `profile.nupp` on every check.
+
+      `with.md`, the README and the tour teach a locally declared producer
+      rather than the shipped wrappers, so no page depends on this. What is
+      still blocked is test coverage for `nupp.std.resources`, since nothing
+      outside this tree can acquire from it.
 
 ## Documentation
 
@@ -816,31 +832,19 @@ Reference and the generated API. What that pass turned up:
       `fixpoint --update-bootstrap` and a new tracked `bootstrap/nupp.lua` in
       the same commit. Until it is settled, `nupp fmt` cannot gate this
       repository.
-- [ ] **`nupp.std.*` is invisible to the checker outside this repository.**
-      `BUNDLED` in `env.nupp` registers `ffi`, `string.buffer`, `cjson`,
-      `cjson.safe` and the `jit.*` submodules, and nothing else, so a user
-      project that writes `require("nupp.std.zone")` gets `any`. The modules are
-      compiled into the closure and reach `package.preload`, so they *run*; what
-      is missing is anything to check a call against.
+- [ ] **`nupp doc` never removes what it stopped writing.** A module build
+      records its outputs and deletes the ones a later build did not produce; a
+      docs build returns before any of that runs, so a page keeps its rendered
+      HTML after its route changes or its source is deleted. Restructuring this
+      site left a whole `build/docs/guide/` tree behind, still serving pages
+      whose links pointed at files that had moved — a link checker run over the
+      output found them and they looked real.
 
-      For `zone` and `profile` that costs the checking only — `zone.pushhh("x")`
-      is silent — which is a shame given the profiling guide teaches both. For
-      `resources` it is fatal: ownership cannot ride on `any`, so
-      `with file = resources.open_file(path)` is NUPP2610 and every wrapper the
-      module exports is unusable. Qualified functions now carry their type, so
-      this is the whole of what is left.
-
-      The idiomatic fix is a `.d.nupp` overlay per module, registered in
-      `BUNDLED` and shipped the way `decls/*.d.nupp` already are — cheap to
-      parse, and the public surface is what wants declaring anyway. One question
-      to settle first: `@owned` targets `function`, and a declaration file
-      spells its exports as typed bindings, so a cleanup contract has nowhere to
-      attach yet. Parsing the implementations instead avoids that and costs
-      every project a parse of `profile.nupp` on every check.
-
-      Until then `with.md`, the README and the tour teach a locally declared
-      producer instead, and `nupp.std.resources` has no test coverage because
-      nothing outside this tree can acquire from it.
+      A reader who lands on an old URL gets a stale page rather than a 404,
+      which is worse than either. `nupp build` already has the machinery: the
+      docs path needs to record what it wrote and remove the difference, and
+      `doc.build` now collects its written paths for `--json`, so the list is
+      already in hand.
 
 ## Housekeeping
 

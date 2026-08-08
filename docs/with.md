@@ -298,14 +298,14 @@ trade-offs, including `ffi.gc`.
  NUPP2620   A cleanup cannot be reached from where the value is discharged.
 ```
 
-`NUPP2620` is a restriction rather than a rule. A cleanup named by a bare name is
-emitted as that name wherever the value is discharged, so an owner whose cleanup
-is private to another module cannot be closed from here — and letting it through
-produced a program that type-checked and then failed on `attempt to call a nil
-value`. Give the type a `@dispose` method and the cleanup travels with the value
-instead of being named, which works across modules by construction. The general
-answer, which removes the restriction, is tracked in
-[plans/todo.md](../plans/todo.md).
+`NUPP2620` is a restriction rather than a rule. A cleanup named by a bare name
+is emitted as that name wherever the value is discharged, so an owner whose
+cleanup is private to another module cannot be closed from here — and letting
+it through produced a program that type-checked and then failed on `attempt to
+call a nil value`. Give the type a `@dispose` method and the cleanup travels
+with the value instead of being named, which works across modules by
+construction. The general answer, which removes the restriction, is tracked in
+`plans/todo.md` in the repository.
 
 `NUPP2610` through `NUPP2617` belong to resource scopes. The last two are
 borrow-provenance codes and are also raised away from a `with`, wherever a
