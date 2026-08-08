@@ -14,7 +14,7 @@ local tecs = {x = {y = function() calls = calls + 1 end}}]]
 local function source(bound)
    local lines = {HEADER}
    if bound then
-      lines[#lines + 1] = "local y = tecs.x.y; y()"
+      lines[#lines + 1] = "const y = tecs.x.y; y()"
       for _ = 2, CALLS do lines[#lines + 1] = "y()" end
    else
       for _ = 1, CALLS do lines[#lines + 1] = "tecs.x.y()" end
@@ -53,7 +53,7 @@ local function hot(bound)
    jit.flush()
    local body = bound and [[
       for _ = 1, %d do
-         local y = tecs.x.y; y()
+         const y = tecs.x.y; y()
          y()
       end
    ]] or [[

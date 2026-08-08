@@ -516,7 +516,7 @@ return {
    local output = read(dir .. "/out/main.lua")
    assert(output:find("return 123 , \"nupp\"", 1, true), output)
    assert(output:find("lib . replaceable . BAZ", 1, true), output)
-   assert(output:find("local __nupp_call_1= lib . api . ping", 1, true), output)
+   assert(output:find("const __nupp_call_1= lib . api . ping", 1, true), output)
    assertEq(select(2, output:gsub("lib . api . ping", "")), 1,
       "the built consumer resolves its immutable callable once")
 

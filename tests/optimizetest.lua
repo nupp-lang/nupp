@@ -325,7 +325,7 @@ function M.bindsRepeatedImmutableDottedCallees()
    local remarks = optimize.run(result, {level = 1})
    local code, generatedDiags = gen.generate(result, "test")
    assertEq(#generatedDiags, 0, "consumer generates")
-   assertTrue(code:find("local __nupp_call_1= Foo . api . ping", 1, true) ~= nil,
+   assertTrue(code:find("const __nupp_call_1= Foo . api . ping", 1, true) ~= nil,
       "first call binds the immutable path: " .. code)
    assertEq(select(2, code:gsub("__nupp_call_1", "")), 3,
       "one declaration and two calls use the generated local")
@@ -392,7 +392,7 @@ function M.staticCallableNamesDoNotCollideWithSourceNames()
    check.check(result, "test", requiredEnv)
    optimize.run(result, {level = 1})
    local code = gen.generate(result, "test")
-   assertTrue(code:find("local __nupp_call_2=", 1, true) ~= nil,
+   assertTrue(code:find("const __nupp_call_2=", 1, true) ~= nil,
       "generated names skip user identifiers: " .. code)
 end
 

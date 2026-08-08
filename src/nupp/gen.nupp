@@ -420,7 +420,7 @@ function gen.generate(result, filename)
         end
         if x.callableBindings then
             for _, binding in ipairs(x.callableBindings) do
-                e("local " .. binding.name .. "=", sourceLine(x))
+                e("const " .. binding.name .. "=", sourceLine(x))
                 emit(binding.value)
                 e(";")
             end

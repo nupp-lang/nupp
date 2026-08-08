@@ -263,7 +263,7 @@ tecs.x.y()
 
 ```lua [Optimized Lua]
 const tecs = require("tecs")
-local __nupp_call_1 = tecs.x.y; __nupp_call_1()
+const __nupp_call_1 = tecs.x.y; __nupp_call_1()
 __nupp_call_1()
 ```
 
@@ -295,12 +295,12 @@ generated-Lua shapes shown above, not checker time.
 | `OPT-3`, 20,000 primitive expressions, load and run | 0.0039s | 0.0024s | 1.64x faster |
 | `OPT-3`, 20,000 nested paths, load only | 0.0095s | 0.0025s | 3.82x faster |
 | `OPT-3`, 20,000 nested paths, load and run | 0.0099s | 0.0025s | 3.95x faster |
-| `OPT-4`, 20,000 dotted calls, load only | 0.0025s | 0.0010s | 2.45x faster |
-| `OPT-4`, 20,000 dotted calls, load and run | 0.0029s | 0.0011s | 2.55x faster |
+| `OPT-4`, 20,000 dotted calls, load only | 0.0027s | 0.0011s | 2.54x faster |
+| `OPT-4`, 20,000 dotted calls, load and run | 0.0030s | 0.0012s | 2.53x faster |
 
 Primitive folding reduced its generated input by 32.1%; nested propagation by
 60.8%; static callable binding by 63.6%. Warmed results were 0.99x, 2.01x, and
-1.00x respectively in this run. Hot results are workload- and trace-dependent,
+1.06x respectively in this run. Hot results are workload- and trace-dependent,
 so the reliable constant and callable wins are smaller source and cold startup.
 
 Run the same benchmarks with:
