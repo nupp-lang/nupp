@@ -2,15 +2,10 @@
 
 ## Tier 2 — hit in the first week
 
-- [ ] **Protocol-contract follow-ups.** The syntax and primary tecs use cases
-      are landed; the remaining checks are deliberately visible:
-  - [ ] enforce parsed `where` predicates rather than only preserving,
-        formatting, documenting, and highlighting them
-  - [ ] validate the value types in a direct `metatable<T>` literal against
-        `T`'s declared contracts, not only unknown `__` key spellings
-  - [ ] model metatable contents through a bounded generic receiver so a
-        registrar such as `newEvent<E is Event>` checks its own metatable body
-        instead of relying on checked concrete call sites
+- [ ] enforce parsed `where` predicates rather than only preserving, formatting, documenting, and highlighting them
+- [ ] validate the value types in a direct `metatable<T>` literal against `T`'s declared contracts, not only unknown `__` key spellings
+- [ ] model metatable contents through a bounded generic receiver so a registrar such as `newEvent<E is Event>` checks its own metatable body
+      instead of relying on checked concrete call sites
 
 ## Tier 3 — deliberate roadmap (plan §6 M5–M7)
 
@@ -134,7 +129,7 @@
       params as typed callbacks~~ (landed through the shared header model),
       ~~struct-by-value arguments~~, enums as constants.
 
-To add:
+## Testing
 
 - [ ] Complete the operator-contract matrix with direct tests for unary minus,
       subtraction, multiplication, division, modulo, power, right-hand
@@ -183,12 +178,6 @@ To add:
       raw pointer or unchecked bulk copy remains an explicit `unsafe`
       boundary. Use the real tecs compression, process-I/O, mapped-buffer, and
       pointer-plus-length APIs as the acceptance corpus.
-
-## Bundled declarations
-
-- [ ] More of the ambient ecosystem as it comes up (`lfs`, `socket`,
-      `posix`, OpenResty's `ngx.*`), same pattern: describe, verify
-      against the real module, let projects shadow.
 
 ## Formatter corpus (remaining golden cases)
 
