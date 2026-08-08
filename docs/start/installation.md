@@ -44,7 +44,7 @@ The one thing it cannot do is start from nothing, since compiling Nupp needs a
 Nupp compiler. `bootstrap/nupp.lua` is that compiler, tracked in the
 repository, and it is what a fresh clone uses for its first build.
 
-## The optional libraries
+## Optional libraries
 
 Nothing to run: lunamark and Scintillua are declared in `nupp.lua` as
 dependencies of the documentation target, so the command that needs them
@@ -171,9 +171,9 @@ nupp run src/app/main.nupp  # compile and run one file
 Check the whole project rather than the file you just edited. That is what lets
 Nupp verify module boundaries, ownership contracts, and lint settings together.
 
-[The build system](../tooling/build.md) documents every manifest key.
+[Build system](../tooling/build.md) documents every manifest key.
 
 ## Next
 
 - [A tour of Nupp](tour.md) — the whole language in one pass.
-- [Why use Nupp?](why.md) — what each feature is for.
+- [Reasons to use Nupp](why.md) — what each feature is for.

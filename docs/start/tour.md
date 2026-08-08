@@ -256,8 +256,8 @@ profiler, and C importer are the same executable, built from the same parse.
 
 ## What to read next
 
-- [Why use Nupp?](why.md) — the case for each of the pieces above.
+- [Reasons to use Nupp](why.md) — the case for each of the pieces above.
 - [Nupp syntax](syntax.md) — the syntax in one place, including what LuaJIT
   2.1 does and does not carry.
-- [The type system](../type-system/overview.md) — gradual typing, and what the
+- [Type system](../type-system/overview.md) — gradual typing, and what the
   checker proves.

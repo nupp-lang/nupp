@@ -13,14 +13,14 @@ Nupp is the first stub, not the only one: an engine or framework can publish its
 own host — one that opens a window, or owns an event loop — and Nupp will stamp
 programs into it without knowing what it is.
 
-## Why the contract is written before the code
+## Contract before code
 
 Everything else here can be revised. This cannot: once somebody publishes a stub
 built against it, the format is load-bearing in a repository nobody here
 controls. So it is specified first, and the first two consumers are both ours —
 the trivial test host and Nupp itself — before any third party is invited.
 
-## The container
+## Container
 
 The payload is **appended to the end of the stub file**, followed by a fixed
 trailer. Not a platform section: an ELF section, a Mach-O segment and a PE
@@ -40,7 +40,7 @@ afterwards. Stripping it, or re-signing, both fail. See "Signing" below.
     │ trailer (48 bytes)   │  fixed size, at the very end of the file
     └──────────────────────┘
 
-### The trailer
+### Trailer
 
 48 bytes, little-endian, at the end of the file. A stub reads the last 48 bytes,
 checks the magic, and knows the rest without searching.
@@ -64,7 +64,7 @@ signature over the payload, and appending one is a version-2 question.
 Reserved bytes are zero and are checked to be zero, so a later version can use
 them and an older stub will refuse rather than misread.
 
-## The payload
+## Payload
 
 One Lua chunk, exactly as `nupp build` with a `bundle` target produces it. It is
 plain Lua and runs under a plain `luajit` with no stub at all, which is what
@@ -170,7 +170,7 @@ Once signing is ours rather than Apple's, a Linux machine can produce a runnable
 distributable macOS binary. Fetching a prebuilt stub is what turns
 cross-compilation from a licensing problem into a download.
 
-## The packaging fixpoint
+## Packaging fixpoint
 
 The compiler proves it can compile itself, byte for byte, on every change. The
 packager proves the same thing about itself: a Nupp binary, run, stamps out a

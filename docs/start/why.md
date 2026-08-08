@@ -1,4 +1,4 @@
-# Why use Nupp?
+# Reasons to use Nupp
 
 Nupp is LuaJIT with types, safer resource handling, and a toolchain in the box.
 It is a superset: your Lua already compiles, and each thing below is something
@@ -140,4 +140,4 @@ compatibility with how Lua is actually written.
 
 - [Installation](installation.md), then [a tour of Nupp](tour.md).
 - [Nupp syntax](syntax.md) if you already know Lua and want the delta.
-- [The type system](../type-system/overview.md) for what the checker proves.
+- [Type system](../type-system/overview.md) covers what the checker proves.

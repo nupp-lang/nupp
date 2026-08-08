@@ -187,6 +187,6 @@ generate plain 5.1 Lua. There is no flag that guarantees it.
 
 ## Next
 
-- [The type system](../type-system/overview.md) for what the annotations mean.
+- [Type system](../type-system/overview.md) covers what the annotations mean.
 - [The grammar](../grammar.md) for the normative ABNF.
 - [Declarations and modules](../modules.md) for visibility and module rules.

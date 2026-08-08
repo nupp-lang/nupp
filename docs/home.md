@@ -28,12 +28,12 @@ end
 - [Installation](start/installation.md) — requirements, a checkout, and a first
   project.
 - [A tour of Nupp](start/tour.md) — the whole language in one pass.
-- [Why use Nupp?](start/why.md) — what each piece is for.
+- [Reasons to use Nupp](start/why.md) — what each piece is for.
 - [Nupp syntax](start/syntax.md) — the syntax, and what LuaJIT 2.1 carries.
 
 ## Go deeper
 
-- [The type system](type-system/overview.md) — gradual typing, records,
+- [Type system](type-system/overview.md) — gradual typing, records,
   structs, interfaces, generics, and narrowing.
 - [Ownership](start/ownership.md) — resources that are hard to leak.
 - [Effect contracts](effects.md) — what calls may observe, change, or expose.

@@ -16,7 +16,7 @@ The parallel is exact: `record M.Point` is to `record` what `function M.f` is
 to `function`. A dot puts the thing on a table; `local` keeps it in the file;
 neither makes it global.
 
-## The three forms
+## Module forms
 
 ```nupp
 local models = {}
@@ -98,7 +98,7 @@ project-wide search for an unqualified name, so adding a `Point` — or a
 `mathutil.nupp` — to one corner of a project cannot change what a name means in
 another.
 
-## The module is the table you return
+## Returned module tables
 
 A module's type is whatever the file returned — nothing is merged in behind
 it. A declaration that carries a runtime value puts itself on its table, which

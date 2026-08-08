@@ -1,4 +1,4 @@
-# The formatter
+# Formatter
 
 ```bash
 nupp fmt              # list what is unformatted, project-wide

@@ -1,4 +1,4 @@
-# The documentation generator
+# Documentation generator
 
 ```bash
 nupp doc site -o build/docs src

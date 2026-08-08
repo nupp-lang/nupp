@@ -1,4 +1,4 @@
-# The type system
+# Type system
 
 Nupp is gradually typed. Anything unannotated or unresolvable is `any` and
 checks silently, so an untyped LuaJIT program is a valid Nupp program that
@@ -107,7 +107,7 @@ ordinary Lua:
 Each is a place where the checker chose compatibility. Knowing which four they
 are is more useful than pretending they do not exist.
 
-## The pages
+## Type-system guides
 
 - [Primitive types](primitives.md) — the builtin names, unions, optionals,
   collections, and aliases.

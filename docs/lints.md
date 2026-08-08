@@ -355,14 +355,3 @@ whose editor severity differs wants an LSP session in `tests/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.
-
-### Why they are raised inline
-
-Lints are raised during checking rather than by a separate pass, because the
-type information they need is already in hand there. That is a deliberate
-divergence from Clippy, which runs its lints over HIR afterwards: re-walking a
-checked tree would mean re-deriving what the checker already knows, and the
-incremental engine would have to invalidate both.
-
-The cost is that a lint cannot be added without touching the checker, so this
-is not an extension point for users.

@@ -79,4 +79,4 @@ in-process session, which is what makes them scriptable:
 nupp lsp inspect --json src/app/main.nupp 12 9
 ```
 
-See [the language server](lsp.md#the-same-operations-without-an-editor).
+See [command-line language-server operations](lsp.md#command-line-operations).

@@ -86,7 +86,7 @@ const point_length = ffi.load("mini").point_length
 `cdef` bindings are always file-local. Export them by returning them in the
 module table, which is what `import-c` generates.
 
-### The type mapping
+### Type mapping
 
 ```
  Nupp                C

@@ -1,4 +1,4 @@
-# The language server
+# Language server
 
 ```bash
 nupp lsp serve [root]
@@ -87,7 +87,7 @@ Two refactorings come from the server itself:
 
 Both reindent by one level, so the result is already formatted.
 
-## The same operations without an editor
+## Command-line operations
 
 Each runs the same in-process session — there is no subprocess — which makes
 them usable from a script or an agent.

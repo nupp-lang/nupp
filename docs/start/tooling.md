@@ -120,7 +120,7 @@ nupp clean --dry-run          # what clean would remove
 
 Builds are incremental across processes. A source edit rechecks and regenerates
 that module; dependents are only invalidated when its exported interface
-changes. [The build system](../tooling/build.md) covers the manifest, targets,
+changes. [Build system](../tooling/build.md) covers the manifest, targets,
 caching, and native dependencies.
 
 ## Profiling

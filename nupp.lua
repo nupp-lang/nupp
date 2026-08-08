@@ -174,7 +174,7 @@ return {
                },
                {
                   path = "getting-started/why",
-                  title = "Why use Nupp?",
+                  title = "Reasons to use Nupp",
                   source = "docs/start/why.md",
                },
                {
@@ -236,27 +236,27 @@ return {
 
                {
                   path = "tooling/cli",
-                  title = "The nupp command",
+                  title = "nupp command",
                   source = "docs/tooling/cli.md",
                },
                {
                   path = "tooling/build",
-                  title = "The build system",
+                  title = "Build system",
                   source = "docs/tooling/build.md",
                },
                {
                   path = "tooling/fmt",
-                  title = "The formatter",
+                  title = "Formatter",
                   source = "docs/tooling/fmt.md",
                },
                {
                   path = "tooling/doc",
-                  title = "The documentation generator",
+                  title = "Documentation generator",
                   source = "docs/tooling/doc.md",
                },
                {
                   path = "tooling/lsp",
-                  title = "The language server",
+                  title = "Language server",
                   source = "docs/tooling/lsp.md",
                },
                {

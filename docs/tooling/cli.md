@@ -1,4 +1,4 @@
-# The `nupp` command
+# `nupp` command
 
 One executable holds every tool. `nupp help <command>` prints the same
 reference each command's `-h` does.
@@ -77,7 +77,7 @@ error. No option repeats unless it says so, and only `-Zno-opt` does.
 A usage error prints `nupp: <message>` on stderr and points at
 `nupp help <command>`.
 
-## The commands
+## Command reference
 
 ### `check`
 

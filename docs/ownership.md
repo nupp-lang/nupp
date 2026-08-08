@@ -39,7 +39,7 @@ This is useful even in small programs because failures are reported at the
 ownership boundary, not later as a leak, double free, stale callback, or
 occasional use-after-free.
 
-## The surface at a glance
+## Ownership syntax
 
 | Surface | Meaning |
 | --- | --- |
