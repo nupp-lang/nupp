@@ -167,20 +167,20 @@ function M.genericDeclarationsBindTheirParameters()
 end
 
 function M.typeArgumentsSubstituteIntoFields()
-   assertClean(BOX .. "\nlocal b: Box<number>\nlocal n: number = b.value")
-   assertEq(diagsOf(BOX .. "\nlocal b: Box<number>\nlocal s: string = b.value"),
+   assertClean(BOX .. "\nlocal b: Box<number> = new Box {}\nlocal n: number = b.value")
+   assertEq(diagsOf(BOX .. "\nlocal b: Box<number> = new Box {}\nlocal s: string = b.value"),
       "NUPP2001:5")
-   assertClean(BOX .. "\nlocal b: Box<string>\nlocal s: string = b.value")
+   assertClean(BOX .. "\nlocal b: Box<string> = new Box {}\nlocal s: string = b.value")
 end
 
 function M.differentArgumentsAreDifferentTypes()
    assertEq(diagsOf(BOX .. table.concat({
       "",
-      "local n: Box<number>",
+      "local n: Box<number> = new Box {}",
       "local s: Box<string> = n",
    }, "\n")), "NUPP2001:5")
    -- and the message distinguishes them
-   local result = parser.parse(BOX .. "\nlocal n: Box<number>\nlocal s: Box<string> = n", "t")
+   local result = parser.parse(BOX .. "\nlocal n: Box<number> = new Box {}\nlocal s: Box<string> = n", "t")
    local d = check.check(result, "t", env)[1]
    assert(d.msg:find("Box<number>", 1, true), "renders arguments: " .. d.msg)
 end

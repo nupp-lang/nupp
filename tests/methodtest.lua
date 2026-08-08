@@ -223,12 +223,12 @@ function M.newRefusesWhatCannotBeConstructed()
       "local iface = new I()",
    }, "\n")), "NUPP2206:4")
    assertEq(diagsOf("local prim = new string()"), "NUPP2206:1")
+   -- a closed set of literals is a union, and a value of it is one of the
+   -- literals, written directly
    assertEq(diagsOf(table.concat({
-      "local enum Color",
-      "    'red'",
-      "end",
+      "local type Color = 'red' | 'blue'",
       "local c = new Color()",
-   }, "\n")), "NUPP2206:4")
+   }, "\n")), "NUPP2206:2")
 end
 
 -- A refinement is what `is` compiles to. The values here were never built by

@@ -304,17 +304,19 @@ function expr.install(c: any)
             -- interface -- which binds none -- with `any`, and say nothing.
             local named = call.obj and c.pathKey(call.obj) or nil
             local declared = named and c.lookupType(named) or nil
-            if declared and declared.tag == "nominal"
-                and declared.declKind ~= "record"
-                and declared.declKind ~= "struct" then
+            local buildable = declared and declared.tag == "nominal"
+                and (declared.declKind == "record"
+                or declared.declKind == "struct")
+            if declared and not buildable then
                 local why = "`new` builds a record or a struct"
-                if declared.declKind == "interface" then
+                if declared.tag == "nominal"
+                    and declared.declKind == "interface" then
                     why = "an interface declares a contract and has no runtime "
                         .. "table to stamp; construct a record that declares it "
                         .. "with `is`"
-                elseif declared.declKind == "enum" then
-                    why = "an enum value is one of its declared strings, "
-                        .. "written directly"
+                elseif declared.tag == "union" then
+                    why = "a union is one of its members, and a value of it is "
+                        .. "written as one of them"
                 end
                 c.diag("NUPP2206", call.obj or node,
                     ("%s cannot be constructed"):format(named), nil,

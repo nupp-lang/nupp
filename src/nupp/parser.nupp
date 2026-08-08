@@ -957,6 +957,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         add(n, kw)
         local call = parseSuffixedexp()
         n.call = add(n, call)
+        if call.kind == "call" or call.kind == "safeCall" then
+            -- A construction is not the call sugar it is spelled as, so its brace
+            -- stands off the type rather than hugging it the way `f{...}` does.
+            local calleeEnd = cst.lastToken(call.obj)
+            if calleeEnd then calleeEnd.constructTarget = true end
+        end
         if call.kind ~= "call" and call.kind ~= "safeCall" then
             errAt(kw, "'new' needs a construction; write new T(...) or new T {...}",
                 "NUPP1004",

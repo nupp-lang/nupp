@@ -102,7 +102,7 @@ table.insert(tasks, newTask('write the parser', 'high' as Priority))
 table.insert(tasks, newTask('write the checker', 'high' as Priority))
 table.insert(tasks, newTask('water the plants', 'low' as Priority))
 tasks[2].done = true
-apply(tasks[3], Reprioritized{kind = 'reprioritized', priority = 'normal'})
+apply(tasks[3], new Reprioritized {kind = 'reprioritized', priority = 'normal'})
 
 -- short functions: |params| -> expr
 local urgent = filter(tasks, |t: Task| -> t.priority == 'high' and not t.done)

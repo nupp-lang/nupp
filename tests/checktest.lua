@@ -115,7 +115,7 @@ function M.propertyCapabilities()
       "   readonly [string]: string",
       "   writeonly [string]: Animal",
       "end",
-      "local cell = Cell{value = 'ready'}",
+      "local cell = new Cell {value = 'ready'}",
       "cell.value = 1",
       "local value: string = cell.value",
       "cell['answer'] = 42",
