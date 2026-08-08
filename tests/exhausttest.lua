@@ -1,4 +1,4 @@
--- Enum exhaustiveness: a chain that dispatches on an enum and leaves
+-- Exhaustiveness: a chain that dispatches on a union of literals and leaves
 -- through every branch is claiming to handle every member.
 local parser = require("nupp.parser")
 local check = require("nupp.check")
@@ -29,7 +29,7 @@ local function messageOf(src)
    return d and d.msg or ""
 end
 
-local COLOR = "local enum Color 'red' 'green' 'blue' end"
+local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 
 local M = {}
 
@@ -47,7 +47,7 @@ function M.aDispatchMissingAMemberIsReported()
    assertEq(diagsOf(src), "NUPP2107")
    local msg = messageOf(src)
    assert(msg:find('"blue"', 1, true), "names the member: " .. msg)
-   assert(msg:find("Color", 1, true), "names the enum: " .. msg)
+   assert(msg:find('"green"', 1, true), "names the set: " .. msg)
 end
 
 function M.everyMissingMemberIsNamed()

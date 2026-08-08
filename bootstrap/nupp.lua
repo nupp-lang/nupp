@@ -22,7 +22,6 @@ binding = true ,
 record = true ,
 interface = true ,
 struct = true ,
-enum = true ,
 alias = true ,
 [ "c-declaration" ] = true ,
 [ "c-function" ] = true ,
@@ -52,7 +51,6 @@ declaration = true ,
 [ "named-function" ] = true ,
 } ,
 typeAlias = { declaration = true , [ "type-declaration" ] = true , alias = true } ,
-enumDecl = { declaration = true , [ "type-declaration" ] = true , enum = true } ,
 cdefFunc = {
 declaration = true ,
 [ "c-declaration" ] = true ,
@@ -206,11 +204,6 @@ targets = { "c-function" } ,
 name = "dispose" ,
 arguments = "none" ,
 targets = { "function" , "c-function" , "field" } ,
-} ,
-{
-name = "noreturn" ,
-arguments = "none" ,
-targets = { "function" , "c-function" , "local-binding" } ,
 } ,
 {
 name = "jit" ,
@@ -562,7 +555,23 @@ for _ , path in ipairs ( listFiles ( dir ) ) do
 if path : match ( "%.lua$" ) then files [ # files + 1 ] = path end
 end
 end
-toolFingerprintMemo = hashFiles ( files )
+
+
+
+
+
+
+
+local parts = { }
+for _ , path in ipairs ( files ) do
+local relative = path
+if path : sub ( 1 , # dir + 1 ) == dir .. "/" then
+relative = path : sub ( # dir + 2 )
+end
+parts [ # parts + 1 ] = relative .. "\0" .. ( hashFile ( path ) or "missing" )
+end
+table . sort ( parts )
+toolFingerprintMemo = hash . digest ( table . concat ( parts , "\0" ) )
 return toolFingerprintMemo
 end
 
@@ -3600,6 +3609,7 @@ package.preload["nupp.cdecl"] = function(...)
 
 
 
+
 local ffi = require ( "ffi" )
 local bit = require ( "bit" )
 
@@ -3609,6 +3619,7 @@ local cdecl = { }
 local CT_NUM , CT_STRUCT , CT_PTR , CT_ARRAY = 0 , 1 , 2 , 3
 local CT_VOID , CT_ENUM , CT_FUNC = 4 , 5 , 6
 local CT_TYPEDEF , CT_ATTRIB , CT_FIELD = 7 , 8 , 9
+local CT_CONSTVAL = 11
 
 local CTF_BOOL = 0x08000000
 local CTF_FP = 0x04000000
@@ -3737,22 +3748,94 @@ fields = fields ,
 }
 end
 
+local INT32_MAX , UINT32 = 2147483647 , 4294967296
+
+
+
+
+
+
+
+
+
+
+
+
+local function enumeratorValue ( name , entry )
+local ok , value = pcall ( function ( ) return ffi . C [ name ] end )
+if not ok or type ( value ) ~= "number" then value = entry . size end
+if type ( value ) ~= "number" then return nil end
+if value > INT32_MAX then value = value - UINT32 end
+return value
+end
+
+
+
+local function decodeEnum ( id , entry )
+local values = { }
+local child = entry . sib
+while child do
+local centry = info ( child )
+if not centry then break end
+if kindOf ( centry . info ) == CT_CONSTVAL and centry . name then
+local value = enumeratorValue ( centry . name , centry )
+if value then
+values [ # values + 1 ] = { name = centry . name , value = value }
+end
+end
+child = centry . sib
+end
+return {
+kind = "enum" ,
+id = id ,
+name = entry . name ,
+bits = ( entry . size or 4 ) * 8 ,
+values = values ,
+}
+end
+
 
 
 local inspectCache = { }
 
+
+
+local function preludeList ( prelude )
+if type ( prelude ) == "table" then return prelude end
+if type ( prelude ) == "string" and # prelude > 0 then return { prelude } end
+return { }
+end
+
+
+
+
+local function targetUnits ( text )
+if type ( text ) == "table" then return text , true end
+return { text } , false
+end
+
 function cdecl . inspect ( text , prelude )
-prelude = prelude or ""
-local key = prelude .. "\0" .. text
+local declarations = preludeList ( prelude )
+local units , perUnit = targetUnits ( text )
+local key = table . concat ( declarations , "\n" ) .. "\0"
+.. table . concat ( units , "\n" )
 local hit = inspectCache [ key ]
 if hit then return hit end
 
 
 
 
-if # prelude > 0 then
-local preludeOk , preludeErr = pcall ( ffi . cdef , prelude )
-if not preludeOk then return nil , tostring ( preludeErr ) end
+
+
+
+
+
+
+
+
+
+for _ , declaration in ipairs ( declarations ) do
+pcall ( ffi . cdef , declaration )
 end
 
 local before = { }
@@ -3760,14 +3843,37 @@ for id = 1 , MAX_CTYPE_ID do
 if info ( id ) then before [ id ] = true end
 end
 
-local ok , err = pcall ( ffi . cdef , text )
-if not ok then return nil , tostring ( err ) end
 
-local structs , functions = { } , { }
+
+
+
+
+local rejected = { }
+for _ , unit in ipairs ( units ) do
+local ok , err = pcall ( ffi . cdef , unit )
+if not ok then
+rejected [ # rejected + 1 ] = {
+text = unit ,
+
+reason = tostring ( err ) : gsub ( "^.-:%d+:%s*" , "" ) ,
+}
+end
+end
+if not perUnit and # rejected > 0 then
+return nil , rejected [ 1 ] . reason
+end
+
+local structs , functions , enums = { } , { } , { }
 for id = 1 , MAX_CTYPE_ID do
 local entry = info ( id )
-if entry and entry . name and not before [ id ] then
+if entry and not before [ id ] then
 local kind = kindOf ( entry . info )
+
+
+
+if kind == CT_ENUM then
+enums [ # enums + 1 ] = decodeEnum ( id , entry )
+elseif entry . name then
 if kind == CT_STRUCT then
 structs [ # structs + 1 ] = decodeStruct ( id , entry )
 elseif kind == CT_FUNC then
@@ -3775,7 +3881,14 @@ functions [ # functions + 1 ] = decodeFunction ( entry )
 end
 end
 end
-local result = { structs = structs , functions = functions }
+end
+local result = {
+structs = structs ,
+functions = functions ,
+enums = enums ,
+rejected = rejected ,
+declared = # units ,
+}
 inspectCache [ key ] = result
 return result
 end
@@ -5182,7 +5295,6 @@ cdef . install ( c , reifiableField ) , pragma . install ( c ) ,
 for kind , handle in pairs ( installed ) do statHandlers [ kind ] = handle end
 end
 statHandlers . recordDecl = c . checkTypedecl
-statHandlers . enumDecl = c . checkTypedecl
 statHandlers . typeAlias = c . checkTypedecl
 
 local function checkStat ( stat )
@@ -5202,9 +5314,8 @@ for _ , stat in ipairs ( block . stats or { } ) do
 local decl = stat
 while decl and decl . kind == "pragmaStmt" do decl = decl . stat end
 local k = decl and decl . kind
-if ( k == "recordDecl" or k == "enumDecl" ) and decl . name then
-local declKind = k == "enumDecl" and "enum" or decl . declKind
-local n , entry = c . declaredNominal ( decl , declKind )
+if k == "recordDecl" and decl . name then
+local n , entry = c . declaredNominal ( decl , decl . declKind )
 decl . hoistedType , decl . hoistedEntry = n , entry
 n . byname = n . byname or { }
 local key = c . declKey ( decl )
@@ -5798,15 +5909,6 @@ and initializers [ j ] then
 moveExpression ( initializers [ j ] , init , "local initialization" ,
 ownershipKind ( init ) )
 end
-
-
-if stat . noreturnContract and bound . tag == "func" then
-bound = T . func ( bound . params , bound . rets , bound . vararg ,
-bound . paramModes , bound . predicate , bound . typeParams ,
-bound . typeBounds , bound . borrowsParam , bound . borrowsSelf ,
-bound . borrowsParams , bound . ffiOut , bound . varargType ,
-true )
-end
 if ann and nameTok . text == c . moduleLocal then
 c . moduleLocalAnnotated = true
 end
@@ -6399,7 +6501,7 @@ c . lastCallRets = rets
 return optional and T . optional ( first ) or first
 end
 if ot ~= T . any and ot ~= T . table_ and ot . tag ~= "map" then
-if ot . tag == "shape" or ( ot . tag == "nominal" and ot . declKind ~= "enum" ) then
+if ot . tag == "shape" or ot . tag == "nominal" then
 local fixes = c . edits . nameSpellingFix ( member ,
 c . fieldNames ( ot ) )
 c . diag ( "NUPP2004" , member , ( "no method %q in %s" )
@@ -7175,8 +7277,7 @@ end
 output . returnIndex = # rets
 end
 local cdefType = T . func ( params , rets , stat . varargs or false ,
-paramModes , nil , nil , nil , nil , nil , nil , ffiOut , nil ,
-stat . noreturnContract or false )
+paramModes , nil , nil , nil , nil , nil , nil , ffiOut , nil , false )
 local cdefName = stat . name
 if not cdefName then return end
 c . bindVar ( cdefName . text , cdefType , true , cdefName , "function" )
@@ -7768,20 +7869,6 @@ ignored , projectEntry = c . env . declarationType ( c . env , c . filename ,
 stat . name . text , "type" , c . visibilityOf ( stat ) )
 end
 c . publishType ( stat , t , projectEntry )
-elseif kind == "enumDecl" then
-local n , projectEntry = stat . hoistedType , stat . hoistedEntry
-if not n then
-n , projectEntry = c . declaredNominal ( stat , "enum" )
-end
-n . values = { }
-stat . resolvedType = n
-for _ , item in ipairs ( stat . items ) do
-local raw = item . token . text
-n . values [ # n . values + 1 ] = raw : sub ( 2 , - 2 )
-end
-c . bindDeclaredType ( stat , n )
-c . bindDeclaredVar ( stat , T . any )
-c . publishType ( stat , n , projectEntry )
 elseif kind == "recordDecl" then
 local n , projectEntry = stat . hoistedType , stat . hoistedEntry
 if not n then
@@ -7801,7 +7888,7 @@ c . diag ( "NUPP2122" , stat . whereClause ,
 "a 'where' refinement is not implemented, so this "
 .. "constraint is not checked" ,
 nil , { help = "remove it, or express the constraint as a "
-.. "type: an enum, a union of literals, or a bound" } )
+.. "type: a union of literals, or a bound" } )
 end
 
 c . bindDeclaredType ( stat , n )
@@ -7826,9 +7913,8 @@ stat . resolvedType = n
 
 
 for _ , e in ipairs ( stat . entries ) do
-if e . kind == "recordDecl" or e . kind == "enumDecl" then
-local nestedKind = e . kind == "enumDecl" and "enum"
-or e . declKind
+if e . kind == "recordDecl" then
+local nestedKind = e . declKind
 local nested = T . nominal ( e . name . text , nestedKind )
 e . hoistedType = nested
 
@@ -8009,8 +8095,7 @@ n . byname [ e . name . text ] = ft
 n . fieldDefs [ e . name . text ] = c . definition ( e . name , "method" )
 n . fieldDefs [ e . name . text ] . type = ft
 c . markToken ( e . name , n . fieldDefs [ e . name . text ] , ft , "method" )
-elseif e . kind == "recordDecl" or e . kind == "enumDecl"
-or e . kind == "typeAlias" then
+elseif e . kind == "recordDecl" or e . kind == "typeAlias" then
 if stat . declKind == "struct" then
 c . diag ( "NUPP2201" , e ,
 "struct bodies hold fields only (no nested declarations)" )
@@ -9289,17 +9374,11 @@ c . functionDepth = c . functionDepth - 1
 
 
 
+
+
+
 local noreturn = c . alwaysRaises ( body . body )
 and not c . returnsSomewhere ( body . body )
-if body . noreturnContract and not noreturn then
-
-
-noreturn = true
-if c . returnsSomewhere ( body . body ) then
-c . diag ( "NUPP2121" , body . noreturnTok or body ,
-"@noreturn is declared, but this function returns" )
-end
-end
 local predicate
 local first = body . rets and body . rets [ 1 ]
 if first and first . kind == "tpredicate" then
@@ -9409,8 +9488,7 @@ end
 if # rets == 0 then rets [ 1 ] = T . any end
 c . popScope ( )
 return T . func ( params , rets , vararg , modes ,
-nil , typeParams , typeBounds , nil , nil , nil , nil , varargType ,
-body and body . noreturnContract or false )
+nil , typeParams , typeBounds , nil , nil , nil , nil , varargType , false )
 end
 
 c . inferredParameterModes = inferredParameterModes
@@ -11255,22 +11333,6 @@ if stat . stat then c . checkStat ( stat . stat ) end
 return
 end
 
-
-
-
-
-if written == "noreturn" then
-if valid and targetBody then
-targetBody . noreturnContract = true
-targetBody . noreturnTok = annotationName
-elseif valid and target then
-target . noreturnContract = true
-target . noreturnTok = annotationName
-end
-if stat . stat then c . checkStat ( stat . stat ) end
-return
-end
-
 if written ~= "allow" then
 if stat . stat then c . checkStat ( stat . stat ) end
 return
@@ -13025,6 +13087,32 @@ io . stderr : write ( "nupp: no source files found under the project's "
 return finish ( 1 , { } )
 end
 end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local settled = reporting and envMod . formatStore ( env ) or nil
+local textNeeded = write and true or false
+local hashMod = require ( "nupp.build.hash" )
+local optionsKey = nil
+local function verdictKey ( path , source )
+if not optionsKey then
+optionsKey = hashMod . digest ( tostring ( methodParens ) .. "\0"
+.. envMod . annotationKey ( env ) )
+end
+return hashMod . digest ( optionsKey .. "\0" .. path .. "\0" .. source )
+end
+
 local failed = false
 local unformatted = { }
 for _ , path in ipairs ( paths ) do
@@ -13040,6 +13128,13 @@ else
 io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
 end
 failed = true
+elseif settled and settled . get ( verdictKey ( path , source ) ) == "same" then
+
+
+
+elseif not textNeeded and settled
+and settled . get ( verdictKey ( path , source ) ) == "differs" then
+unformatted [ # unformatted + 1 ] = path
 else
 local formatted , errors = fmt . format ( source , path , {
 annotations = env . annotations ,
@@ -13048,6 +13143,13 @@ return env . resolveProjectAnnotation ( env , path , name )
 end ,
 methodParens = methodParens ,
 } )
+
+
+
+if settled and # errors == 0 then
+settled . put ( verdictKey ( path , source ) ,
+formatted == source and "same" or "differs" )
+end
 if # errors > 0 then
 
 
@@ -13077,6 +13179,7 @@ io . write ( formatted )
 end
 end
 end
+envMod . persist ( env )
 if reporting then
 if # unformatted > 0 and not asJson then
 io . write ( table . concat ( unformatted , "\n" ) , "\n" )
@@ -15677,12 +15780,6 @@ local cst = { }
 
 
 
-
-
-
-
-
-
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -16158,43 +16255,6 @@ cst.TypeAlias = {} cst.TypeAlias.__index = cst.TypeAlias
 
 
 
-
-
-
-
-
-
-
-
-
-
-cst.EnumDecl = {} cst.EnumDecl.__index = cst.EnumDecl
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-cst.EnumItem = {} cst.EnumItem.__index = cst.EnumItem
 
 
 
@@ -17967,12 +18027,6 @@ inlineNupp ( field . type , links ) , markdownHtml ( field . text , links ) }
 end
 out [ # out + 1 ] = "<h3>Fields</h3>" .. tableHtml ( { "Name" , "Type" , "Description" } , rows )
 end
-if # item . values > 0 then
-local values = { }
-for _ , value in ipairs ( item . values ) do values [ # values + 1 ] = "<li><code>"
-.. htmlEscape ( value ) .. "</code></li>" end
-out [ # out + 1 ] = "<h3>Values</h3><ul>" .. table . concat ( values ) .. "</ul>"
-end
 out [ # out + 1 ] = "</section>"
 end
 
@@ -18028,7 +18082,7 @@ local THEME = [[
 .nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
 .nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
-.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2){width:19%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-enum,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
+.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2){width:19%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
 .nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
 .nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
 @media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -18482,11 +18536,6 @@ end
 if stat . whereClause then
 signature = signature .. " " .. syntax ( stat . whereClause )
 end
-elseif stat . kind == "enumDecl" then
-name , kind = stat . name . text , "enum"
-public = public or stat . visibility == "module" or stat . visibility == "global"
-signature = ( stat . visibility == "global" and "global "
-or stat . visibility == "local" and "local " or "" ) .. "enum " .. declaredName ( stat )
 elseif stat . kind == "cdefStruct" then
 name , kind , public = stat . name . text , "struct" , true
 signature = "cdef struct " .. name
@@ -18513,7 +18562,7 @@ local item = {
 name = name , kind = kind , signature = signature , doc = info ,
 path = itemPath ,
 line = firstToken ( stat ) and firstToken ( stat ) . line or 1 ,
-members = { } , values = { } , params = { } , returns = { } ,
+members = { } , params = { } , returns = { } ,
 raises = info . raises , typeargs = { } ,
 }
 local declaredFunction = stat . kind == "localStmt"
@@ -18574,12 +18623,6 @@ text = parseDoc ( docLines ( entry ) ) . text ,
 path = item . path .. "." .. entry . name . text ,
 params = { } , returns = { } , raises = { } ,
 }
-end
-end
-elseif stat . kind == "enumDecl" then
-for _ , value in ipairs ( stat . items or { } ) do
-if includePrivate or not privateName ( value . token . text ) then
-item . values [ # item . values + 1 ] = value . token . text
 end
 end
 end
@@ -18823,7 +18866,7 @@ unknown = true , userdata = true ,
 
 local CONTEXTUAL_KEYWORDS = {
 [ "as" ] = true , borrows = true , cdef = true , exclusive = true , takes = true ,
-const = true , enum = true , global = true ,
+const = true , global = true ,
 interface = true , [ "is" ] = true , own = true , record = true ,
 metamethod = true , where = true , with = true ,
 releases = true , retains = true , struct = true , unsafe = true ,
@@ -18838,7 +18881,7 @@ local PUNCTUATION = {
 }
 
 local TYPE_DECLARATIONS = {
-enum = true , interface = true , record = true , struct = true , type = true ,
+interface = true , record = true , struct = true , type = true ,
 }
 
 local function qualifiedName ( tokens , index )
@@ -19417,7 +19460,7 @@ local function sectionTitle ( kind )
 local names = {
 [ "function" ] = "Functions" , method = "Methods" , variable = "Variables" ,
 type = "Types" , record = "Records" , interface = "Interfaces" ,
-struct = "Structs" , enum = "Enums" ,
+struct = "Structs" ,
 }
 return names [ kind ] or ( kind : sub ( 1 , 1 ) : upper ( ) .. kind : sub ( 2 ) .. "s" )
 end
@@ -19530,12 +19573,6 @@ out [ # out + 1 ] = "| `" .. markdownEscape ( field . name ) .. "` | `"
 .. markdownEscape ( field . type ) .. "` | "
 .. markdownCell ( field . text ) .. " |"
 end
-out [ # out + 1 ] = ""
-end
-if # item . values > 0 then
-out [ # out + 1 ] = "#### Values"
-out [ # out + 1 ] = ""
-for _ , value in ipairs ( item . values ) do out [ # out + 1 ] = "- `" .. value .. "`" end
 out [ # out + 1 ] = ""
 end
 end
@@ -20365,15 +20402,27 @@ local function shellQuote ( text )
 return "'" .. text : gsub ( "'" , "'\\''" ) .. "'"
 end
 
+
+
+
+
+
+
+
+
+
+
+
 local function listLjppFiles ( root , withDeclarations )
 local command
 if package . config : sub ( 1 , 1 ) == "\\" then
 command = ( 'dir /s /b "%s\\*.nupp" 2>nul' ) : format (
 root : gsub ( '"' , '""' ) )
 else
-command = "find " .. shellQuote ( root ) .. " -type f -name '*.nupp'"
+command = "find " .. shellQuote ( root )
+.. " -type d -name '.?*' -prune -o -type f -name '*.nupp'"
 .. ( withDeclarations and "" or " ! -name '*.d.nupp'" )
-.. " 2>/dev/null"
+.. " -print 2>/dev/null"
 end
 local pipe = io . popen ( command )
 if not pipe then return { } end
@@ -20505,7 +20554,6 @@ end
 
 local function declarationKind ( stat )
 if stat . kind == "recordDecl" then return stat . declKind end
-if stat . kind == "enumDecl" then return "enum" end
 return "type"
 end
 
@@ -20559,8 +20607,7 @@ local declaration , isAnnotation = annotatedDeclaration ( stat )
 local visibility = declaration
 and cst . declVisibility ( declaration , moduleLocal )
 if declaration and ( declaration . kind == "typeAlias"
-or declaration . kind == "recordDecl"
-or declaration . kind == "enumDecl" )
+or declaration . kind == "recordDecl" )
 and ( visibility == "module" or visibility == "global" ) then
 header . declarations [ # header . declarations + 1 ] = {
 name = declaration . name . text ,
@@ -20690,8 +20737,58 @@ end
 
 
 
+
+
+
+
+
+
+
+
+
+function envMod . annotationKey ( env )
+if env . annotationKeyMemo then return env . annotationKeyMemo end
+
+
+
+local ensure = env . ensureProjectIndex or envMod . ensureProjectIndex
+local index = ensure ( env )
+local parts = { }
+for name , entries in pairs ( index . annotationsByName or { } ) do
+for _ , entry in ipairs ( entries ) do
+parts [ # parts + 1 ] = name .. "\0" .. tostring ( entry . path )
+.. "\0" .. tostring ( entry . signature )
+end
+end
+table . sort ( parts )
+env . annotationKeyMemo = require ( "nupp.build.hash" )
+. digest ( table . concat ( parts , "\1" ) )
+return env . annotationKeyMemo
+end
+
+
+
+
+
+
+
+function envMod . formatStore ( env )
+if env . formatStoreOpened then return env . formatStore end
+env . formatStoreOpened = true
+if env . cacheDisabled then return nil end
+local storeMod = require ( "nupp.build.store" )
+local cacheMod = require ( "nupp.build.cache" )
+env . formatStore = storeMod . open (
+( env . cacheDir or ( outDirFor ( env ) .. "/cache" ) ) .. "/format.buf" ,
+cacheMod . toolFingerprint ( ) )
+return env . formatStore
+end
+
+
+
 function envMod . persist ( env )
 if env . headerStore then env . headerStore . save ( ) end
+if env . formatStore then env . formatStore . save ( ) end
 end
 
 
@@ -21300,7 +21397,7 @@ docs = "docs/modules.md#diagnostics" ,
 } ,
 {
 code = "NUPP2107" ,
-summary = "An enum dispatch leaves members unhandled" ,
+summary = "A dispatch leaves members of a closed set unhandled" ,
 rule = "When every branch returns, the dispatch is exhaustive or it is "
 .. "not, and the checker can tell which. Add the missing branches, "
 .. "or an else that says the rest are deliberately alike." ,
@@ -21338,8 +21435,8 @@ rule = "The grammar carries a `where` clause on a declaration, the "
 .. "formatter keeps it, and `nupp doc` renders it into a signature "
 .. "— and no checker code reads the expression. A constraint that "
 .. "constrains nothing is reported rather than left to look like "
-.. "it works. Express the constraint as a type where one fits: an "
-.. "enum, a union of literals, or a generic bound." ,
+.. "it works. Express the constraint as a type where one fits: a "
+.. "union of literals, or a generic bound." ,
 wrong = "local record Odd where 1 + 1 == 3\n    n: integer\nend\n\n"
 .. "return Odd\n" ,
 right = "local record Odd\n    n: integer\nend\n\nreturn Odd\n" ,
@@ -21586,9 +21683,6 @@ child . spacedTok = true
 child . breakOp = true
 end
 end
-elseif kind == "enumItem" then
-
-if n . token then n . token . spacedTok = true end
 elseif kind == "unop" then
 
 
@@ -21627,8 +21721,7 @@ end
 end
 end
 
-local declish = kind == "recordDecl" or kind == "enumDecl"
-or kind == "cdefStruct"
+local declish = kind == "recordDecl" or kind == "cdefStruct"
 for idx , child in ipairs ( n ) do
 local childGroup = group
 if openIdx and idx > openIdx and idx < closeIdx then
@@ -22724,14 +22817,15 @@ local TYPE_KINDS = {
 tname = true , topt = true , tptr = true , tunion = true , tarray = true ,
 tmap = true , ttuple = true , tshape = true , tshapeField = true ,
 tfunc = true , tfuncParam = true , tparen = true , errorType = true ,
-tpredicate = true , tborrows = true ,
+tpredicate = true , tborrows = true , tliteral = true , tconst = true ,
+tcarray = true ,
 generics = true ,
 }
 
 
 
 local DECL_KINDS = {
-recordDecl = true , enumDecl = true , typeAlias = true ,
+recordDecl = true , typeAlias = true ,
 }
 
 
@@ -24036,7 +24130,6 @@ for j , tv in ipairs ( n . typeParams or { } ) do
 inst . typeArgs [ j ] = map [ tv ] or T . any
 end
 inst . fieldOrder = n . fieldOrder
-inst . values = n . values
 inst . arrayOf = n . arrayOf and generics . subst ( n . arrayOf , map ) or nil
 inst . fieldDefs = n . fieldDefs
 inst . selfType = n . selfType
@@ -24216,6 +24309,8 @@ package.preload["nupp.importc"] = function(...)
 
 
 
+
+
 local importc = { }
 local cdecl = require ( "nupp.cdecl" )
 local process = require ( "nupp.build.process" )
@@ -24303,14 +24398,27 @@ end
 return table . concat ( out , "\n" )
 end
 
+
+
+
+
+
+
+
+
+
 local function collectTypedefs ( stmts )
-local defs = { }
+local defs , seen = { } , { }
 for _ , stmt in ipairs ( stmts ) do
 if stmt : match ( "^typedef%f[%W]" ) and not stmt : find ( "[{}()]" ) then
 local body = stmt : gsub ( "^typedef%s+" , "" )
 local base , name = body : match ( "^(.-)%s*%f[%w_]([%a_][%w_]*)$" )
-if base and name and base : match ( "%S" ) then
-defs [ name ] = ( base : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+if base and name and base : match ( "%S" ) and not seen [ name ] then
+seen [ name ] = true
+defs [ # defs + 1 ] = {
+name = name ,
+base = ( base : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) ) ,
+}
 end
 end
 end
@@ -24456,18 +24564,37 @@ local text = normalize ( filterToHeader ( preprocessed , headerBase ) )
 
 
 
-local typedefs = collectTypedefs (
-statements ( normalize ( stripLinemarkers ( preprocessed ) ) ) )
-local typedefText = { }
-for name , base in pairs ( typedefs ) do
-typedefText [ # typedefText + 1 ] = ( "typedef %s %s;" ) : format ( base , name )
+
+
+
+
+
+local ownTypedefs = { }
+for _ , def in ipairs ( collectTypedefs ( statements ( text ) ) ) do
+ownTypedefs [ def . name ] = true
 end
-table . sort ( typedefText )
+local typedefText = { }
+for _ , def in ipairs ( collectTypedefs (
+statements ( normalize ( stripLinemarkers ( preprocessed ) ) ) ) ) do
+if not ownTypedefs [ def . name ] then
+typedefText [ # typedefText + 1 ] =
+( "typedef %s %s;" ) : format ( def . base , def . name )
+end
+end
 
 
 
 
-local parsed , ffiErr = cdecl . inspect ( text , table . concat ( typedefText , "\n" ) )
+
+
+
+
+
+local units = { }
+for _ , statement in ipairs ( statements ( text ) ) do
+units [ # units + 1 ] = statement .. ";"
+end
+local parsed , ffiErr = cdecl . inspect ( units , typedefText )
 if not parsed then
 return nil , { "LuaJIT cdef: " .. tostring ( ffiErr ) }
 end
@@ -24481,6 +24608,21 @@ emit ( ( "-- generated by nupp import-c from %s" ) : format ( headerBase ) )
 emit ( "-- committed and hand-editable: fix or extend freely, re-import" )
 emit ( "-- only when the header changes." )
 emit ( "" )
+
+
+
+
+
+
+if # parsed . rejected > 0 then
+for _ , reject in ipairs ( parsed . rejected ) do
+emit ( ( "-- import-c: skipped declaration (%s)" ) : format ( reject . reason ) )
+emit ( "--   " .. reject . text : sub ( 1 , 100 ) )
+end
+emit ( "" )
+warnings [ # warnings + 1 ] = ( "%d of %d declarations skipped: %s" ) : format (
+# parsed . rejected , parsed . declared , parsed . rejected [ 1 ] . reason )
+end
 
 for _ , declaration in ipairs ( parsed . structs ) do
 local name = declaration . name
@@ -24540,16 +24682,33 @@ end
 end
 
 
-local values = macroValues ( dm )
 local constLines = { }
+local taken = { }
+local function constant ( name , typeName , expr )
+if not identifier ( name ) or taken [ name ] then return end
+taken [ name ] = true
+constLines [ # constLines + 1 ] = ( "local %s: %s = %s" )
+: format ( name , typeName , expr )
+exports [ # exports + 1 ] = name
+end
+
+
+
+
+
+for _ , declaration in ipairs ( parsed . enums or { } ) do
+for _ , member in ipairs ( declaration . values ) do
+constant ( member . name , "int32" , tostring ( member . value ) )
+end
+end
+
+local values = macroValues ( dm )
 for _ , name in ipairs ( headerMacroNames ( raw ) ) do
 local value = values [ name ]
 if value then
 local expr , vtype = constantExpr ( value )
 if expr then
-constLines [ # constLines + 1 ] = ( "local %s: %s = %s" )
-: format ( name , vtype == "string" and "string" or "number" , expr )
-exports [ # exports + 1 ] = name
+constant ( name , vtype == "string" and "string" or "number" , expr )
 end
 end
 end
@@ -25573,9 +25732,9 @@ category = "correctness" , level = "error" ,
 summary = "a project module is used without being required" ,
 } , lints.Lint) , setmetatable(
 {
-name = "enum-exhaustiveness" , code = "NUPP2107" ,
+name = "exhaustiveness" , code = "NUPP2107" ,
 category = "correctness" , level = "warning" ,
-summary = "an enum dispatch leaves members unhandled" ,
+summary = "a dispatch leaves members of a closed set unhandled" ,
 } , lints.Lint) , setmetatable(
 {
 name = "string-pointer" , code = "NUPP2501" ,
@@ -26548,7 +26707,15 @@ diagnostics = json . empty_array ,
 } )
 end
 
+
+
+
+
+
+
+
 handlers [ "shutdown" ] = function ( id )
+pcall ( function ( ) s . inc . persist ( ) end )
 respond ( id , json . null )
 end
 
@@ -26944,13 +27111,13 @@ end
 
 complete . completionKinds = {
 method = 2 , [ "function" ] = 3 , variable = 6 , parameter = 6 ,
-property = 10 , enum = 13 , keyword = 14 , type = 25 ,
+property = 10 , keyword = 14 , type = 25 ,
 struct = 22 , interface = 8 , typeParameter = 25 ,
 }
 
 complete . completionWords = {
 "and" , "as" , "break" , "cdef" , "const" , "continue" , "do" , "else" , "elseif" , "end" ,
-"enum" , "false" , "for" , "function" , "global" , "goto" , "if" , "in" ,
+"false" , "for" , "function" , "global" , "goto" , "if" , "in" ,
 "interface" , "is" , "local" , "nil" , "not" , "or" , "owned" ,
 "borrowed" , "borrows" , "exclusive" , "out" , "takes" , "pinned" , "releases" , "retains" ,
 "unsafe" , "with" , "where" , "metamethod" ,
@@ -26961,7 +27128,7 @@ complete . completionWords = {
 
 
 local TYPE_KINDS = {
-type = true , struct = true , interface = true , enum = true ,
+type = true , struct = true , interface = true ,
 typeParameter = true ,
 }
 
@@ -27070,7 +27237,7 @@ local entry = entries [ 1 ]
 if # entries == 1 and entry . visibility == "global" then
 add ( name , entry . kind == "struct" and "struct"
 or entry . kind == "interface" and "interface"
-or entry . kind == "enum" and "enum" or "type" ,
+or "type" ,
 entry . type , entry . definition , 2 )
 end
 end
@@ -27633,7 +27800,7 @@ for index , name in ipairs ( semantic . semanticTypes ) do semantic . semanticIn
 
 semantic . semanticKindMap = {
 namespace = "namespace" ,
-type = "type" , struct = "struct" , enum = "enum" ,
+type = "type" , struct = "struct" ,
 interface = "interface" , typeParameter = "typeParameter" ,
 parameter = "parameter" , variable = "variable" , property = "property" ,
 [ "function" ] = "function" , method = "method" , decorator = "decorator" ,
@@ -27658,14 +27825,13 @@ local kind = node . kind
 if kind == "cdefFunc" or kind == "cdefStruct" then
 mark ( node [ 1 ] , "keyword" )
 mark ( node [ 2 ] , "keyword" )
-elseif kind == "typeAlias" or kind == "recordDecl"
-or kind == "enumDecl" then
+elseif kind == "typeAlias" or kind == "recordDecl" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . kind == "name"
 and child ~= node . name then
 if child . text == "type" or child . text == "record"
 or child . text == "interface" or child . text == "struct"
-or child . text == "enum" or child . text == "global"
+or child . text == "global"
 or child . text == "is" or child . text == "where" then
 mark ( child , "keyword" )
 end
@@ -27944,8 +28110,8 @@ local symbols = { }
 
 
 symbols . SYMBOL_KINDS = {
-record = 5 , class = 5 , struct = 23 , interface = 11 , enum = 10 ,
-type = 5 , field = 8 , [ "function" ] = 12 , method = 6 , enumMember = 22 ,
+record = 5 , class = 5 , struct = 23 , interface = 11 ,
+type = 5 , field = 8 , [ "function" ] = 12 , method = 6 ,
 variable = 13 , constant = 14 ,
 }
 
@@ -27974,13 +28140,6 @@ elseif entry . kind == "inlineMethod" then
 child ( entry . name , "method" , entry )
 elseif entry . kind == "metamethodDecl" then
 child ( entry . name , "method" , entry )
-end
-end
-for _ , item in ipairs ( stat . items or { } ) do
-if item . kind == "enumItem" and item . token then
-local spelling = item . token . text
-child ( { text = spelling : sub ( 2 , - 2 ) , offset = item . token . offset + 1 ,
-trivia = { } } , "enumMember" , item )
 end
 end
 return wire . array ( children )
@@ -28022,8 +28181,6 @@ if not stat then
 
 elseif stat . kind == "recordDecl" then
 emit ( stat , stat . name , stat . declKind or "record" , qualified ( stat ) )
-elseif stat . kind == "enumDecl" then
-emit ( stat , stat . name , "enum" , qualified ( stat ) )
 elseif stat . kind == "typeAlias" then
 emit ( stat , stat . name , "type" , qualified ( stat ) )
 elseif stat . kind == "localFuncStmt" then
@@ -28285,7 +28442,7 @@ end
 local DECLARING = {
 [ "local" ] = true , [ "global" ] = true , [ "function" ] = true , [ "type" ] = true ,
 [ "record" ] = true , [ "struct" ] = true , [ "interface" ] = true ,
-[ "enum" ] = true , [ "cdef" ] = true ,
+[ "cdef" ] = true ,
 }
 
 
@@ -28678,15 +28835,6 @@ end
 
 function narrowing . memberSet ( t )
 if not t then return nil end
-local enumValues = t . tag == "nominal" and t . declKind == "enum"
-and t . values or nil
-if enumValues then
-local out = { }
-for _ , v in ipairs ( enumValues ) do
-out [ # out + 1 ] = T . literal ( v , T . string )
-end
-return out
-end
 if t . tag == "literal" then return { t } end
 if t . tag == "union" then
 local out = { }
@@ -29207,7 +29355,7 @@ end
 
 local TYPEDECL_KW = {
 [ "type" ] = true , [ "record" ] = true , [ "interface" ] = true ,
-[ "struct" ] = true , [ "enum" ] = true ,
+[ "struct" ] = true ,
 }
 
 local ALIAS_KW = { [ "type" ] = true }
@@ -30173,17 +30321,6 @@ parseGenerics ( n )
 add ( n , expect ( "=" , "in " .. which .. " declaration" ) )
 n . value = add ( n , parseType ( ) )
 return n
-elseif which == "enum" then
-local n = introduce ( setmetatable( { kind = "enumDecl" } , cst.EnumDecl) )
-parseDeclName ( n , "after 'enum'" )
-n . items = { }
-while cur ( ) . kind == "string" do
-local item = setmetatable( { kind = "enumItem" } , cst.EnumItem)
-item . token = add ( item , advance ( ) )
-n . items [ # n . items + 1 ] = add ( n , item )
-end
-add ( n , expect ( "end" , "to close 'enum'" ) )
-return n
 else
 local n = introduce ( setmetatable( { kind = "recordDecl" } , cst.RecordDecl) )
 n . declKind = which
@@ -30961,9 +31098,16 @@ return models
 title = "Types" ,
 codes = { "NUPP2101" , "NUPP2001" } ,
 body = [=[
-Primitives: `any`, `nil`, `boolean`, `string`, `number`, `integer`, `table`,
-`thread`, `userdata`. The C numeric tower: `float`, `int8`…`int64`,
-`uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and `voidptr`.
+Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
+`integer`, `table`, `thread`, `userdata`. The C numeric tower: `float`,
+`int8`…`int64`, `uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and
+`voidptr`.
+
+`any` is gradual: compatible with everything, in both directions, silently.
+`unknown` is its sound counterpart — everything fits into it, but it fits
+nowhere else until narrowed or cast, the top of the type lattice. `never` is
+the bottom: uninhabited, so it fits anywhere and nothing but itself fits it —
+what a function that always raises, exits, or loops forever returns.
 
 Postfix suffixes apply left to right: `T?` optional, `T*` pointer, `T[?]` a
 variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
@@ -30983,6 +31127,7 @@ local type Counts = {[string]: integer}
 local type Row = {integer}
 local type Point = {x: integer, y: integer}
 local type Handler = function(event: string): boolean
+local type Reply = unknown
 return m
 ]=] ,
 } , reference.Section) , setmetatable(
@@ -30997,6 +31142,9 @@ listed comma-separated; inside a function *type* a multi-result needs parenthese
 Under `--strict`, an exported function whose signature mentions `any` anywhere is
 treated as unannotated and reported: `any` is the absence of a type, not a type.
 A function that returns nothing still needs to say so, as `: nil`.
+
+A function that always raises, exits, or loops forever returns `never`; a call
+to it leaves the block it stands in, the way an inline `error` does.
 ]=] ,
 example = [=[
 local m = {}
@@ -31011,6 +31159,10 @@ end
 
 function m.log(message: string): nil
     print(message)
+end
+
+function m.fail(message: string): never
+    error(message)
 end
 
 return m
@@ -31122,22 +31274,48 @@ return m
 } , reference.Section) , setmetatable(
 
 {
-title = "Enums" ,
+title = "Literal and tagged unions" ,
 codes = { "NUPP2107" } ,
 body = [=[
-An enum is a closed set of string literals. A dispatch over one that leaves
-members unhandled is reported, which is what makes adding a member a compile-time
-task list rather than a run-time surprise.
+A union of string literals is a closed set of values — what other languages
+spell `enum`. It erases: the value at run time is the plain string, and a bare
+literal lands in it. A dispatch over one that leaves members unhandled is
+reported, which is what makes adding a member a compile-time task list rather
+than a run-time surprise.
+
+A union of records, each carrying a literal-typed field, is a tagged union:
+the field is the tag, and comparing it narrows the union to the one record
+that declares that tag. That is the form to reach for when the alternatives
+carry data, since a bare literal carries none.
 ]=] ,
 example = [=[
 local m = {}
 
-enum m.Color "red" "green" "blue" end
+type m.Color = "red" | "green" | "blue"
 
 local function describe(c: m.Color): string
     if c == "red" then return "warm"
     elseif c == "green" then return "cool"
     else return "cool" end
+end
+
+record m.Circle
+    kind: "circle"
+    radius: number
+end
+
+record m.Square
+    kind: "square"
+    side: number
+end
+
+type m.Shape = m.Circle | m.Square
+
+function m.area(shape: m.Shape): number
+    if shape.kind == "circle" then
+        return 3.14159 * shape.radius * shape.radius
+    end
+    return shape.side * shape.side
 end
 
 return m
@@ -31640,8 +31818,9 @@ local relations = { }
 
 
 
+
 local function admitsNil ( t )
-if t == T . nil_ or t == T . any then return true end
+if t == T . nil_ or t == T . any or t == T . unknown then return true end
 return t . tag == "union" and t . hasNil or false
 end
 
@@ -31696,6 +31875,12 @@ local function check ( a , b )
 if a == b then return true end
 local atag , btag = a . tag , b . tag
 if atag == "any" or btag == "any" then return true end
+
+
+
+
+if atag == "never" then return true end
+if btag == "unknown" then return true end
 
 
 if atag == "typevar" then
@@ -31791,8 +31976,7 @@ end
 
 
 
-if btag == "cstring" and ( a == T . string
-or ( atag == "nominal" and a . declKind == "enum" ) ) then
+if btag == "cstring" and a == T . string then
 return true
 end
 if btag == "voidptr" and ( atag == "ptr" or atag == "cstring"
@@ -31839,16 +32023,6 @@ end
 
 if atag == "literal" then
 if b == ( a . base or T . string ) then return true end
-local enumValues = btag == "nominal" and b . declKind == "enum"
-and b . values or nil
-if enumValues then
-for _ , v in ipairs ( enumValues ) do
-if v == a . constant then return true end
-end
-return false , ( "%q is not a member of %s" )
-: format ( a . constant , T . tostring ( b ) )
-end
-
 return isA ( a . base or T . string , b )
 end
 
@@ -31912,17 +32086,12 @@ return true
 end
 end
 
-
-if atag == "nominal" and a . declKind == "enum" and b == T . string then
-return true
-end
-
 if btag == "table" then
 
 if atag == "array" or atag == "map" or atag == "tuple"
 or atag == "shape"
 or atag == "metatable"
-or ( atag == "nominal" and a . declKind ~= "enum" ) then
+or atag == "nominal" then
 return true
 end
 return fail ( a , b )
@@ -31934,7 +32103,7 @@ if atag == "table" then
 if btag == "array" or btag == "map" or btag == "tuple"
 or btag == "shape"
 or btag == "metatable"
-or ( btag == "nominal" and b . declKind ~= "enum" ) then
+or btag == "nominal" then
 return true
 end
 return fail ( a , b )
@@ -32247,10 +32416,6 @@ local jitUtil = require ( "jit.util" )
 local vmdef = require ( "jit.vmdef" )
 
 local profile = { }
-
-
-
-
 
 
 
@@ -33234,6 +33399,7 @@ local types = { }
 
 
 
+
 types.Prim = {} types.Prim.__index = types.Prim
 
 
@@ -33491,9 +33657,6 @@ types.Nominal = {} types.Nominal.__index = types.Nominal
 
 
 
-
-
-
 local arena = { }
 
 
@@ -33515,6 +33678,15 @@ return intern ( tag , function ( ) return setmetatable( { tag = tag } , types.Pr
 end
 
 types . any = prim ( "any" )
+
+
+
+
+types . unknown = prim ( "unknown" )
+
+
+
+types . never = prim ( "never" )
 types . nil_ = prim ( "nil" )
 types . boolean = prim ( "boolean" )
 types . string = prim ( "string" )
@@ -33546,7 +33718,8 @@ types . uint64 = prim ( "uint64" )
 
 
 local builtins = {
-any = types . any , boolean = types . boolean , string = types . string ,
+any = types . any , unknown = types . unknown , never = types . never ,
+boolean = types . boolean , string = types . string ,
 number = types . number , integer = types . integer , table = types . table_ ,
 thread = types . thread , userdata = types . userdata , float = types . float ,
 int8 = types . int8 , int16 = types . int16 , int32 = types . int32 ,
@@ -33697,6 +33870,11 @@ paramModes , predicate , typeParams ,
 typeBounds , borrowsParam ,
 borrowsSelf , borrowsParams , ffiOut ,
 varargType , noreturn )
+
+
+
+
+if # rets == 1 and rets [ 1 ] == types . never then noreturn = true end
 local pids = { }
 local rids = { }
 local modes = { }
@@ -34527,8 +34705,7 @@ local assert: function<T>(v: T?, msg: any?): T
 ---
 --- @param msg the error value to raise
 --- @param level whose position to blame, or 0 for none
-@noreturn
-local error: function(msg: any, level: number?)
+local error: function(msg: any, level: number?): never
 
 --- Calls `f` with the given arguments, trapping any error it raises.
 ---
@@ -35755,11 +35932,7 @@ type profile.TraceOptions = {
 --- `blacklist` is always actionable: the code is demoted to the interpreter for
 --- the rest of the process. `warn` is a refusal that may or may not sit on a
 --- hot path. `info` is trace formation working as designed.
-enum profile.Severity
-    "blacklist"
-    "warn"
-    "info"
-end
+type profile.Severity = "blacklist" | "warn" | "info"
 
 --- One distinct stack, and what landed on it.
 ---

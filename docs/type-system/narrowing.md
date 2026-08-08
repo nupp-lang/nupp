@@ -127,8 +127,9 @@ a declaration file with no body, or a loop that never ends. See
 
 ## Exhaustiveness
 
-When every branch of an enum dispatch returns, the checker reports unhandled
-members as the `enum-exhaustiveness` lint. See [enums](enums.md).
+When every branch of a dispatch over a closed set of literals returns, the
+checker reports the unhandled members as the `exhaustiveness` lint. See
+[unions](unions.md).
 
-Exhaustiveness counts enums, single literal types, and unions of literals. A
-union of records is narrowed by a discriminant field instead.
+Exhaustiveness counts single literal types and unions of them. A union of
+records is narrowed by a discriminant field instead.

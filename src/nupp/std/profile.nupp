@@ -85,11 +85,7 @@ type profile.TraceOptions = {
 --- `blacklist` is always actionable: the code is demoted to the interpreter for
 --- the rest of the process. `warn` is a refusal that may or may not sit on a
 --- hot path. `info` is trace formation working as designed.
-enum profile.Severity
-    "blacklist"
-    "warn"
-    "info"
-end
+type profile.Severity = "blacklist" | "warn" | "info"
 
 --- One distinct stack, and what landed on it.
 ---

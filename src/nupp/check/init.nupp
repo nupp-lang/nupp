@@ -366,7 +366,7 @@ record checkMod.Checker
     --- Publishes a declaration to the module and the project.
     publishType: function(stat: any, t: Type?, projectEntry: any?)
 
-    --- Checks a record, interface, struct, enum or alias declaration.
+    --- Checks a record, interface, struct or alias declaration.
     checkTypedecl: function(stat: any)
 
     -- The installed passes, as they returned themselves. A statement family reaches
@@ -1079,7 +1079,6 @@ function checkMod.check(result, filename, env, opts)
         for kind, handle in pairs(installed) do statHandlers[kind] = handle end
     end
     statHandlers.recordDecl = c.checkTypedecl
-    statHandlers.enumDecl = c.checkTypedecl
     statHandlers.typeAlias = c.checkTypedecl
 
     local function checkStat(stat: Node)
@@ -1099,9 +1098,8 @@ function checkMod.check(result, filename, env, opts)
             local decl = stat
             while decl and decl.kind == "pragmaStmt" do decl = decl.stat end
             local k = decl and decl.kind
-            if (k == "recordDecl" or k == "enumDecl") and decl.name then
-                local declKind = k == "enumDecl" and "enum" or decl.declKind
-                local n, entry = c.declaredNominal(decl, declKind)
+            if k == "recordDecl" and decl.name then
+                local n, entry = c.declaredNominal(decl, decl.declKind)
                 decl.hoistedType, decl.hoistedEntry = n, entry
                 n.byname = n.byname or {}
                 local key = c.declKey(decl)

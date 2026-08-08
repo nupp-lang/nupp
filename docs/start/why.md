@@ -26,7 +26,7 @@ end
 errors, and nothing untyped is allowed to cross a module boundary.
 
 What you get for an annotation is the ordinary list — misspelled fields, wrong
-argument types, missing returns, unhandled enum members — reported with a code,
+argument types, missing returns, unhandled union members — reported with a code,
 a caret, and usually a machine-applicable fix.
 
 ## Types that survive to runtime

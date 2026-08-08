@@ -454,11 +454,11 @@ function M.nominalProvenance()
    }, "\n"))
 end
 
-function M.typeAliasAndEnumCheck()
+function M.typeAliasAndLiteralUnionCheck()
    assertClean(
       "local type Id = uint32\nlocal i: Id = 7\nlocal n: number = i")
    assertClean(
-      "local enum Color 'red' 'green' end\nlocal c: Color\nlocal s: string = c")
+      "local type Color = 'red' | 'green'\nlocal c: Color\nlocal s: string = c")
 end
 
 function M.unknownTypeNames()

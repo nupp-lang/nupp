@@ -217,10 +217,10 @@ function control.install(c: any): any
     handlers.ifStmt = function(stat: cst.IfStmt)
         local accumulatedElse = {}
         local firstFacts = nil
-        -- Exhaustiveness: a chain that dispatches on an enum and leaves through
-        -- every branch is claiming to handle every member, so the ones it never
-        -- mentions are worth naming. A chain that falls through is ordinary partial
-        -- handling and is left alone.
+        -- Exhaustiveness: a chain that dispatches on a closed set of literals and
+        -- leaves through every branch is claiming to handle every member, so the ones
+        -- it never mentions are worth naming. A chain that falls through is ordinary
+        -- partial handling and is left alone.
         local dispatchKey, dispatchStart, dispatchTotal = nil, nil, false
         local allBranchesLeave = true
         -- What each path that reaches the end of the statement knows. Joining them

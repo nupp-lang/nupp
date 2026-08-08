@@ -28,7 +28,7 @@ for index, name in ipairs(semantic.semanticTypes) do semantic.semanticIndex[name
 
 semantic.semanticKindMap = {
     namespace = "namespace",
-    type = "type", struct = "struct", enum = "enum",
+    type = "type", struct = "struct",
     interface = "interface", typeParameter = "typeParameter",
     parameter = "parameter", variable = "variable", property = "property",
     ["function"] = "function", method = "method", decorator = "decorator",
@@ -53,14 +53,13 @@ function semantic.syntaxKinds(result)
         if kind == "cdefFunc" or kind == "cdefStruct" then
             mark(node[1], "keyword")
             mark(node[2], "keyword")
-        elseif kind == "typeAlias" or kind == "recordDecl"
-            or kind == "enumDecl" then
+        elseif kind == "typeAlias" or kind == "recordDecl" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.kind == "name"
                     and child ~= node.name then
                     if child.text == "type" or child.text == "record"
                         or child.text == "interface" or child.text == "struct"
-                        or child.text == "enum" or child.text == "global"
+                        or child.text == "global"
                         or child.text == "is" or child.text == "where" then
                         mark(child, "keyword")
                     end

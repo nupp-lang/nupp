@@ -2018,10 +2018,7 @@ local OUTLINE = table.concat({
    "    end",
    "end",
    "",
-   "enum shapes.Colour",
-   "    'red'",
-   "    'blue'",
-   "end",
+   "type shapes.Colour = 'red' | 'blue'",
    "",
    "function shapes.origin(): shapes.Point",
    "    return shapes.Point{x = 0, y = 0}",
@@ -2067,7 +2064,7 @@ function M.documentSymbolsOutlineWhatTheFileDeclares()
       byName[symbol.name] = symbol
    end
    assert(byName["shapes.Point"], "a qualified record is named as its path")
-   assert(byName["shapes.Colour"], "and so is an enum")
+   assert(byName["shapes.Colour"], "and so is a type alias")
    assert(byName["shapes.origin"], "and a plain module member")
    assert(byName.helper, "a file-private function is named as it is written")
    assert(not byName.Point, "and no declaration is listed by a name it lacks")
@@ -2080,13 +2077,6 @@ function M.documentSymbolsOutlineWhatTheFileDeclares()
    assert(fields.scaled, "and so are the methods written inside it")
    assert(fields.x.selectionRange.start.line == 3,
       "each child selects its own name")
-
-   local members = {}
-   for _, child in ipairs(byName["shapes.Colour"].children) do
-      members[child.name] = true
-   end
-   assert(members.red and members.blue,
-      "an enum's members are listed without their quotes")
 
    assert(byName["shapes.Point"].range["end"].line == 9,
       "a declaration's range covers its whole body")
@@ -2155,7 +2145,7 @@ function M.foldingRangesCoverBlocks()
       assert(range.endLine > range.startLine, "a fold spans more than one line")
       spans[range.startLine .. ":" .. range.endLine] = true
    end
-   assert(spans["16:17"],
+   assert(spans["13:14"],
       "the module member's body folds to the line before its `end`")
 end
 
@@ -2165,7 +2155,7 @@ function M.selectionRangesExpandOutward()
    local out = outlineSession(function(uri)
       return {{ jsonrpc = "2.0", id = 10, method = "textDocument/selectionRange",
          params = { textDocument = { uri = uri },
-            positions = {{ line = 17, character = 22 }} } }}
+            positions = {{ line = 14, character = 22 }} } }}
    end)
    local selection = responseWithId(out, 10).result[1]
    assert(selection and selection.range, "a position gets a selection")

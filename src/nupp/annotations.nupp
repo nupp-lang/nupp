@@ -20,7 +20,6 @@ local KNOWN_TARGETS = {
     record = true,
     interface = true,
     struct = true,
-    enum = true,
     alias = true,
     ["c-declaration"] = true,
     ["c-function"] = true,
@@ -50,7 +49,6 @@ local CATEGORIES = {
         ["named-function"] = true,
     },
     typeAlias = {declaration = true, ["type-declaration"] = true, alias = true},
-    enumDecl = {declaration = true, ["type-declaration"] = true, enum = true},
     cdefFunc = {
         declaration = true,
         ["c-declaration"] = true,

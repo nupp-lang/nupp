@@ -128,8 +128,8 @@ must name at least one target and may name several; the list is a union.
 | `binding`, `local-binding` | Local/const value bindings |
 | `function` | Local, const, and named functions with bodies |
 | `local-function`, `named-function` | Only the indicated function form |
-| `type-declaration` | Alias, record, interface, struct, enum, and C struct declarations |
-| `alias`, `record`, `interface`, `struct`, `enum` | Only that type declaration |
+| `type-declaration` | Alias, record, interface, struct, and C struct declarations |
+| `alias`, `record`, `interface`, `struct` | Only that type declaration |
 | `field` | A record, interface, or struct field |
 | `c-declaration` | `cdef function` and `cdef struct` |
 | `c-function` | Only `cdef function` |

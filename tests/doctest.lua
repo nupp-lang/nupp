@@ -185,24 +185,21 @@ function M.hidesPrivateMembersUnlessExplicitlyIncluded()
       "      return 1",
       "   end",
       "end",
-      "enum State 'Ready' '_Internal' end",
    }, "\n")
    local public = assert(doc.extract(source, "src/public.nupp", "public"))
-   local publicRecord, publicEnum
+   local publicRecord
    for _, item in ipairs(public.items) do
-      if item.name == "Public" then publicRecord = item else publicEnum = item end
+      if item.name == "Public" then publicRecord = item end
    end
    assert(#publicRecord.members == 1, "private record members leaked")
    assert(publicRecord.members[1].name == "visible")
-   assert(#publicEnum.values == 1, "private enum members leaked")
    local complete = assert(doc.extract(source, "src/public.nupp", "public",
       {includePrivate = true}))
-   local completeRecord, completeEnum
+   local completeRecord
    for _, item in ipairs(complete.items) do
-      if item.name == "Public" then completeRecord = item else completeEnum = item end
+      if item.name == "Public" then completeRecord = item end
    end
    assert(#completeRecord.members == 3, "private record members were not included")
-   assert(#completeEnum.values == 2, "private enum members were not included")
 end
 
 function M.keepsMarkdownInsideDescriptionCells()

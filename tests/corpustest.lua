@@ -60,7 +60,7 @@ end
 -- line. Kept as fast, self-contained regression cases.
 function M.declarationKeywordsRemainOrdinaryNames()
    local env = envMod.new(HERE .. "/..")
-   for _, kw in ipairs({"def", "record", "interface", "struct", "enum", "type"}) do
+   for _, kw in ipairs({"def", "record", "interface", "struct", "type"}) do
       for _, follow in ipairs({
          "i, j = 1, 2",       -- assignment target list
          "i = 1",             -- single assignment
@@ -83,8 +83,8 @@ function M.declarationsStillParseWhenTheyAreDeclarations()
       "local record R\n    x: number\nend",
       "local struct S\n    x: float\nend",
       "local interface I\n    f: function(): nil\nend",
-      "local enum E 'a' 'b' end",
       "local type Alias = number",
+      "local type Choice = 'a' | 'b'",
    }
    for _, src in ipairs(cases) do
       local result = parser.parse(src, "decl")

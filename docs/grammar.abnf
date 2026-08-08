@@ -16,7 +16,7 @@
 ; number literal suffixes. Nupp adds interpolated strings, `??=`, and
 ; type annotations on short-function parameters; it takes nothing away.
 ; LEVEL 1: the typed layer (annotations, generics, record/interface/
-; enum/struct declarations, cdef C declarations, short-function
+; struct declarations, cdef C declarations, short-function
 ; parameter annotations). Both levels are implemented.
 
 ;;; ------------------------------------------------------------------
@@ -287,7 +287,6 @@ typedeclstat   = ["local" / "global"] typedecl
 typedecl       = "type" declname [generics] "=" type
                / recordkw declname [generics] [contracts] [refinement]
                  recordbody "end"
-               / "enum" declname *LiteralString "end"
 declname       = Name *("." Name)               ; a qualified name assigns the
                                                 ; declaration to that table,
                                                 ; the way "function M.f" does
@@ -413,12 +412,13 @@ ftret          = "(" type *("," type) ")"       ; multi-return needs parens [CS-
 ; [CS-5] Contextual keywords. A declaration is recognized only when the
 ;   declared name sits on the introducer's own line AND the token after it
 ;   fits the form: an alias ("type") continues with "=" or generics, a body
-;   form ("record"/"interface"/"struct"/"enum") continues with anything
+;   form ("record"/"interface"/"struct") continues with anything
 ;   other than "=" or ",". Two tokens of lookahead are not enough --
 ;       local record
 ;       i, j = f()
-;   has a name after the introducer and is still ordinary Lua. "type", "record", "interface", "struct", and
-;   "enum" are declaration introducers at statement position, optionally
+;   has a name after the introducer and is still ordinary Lua. "type",
+;   "record", "interface", and "struct" are declaration introducers at
+;   statement position, optionally
 ;   directly after "local" or "global", only when the next token is a Name.
 ;   In every other position they are ordinary identifiers ("local record = 5",
 ;   "global = 5", and "type(x)" keep their level-0 meaning). The contextual

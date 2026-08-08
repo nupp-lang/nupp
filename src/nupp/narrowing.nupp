@@ -68,23 +68,14 @@ function narrowing.subtract(t: Type, rem: Type): Type
     return T.union(out)
 end
 
---- The values a type admits, when they can be counted: an enum's members, a single
---- literal, or a union of literals. Anything else has no finite set to speak of and
---- yields nil, which is what keeps exhaustiveness from guessing.
+--- The values a type admits, when they can be counted: a single literal, or a union
+--- of literals. Anything else has no finite set to speak of and yields nil, which is
+--- what keeps exhaustiveness from guessing.
 ---
 --- @param t the type to enumerate
 --- @return its members, or nil when they cannot be enumerated
 function narrowing.memberSet(t: Type?): {Type}?
     if not t then return nil end
-    local enumValues = t.tag == "nominal" and t.declKind == "enum"
-        and t.values or nil
-    if enumValues then
-        local out: {Type} = {}
-        for _, v in ipairs(enumValues) do
-            out[#out + 1] = T.literal(v, T.string)
-        end
-        return out
-    end
     if t.tag == "literal" then return {t} end
     if t.tag == "union" then
         local out: {Type} = {}

@@ -177,8 +177,7 @@ local function check(a: Type, b: Type): boolean, string?
 
     -- C boundary: Lua strings convert to "const char *" arguments; any pointer degrades
     -- to void *. Neither converts back implicitly.
-    if btag == "cstring" and (a == T.string
-        or (atag == "nominal" and a.declKind == "enum")) then
+    if btag == "cstring" and a == T.string then
         return true
     end
     if btag == "voidptr" and (atag == "ptr" or atag == "cstring"
@@ -222,19 +221,9 @@ local function check(a: Type, b: Type): boolean, string?
         end
     end
 
-    -- a string literal is a string, and is the enum member it names
+    -- a string literal is a string; otherwise it behaves exactly as its base type does
     if atag == "literal" then
         if b == (a.base or T.string) then return true end
-        local enumValues = btag == "nominal" and b.declKind == "enum"
-            and b.values or nil
-        if enumValues then
-            for _, v in ipairs(enumValues) do
-                if v == a.constant then return true end
-            end
-            return false, ("%q is not a member of %s")
-                :format(a.constant, T.tostring(b))
-        end
-        -- otherwise a literal behaves exactly as its base type does
         return isA(a.base or T.string, b)
     end
 
@@ -298,17 +287,12 @@ local function check(a: Type, b: Type): boolean, string?
         end
     end
 
-    -- enums are string-valued
-    if atag == "nominal" and a.declKind == "enum" and b == T.string then
-        return true
-    end
-
     if btag == "table" then
         -- every table-ish structure fits the plain `table` primitive
         if atag == "array" or atag == "map" or atag == "tuple"
             or atag == "shape"
             or atag == "metatable"
-            or (atag == "nominal" and a.declKind ~= "enum") then
+            or atag == "nominal" then
             return true
         end
         return fail(a, b)
@@ -320,7 +304,7 @@ local function check(a: Type, b: Type): boolean, string?
         if btag == "array" or btag == "map" or btag == "tuple"
             or btag == "shape"
             or btag == "metatable"
-            or (btag == "nominal" and b.declKind ~= "enum") then
+            or btag == "nominal" then
             return true
         end
         return fail(a, b)

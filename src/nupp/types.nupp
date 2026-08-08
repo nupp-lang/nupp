@@ -6,7 +6,7 @@ key — children are interned first, so a key embeds its children's keys — and
 identical structure yields the same Lua object. Type equality is therefore object
 identity, and the relation caches can key on identity pairs.
 
-Nominal types, meaning record, interface, struct, and enum declarations,
+Nominal types, meaning record, interface, and struct declarations,
 deliberately get a fresh identity per declaration; their fields may be populated
 after creation, while the declaration is still being processed.
 
@@ -214,7 +214,7 @@ record types.Metatable
     of: types.Type
 end
 
---- A declared type: record, interface, struct or enum. One identity per declaration,
+--- A declared type: record, interface or struct. One identity per declaration,
 --- never shared with another declaration of the same shape.
 record types.Nominal
     id: string
@@ -252,9 +252,6 @@ record types.Nominal
     typeArgs: {types.Type}?
 
     origin: types.Type?
-
-    --- The values an enum declares.
-    values: {any}?
 
     --- Declaration sites of the fields, for go-to-definition.
     fieldDefs: any
@@ -566,9 +563,9 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
 end
 
 -- A string literal's own type: a subtype of string, and the bridge that lets a bare
--- 'red' land in an enum that declares it. `base` is the type the literal behaves as
--- everywhere except where its exact value matters: an enum member, or a discriminant
--- comparison.
+-- 'red' land in a union that lists it. `base` is the type the literal behaves as
+-- everywhere except where its exact value matters: a member of a union of literals,
+-- or a discriminant comparison.
 function types.literal(value: any, base: types.Type?): types.Type
     local of = base or types.string
     return intern("lit(" .. of.tag .. ":" .. tostring(value) .. ")",
@@ -630,7 +627,7 @@ local nominalCounter: integer = 0
 --- of the same shape. That is what makes it nominal.
 ---
 --- @param name what the declaration called it
---- @param declKind "record", "interface", "struct" or "enum"
+--- @param declKind "record", "interface" or "struct"
 function types.nominal(name: string, declKind: string): types.Nominal
     nominalCounter = nominalCounter + 1
     local t = types.Nominal{

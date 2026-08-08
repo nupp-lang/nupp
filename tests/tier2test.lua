@@ -1,4 +1,4 @@
--- Literal types, enum construction, and interface conformance.
+-- Literal types, unions of them, and interface conformance.
 local parser = require("nupp.parser")
 local check = require("nupp.check")
 local envMod = require("nupp.env")
@@ -28,27 +28,27 @@ local function assertClean(src)
    assertEq(diagsOf(src), "", "expected clean:\n" .. src)
 end
 
-local COLOR = "local enum Color 'red' 'green' 'blue' end"
+local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 
 local M = {}
 
-function M.enumMembersAssignDirectly()
+function M.literalUnionMembersAssignDirectly()
    assertClean(COLOR .. "\nlocal c: Color = 'red'")
    assertClean(COLOR .. "\nlocal c: Color = 'blue'")
    assertEq(diagsOf(COLOR .. "\nlocal c: Color = 'purple'"), "NUPP2001:2")
-   -- the message names the offending value
+   -- the message names the offending value and the members it is not one of
    local result = parser.parse(COLOR .. "\nlocal c: Color = 'purple'", "t")
    local d = check.check(result, "t", env)[1]
    assert(d.msg:find('"purple"', 1, true), "names the value: " .. d.msg)
-   assert(d.msg:find("Color", 1, true), "names the enum: " .. d.msg)
+   assert(d.msg:find('"blue"', 1, true), "names the members: " .. d.msg)
 end
 
-function M.enumsRemainStrings()
+function M.literalUnionsRemainStrings()
    assertClean(COLOR .. "\nlocal c: Color = 'red'\nlocal s: string = c")
    assertClean(COLOR .. "\nlocal f = function(c: Color): string return c end")
 end
 
-function M.enumMembersFlowThroughCalls()
+function M.literalUnionMembersFlowThroughCalls()
    assertClean(COLOR .. table.concat({
       "",
       "local function paint(c: Color): nil end",

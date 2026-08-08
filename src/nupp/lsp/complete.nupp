@@ -100,13 +100,13 @@ end
 
 complete.completionKinds = {
     method = 2, ["function"] = 3, variable = 6, parameter = 6,
-    property = 10, enum = 13, keyword = 14, type = 25,
+    property = 10, keyword = 14, type = 25,
     struct = 22, interface = 8, typeParameter = 25,
 }
 
 complete.completionWords = {
     "and", "as", "break", "cdef", "const", "continue", "do", "else", "elseif", "end",
-    "enum", "false", "for", "function", "global", "goto", "if", "in",
+    "false", "for", "function", "global", "goto", "if", "in",
     "interface", "is", "local", "nil", "not", "or", "owned",
     "borrowed", "borrows", "exclusive", "out", "takes", "pinned", "releases", "retains",
     "unsafe", "with", "where", "metamethod",
@@ -117,7 +117,7 @@ complete.completionWords = {
     -- Kinds that can stand where a type is expected. A value's name there completes to
     -- something the checker will refuse, so it is not offered.
 local TYPE_KINDS = {
-    type = true, struct = true, interface = true, enum = true,
+    type = true, struct = true, interface = true,
     typeParameter = true,
 }
 
@@ -226,7 +226,7 @@ function complete.install(s: any, nav: any): any
                 if #entries == 1 and entry.visibility == "global" then
                     add(name, entry.kind == "struct" and "struct"
                         or entry.kind == "interface" and "interface"
-                        or entry.kind == "enum" and "enum" or "type",
+                        or "type",
                         entry.type, entry.definition, 2)
                 end
             end

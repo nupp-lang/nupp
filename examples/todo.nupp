@@ -1,6 +1,6 @@
 -- todo.nupp — a tour of Nupp in one small program.
 
-local enum Priority 'low' 'normal' 'high' end
+local type Priority = 'low' | 'normal' | 'high'
 
 local type TaskId = uint32
 
@@ -50,6 +50,29 @@ local function render(v: number | string): string
     return string.format('%.2f', v)
 end
 
+-- tagged unions: a literal-typed field is the tag, and comparing it narrows
+-- the union to the one record that declares it
+local record Renamed
+    kind: 'renamed'
+    title: string
+end
+
+local record Reprioritized
+    kind: 'reprioritized'
+    priority: Priority
+end
+
+local type Edit = Renamed | Reprioritized
+
+local function apply(t: Task, edit: Edit): Task
+    if edit.kind == 'renamed' then
+        t.title = edit.title -- `edit` is Renamed here, so `title` resolves
+    else
+        t.priority = edit.priority -- and Reprioritized here
+    end
+    return t
+end
+
 local function describe(t: Task): string
     -- ternary + string interpolation
     local due = t.due
@@ -79,6 +102,7 @@ table.insert(tasks, newTask('write the parser', 'high' as Priority))
 table.insert(tasks, newTask('write the checker', 'high' as Priority))
 table.insert(tasks, newTask('water the plants', 'low' as Priority))
 tasks[2].done = true
+apply(tasks[3], Reprioritized{kind = 'reprioritized', priority = 'normal'})
 
 -- short functions: |params| -> expr
 local urgent = filter(tasks, |t: Task| -> t.priority == 'high' and not t.done)

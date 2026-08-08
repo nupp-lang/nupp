@@ -50,7 +50,7 @@ local TYPE_KINDS = {
 -- Erased declarations. recordDecl is conditional: declKind == "struct"
 -- reifies to ffi.typeof instead (M3).
 local DECL_KINDS = {
-    recordDecl = true, enumDecl = true, typeAlias = true,
+    recordDecl = true, typeAlias = true,
 }
 
 -- C type names for reifiable primitive fields.

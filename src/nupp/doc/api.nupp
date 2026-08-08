@@ -151,12 +151,6 @@ local function renderHtmlItem(out, item, links)
         end
         out[#out + 1] = "<h3>Fields</h3>" .. tableHtml({"Name", "Type", "Description"}, rows)
     end
-    if #item.values > 0 then
-        local values = {}
-        for _, value in ipairs(item.values) do values[#values + 1] = "<li><code>"
-                .. htmlEscape(value) .. "</code></li>" end
-        out[#out + 1] = "<h3>Values</h3><ul>" .. table.concat(values) .. "</ul>"
-    end
     out[#out + 1] = "</section>"
 end
 

@@ -199,7 +199,8 @@ and running the real subsystem rather than only its focused fixtures.
 The working list, ordered by user impact, lives in **plans/todo.md**. Tier 1 and
 Tier 2 language baselines are landed: manifest builds, record/struct methods,
 generic nominals and upper bounds, structural and declared interface
-contracts, metamethod dispatch, literal/discriminant narrowing, enums,
+contracts, metamethod dispatch, literal/discriminant narrowing, literal
+and tagged unions,
 coalescing/compound assignment, and strict mode. Active Tier 3 work includes:
 
 - the `@jit` trace checker and variadic-FFI lint;
@@ -281,7 +282,7 @@ behavior. Future LSP work, in priority order:
    neither of them has. A range is encoded from the range, not sliced out of
    an encoded whole: the protocol counts each token from the one before it,
    so a slice of an encoding is not the encoding of a slice.
-   Still to extend: semantic classification as enum members, module
+   Still to extend: module
    namespaces, readonly values, and declaration modifiers gain checker
    semantics. Metamethod and inline-method declarations already have
    semantic tokens.
@@ -485,7 +486,7 @@ never a black-box shim), named accordingly: `import-tl`.
 - **Declaration reading:** a dedicated dialect reader (never a mode on
   the nupp parser — `{string: number}` is a map in the other dialect and
   an inline shape here, so the same bytes mean different types) that
-  translates the declaration subset (records, enums, signatures,
+  translates the declaration subset (records, aliases, signatures,
   globals) into interned types. Wired into module resolution after
   `.d.nupp`, it types the boundary to existing libraries without
   hand-written twins. Nil-permissive declarations import as written

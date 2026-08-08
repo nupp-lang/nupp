@@ -39,7 +39,7 @@ local function applyFix(source, fix)
    return source
 end
 
-local COLOR = "local enum Color 'red' 'green' 'blue' end"
+local COLOR = "local type Color = 'red' | 'green' | 'blue'"
 local CHAIN = table.concat({
    "local function name(c: Color): string",
    "    if c == 'red' then",
@@ -97,11 +97,11 @@ function M.aProjectMovesALintsLevel()
       return d and (d.severity .. " " .. d.code) or "none"
    end
    assertEq(levelOf(nil), "warning NUPP2107", "the registry default")
-   assertEq(levelOf({["enum-exhaustiveness"] = "error"}), "error NUPP2107",
+   assertEq(levelOf({["exhaustiveness"] = "error"}), "error NUPP2107",
       "raised by name")
    assertEq(levelOf({["NUPP2107"] = "note"}), "note NUPP2107",
       "and by code, which means the same lint")
-   assertEq(levelOf({["enum-exhaustiveness"] = "off"}), "none",
+   assertEq(levelOf({["exhaustiveness"] = "off"}), "none",
       "off is not reported at all")
 end
 
@@ -111,7 +111,7 @@ function M.aNameBeatsItsCategory()
    local d = checkOf(src, {lints = {correctness = "off"}})[1]
    assertEq(d and d.code or "none", "none", "the category reached it")
    d = checkOf(src, {lints = {
-      correctness = "off", ["enum-exhaustiveness"] = "note",
+      correctness = "off", ["exhaustiveness"] = "note",
    }})[1]
    assertEq(d and d.severity or "none", "note", "the name is more specific")
 end
@@ -132,7 +132,7 @@ end
 -- A lint carries the name a person writes alongside the code tooling keys on.
 function M.diagnosticsCarryTheLintName()
    local d = checkOf(COLOR .. "\n" .. CHAIN)[1]
-   assertEq(d.lint, "enum-exhaustiveness", "the name travels with the report")
+   assertEq(d.lint, "exhaustiveness", "the name travels with the report")
    d = checkOf('local x: number = "no"')[1]
    assertEq(d.lint, nil, "a type error is not a lint and has no name")
 end
@@ -155,7 +155,7 @@ end
 
 -- The name is what a person writes; the code is what tooling keys on.
 function M.allowTakesALintByNameOrCode()
-   assertEq(diagsOf(COLOR .. '\n@allow("enum-exhaustiveness")\n' .. CHAIN), "")
+   assertEq(diagsOf(COLOR .. '\n@allow("exhaustiveness")\n' .. CHAIN), "")
    assertEq(diagsOf(COLOR .. "\n@allow(NUPP2107)\n" .. CHAIN), "")
 end
 

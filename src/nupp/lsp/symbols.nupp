@@ -14,8 +14,8 @@ local symbols = {}
 
 -- LSP SymbolKind, by the names this compiler uses for the same things.
 symbols.SYMBOL_KINDS = {
-    record = 5, class = 5, struct = 23, interface = 11, enum = 10,
-    type = 5, field = 8, ["function"] = 12, method = 6, enumMember = 22,
+    record = 5, class = 5, struct = 23, interface = 11,
+    type = 5, field = 8, ["function"] = 12, method = 6,
     variable = 13, constant = 14,
 }
 
@@ -44,13 +44,6 @@ local function declarationChildren(stat, source)
             child(entry.name, "method", entry)
         elseif entry.kind == "metamethodDecl" then
             child(entry.name, "method", entry)
-        end
-    end
-    for _, item in ipairs(stat.items or {}) do
-        if item.kind == "enumItem" and item.token then
-            local spelling = item.token.text
-            child({text = spelling:sub(2, -2), offset = item.token.offset + 1,
-                trivia = {}}, "enumMember", item)
         end
     end
     return wire.array(children)
@@ -92,8 +85,6 @@ function symbols.documentSymbols(result, source)
             -- nothing to outline
             elseif stat.kind == "recordDecl" then
                 emit(stat, stat.name, stat.declKind or "record", qualified(stat))
-            elseif stat.kind == "enumDecl" then
-                emit(stat, stat.name, "enum", qualified(stat))
             elseif stat.kind == "typeAlias" then
                 emit(stat, stat.name, "type", qualified(stat))
             elseif stat.kind == "localFuncStmt" then

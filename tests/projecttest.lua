@@ -405,7 +405,7 @@ return {
 }
 ]],
       ["src/app/main.nupp"] = table.concat({
-         "local enum Color 'red' 'green' 'blue' end",
+         "local type Color = 'red' | 'green' | 'blue'",
          "local function name(c: Color): string",
          "    if c == 'red' then",
          "        return 'r'",
@@ -422,7 +422,7 @@ return {
    write(dir .. "/nupp.lua", [[
 return {
    include = {"src"},
-   lints = {["enum-exhaustiveness"] = "error"},
+   lints = {["exhaustiveness"] = "error"},
    build = {outDir = "out", entries = {"app.main"}},
 }
 ]])

@@ -25,8 +25,8 @@ A lint carries its name after the code, so the thing a project would configure
 is visible in the line it printed:
 
 ```text
-src/main.nupp:4:5: warning: NUPP2107 enum-exhaustiveness: every branch
-returns, so this handles Color and leaves "blue" unhandled
+src/main.nupp:4:5: warning: NUPP2107 exhaustiveness: every branch
+returns, so this handles "blue" | "green" | "red" and leaves "blue" unhandled
 help: add branches for "blue" or add an else clause
 ```
 

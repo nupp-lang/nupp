@@ -191,11 +191,6 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
         if stat.whereClause then
             signature = signature .. " " .. syntax(stat.whereClause)
         end
-    elseif stat.kind == "enumDecl" then
-        name, kind = stat.name.text, "enum"
-        public = public or stat.visibility == "module" or stat.visibility == "global"
-        signature = (stat.visibility == "global" and "global "
-            or stat.visibility == "local" and "local " or "") .. "enum " .. declaredName(stat)
     elseif stat.kind == "cdefStruct" then
         name, kind, public = stat.name.text, "struct", true
         signature = "cdef struct " .. name
@@ -222,7 +217,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
         name = name, kind = kind, signature = signature, doc = info,
         path = itemPath,
         line = firstToken(stat) and firstToken(stat).line or 1,
-        members = {}, values = {}, params = {}, returns = {},
+        members = {}, params = {}, returns = {},
         raises = info.raises, typeargs = {},
     }
     local declaredFunction = stat.kind == "localStmt"
@@ -283,12 +278,6 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
                     path = item.path .. "." .. entry.name.text,
                     params = {}, returns = {}, raises = {},
                 }
-            end
-        end
-    elseif stat.kind == "enumDecl" then
-        for _, value in ipairs(stat.items or {}) do
-            if includePrivate or not privateName(value.token.text) then
-                item.values[#item.values + 1] = value.token.text
             end
         end
     end

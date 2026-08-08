@@ -39,10 +39,10 @@ Nupp adds three things here and takes nothing away: interpolated strings
 ```nupp
 local type Id = uint32                      -- alias
 local type Shape = Circle | Square          -- union
+local type Color = "red" | "green"          -- closed set of strings
 local record Point x: number y: number end  -- nominal table
 local struct Vec2 x: float y: float end     -- FFI cdata
 local interface Named name: string end      -- erased contract
-local enum Color "red" "green" end          -- string subtype
 
 local function firstOr<T>(xs: {T}, d: T): T end   -- generics
 local function isPoint(v: any): v is Point end    -- predicate
@@ -82,7 +82,7 @@ Type syntax:
 ## Keywords are contextual
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
-`struct`, `enum`, `const`, `cdef`, `from`, `unsafe`, `with`, `continue`,
+`struct`, `const`, `cdef`, `from`, `unsafe`, `with`, `continue`,
 `global`, `as`, `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`,
 `releases`, and `out` all keep their Lua meaning wherever a declaration cannot
 start:
@@ -160,8 +160,8 @@ Four constructs are lowered, because 2.1 did not take them:
 ```
 
 Everything in level 1 erases: annotations, `as`, generics, `unsafe do` (which
-becomes `do`), and the `interface`, `enum`, and `type` declarations, which have
-no runtime value at all.
+becomes `do`), and the `interface` and `type` declarations, which have no
+runtime value at all.
 
 Generated code never changes the line count. A cursor only inserts newlines
 forward, so a traceback points at the line you wrote with no source map.

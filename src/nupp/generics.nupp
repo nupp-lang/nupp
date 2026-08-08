@@ -106,7 +106,6 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         inst.typeArgs[j] = map[tv] or T.any
     end
     inst.fieldOrder = n.fieldOrder
-    inst.values = n.values
     inst.arrayOf = n.arrayOf and generics.subst(n.arrayOf, map) or nil
     inst.fieldDefs = n.fieldDefs
     inst.selfType = n.selfType

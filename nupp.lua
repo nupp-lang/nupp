@@ -213,9 +213,9 @@ return {
                   source = "docs/type-system/interfaces.md",
                },
                {
-                  path = "type-system/enums",
-                  title = "Enums",
-                  source = "docs/type-system/enums.md",
+                  path = "type-system/unions",
+                  title = "Unions",
+                  source = "docs/type-system/unions.md",
                },
                {
                   path = "type-system/generics",

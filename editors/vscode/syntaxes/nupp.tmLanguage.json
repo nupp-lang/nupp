@@ -169,7 +169,7 @@
           }
         },
         {
-          "match": "\\b(local)([ \\t]+)(type|record|interface|struct|enum)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(local)([ \\t]+)(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.modifier.local.nupp" },
             "3": { "name": "storage.type.declaration.nupp" },
@@ -177,7 +177,7 @@
           }
         },
         {
-          "match": "\\b(global)([ \\t]+)(type|record|interface|struct|enum)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(global)([ \\t]+)(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.modifier.global.nupp" },
             "3": { "name": "storage.type.declaration.nupp" },
@@ -186,7 +186,7 @@
         },
         {
           "comment": "A qualified name attaches the declaration to that table, so the table reads as a namespace and the last segment is the type.",
-          "match": "\\b(type|record|interface|struct|enum)([ \\t]+)((?:[A-Za-z_][A-Za-z0-9_]*\\.)+)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(type|record|interface|struct)([ \\t]+)((?:[A-Za-z_][A-Za-z0-9_]*\\.)+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.declaration.nupp" },
             "3": { "name": "entity.name.namespace.nupp" },
@@ -194,7 +194,7 @@
           }
         },
         {
-          "match": "\\b(type|record|interface|struct|enum)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(type|record|interface|struct)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.declaration.nupp" },
             "3": { "name": "entity.name.type.nupp" }

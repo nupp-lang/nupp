@@ -93,13 +93,10 @@ required for that — it is a claim the checker trusts without re-proving, which
 is what lets a runtime registrar install the surface later. Interfaces erase
 completely and have no runtime value.
 
-## Enums are strings
+## A union of literals is an enum
 
 ```nupp
-local enum Color
-    "red"
-    "green"
-end
+local type Color = "red" | "green"
 
 local function describe(c: Color): string
     if c == "red" then
@@ -110,12 +107,13 @@ local function describe(c: Color): string
 end
 ```
 
-An enum member is a `string` subtype, so a bare literal lands in it. Drop the
-`else` and the checker says which members you left out:
+There is no `enum` declaration; a string literal is a type, so a union of them
+is a closed set. A member is a `string` subtype, so a bare literal lands in it.
+Drop the `else` and the checker says which members you left out:
 
 ```
-warning: NUPP2107 enum-exhaustiveness: every branch returns, so this
-handles Color and leaves "green" unhandled
+warning: NUPP2107 exhaustiveness: every branch returns, so this
+handles "green" | "red" and leaves "green" unhandled
 ```
 
 ## Unions, optionals, and narrowing
@@ -132,6 +130,31 @@ end
 ```
 
 `T?` is `T | nil`. Inside the `if`, `s` is `string`.
+
+When the alternatives carry data, give each record a literal-typed field and
+compare it — that is a tagged union, and the comparison narrows to the one
+record that declares the tag:
+
+```nupp
+local record Circle
+    kind: "circle"
+    radius: number
+end
+
+local record Square
+    kind: "square"
+    side: number
+end
+
+local type Figure = Circle | Square
+
+local function area(f: Figure): number
+    if f.kind == "circle" then
+        return 3.14159 * f.radius * f.radius
+    end
+    return f.side * f.side
+end
+```
 
 Narrowing reads `is`, `== nil`, truthiness, discriminant fields, and
 `ffi.istype`. It does **not** read `type(x) == "string"` — that is an ordinary

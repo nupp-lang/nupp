@@ -16,7 +16,7 @@ local function sectionTitle(kind)
     local names = {
         ["function"] = "Functions", method = "Methods", variable = "Variables",
         type = "Types", record = "Records", interface = "Interfaces",
-        struct = "Structs", enum = "Enums",
+        struct = "Structs",
     }
     return names[kind] or (kind:sub(1, 1):upper() .. kind:sub(2) .. "s")
 end
@@ -129,12 +129,6 @@ local function renderMarkdownItem(out, item)
                 .. markdownEscape(field.type) .. "` | "
                 .. markdownCell(field.text) .. " |"
         end
-        out[#out + 1] = ""
-    end
-    if #item.values > 0 then
-        out[#out + 1] = "#### Values"
-        out[#out + 1] = ""
-        for _, value in ipairs(item.values) do out[#out + 1] = "- `" .. value .. "`" end
         out[#out + 1] = ""
     end
 end

@@ -275,7 +275,9 @@ local type Mode = "read" | "write"
 ```
 
 `false` exists as a type so that `T | false` narrows usefully. A literal is
-assignable to its base type, and to an enum that lists it.
+assignable to its base type, and to any union that lists it. A union of
+literals is the closed set other languages spell `enum` — see
+[unions](unions.md).
 
 ## Type aliases
 

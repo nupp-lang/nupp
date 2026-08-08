@@ -276,22 +276,48 @@ return m
 },
 
 reference.Section{
-    title = "Enums",
+    title = "Literal and tagged unions",
     codes = {"NUPP2107"},
     body = [=[
-An enum is a closed set of string literals. A dispatch over one that leaves
-members unhandled is reported, which is what makes adding a member a compile-time
-task list rather than a run-time surprise.
+A union of string literals is a closed set of values — what other languages
+spell `enum`. It erases: the value at run time is the plain string, and a bare
+literal lands in it. A dispatch over one that leaves members unhandled is
+reported, which is what makes adding a member a compile-time task list rather
+than a run-time surprise.
+
+A union of records, each carrying a literal-typed field, is a tagged union:
+the field is the tag, and comparing it narrows the union to the one record
+that declares that tag. That is the form to reach for when the alternatives
+carry data, since a bare literal carries none.
 ]=],
     example = [=[
 local m = {}
 
-enum m.Color "red" "green" "blue" end
+type m.Color = "red" | "green" | "blue"
 
 local function describe(c: m.Color): string
     if c == "red" then return "warm"
     elseif c == "green" then return "cool"
     else return "cool" end
+end
+
+record m.Circle
+    kind: "circle"
+    radius: number
+end
+
+record m.Square
+    kind: "square"
+    side: number
+end
+
+type m.Shape = m.Circle | m.Square
+
+function m.area(shape: m.Shape): number
+    if shape.kind == "circle" then
+        return 3.14159 * shape.radius * shape.radius
+    end
+    return shape.side * shape.side
 end
 
 return m

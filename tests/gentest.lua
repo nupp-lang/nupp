@@ -60,7 +60,7 @@ end
 function M.erasure()
    assertEq(run("local x: number = 21\nreturn x * 2"), 42)
    assertEq(run("local record P\n   x: number\nend\nlocal p = { x = 7 } as P\nreturn p.x"), 7)
-   assertEq(run("local enum E 'a' 'b' end\nreturn 'ok'"), "ok")
+   assertEq(run("local type E = 'a' | 'b'\nreturn 'ok'"), "ok")
    assertEq(run("local type Id = uint32\nlocal i = 9\nreturn i + 0"), 9)
    assertEq(run("local function f<T>(x: T): T return x end\nreturn f('generic')"), "generic")
    assertEq(run("@jit local function hot(): number return 5 end\nreturn hot()"), 5)

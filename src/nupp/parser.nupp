@@ -226,7 +226,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- Contextual declaration introducers at statement position [CS-5].
     local TYPEDECL_KW = {
         ["type"] = true, ["record"] = true, ["interface"] = true,
-        ["struct"] = true, ["enum"] = true,
+        ["struct"] = true,
     }
     -- `type` names a type alias and takes `= <type>`; the others open a body.
     local ALIAS_KW = {["type"] = true}
@@ -1170,7 +1170,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
     end
 
-    --- A `type`, `enum`, `record`, `interface` or `struct` declaration.
+    --- A `type`, `record`, `interface` or `struct` declaration.
     parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
         local kw = advance() -- the contextual keyword (a name token)
         local which = kw.text
@@ -1191,17 +1191,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             parseGenerics(n)
             add(n, expect("=", "in " .. which .. " declaration"))
             n.value = add(n, parseType())
-            return n
-        elseif which == "enum" then
-            local n = introduce(cst.EnumDecl{kind = "enumDecl"})
-            parseDeclName(n, "after 'enum'")
-            n.items = {}
-            while cur().kind == "string" do
-                local item = cst.EnumItem{kind = "enumItem"}
-                item.token = add(item, advance())
-                n.items[#n.items + 1] = add(n, item)
-            end
-            add(n, expect("end", "to close 'enum'"))
             return n
         else -- record / interface / struct
             local n = introduce(cst.RecordDecl{kind = "recordDecl"})

@@ -176,7 +176,7 @@ interesting window is one frame rather than the whole run. See
 file to its route:
 
     docs/start/        getting started: install, tour, why, syntax, ownership
-    docs/type-system/  records, structs, interfaces, enums, generics, narrowing
+    docs/type-system/  records, structs, interfaces, unions, generics, narrowing
     docs/tooling/      one page per tool: cli, build, fmt, doc, lsp, editors
     docs/*.md          the reference: grammar, modules, ownership, with,
                        c-interop, annotations, lints, diagnostics, distribution
@@ -225,7 +225,7 @@ inline record methods are documented in
 `nupp doc` extracts API documentation directly from the lossless parser CST.
 It deliberately skips type checking and code generation, making documentation
 builds proportional to parsing and rendering alone. Adjacent `---` docblocks
-document functions, variables, types, records, structs, interfaces, enums,
+document functions, variables, types, records, structs, interfaces,
 C declarations, and record fields. The usual `@param`, `@return`, `@raises`,
 `@field`, `@typearg`, `@local`, and `@export` annotations are understood.
 

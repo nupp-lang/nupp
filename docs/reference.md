@@ -215,21 +215,47 @@ return m
 
 Reports: `NUPP2203`. `nupp explain <code>` says more.
 
-## Enums
+## Literal and tagged unions
 
-An enum is a closed set of string literals. A dispatch over one that leaves
-members unhandled is reported, which is what makes adding a member a compile-time
-task list rather than a run-time surprise.
+A union of string literals is a closed set of values — what other languages
+spell `enum`. It erases: the value at run time is the plain string, and a bare
+literal lands in it. A dispatch over one that leaves members unhandled is
+reported, which is what makes adding a member a compile-time task list rather
+than a run-time surprise.
+
+A union of records, each carrying a literal-typed field, is a tagged union:
+the field is the tag, and comparing it narrows the union to the one record
+that declares that tag. That is the form to reach for when the alternatives
+carry data, since a bare literal carries none.
 
 ```nupp
 local m = {}
 
-enum m.Color "red" "green" "blue" end
+type m.Color = "red" | "green" | "blue"
 
 local function describe(c: m.Color): string
     if c == "red" then return "warm"
     elseif c == "green" then return "cool"
     else return "cool" end
+end
+
+record m.Circle
+    kind: "circle"
+    radius: number
+end
+
+record m.Square
+    kind: "square"
+    side: number
+end
+
+type m.Shape = m.Circle | m.Square
+
+function m.area(shape: m.Shape): number
+    if shape.kind == "circle" then
+        return 3.14159 * shape.radius * shape.radius
+    end
+    return shape.side * shape.side
 end
 
 return m
@@ -548,7 +574,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | Lint | Code | Category | Default |
 | --- | --- | --- | --- |
 | `missing-require` | NUPP2120 | correctness | error |
-| `enum-exhaustiveness` | NUPP2107 | correctness | warning |
+| `exhaustiveness` | NUPP2107 | correctness | warning |
 | `string-pointer` | NUPP2501 | suspicious | warning |
 | `jit-callback` | NUPP2502 | suspicious | warning |
 | `lossy-narrowing` | NUPP2503 | suspicious | warning |
@@ -565,7 +591,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2001 | A value does not fit the type it is bound to |
 | NUPP2004 | The field does not exist on that type |
 | NUPP2106 | An exported declaration needs a type annotation |
-| NUPP2107 | An enum dispatch leaves members unhandled |
+| NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |
 | NUPP2122 | A 'where' refinement is not checked |
 

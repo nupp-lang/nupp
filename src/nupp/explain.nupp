@@ -148,7 +148,7 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2107",
-        summary = "An enum dispatch leaves members unhandled",
+        summary = "A dispatch leaves members of a closed set unhandled",
         rule = "When every branch returns, the dispatch is exhaustive or it is "
             .. "not, and the checker can tell which. Add the missing branches, "
             .. "or an else that says the rest are deliberately alike.",
@@ -186,8 +186,8 @@ local ENTRIES: {any} = {
             .. "formatter keeps it, and `nupp doc` renders it into a signature "
             .. "— and no checker code reads the expression. A constraint that "
             .. "constrains nothing is reported rather than left to look like "
-            .. "it works. Express the constraint as a type where one fits: an "
-            .. "enum, a union of literals, or a generic bound.",
+            .. "it works. Express the constraint as a type where one fits: a "
+            .. "union of literals, or a generic bound.",
         wrong = "local record Odd where 1 + 1 == 3\n    n: integer\nend\n\n"
             .. "return Odd\n",
         right = "local record Odd\n    n: integer\nend\n\nreturn Odd\n",

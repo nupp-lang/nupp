@@ -664,43 +664,6 @@ record cst.TypeAlias is cst.Hints
     value: cst.Node?
 end
 
---- `enum Name 'a' 'b' end`.
-record cst.EnumDecl is cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'enumDecl'
-
-    --- "local", "module", "global" or "nested".
-    visibility: string?
-
-    --- The contextual `enum`.
-    keyword: lexer.Token?
-
-    --- The `local` or `global` before it, when one was written.
-    modifier: lexer.Token?
-
-    --- The declared name.
-    name: lexer.Token?
-
-    --- The tables it attaches to, outermost first.
-    qualifiers: {lexer.Token}?
-
-    --- The members it declares.
-    items: {cst.Node}
-end
-
---- One member of an enum.
-record cst.EnumItem is cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'enumItem'
-
-    --- Its string literal.
-    token: lexer.Token?
-end
-
 --- A `record`, `interface` or `struct` declaration.
 record cst.RecordDecl is cst.Hints
     {cst.Node | lexer.Token}
@@ -1541,8 +1504,8 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt
     | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign
     | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt
-    | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.EnumDecl
-    | cst.EnumItem | cst.RecordDecl | cst.WhereClause | cst.FieldDecl
+    | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias
+    | cst.RecordDecl | cst.WhereClause | cst.FieldDecl
     | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
     | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr
     | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
@@ -1558,9 +1521,9 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
 
---- The three declaration forms, which share a visibility, a name and the tables the
+--- The two declaration forms, which share a visibility, a name and the tables the
 --- name attaches to.
-type cst.Declaration = cst.TypeAlias | cst.EnumDecl | cst.RecordDecl
+type cst.Declaration = cst.TypeAlias | cst.RecordDecl
 
 --- What may take a generic parameter clause.
 type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
@@ -1688,7 +1651,7 @@ end
 --- qualified name exports when it attaches to that local, the way `function M.f` does;
 --- attaching to any other table keeps it to the file.
 ---
---- @param declaration the typeAlias, recordDecl or enumDecl node
+--- @param declaration the typeAlias or recordDecl node
 --- @param moduleLocal the name from cst.returnedLocal, when the file has one
 --- @return "local", "module", "global" or "nested"
 function cst.declVisibility(declaration: cst.Declaration,

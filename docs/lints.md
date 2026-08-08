@@ -42,7 +42,7 @@ Every lint has a name and a stable code:
  name                     code       category      default
  ───────────────────────  ─────────  ────────────  ───────
  missing-require          NUPP2120   correctness   error
- enum-exhaustiveness      NUPP2107   correctness   warning
+ exhaustiveness           NUPP2107   correctness   warning
  string-pointer           NUPP2501   suspicious    warning
  jit-callback             NUPP2502   suspicious    warning
  lossy-narrowing          NUPP2503   suspicious    warning
@@ -128,7 +128,7 @@ return {
    lints = {
       -- by name
       ["missing-require"] = "warning",
-      ["enum-exhaustiveness"] = "off",
+      ["exhaustiveness"] = "off",
 
       -- by category, applied before names, so a name still wins
       pedantic = "warning",

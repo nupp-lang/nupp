@@ -319,7 +319,7 @@ function callexpr.install(c: any): any
             return optional and T.optional(first) or first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
-            if ot.tag == "shape" or (ot.tag == "nominal" and ot.declKind ~= "enum") then
+            if ot.tag == "shape" or ot.tag == "nominal" then
                 local fixes = c.edits.nameSpellingFix(member,
                     c.fieldNames(ot))
                 c.diag("NUPP2004", member, ("no method %q in %s")

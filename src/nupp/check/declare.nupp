@@ -1,7 +1,7 @@
 --[[
 Checking a declaration, and publishing what it declares.
 
-A record, interface, struct, or enum introduces a nominal type: one identity per
+A record, interface, or struct introduces a nominal type: one identity per
 declaration, never shared with another of the same shape. This is where that
 identity is made, its members are checked and its contracts imported, and where
 the result is published — to the file, to the module, or to the project —
@@ -157,20 +157,6 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     stat.name.text, "type", c.visibilityOf(stat))
             end
             c.publishType(stat, t, projectEntry)
-        elseif kind == "enumDecl" then
-            local n, projectEntry = stat.hoistedType, stat.hoistedEntry
-            if not n then
-                n, projectEntry = c.declaredNominal(stat, "enum")
-            end
-            n.values = {}
-            stat.resolvedType = n
-            for _, item in ipairs(stat.items) do
-                local raw = item.token.text
-                n.values[#n.values + 1] = raw:sub(2, -2)
-            end
-            c.bindDeclaredType(stat, n)
-            c.bindDeclaredVar(stat, T.any)
-            c.publishType(stat, n, projectEntry)
         elseif kind == "recordDecl" then
             local n, projectEntry = stat.hoistedType, stat.hoistedEntry
             if not n then
@@ -190,7 +176,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     "a 'where' refinement is not implemented, so this "
                     .. "constraint is not checked",
                     nil, {help = "remove it, or express the constraint as a "
-                    .. "type: an enum, a union of literals, or a bound"})
+                    .. "type: a union of literals, or a bound"})
             end
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
@@ -215,9 +201,8 @@ function declare.install(c: any, reifiableField: any, fix: any,
             -- Hoist nested declarations within the nominal namespace so sibling fields
             -- and declarations may name them in any order.
             for _, e in ipairs(stat.entries) do
-                if e.kind == "recordDecl" or e.kind == "enumDecl" then
-                    local nestedKind = e.kind == "enumDecl" and "enum"
-                        or e.declKind
+                if e.kind == "recordDecl" then
+                    local nestedKind = e.declKind
                     local nested = T.nominal(e.name.text, nestedKind)
                     e.hoistedType = nested
                     -- A nested declaration's runtime table hangs off its owner's, which
@@ -398,8 +383,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     n.fieldDefs[e.name.text] = c.definition(e.name, "method")
                     n.fieldDefs[e.name.text].type = ft
                     c.markToken(e.name, n.fieldDefs[e.name.text], ft, "method")
-                elseif e.kind == "recordDecl" or e.kind == "enumDecl"
-                    or e.kind == "typeAlias" then
+                elseif e.kind == "recordDecl" or e.kind == "typeAlias" then
                     if stat.declKind == "struct" then
                         c.diag("NUPP2201", e,
                             "struct bodies hold fields only (no nested declarations)")

@@ -53,8 +53,8 @@ end
 -- is not checked
 ```
 
-Express the constraint as a type where one fits — an enum, a union of
-literals, or a bound like the ones above.
+Express the constraint as a type where one fits — a union of literals, or a
+bound like the ones above.
 
 ## Inference at a call site
 

@@ -99,7 +99,7 @@ ordinary Lua:
 - **Shape fields are covariant**, not invariant, even though they are mutable.
 - **`table` is gradual in both directions.** Every table-shaped type is a
   `table`, and a `table` may be used where any of them is wanted. It is closer
-  to "`any`, for tables" than to a top type. Enums are excluded both ways.
+  to "`any`, for tables" than to a top type.
 - **A declared `is` edge is trusted rather than proved.** If a record says
   `is Closeable`, it satisfies `Closeable` even before a runtime registrar has
   filled the members in.
@@ -113,7 +113,7 @@ are is more useful than pretending they do not exist.
   collections, and aliases.
 - [Records and structs](records.md) — nominal tables and FFI cdata.
 - [Interfaces](interfaces.md) — structural satisfaction, `is`, and metamethods.
-- [Enums](enums.md) — string subtypes and exhaustiveness.
+- [Unions](unions.md) — literal sets, tagged unions, and exhaustiveness.
 - [Generics](generics.md) — type parameters, inference, and bounds.
 - [Narrowing](narrowing.md) — what proves what, and what does not.
 

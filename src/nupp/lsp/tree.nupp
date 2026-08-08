@@ -71,7 +71,7 @@ end
 local DECLARING = {
     ["local"] = true, ["global"] = true, ["function"] = true, ["type"] = true,
     ["record"] = true, ["struct"] = true, ["interface"] = true,
-    ["enum"] = true, ["cdef"] = true,
+    ["cdef"] = true,
 }
 
 -- Finds where `name` is declared in an already-lexed file. A declaration is a name that

@@ -39,9 +39,9 @@ lints.all = {
         summary = "a project module is used without being required",
     },
     lints.Lint{
-        name = "enum-exhaustiveness", code = "NUPP2107",
+        name = "exhaustiveness", code = "NUPP2107",
         category = "correctness", level = "warning",
-        summary = "an enum dispatch leaves members unhandled",
+        summary = "a dispatch leaves members of a closed set unhandled",
     },
     lints.Lint{
         name = "string-pointer", code = "NUPP2501",

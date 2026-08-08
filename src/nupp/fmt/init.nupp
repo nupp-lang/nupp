@@ -155,9 +155,6 @@ local function annotate(root)
                     child.breakOp = true
                 end
             end
-        elseif kind == "enumItem" then
-            -- enum items are not call sugar: "enum Color 'red'", not "Color'red'"
-            if n.token then n.token.spacedTok = true end
         elseif kind == "unop" then
             -- `not x` needs its space; the symbol spellings, `!` included,
             -- hug their operand.
@@ -196,8 +193,7 @@ local function annotate(root)
             end
         end
 
-        local declish = kind == "recordDecl" or kind == "enumDecl"
-            or kind == "cdefStruct"
+        local declish = kind == "recordDecl" or kind == "cdefStruct"
         for idx, child in ipairs(n) do
             local childGroup = group
             if openIdx and idx > openIdx and idx < closeIdx then
