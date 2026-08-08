@@ -1,237 +1,322 @@
 # Optimization
 
-Nupp compiles to Lua for LuaJIT, and LuaJIT has a tracing compiler that is very
-good at the optimizations a compiler usually performs. Repeating its work would
-buy a soundness burden in exchange for gains that disappear the moment a trace
-warms up, so this compiler does not try. It optimizes the things the trace
-compiler structurally cannot: costs paid before it ever sees the code, and
-information only a type checker has.
-
-The list is therefore short, deliberately, and grows only when a benchmark says
-a pass earns its place with the JIT enabled. `plans/optimizations.md` records the
-full catalog and the reasoning behind what is and is not on it.
+Nupp leaves ordinary hot-path optimization to LuaJIT. Its own passes target
+startup work and facts available only to the checker. The catalog stays small:
+a pass lands only with a LuaJIT-enabled benchmark and a static proof that it
+preserves behaviour. The longer design catalog is in
+[`plans/optimizations.md`](../../plans/optimizations.md).
 
 ## Levels
 
-    nupp build -O2
-    nupp run -O2 app.nupp
+    nupp build -O1
+    nupp run -O1 app.nupp
 
-`-O0` is the default, and it is a promise rather than a description: it performs
-no rewrite at all. Generated Lua at `-O0` is what the language means, with types
-erased and nothing else done to it. When an optimization goes wrong, `-O0` is
-the way to keep working without waiting for a release.
+`-O0` is the default and performs no rewrites. Its generated Lua is the language
+semantics with types erased. `-O1` enables every current pass; `-O2` currently
+means the same thing and reserves room for a stronger tier later.
 
-`-O1` and `-O2` currently run the same passes. The levels are separated now so
-that the flag does not have to change later.
-
-The level is part of the build key. Changing it rebuilds rather than leaving
-half the project compiled at the old level, so switching costs a cold build and
-never produces a mixture.
+The level is part of the build key, so changing it triggers a cold build rather
+than mixing artifacts compiled at different levels.
 
 ## What runs
 
-| Code | Name | Level | What it does |
+| Code | Name | Level | Rewrite |
 | --- | --- | --- | --- |
-| `OPT-1` | presize | `-O1` | Creates a table at the size it is about to reach |
-| `OPT-2` | numeric-ipairs | `-O1` | Rewrites iteration over a proved stable declared array |
-| `OPT-3` | constant-fold | `-O1` | Folds exact primitive expressions and propagates immutable `const` paths |
-| `OPT-4` | static-callable | `-O1` | Binds repeated immutable dotted callees at their first use |
+| `OPT-1` | presize | `-O1` | Size an empty table for the writes about to follow |
+| `OPT-2` | numeric-ipairs | `-O1` | Use a numeric loop for a proved stable dense array |
+| `OPT-3` | constant-fold | `-O1` | Fold exact primitives, branches, and immutable paths |
+| `OPT-4` | static-callable | `-O1` | Bind repeated immutable dotted callees at first use |
 
-### `OPT-3`, constant folding
-
-The compiler evaluates exact primitive expressions such as integer arithmetic,
-string concatenation, comparisons, and boolean selection. A `const` binding to
-one of those values is propagated at each use. It deliberately leaves floating
-point arithmetic, cdata, calls, allocation, and mutable bindings to LuaJIT, so
-the target retains their rounding, identity, error, and lifetime semantics.
-When every condition in an `if` is one of those constants, it emits only the
-selected arm, retaining its block scope.
-
-Named table slots can carry the same guarantee. `const M.bar` makes an export
-slot immutable; `const name` inside its fresh table makes that named slot
-immutable too. `const...` is sugar for marking every named slot in a fresh
-table graph. The optimizer can then replace a leaf such as
-`Foo.bar.nested.name` with its exact primitive literal, including when `Foo`
-was obtained with `require`. Every edge must be immutable: the required module
-binding is `const`, and each exported field on the path is read-only. One
-replaceable parent field keeps the entire read intact. The pass never removes
-or moves the `require`, because loading a module may have effects.
-
-`luajit bench/constant-folding.lua` measures the intended cold-path saving:
-smaller generated Lua parses and loads faster. The same benchmark also reports
-a hot loop, where LuaJIT normally performs the arithmetic folding itself and no
-material win is expected. `luajit bench/constant-propagation.lua` isolates the
-corresponding cost for a nested immutable module path, reporting source size,
-load time, load-and-run time, and an already traced loop.
-
-### `OPT-4`, static callable binding
-
-Repeated statement-position calls through the same immutable path bind the
-function to a generated local at the first call:
-
-```nupp
-const tecs = require("tecs")
-tecs.x.y()
-tecs.x.y()
-```
-
-```lua
-local tecs = require("tecs")
-local __nupp_call_1 = tecs.x.y; __nupp_call_1()
-__nupp_call_1()
-```
-
-The root binding and every field must be `const`, and a single call is left
-alone. Binding at first use preserves lookup order and reports a failed lookup
-on the same source line. Reuse is lexical-block local; a block containing a
-label or `goto` is not rewritten because introducing a local could make an
-otherwise legal jump cross into its scope. Calls with specialized FFI,
-ownership, construction, or output-parameter lowering are also left alone.
-
-`luajit bench/static-callable.lua` compares repeated dotted calls with this
-first-use binding, including parsing, cold execution, and a warmed trace.
+Each example below shows Nupp beside its `-O1` and `-O0` output. Generated
+temporary names are illustrative.
 
 ### `OPT-1`, presizing
 
-An empty table has no hash part. Writing four fields into one grows it three
-times, allocating hash parts of one, two and four entries and copying the
-contents forward between them. When the compiler can see the fields coming, it
-asks for the size once instead.
+When consecutive writes reveal an empty table's final shape, Nupp allocates its
+array and hash parts once.
 
-    local point = {}
-    point.x = 1
-    point.y = 2
-    point.z = 3
+::: code-group
+```nupp [Original Nupp]
+local point = {}
+point.x = 1
+point.y = 2
+point.z = 3
+```
 
-At `-O2` the constructor becomes a sized one. `bench/presize.lua` measures 2.3x
-on four hash fields, 2.7x on eight, and 7.5x on four array slots, with the JIT
-on.
+```lua [Optimized Lua]
+local __nuppNew = require("table.new")
+local point = __nuppNew(0, 3)
+point.x = 1
+point.y = 2
+point.z = 3
+```
 
-It does not save memory, which is worth knowing before you go looking for the
-saving. The surviving table is the same size either way, because LuaJIT rounds a
-hash part up to a power of two, and a hash part replaced during a rehash is
-freed there and then rather than left for the collector. What is bought is the
-allocations and the copying, not the heap.
+```lua [Unoptimized Lua]
+local point = {}
+point.x = 1
+point.y = 2
+point.z = 3
+```
+:::
 
-The pass reads the statements after the declaration and stops as soon as the
-local is used for anything other than writing one of its fields, because that is
-where a count stops being a count. Both kinds of error are harmless: a table
-sized for more or fewer entries than it receives behaves exactly the same, since
-capacity is not something a program can observe.
+The scan stops when the table is read, escapes, is reassigned, or reaches a
+conditional write. Capacity is not observable, so the table otherwise behaves
+exactly like `{}`. The win is avoided growth allocations and copying, not a
+smaller surviving table.
 
 ### `OPT-2`, numeric `ipairs`
 
-For a declared dense array, `ipairs(xs)` visits the raw integer slots from one
-through the first nil. When a visible dense literal establishes the entry
-length and the checker can also prove the table's shape cannot change, the
-compiler evaluates `xs` once and emits a numeric `for` with that static bound.
+A dense literal supplies a static boundary. If effect and alias analysis also
+prove that its shape cannot change, Nupp evaluates the array once and emits a
+numeric loop.
 
-```nupp
-local xs: {integer} = {1, 2, 3}
+::: code-group
+```nupp [Original Nupp]
+local xs: {integer} = {10, 20, 30}
 for index, value in ipairs(xs) do
     use(index, value)
 end
 ```
 
-The proof is more than replacing the iterator with `1, #xs`. The source literal
-proves the initial boundary; the alias analysis then checks structural writes
-through every known local alias across the containing function. Calls use
-pessimistic [effect summaries](../effects.md), including captured-table effects
-and return aliases. An unknown call, an unresolved argument that may be
-mutated, a yield, a metatable effect, or a possible shape change keeps the
-original `ipairs` loop. The builtin itself is recognized by definition, not
-spelling, and its declaration is `const`, so a shadowed or replaceable `ipairs`
-is never rewritten. Neither `#t` nor the array type alone supplies the missing
-boundary proof.
-
-`bench/numeric-ipairs.lua` compares the exact generic and numeric shapes with
-the JIT enabled. Using a dynamic raw length was flat and sometimes slower after
-tracing, which is why the pass requires a static literal bound rather than
-rewriting every typed array loop.
-
-## Finding out what happened
-
-    nupp build -O2 --remarks
-
-A language whose premise is that types make code faster owes you an answer when
-something did not come out fast. `--remarks` reports what each pass did, and
-what it looked at and declined:
-
-    app.nupp:1:15: note: OPT-1: presize: point is created with room for 0 array
-    and 3 hash entries
-     1 | local point = {}
-       |               ^
-
-    app.nupp:5:15: note: OPT-1: presize: cache is not presized, because it is
-    used for something other than a field assignment before its fields are known
-     5 | local cache = {}
-       |               ^
-    app.nupp:6:1: note: used here
-     6 | register(cache)
-       | ^~~~~~~~
-
-The second form is the useful one. It names the statement that stopped the
-analysis, so moving that line — or building the table with a constructor
-instead — is a change you can make deliberately rather than by guessing.
-
-A remark is a note. It is reported and stepped over, and never fails a build.
-
-Remarks come from `nupp build` and `nupp run`. `nupp check` does not optimize,
-so it does not produce them.
-
-## When an optimization is wrong
-
-    nupp build -O2 -Zno-opt=OPT-2
-
-That turns off one pass, named by its code, so a suspected miscompile can be
-bisected without dropping to `-O0` and losing everything else. Codes are stable:
-a pass may be renamed, split, or merged, and `OPT-1` still means what it meant
-in the bug report you filed.
-
-The `-Z` prefix marks the spelling as unstable. It is a debugging aid, not an
-interface, and it may change or disappear.
-
-## What the compiler will not do for you
-
-Some waste is better removed from the source than worked around in the output.
-A function written inside a loop that does not use the iteration is built afresh
-every time round and is the same function every time:
-
-    for _, item in ipairs(items) do
-        register(item, |e| -> e.kind == "click")
+```lua [Optimized Lua]
+local xs = {10, 20, 30}
+do
+    local __xs = xs
+    for __index = 1, 3 do
+        local index = __index
+        local value = __xs[__index]
+        use(index, value)
     end
+end
+```
 
-A compiler could cache that, and it would cost a stored slot, a branch on every
-evaluation, and the guarantee that two closures from one place are two objects —
-a great deal of machinery to avoid moving one line. So it does not. The
-`loop-invariant-closure` lint says so instead, and the fix leaves the source
-faster and clearer at once:
+```lua [Unoptimized Lua]
+local xs = {10, 20, 30}
+for index, value in ipairs(xs) do
+    use(index, value)
+end
+```
+:::
 
-    local isClick = |e| -> e.kind == "click"
-    for _, item in ipairs(items) do
-        register(item, isClick)
-    end
+An array type alone is insufficient. A possible shape-changing write through
+any alias, an unknown call, yield, metatable effect, or shadowed `ipairs` keeps
+the generic loop. See [effect summaries](../effects.md). The static bound is
+intentional; a dynamic raw length was flat or slower after tracing.
 
-Invariant means invariant for the innermost loop it sits in, so a function that
-uses the outer loop's variable is still reported inside the inner one; lifting it
-out of the inner loop is a real saving even though it cannot leave the outer.
-A loop that returns runs its body once, so a function built on the way out is not
-reported.
+### `OPT-3`, constant folding
 
-Like every lint it has a level, and a statement that disagrees writes
-`@allow("loop-invariant-closure")`. See [lints](../lints.md).
+#### Exact primitives and local propagation
 
-## What optimization does not change
+Nupp folds exact integer arithmetic, strings, comparisons, and boolean
+selection. Primitive `const` values propagate through later expressions.
 
-Nothing observable, so far.
+::: code-group
+```nupp [Original Nupp]
+const prefix = "nu"
+const answer = (2 + 3) * 4
+print((false or prefix) .. "pp", answer, "nupp" < "rust")
+```
 
-Some optimizations trade an observable property for speed — caching a closure
-changes function identity, hoisting a global changes when it is read. None of
-those have landed. The opt-in surface is a repeatable flag such as
-`--relax=function-identity`, with the same names accepted locally by `@relax`.
-Until a pass explicitly checks one of those relaxations, `-O2` and `-O0` differ
-only in how fast the program runs.
+```lua [Optimized Lua]
+const prefix = "nu"
+const answer = 20
+print("nupp", 20, true)
+```
 
-The compiler's own build is the standing check on that claim: a compiler built
-at `-O2` has to produce output byte-identical to one built at `-O0`, across
-every module it compiles.
+```lua [Unoptimized Lua]
+const prefix = "nu"
+const answer = (2 + 3) * 4
+print((false or prefix) .. "pp", answer, "nupp" < "rust")
+```
+:::
+
+Floating-point arithmetic, cdata, calls, allocation, and mutable bindings stay
+at runtime so LuaJIT retains their rounding, identity, errors, and lifetimes.
+
+#### Constant branches
+
+If every tested condition is constant, only the selected arm is emitted. A
+`do` preserves the arm's original scope.
+
+::: code-group
+```nupp [Original Nupp]
+if false then
+    error("unreachable")
+elseif 2 < 3 then
+    print("reachable")
+else
+    error("also unreachable")
+end
+```
+
+```lua [Optimized Lua]
+do
+    print("reachable")
+end
+```
+
+```lua [Unoptimized Lua]
+if false then
+    error("unreachable")
+elseif 2 < 3 then
+    print("reachable")
+else
+    error("also unreachable")
+end
+```
+:::
+
+#### Nested immutable paths
+
+`const M.field` fixes one named slot. A `const` field inside its fresh table
+fixes that edge; ordinary fields remain mutable. `const... M.field` is the
+auto-deep form for every named field in a fresh table graph.
+
+::: code-group
+```nupp [Original Nupp]
+-- settings.nupp
+local M = {}
+const M.mixed = {
+    const NAME = "nupp",
+    count = 0,
+}
+const... M.deep = {
+    nested = {VERSION = 1},
+}
+return M
+
+-- app.nupp
+const Settings = require("settings")
+print(Settings.mixed.NAME, Settings.mixed.count,
+    Settings.deep.nested.VERSION)
+```
+
+```lua [Optimized Lua]
+-- settings.lua
+local M = {}
+M.mixed = {NAME = "nupp", count = 0}
+M.deep = {nested = {VERSION = 1}}
+return M
+
+-- app.lua
+const Settings = require("settings")
+print("nupp", Settings.mixed.count, 1)
+```
+
+```lua [Unoptimized Lua]
+-- settings.lua
+local M = {}
+M.mixed = {NAME = "nupp", count = 0}
+M.deep = {nested = {VERSION = 1}}
+return M
+
+-- app.lua
+const Settings = require("settings")
+print(Settings.mixed.NAME, Settings.mixed.count,
+    Settings.deep.nested.VERSION)
+```
+:::
+
+Every edge from the `const` required-module binding to the leaf must be
+immutable. One mutable parent keeps the read intact. `require` itself is never
+removed or moved because loading a module may have effects. No `module` keyword
+or runtime freezing is involved: `const` records the checked, shallow guarantee;
+`const...` applies it recursively to fresh named fields.
+
+### `OPT-4`, static callable binding
+
+Repeated statement-position calls through one immutable path share a local
+bound at the first call.
+
+::: code-group
+```nupp [Original Nupp]
+const tecs = require("tecs")
+tecs.x.y()
+tecs.x.y()
+```
+
+```lua [Optimized Lua]
+const tecs = require("tecs")
+local __nupp_call_1 = tecs.x.y; __nupp_call_1()
+__nupp_call_1()
+```
+
+```lua [Unoptimized Lua]
+const tecs = require("tecs")
+tecs.x.y()
+tecs.x.y()
+```
+:::
+
+The root and every field must be `const`; one call is left alone. First-use
+binding preserves lookup order and the error line. Reuse stays within one
+lexical block. Labels, `goto`, and calls with specialized FFI, ownership,
+construction, or output-parameter lowering are not rewritten.
+
+## Benchmark details
+
+These are fresh local medians with LuaJIT enabled. They measure the exact
+generated-Lua shapes shown above, not checker time.
+
+| Pass and scenario | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| `OPT-1`, 200,000 tables, four hash fields | 0.0151s | 0.0066s | 2.31x faster |
+| `OPT-1`, 200,000 tables, eight hash fields | 0.0291s | 0.0104s | 2.81x faster |
+| `OPT-1`, 200,000 tables, four array slots | 0.0153s | 0.0023s | 6.59x faster |
+| `OPT-2`, eight million visits, 4-element arrays | 0.0126s | 0.0087s | 1.44x faster |
+| `OPT-2`, eight million visits, 32-element arrays | 0.0053s | 0.0050s | 1.06x faster |
+| `OPT-2`, eight million visits, 256-element arrays | 0.0051s | 0.0047s | 1.07x faster |
+| `OPT-3`, 20,000 primitive expressions, load and run | 0.0039s | 0.0024s | 1.64x faster |
+| `OPT-3`, 20,000 nested paths, load only | 0.0095s | 0.0025s | 3.82x faster |
+| `OPT-3`, 20,000 nested paths, load and run | 0.0099s | 0.0025s | 3.95x faster |
+| `OPT-4`, 20,000 dotted calls, load only | 0.0025s | 0.0010s | 2.45x faster |
+| `OPT-4`, 20,000 dotted calls, load and run | 0.0029s | 0.0011s | 2.55x faster |
+
+Primitive folding reduced its generated input by 32.1%; nested propagation by
+60.8%; static callable binding by 63.6%. Warmed results were 0.99x, 2.01x, and
+1.00x respectively in this run. Hot results are workload- and trace-dependent,
+so the reliable constant and callable wins are smaller source and cold startup.
+
+Run the same benchmarks with:
+
+    luajit bench/presize.lua
+    luajit bench/numeric-ipairs.lua
+    luajit bench/constant-folding.lua
+    luajit bench/constant-propagation.lua
+    luajit bench/static-callable.lua
+
+## Inspecting and controlling passes
+
+    nupp build -O1 --remarks
+    nupp build -O1 -Zno-opt=OPT-2
+
+`--remarks` reports both successful rewrites and declined proofs, including the
+source location that stopped an analysis. Remarks are notes and never fail a
+build. They are available from `build` and `run`; `check` does not optimize.
+
+`-Zno-opt=CODE` disables one pass for miscompile bisection. Pass codes are
+stable, but the `-Z` spelling is an unstable debugging interface. Use `-O0` to
+disable every rewrite.
+
+## Deliberately left in source
+
+Nupp does not cache a closure created inside a loop: that changes function
+identity. The `loop-invariant-closure` lint instead suggests lifting a closure
+that does not depend on the iteration.
+
+```nupp
+local isClick = |event| -> event.kind == "click"
+for _, item in ipairs(items) do
+    register(item, isClick)
+end
+```
+
+Suppress an intentional case with `@allow("loop-invariant-closure")`; see
+[lints](../lints.md).
+
+## Observable behaviour
+
+Current passes change nothing observable. Optimizations that would trade a
+guarantee for speed must explicitly check a named `--relax` or `@relax`
+permission. The compiler fixpoint verifies the standing claim: compiling the
+compiler at `-O1` must produce output byte-identical to compiling it at `-O0`.
