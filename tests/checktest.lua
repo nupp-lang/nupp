@@ -280,7 +280,9 @@ function M.inheritedContractsBoundsAndSelf()
       "local record Position is Component, Tagged",
       "   x: number",
       "end",
-      "local function construct<C is Component>(c: C): C",
+      -- the argument is the declaration's own table, which is a metatable<C>;
+      -- calling it runs the __call the bound declares and yields an instance
+      "local function construct<C is Component>(c: metatable<C>): C",
       "   local name: string = c.componentName",
       "   return c()",
       "end",

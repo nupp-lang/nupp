@@ -96,7 +96,7 @@ function M.tecsStyleLateEventRegistrationRuns()
       "events.OnSpawn.init = function(instance: events.OnSpawn, entity: integer)",
       "   instance.entity = entity",
       "end",
-      "local function newEvent<E is Event>(event: E)",
+      "local function newEvent<E is Event>(event: metatable<E>)",
       "   local id = 7",
       "   local instanceMt = {__index = event}",
       "   setmetatable(event, {__call = function(_self: E, ...: any): E",

@@ -350,7 +350,7 @@ function M.instancesAreRecognisedThroughTheirPrototype()
       "OnSpawn.init = function(instance: OnSpawn, entity: integer)",
       "   instance.entity = entity",
       "end",
-      "local function newEvent<E is Event>(event: E)",
+      "local function newEvent<E is Event>(event: metatable<E>)",
       "   local instanceMt = {__index = event}",
       "   setmetatable(event, {__call = function(_self: E, ...: any): E",
       "      local instance = setmetatable({eventId = 7}, instanceMt) as E",
@@ -714,6 +714,37 @@ function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
       "NUPP2118:3")
 end
 
+-- The declaration's name holds its runtime table, and `new` builds instances of
+-- it. They are different values and now different types, which is what stops
+-- either standing where the other is wanted.
+function M.aRecordsTableIsNotAnInstanceOfIt()
+   local foo = "local record Foo\n   v: integer\nend\n"
+   assertClean(foo .. table.concat({
+      "local mt: metatable<Foo> = Foo",
+      "local instance: Foo = new Foo {v = 1}",
+      "return {mt, instance}",
+   }, "\n"))
+   -- the table is not an instance
+   assertEq(diagsOf(foo .. "local wrong: Foo = Foo\nreturn wrong"),
+      "NUPP2001:4")
+   -- and an instance is not the table
+   assertEq(diagsOf(foo .. table.concat({
+      "local instance = new Foo {v = 1}",
+      "local wrong: metatable<Foo> = instance",
+      "return wrong",
+   }, "\n")), "NUPP2001:5")
+   -- construction, methods and nested reads still go through the table
+   assertEq(run(table.concat({
+      "local record Outer",
+      "   record Inner",
+      "      n: integer",
+      "   end",
+      "end",
+      "local made = new Outer.Inner {n = 4}",
+      "return made.n",
+   }, "\n")), 4)
+end
+
 -- A record's runtime table is the metatable its instances carry, so it is a
 -- `metatable<R>` and the oldest way to write a class in Lua checks. Reaching a
 -- member through the wrapper reaches the record's.
@@ -854,14 +885,14 @@ function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
    }, "\n")
    assertEq(diagsOf(event .. table.concat({
       "",
-      "local function newEvent<E is Event>(event: E)",
+      "local function newEvent<E is Event>(event: metatable<E>)",
       "   setmetatable(event, {__call = 'not callable'})",
       "end",
       "return newEvent",
    }, "\n")), "NUPP2123:9")
    assertClean(event .. table.concat({
       "",
-      "local function newEvent<E is Event>(event: E)",
+      "local function newEvent<E is Event>(event: metatable<E>)",
       "   local instanceMt = {__index = event}",
       "   setmetatable(event, {__call = function(_self: E, ...: any): E",
       "      return setmetatable({eventId = 7}, instanceMt) as E",

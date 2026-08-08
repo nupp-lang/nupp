@@ -91,8 +91,11 @@ function index.install(c: any): any
             local t, def = c.env.exportedNominal(c.env, exporting, memberName)
             if t and t.tag == "nominal"
                 and (t.declKind == "record" or t.declKind == "struct") then
-                c.markToken(member, def, t, def and def.kind or "variable")
-                return t
+                -- The same value the declaring module bound, so a record arrives as the
+                -- metatable its table is rather than as an instance of it.
+                local held = t.declKind == "record" and T.metatable(t) or t
+                c.markToken(member, def, held, def and def.kind or "variable")
+                return held
             end
             return nil
         end

@@ -479,8 +479,13 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     c.bindType(e.name.text, nested, e.name)
                     n.nestedTypes[e.name.text] = nested
                     if nestedKind == "record" or nestedKind == "struct" then
-                        n.byname[e.name.text] = nested
-                        n.writeByname[e.name.text] = nested
+                        -- Reaching it through the owner reaches the same value the
+                        -- owner's own name would, so a nested record is its table
+                        -- here too rather than an instance of itself.
+                        local held = nestedKind == "record"
+                            and T.metatable(nested) or nested
+                        n.byname[e.name.text] = held
+                        n.writeByname[e.name.text] = held
                     end
                 end
             end
@@ -833,10 +838,12 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 -- the name is a value too: the ctype constructor
                 c.bindDeclaredVar(stat, n)
             elseif stat.declKind == "record" then
-                -- and for records: the runtime table that carries members and stamps
-                -- instances, so R{...} is recognized as a construction rather than an
-                -- ordinary call
-                c.bindDeclaredVar(stat, n)
+                -- A record's name also holds a value: the runtime table that carries
+                -- its members and is stamped on the instances it builds. That table
+                -- is their metatable, so it has the type of one -- which is what
+                -- keeps it from standing where an instance is wanted, and an
+                -- instance from standing where it is.
+                c.bindDeclaredVar(stat, T.metatable(n))
             else
                 c.bindDeclaredVar(stat, T.any)
             end

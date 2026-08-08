@@ -8388,6 +8388,15 @@ elseif argsNode and argsNode . str then
 args = { argsNode . str }
 end
 
+
+
+
+if calleeT . tag == "metatable" and calleeT . of . tag == "nominal"
+and calleeT . of . declKind == "record" then
+calleeT = calleeT . of
+node . signatureType = calleeT
+end
+
 local constructible = calleeT . tag == "nominal"
 and ( calleeT . declKind == "struct" or calleeT . declKind == "record" )
 
@@ -8579,7 +8588,11 @@ end
 return calleeT , { calleeT }
 end
 
-if calleeT . tag == "typevar" then
+
+
+
+
+if calleeT . tag == "typevar" or calleeT . tag == "metatable" then
 local callContract = ops . metamethodOf ( calleeT , "__call" )
 if callContract then
 return ops . inferCall ( node , dropSelf ( callContract ) , argsNode )
@@ -9980,8 +9993,13 @@ nested . runtimePath = ( n . runtimePath or n . name )
 c . bindType ( e . name . text , nested , e . name )
 n . nestedTypes [ e . name . text ] = nested
 if nestedKind == "record" or nestedKind == "struct" then
-n . byname [ e . name . text ] = nested
-n . writeByname [ e . name . text ] = nested
+
+
+
+local held = nestedKind == "record"
+and T . metatable ( nested ) or nested
+n . byname [ e . name . text ] = held
+n . writeByname [ e . name . text ] = held
 end
 end
 end
@@ -10337,7 +10355,9 @@ elseif stat . declKind == "record" then
 
 
 
-c . bindDeclaredVar ( stat , n )
+
+
+c . bindDeclaredVar ( stat , T . metatable ( n ) )
 else
 c . bindDeclaredVar ( stat , T . any )
 end
@@ -12100,8 +12120,11 @@ end
 local t , def = c . env . exportedNominal ( c . env , exporting , memberName )
 if t and t . tag == "nominal"
 and ( t . declKind == "record" or t . declKind == "struct" ) then
-c . markToken ( member , def , t , def and def . kind or "variable" )
-return t
+
+
+local held = t . declKind == "record" and T . metatable ( t ) or t
+c . markToken ( member , def , held , def and def . kind or "variable" )
+return held
 end
 return nil
 end
@@ -28781,6 +28804,13 @@ for _ , e in ipairs ( arg . elems ) do
 generics . unify ( param . elem , e , map )
 end
 end
+elseif tag == "metatable" then
+
+
+
+if arg . tag == "metatable" then
+generics . unify ( param . of , arg . of , map )
+end
 elseif tag == "map" then
 if arg . tag == "map" then
 if param . readable and arg . readable then
@@ -38763,7 +38793,7 @@ if btag == "metatable" then
 
 
 if atag == "shape" or atag == "map" or atag == "table"
-or atag == "metatable" or atag == "nominal" then
+or atag == "metatable" then
 return true
 end
 return fail ( a , b )
@@ -40328,6 +40358,8 @@ types.Literal = {} types.Literal.__index = types.Literal
 
 
 types.TypeVar = {} types.TypeVar.__index = types.TypeVar
+
+
 
 
 

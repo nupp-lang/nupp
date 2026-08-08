@@ -340,6 +340,15 @@ function calls.install(c: any): any
         elseif argsNode and argsNode.str then
             args = {argsNode.str}
         end
+        -- A record's name holds its runtime table, and building instances is what
+        -- that table is for, so the wrapper comes off before asking what is being
+        -- called. Reaching a `metatable<R>` any other way -- a hand-built one under
+        -- an annotation -- is not a declaration and is left alone.
+        if calleeT.tag == "metatable" and calleeT.of.tag == "nominal"
+            and calleeT.of.declKind == "record" then
+            calleeT = calleeT.of
+            node.signatureType = calleeT
+        end
         -- struct construction: S{...} named or S(...) positional
         local constructible = calleeT.tag == "nominal"
             and (calleeT.declKind == "struct" or calleeT.declKind == "record")
@@ -532,7 +541,11 @@ function calls.install(c: any): any
             return calleeT, {calleeT}
         end
 
-        if calleeT.tag == "typevar" then
+        -- A bounded receiver reaches `__call` through its bound, and so does a
+        -- metatable standing for one: calling a declaration's table is exactly what
+        -- the contract on it describes. A concrete record was unwrapped above and
+        -- answered as a construction or a call before reaching here.
+        if calleeT.tag == "typevar" or calleeT.tag == "metatable" then
             local callContract = ops.metamethodOf(calleeT, "__call")
             if callContract then
                 return ops.inferCall(node, dropSelf(callContract), argsNode)

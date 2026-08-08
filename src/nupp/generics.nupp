@@ -184,6 +184,13 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
                 generics.unify(param.elem, e, map)
             end
         end
+    elseif tag == "metatable" then
+        -- `metatable<T>` is how a registrar asks for a declaration's own table, so the
+        -- receiver it describes is what binds T -- and what the bound is then checked
+        -- against.
+        if arg.tag == "metatable" then
+            generics.unify(param.of, arg.of, map)
+        end
     elseif tag == "map" then
         if arg.tag == "map" then
             if param.readable and arg.readable then

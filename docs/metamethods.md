@@ -56,7 +56,7 @@ OnSpawn.init = function(instance: OnSpawn, entity: integer)
     instance.entity = entity
 end
 
-local function newEvent<E is Event>(event: E)
+local function newEvent<E is Event>(event: metatable<E>)
     local id = 1
     local instanceMt = {__index = event}
 
@@ -77,6 +77,11 @@ The contract sits on `Event` rather than on `OnSpawn`, so `newEvent` checks its
 own body: the metatable it builds is a `metatable<E>`, and `E`'s bound says what
 `__call` has to be. Putting the contract on the concrete record instead leaves
 the registrar unchecked and only its call sites held to anything.
+
+The parameter is `metatable<E>`, not `E`. What `newEvent(OnSpawn)` passes is the
+record's own runtime table, which is not an instance of the record — the body
+calls `setmetatable` on it, which is the giveaway. Writing `event: E` claims to
+take an instance and would be a different function.
 
 Records retain their existing runtime namespace table. `new R {...}` stamps that
 table as the instance metatable, and the table carries `__index = R` for
@@ -262,8 +267,8 @@ runtime implementation explicitly.
 
 ## `metatable<T>`
 
-`metatable<T>` is a compiler-known phantom type. It erases to an ordinary Lua
-table and connects the standard metatable functions to their receiver:
+`metatable<T>` is a compiler-known type that erases to an ordinary Lua table. It
+connects the standard metatable functions to their receiver:
 
 ```nupp
 local record Task end
@@ -274,10 +279,27 @@ setmetatable(task, mt)
 local current: metatable<Task>? = getmetatable(task)
 ```
 
+It is also the type a record's own name holds. `new Task {...}` stamps that table
+on the instances it builds, so the table *is* their metatable and says so:
+
+```nupp
+local record Task end
+
+local mt: metatable<Task> = Task
+local instance: table = {}
+
+setmetatable(instance, Task)
+```
+
+That is what separates the declaration's table from an instance of it. `Task` may
+stand wherever a `metatable<Task>` is wanted and nowhere an instance is; a value
+built by `new Task {...}` is the reverse. Reaching a member through the table
+reaches the record's, so `Task.make(...)`, `Task.field = ...` and the metamethods
+installed on it all resolve.
+
 Direct metatable literals reject unknown double-underscore keys, catching
-mistakes such as `__cal`. Computed tables and metatables assembled inside a
-generic registrar remain gradual. `as` retains its usual assertion semantics
-and may override the checker.
+mistakes such as `__cal`. Computed tables remain gradual. `as` retains its usual
+assertion semantics and may override the checker.
 
 ## Deliberate exclusions
 

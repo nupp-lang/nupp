@@ -413,12 +413,12 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     if btag == "metatable" then
-        -- A record's runtime table is the metatable its instances carry, so a nominal
-        -- is the one table-shaped thing that was missing here. Without it
-        -- `setmetatable(t, R)` -- the oldest way to write a class in Lua -- is the one
-        -- use of a metatable the checker refuses.
+        -- Loose about which receiver, since a metatable is an ordinary table and
+        -- nothing here proves whose it is. Not loose about a nominal, though: an
+        -- instance is a table too, and admitting it would put back the confusion
+        -- between a declaration and something it built.
         if atag == "shape" or atag == "map" or atag == "table"
-            or atag == "metatable" or atag == "nominal" then
+            or atag == "metatable" then
             return true
         end
         return fail(a, b)
