@@ -29,7 +29,8 @@ work makes sense in.
       contracts, then model the contents through a bounded generic receiver so
       a registrar such as `newEvent<E is Event>` checks its own metatable body
       instead of relying on checked concrete call sites.
-- [ ] **Intersection types, including overloads as function intersections.**
+- [ ] **Intersection types, including overloads as function intersections**
+      ([design](intersections.md)).
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,
       and member composition. An intersection of callable types is the overload
       set: a call selects a compatible signature and applies that signature's
