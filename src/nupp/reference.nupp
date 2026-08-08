@@ -950,7 +950,7 @@ function reference.markdown(opts: {level: integer?}?): string
         end
     end
 
-    out[#out + 1] = heading(base + 1, "Every lint")
+    out[#out + 1] = heading(base + 1, "Built-in lints")
     out[#out + 1] = ""
     for _, row in ipairs(lintRows()) do out[#out + 1] = row end
     out[#out + 1] = ""

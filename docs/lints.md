@@ -12,7 +12,7 @@ force. It is separate from a type error, and the difference is the whole design:
 
 Clippy's split between `rustc` errors and `clippy::` lints is the same line.
 
-## Levels
+## Severity levels
 
 ```
  level     reported   build     @allow    editor
@@ -34,7 +34,7 @@ than one switch:
   a lint may be shown more quietly than it is enforced. `missing-require` is an
   error in a build and a warning in an editor.
 
-## Naming
+## Lint names and codes
 
 Every lint has a name and a stable code:
 
@@ -61,7 +61,7 @@ marking any the project has moved. The text table has no code column;
 `lossy-narrowing` is checked only under `--strict`; moving its level does not
 enable strict checking by itself.
 
-## Every lint
+## Built-in lints
 
 These outputs were captured from `nupp check --no-color`; the
 `lossy-narrowing` example also uses `--strict`.
@@ -245,7 +245,7 @@ A category is a grouping, not a level: the default comes from each lint's own
 registry entry, and a category setting in `nupp.lua` moves every member at
 once. That is how a project opts into a whole category without listing it.
 
-## Configuring a project
+## Project configuration
 
 In `nupp.lua`:
 
@@ -330,7 +330,7 @@ That is the whole of it. The level resolves through the registry, the project's
 `lints` table and any surrounding `@allow`; `nupp lints` picks the new row up;
 `@allow("your-lint")` works; and `nupp.lua` can move it.
 
-### Optionally, quieter in an editor
+### Editor severity
 
 A lint that a build should refuse but an editor should not shout about — one
 whose fix is usually the next thing the author types — gets a row in
@@ -345,7 +345,7 @@ local EDITOR_ADVICE = {
 The build still enforces the registry level. Only the protocol severity
 changes.
 
-### Testing one
+### Lint tests
 
 `tests/allowtest.lua` has the harness for level resolution — `checkOf(src,
 {lints = ...})` returns the diagnostics with a project configuration applied,

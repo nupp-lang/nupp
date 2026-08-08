@@ -758,7 +758,7 @@ return m
 
 Reports: `NUPP2108`. `nupp explain <code>` says more.
 
-## Every lint
+## Built-in lints
 
 | Lint | Code | Category | Default |
 | --- | --- | --- | --- |
