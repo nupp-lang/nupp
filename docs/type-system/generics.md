@@ -42,8 +42,19 @@ NUPP2116: type argument string for T: string is not a number
 
 An `any` argument skips the bound check.
 
-There is also a `where` clause in the grammar. It parses and formats, but no
-checker code reads it, so it constrains nothing today.
+The grammar also carries a `where` refinement on a declaration. Nothing checks
+the expression, so writing one is **NUPP2122** rather than a constraint:
+
+```nupp
+local record Odd where 1 + 1 == 3
+    n: integer
+end
+-- NUPP2122: a 'where' refinement is not implemented, so this constraint
+-- is not checked
+```
+
+Express the constraint as a type where one fits — an enum, a union of
+literals, or a bound like the ones above.
 
 ## Inference at a call site
 
