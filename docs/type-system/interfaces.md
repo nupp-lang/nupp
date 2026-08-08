@@ -96,12 +96,39 @@ an optional's nil is the only part left to ask — `maybe is Shape` compiles to
 `maybe ~= nil`. This works whatever the interface can or cannot test at run
 time, and is the usual reason `is` against an interface succeeds.
 
+Because it trusts the type, an `is` in the tail of an exhaustive chain over a
+union is answered by what the earlier branches ruled out rather than re-checked.
+That is the same trust the checker already extends — it lets the branch read the
+narrowed type's fields without a test — so a value that reached the union
+through an `as` it did not deserve is answered by the cast, not by `is`.
+
 Where the subject's type does not settle it, an interface has no runtime table
-of its own, so the test compiles only when the interface declares a `matches`
-block — which is what such a declaration's identity is. Without one, and against
-an alias, there is nothing to test and that is NUPP3001 at code generation. Give
-the interface a `matches` block, test against a concrete record, or compare a
-discriminant field.
+of its own. It can still be tested two ways:
+
+**A tag it already declares.** An interface whose fields carry literal types has
+said what its test is — the field admits that value and nothing else — so the
+test is read off the declaration with nothing written:
+
+```nupp
+local interface Circle
+    kind: "circle"
+    radius: number
+end
+```
+
+```lua
+-- `x is Circle` becomes
+(type(x) == "table" and x.kind == "circle")
+```
+
+That is what lets a decoded table answer `is`. It applies to interfaces only: a
+record and a struct already answer exactly, so a derived test beside either
+would be a second answer chosen by whether the fields happened to be literals.
+
+**A `matches` block**, which wins over the tags when both are present.
+
+With neither, and against an alias, there is nothing to test and that is
+NUPP3001 at code generation.
 
 Note that `x is integer` compiles to `type(x) == "number"`. Integrality is not
 checked at runtime.

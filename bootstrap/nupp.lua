@@ -10129,6 +10129,26 @@ c . diag ( "NUPP2122" , stat . whereClause ,
 "a refinement is written as a `matches` block in the body" ,
 nil , { help = "write `matches <test> end` among the fields" } )
 end
+
+
+
+
+
+
+
+
+
+if stat . declKind == "interface" and not n . predicate then
+local derived = nil
+for _ , name in ipairs ( n . fieldOrder or { } ) do
+local ft = n . byname [ name ]
+if ft and ft . tag == "literal" then
+derived = predicate . both ( derived ,
+predicate . equals ( { name } , ft . constant ) )
+end
+end
+n . predicate = derived
+end
 checkInheritedRefinements ( stat , n )
 c . popScope ( )
 if stat . isAnnotationDefinition then
@@ -36258,6 +36278,37 @@ if kind == "string" or kind == "number" or kind == "nilExpr" then
 return nil , "a literal"
 end
 return nil , "this expression"
+end
+
+
+
+
+
+
+
+
+
+
+function predicate . equals ( path , constant )
+local kind = type ( constant )
+local text = nil
+if kind == "string" then
+text = ( "%q" ) : format ( constant )
+elseif kind == "number" then
+text = tostring ( constant )
+elseif kind == "boolean" then
+text = constant and "true" or "false"
+end
+if not text then return nil end
+return setmetatable( { op = "cmp" , cmp = "==" , path = path ,
+literal = text , constant = constant } , predicate.Node)
+end
+
+
+function predicate . both ( a , b )
+if not a then return b end
+if not b then return a end
+return setmetatable( { op = "and" , a = a , b = b } , predicate.Node)
 end
 
 

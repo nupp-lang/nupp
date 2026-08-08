@@ -390,6 +390,46 @@ function M.aProvenInterfaceNeedsNoTest()
    }, "\n")), 3)
 end
 
+-- An interface whose fields carry literal types has already said what its test
+-- is: the field admits that value and nothing else. Reading it off is what lets
+-- a tagged interface answer `is` for a value this program did not build, with
+-- nothing written.
+function M.aTaggedInterfaceDerivesItsOwnTest()
+   local decl = table.concat({
+      "local interface Circle",
+      "   kind: 'circle'",
+      "   radius: number",
+      "end",
+      "local interface Square",
+      "   kind: 'square'",
+      "   side: number",
+      "end",
+   }, "\n")
+   assertEq(run(decl .. table.concat({
+      "",
+      -- values nothing here built
+      "local c: any = {kind = 'circle', radius = 2}",
+      "local s: any = {kind = 'square', side = 3}",
+      "local neither: any = {kind = 'triangle'}",
+      "return (c is Circle and 1 or 0) + (s is Square and 2 or 0)",
+      "   + (c is Square and 100 or 0) + (neither is Circle and 100 or 0)",
+      "   + ((42 as any) is Circle and 100 or 0)",
+   }, "\n")), 3)
+   -- an explicit block still wins over the tags
+   assertEq(run(decl .. table.concat({
+      "",
+      "local interface Odd",
+      "   kind: 'odd'",
+      "   matches",
+      "      self.kind == 'even'",
+      "   end",
+      "end",
+      "local v: any = {kind = 'odd'}",
+      "local w: any = {kind = 'even'}",
+      "return (v is Odd and 1 or 0) + (w is Odd and 2 or 0)",
+   }, "\n")), 2)
+end
+
 -- A constructor is the whole reason `new` is worth having over a literal: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()

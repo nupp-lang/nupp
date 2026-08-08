@@ -693,6 +693,26 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     "a refinement is written as a `matches` block in the body",
                     nil, {help = "write `matches <test> end` among the fields"})
             end
+            -- An interface whose fields carry literal types has already said what
+            -- its test is: the field admits that value and nothing else. Reading
+            -- it off is what lets a tagged interface answer `is` for a value this
+            -- program did not build, with nothing written.
+            --
+            -- Interfaces only. A record and a struct already answer `is`
+            -- exactly, so a derived test beside either would be a second answer
+            -- chosen by whether the fields happened to be literals — an
+            -- interface has no identity for it to disagree with.
+            if stat.declKind == "interface" and not n.predicate then
+                local derived = nil
+                for _, name in ipairs(n.fieldOrder or {}) do
+                    local ft = n.byname[name]
+                    if ft and ft.tag == "literal" then
+                        derived = predicate.both(derived,
+                            predicate.equals({name}, ft.constant))
+                    end
+                end
+                n.predicate = derived
+            end
             checkInheritedRefinements(stat, n)
             c.popScope()
             if stat.isAnnotationDefinition then

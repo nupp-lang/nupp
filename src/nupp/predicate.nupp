@@ -241,6 +241,37 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
     return nil, "this expression"
 end
 
+--- A refinement testing that `path` holds exactly `constant`.
+---
+--- This is how a declaration's own literal-typed field becomes its test without
+--- anyone writing one: the field's type already says the value is that and
+--- nothing else, so the test is arithmetic on what was declared. Nil when the
+--- value is not one this subset can spell.
+---
+--- @param path the field names, outermost first
+--- @param constant the value the field's literal type admits
+function predicate.equals(path: {string}, constant: any): predicate.Node?
+    local kind = type(constant)
+    local text = nil
+    if kind == "string" then
+        text = ("%q"):format(constant)
+    elseif kind == "number" then
+        text = tostring(constant)
+    elseif kind == "boolean" then
+        text = constant and "true" or "false"
+    end
+    if not text then return nil end
+    return new predicate.Node {op = "cmp", cmp = "==", path = path,
+        literal = text, constant = constant}
+end
+
+--- Both refinements, as one.
+function predicate.both(a: predicate.Node?, b: predicate.Node?): predicate.Node?
+    if not a then return b end
+    if not b then return a end
+    return new predicate.Node {op = "and", a = a, b = b}
+end
+
 --- Every field path the refinement reads, so the checker can hold each one to the
 --- declaration it belongs to.
 function predicate.paths(node: predicate.Node?, out: {{string}}?): {{string}}
