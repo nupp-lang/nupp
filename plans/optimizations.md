@@ -171,7 +171,7 @@ module's immutable export path:
 
 ```nupp
 -- settings.nupp
-local M: module = {}
+local M = {}
 
 const M.palette = {
     const accent = "#5e81ac",
@@ -192,11 +192,10 @@ const settings = require("settings")
 print("#5e81ac")
 ```
 
-`module` is the structural declaration that a local is the returned export
-table. It lets the checker collect a closed, named export interface while the
-module initializes. `const M.field = value` fixes that export slot after its
-one initialization. A nested `const field = value` inside a table constructor
-does the same for that table slot. This permits deliberately mixed surfaces:
+The returned local identifies the module table, so no `module` keyword is
+needed. `const M.field = value` fixes that export slot after its one
+initialization. A nested `const field = value` inside a table constructor does
+the same for that table slot. This permits deliberately mixed surfaces:
 
 ```nupp
 const M.state = {
@@ -206,12 +205,11 @@ const M.state = {
 ```
 
 Only `protocol` is propagated; `requests` remains ordinary mutable state.
-`const... M.field = {...}` is optional sugar for making every newly-created
-table slot in the value graph const recursively. It is accepted only for a
-fresh graph of primitives and other deep-const values. Calls, cdata, mutable
-aliases, and dynamic/foreign escapes either prevent the guarantee or require a
-visible unsafe boundary. This keeps deep const a static promise rather than a
-runtime proxy or metatable scheme that would alter LuaJIT behaviour.
+`const... M.field = {...}` is sugar for making every newly-created named table
+slot in the value graph const recursively. It is a static guarantee, not a
+runtime proxy or metatable, so it does not alter LuaJIT behaviour. Positional
+and computed-key fields are deliberately outside the sugar: they have no
+stable named path to use for propagation.
 
 The export interface must record both a stable path and its literal value, and
 its hash must change when either changes. Consumers then rebuild when

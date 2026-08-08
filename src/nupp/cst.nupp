@@ -576,6 +576,12 @@ record cst.AssignStmt is cst.Hints
     --- Names the production this node stands for.
     kind: 'assignStmt'
 
+    --- Whether this establishes an immutable field binding.
+    isConst: boolean?
+
+    --- Whether every named field in its fresh table initializer is const.
+    deepConst: boolean?
+
     --- What is assigned to.
     targets: {cst.Node}
 
@@ -1177,6 +1183,9 @@ record cst.FieldNamed is cst.Hints
 
     --- Names the production this node stands for.
     kind: 'fieldNamed'
+
+    --- Whether this table slot is immutable.
+    isConst: boolean?
 
     --- The key.
     name: lexer.Token?

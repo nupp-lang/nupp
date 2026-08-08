@@ -363,11 +363,11 @@ function expr.install(c: any)
                         -- build a value of a discriminated union. Numbers widen, since
                         -- a counter initialized to 1 is not a value of the type 1.
                         local keep = valueT.tag == "literal"
-                            and valueT.base == T.string
-                        named[#named + 1] = {
-                            name = fieldName.text,
-                            type = keep and valueT or widened(valueT),
-                        }
+                            and (f.isConst or valueT.base == T.string)
+                        local fieldT = keep and valueT or widened(valueT)
+                        local field = {name = fieldName.text, read = fieldT}
+                        if not f.isConst then field.write = fieldT end
+                        named[#named + 1] = field
                     end
                 elseif f.kind == "fieldBracket" then
                     local value = f.value

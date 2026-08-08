@@ -770,6 +770,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(f, expect("]", "to close field key"))
                 add(f, expect("=", "in table field"))
                 f.value = add(f, resetNoMethod(parseExp))
+            elseif cur().kind == "name" and cur().text == "const"
+                and tokens[i + 1] and tokens[i + 1].kind == "name"
+                and tokens[i + 2] and tokens[i + 2].kind == "=" then
+                f = cst.FieldNamed{kind = "fieldNamed"}
+                f.isConst = true
+                add(f, advance())
+                f.name = add(f, advance())
+                add(f, advance()) -- '='
+                f.value = add(f, resetNoMethod(parseExp))
             elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
                 f = cst.FieldNamed{kind = "fieldNamed"}
                 f.name = add(f, advance())
@@ -1512,6 +1521,50 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             n.name = add(n, fn)
             n.body = add(n, parseFuncbody())
+            return n
+
+        elseif kind == "name" and cur().text == "const"
+            and tokens[i + 1] and (tokens[i + 1].kind == "..."
+            or tokens[i + 1].kind == "name")
+            and ((tokens[i + 1].kind == "name" and tokens[i + 2]
+                and tokens[i + 2].kind == ".")
+                or (tokens[i + 1].kind == "..." and tokens[i + 2]
+                    and tokens[i + 2].kind == "name" and tokens[i + 3]
+                    and tokens[i + 3].kind == ".")) then
+            local n = cst.AssignStmt{kind = "assignStmt"}
+            n.isConst = true
+            add(n, advance())
+            if cur().kind == "..." then
+                n.deepConst = true
+                add(n, advance())
+            end
+            n.targets = {add(n, parseSuffixedexp())}
+            local function plainFieldPath(target)
+                if target.kind ~= "dotIndex" then return false end
+                local base = target.obj
+                return base and (base.kind == "name" or plainFieldPath(base))
+            end
+            if not plainFieldPath(n.targets[1]) then
+                errAt(cst.firstToken(n.targets[1]) or cur(),
+                    "const field declaration needs a dotted field path")
+            end
+            add(n, expect("=", "in const field declaration"))
+            n.exprs = parseExplist(n)
+            if n.deepConst then
+                local function markDeep(value)
+                    if not value or value.kind ~= "tableExpr" then return end
+                    for _, field in ipairs(value.fields or {}) do
+                        if field.kind == "fieldNamed" then
+                            field.isConst = true
+                        else
+                            errAt(cst.firstToken(field) or cur(),
+                                "const... table requires named fields")
+                        end
+                        if field.value then markDeep(field.value) end
+                    end
+                end
+                for _, value in ipairs(n.exprs) do markDeep(value) end
+            end
             return n
 
         elseif kind == "local" or (kind == "name" and cur().text == "const"

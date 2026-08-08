@@ -355,6 +355,30 @@ function M.constDeclarations()
    assertEq(#assertRoundtrip("const(1)").errors, 0)
 end
 
+function M.constFieldDeclarations()
+   local src = table.concat({
+      "local M = {}",
+      "const M.bar = {const BAZ = 123}",
+      "const... M.settings = {name = 'nupp', nested = {count = 0}}",
+      "return M",
+   }, "\n")
+   local result = assertRoundtrip(src)
+   assertEq(#result.errors, 0, "const field declarations should parse cleanly")
+   local stats = result.root.blocks[1].stats
+   assert(stats[2].isConst and not stats[2].deepConst)
+   assert(stats[2].exprs[1].fields[1].isConst)
+   assert(stats[3].isConst and stats[3].deepConst)
+   assert(stats[3].exprs[1].fields[1].isConst)
+   assert(stats[3].exprs[1].fields[2].value.fields[1].isConst)
+
+   local dynamic = parser.parse("local M = {}\nconst M.x[1] = 2", "test")
+   assertEq(dynamic.errors[1].code, "NUPP1005",
+      "const fields require a static dotted path")
+   local positional = parser.parse("local M = {}\nconst... M.x = {1}", "test")
+   assertEq(positional.errors[1].code, "NUPP1005",
+      "deep const fields require stable names")
+end
+
 function M.recoveryMissingPieces()
    local cases = {
       "local = 5",

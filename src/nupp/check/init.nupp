@@ -325,6 +325,13 @@ record checkMod.Checker
     --- declaration a fix actually touches.
     moduleFieldTokens: {[string]: lexer.Token}
 
+    --- Which direct module exports were established with `const M.field`.
+    moduleFieldConst: {[string]: boolean}
+
+    --- Every immutable path rooted at the returned module table. This includes
+    --- nested `const` fields in a fresh exported table constructor.
+    constModulePaths: {[string]: boolean}
+
     --- Whether that table was annotated. An annotated binding keeps the type it was
     --- given, which is how a module says its surface is wider than what can be seen —
     --- `local M: {[string]: any} = {}`.
@@ -398,7 +405,9 @@ record checkMod.Checker
     inferList: function(exprs: any, count: integer): {Type}
 
     --- Records a `function m.f` or `m.x = v` as a member of the returned module.
-    recordModuleField: function(target: Node, t: Type?)
+    recordModuleField: function(target: Node, t: Type?, constant: boolean?,
+        value: Node?)
+    constModuleField: function(target: Node): boolean
 
     --- Whether every path out of a block leaves it, and whether every path raises.
     alwaysExits: function(block: Node?): boolean
@@ -525,7 +534,9 @@ function checkMod.check(result, filename, env, opts)
         unsafeDepth = 0, functionDepth = 0,
         captureWatches = {}, allowed = {}, hoisting = false,
         resolvingAlias = {}, lastCallRets = nil,
-        moduleFields = {}, moduleFieldTokens = {}, moduleLocalAnnotated = false,
+        moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {},
+        constModulePaths = {},
+        moduleLocalAnnotated = false,
     }
     c.rootScope = c.scope
     -- Published alongside the module name because the pair is what says a `function
@@ -1054,7 +1065,28 @@ function checkMod.check(result, filename, env, opts)
     -- constructor says nothing about what it exports. What is put on it does, and
     -- remembering that is what lets a caller reach an exported function's type rather
     -- than an open table's.
-    local function recordModuleField(target: Node, t: Type?)
+    local function modulePath(target: Node): string?
+        local key = pathKey(target)
+        if not key or not c.moduleLocal then return nil end
+        if key:sub(1, #c.moduleLocal + 1) ~= c.moduleLocal .. "." then
+            return nil
+        end
+        return key
+    end
+
+    local function recordConstTableFields(path: string, value: Node?)
+        if not value or value.kind ~= "tableExpr" then return end
+        for _, field in ipairs(value.fields or {}) do
+            if field.kind == "fieldNamed" and field.isConst and field.name then
+                local fieldPath = path .. "." .. field.name.text
+                c.constModulePaths[fieldPath] = true
+                recordConstTableFields(fieldPath, field.value)
+            end
+        end
+    end
+
+    local function recordModuleField(target: Node, t: Type?, constant: boolean?,
+        value: Node?)
         if not c.moduleLocal or target.kind ~= "dotIndex" then return end
         local base, member = target.obj, target.name
         if not base or not member or base.kind ~= "name" then return end
@@ -1062,12 +1094,26 @@ function checkMod.check(result, filename, env, opts)
         if not baseTok or baseTok.text ~= c.moduleLocal then return end
         c.moduleFields[member.text] = t or T.any
         c.moduleFieldTokens[member.text] = member
+        if constant then
+            c.moduleFieldConst[member.text] = true
+            local path = modulePath(target)
+            if path then
+                c.constModulePaths[path] = true
+                recordConstTableFields(path, value)
+            end
+        end
+    end
+
+    local function constModuleField(target: Node): boolean
+        local path = modulePath(target)
+        return path ~= nil and c.constModulePaths[path] == true
     end
 
     -- Promoted onto the run so that the statement families below, each in its own
     -- module, can reach them without being lexically inside this function.
     c.inferList = inferList
     c.recordModuleField = recordModuleField
+    c.constModuleField = constModuleField
     c.alwaysExits = alwaysExits
     c.alwaysRaises = alwaysRaises
     c.returnsSomewhere = returnsSomewhere

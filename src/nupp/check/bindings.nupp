@@ -32,6 +32,7 @@ function bindings.install(c: any): any
     local applyContract, metamethodOf = apply.applyContract, apply.metamethodOf
     local clearNarrowed, clearAliases = facts.clearNarrowed, facts.clearAliases
     local inferList, recordModuleField = c.inferList, c.recordModuleField
+    local constModuleField = c.constModuleField
     local applyFacts, pathKey = c.applyFacts, c.pathKey
     local moveExpression = c.moveExpression
     local ownershipKind, ownershipState = c.ownershipKind, c.ownershipState
@@ -109,7 +110,13 @@ function bindings.install(c: any): any
                     if bound == T.integer then bound = T.number end
                 elseif bound.tag == "shape" and initNode
                     and initNode.kind == "tableExpr" then
+                    local hasConst = false
+                    for _, field in ipairs(initNode.fields or {}) do
+                        if field.isConst then hasConst = true; break end
+                    end
+                    if not hasConst then
                     bound = T.table_
+                    end
                 elseif bound == T.nil_ then
                     bound = T.any
                 end
@@ -206,7 +213,11 @@ function bindings.install(c: any): any
         for j, target in ipairs(stat.targets) do
             local et = inferred[j]
             local written = values[j]
-            recordModuleField(target, et)
+            local wasConstModuleField = constModuleField(target)
+            if wasConstModuleField then
+                c.diag("NUPP2008", target, "cannot assign to const module field")
+            end
+            recordModuleField(target, et, stat.isConst, written)
             local targetTok = target.kind == "name"
                 and target.token or nil
             if targetTok then
@@ -261,7 +272,7 @@ function bindings.install(c: any): any
                         or "NUPP2603", written,
                         "borrowed value cannot escape through assignment")
                 end
-            else
+            elseif not wasConstModuleField then
                 target.writeContext = true
                 local tt = c.infer(target)
                 target.writeContext = nil
@@ -328,6 +339,11 @@ function bindings.install(c: any): any
         local assignTarget, value, opTok = stat.target, stat.value, stat.op
         if not assignTarget or not value or not opTok then return end
         local targetT = c.infer(assignTarget)
+        if constModuleField(assignTarget) then
+            c.diag("NUPP2008", assignTarget,
+                "cannot assign to const module field")
+            return
+        end
         assignTarget.writeContext = true
         c.infer(assignTarget) -- compound assignment needs both capabilities
         assignTarget.writeContext = nil

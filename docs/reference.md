@@ -523,6 +523,13 @@ on that table, so nothing is merged in behind your back. Another file reaches a
 member through the module it was attached to, and a module path also names a type
 directly, as in `models.user.User`.
 
+The returned local already identifies the module table; there is no `module`
+keyword. Use `const M.field = value` to make an export slot immutable. A fresh
+table can mark individual named slots with `const name = value`, or use
+`const... M.field = {...}` to mark all of its named slots recursively. These
+guarantees are checked in Nupp and preserve exact primitive literals for
+constant propagation in consumers.
+
 A `.d.nupp` declaration file is the exception: it describes an interface it does
 not own and returns no table, so a bare declaration there is that interface.
 
@@ -556,8 +563,23 @@ written straight through to the output, because LuaJIT 2.1 backported it.
 
 Available: `continue`; compound assignment (`+= -= *= /= //= %= &= |=`); the
 ternary `c ? a : b`; `??` for nil-coalescing; safe navigation `?.`; short
-functions `|x| -> e`; `const` bindings including `const function`; and the
-customary spellings `!`, `&&`, `||`, `!=`.
+functions `|x| -> e`; `const` bindings including `const function` and immutable
+named table fields; and the customary spellings `!`, `&&`, `||`, `!=`.
+
+`const M.field = value` initializes an immutable field. Inside a fresh table
+constructor, `const name = value` does the same for a named slot. `const...`
+before the outer field declaration is sugar that applies it recursively to the
+new table graph:
+
+```nupp
+local M = {}
+const... M.settings = {name = "nupp", nested = {count = 0}}
+return M
+```
+
+The checker rejects later writes through those paths. Plain `const M.field`
+remains shallow: ordinary inner fields stay mutable unless they are themselves
+declared `const`.
 
 The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are the
 ones Lua already has, and two spellings of one thing drift apart across a

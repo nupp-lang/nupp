@@ -323,6 +323,24 @@ function gen.generate(result, filename)
             e(x.folded, sourceLine(x))
             return
         end
+        if kind == "assignStmt" and x.isConst then
+            for i, target in ipairs(x.targets or {}) do
+                if i > 1 then e(",") end
+                emit(target)
+            end
+            e("=")
+            for i, value in ipairs(x.exprs or {}) do
+                if i > 1 then e(",") end
+                emit(value)
+            end
+            return
+        end
+        if kind == "fieldNamed" and x.isConst then
+            if x.name then emit(x.name) end
+            e("=")
+            if x.value then emit(x.value) end
+            return
+        end
         if kind == "ifStmt" and (x.constantBranch or x.constantBranchNone) then
             -- OPT-3: every condition was a primitive constant. A `do` block
             -- preserves the selected arm's local scope while the source lines

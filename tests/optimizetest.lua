@@ -220,6 +220,70 @@ function M.propagatesConstBindings()
       "propagated arithmetic result")
 end
 
+function M.propagatesNestedConstFields()
+   local src = table.concat({
+      "local M = {}",
+      "const M.bar = {",
+      "   const BAZ = 123,",
+      "   const nested = {const name = 'nupp'},",
+      "}",
+      "return M.bar.BAZ, M.bar.nested.name",
+   }, "\n")
+   local code = compile(src)
+   assertTrue(code:find("return 123 , \"nupp\"", 1, true) ~= nil,
+      "nested const paths are propagated: " .. code)
+   local number, text = run(src)
+   assertEq(number, 123, "nested number")
+   assertEq(text, "nupp", "nested string")
+end
+
+function M.deepConstFieldsAreSugarForNestedConstFields()
+   local src = table.concat({
+      "local M = {}",
+      "const... M.bar = {",
+      "   BAZ = 123,",
+      "   COUNT = 0,",
+      "   nested = {name = 'nupp'},",
+      "}",
+      "return M.bar.BAZ, M.bar.nested.name",
+   }, "\n")
+   local code = compile(src)
+   assertTrue(code:find("return 123 , \"nupp\"", 1, true) ~= nil,
+      "deep const fields are propagated: " .. code)
+   local number, text = run(src)
+   assertEq(number, 123, "deep number")
+   assertEq(text, "nupp", "deep string")
+end
+
+function M.doesNotPropagateAConstPathAfterItsRootIsReplaced()
+   local src = table.concat({
+      "local M = {}",
+      "const M.bar = {const BAZ = 123}",
+      "M = {bar = {BAZ = 456}}",
+      "return M.bar.BAZ",
+   }, "\n")
+   local code = compile(src)
+   assertTrue(code:find("return M . bar . BAZ", 1, true) ~= nil,
+      "replacing the root invalidates nested facts: " .. code)
+   assertEq(run(src), 456, "the replacement remains observable")
+end
+
+function M.propagatesNestedConstFieldsAcrossARequiredModule()
+   local requiredEnv = envMod.new(HERE)
+   local result = parser.parse(table.concat({
+      "const Foo = require('fixtures.consts')",
+      "return Foo.bar.BAZ, Foo.bar.nested.name",
+   }, "\n"), "test")
+   assertEq(#result.errors, 0, "consumer parses")
+   local diags = check.check(result, "test", requiredEnv)
+   assertEq(#diags, 0, "consumer checks")
+   optimize.run(result, {level = 1})
+   local code, generatedDiags = gen.generate(result, "test")
+   assertEq(#generatedDiags, 0, "consumer generates")
+   assertTrue(code:find("return 123 , \"nupp\"", 1, true) ~= nil,
+      "required module constants are propagated: " .. code)
+end
+
 function M.foldsPrimitiveStringsAndTruthiness()
    local code = compile("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'")
    assertTrue(code:find('return "nupp"', 1, true) ~= nil,

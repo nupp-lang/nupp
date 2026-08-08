@@ -103,7 +103,11 @@ function control.install(c: any): any
                 and returnedName and returnedName.text == c.moduleLocal then
                 local fields = {}
                 for name, ft in pairs(c.moduleFields) do
-                    fields[#fields + 1] = {name = name, type = ft}
+                    if c.moduleFieldConst[name] then
+                        fields[#fields + 1] = {name = name, read = ft}
+                    else
+                        fields[#fields + 1] = {name = name, type = ft}
+                    end
                 end
                 if #fields > 0 then c.moduleType = T.shape(fields) end
             end
@@ -125,7 +129,7 @@ function control.install(c: any): any
                 local shape = c.moduleType
                 if shape.tag == "shape" then
                     for _, field in ipairs(shape.fields) do
-                        if untyped(field.type) then
+                        if untyped(field.read or field.type) then
                             c.diag("NUPP2106",
                                 c.moduleFieldTokens[field.name] or stat,
                                 ("exported %q needs a type annotation")

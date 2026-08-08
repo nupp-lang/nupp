@@ -279,7 +279,7 @@ local function truthy(value)
 end
 
 local function scope(parent)
-    return {parent = parent, constants = {}}
+    return {parent = parent, constants = {}, paths = {}}
 end
 
 local function lookupConstant(current, name)
@@ -287,6 +287,68 @@ local function lookupConstant(current, name)
         local found = current.constants[name]
         if found ~= nil then return found or nil end
         current = current.parent
+    end
+    return nil
+end
+
+local function textPath(node)
+    if not node or isToken(node) then return nil end
+    if node.kind == "name" and node.token then return node.token.text end
+    if node.kind == "dotIndex" and node.name then
+        local base = textPath(node.obj)
+        return base and (base .. "." .. node.name.text) or nil
+    end
+    return nil
+end
+
+local function lookupPath(current, path)
+    local root = path:match("^[^.]+")
+    while current do
+        -- A declaration in an inner scope can shadow the root of an outer
+        -- constant path even if it does not itself have the same suffix.
+        -- `local M = {}` must therefore hide an outer `M.bar`, not let that
+        -- unrelated value leak into the proof.
+        local found = current.paths[path]
+        if found ~= nil then return found or nil end
+        if root and current.paths[root] == false then return nil end
+        current = current.parent
+    end
+    return nil
+end
+
+local function bindPath(current, path, value)
+    if not path then return end
+    -- Replacing `M` also replaces every path below it; keeping an old
+    -- `M.bar.BAZ` fact would make a later read fold through a new table.
+    local prefix = path .. "."
+    for known in pairs(current.paths) do
+        if known == path or known:sub(1, #prefix) == prefix then
+            current.paths[known] = false
+        end
+    end
+    current.paths[path] = value or false
+end
+
+local function bindObjectFields(current, path, value)
+    bindPath(current, path, value)
+    if not value or value.kind ~= "table" then return end
+    for name, field in pairs(value.fields) do
+        bindObjectFields(current, path .. "." .. name, field)
+    end
+end
+
+local function resolvedLiteral(node)
+    local t = node and node.resolvedType
+    if not t or t.tag ~= "literal" then return nil end
+    if t.base and (t.base.tag == "number" or t.base.tag == "integer")
+        and type(t.constant) == "number"
+        and t.constant == math.floor(t.constant)
+        and math.abs(t.constant) <= MAX_EXACT_INTEGER then
+        return literal("number", t.constant, ("%.0f"):format(t.constant))
+    elseif t.base and t.base.tag == "string" and type(t.constant) == "string" then
+        return literal("string", t.constant, string.format("%q", t.constant))
+    elseif t.base and t.base.tag == "boolean" and type(t.constant) == "boolean" then
+        return literal("boolean", t.constant, tostring(t.constant))
     end
     return nil
 end
@@ -314,7 +376,7 @@ local function foldExpr(node, current)
     elseif kind == "name" and node.token then
         local value = lookupConstant(current, node.token.text)
         if value then node.folded = value.code end
-        return value
+        return value or lookupPath(current, node.token.text)
     elseif kind == "paren" or kind == "castExpr" then
         local value = foldExpr(node.expr, current)
         if value then node.folded = value.code end
@@ -404,14 +466,23 @@ local function foldExpr(node, current)
         for _, arg in ipairs(node.args and node.args.exprs or {}) do foldExpr(arg, current) end
     elseif kind == "dotIndex" or kind == "safeIndex" then
         foldExpr(node.obj, current)
+        local value = resolvedLiteral(node) or lookupPath(current, textPath(node))
+        if value and value.kind ~= "table" then node.folded = value.code end
+        return value
     elseif kind == "bracketIndex" or kind == "safeBracket" then
         foldExpr(node.obj, current)
         foldExpr(node.expr, current)
     elseif kind == "tableExpr" then
+        local fields = {}
         for _, field in ipairs(node.fields or {}) do
             foldExpr(field.key, current)
-            foldExpr(field.value, current)
+            local value = foldExpr(field.value, current)
+            if field.kind == "fieldNamed" and field.isConst and field.name
+                and value then
+                fields[field.name.text] = value
+            end
         end
+        if next(fields) then return {kind = "table", fields = fields} end
     elseif kind == "istring" then
         for _, part in ipairs(node.parts or {}) do foldExpr(part, current) end
     elseif kind == "funcExpr" then
@@ -442,14 +513,29 @@ local function foldStatement(stat, current)
         for i, expr in ipairs(stat.exprs or {}) do values[i] = foldExpr(expr, current) end
         for i, name in ipairs(stat.names or {}) do
             current.constants[name.text] = stat.isConst and values[i] or false
+            if stat.isConst and values[i] and values[i].kind == "table" then
+                bindObjectFields(current, name.text, values[i])
+            else
+                bindPath(current, name.text, nil)
+            end
         end
     elseif kind == "assignStmt" then
         for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
-        for _, target in ipairs(stat.targets or {}) do
+        for i, target in ipairs(stat.targets or {}) do
+            local path = textPath(target)
             if target.kind == "name" and target.token then
                 current.constants[target.token.text] = false
+                bindPath(current, target.token.text, nil)
             else
                 foldExpr(target, current)
+                if stat.isConst and path then
+                    local value = foldExpr((stat.exprs or {})[i], current)
+                    if value and value.kind == "table" then
+                        bindObjectFields(current, path, value)
+                    end
+                elseif path then
+                    bindPath(current, path, nil)
+                end
             end
         end
     elseif kind == "returnStmt" then

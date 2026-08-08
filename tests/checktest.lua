@@ -181,6 +181,37 @@ function M.propertyCapabilities()
    }, "\n")), "NUPP2001:2")
 end
 
+function M.constTableFieldsAreReadOnly()
+   assertClean(table.concat({
+      "local M = {}",
+      "const M.bar = {",
+      "   const BAZ = 123,",
+      "   const nested = {const name = 'nupp'},",
+      "}",
+      "return M",
+   }, "\n"))
+
+   assertEq(diagsOf(table.concat({
+      "local M = {}",
+      "const M.bar = {",
+      "   const BAZ = 123,",
+      "   const nested = {const name = 'nupp'},",
+      "}",
+      "M.bar.BAZ = 456",
+      "M.bar.nested.name = 'lua'",
+      "M.bar.BAZ += 1",
+      "return M",
+   }, "\n")), "NUPP2008:6 NUPP2008:7 NUPP2008:8")
+
+   assertEq(diagsOf(table.concat({
+      "local M = {}",
+      "const... M.bar = {BAZ = 123, nested = {name = 'nupp'}}",
+      "M.bar.BAZ = 456",
+      "M.bar.nested.name = 'lua'",
+      "return M",
+   }, "\n")), "NUPP2008:3 NUPP2008:4")
+end
+
 -- `unknown` is the top type: everything fits into it, but -- unlike `any` --
 -- it does not fit anywhere else on its own. It is not gradual in `any`'s
 -- sense; only the one direction is free.

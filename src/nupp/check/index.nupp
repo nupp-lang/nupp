@@ -152,7 +152,9 @@ function index.install(c: any): any
             return T.any
         end
         c.markToken(member, fieldDef, ft, "property")
-        return kind == "safeIndex" and T.optional(ft) or ft
+        local out = kind == "safeIndex" and T.optional(ft) or ft
+        node.resolvedType = out
+        return out
     end
     handlers.safeIndex = handlers.dotIndex
 

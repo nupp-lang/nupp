@@ -34,7 +34,7 @@ never produces a mixture.
 | --- | --- | --- | --- |
 | `OPT-1` | presize | `-O1` | Creates a table at the size it is about to reach |
 | `OPT-2` | numeric-ipairs | `-O1` | Rewrites iteration over a proved stable declared array |
-| `OPT-3` | constant-fold | `-O1` | Folds exact primitive expressions and propagates `const` bindings |
+| `OPT-3` | constant-fold | `-O1` | Folds exact primitive expressions and propagates immutable `const` paths |
 
 ### `OPT-3`, constant folding
 
@@ -45,6 +45,14 @@ point arithmetic, cdata, calls, allocation, and mutable bindings to LuaJIT, so
 the target retains their rounding, identity, error, and lifetime semantics.
 When every condition in an `if` is one of those constants, it emits only the
 selected arm, retaining its block scope.
+
+Named table slots can carry the same guarantee. `const M.bar` makes an export
+slot immutable; `const name` inside its fresh table makes that named slot
+immutable too. `const...` is sugar for marking every named slot in a fresh
+table graph. The optimizer can then replace a leaf such as
+`Foo.bar.nested.name` with its exact primitive literal, including when `Foo`
+was obtained with `require`. It never removes or moves the `require`, because
+loading a module may have effects.
 
 `luajit bench/constant-folding.lua` measures the intended cold-path saving:
 smaller generated Lua parses and loads faster. The same benchmark also reports

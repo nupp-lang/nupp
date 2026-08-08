@@ -66,7 +66,10 @@ funcname       = Name *("." Name) [":" Name]
 localstat      = "local" ("function" Name funcbody
                           / namelist ["=" explist])
 conststat      = %s"const" ("function" Name funcbody
-                             / namelist ["=" explist]) ; soft keyword [CS-5]
+                             / namelist ["=" explist]
+                             / ["..."] fieldvar "=" explist)
+                                                        ; soft keyword [CS-5]
+fieldvar       = Name "." Name *("." Name)
 
 withstat       = %s"with" withbinding *("," withbinding)
                  "do" block "end"                    ; soft keyword [CS-17]
@@ -177,6 +180,7 @@ callargs       = "(" [explist] ")"
 tableconstructor = "{" [fieldlist] "}"
 fieldlist      = field *(fieldsep field) [fieldsep]
 field          = "[" exp "]" "=" exp
+               / %s"const" Name "=" exp
                / Name "=" exp
                / exp
 fieldsep       = "," / ";"
@@ -436,9 +440,12 @@ ftret          = "(" type *("," type) ")"       ; multi-return needs parens [CS-
 ;   meaning explicitly. Every bare declaration form is invalid Lua.
 ;   LuaJIT's `const` is likewise a soft keyword: at statement position it
 ;   introduces a block-scoped immutable local when followed by a Name or
-;   `function`; elsewhere it remains an ordinary identifier. A const binding
-;   cannot be assigned or redeclared in the same or an inner scope, including
-;   as a function parameter. The referenced contents of a table remain mutable.
+;   `function`, or an immutable named field when followed by a dotted field
+;   path. `const... M.field = {...}` makes every named field in that fresh
+;   table graph immutable. Elsewhere it remains an ordinary identifier. A const
+;   binding cannot be assigned or redeclared in the same or an inner scope,
+;   including as a function parameter. A plain const binding's referenced table
+;   contents remain mutable unless its fields are declared const.
 ;
 ; [CS-6] Contextual operators. "as" and "is" act as operators only in binary-
 ;   operator position (after a complete operand) AND only when they appear on
