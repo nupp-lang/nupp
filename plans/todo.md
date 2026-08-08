@@ -20,17 +20,21 @@ work makes sense in.
       Nothing checks that a union's members have refinements that can tell each
       other apart, and nothing checks a construction against the refinement of
       what it builds — `new Circle {kind = "square"}` passes.
-- [ ] **Settle what `is` means, and let an interface carry defaults**
-      ([design](identity.md)). The three repairs are done: refinement paths
-      render through `?.`, a declaration is held to the refinements of the
-      interfaces it declares, and a refinement is an interface's `matches`
-      block rather than a clause any declaration could carry — so `is R` means
-      one thing for every record. What is left is the capability: instance
-      reachability so a prototype-built instance answers `is` at all (tecs's
-      events answer `false` today), conformance markers so `is I` works on
-      records and structs without enumerating implementors, elision when
-      conformance is already proven, and default method bodies with a required
-      `@override`.
+- [x] **Settle what `is` means, and let an interface carry defaults**
+      ([design](identity.md)). A record is nominal and answers through its
+      prototype, so an instance a constructor linked back rather than stamped —
+      tecs's events — is one. An interface is a contract: a test its own type
+      already proves is not run, a tagged one derives its test from the literal
+      fields it declares, and a `matches` block says what neither can. A
+      refinement is an interface's alone, so `is R` means one thing for every
+      record. An interface may implement what it declares, with `@override`
+      required to replace a default and two providers of one name refused.
+
+      Left open: conformance markers, the one part of that design not built.
+      Elision and derived tags cover the cases that motivated them, so what
+      markers would add is `is I` for an *untagged* interface against a value
+      whose static type does not prove conformance — narrower than it looked,
+      and it costs a two-step read because `?[` is not in the grammar.
 - [ ] **Check metatable bodies, not just key spellings.** Today
       `setmetatable(t, {…})` on a literal only validates that each `__` key is
       a real metamethod (`src/nupp/check/callexpr.nupp:265`), and
