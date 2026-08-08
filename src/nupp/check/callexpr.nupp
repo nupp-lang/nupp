@@ -209,8 +209,9 @@ function callexpr.install(c: any): any
             node.cdefCall = entry and entry.definition
                 and entry.definition.cdef or false
         end
-        -- require("mod") resolves to the module's type when the module can be found
-        -- (c.env-driven; unresolved modules stay any)
+        -- require("mod") resolves to the module's type when the module can be found.
+        -- An undeclared Lua module stays gradual by default, but strict checking
+        -- exposes that untyped boundary as unknown so it must be narrowed or cast.
         if calleeName == "require"
             and c.env and c.env.resolveModule then
             local tok = nil
@@ -228,7 +229,7 @@ function callexpr.install(c: any): any
                     if mt then return mt end
                 end
             end
-            return T.any
+            return c.opts and c.opts.strict and T.unknown or T.any
         end
         -- The same operations written the way LuaJIT has always been written: a
         -- constant type string is read by the compiler, so existing FFI code gets

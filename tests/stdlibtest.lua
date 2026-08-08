@@ -15,18 +15,18 @@ end
 -- get an env rooted at the tests directory so fixtures resolve.
 local sharedEnv = envMod.new(HERE)
 
-local function diagsOf(src)
+local function diagsOf(src, opts)
    sharedEnv.loaded = {}
    local result = parser.parse(src, "test")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test", sharedEnv)
+   local diags = check.check(result, "test", sharedEnv, opts)
    local out = {}
    for j, d in ipairs(diags) do out[j] = d.code .. ":" .. d.line end
    return table.concat(out, " "), diags
 end
 
-local function assertClean(src)
-   local got, diags = diagsOf(src)
+local function assertClean(src, opts)
+   local got, diags = diagsOf(src, opts)
    assertEq(got, "", "expected clean check for:\n" .. src
       .. (diags[1] and ("\nfirst: " .. diags[1].msg) or ""))
 end
@@ -321,8 +321,12 @@ function M.moduleRequireDeclarationFile()
    }, "\n"))), "NUPP2006:2")
 end
 
-function M.moduleUnresolvedIsAny()
-   assertClean("local mystery = require('no.such.module')\nmystery.anything(1)")
+function M.moduleUnresolvedIsAnyUnlessStrict()
+   local src = "local value: number = require('no.such.module')"
+   assertClean(src)
+   assertEq((diagsOf(src, {strict = true})), "NUPP2001:1")
+   assertClean("local value = require('no.such.module') as number",
+      {strict = true})
 end
 
 return M

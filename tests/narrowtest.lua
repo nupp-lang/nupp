@@ -1,5 +1,7 @@
 local parser = require("nupp.parser")
 local check = require("nupp.check")
+local narrowing = require("nupp.narrowing")
+local T = require("nupp.types")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -24,6 +26,11 @@ local function assertClean(src)
 end
 
 local M = {}
+
+function M.subtractingAnExhaustiveUnionLeavesNever()
+   local values = T.union({T.number, T.string})
+   assertEq(narrowing.subtract(values, values), T.never)
+end
 
 function M.nilCheckNarrowing()
    assertClean(table.concat({

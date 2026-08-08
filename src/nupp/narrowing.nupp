@@ -62,10 +62,8 @@ function narrowing.subtract(t: Type, rem: Type): Type
         if kept ~= m then changed = true end
         if kept then out[#out + 1] = kept end
     end
-    -- Subtracting everything leaves the type alone rather than nothing: a
-    -- value still has whatever type it was declared with, and there is no
-    -- empty type to give it.
-    if #out == 0 then return t end
+    -- Subtracting every member proves this path has no value.
+    if #out == 0 then return T.never end
     if not changed then return t end
     return T.union(out)
 end
