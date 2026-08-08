@@ -210,7 +210,17 @@ function semantic.install(s: any): any
                 kind = "operator"
             end
             if kind then
-                local declaration = tok.definition and tok.definition.token == tok
+                -- Where the name was declared, compared by position rather
+                -- than by identity. A definition reached through the project
+                -- index holds a copy of the token, not the token, because a
+                -- header outlives the parse it came from -- so the two are
+                -- equal in every way the editor cares about and never the same
+                -- table. Within one file an offset names one token, which is
+                -- what identity was standing in for.
+                local def = tok.definition
+                local declaration = def ~= nil and def.token ~= nil
+                    and def.token.offset == tok.offset
+                    and (def.filename == nil or def.filename == doc.path)
                 local modifiers = declaration and 1 or 0
                 if tok.definition and tok.definition.constant then
                     modifiers = modifiers + 2

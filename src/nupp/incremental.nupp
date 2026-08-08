@@ -19,6 +19,7 @@ local query = require("nupp.query")
 local parser = require("nupp.parser")
 local check = require("nupp.check")
 local envMod = require("nupp.env")
+local storeMod = require("nupp.build.store")
 
 local incremental = {}
 
@@ -117,6 +118,16 @@ record incremental.Inc
     --- The module names this file requires, sorted. Read from the recorded query edges,
     --- so the build planner need not know how memos are laid out.
     moduleDependencies: function(path: string): {string}
+
+    --- Writes back what this run worked out that the next one can reuse.
+    ---
+    --- Nothing depends on it being called: skipping it costs the next command
+    --- the work this one did, and costs correctness nothing.
+    persist: function()
+
+    --- The header store, for tests that need to see hits and misses rather
+    --- than infer them from a stopwatch.
+    headerStore: any
 end
 
 --- Builds a query graph rooted at `rootDir`.
@@ -130,6 +141,14 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
     if strict == nil then strict = env.config.strict == true end
     local q = query.new()
     local inc = incremental.Inc{env = env, q = q}
+
+    -- One store per environment, shared with whatever else reaches the same
+    -- env: a check of one named file builds the project index through
+    -- `envMod.ensureProjectIndex` rather than through this graph, and both
+    -- want the same answers out of the same file.
+    local headerStore = envMod.headerStore(env) or storeMod.open(nil, "")
+    inc.headerStore = headerStore
+
     local diskPaths: {[string]: boolean} = {}
     local openPaths: {[string]: boolean} = {}
     for _, path in ipairs(envMod.listProjectFiles(env)) do diskPaths[path] = true end
@@ -188,8 +207,27 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         return true
     end
 
+    -- Building the project index means having a header for every file in the
+    -- project, and a header comes from a parse. Almost every command needs the
+    -- index and almost no command needs most of those parses for anything
+    -- else, so a command that touched one file was parsing a hundred to find
+    -- out that the other ninety-nine still say what they said.
+    --
+    -- A header is a pure function of the file's bytes, so it can be looked up
+    -- by them. The key is the path and the text; the store's stamp covers the
+    -- compiler and the configuration. A key that matches is not a guess.
     q:define("projectHeader", function(self, path)
-        return envMod.projectHeader(env, path, self:get("parse", path))
+        local text = self:get("fileText", path)
+        if text == nil then return envMod.projectHeader(env, path, nil) end
+        local key = envMod.headerKey(env, path, text)
+        local cached = headerStore.get(key)
+        if cached then return cached end
+        -- Depending on the parse only on a miss is the point: on a hit the
+        -- header depends on the text alone, which is all it was ever computed
+        -- from.
+        local header = envMod.projectHeader(env, path, self:get("parse", path))
+        headerStore.put(key, header)
+        return header
     end, sameHeader)
 
     local projectNominals = env.projectNominals or {}
@@ -343,6 +381,11 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         end
         table.sort(names)
         return names
+    end
+
+    function inc.persist()
+        envMod.persist(env)
+        headerStore.save()
     end
 
     return inc

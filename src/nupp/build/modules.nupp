@@ -36,13 +36,24 @@ local function typeFingerprint(t, active)
     active[t] = true
     local tag, value = t.tag, nil
     if tag == "nominal" then
-        local fields = {}
-        for name, fieldType in pairs(t.fields or {}) do
-            fields[#fields + 1] = name .. ":" .. typeFingerprint(fieldType, active)
-        end
-        table.sort(fields)
+        -- A nominal is its declaration: one identity per declaration, never
+        -- shared with another of the same shape. So naming the declaration
+        -- identifies it completely, and its members are deliberately not
+        -- expanded here.
+        --
+        -- Expanding them is not merely redundant, it does not terminate
+        -- usefully: a member's type reaches other nominals, whose members
+        -- reach further, and fingerprinting this compiler that way runs out
+        -- of memory. What catches a changed record is the project index
+        -- digest, which covers every exported declaration's source text and
+        -- disables reuse wholesale when any of it moves.
+        --
+        -- This loop used to read `t.fields`, which nominals stopped having
+        -- when the member map was renamed to `byname`, so it had been
+        -- contributing nothing for some time. Saying so is the fix; putting
+        -- the members back in is not.
         value = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.name)
-            .. "{" .. table.concat(fields, ",") .. "})"
+            .. ")"
     elseif tag == "shape" then
         local fields = {}
         for _, field in ipairs(t.fields or {}) do
@@ -140,11 +151,12 @@ local function copyModuleRecord(record)
         artifactHash = record.artifactHash,
         dependencies = dependencies,
         output = record.output,
+        diags = record.diags,
     }
 end
 
 local function buildModules(root, outDir, config, target, oldState, newState,
-    checkOnly, strict, stats, diagnostics)
+    checkOnly, strict, stats, diagnostics, checkState)
     local envConfig = {}
     for key, value in pairs(config) do envConfig[key] = value end
     envConfig.include = {}
@@ -154,8 +166,12 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
     local inc = incremental.new(root, {config = envConfig, strict = strict})
     newState.projectIndexHash = projectIndexFingerprint(inc)
-    local cacheCompatible = not checkOnly
-        and oldState.compilerHash == newState.compilerHash
+    -- A check reuses on the same terms a build does. It used to be excluded,
+    -- and had to be: reuse produced no diagnostics, so the second `nupp check`
+    -- over a project with an error would have said nothing was wrong. Now a
+    -- record carries what the file had to say, so replaying it says the same
+    -- thing the check would have.
+    local cacheCompatible = oldState.compilerHash == newState.compilerHash
         and oldState.configHash == newState.configHash
         and oldState.projectIndexHash == newState.projectIndexHash
     -- Everything the project is written in, not the closure of its entries.
@@ -207,10 +223,15 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     end
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
-    local order, errors, queued, cursor = {}, {}, {}, 1
-    local checkFailed = false
+    local order, queued, cursor = {}, {}, 1
     stats = stats or {}
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
+
+    -- Everything one module had to say, by module name, rather than one list
+    -- everything is appended to. A module reused early can be invalidated and
+    -- recompiled later, and what it says the second time replaces what it said
+    -- the first rather than joining it.
+    local said = {}
 
     local function enqueue(name, path)
         if queued[name] or records[name] then return end
@@ -221,20 +242,22 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         end
     end
 
+    -- A note or a warning is said and stepped over. Only an error stops the
+    -- build, and only an error withholds the file's generated Lua: advice
+    -- about a program is not a reason to refuse to compile it.
+    local function isFatalIn(diags)
+        for _, diag in ipairs(diags or {}) do
+            if isFatal(diag) then return true end
+        end
+        return false
+    end
+
     local function compile(name, path, sourceHash)
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
-        -- A note or a warning is said and stepped over. Only an error stops the
-        -- build, and only an error withholds the file's generated Lua: advice
-        -- about a program is not a reason to refuse to compile it.
-        local fatal = false
-        for _, diag in ipairs(result.diags or {}) do
-            errors[#errors + 1] = diag
-            if isFatal(diag) then
-                checkFailed = true
-                fatal = true
-            end
-        end
+        local mine = {}
+        for _, diag in ipairs(result.diags or {}) do mine[#mine + 1] = diag end
+        local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
         local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash, code
@@ -245,22 +268,27 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                 disabled = config._disabledPasses})
             if config._remarks then
                 for _, note in ipairs(remarks) do
-                    errors[#errors + 1] = note
+                    mine[#mine + 1] = note
                 end
             end
             code, genDiags = gen.generate(result.result, path)
             stats.generatedModules = stats.generatedModules + 1
             for _, diag in ipairs(genDiags or {}) do
-                errors[#errors + 1] = diag
+                mine[#mine + 1] = diag
             end
             if #genDiags == 0 then artifactHash = hash.digest(code) end
         end
+        said[name] = mine
         records[name] = {
             sourceHash = sourceHash,
             interfaceHash = hash.digest(typeFingerprint(result.moduleType)),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
             output = output,
+            -- Only what checking found. Generation runs once per artifact and
+            -- a reused module does not run it again, so its remarks belong to
+            -- the run that produced them and not to the record.
+            diags = jsonArray(result.diags or {}),
         }
         codeFor[name] = code
         reused[name] = nil
@@ -280,14 +308,28 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                 local previous = oldState.modules[item.name]
                 local output = join(root, join(outDir,
                     item.name:gsub("%.", "/") .. ".lua"))
-                if cacheCompatible and previous
+                -- A build has to find the artifact it would have written still
+                -- sitting there and still what it wrote; a check writes no
+                -- artifact and so has nothing to confirm but the record.
+                local usable = cacheCompatible and previous
                     and previous.sourceHash == sourceHash
-                    and previous.interfaceHash and previous.artifactHash
+                    and previous.interfaceHash
                     and type(previous.dependencies) == "table"
-                    and hashFile(output) == previous.artifactHash then
+                    and type(previous.diags) == "table"
+                if usable and not checkOnly then
+                    usable = previous.artifactHash
+                        and hashFile(output) == previous.artifactHash
+                end
+                if usable then
                     records[item.name] = copyModuleRecord(previous)
                     records[item.name].output = output
                     reused[item.name] = true
+                    -- A file that is still exactly as it was still has
+                    -- whatever it had to say about itself. Silent reuse would
+                    -- make `nupp check` mean "nothing changed" rather than
+                    -- "nothing is wrong", and the second run over a project
+                    -- with an error in it would pass.
+                    said[item.name] = previous.diags
                     for _, depName in ipairs(previous.dependencies) do
                         enqueue(depName)
                     end
@@ -327,10 +369,49 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         processQueue()
     end
 
-    -- Everything gathered is said; only a fatal one ends the build here.
-    local fatal = false
+    -- Counted here rather than where reuse is decided, because a module
+    -- reused early can be invalidated by a dependency later and recompiled;
+    -- only once the loop above settles is `reused` the answer. A check counts
+    -- the same way a build does, which is what lets a test say "this edit
+    -- rechecked one module" instead of timing it.
+    for _, name in ipairs(order) do
+        if reused[name] then
+            stats.reusedModules = stats.reusedModules + 1
+        end
+    end
+
+    -- Everything this run learned is written here, which is before the
+    -- diagnostics are judged rather than after. A run that ends in errors
+    -- learned exactly as much as one that did not -- what every file
+    -- declares, what each module's interface is, and what each had to say --
+    -- and a project with an error in it is precisely the one somebody is
+    -- about to check again.
+    inc.persist()
+    if checkOnly and checkState then
+        local checked = {}
+        for _, name in ipairs(order) do checked[name] = records[name] end
+        newState.modules = checked
+        checkState.set(newState)
+        checkState.save()
+    end
+
+    -- Everything gathered is said, in the order the modules were reached, so
+    -- the report reads the same whether a module was checked this run or read
+    -- back from the last one.
+    local errors = {}
+    for _, name in ipairs(order) do
+        for _, diag in ipairs(said[name] or {}) do
+            errors[#errors + 1] = diag
+        end
+    end
+    local fatal, checkFailed = false, false
     for _, e in ipairs(errors) do
-        if isFatal(e) then fatal = true end
+        if isFatal(e) then
+            fatal = true
+            -- A generation failure is not the project being wrong about
+            -- itself, and says so differently.
+            if not e.code or e.code:sub(1, 5) ~= "NUPP3" then checkFailed = true end
+        end
     end
     if diagnostics then
         for _, diagnostic in ipairs(errors) do
@@ -354,9 +435,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         local record = records[name]
         newState.modules[name] = record
         outputs[record.output] = true
-        if reused[name] then
-            stats.reusedModules = stats.reusedModules + 1
-        else
+        if not reused[name] then
             local code = codeFor[name]
             if code and hashFile(record.output) ~= record.artifactHash then
                 pending[#pending + 1] = {path = record.output, text = code}

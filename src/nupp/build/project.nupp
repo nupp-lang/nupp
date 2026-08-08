@@ -23,8 +23,15 @@ local tasks = require("nupp.build.tasks")
 local deps = require("nupp.build.deps")
 local modules = require("nupp.build.modules")
 local packaging = require("nupp.build.package")
+local storeMod = require("nupp.build.store")
 
 local project = {}
+
+-- The check state records nothing the compiler's own identity is not already
+-- in: `compilerHash` and `configHash` live inside it and are compared there,
+-- the same way the build state compares them. The stamp only has to change
+-- when the shape of a record does.
+local CHECK_STATE_STAMP = "checks/1"
 
 local normalize, join = fs.normalize, fs.join
 local dirname, basename = fs.dirname, fs.basename
@@ -99,8 +106,23 @@ function project.build(root, opts)
     local outDir = normalize(opts.outDir or target.outDir or "build")
     local completionPath = join(root, join(outDir, ".nupp-complete"))
     if not opts.checkOnly then os.remove(completionPath) end
+    -- A check and a build each keep their own record of what they last did.
+    -- They agree about what a module is but not about what counts as done: a
+    -- build's record is only good while the artifact it names is still on
+    -- disk and still what it wrote, and a check writes no artifact at all.
+    -- One file for both would have each invalidating the other's work.
     local statePath = join(root, join(outDir, ".nupp-state.json"))
-    local oldState = loadState(statePath)
+    local checkState = nil
+    local oldState
+    if opts.checkOnly then
+        checkState = storeMod.openValue(
+            join(root, join(outDir, "cache/checks.buf")), CHECK_STATE_STAMP)
+        oldState = checkState.value or cache.emptyState()
+        oldState.targets = oldState.targets or {}
+        oldState.dependencies = oldState.dependencies or {}
+    else
+        oldState = loadState(statePath)
+    end
     local newState = cache.emptyState()
     newState.compilerHash = toolFingerprint()
     newState.configHash = hash.digest(stable(config))
@@ -116,7 +138,7 @@ function project.build(root, opts)
     newState.dependencies = dependencies
     local result, buildErr = buildModules(root, outDir, config, target,
         oldState, newState, opts.checkOnly, strict, opts.stats,
-        opts.diagnostics)
+        opts.diagnostics, checkState)
     if not result then
         if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then
             io.stderr:write("nupp: " .. buildErr .. "\n")

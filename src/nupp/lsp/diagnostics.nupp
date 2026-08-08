@@ -108,6 +108,7 @@ function diagnostics.install(s: any): any
         local r = s.inc.checkFile(path)
         local changed = r ~= doc.checkResult
         doc.checkResult = r
+        doc.path = path
         doc.result = r.result
         -- The last state of this file that made sense, kept because a request about a
         -- half-written line still has to answer from something. A file being typed into

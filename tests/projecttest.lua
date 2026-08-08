@@ -2,6 +2,7 @@ local project = require("nupp.build.project")
 local deps = require("nupp.build.deps")
 local hash = require("nupp.build.hash")
 local process = require("nupp.build.process")
+local store = require("nupp.build.store")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -459,6 +460,188 @@ return {
       "interface edit rechecks the dependency and dependent")
    assertEq(interfaceEdit.reusedModules, 0,
       "changed interface invalidates the dependent record")
+   remove(dir)
+end
+
+function M.storeKeepsWhatItWasGivenAndForgetsNothingLive()
+   local dir = "/tmp/nupp-store-test-" .. tostring(process.mkdirCommand and 1 or 1)
+   os.execute("rm -rf '" .. dir .. "'")
+   local path = dir .. "/s.buf"
+
+   local first = store.open(path, "stamp-1")
+   assertEq(first.get("a"), nil, "an unopened store has nothing in it")
+   first.put("a", {n = 1, list = {"x", "y"}})
+   first.put("b", {n = 2})
+   first.save()
+
+   local second = store.open(path, "stamp-1")
+   assertEq(second.get("a").n, 1, "a value survives the round trip")
+   assertEq(second.get("a").list[2], "y", "including what is nested in it")
+   assertEq(second.get("b").n, 2)
+   assertEq(second.stats.hits, 3, "three hits, three lookups")
+
+   -- A different stamp is a different compiler or a different project. There
+   -- is no way to tell which of the entries it would have changed, so none of
+   -- them are kept.
+   local restamped = store.open(path, "stamp-2")
+   assertEq(restamped.get("a"), nil, "a restamped store starts empty")
+
+   -- Every way the file can be wrong is a miss, never an error.
+   for _, damage in ipairs({"", "garbage", "\0\1\2\3", ("x"):rep(5000)}) do
+      write(path, damage)
+      local damaged = store.open(path, "stamp-1")
+      assertEq(damaged.get("a"), nil, "a damaged store has nothing in it")
+      damaged.put("a", {n = 9})
+      damaged.save()
+      assertEq(store.open(path, "stamp-1").get("a").n, 9,
+         "and is overwritten by the next run")
+   end
+
+   -- A store with nowhere to live still works; it just never hits.
+   local nowhere = store.open(nil, "stamp-1")
+   nowhere.put("a", {n = 1})
+   nowhere.save()
+   assertEq(nowhere.get("a").n, 1, "within one run it still answers")
+   assertEq(store.open(nil, "stamp-1").get("a"), nil, "and never persists")
+
+   -- The single-value store, under the same rules.
+   local vpath = dir .. "/v.buf"
+   local value = store.openValue(vpath, "stamp-1")
+   assertEq(value.value, nil)
+   value.set({modules = {m = {sourceHash = "abc"}}})
+   value.save()
+   assertEq(store.openValue(vpath, "stamp-1").value.modules.m.sourceHash, "abc")
+   assertEq(store.openValue(vpath, "stamp-2").value, nil,
+      "a restamped value store is empty")
+   write(vpath, "not a buffer")
+   assertEq(store.openValue(vpath, "stamp-1").value, nil,
+      "a damaged value store is empty")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- `nupp check` reuses on the same terms a build does, and the thing that has
+-- to be true for that to be allowed is that reuse still says what checking
+-- would have said. A check whose only output is diagnostics cannot get faster
+-- by producing fewer of them.
+function M.checkReusesUnchangedModulesAndStillReportsThem()
+   local libV1 = table.concat({
+      "local function answer(): number",
+      "   return 1",
+      "end",
+      "return { answer = answer }",
+   }, "\n")
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = table.concat({
+         "local lib = require('lib')",
+         "local value: number = lib.answer()",
+         "return value",
+      }, "\n"),
+      ["src/lib.nupp"] = libV1,
+   })
+
+   local cold = {}
+   assertEq(project.check(dir, {stats = cold, diagnostics = {}}), 0)
+   assertEq(cold.checkedModules, 2, "a cold check checks the closure")
+
+   local warm = {}
+   assertEq(project.check(dir, {stats = warm, diagnostics = {}}), 0)
+   assertEq(warm.checkedModules, 0, "a warm check checks nothing")
+   assertEq(warm.reusedModules, 2, "a warm check reuses the closure")
+
+   -- A body edit stops at the unchanged interface, exactly as a build does.
+   write(dir .. "/src/lib.nupp", libV1:gsub("return 1", "return 2"))
+   local bodyEdit = {}
+   assertEq(project.check(dir, {stats = bodyEdit, diagnostics = {}}), 0)
+   assertEq(bodyEdit.checkedModules, 1,
+      "a body edit checks only the changed module")
+   assertEq(bodyEdit.reusedModules, 1,
+      "and reuses the dependent behind the unchanged interface")
+
+   -- Breaking the interface has to reach the dependent even though the
+   -- dependent's own bytes did not move.
+   write(dir .. "/src/lib.nupp", table.concat({
+      "local function answer(): string",
+      "   return 'one'",
+      "end",
+      "return { answer = answer }",
+   }, "\n"))
+   local broken = {}
+   assert(project.check(dir, {stats = broken, diagnostics = {}}) ~= 0,
+      "a broken interface fails the check")
+   assertEq(broken.checkedModules, 2,
+      "the dependent is rechecked against the changed interface")
+
+   -- The error is still an error on the next run, when the whole project is
+   -- unchanged and every module is a candidate for reuse. This is the
+   -- failure the whole design has to not have.
+   local again = {}
+   local diags = {}
+   assert(project.check(dir, {stats = again, diagnostics = diags}) ~= 0,
+      "a failing check still fails when nothing has changed since")
+   local errors = 0
+   for _, d in ipairs(diags) do
+      if d.severity == "error" then errors = errors + 1 end
+   end
+   assert(errors > 0, "and still says what is wrong, from the record")
+   assertEq(again.checkedModules, 0, "without checking anything again")
+
+   remove(dir)
+end
+
+-- A cache is only ever an optimization, so every way of damaging it has to
+-- land on the same answer as not having one.
+function M.checkSurvivesADamagedCache()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = table.concat({
+         "local lib = require('lib')",
+         "local value: string = lib.answer()",
+         "return value",
+      }, "\n"),
+      ["src/lib.nupp"] = table.concat({
+         "local function answer(): number",
+         "   return 1",
+         "end",
+         "return { answer = answer }",
+      }, "\n"),
+   })
+
+   local function answerOf()
+      local diags = {}
+      local code = project.check(dir, {stats = {}, diagnostics = diags})
+      local parts = {tostring(code)}
+      for _, d in ipairs(diags) do
+         parts[#parts + 1] = ("%s@%d:%d %s"):format(
+            tostring(d.code), d.line or 0, d.col or 0, tostring(d.msg))
+      end
+      return table.concat(parts, "\n")
+   end
+
+   local cold = answerOf()
+   assert(cold:sub(1, 1) ~= "0", "the fixture is meant to have an error in it")
+   assertEq(answerOf(), cold, "a warm cache gives the cold answer")
+
+   for _, damage in ipairs({"not a buffer at all", "", "\0\0\0\0"}) do
+      for _, name in ipairs({"headers.buf", "checks.buf"}) do
+         write(dir .. "/out/cache/" .. name, damage)
+      end
+      assertEq(answerOf(), cold, "a damaged cache gives the cold answer")
+   end
+
+   remove(dir .. "/out/cache")
+   assertEq(answerOf(), cold, "no cache at all gives the cold answer")
    remove(dir)
 end
 
