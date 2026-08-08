@@ -2222,7 +2222,7 @@ return deps
 
 end
 package.preload["nupp.build.hash"] = function(...)
-local __nuppFfi = require("ffi"); 
+const __nuppFfi = require("ffi"); 
 
 
 
@@ -7935,6 +7935,19 @@ return intrinsic
 end
 local calleeT = callee and c . infer ( callee ) or T . any
 node . calleeType = rawType ( calleeT )
+
+
+
+local tableGlobal = c . env and c . env . globals and c . env . globals . table or nil
+local tableBase = callee and callee . kind == "dotIndex" and callee . obj or nil
+local tableToken = tableBase and tableBase . kind == "name"
+and tableBase . token or nil
+if node . kind == "call" and callee and callee . kind == "dotIndex"
+and callee . immutablePath and tableToken and tableGlobal
+and tableToken . definition == tableGlobal . definition
+and ( memberName == "new" or memberName == "clear" ) then
+node . tableIntrinsic = memberName
+end
 local knownAts = nil
 
 
@@ -18757,6 +18770,7 @@ properties = {
 ok = { type = "boolean" } ,
 total = { type = "integer" } ,
 passed = { type = "integer" } ,
+skipped = { type = "integer" } ,
 failed = { type = "integer" } ,
 durationMs = { type = "number" ,
 description = "Wall-clock milliseconds for the whole run." } ,
@@ -18768,7 +18782,7 @@ properties = {
 suite = { type = "string" ,
 description = "The test file, without its extension." } ,
 name = { type = "string" } ,
-status = { type = "string" , enum = { "passed" , "failed" } } ,
+status = { type = "string" , enum = { "passed" , "skipped" , "failed" } } ,
 durationMs = { type = "number" } ,
 file = { type = "string" ,
 description = "Where the test is defined." } ,
@@ -18789,12 +18803,18 @@ description = "1-based. A Lua error carries "
 } ,
 required = { "message" } ,
 } ,
+skip = {
+type = "object" ,
+description = "Present when the test was skipped." ,
+properties = { reason = { type = "string" } } ,
+required = { "reason" } ,
+} ,
 } ,
 required = { "suite" , "name" , "status" , "durationMs" } ,
 } ,
 } ,
 } ,
-required = { "ok" , "total" , "passed" , "failed" , "tests" } ,
+required = { "ok" , "total" , "passed" , "skipped" , "failed" , "tests" } ,
 } ,
 detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
 a test argument named --help.
@@ -18838,6 +18858,9 @@ package.preload["nupp.cst"] = function(...)
 local lexer = require ( "nupp.lexer" )
 
 local cst = { }
+
+
+
 
 
 
@@ -27097,6 +27120,8 @@ local needsFfi = false
 local needsArrayCache = false
 local needsLibs = false
 local needsNewTab = false
+local needsClearTab = false
+local newTabName , clearTabName
 local needsWith = false
 local withPackName , withIdName , withFailureName
 
@@ -27110,6 +27135,25 @@ local withCacheSites = 0
 local withStack = { }
 local emitLoopDepth = 0
 local emitFunctionDepth = 0
+
+local function reservedName ( preferred )
+if not usedNames [ preferred ] then
+usedNames [ preferred ] = true
+return preferred
+end
+return nextTemp ( )
+end
+
+local function tableIntrinsicName ( name )
+if name == "new" then
+needsNewTab = true
+newTabName = newTabName or reservedName ( "__nuppNew" )
+return newTabName
+end
+needsClearTab = true
+clearTabName = clearTabName or reservedName ( "__nuppClear" )
+return clearTabName
+end
 
 local function diag ( tok , code , msg , help )
 diags [ # diags + 1 ] = { code = code , msg = msg , filename = filename ,
@@ -27294,13 +27338,20 @@ return
 end
 if x . callableBindings then
 for _ , binding in ipairs ( x . callableBindings ) do
-e ( "local " .. binding . name .. "=" , sourceLine ( x ) )
+e ( "const " .. binding . name .. "=" , sourceLine ( x ) )
 emit ( binding . value )
 e ( ";" )
 end
 end
 if kind == "call" and x . staticCallee then
 e ( x . staticCallee , sourceLine ( x ) )
+if x . args then
+emit ( x . args )
+end
+return
+end
+if kind == "call" and x . tableIntrinsic then
+e ( tableIntrinsicName ( x . tableIntrinsic ) , sourceLine ( x ) )
 if x . args then
 emit ( x . args )
 end
@@ -27360,7 +27411,7 @@ local path = declPath ( x )
 local runtimeName = x . recordRuntimeName or path or x . name . text
 local attached = x . recordRuntimeName or path
 local storage = attached and ""
-or x . visibility == "global" and "" or "local "
+or x . visibility == "global" and "" or "const "
 local expr = ( "%s%s = {} %s.__index = %s" )
 : format ( storage , runtimeName , runtimeName , runtimeName )
 e ( expr , line )
@@ -27402,7 +27453,7 @@ local path = declPath ( x )
 local runtimeName = x . recordRuntimeName or path or x . name . text
 local attached = x . recordRuntimeName or path
 local storage = attached and ""
-or x . visibility == "global" and "" or "local "
+or x . visibility == "global" and "" or "const "
 e ( ( "%s%s = {}" ) : format ( storage , runtimeName ) , line )
 for _ , entry in ipairs ( defaults ) do
 entry . inlineRuntimeOwner = runtimeName
@@ -27454,12 +27505,12 @@ local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 local path = declPath ( x )
 local storage = path and ""
-or x . visibility == "global" and "" or "local "
+or x . visibility == "global" and "" or "const "
 
 
 
 local mt = "__nuppMt_" .. x . name . text
-local expr = "local " .. mt .. " = {__index = {}} " .. storage
+local expr = "const " .. mt .. " = {__index = {}} " .. storage
 .. ( path or x . name . text )
 .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { "
 .. table . concat ( cdecl , " " ) .. " }\""
@@ -27499,7 +27550,7 @@ end
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 
-e ( ( 'pcall(__nuppFfi.cdef, "struct %s { %s };") local %s = __nuppFfi.typeof("struct %s")' )
+e ( ( 'pcall(__nuppFfi.cdef, "struct %s { %s };") const %s = __nuppFfi.typeof("struct %s")' )
 : format ( x . name . text , table . concat ( fields , " " ) ,
 x . name . text , x . name . text ) , line )
 return
@@ -27540,7 +27591,7 @@ if x . fromLib then
 needsLibs = true
 ns = ( "__nuppLib(%s)" ) : format ( x . fromLib . text )
 end
-e ( ( 'pcall(__nuppFfi.cdef, %q) local %s = %s.%s' )
+e ( ( 'pcall(__nuppFfi.cdef, %q) const %s = %s.%s' )
 : format ( sig , name , ns , name ) , line )
 return
 end
@@ -27785,7 +27836,7 @@ end
 local safe = tkind == "safeIndex" or tkind == "safeBracket"
 local dotted = tkind == "dotIndex" or tkind == "safeIndex"
 local prefix = nextTemp ( )
-e ( ( "do local %s = " ) : format ( prefix ) , line )
+e ( ( "do const %s = " ) : format ( prefix ) , line )
 emit ( target . obj )
 e ( "; " )
 local reach = safe and "?." or "."
@@ -27793,7 +27844,7 @@ if dotted then
 assignTo ( ( "%s%s%s" ) : format ( prefix , reach , target . name . text ) )
 else
 local key = nextTemp ( )
-e ( ( "local %s = " ) : format ( key ) )
+e ( ( "const %s = " ) : format ( key ) )
 emit ( target . expr )
 e ( "; " )
 assignTo ( ( "%s%s[%s]" ) : format ( prefix , safe and "?." or "" , key ) )
@@ -27818,12 +27869,12 @@ local holder = nextTemp ( )
 holders [ # holders + 1 ] = holder
 local spelling = cdefCType ( output . typeNode ) or "void **"
 spelling = spelling : gsub ( "%s*%*$" , "" ) .. "[1]"
-e ( ( "local %s=__nuppFfi.new(%q); " ) : format ( holder , spelling ) )
+e ( ( "const %s=__nuppFfi.new(%q); " ) : format ( holder , spelling ) )
 end
 local hasStatus = x . ffiOutContracts [ 1 ] . hasStatus
 local status = hasStatus and nextTemp ( ) or nil
 if status then
-e ( "local " .. status .. "=" )
+e ( "const " .. status .. "=" )
 end
 emit ( x . obj )
 e ( "(" )
@@ -28209,7 +28260,7 @@ withCacheSites = withCacheSites + 1
 local slot = withCacheSites
 local region = nextTemp ( )
 local binding = x . bindings [ 1 ]
-e ( "do local " , x . withTok and x . withTok . line or sourceLine ( x ) )
+e ( "do const " , x . withTok and x . withTok . line or sourceLine ( x ) )
 e ( ( "%s=" ) : format ( owners [ 1 ] ) , sourceLine ( binding . expr ) )
 emit ( binding . expr )
 e ( ( "; local %s=%s[%d]; if not %s then %s=function(%s%s)" )
@@ -28222,23 +28273,23 @@ emit ( x . body )
 end
 e ( ( "end; return \"normal\" end; %s[%d]=%s end;" )
 : format ( withCacheName , slot , region ) )
-e ( ( "local %s,%s,%s=%s(%s,%s,%s%s);" ) : format (
+e ( ( "const %s,%s,%s=%s(%s,%s,%s%s);" ) : format (
 ok , tag , payload , withGlobals . xpcall , region , withIdName ,
 owners [ 1 ] , variadic and ",..." or "" ) )
 withStack [ # withStack ] = nil
-e ( ( "local %s=1;" ) : format ( count ) )
+e ( ( "const %s=1;" ) : format ( count ) )
 else
 e ( ( "do local %s=0; local " ) : format ( count ) ,
 x . withTok and x . withTok . line or sourceLine ( x ) )
 e ( table . concat ( owners , "," ) )
-e ( ( "; local %s,%s,%s=%s(function(%s)" ) : format (
+e ( ( "; const %s,%s,%s=%s(function(%s)" ) : format (
 ok , tag , payload , withGlobals . xpcall ,
 variadic and "..." or "" ) )
 withStack [ # withStack + 1 ] = ctx
 for j , binding in ipairs ( x . bindings or { } ) do
 e ( ( "%s=" ) : format ( owners [ j ] ) , sourceLine ( binding . expr ) )
 emit ( binding . expr )
-e ( ( "; %s=%d; local %s=%s;" ) : format (
+e ( ( "; %s=%d; const %s=%s;" ) : format (
 count , j , binding . name . text , owners [ j ] ) )
 end
 e ( "do" )
@@ -28249,7 +28300,7 @@ e ( ( "end; return \"normal\" end,%s%s);" ) : format ( withIdName ,
 variadic and ",..." or "" ) )
 withStack [ # withStack ] = nil
 end
-e ( ( "local %s,%s={},0;" ) : format ( cleanupError ,
+e ( ( "const %s={}; local %s=0;" ) : format ( cleanupError ,
 hasCleanupError ) , x . endTok and x . endTok . line or nil )
 for j = # ( x . bindings or { } ) , 1 , - 1 do
 local binding = x . bindings [ j ]
@@ -28261,22 +28312,22 @@ local method = cleanup : match ( "^@method:(.+)$" )
 local field , fieldCleanup =
 cleanup : match ( "^@field|([^|]+)|(.+)$" )
 if method then
-e ( ( "local %s,%s=%s(function() %s:%s() end);" )
+e ( ( "const %s,%s=%s(function() %s:%s() end);" )
 : format ( cok , cerr , withGlobals . pcall ,
 owners [ j ] , method ) )
 elseif field then
 local fieldMethod = fieldCleanup : match ( "^@method:(.+)$" )
 if fieldMethod then
-e ( ( "local %s,%s=%s(function() %s.%s:%s() end);" )
+e ( ( "const %s,%s=%s(function() %s.%s:%s() end);" )
 : format ( cok , cerr , withGlobals . pcall ,
 owners [ j ] , field , fieldMethod ) )
 else
-e ( ( "local %s,%s=%s(%s,%s.%s);" )
+e ( ( "const %s,%s=%s(%s,%s.%s);" )
 : format ( cok , cerr , withGlobals . pcall ,
 fieldCleanup , owners [ j ] , field ) )
 end
 else
-e ( ( "local %s,%s=%s(%s,%s);" )
+e ( ( "const %s,%s=%s(%s,%s);" )
 : format ( cok , cerr , withGlobals . pcall , cleanup ,
 owners [ j ] ) )
 end
@@ -28364,7 +28415,7 @@ local names = x . names or { }
 local index = names [ 1 ] and names [ 1 ] . text or nextTemp ( )
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or sourceLine ( x )
-e ( ( "do local %s=" ) : format ( holder ) , line )
+e ( ( "do const %s=" ) : format ( holder ) , line )
 emit ( operand )
 e ( ( ";for %s=1,%d do" ) : format ( index , x . numericIpairs . length ) )
 if names [ 2 ] then
@@ -28429,8 +28480,8 @@ elseif kind == "tableExpr" and x . presize then
 
 
 
-needsNewTab = true
-e ( ( "__nuppNew(%d,%d)" ) : format ( x . presize . narr , x . presize . nhash ) ,
+local name = tableIntrinsicName ( "new" )
+e ( ( "%s(%d,%d)" ) : format ( name , x . presize . narr , x . presize . nhash ) ,
 sourceLine ( x ) )
 
 elseif kind == "param" then
@@ -28461,16 +28512,16 @@ for _ , name in ipairs ( { "pcall" , "xpcall" , "error" , "unpack" ,
 names [ # names + 1 ] = withGlobals [ name ]
 values [ # values + 1 ] = name
 end
-code = ( "local %s={}; " ) : format ( withCacheName )
-.. ( "local %s=%s; " ) : format ( table . concat ( names , "," ) ,
+code = ( "const %s={}; " ) : format ( withCacheName )
+.. ( "const %s=%s; " ) : format ( table . concat ( names , "," ) ,
 table . concat ( values , "," ) )
-.. ( "local function %s(...) return " ) : format ( withPackName )
+.. ( "const function %s(...) return " ) : format ( withPackName )
 .. ( "{n=%s(\"#\",...),...} end; " ) : format ( withGlobals . select )
-.. ( "local function %s(value) return value end; " )
+.. ( "const function %s(value) return value end; " )
 : format ( withIdName )
-.. ( "local function %s(primary,errors,start) " )
+.. ( "const function %s(primary,errors,start) " )
 : format ( withFailureName )
-.. "local secondary={} for i=start,#errors do "
+.. "const secondary={} for i=start,#errors do "
 .. ( "secondary[#secondary+1]=errors[i] end return %s(" )
 : format ( withGlobals . setmetatable )
 .. "{primary=primary,suppressed=secondary},{__tostring=function(v) "
@@ -28495,23 +28546,28 @@ end
 code = table . concat ( effects ) .. code
 end
 if needsArrayCache then
-code = "local __nuppArrayCache = {}; local function __nuppArray(ct) "
+code = "const __nuppArrayCache = {}; const function __nuppArray(ct) "
 .. "local a = __nuppArrayCache[ct] if not a then "
 .. 'a = __nuppFfi.typeof("$[?]", ct) __nuppArrayCache[ct] = a end '
 .. "return a end; " .. code
 end
 if needsLibs then
-code = "local __nuppLibCache = {}; local function __nuppLib(n) "
+code = "const __nuppLibCache = {}; const function __nuppLib(n) "
 .. "local l = __nuppLibCache[n] if not l then "
 .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
 .. code
 end
+if needsClearTab then
+code = ( "const %s = require(\"table.clear\"); " ) : format ( clearTabName )
+.. code
+end
 if needsNewTab then
-code = 'local __nuppNew = require("table.new"); ' .. code
+code = ( "const %s = require(\"table.new\"); " ) : format ( newTabName )
+.. code
 end
 if needsFfi then
 
-code = 'local __nuppFfi = require("ffi"); ' .. code
+code = 'const __nuppFfi = require("ffi"); ' .. code
 end
 return code , diags
 end
@@ -34598,7 +34654,7 @@ return nil
 end
 if call . ffiOutContracts or call . ffiIntrinsic or call . carrayElem
 or call . cheaderCdef or call . recordConstruct or call . ownershipIntrinsic
-or call . cdefCall then
+or call . cdefCall or call . tableIntrinsic then
 return nil
 end
 local callee = call . obj
@@ -41745,7 +41801,7 @@ local string: {
 
 --- Table manipulation. These functions work on the array part of a table: the integer
 --- keys 1 through `#t`.
-local table: {
+const table: {
     --- Joins the elements `t[i]` through `t[j]`, each of which must be a string or a
     --- number, into a single string.
     ---
@@ -41795,13 +41851,13 @@ local table: {
     --- @param narray how many array slots to reserve
     --- @param nhash how many hash slots to reserve
     --- @return the new table
-    new: function(narray: number, nhash: number): table,
+    readonly new: function(narray: number, nhash: number): table,
 
     --- Removes every key from `t` while keeping the space it has already allocated, so
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    clear: function(t: table),
+    readonly clear: function(t: table),
 }
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua
