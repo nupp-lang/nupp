@@ -368,6 +368,20 @@ function gen.generate(result, filename)
             e(x.folded, sourceLine(x))
             return
         end
+        if x.callableBindings then
+            for _, binding in ipairs(x.callableBindings) do
+                e("local " .. binding.name .. "=", sourceLine(x))
+                emit(binding.value)
+                e(";")
+            end
+        end
+        if kind == "call" and x.staticCallee then
+            e(x.staticCallee, sourceLine(x))
+            if x.args then
+                emit(x.args)
+            end
+            return
+        end
         if kind == "assignStmt" and x.isConst then
             for i, target in ipairs(x.targets or {}) do
                 if i > 1 then

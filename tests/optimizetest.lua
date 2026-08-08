@@ -312,6 +312,119 @@ function M.requiresEveryImportedPathEdgeToBeConst()
       "a mutable parent field blocks propagation: " .. mutableEdge)
 end
 
+function M.bindsRepeatedImmutableDottedCallees()
+   local requiredEnv = envMod.new(HERE)
+   local result = parser.parse(table.concat({
+      "const Foo = require('fixtures.consts')",
+      "Foo.api.ping(1)",
+      "Foo.api.ping(2)",
+   }, "\n"), "test")
+   assertEq(#result.errors, 0, "consumer parses")
+   local diags = check.check(result, "test", requiredEnv)
+   assertEq(#diags, 0, "consumer checks")
+   local remarks = optimize.run(result, {level = 1})
+   local code, generatedDiags = gen.generate(result, "test")
+   assertEq(#generatedDiags, 0, "consumer generates")
+   assertTrue(code:find("local __nupp_call_1= Foo . api . ping", 1, true) ~= nil,
+      "first call binds the immutable path: " .. code)
+   assertEq(select(2, code:gsub("__nupp_call_1", "")), 3,
+      "one declaration and two calls use the generated local")
+   assertEq(select(2, code:gsub("Foo . api . ping", "")), 1,
+      "the dotted path is read only once")
+   local found = false
+   for _, remark in ipairs(remarks) do
+      if remark.code == "OPT-4" then found = true end
+   end
+   assertTrue(found, "OPT-4 reports the static binding")
+end
+
+function M.leavesSingleOrMutableDottedCalleesAlone()
+   local requiredEnv = envMod.new(HERE)
+   local function generated(src)
+      local result = parser.parse(src, "test")
+      assertEq(#result.errors, 0, "consumer parses")
+      check.check(result, "test", requiredEnv)
+      optimize.run(result, {level = 1})
+      return gen.generate(result, "test")
+   end
+
+   local single = generated(table.concat({
+      "const Foo = require('fixtures.consts')",
+      "Foo.api.ping(1)",
+   }, "\n"))
+   assertEq(single:find("__nupp_call_", 1, true), nil,
+      "one call does not pay for a binding")
+
+   local mutable = generated(table.concat({
+      "local Foo = require('fixtures.consts')",
+      "Foo.api.ping(1)",
+      "Foo.api.ping(2)",
+   }, "\n"))
+   assertEq(mutable:find("__nupp_call_", 1, true), nil,
+      "a mutable root is not statically bound")
+end
+
+function M.leavesStaticCalleesAloneAcrossGotoScopes()
+   local requiredEnv = envMod.new(HERE)
+   local result = parser.parse(table.concat({
+      "const Foo = require('fixtures.consts')",
+      "goto ready",
+      "Foo.api.ping(1)",
+      "::ready::",
+      "Foo.api.ping(2)",
+   }, "\n"), "test")
+   assertEq(#result.errors, 0, "goto consumer parses")
+   check.check(result, "test", requiredEnv)
+   optimize.run(result, {level = 1})
+   local code = gen.generate(result, "test")
+   assertEq(code:find("__nupp_call_", 1, true), nil,
+      "a generated local must not change goto scope")
+end
+
+function M.staticCallableNamesDoNotCollideWithSourceNames()
+   local requiredEnv = envMod.new(HERE)
+   local result = parser.parse(table.concat({
+      "local __nupp_call_1 = true",
+      "const Foo = require('fixtures.consts')",
+      "Foo.api.ping(1)",
+      "Foo.api.ping(2)",
+   }, "\n"), "test")
+   check.check(result, "test", requiredEnv)
+   optimize.run(result, {level = 1})
+   local code = gen.generate(result, "test")
+   assertTrue(code:find("local __nupp_call_2=", 1, true) ~= nil,
+      "generated names skip user identifiers: " .. code)
+end
+
+function M.aDisabledStaticCallablePassDoesNothing()
+   local requiredEnv = envMod.new(HERE)
+   local result = parser.parse(table.concat({
+      "const Foo = require('fixtures.consts')",
+      "Foo.api.ping(1)",
+      "Foo.api.ping(2)",
+   }, "\n"), "test")
+   check.check(result, "test", requiredEnv)
+   optimize.run(result, {level = 1, disabled = {["OPT-4"] = true}})
+   local code = gen.generate(result, "test")
+   assertEq(code:find("__nupp_call_", 1, true), nil,
+      "-Zno-opt=OPT-4 preserves dotted calls")
+end
+
+function M.staticCallableBindingPreservesRuntimeBehavior()
+   local src = table.concat({
+      "local calls = 0",
+      "local function ping(n: integer): integer",
+      "   calls += 1",
+      "   return n + 1",
+      "end",
+      "const Root = {const api = {const ping = ping}}",
+      "Root.api.ping(1)",
+      "Root.api.ping(2)",
+      "return calls",
+   }, "\n")
+   assertEq(run(src), 2, "the bound callable is invoked normally")
+end
+
 function M.foldsPrimitiveStringsAndTruthiness()
    local code = compile("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'")
    assertTrue(code:find('return "nupp"', 1, true) ~= nil,

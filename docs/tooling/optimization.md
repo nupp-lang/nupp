@@ -35,6 +35,7 @@ never produces a mixture.
 | `OPT-1` | presize | `-O1` | Creates a table at the size it is about to reach |
 | `OPT-2` | numeric-ipairs | `-O1` | Rewrites iteration over a proved stable declared array |
 | `OPT-3` | constant-fold | `-O1` | Folds exact primitive expressions and propagates immutable `const` paths |
+| `OPT-4` | static-callable | `-O1` | Binds repeated immutable dotted callees at their first use |
 
 ### `OPT-3`, constant folding
 
@@ -62,6 +63,33 @@ a hot loop, where LuaJIT normally performs the arithmetic folding itself and no
 material win is expected. `luajit bench/constant-propagation.lua` isolates the
 corresponding cost for a nested immutable module path, reporting source size,
 load time, load-and-run time, and an already traced loop.
+
+### `OPT-4`, static callable binding
+
+Repeated statement-position calls through the same immutable path bind the
+function to a generated local at the first call:
+
+```nupp
+const tecs = require("tecs")
+tecs.x.y()
+tecs.x.y()
+```
+
+```lua
+local tecs = require("tecs")
+local __nupp_call_1 = tecs.x.y; __nupp_call_1()
+__nupp_call_1()
+```
+
+The root binding and every field must be `const`, and a single call is left
+alone. Binding at first use preserves lookup order and reports a failed lookup
+on the same source line. Reuse is lexical-block local; a block containing a
+label or `goto` is not rewritten because introducing a local could make an
+otherwise legal jump cross into its scope. Calls with specialized FFI,
+ownership, construction, or output-parameter lowering are also left alone.
+
+`luajit bench/static-callable.lua` compares repeated dotted calls with this
+first-use binding, including parsing, cold execution, and a warmed trace.
 
 ### `OPT-1`, presizing
 

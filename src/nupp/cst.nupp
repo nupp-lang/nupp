@@ -30,6 +30,12 @@ interface cst.Hints
     --- Every edge from a const root to this expression is read-only.
     immutablePath: boolean?
 
+    --- Generated local used instead of a proved immutable dotted callee.
+    staticCallee: string?
+
+    --- Immutable callees first bound immediately before this statement.
+    callableBindings: any
+
     --- A branch whose preceding conditions the optimizer proved false.
     constantBranch: cst.Node?
 

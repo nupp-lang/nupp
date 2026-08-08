@@ -55,6 +55,9 @@ Each entry is tagged with where its win lands:
   to module-scope locals. The `local max = math.max` idiom, applied by
   the compiler. Requires the target binding to be provably stable; see
   §Immutability must be declared.
+- `cold` **Static callable binding.** Implemented as `OPT-4` for repeated
+  statement-position calls in one lexical block. It binds the immutable
+  dotted callee on its first use, preserving lookup order and error site.
 - `cold` **Chain hoisting.** `a.b.c` bound to a local at function entry,
   not module scope. Function entry preserves resolution order relative
   to module initialization; module scope does not, and turns a working

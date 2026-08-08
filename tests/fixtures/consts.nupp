@@ -1,7 +1,7 @@
 -- Test fixture: a module with nested immutable data.
 local M = {}
 
-const... M.bar = {
+const ... M.bar = {
     BAZ = 123,
     COUNT = 0,
     nested = {name = "nupp"},
@@ -9,6 +9,14 @@ const... M.bar = {
 
 M.replaceable = {
     const BAZ = 456,
+}
+
+local function ping(value: integer): integer
+    return value + 1
+end
+
+const ... M.api = {
+    ping = ping,
 }
 
 return M

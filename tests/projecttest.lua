@@ -492,6 +492,8 @@ function M.buildPropagatesOnlyCompleteConstModulePaths()
       "local M = {}",
       "const... M.bar = {BAZ = 123, nested = {name = 'nupp'}}",
       "M.replaceable = {const BAZ = 456}",
+      "local function ping(value: integer): integer return value + 1 end",
+      "const... M.api = {ping = ping}",
       "return M",
    }, "\n")
    local dir = tempProject({
@@ -503,6 +505,8 @@ return {
 ]],
       ["src/main.nupp"] = table.concat({
          "const lib = require('lib')",
+         "lib.api.ping(1)",
+         "lib.api.ping(2)",
          "return lib.bar.BAZ, lib.bar.nested.name, lib.replaceable.BAZ",
       }, "\n"),
       ["src/lib.nupp"] = lib,
@@ -512,6 +516,9 @@ return {
    local output = read(dir .. "/out/main.lua")
    assert(output:find("return 123 , \"nupp\"", 1, true), output)
    assert(output:find("lib . replaceable . BAZ", 1, true), output)
+   assert(output:find("local __nupp_call_1= lib . api . ping", 1, true), output)
+   assertEq(select(2, output:gsub("lib . api . ping", "")), 1,
+      "the built consumer resolves its immutable callable once")
 
    write(dir .. "/src/lib.nupp", lib:gsub("BAZ = 123", "BAZ = 124"))
    local changed = {}
