@@ -43,7 +43,7 @@ function functions.install(c: any): any
             local current = modes[at]
             if current == "takes" or current == "plain" then return end
             if effect == "takes" or effect == "plain"
-                or effect == "inout" and current == "borrows" then
+                or effect == "exclusive" and current == "borrows" then
                 modes[at] = effect
             end
         end
@@ -194,7 +194,7 @@ function functions.install(c: any): any
                         mode .. " parameters must have a pointer-shaped type")
                 end
                 local bound = mode == "takes" and T.owned(pt)
-                    or (mode == "borrows" or mode == "inout")
+                    or (mode == "borrows" or mode == "exclusive")
                     and T.borrowed(pt) or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
             else

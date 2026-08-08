@@ -470,10 +470,10 @@ function M.sharedBorrowsPermitStableMutation()
    }, "\n"))
 end
 
-function M.inoutRequiresCallDurationExclusivity()
+function M.exclusiveRequiresCallDurationExclusivity()
    assertEq(codes(RESOURCE .. table.concat({
       "",
-      "local function reset(inout value: resource*)",
+      "local function reset(exclusive value: resource*)",
       "   value.value = 0",
       "end",
       "local value = resource_new()",
@@ -487,7 +487,7 @@ function M.inoutRequiresCallDurationExclusivity()
 
    assertEq(codes(RESOURCE .. table.concat({
       "",
-      "local function reset(inout value: resource*)",
+      "local function reset(exclusive value: resource*)",
       "   value.value = 0",
       "end",
       "local value = resource_new()",

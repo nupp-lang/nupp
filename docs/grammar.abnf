@@ -330,8 +330,8 @@ parlist        = param *("," param)
 param          = [ownershipmode] Name [":" type]
                / "..." [":" type]               ; must be last
                / "..." Name [":" type]          ; named vararg [CS-12]
-ownershipmode  = %s"takes" / %s"borrows" / %s"inout" / %s"retains" / %s"releases"
-                                                 ; contextual before a name
+ownershipmode  = %s"takes" / %s"borrows" / %s"exclusive" / %s"retains"
+               / %s"releases"                    ; contextual before a name
 rettypes       = predicate / borrowret / (type *("," type))
                                                 ; statement position only [CS-7]
 borrowret      = type %s"borrows" borrowroots   ; [CS-18] the result depends

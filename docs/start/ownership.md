@@ -120,7 +120,7 @@ closeSession(s)
 ```
 
 `borrows` is a lifetime and aliasing contract rather than a `const` qualifier —
-mutating through one is allowed. Use `inout` for a call that needs exclusive
+mutating through one is allowed. Use `exclusive` for a call that needs sole
 access because it may invalidate views derived from the value.
 
 For a Nupp function with a body, the checker infers whether a resource

@@ -49,7 +49,7 @@ occasional use-after-free.
 | `@dispose` | Marks the default operation that consumes a resource. |
 | `takes p: T` | The callee accepts and consumes the ownership obligation. |
 | `borrows p: T` | Shared, call-duration access; mutation is allowed but escape is not. |
-| `inout p: T` | Exclusive call-duration access; no other live borrow may overlap it. |
+| `exclusive p: T` | Exclusive call-duration access; no other live borrow may overlap it. |
 | `retains p: T` | Imported C code keeps a pinned pointer after return. |
 | `releases p: T` | Imported C code stops keeping that pinned pointer before return. |
 | `T borrows p` | The result remains tied to parameter `p`. |
@@ -208,7 +208,7 @@ rejected when the type has no default or inherits more than one, because the
 compiler must never guess whether `close`, `free`, `stop`, or another operation
 is correct.
 
-## Parameter effects: `takes`, `borrows`, and `inout`
+## Parameter effects: `takes`, `borrows`, and `exclusive`
 
 `takes` complements `borrows`: the first transfers the obligation; the second
 temporarily sees the value.
@@ -235,11 +235,11 @@ local function rename(borrows value: widget*, n: int32)
 end
 ```
 
-There is deliberately no `borrowMut` intrinsic and no `inout<T>` wrapper.
-Exclusive access is a call effect, so the one surface is `inout`:
+There is deliberately no `borrowMut` intrinsic and no `exclusive<T>` wrapper.
+Exclusive access is a call effect, so the one surface is `exclusive`:
 
 ```nupp
-local function reset(inout value: widget*)
+local function reset(exclusive value: widget*)
    value.value = 0
 end
 
@@ -251,7 +251,7 @@ end
 dispose(value)
 ```
 
-Use `inout` only for operations that may invalidate derived views, replace
+Use `exclusive` only for operations that may invalidate derived views, replace
 storage, reallocate, or otherwise require call-duration exclusivity. Ordinary
 field mutation belongs under `borrows`.
 
@@ -410,7 +410,7 @@ end
 ```
 
 The same rule covers raw pointer indexing and passing a raw pointer to a plain
-C pointer parameter. Give the C parameter a truthful `borrows`, `inout`,
+C pointer parameter. Give the C parameter a truthful `borrows`, `exclusive`,
 `takes`, `retains`, or `releases` contract to use it from checked code.
 
 `unsafe` grants permission for unproved pointer operations. It does **not**
@@ -642,7 +642,7 @@ callee contract, an owner or borrow may not cross it. Convert through
   moved, borrowed, retained, or discharged, not arbitrary states such as
   connected/authenticated/committed.
 - No prohibition on shared mutation. `borrows` permits stable mutation;
-  `inout` exists only for operations requiring exclusivity.
+  `exclusive` exists only for operations requiring exclusivity.
 - No automatic cleanup for ordinary locals. Determinism is explicit through
   `dispose`, `takes`, or `with`.
 - No inference of ownership from names such as `new`, `close`, or `free`.
@@ -662,8 +662,8 @@ Use this order when binding an API:
 
 1. Mark every fresh owning return or output with `@owned`.
 2. Mark destruction/adoption parameters `takes`.
-3. Mark call-duration pointer access `borrows`; use `inout` only if live views
-   could be invalidated.
+3. Mark call-duration pointer access `borrows`; use `exclusive` only if live
+   views could be invalidated.
 4. Mark pointers stored by C with matching `retains` and `releases` operations,
    and require callers to pin managed memory.
 5. Name the source of every borrowed return or output.

@@ -265,8 +265,9 @@ returned as an owner, or converted with `intoRaw`. Forgetting is a compile error
 not a leak.
 
 Parameter modes say what a call does with what it is given: `takes` consumes,
-`borrows` does not (and the borrow cannot escape), `inout` mutates in place, and
-`retains`/`releases` describe C holding a pointer across a call.
+`borrows` does not (and the borrow cannot escape), `exclusive` borrows with no
+other view live, and `retains`/`releases` describe C holding a pointer across a
+call.
 
 ```nupp
 local m = {}

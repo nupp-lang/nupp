@@ -440,7 +440,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         break
                     elseif cur().kind == "name"
                         and (cur().text == "takes" or cur().text == "borrows"
-                        or cur().text == "inout"
+                        or cur().text == "exclusive"
                         or cur().text == "retains" or cur().text == "releases")
                         and tokens[i + 1] and tokens[i + 1].kind == "name"
                         and tokens[i + 2] and tokens[i + 2].kind == ":" then
@@ -990,7 +990,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 if cur().kind == "name"
                     and (cur().text == "takes" or cur().text == "borrows"
-                    or cur().text == "inout"
+                    or cur().text == "exclusive"
                     or cur().text == "retains" or cur().text == "releases")
                     and tokens[i + 1] and tokens[i + 1].kind == "name" then
                     p.modeTok = add(p, advance())
@@ -1255,7 +1255,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     if cur().kind == "name"
                         and (cur().text == "takes" or cur().text == "borrows"
-                        or cur().text == "inout"
+                        or cur().text == "exclusive"
                         or cur().text == "retains" or cur().text == "releases"
                         or cur().text == "out")
                         and tokens[i + 1] and tokens[i + 1].kind == "name" then

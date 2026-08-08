@@ -298,7 +298,7 @@
         },
         {
           "name": "storage.modifier.ownership.nupp",
-          "match": "\\b(?:borrows|inout|out|takes|releases|retains)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
+          "match": "\\b(?:borrows|exclusive|out|takes|releases|retains)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
         },
         {
           "comment": "borrows after a return type names the parameter the result borrows from",

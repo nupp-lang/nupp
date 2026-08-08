@@ -457,26 +457,27 @@ function calls.install(c: any): any
                     c.moveExpression(cst.isToken(args[j]) and node or args[j],
                         ats[j], ("argument %d"):format(j))
                 end
-            elseif mode == "inout" then
+            elseif mode == "exclusive" then
                 local entry, nameNode = c.ownershipEntry(args[j])
                 entry = c.ownershipState(entry)
                 if c.ownershipKind(ats[j]) == "borrowed" then
                     c.diag("NUPP2602", args[j] or node,
-                        "inout requires exclusive access, not a shared borrow")
+                        "an exclusive parameter needs sole access, not a shared borrow")
                 elseif entry and (entry.activeBorrows or 0) > 0 then
                     c.diag("NUPP2602", nameNode or args[j],
-                        "inout cannot invalidate a value while a derived borrow is live")
+                        "an exclusive parameter cannot invalidate a value while a "
+                        .. "derived borrow is live")
                 end
             elseif mode == "borrows" and c.ownershipKind(ats[j]) == "borrowed" then
             -- Reborrowing is valid and does not alter either lifetime.
             elseif mode == "plain" and c.ownershipKind(ats[j]) then
                 c.diag("NUPP2603", args[j] or node,
-                    "an owner or borrow needs a borrows, inout, or takes contract")
+                    "an owner or borrow needs a borrows, exclusive, or takes contract")
             elseif mode == "plain" and node.cdefCall
                 and c.pointerShaped(ats[j]) and c.unsafeDepth == 0 then
                 c.diag("NUPP2604", args[j] or node,
                     "passing a raw pointer to C requires unsafe do or a "
-                    .. "borrows, inout, takes, retains, or releases contract")
+                    .. "borrows, exclusive, takes, retains, or releases contract")
             elseif mode == "retains" or mode == "releases" then
                 local entry, nameNode = c.ownershipEntry(args[j])
                 entry = c.ownershipState(entry)

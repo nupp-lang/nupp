@@ -35,9 +35,9 @@ local M = {}
 
 function M.ownershipWordsStayContextual()
    local src = table.concat({
-      "local takes, borrows, inout, retains, releases, unsafe, owned, borrowed, pinned = 1, 2, 3, 4, 5, 6, 7, 8, 9",
-      "function transfer(takes value: voidptr, borrows view: voidptr, inout changed: voidptr, retains held: voidptr, releases done: voidptr) end",
-      "unsafe do print(takes, borrows, inout, retains, releases) end",
+      "local takes, borrows, exclusive, retains, releases, unsafe, owned, borrowed, pinned = 1, 2, 3, 4, 5, 6, 7, 8, 9",
+      "function transfer(takes value: voidptr, borrows view: voidptr, exclusive changed: voidptr, retains held: voidptr, releases done: voidptr) end",
+      "unsafe do print(takes, borrows, exclusive, retains, releases) end",
       "unsafe()",
    }, "\n")
    local result = assertRoundtrip(src)
@@ -45,7 +45,7 @@ function M.ownershipWordsStayContextual()
    local transfer = result.root.blocks[1].stats[2]
    assertEq(transfer.body.params[1].modeTok.text, "takes")
    assertEq(transfer.body.params[2].modeTok.text, "borrows")
-   assertEq(transfer.body.params[3].modeTok.text, "inout")
+   assertEq(transfer.body.params[3].modeTok.text, "exclusive")
    assertEq(transfer.body.params[4].modeTok.text, "retains")
    assertEq(transfer.body.params[5].modeTok.text, "releases")
    assertEq(result.root.blocks[1].stats[3].kind, "unsafeStmt")

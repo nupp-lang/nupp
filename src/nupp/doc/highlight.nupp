@@ -42,7 +42,7 @@ local TYPE_NAMES = {
 }
 
 local CONTEXTUAL_KEYWORDS = {
-    ["as"] = true, borrows = true, cdef = true, inout = true, takes = true,
+    ["as"] = true, borrows = true, cdef = true, exclusive = true, takes = true,
     const = true, enum = true, global = true,
     interface = true, ["is"] = true, own = true, record = true,
     metamethod = true, where = true, with = true,

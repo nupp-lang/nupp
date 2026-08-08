@@ -263,7 +263,7 @@ by how quickly a real user hits the gap. Milestone references are to
       the same property to declare distinct read and write types, with an
       ordinary read-write property remaining invariant. Keep this separate
       from `const T`, which makes a whole value read-only, and from
-      `borrows`/`inout`, which govern lifetime and aliasing rather than member
+      `borrows`/`exclusive`, which govern lifetime and aliasing rather than member
       access. The first validation cases are declaration-file APIs, immutable
       snapshots, output-style interfaces, and the tecs `ByteView` surface.
 - [ ] **`unknown` and a real `never` bottom type.** `unknown` is the safe top

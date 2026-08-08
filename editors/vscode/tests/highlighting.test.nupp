@@ -152,8 +152,8 @@ local function closeResource(takes value: owned<voidptr>)
 --                                              ^^^^^^^ support.type.builtin.nupp
 end
 
-local function resetResource(inout value: voidptr)
---                           ^^^^^ storage.modifier.ownership.nupp
+local function resetResource(exclusive value: voidptr)
+--                           ^^^^^^^^^ storage.modifier.ownership.nupp
 end
 
 cdef function remember(retains value: cstring)

@@ -208,8 +208,8 @@ cdef function point_length(borrows point: nativePoint*): number from "mini"
 ```
 
 That emits `ffi.cdef` and an `ffi.load` lookup. Parameter modes — `borrows`,
-`takes`, `inout`, `retains`, `releases` — say what C does with a pointer, which
-a header cannot. None of them change the ABI.
+`takes`, `exclusive`, `retains`, `releases` — say what C does with a pointer,
+which a header cannot. None of them change the ABI.
 
 For a whole header there are two routes: `nupp import-c` writes a committed,
 hand-editable module, and `cheader("mini.h")` types the header at compile time
