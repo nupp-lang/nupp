@@ -97,8 +97,8 @@ smaller surviving table.
 ### `OPT-2`, numeric `ipairs`
 
 A dense literal supplies a static boundary. If effect and alias analysis also
-prove that its shape cannot change, Nupp evaluates the array once and emits a
-numeric loop.
+prove that its binding and shape cannot change, Nupp emits a numeric loop over
+that binding directly.
 
 ::: code-group
 ```nupp [Original Nupp]
@@ -110,12 +110,9 @@ end
 
 ```lua [Optimized Lua]
 local xs = {10, 20, 30}
-do
-    const __xs = xs
-    for index = 1, 3 do
-        local value = __xs[index]
-        use(index, value)
-    end
+for index = 1, 3 do
+    local value = xs[index]
+    use(index, value)
 end
 ```
 

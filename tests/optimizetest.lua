@@ -485,10 +485,10 @@ function M.rewritesStableDeclaredArrayIteration()
       .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum")
    assertTrue(code:find("for _=1,3 do", 1, true) ~= nil,
       "numeric loop uses a proved static bound: " .. code)
-   assertTrue(code:find("do const __nuppT", 1, true) ~= nil,
-      "the evaluated-once operand is const: " .. code)
-   assertTrue(code:find("local value=", 1, true) ~= nil,
-      "the source loop value remains mutable: " .. code)
+   assertEq(code:find("__nuppT", 1, true), nil,
+      "the proved operand needs no generated alias")
+   assertTrue(code:find("local value= xs [_]", 1, true) ~= nil,
+      "the source loop value reads the array directly: " .. code)
    assertEq(run("local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
       .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum"),
       6, "numeric loop result")
