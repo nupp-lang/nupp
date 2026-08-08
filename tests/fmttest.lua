@@ -39,12 +39,12 @@ function M.spacingBasics()
 end
 
 function M.propertyCapabilities()
-   assertEq(fmt1("local x:{read value:string,write value:string|integer}"),
-      "local x: {read value: string, write value: string | integer}\n")
-   assertEq(fmt1("local x:{read [string]:string,write [string]:integer}"),
-      "local x: {read [string]: string, write [string]: integer}\n")
-   assertEq(fmt1("local interface Cell\nread value:string\nwrite value:integer\nend"),
-      "local interface Cell\n    read value: string\n    write value: integer\nend\n")
+   assertEq(fmt1("local x:{readonly value:string,writeonly value:string|integer}"),
+      "local x: {readonly value: string, writeonly value: string | integer}\n")
+   assertEq(fmt1("local x:{readonly [string]:string,writeonly [string]:integer}"),
+      "local x: {readonly [string]: string, writeonly [string]: integer}\n")
+   assertEq(fmt1("local interface Cell\nreadonly value:string\nwriteonly value:integer\nend"),
+      "local interface Cell\n    readonly value: string\n    writeonly value: integer\nend\n")
 end
 
 function M.methodCallParensDefaultOn()

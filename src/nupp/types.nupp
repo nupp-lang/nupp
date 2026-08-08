@@ -745,11 +745,11 @@ function types.tostring(t: types.Type): string
         end
         local parts = {}
         if t.readable then
-            parts[#parts + 1] = "read [" .. types.tostring(t.key) .. "]: "
+            parts[#parts + 1] = "readonly [" .. types.tostring(t.key) .. "]: "
                 .. types.tostring(t.value)
         end
         if t.writeKey and t.writeValue then
-            parts[#parts + 1] = "write [" .. types.tostring(t.writeKey)
+            parts[#parts + 1] = "writeonly [" .. types.tostring(t.writeKey)
                 .. "]: " .. types.tostring(t.writeValue)
         end
         return "{" .. table.concat(parts, ", ") .. "}"
@@ -764,21 +764,21 @@ function types.tostring(t: types.Type): string
                 parts[#parts + 1] = f.name .. ": " .. types.tostring(f.read)
             else
                 if f.read then
-                    parts[#parts + 1] = "read " .. f.name .. ": "
+                    parts[#parts + 1] = "readonly " .. f.name .. ": "
                         .. types.tostring(f.read)
                 end
                 if f.write then
-                    parts[#parts + 1] = "write " .. f.name .. ": "
+                    parts[#parts + 1] = "writeonly " .. f.name .. ": "
                         .. types.tostring(f.write)
                 end
             end
         end
         if t.indexReadKey and t.indexReadValue then
-            parts[#parts + 1] = "read [" .. types.tostring(t.indexReadKey)
+            parts[#parts + 1] = "readonly [" .. types.tostring(t.indexReadKey)
                 .. "]: " .. types.tostring(t.indexReadValue)
         end
         if t.indexWriteKey and t.indexWriteValue then
-            parts[#parts + 1] = "write [" .. types.tostring(t.indexWriteKey)
+            parts[#parts + 1] = "writeonly [" .. types.tostring(t.indexWriteKey)
                 .. "]: " .. types.tostring(t.indexWriteValue)
         end
         return "{" .. table.concat(parts, ", ") .. "}"

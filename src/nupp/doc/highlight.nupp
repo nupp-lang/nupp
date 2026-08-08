@@ -46,7 +46,8 @@ local CONTEXTUAL_KEYWORDS = {
     const = true, global = true,
     interface = true, ["is"] = true, own = true, record = true,
     metamethod = true, where = true, with = true,
-    releases = true, retains = true, struct = true, unsafe = true,
+    readonly = true, releases = true, retains = true, struct = true,
+    unsafe = true, writeonly = true,
 }
 
 local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}

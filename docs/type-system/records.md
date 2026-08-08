@@ -14,7 +14,7 @@ layout. Choosing between them is choosing a representation.
  Uninitialized          Not nil-able; needs a value Zero-initialized
  Garbage collected      Yes                         Managed by the FFI
  Array part {T}         Allowed                     Rejected
- Property capabilities  `read` / `write`            Ordinary fields only
+ Property capabilities  `readonly` / `writeonly`    Ordinary fields only
  Nested declarations    Allowed                     Rejected
  Inline methods         Yes                         Yes, via ffi.metatype
  metamethod contracts   Yes                         Rejected

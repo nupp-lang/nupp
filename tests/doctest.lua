@@ -229,6 +229,8 @@ function M.highlightsLjppWithTheNativeLexer()
    local html = doc.highlight(table.concat({
       "--- Construct a point.",
       "local record Box",
+      "   readonly point: Point",
+      "   writeonly replacement: Point",
       "   point: Point",
       "end",
       "with box = openBox() do",
@@ -245,6 +247,8 @@ function M.highlightsLjppWithTheNativeLexer()
    assert(html:find("nuppdoc-token-number", 1, true))
    assert(html:find("nuppdoc-token-operator", 1, true))
    assert(html:find("keyword-record", 1, true), html)
+   assert(html:find("keyword-readonly", 1, true), html)
+   assert(html:find("keyword-writeonly", 1, true), html)
    assert(html:find("keyword-with", 1, true), html)
    assert(html:find('href="#math.Point"', 1, true))
 end

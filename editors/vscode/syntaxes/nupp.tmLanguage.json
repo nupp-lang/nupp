@@ -301,6 +301,10 @@
           "match": "\\b(?:borrows|exclusive|out|takes|releases|retains)\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*:)"
         },
         {
+          "name": "keyword.other.property.nupp",
+          "match": "\\b(?:readonly|writeonly)\\b(?=\\s*(?:[A-Za-z_][A-Za-z0-9_]*|\\[))"
+        },
+        {
           "comment": "borrows after a return type names the parameter the result borrows from",
           "name": "storage.modifier.ownership.nupp",
           "match": "\\bborrows\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*[ \\t]*$)"

@@ -201,10 +201,11 @@ reference.Section{
     title = "Property capabilities",
     codes = {"NUPP2001", "NUPP2009"},
     body = [=[
-`read` and `write` grant member access independently on shapes, interfaces,
-records, and indexers. A read property is covariant; a write property is
-contravariant. Declaring both separately permits different types, while an
-unmodified property grants both capabilities at one invariant type.
+`readonly` and `writeonly` grant member access independently on shapes,
+interfaces, records, and indexers. A readonly property is covariant; a
+writeonly property is contravariant. Declaring both separately permits
+different types, while an unmodified property grants both capabilities at one
+invariant type.
 
 These are views of members. `const T` makes a whole value read-only, and
 `borrows`/`exclusive` describe lifetime and aliasing instead.
@@ -212,14 +213,14 @@ These are views of members. `const T` makes a whole value read-only, and
     example = [=[
 local m = {}
 
-local type Input = {read value: string | integer}
-local type Output = {write value: string}
+local type Input = {readonly value: string | integer}
+local type Output = {writeonly value: string}
 
 record m.Cell
-    read value: string
-    write value: string | integer
-    read [string]: string
-    write [string]: string | integer
+    readonly value: string
+    writeonly value: string | integer
+    readonly [string]: string
+    writeonly [string]: string | integer
 end
 
 function m.fill(out: Output): nil

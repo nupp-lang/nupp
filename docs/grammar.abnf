@@ -304,7 +304,7 @@ fielddecl      = [propertycap] Name ":" type   ; one explicit type per field;
                                                 ; grouped names are rejected
                                                 ; with a targeted error
 indexerdecl    = [propertycap] "[" type "]" ":" type
-propertycap    = %s"read" / %s"write"          ; contextual before a member;
+propertycap    = %s"readonly" / %s"writeonly"  ; contextual before a member;
                                                 ; absent grants both capabilities
 metamethoddecl = "metamethod" Name ":" functype
 inlinemethod   = "function" Name funcbody       ; implicit self receiver

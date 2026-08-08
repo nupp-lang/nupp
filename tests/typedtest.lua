@@ -54,8 +54,8 @@ function M.typeExpressions()
    assertEq(typeDump("{x: number, y: number}"),
       "(tshape { (tshapeField x : (tname number)) , "
       .. "(tshapeField y : (tname number)) })")
-   clean("local x: {read value: string, write value: string | integer}")
-   clean("local x: {read [string]: string, write [string]: string | integer}")
+   clean("local x: {readonly value: string, writeonly value: string | integer}")
+   clean("local x: {readonly [string]: string, writeonly [string]: string | integer}")
    clean("local x: {name: string, [string]: string}")
    assertEq(typeDump("a.b.C<K, V?>"),
       "(tname a . b . C < (tname K) , (topt (tname V) ?) >)")
@@ -102,10 +102,10 @@ function M.recordDeclarations()
    clean("local record Box<T>\n   value: T\nend")
    clean(table.concat({
       "local interface Cell",
-      "   read value: string",
-      "   write value: string | integer",
-      "   read [string]: string",
-      "   write [string]: string | integer",
+      "   readonly value: string",
+      "   writeonly value: string | integer",
+      "   readonly [string]: string",
+      "   writeonly [string]: string | integer",
       "end",
    }, "\n"))
 end
@@ -161,7 +161,9 @@ function M.contextualKeywordsStayNames()
    assertEq(firstStat("local x = struct").kind, "localStmt")
    assertEq(firstStat("local read = 1").kind, "localStmt")
    assertEq(firstStat("local write = 1").kind, "localStmt")
-   clean("local record Words\n   read: string\n   write: string\nend")
+   assertEq(firstStat("local readonly = 1").kind, "localStmt")
+   assertEq(firstStat("local writeonly = 1").kind, "localStmt")
+   clean("local record Words\n   readonly: string\n   writeonly: string\nend")
    local explicit = clean("local type; Alias = number")
    assertEq(explicit.root.blocks[1].stats[1].kind, "localStmt")
    assertEq(explicit.root.blocks[1].stats[3].kind, "assignStmt")

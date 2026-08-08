@@ -729,7 +729,7 @@ record cst.FieldDecl is cst.Hints
     --- The field's name.
     name: lexer.Token?
 
-    --- `read` or `write` when this declaration grants only that capability.
+    --- `readonly` or `writeonly` when only that capability is granted.
     capability: lexer.Token?
 
     --- Its type.
@@ -739,7 +739,7 @@ record cst.FieldDecl is cst.Hints
     annotations: {cst.Node}?
 end
 
---- `[K]: V`, optionally prefixed by `read` or `write`, inside a declaration.
+--- `[K]: V`, optionally prefixed by `readonly` or `writeonly`, in a declaration.
 record cst.IndexerDecl is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1350,7 +1350,7 @@ record cst.Tmap is cst.Hints
     --- The value type.
     value: cst.Node?
 
-    --- `read` or `write` for a capability-only indexer.
+    --- `readonly` or `writeonly` for a capability-only indexer.
     capability: lexer.Token?
 end
 
@@ -1375,7 +1375,7 @@ record cst.TshapeField is cst.Hints
     --- The field's name.
     name: lexer.Token?
 
-    --- `read` or `write` when only that capability is exposed.
+    --- `readonly` or `writeonly` when only that capability is exposed.
     capability: lexer.Token?
 
     --- Its type.

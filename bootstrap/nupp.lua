@@ -8097,11 +8097,13 @@ isDisposer = true
 end
 end
 local ft = c . resolveType ( e . type )
-local capability = e . capability and e . capability . text or nil
+local capability = e . capability
+and e . capability . propertyCapability or nil
 if capability and ( stat . declKind == "struct"
 or stat . isAnnotationDefinition ) then
 c . diag ( "NUPP2118" , e . capability ,
-capability .. " properties are available on records, "
+e . capability . text
+.. " properties are available on records, "
 .. "interfaces, and shapes, not "
 .. ( stat . isAnnotationDefinition
 and "annotation schemas" or "structs" ) )
@@ -8160,7 +8162,8 @@ end
 elseif e . kind == "indexerDecl" then
 local key = c . resolveType ( e . key )
 local value = c . resolveType ( e . value )
-local capability = e . capability and e . capability . text or nil
+local capability = e . capability
+and e . capability . propertyCapability or nil
 if stat . declKind == "struct" or stat . isAnnotationDefinition then
 c . diag ( "NUPP2118" , e ,
 "indexers are available on records and interfaces, not "
@@ -8171,13 +8174,13 @@ local grantsRead = capability ~= "write"
 local grantsWrite = capability ~= "read"
 if grantsRead and n . indexReadValue then
 c . diag ( "NUPP2118" , e ,
-"duplicate read indexer capability" )
+"duplicate readonly indexer capability" )
 elseif grantsRead then
 n . indexReadKey , n . indexReadValue = key , value
 end
 if grantsWrite and n . indexWriteValue then
 c . diag ( "NUPP2118" , e ,
-"duplicate write indexer capability" )
+"duplicate writeonly indexer capability" )
 elseif grantsWrite then
 n . indexWriteKey , n . indexWriteValue = key , value
 end
@@ -11961,7 +11964,8 @@ return T . array ( c . resolveType ( node . element ) )
 elseif kind == "tmap" then
 local key = c . resolveType ( node . key )
 local value = c . resolveType ( node . value )
-local capability = node . capability and node . capability . text or nil
+local capability = node . capability
+and node . capability . propertyCapability or nil
 if capability == "read" then
 return T . indexer ( key , value , nil , nil )
 elseif capability == "write" then
@@ -11988,17 +11992,17 @@ order [ # order + 1 ] = name
 end
 local ft = c . resolveType ( f . type )
 local capability = f . capability
-and f . capability . text or nil
+and f . capability . propertyCapability or nil
 if capability == "read" then
 if entry . read then
 c . diag ( "NUPP2118" , fieldName ,
-( "duplicate read capability for property %q" )
+( "duplicate readonly capability for property %q" )
 : format ( name ) )
 else entry . read = ft end
 elseif capability == "write" then
 if entry . write then
 c . diag ( "NUPP2118" , fieldName ,
-( "duplicate write capability for property %q" )
+( "duplicate writeonly capability for property %q" )
 : format ( name ) )
 else entry . write = ft end
 else
@@ -12012,13 +12016,15 @@ end
 elseif f . kind == "tmap" then
 local key , value = c . resolveType ( f . key ) , c . resolveType ( f . value )
 local capability = f . capability
-and f . capability . text or nil
+and f . capability . propertyCapability or nil
 local function setIndexer ( which )
 local keyName = which .. "Key"
 local valueName = which .. "Value"
 if indexer [ valueName ] then
+local spelling = which == "read"
+and "readonly" or "writeonly"
 c . diag ( "NUPP2118" , f ,
-"duplicate " .. which .. " indexer capability" )
+"duplicate " .. spelling .. " indexer capability" )
 else
 indexer [ keyName ] , indexer [ valueName ] = key , value
 end
@@ -19224,7 +19230,8 @@ local CONTEXTUAL_KEYWORDS = {
 const = true , global = true ,
 interface = true , [ "is" ] = true , own = true , record = true ,
 metamethod = true , where = true , with = true ,
-releases = true , retains = true , struct = true , unsafe = true ,
+readonly = true , releases = true , retains = true , struct = true ,
+unsafe = true , writeonly = true ,
 }
 
 local LITERAL_KEYWORDS = { [ "false" ] = true , [ "nil" ] = true , [ "true" ] = true }
@@ -21751,9 +21758,9 @@ summary = "A property view does not grant the requested access" ,
 rule = "A read-only property may be read but not assigned, and a "
 .. "write-only property may be assigned but not read. Use a view "
 .. "that declares the needed capability." ,
-wrong = "local out: {write value: string} = {}\n"
+wrong = "local out: {writeonly value: string} = {}\n"
 .. "local value = out.value\nreturn value\n" ,
-right = "local out: {write value: string} = {}\n"
+right = "local out: {writeonly value: string} = {}\n"
 .. "out.value = \"ready\"\nreturn out\n" ,
 related = { "NUPP2004" , "NUPP2008" } ,
 docs = "docs/type-system/properties.md#access-diagnostics" ,
@@ -25568,6 +25575,7 @@ package.preload["nupp.lexer"] = function(...)
 
 
 local lexer = { }
+
 
 
 
@@ -29933,12 +29941,13 @@ local addOpen = advance ( )
 local function shapeMember ( )
 local capability = nil
 if cur ( ) . kind == "name"
-and ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+and ( cur ( ) . text == "readonly" or cur ( ) . text == "writeonly" )
 and tokens [ i + 1 ]
 and ( tokens [ i + 1 ] . kind == "name"
 or tokens [ i + 1 ] . kind == "[" ) then
 capability = advance ( )
-capability . propertyCapability = true
+capability . propertyCapability = capability . text == "readonly"
+and "read" or "write"
 end
 local member
 if cur ( ) . kind == "[" then
@@ -29976,7 +29985,7 @@ table . insert ( n , 1 , addOpen )
 end
 elseif cur ( ) . kind == "name" and tokens [ i + 1 ]
 and ( tokens [ i + 1 ] . kind == ":"
-or ( ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+or ( ( cur ( ) . text == "readonly" or cur ( ) . text == "writeonly" )
 and ( tokens [ i + 1 ] . kind == "name"
 or tokens [ i + 1 ] . kind == "[" ) ) ) then
 
@@ -30724,12 +30733,13 @@ e = setmetatable( { kind = "arrayPart" } , cst.ArrayPart)
 e . type = add ( e , parseType ( ) )
 elseif cur ( ) . kind == "["
 or ( cur ( ) . kind == "name"
-and ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+and ( cur ( ) . text == "readonly" or cur ( ) . text == "writeonly" )
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "[" ) then
 e = setmetatable( { kind = "indexerDecl" } , cst.IndexerDecl)
 if cur ( ) . kind == "name" then
 e . capability = add ( e , advance ( ) )
-e . capability . propertyCapability = true
+e . capability . propertyCapability =
+e . capability . text == "readonly" and "read" or "write"
 end
 add ( e , expect ( "[" , "to open indexer key type" ) )
 e . key = add ( e , parseType ( ) )
@@ -30738,11 +30748,12 @@ annotationColon ( e , "in indexer declaration" )
 e . value = add ( e , parseType ( ) )
 elseif cur ( ) . kind == "name" then
 e = setmetatable( { kind = "fieldDecl" } , cst.FieldDecl)
-if ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+if ( cur ( ) . text == "readonly" or cur ( ) . text == "writeonly" )
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name"
 and tokens [ i + 2 ] and tokens [ i + 2 ] . kind == ":" then
 e . capability = add ( e , advance ( ) )
-e . capability . propertyCapability = true
+e . capability . propertyCapability =
+e . capability . text == "readonly" and "read" or "write"
 end
 e . name = add ( e , advance ( ) )
 if cur ( ) . kind == "," then
@@ -31689,10 +31700,11 @@ return m
 title = "Property capabilities" ,
 codes = { "NUPP2001" , "NUPP2009" } ,
 body = [=[
-`read` and `write` grant member access independently on shapes, interfaces,
-records, and indexers. A read property is covariant; a write property is
-contravariant. Declaring both separately permits different types, while an
-unmodified property grants both capabilities at one invariant type.
+`readonly` and `writeonly` grant member access independently on shapes,
+interfaces, records, and indexers. A readonly property is covariant; a
+writeonly property is contravariant. Declaring both separately permits
+different types, while an unmodified property grants both capabilities at one
+invariant type.
 
 These are views of members. `const T` makes a whole value read-only, and
 `borrows`/`exclusive` describe lifetime and aliasing instead.
@@ -31700,14 +31712,14 @@ These are views of members. `const T` makes a whole value read-only, and
 example = [=[
 local m = {}
 
-local type Input = {read value: string | integer}
-local type Output = {write value: string}
+local type Input = {readonly value: string | integer}
+local type Output = {writeonly value: string}
 
 record m.Cell
-    read value: string
-    write value: string | integer
-    read [string]: string
-    write [string]: string | integer
+    readonly value: string
+    writeonly value: string | integer
+    readonly [string]: string
+    writeonly [string]: string | integer
 end
 
 function m.fill(out: Output): nil
@@ -34702,11 +34714,11 @@ return "{[" .. types . tostring ( t . key ) .. "]: "
 end
 local parts = { }
 if t . readable then
-parts [ # parts + 1 ] = "read [" .. types . tostring ( t . key ) .. "]: "
+parts [ # parts + 1 ] = "readonly [" .. types . tostring ( t . key ) .. "]: "
 .. types . tostring ( t . value )
 end
 if t . writeKey and t . writeValue then
-parts [ # parts + 1 ] = "write [" .. types . tostring ( t . writeKey )
+parts [ # parts + 1 ] = "writeonly [" .. types . tostring ( t . writeKey )
 .. "]: " .. types . tostring ( t . writeValue )
 end
 return "{" .. table . concat ( parts , ", " ) .. "}"
@@ -34721,21 +34733,21 @@ if f . read and f . write and f . read == f . write then
 parts [ # parts + 1 ] = f . name .. ": " .. types . tostring ( f . read )
 else
 if f . read then
-parts [ # parts + 1 ] = "read " .. f . name .. ": "
+parts [ # parts + 1 ] = "readonly " .. f . name .. ": "
 .. types . tostring ( f . read )
 end
 if f . write then
-parts [ # parts + 1 ] = "write " .. f . name .. ": "
+parts [ # parts + 1 ] = "writeonly " .. f . name .. ": "
 .. types . tostring ( f . write )
 end
 end
 end
 if t . indexReadKey and t . indexReadValue then
-parts [ # parts + 1 ] = "read [" .. types . tostring ( t . indexReadKey )
+parts [ # parts + 1 ] = "readonly [" .. types . tostring ( t . indexReadKey )
 .. "]: " .. types . tostring ( t . indexReadValue )
 end
 if t . indexWriteKey and t . indexWriteValue then
-parts [ # parts + 1 ] = "write [" .. types . tostring ( t . indexWriteKey )
+parts [ # parts + 1 ] = "writeonly [" .. types . tostring ( t . indexWriteKey )
 .. "]: " .. types . tostring ( t . indexWriteValue )
 end
 return "{" .. table . concat ( parts , ", " ) .. "}"

@@ -67,10 +67,10 @@ function M.typeTostring()
    assertEq(T.tostring(T.func({ T.number }, { T.boolean }, false)),
       "function(number): boolean")
    assertEq(T.tostring(T.indexer(T.string, T.string, T.string, T.number)),
-      "{read [string]: string, write [string]: number}")
+      "{readonly [string]: string, writeonly [string]: number}")
    assertEq(T.tostring(T.shape({{name = "value", read = T.string,
       write = T.number}})),
-      "{read value: string, write value: number}")
+      "{readonly value: string, writeonly value: number}")
 end
 
 ---------------------------------------------------------------------------
@@ -110,24 +110,24 @@ function M.propertyCapabilities()
    assertClean(table.concat({
       "local type Animal = string | integer",
       "local record Cell",
-      "   read value: string",
-      "   write value: Animal",
-      "   read [string]: string",
-      "   write [string]: Animal",
+      "   readonly value: string",
+      "   writeonly value: Animal",
+      "   readonly [string]: string",
+      "   writeonly [string]: Animal",
       "end",
       "local cell = Cell{value = 'ready'}",
       "cell.value = 1",
       "local value: string = cell.value",
       "cell['answer'] = 42",
       "local indexed: string? = cell['answer']",
-      "local readView: {read value: Animal} = cell",
-      "local writeView: {write value: string} = cell",
+      "local readView: {readonly value: Animal} = cell",
+      "local writeView: {writeonly value: string} = cell",
       "return {value, indexed, readView, writeView}",
    }, "\n"))
 
    local denied, details = diagsOf(table.concat({
-      "local readView: {read value: string} = {value = 'x'}",
-      "local writeView: {write value: string} = {}",
+      "local readView: {readonly value: string} = {value = 'x'}",
+      "local writeView: {writeonly value: string} = {}",
       "readView.value = 'y'",
       "local value = writeView.value",
       "readView.value ..= 'z'",
@@ -137,46 +137,46 @@ function M.propertyCapabilities()
 
    local variance = diagsOf(table.concat({
       "local type Animal = string | integer",
-      "local readString: {read value: string} = {value = 'x'}",
-      "local readAnimal: {read value: Animal} = {value = 'x'}",
-      "local writeString: {write value: string} = {}",
-      "local writeAnimal: {write value: Animal} = {}",
+      "local readString: {readonly value: string} = {value = 'x'}",
+      "local readAnimal: {readonly value: Animal} = {value = 'x'}",
+      "local writeString: {writeonly value: string} = {}",
+      "local writeAnimal: {writeonly value: Animal} = {}",
       "local ordinaryString: {value: string} = {value = 'x'}",
-      "local okRead: {read value: Animal} = readString",
-      "local okWrite: {write value: string} = writeAnimal",
-      "local badRead: {read value: string} = readAnimal",
-      "local badWrite: {write value: Animal} = writeString",
+      "local okRead: {readonly value: Animal} = readString",
+      "local okWrite: {writeonly value: string} = writeAnimal",
+      "local badRead: {readonly value: string} = readAnimal",
+      "local badWrite: {writeonly value: Animal} = writeString",
       "local badOrdinary: {value: Animal} = ordinaryString",
    }, "\n"))
    assertEq(variance, "NUPP2001:9 NUPP2001:10 NUPP2001:11")
 
    assertClean(table.concat({
       "local type Animal = string | integer",
-      "local readIndex: {read [string]: string} = {}",
-      "local writeIndex: {write [string]: Animal} = {}",
-      "local widerRead: {read [string]: Animal} = readIndex",
-      "local narrowerWrite: {write [string]: string} = writeIndex",
+      "local readIndex: {readonly [string]: string} = {}",
+      "local writeIndex: {writeonly [string]: Animal} = {}",
+      "local widerRead: {readonly [string]: Animal} = readIndex",
+      "local narrowerWrite: {writeonly [string]: string} = writeIndex",
       "return {widerRead, narrowerWrite}",
    }, "\n"))
 
    assertEq(diagsOf(table.concat({
       "local record Bad",
-      "   read value: string",
-      "   read value: integer",
+      "   readonly value: string",
+      "   readonly value: integer",
       "end",
    }, "\n")), "NUPP2118:3")
    assertEq(diagsOf(table.concat({
       "local struct Bad",
-      "   read value: int32",
+      "   readonly value: int32",
       "end",
    }, "\n")), "NUPP2118:2")
 
    assertClean(table.concat({
-      "local out: {write value: string} | {write value: string | integer}",
+      "local out: {writeonly value: string} | {writeonly value: string | integer}",
       "out.value = 'ready'",
    }, "\n"))
    assertEq(diagsOf(table.concat({
-      "local out: {write value: string} | {write value: string | integer}",
+      "local out: {writeonly value: string} | {writeonly value: string | integer}",
       "out.value = 42",
    }, "\n")), "NUPP2001:2")
 end

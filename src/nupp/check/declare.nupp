@@ -290,11 +290,13 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         end
                     end
                     local ft = c.resolveType(e.type)
-                    local capability = e.capability and e.capability.text or nil
+                    local capability = e.capability
+                        and e.capability.propertyCapability or nil
                     if capability and (stat.declKind == "struct"
                         or stat.isAnnotationDefinition) then
                         c.diag("NUPP2118", e.capability,
-                            capability .. " properties are available on records, "
+                            e.capability.text
+                            .. " properties are available on records, "
                             .. "interfaces, and shapes, not "
                             .. (stat.isAnnotationDefinition
                             and "annotation schemas" or "structs"))
@@ -353,7 +355,8 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 elseif e.kind == "indexerDecl" then
                     local key = c.resolveType(e.key)
                     local value = c.resolveType(e.value)
-                    local capability = e.capability and e.capability.text or nil
+                    local capability = e.capability
+                        and e.capability.propertyCapability or nil
                     if stat.declKind == "struct" or stat.isAnnotationDefinition then
                         c.diag("NUPP2118", e,
                             "indexers are available on records and interfaces, not "
@@ -364,13 +367,13 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         local grantsWrite = capability ~= "read"
                         if grantsRead and n.indexReadValue then
                             c.diag("NUPP2118", e,
-                                "duplicate read indexer capability")
+                                "duplicate readonly indexer capability")
                         elseif grantsRead then
                             n.indexReadKey, n.indexReadValue = key, value
                         end
                         if grantsWrite and n.indexWriteValue then
                             c.diag("NUPP2118", e,
-                                "duplicate write indexer capability")
+                                "duplicate writeonly indexer capability")
                         elseif grantsWrite then
                             n.indexWriteKey, n.indexWriteValue = key, value
                         end

@@ -9,8 +9,9 @@ local interface Named
 end
 ```
 
-Members and indexers may grant `read` and `write` independently. This controls
-both access and variance; see [property capabilities](properties.md).
+Members and indexers may be declared `readonly` and `writeonly` independently.
+This controls both access and variance; see
+[property capabilities](properties.md).
 
 ## Satisfaction is structural
 

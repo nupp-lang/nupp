@@ -382,12 +382,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local function shapeMember(): Node
                 local capability = nil
                 if cur().kind == "name"
-                    and (cur().text == "read" or cur().text == "write")
+                    and (cur().text == "readonly" or cur().text == "writeonly")
                     and tokens[i + 1]
                     and (tokens[i + 1].kind == "name"
                     or tokens[i + 1].kind == "[") then
                     capability = advance()
-                    capability.propertyCapability = true
+                    capability.propertyCapability = capability.text == "readonly"
+                        and "read" or "write"
                 end
                 local member
                 if cur().kind == "[" then
@@ -425,11 +426,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
             elseif cur().kind == "name" and tokens[i + 1]
                 and (tokens[i + 1].kind == ":"
-                or ((cur().text == "read" or cur().text == "write")
+                or ((cur().text == "readonly" or cur().text == "writeonly")
                 and (tokens[i + 1].kind == "name"
                 or tokens[i + 1].kind == "["))) then
-                -- Inline shape members and capability indexers. `read` and `write`
-                -- remain contextual: `{read: T}` is still an ordinary field.
+                -- Inline shape members and capability indexers. `readonly` and
+                -- `writeonly` remain contextual: `{readonly: T}` is still a field.
                 n = cst.Tshape{kind = "tshape"}
                 add(n, addOpen)
                 n.fields = {}
@@ -1173,12 +1174,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.type = add(e, parseType())
             elseif cur().kind == "["
                 or (cur().kind == "name"
-                and (cur().text == "read" or cur().text == "write")
+                and (cur().text == "readonly" or cur().text == "writeonly")
                 and tokens[i + 1] and tokens[i + 1].kind == "[") then
                 e = cst.IndexerDecl{kind = "indexerDecl"}
                 if cur().kind == "name" then
                     e.capability = add(e, advance())
-                    e.capability.propertyCapability = true
+                    e.capability.propertyCapability =
+                        e.capability.text == "readonly" and "read" or "write"
                 end
                 add(e, expect("[", "to open indexer key type"))
                 e.key = add(e, parseType())
@@ -1187,11 +1189,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.value = add(e, parseType())
             elseif cur().kind == "name" then
                 e = cst.FieldDecl{kind = "fieldDecl"}
-                if (cur().text == "read" or cur().text == "write")
+                if (cur().text == "readonly" or cur().text == "writeonly")
                     and tokens[i + 1] and tokens[i + 1].kind == "name"
                     and tokens[i + 2] and tokens[i + 2].kind == ":" then
                     e.capability = add(e, advance())
-                    e.capability.propertyCapability = true
+                    e.capability.propertyCapability =
+                        e.capability.text == "readonly" and "read" or "write"
                 end
                 e.name = add(e, advance())
                 if cur().kind == "," then

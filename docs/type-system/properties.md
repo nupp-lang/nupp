@@ -1,16 +1,16 @@
 # Property capabilities
 
-Properties and indexers grant read and write access independently. This lets a
-type describe the authority an API actually needs instead of turning every
-member into a read-write slot.
+Properties and indexers declared `readonly` or `writeonly` grant read and write
+access independently. This lets a type describe the authority an API actually
+needs instead of turning every member into a read-write slot.
 
 ```nupp
 local interface Snapshot
-    read value: string
+    readonly value: string
 end
 
 local interface Output
-    write value: string
+    writeonly value: string
 end
 ```
 
@@ -20,12 +20,12 @@ and structural shapes:
 
 ```nupp
 local record Cell
-    read value: string
-    write value: string | integer
+    readonly value: string
+    writeonly value: string | integer
 end
 
-local input: {read value: string} = Cell{value = "ready"}
-local output: {write value: string | integer} = Cell{value = "ready"}
+local input: {readonly value: string} = Cell{value = "ready"}
+local output: {writeonly value: string | integer} = Cell{value = "ready"}
 ```
 
 The two declarations name one runtime property. They may use different types:
@@ -40,16 +40,18 @@ An unmodified property is shorthand for matching read and write capabilities:
 ```nupp
 local type Ordinary = {value: string}
 -- Equivalent capabilities:
-local type Expanded = {read value: string, write value: string}
+local type Expanded = {readonly value: string, writeonly value: string}
 ```
 
 ## Variance
 
-Read types are covariant. If `Dog` fits `Animal`, a `{read value: Dog}` fits a
-`{read value: Animal}` because every value read is still an animal.
+Readonly types are covariant. If `Dog` fits `Animal`, a
+`{readonly value: Dog}` fits a `{readonly value: Animal}` because every value
+read is still an animal.
 
-Write types are contravariant. A `{write value: Animal}` fits a
-`{write value: Dog}` because it accepts every dog the narrower view may write.
+Writeonly types are contravariant. A `{writeonly value: Animal}` fits a
+`{writeonly value: Dog}` because it accepts every dog the narrower view may
+write.
 
 An ordinary property has both constraints, so it is invariant. A stored
 `{value: Dog}` does not fit `{value: Animal}`: code using the latter view could
@@ -63,16 +65,16 @@ records:
 
 ```nupp
 local interface ByteView
-    read [integer]: uint8
+    readonly [integer]: uint8
 end
 
 local interface ByteSink
-    write [integer]: uint8
+    writeonly [integer]: uint8
 end
 
 local type Normalizing = {
-    read [string]: string,
-    write [string]: string | integer
+    readonly [string]: string,
+    writeonly [string]: string | integer
 }
 ```
 

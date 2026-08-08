@@ -157,7 +157,7 @@ end
 
 local BOX = table.concat({
    "local record Box<T>",
-   "    read value: T",
+   "    readonly value: T",
    "end",
 }, "\n")
 

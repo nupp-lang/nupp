@@ -315,7 +315,8 @@ function resolve.install(c: any)
         elseif kind == "tmap" then
             local key = c.resolveType(node.key)
             local value = c.resolveType(node.value)
-            local capability = node.capability and node.capability.text or nil
+            local capability = node.capability
+                and node.capability.propertyCapability or nil
             if capability == "read" then
                 return T.indexer(key, value, nil, nil)
             elseif capability == "write" then
@@ -342,17 +343,17 @@ function resolve.install(c: any)
                         end
                         local ft = c.resolveType(f.type)
                         local capability = f.capability
-                            and f.capability.text or nil
+                            and f.capability.propertyCapability or nil
                         if capability == "read" then
                             if entry.read then
                                 c.diag("NUPP2118", fieldName,
-                                    ("duplicate read capability for property %q")
+                                    ("duplicate readonly capability for property %q")
                                     :format(name))
                             else entry.read = ft end
                         elseif capability == "write" then
                             if entry.write then
                                 c.diag("NUPP2118", fieldName,
-                                    ("duplicate write capability for property %q")
+                                    ("duplicate writeonly capability for property %q")
                                     :format(name))
                             else entry.write = ft end
                         else
@@ -366,13 +367,15 @@ function resolve.install(c: any)
                 elseif f.kind == "tmap" then
                     local key, value = c.resolveType(f.key), c.resolveType(f.value)
                     local capability = f.capability
-                        and f.capability.text or nil
+                        and f.capability.propertyCapability or nil
                     local function setIndexer(which)
                         local keyName = which .. "Key"
                         local valueName = which .. "Value"
                         if indexer[valueName] then
+                            local spelling = which == "read"
+                                and "readonly" or "writeonly"
                             c.diag("NUPP2118", f,
-                                "duplicate " .. which .. " indexer capability")
+                                "duplicate " .. spelling .. " indexer capability")
                         else
                             indexer[keyName], indexer[valueName] = key, value
                         end

@@ -136,9 +136,9 @@ local ENTRIES: {any} = {
         rule = "A read-only property may be read but not assigned, and a "
             .. "write-only property may be assigned but not read. Use a view "
             .. "that declares the needed capability.",
-        wrong = "local out: {write value: string} = {}\n"
+        wrong = "local out: {writeonly value: string} = {}\n"
             .. "local value = out.value\nreturn value\n",
-        right = "local out: {write value: string} = {}\n"
+        right = "local out: {writeonly value: string} = {}\n"
             .. "out.value = \"ready\"\nreturn out\n",
         related = {"NUPP2004", "NUPP2008"},
         docs = "docs/type-system/properties.md#access-diagnostics",

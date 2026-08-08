@@ -20,6 +20,20 @@ local interface Callable<T>
 --          ^^^^^^^^ entity.name.function.nupp
 end
 
+local interface ResultSink
+   readonly result: string
+-- ^^^^^^^^ keyword.other.property.nupp
+   writeonly result: string
+-- ^^^^^^^^^ keyword.other.property.nupp
+   readonly [string]: string
+-- ^^^^^^^^ keyword.other.property.nupp
+   writeonly [string]: string
+-- ^^^^^^^^^ keyword.other.property.nupp
+end
+
+local readonly = true
+--    ^^^^^^^^ source.nupp - keyword.other.property.nupp
+
 local mt: metatable<Task>
 --        ^^^^^^^^^ support.type.builtin.nupp
 
