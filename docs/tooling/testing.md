@@ -62,6 +62,7 @@ for. The shape is a summary plus a record per test:
   "ok": true,
   "total": 724,
   "passed": 724,
+  "skipped": 0,
   "failed": 0,
   "durationMs": 41230.5,
   "tests": [
@@ -79,7 +80,9 @@ is invented.
 
 The compiler's own tests are a dependency-free runner: `tests/run.lua` loads
 every `tests/*test.lua`, calls every function in the table each returns, and
-reports failures with their assert message.
+prints `.` for a pass, `S` for a skip, and `E` for a failure while it runs.
+Its summary reports every outcome and elapsed time. With `--json`, progress is
+written to stderr and the one JSON document remains clean on stdout.
 
 ```bash
 ./bin/nupp test              # everything
@@ -89,15 +92,21 @@ reports failures with their assert message.
 Writing one is defining a function on the returned table:
 
 ```lua
+local test = require("assert")
 local M = {}
 
 function M.narrowsOnIs()
    local got = checkOf("local s: string | number = 'x' if s is string then end")
-   assert(got == "", got)
+   test.equal(got, "")
 end
 
 return M
 ```
+
+`test.equal`, `test.notEqual`, `test.matches`, and `test.raises` include their
+expected and actual values in failures. `test.skip("reason")` records a skipped
+test. The ordinary `assert` is also upgraded by the runner to say which falsy
+value it received, so existing tests get better failures without being rewritten.
 
 ## Verifying the compiler itself
 

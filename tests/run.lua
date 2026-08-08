@@ -7,6 +7,12 @@
 -- a Lua error carries no column, so none is invented.
 local dir = arg[0]:match("^(.*)[/\\]") or "."
 package.path = dir .. "/../build/?.lua;" .. dir .. "/?.lua;" .. package.path
+local test = require("assert")
+
+-- Existing suites use Lua's familiar assert spelling.  Give those assertions
+-- useful falsy diagnostics, while `require("assert")` exposes equal, matches,
+-- raises and skip for new assertions that can say exactly what differed.
+assert = test.assert
 
 local asJson = false
 local only = nil
@@ -76,8 +82,21 @@ local function errorPosition(message)
 end
 
 local results = {}
-local total, failed = 0, 0
+local total, passed, failed, skipped = 0, 0, 0, 0
 local started = now()
+local progress = asJson and io.stderr or io.stdout
+local progressWidth = 0
+
+local function mark(symbol)
+   progress:write(symbol)
+   progress:flush()
+   progressWidth = progressWidth + 1
+   if progressWidth == 80 then
+      progress:write("\n")
+      progressWidth = 0
+   end
+end
+
 for _, mod in ipairs(names) do
    local suite = dofile(dir .. "/" .. mod .. ".lua")
    local cases = {}
@@ -91,27 +110,45 @@ for _, mod in ipairs(names) do
       local elapsed = now() - before
       local record = {suite = mod, name = name, file = file, line = line,
          durationMs = elapsed, status = ok and "passed" or "failed"}
-      if not ok then
+      if ok then
+         passed = passed + 1
+         mark(".")
+      elseif test.isSkip(err) then
+         skipped = skipped + 1
+         record.status = "skipped"
+         record.skip = {reason = tostring(test.skipReason(err) or "skipped")}
+         mark("S")
+      else
          failed = failed + 1
          local message, errFile, errLine = errorPosition(err)
          record.failure = {message = message, file = errFile, line = errLine}
-         if not asJson then
-            io.write(("FAIL  %s / %s\n      %s\n"):format(mod, name, tostring(err)))
-         end
+         mark("E")
       end
       results[#results + 1] = record
    end
 end
 local duration = now() - started
 
+if progressWidth ~= 0 then progress:write("\n") end
+
 if asJson then
    local json = require("cjson").new()
    json.encode_empty_table_as_object(false)
    json.encode_invalid_numbers(false)
-   io.write(json.encode({ok = failed == 0, total = total,
-      passed = total - failed, failed = failed, durationMs = duration,
+   io.write(json.encode({ok = failed == 0, total = total, passed = passed,
+      skipped = skipped, failed = failed, durationMs = duration,
       tests = results}) .. "\n")
 else
-   io.write(("%d tests, %d failed\n"):format(total, failed))
+   if failed > 0 then
+      io.write("\nFailures:\n")
+      for _, record in ipairs(results) do
+         if record.status == "failed" then
+            io.write(("\n  %s / %s\n      %s\n"):format(record.suite,
+               record.name, record.failure.message))
+         end
+      end
+   end
+   io.write(("\n%d tests, %d passed, %d skipped, %d failed (%.1fms)\n")
+      :format(total, passed, skipped, failed, duration))
 end
 os.exit(failed == 0 and 0 or 1)
