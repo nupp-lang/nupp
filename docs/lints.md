@@ -58,50 +58,179 @@ survives renaming and what tooling keys on. Either is accepted everywhere.
 marking any the project has moved. The text table has no code column;
 `nupp lints --json` carries `code`, `default` and `moved` as well.
 
-Two of these need a footnote. `lossy-narrowing` is only reachable under
-`--strict`, which is what enables the check that raises it, so its level does
-nothing on its own. `jit-callback` is registered but is not currently raised
-anywhere in the checker; it holds its name and code for the trace work.
+`lossy-narrowing` is checked only under `--strict`; moving its level does not
+enable strict checking by itself.
 
-## undocumented-raise
+## Every lint
 
-Raising is part of how a function is called. A caller who does not know has no
-reason to be ready, and in Lua there is no signature to find it out from, so the
-`---` run is where it has to be said:
+These outputs were captured from `nupp check --no-color`; the
+`lossy-narrowing` example also uses `--strict`.
 
-```nupp
---- Reads a configuration file.
----
---- @param path where to read from
---- @return the parsed table
---- @raises when the file cannot be read
-function config.load(path: string): table
-    local f = io.open(path)
-    if not f then error("no such file: " .. path) end
-    ...
+### `missing-require`
+
+A project module must be required before its name is in scope. This project
+also contains `src/mathutil.nupp`.
+
+::: code-group
+```nupp [src/missing-require.nupp]
+local doubled: number = mathutil.double(21)
+```
+
+```text [nupp check output]
+src/missing-require.nupp:1:25: error: NUPP2120 missing-require: "mathutil" names a project module; require("mathutil") to use it
+ 1 | local doubled: number = mathutil.double(21)
+   |                         ^~~~~~~~
+```
+:::
+
+### `exhaustiveness`
+
+A returning dispatch over a closed set must handle every remaining member.
+
+::: code-group
+```nupp [src/exhaustiveness.nupp]
+local type Color = "red" | "green" | "blue"
+
+local function name(color: Color): string
+    if color == "red" then return "red" end
+    return "other"
+end
+
+return name
+```
+
+```text [nupp check output]
+src/exhaustiveness.nupp:4:5: warning: NUPP2107 exhaustiveness: every branch returns, so this handles "blue" | "green" | "red" and leaves "blue", "green" unhandled
+ 4 |     if color == "red" then return "red" end
+   |     ^~
+help: add branches for "blue", "green" or add an else clause
+```
+:::
+
+### `string-pointer`
+
+A pointer into a temporary Lua string cannot be kept after the cast.
+
+::: code-group
+```nupp [src/string-pointer.nupp]
+local pointer = ffi.cast<cstring>("hello")
+```
+
+```text [nupp check output]
+src/string-pointer.nupp:1:17: warning: NUPP2501 string-pointer: a pointer taken from a Lua string is only valid for the call it is passed to
+ 1 | local pointer = ffi.cast<cstring>("hello")
+   |                 ^~~
+```
+:::
+
+### `jit-callback`
+
+An `unsafe` cast may create a C callback, but the callback remains registered
+and prevents compilation through that call path.
+
+::: code-group
+```nupp [src/jit-callback.nupp]
+unsafe do
+    local callback = function() end
+    local pointer = ffi.cast<voidptr>(callback)
+    local handle = pin(pointer, callback)
 end
 ```
 
-Three rules are worth stating, because none of them follows from the summary:
+```text [nupp check output]
+src/jit-callback.nupp:3:21: warning: NUPP2502 jit-callback: a Lua function cast to a C callback stays registered and cannot be compiled through
+ 3 |     local pointer = ffi.cast<voidptr>(callback)
+   |                     ^~~
+help: keep the callback off hot paths, or call C with a plain pointer instead
+```
+:::
 
-- **Only a documented function is judged.** One with no `---` run has promised
-  nothing, and a lint that asked every function in a gradually typed language
-  for a docblock would be a different lint with a different name.
-- **`error` counts and `assert` does not.** There is no reason to write `error`
-  except to raise. Lua writes `assert` both for a caller who passed the wrong
-  thing and for an invariant its author believes cannot fail, and the call does
-  not say which; reading the second as a documented raise would ask for a
-  promise about something that never happens.
-- **A nested function's raises are its own.** The walk stops where a new body
-  begins, which is also what keeps a function that hands a raising body to
-  `pcall` from being asked to document a raise it catches.
+### `lossy-narrowing`
 
-The lint judges a function's own body and does not propagate through calls.
-Documenting what a callee raises is a claim the checker cannot verify, and
-enforcing it at every intermediate frame is the trade that made `throws
-Exception` ubiquitous in Java. What a caller needs instead is one hop of
-retrieval: `nupp lsp inspect` on the call shows the callee's `@raises` at the
-point the decision is being made.
+Strict checking asks for an explicit cast when a value may not fit the narrower
+integer type.
+
+::: code-group
+```nupp [src/lossy-narrowing.nupp]
+local value: number = 5
+local narrow: int32 = value
+```
+
+```text [nupp check --strict output]
+src/lossy-narrowing.nupp:2:23: warning: NUPP2503 lossy-narrowing: number does not fit every int32; cast if the narrowing is intended
+ 2 | local narrow: int32 = value
+   |                       ^~~~~
+```
+:::
+
+### `customary-operator`
+
+C-style operators work, but the lint prefers Lua's word spellings.
+
+::: code-group
+```nupp [src/customary-operator.nupp]
+local ready = true
+local pending = !ready
+```
+
+```text [nupp check output]
+src/customary-operator.nupp:2:17: warning: NUPP2504 customary-operator: ! is the customary spelling of not
+ 2 | local pending = !ready
+   |                 ^
+help: write not
+```
+:::
+
+### `loop-invariant-closure`
+
+A loop should not allocate the same non-capturing function on every iteration.
+
+::: code-group
+```nupp [src/loop-invariant-closure.nupp]
+for _, item in ipairs(items) do
+    register(item, function(event) return event.kind == "click" end)
+end
+```
+
+```text [nupp check output]
+src/loop-invariant-closure.nupp:2:28: warning: NUPP2505 loop-invariant-closure: this function is built once per iteration but does not use the iteration, so every one of them is the same function
+ 2 |     register(item, function(event) return event.kind == "click" end)
+   |                            ^
+help: declare it once above the loop and pass the name
+```
+:::
+
+### `undocumented-raise`
+
+A documented function that calls `error` must say when it raises.
+
+::: code-group
+```nupp [src/undocumented-raise.nupp]
+--- Reads a file.
+--- @param path where to read from
+local function load(path: string): string
+    if path == "" then error("no path") end
+    return path
+end
+
+return load
+```
+
+```text [nupp check output]
+src/undocumented-raise.nupp:3:16: warning: NUPP2506 undocumented-raise: load raises, but its documentation does not say when
+ 3 | local function load(path: string): string
+   |                ^~~~
+src/undocumented-raise.nupp:4:24: note: raises here
+ 4 |     if path == "" then error("no path") end
+   |                        ^~~~~
+help: add an @raises line saying what makes it raise
+```
+:::
+
+Only functions with a `---` documentation run are judged. `error` counts but
+`assert` does not, nested functions own their raises, and the lint does not
+propagate through calls. `nupp lsp inspect` shows a callee's documented
+`@raises` at its use site.
 
 ## Categories
 
