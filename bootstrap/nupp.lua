@@ -3078,7 +3078,8 @@ items [ # items + 1 ] = typeFingerprint ( item , active )
 end
 table . sort ( items ) ; value = "union(" .. table . concat ( items , "|" ) .. ")"
 elseif tag == "literal" then
-value = "literal(" .. stable ( t . value ) .. ")"
+value = "literal(" .. stable ( t . constant ) .. ":"
+.. typeFingerprint ( t . base , active ) .. ")"
 elseif tag == "typevar" then
 value = "typevar(" .. t . name .. ")"
 else
@@ -7362,6 +7363,18 @@ and j >= exprCount then
 returnBorrowOwners = expandedCall . returnBorrowOwners [
 j - exprCount + 1 ]
 end
+
+
+
+
+
+
+if boundEntry and ann and not initNode and not c . declarationFile
+and ann . tag == "nominal"
+and ( ann . declKind == "record" or ann . declKind == "struct" ) then
+boundEntry . unassigned = true
+boundEntry . unassignedAt = nameTok
+end
 if boundEntry and initNode and initNode . requiredModule then
 boundEntry . requiredModule = initNode . requiredModule
 
@@ -7447,6 +7460,10 @@ c . markToken ( targetTok , entry and entry . definition ,
 entry and entry . t or T . any ,
 entry and entry . definition and entry . definition . kind
 or "variable" )
+
+
+
+if entry then entry . unassigned = nil end
 if entry and entry . constant then
 c . diag ( "NUPP2008" , target ,
 ( "cannot assign to const variable %s" )
@@ -8313,8 +8330,41 @@ elseif argsNode and argsNode . str then
 args = { argsNode . str }
 end
 
-if calleeT . tag == "nominal"
-and ( calleeT . declKind == "struct" or calleeT . declKind == "record" ) then
+local constructible = calleeT . tag == "nominal"
+and ( calleeT . declKind == "struct" or calleeT . declKind == "record" )
+
+
+
+if node . isNew and not constructible and not node . newReported
+and calleeT ~= T . any then
+local named = node . obj and c . pathKey ( node . obj )
+c . diag ( "NUPP2206" , node . obj or node ,
+( "%s cannot be constructed" ) : format ( named or T . tostring ( calleeT ) ) ,
+nil , { help = "`new` builds a record or a struct" } )
+node . newReported = true
+end
+
+
+
+
+if constructible and not node . isNew then
+if calleeT . declKind == "record" then
+local callContract = ops . metamethodOf ( calleeT , "__call" )
+if callContract then
+return ops . inferCall ( node , dropSelf ( callContract ) , argsNode )
+end
+end
+local named = c . pathKey ( node . obj ) or calleeT . name
+c . diag ( "NUPP2202" , node ,
+( "%s is constructed with `new`" ) : format ( named ) , nil ,
+{ help = ( "write new %s%s" ) : format ( named ,
+( argsNode and argsNode . table ) and "{...}" or "(...)" ) } )
+for _ , arg in ipairs ( args ) do
+if not cst . isToken ( arg ) then c . infer ( arg ) end
+end
+return calleeT , { calleeT }
+end
+if constructible then
 local affineValues = { }
 local tbl = nil
 if argsNode and argsNode . table then
@@ -8323,17 +8373,46 @@ elseif # args == 1 and not cst . isToken ( args [ 1 ] )
 and args [ 1 ] . kind == "tableExpr" then
 tbl = args [ 1 ]
 end
+
+
+
+
+local constructors = calleeT . constructors
+if constructors and # constructors > 0 then
+local named = c . pathKey ( node . obj ) or calleeT . name
+if tbl then
+c . diag ( "NUPP2208" , node ,
+( "%s declares a constructor, so it is built by calling "
+.. "it" ) : format ( named ) , nil ,
+{ help = ( "write new %s(...) with the constructor's "
+.. "arguments" ) : format ( named ) } )
+
+
+
+c . infer ( tbl )
+return calleeT , { calleeT }
+end
+node . constructorCall = named
+
+
+
+
+node . isNew = nil
+local signature = constructors [ 1 ]
+local built = T . func ( signature . params , { calleeT } ,
+signature . vararg , signature . paramModes , nil ,
+signature . typeParams , signature . typeBounds , nil , nil , nil ,
+nil , signature . varargType )
+local first , rets = ops . inferCall ( node , built , argsNode )
+return first , rets
+end
 local genericMap = calleeT . typeParams and { } or nil
 if tbl and calleeT . declKind == "record" then
 
 node . recordConstruct = c . pathKey ( node . obj ) or calleeT . name
 elseif calleeT . declKind == "record" then
-local callContract = ops . metamethodOf ( calleeT , "__call" )
-if callContract then
-return ops . inferCall ( node , dropSelf ( callContract ) , argsNode )
-end
 c . diag ( "NUPP2202" , node ,
-( "record %s is constructed with named fields: %s{...}" )
+( "record %s is constructed with named fields: new %s{...}" )
 : format ( calleeT . name , calleeT . name ) )
 end
 if tbl then
@@ -8450,7 +8529,10 @@ end
 end
 
 if calleeT == T . any or calleeT . tag ~= "func" then
-if calleeT ~= T . any then
+
+
+
+if calleeT ~= T . any and not node . newReported then
 c . diag ( "NUPP2005" , node ,
 ( "%s is not callable" ) : format ( T . tostring ( calleeT ) ) )
 end
@@ -9370,6 +9452,7 @@ local relations = require ( "nupp.relations" )
 local generics = require ( "nupp.generics" )
 local cst = require ( "nupp.cst" )
 local operators = require ( "nupp.check.operators" )
+local predicate = require ( "nupp.predicate" )
 
 local declare = { }
 
@@ -9388,6 +9471,151 @@ local addSelf = generics . addSelf
 
 function declare . install ( c , reifiableField , fix ,
 insertBefore , validateAnnotation )
+
+
+
+
+
+
+
+
+
+local function checkRefinement ( stat , n )
+local clause = stat . whereClause
+local help = "a refinement tests the declaration's own fields: "
+.. "`where self.kind == \"circle\"`"
+
+
+
+
+if stat . declKind == "struct" then
+c . diag ( "NUPP2122" , clause ,
+"a struct is identified by its ctype, so a 'where' refinement "
+.. "would be a second answer to the same question" , nil ,
+{ help = "remove it; `is` already tests the struct exactly" } )
+return
+end
+
+local built , why = predicate . build ( clause . expr )
+if not built then
+c . diag ( "NUPP2122" , clause ,
+( "a 'where' refinement cannot be %s" ) : format ( why ) , nil ,
+{ help = help } )
+return
+end
+
+local always = predicate . constant ( built )
+if always ~= nil then
+c . diag ( "NUPP2122" , clause , always
+and "this 'where' refinement is always true, so it identifies "
+.. "every value rather than this declaration's"
+or "this 'where' refinement is always false, so nothing can "
+.. "ever be one of these" , nil , { help = help } )
+return
+end
+
+
+
+
+local ok = true
+for _ , path in ipairs ( predicate . paths ( built ) ) do
+local current = n
+for depth , segment in ipairs ( path ) do
+local field = current and current . tag == "nominal"
+and current . byname and current . byname [ segment ] or nil
+if not field then
+c . diag ( "NUPP2122" , clause ,
+( "a 'where' refinement reads %q, which %s does not have" )
+: format ( table . concat ( path , "." , 1 , depth ) , n . name ) ,
+nil , { help = help } )
+ok = false
+break
+end
+current = field
+end
+end
+if not ok then return end
+
+n . predicate = built
+end
+
+
+
+
+
+
+
+local function assignedFields ( node , out )
+out = out or { }
+if not node or cst . isToken ( node ) then return out end
+if node . kind == "assignStmt" then
+for _ , target in ipairs ( node . targets or { } ) do
+local base = target . obj
+if target . kind == "dotIndex" and base and base . kind == "name"
+and base . token and base . token . text == "self"
+and target . name then
+out [ target . name . text ] = true
+end
+end
+end
+for _ , child in ipairs ( node ) do assignedFields ( child , out ) end
+return out
+end
+
+
+
+
+
+
+
+local function checkConstructor ( e , n , stat )
+if stat . declKind == "interface" then
+c . diag ( "NUPP2208" , e ,
+"an interface declares a contract and builds nothing, so it "
+.. "cannot carry a constructor" , nil ,
+{ help = "put the constructor on the records that declare it" } )
+return
+end
+if e . body and e . body . rets and # e . body . rets > 0 then
+c . diag ( "NUPP2208" , e . body . rets [ 1 ] ,
+"a constructor returns the value it builds, so it declares no "
+.. "return type" , nil , { help = "remove the return annotation" } )
+end
+if n . constructors and # n . constructors > 0 then
+c . diag ( "NUPP2208" , e ,
+( "%s already declares a constructor" ) : format ( n . name ) , nil ,
+{ help = "one constructor for now; overloads arrive with "
+.. "intersection types" } )
+return
+end
+
+local ft = c . checkFuncbody ( e . body , n )
+c . raises . check ( e , e . body )
+
+
+
+local assigned = assignedFields ( e . body )
+local missing = { }
+for _ , name in ipairs ( n . fieldOrder or { } ) do
+local ft2 = n . byname [ name ]
+if ft2 and ft2 . tag ~= "func" and not assigned [ name ]
+and not isA ( T . nil_ , ft2 ) then
+missing [ # missing + 1 ] = name
+end
+end
+if # missing > 0 then
+c . diag ( "NUPP2208" , e ,
+( "this constructor leaves %s unset, and %s cannot hold nil" )
+: format ( table . concat ( missing , ", " ) ,
+# missing == 1 and "it" or "they" ) , nil ,
+{ help = "assign every field, or declare the ones that may be "
+.. "absent as optional" } )
+end
+
+n . constructors = n . constructors or { }
+n . constructors [ # n . constructors + 1 ] = ft
+e . ownerNominal = n
+end
 
 c . declaredNominal = function ( stat , kind )
 local t , projectEntry = nil , nil
@@ -9522,17 +9750,6 @@ n . byname = n . byname or { }
 n . writeByname = n . writeByname or { }
 n . metamethods = n . metamethods or { }
 n . nestedTypes = n . nestedTypes or { }
-
-
-
-
-if stat . whereClause then
-c . diag ( "NUPP2122" , stat . whereClause ,
-"a 'where' refinement is not implemented, so this "
-.. "constraint is not checked" ,
-nil , { help = "remove it, or express the constraint as a "
-.. "type: a union of literals, or a bound" } )
-end
 
 c . bindDeclaredType ( stat , n )
 
@@ -9780,6 +9997,8 @@ n . metamethods [ e . name . text ] = mt
 c . markToken ( e . name , c . definition ( e . name , "method" ) , mt ,
 "method" )
 end
+elseif e . kind == "constructorDecl" then
+checkConstructor ( e , n , stat )
 elseif e . kind == "inlineMethod" then
 local isDisposer = false
 for _ , application in ipairs ( e . annotations or { } ) do
@@ -9842,6 +10061,16 @@ end
 end
 end
 end
+end
+
+
+
+
+
+
+
+if stat . whereClause then
+checkRefinement ( stat , n )
 end
 c . popScope ( )
 if stat . isAnnotationDefinition then
@@ -10049,6 +10278,7 @@ return T . any
 end
 local nameText = nameTok . text
 local entry = c . lookupEntry ( nameText )
+node . immutablePath = entry and entry . constant == true or false
 if entry and entry . withBinding then
 node . withBinding = entry . withBinding
 end
@@ -10138,10 +10368,60 @@ or "declare the value, require its module, or correct "
 .. "the spelling" } )
 end
 end
+if entry and entry . unassigned then
+c . diag ( "NUPP2207" , nameTok ,
+( "%s is read before it holds a value" ) : format ( nameText ) ,
+nil , { related = entry . unassignedAt
+and { c . related ( { filename = c . filename ,
+token = entry . unassignedAt , name = nameText } ,
+"declared here, with no value" ) } or nil ,
+help = ( "assign it first, or declare it as %s? if it is "
+.. "meant to start empty" ) : format ( T . tostring ( entry . t ) ) } )
+
+
+entry . unassigned = nil
+end
 return entry and entry . t or T . any
 elseif kind == "paren" then
 local inner = node . expr
-return inner and c . infer ( inner ) or T . any
+local out = inner and c . infer ( inner ) or T . any
+node . immutablePath = inner and inner . immutablePath or false
+return out
+elseif kind == "newExpr" then
+
+
+
+
+local call = node . call
+if not call then
+return T . any
+end
+call . isNew = true
+
+
+
+local named = call . obj and c . pathKey ( call . obj ) or nil
+local declared = named and c . lookupType ( named ) or nil
+local buildable = declared and declared . tag == "nominal"
+and ( declared . declKind == "record"
+or declared . declKind == "struct" )
+if declared and not buildable then
+local why = "`new` builds a record or a struct"
+if declared . tag == "nominal"
+and declared . declKind == "interface" then
+why = "an interface declares a contract and has no runtime "
+.. "table to stamp; construct a record that declares it "
+.. "with `is`"
+elseif declared . tag == "union" then
+why = "a union is one of its members, and a value of it is "
+.. "written as one of them"
+end
+c . diag ( "NUPP2206" , call . obj or node ,
+( "%s cannot be constructed" ) : format ( named ) , nil ,
+{ help = why } )
+call . newReported = true
+end
+return c . infer ( call )
 elseif kind == "ternary" then
 local cond , ifTrue , ifFalse = node . cond , node . ifTrue , node . ifFalse
 if not cond or not ifTrue or not ifFalse then
@@ -11617,6 +11897,9 @@ end
 c . markToken ( member , fieldDef , ft , "property" )
 local out = kind == "safeIndex" and T . optional ( ft ) or ft
 node . resolvedType = out
+node . immutablePath = kind == "dotIndex"
+and target . immutablePath == true
+and c . fieldWriteType ( base , memberName ) == nil
 return out
 end
 handlers . safeIndex = handlers . dotIndex
@@ -12992,8 +13275,12 @@ return nil , expr
 end
 
 function own . provenanceOwner ( expr )
-while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
-expr = expr . expr
+
+
+
+while expr and ( expr . kind == "paren" or expr . kind == "castExpr"
+or expr . kind == "newExpr" ) do
+expr = expr . kind == "newExpr" and expr . call or expr . expr
 end
 if not expr then
 return nil
@@ -13033,6 +13320,9 @@ function own . provenanceOwners ( expr , out , seen )
 out , seen = out or { } , seen or { }
 if not expr or cst . isToken ( expr ) then
 return out
+end
+if expr . kind == "newExpr" then
+return own . provenanceOwners ( expr . call , out , seen )
 end
 if expr . borrowOwners then
 for _ , owner in ipairs ( expr . borrowOwners ) do
@@ -13658,6 +13948,12 @@ end
 
 
 local function applyTypeArgs ( t , node )
+
+
+
+if t and t . tag == "nominal" and t . predicate then
+node . wherePredicate = t . predicate
+end
 if not ( t and t . tag == "nominal" and t . typeParams and node . typeArgs ) then
 return t
 end
@@ -18258,6 +18554,28 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -19063,6 +19381,43 @@ cst.Paren = {} cst.Paren.__index = cst.Paren
 
 
 
+
+
+
+
+
+
+cst.NewExpr = {} cst.NewExpr.__index = cst.NewExpr
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.ConstructorDecl = {} cst.ConstructorDecl.__index = cst.ConstructorDecl
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.ErrorExpr = {} cst.ErrorExpr.__index = cst.ErrorExpr
 
 
@@ -19590,6 +19945,7 @@ cst.Tpredicate = {} cst.Tpredicate.__index = cst.Tpredicate
 
 
 cst.Tborrows = {} cst.Tborrows.__index = cst.Tborrows
+
 
 
 
@@ -21513,9 +21869,10 @@ unknown = true , userdata = true ,
 }
 
 local CONTEXTUAL_KEYWORDS = {
-[ "as" ] = true , borrows = true , cdef = true , exclusive = true , takes = true ,
+[ "as" ] = true , borrows = true , cdef = true , constructor = true ,
+exclusive = true , takes = true ,
 const = true , global = true ,
-interface = true , [ "is" ] = true , own = true , record = true ,
+interface = true , [ "is" ] = true , [ "new" ] = true , own = true , record = true ,
 metamethod = true , where = true , with = true ,
 readonly = true , releases = true , retains = true , struct = true ,
 unsafe = true , writeonly = true ,
@@ -24361,18 +24718,98 @@ docs = "docs/modules.md#diagnostics" ,
 } ,
 {
 code = "NUPP2122" ,
-summary = "A 'where' refinement is not checked" ,
-rule = "The grammar carries a `where` clause on a declaration, the "
-.. "formatter keeps it, and `nupp doc` renders it into a signature "
-.. "— and no checker code reads the expression. A constraint that "
-.. "constrains nothing is reported rather than left to look like "
-.. "it works. Express the constraint as a type where one fits: a "
-.. "union of literals, or a generic bound." ,
-wrong = "local record Odd where 1 + 1 == 3\n    n: integer\nend\n\n"
-.. "return Odd\n" ,
-right = "local record Odd\n    n: integer\nend\n\nreturn Odd\n" ,
+
+
+summary = "A 'where' refinement cannot be enforced" ,
+rule = "A `where` clause names the runtime test that decides whether a "
+.. "value is one of these, and `x is T` compiles to it. That test "
+.. "has to run wherever `is` is written, so it reads the "
+.. "declaration's own fields through `self` and nothing else: "
+.. "comparisons against literals, `type()` tests, `and`, `or`, "
+.. "`not`. A call, arithmetic, or a name from outside the subject "
+.. "cannot be evaluated there. A refinement that always answers the "
+.. "same way is also refused — always true identifies every value, "
+.. "always false leaves the type uninhabited — and so is one on a "
+.. "struct, which `ffi.istype` already answers exactly." ,
+wrong = "local record Circle where tostring(self.kind) == \"circle\"\n"
+.. "    kind: string\nend\n\nreturn Circle\n" ,
+right = "local record Circle where self.kind == \"circle\"\n"
+.. "    kind: string\nend\n\nreturn Circle\n" ,
 related = { "NUPP2116" } ,
 docs = "docs/type-system/generics.md" ,
+} ,
+{
+code = "NUPP2202" ,
+summary = "A declaration is built with 'new'" ,
+rule = "Records and structs are constructed with `new`. Calling a "
+.. "declaration used to be the construction, which meant the call "
+.. "was never the program's own: a record's `__call` was shadowed "
+.. "whenever the argument was a table, and a struct's ctype call "
+.. "was claimed outright. Saying construction in the source gives "
+.. "those hooks back. A record that does declare a `__call` "
+.. "contract is called, not reported." ,
+wrong = "local record Point\n    x: integer\nend\n\n"
+.. "local p = Point{x = 1}\n\nreturn p\n" ,
+right = "local record Point\n    x: integer\nend\n\n"
+.. "local p = new Point {x = 1}\n\nreturn p\n" ,
+related = { "NUPP2206" } ,
+docs = "docs/reference.md#records" ,
+} ,
+{
+code = "NUPP2206" ,
+summary = "Only a record or a struct can be constructed" ,
+rule = "`new` names a type and builds a value of it, so the operand "
+.. "has to be a declaration with something to build. An interface "
+.. "declares a contract and has no runtime table to stamp; an enum "
+.. "value is one of its declared strings, written directly. The "
+.. "operand is answered as a type rather than through whatever "
+.. "value stands under the name, because an interface binds none." ,
+wrong = "local interface Named\n    name: string\nend\n\n"
+.. "local n = new Named {name = \"ada\"}\n\nreturn n\n" ,
+right = "local interface Named\n    name: string\nend\n\n"
+.. "local record User is Named\n    name: string\nend\n\n"
+.. "local n = new User {name = \"ada\"}\n\nreturn n\n" ,
+related = { "NUPP2202" } ,
+docs = "docs/reference.md#records" ,
+} ,
+{
+code = "NUPP2207" ,
+summary = "A binding is read before it holds a value" ,
+rule = "`local v: Vec2` used to construct one where it was declared, "
+.. "which was a construction the source did not say. It no longer "
+.. "does, so the binding holds nil until something assigns to it, "
+.. "and reading it before that indexes nil at run time rather than "
+.. "yielding a value of the declared type. Assign it first, or "
+.. "declare it optional if it is meant to start empty. A "
+.. "declaration file states what exists elsewhere and assigns "
+.. "nothing, so it is exempt." ,
+wrong = "local record Point\n    x: integer\nend\n\n"
+.. "local p: Point\n\nreturn p.x\n" ,
+right = "local record Point\n    x: integer\nend\n\n"
+.. "local p: Point = new Point {x = 0}\n\nreturn p.x\n" ,
+related = { "NUPP2202" , "NUPP2206" } ,
+docs = "docs/reference.md#records" ,
+} ,
+{
+code = "NUPP2208" ,
+summary = "A constructor does not hold up its declaration" ,
+rule = "A `constructor(...)` body is what `new T(...)` runs. The "
+.. "instance is made before it and returned after it, so its whole "
+.. "job is to fill the fields in — and every field that cannot hold "
+.. "nil has to be filled, or the value handed back does not match "
+.. "the declaration it claims. That guarantee is the reason to "
+.. "prefer a constructor over a literal, so declaring one closes "
+.. "the literal form for that declaration. An interface builds "
+.. "nothing and cannot carry one, and there is one constructor per "
+.. "declaration until overloads arrive with intersection types." ,
+wrong = "local record Account\n    name: string\n    balance: number\n"
+.. "\n    constructor(name: string)\n        self.name = name\n"
+.. "    end\nend\n\nreturn Account\n" ,
+right = "local record Account\n    name: string\n    balance: number\n"
+.. "\n    constructor(name: string)\n        self.name = name\n"
+.. "        self.balance = 0\n    end\nend\n\nreturn Account\n" ,
+related = { "NUPP2202" , "NUPP2207" } ,
+docs = "docs/reference.md#records" ,
 } ,
 }
 
@@ -24799,6 +25236,12 @@ if k == "{" or k == "string" then
 
 
 if prev . contextualOp then
+return " "
+end
+
+
+
+if prev . constructTarget then
 return " "
 end
 return prev . kind == "name" and "" or " "
@@ -25891,6 +26334,7 @@ package.preload["nupp.gen"] = function(...)
 
 
 local cst = require ( "nupp.cst" )
+local predicate = require ( "nupp.predicate" )
 
 local gen = { }
 
@@ -25991,6 +26435,12 @@ CP = C_PRIM
 
 
 local LOWERED_COMPOUND = { [ "//=" ] = true , [ "??=" ] = true }
+
+
+
+
+
+local CONSTRUCTOR_MEMBER = "__nuppCtor"
 
 
 local IS_TYPE = {
@@ -26290,6 +26740,9 @@ emit ( entry )
 elseif entry . kind == "inlineMethod" then
 entry . inlineRuntimeOwner = runtimeName
 emit ( entry )
+elseif entry . kind == "constructorDecl" then
+entry . inlineRuntimeOwner = runtimeName
+emit ( entry )
 end
 end
 return
@@ -26443,6 +26896,29 @@ elseif t . kind == "tfunc" then
 e ( "( type(" , firstTok and firstTok . line )
 emit ( x . expr )
 e ( ') == "function" )' )
+elseif t . wherePredicate then
+
+
+
+
+local line = firstTok and firstTok . line
+local subject = x . expr and x . expr . kind == "name"
+and x . expr . token and x . expr . token . text or nil
+if subject then
+
+
+e ( "( " .. predicate . test ( t . wherePredicate , subject ) .. " )" ,
+line )
+else
+
+
+
+local temp = nextTemp ( )
+e ( ( "((function(%s) return %s end)(" ) : format ( temp ,
+predicate . test ( t . wherePredicate , temp ) ) , line )
+emit ( x . expr )
+e ( "))" )
+end
 elseif t . recordName then
 
 
@@ -26826,6 +27302,22 @@ e ( ( "(function() pcall(__nuppFfi.cdef, %q) return %s end)()" )
 : format ( x . cheaderCdef , ns ) , line )
 return
 
+elseif kind == "newExpr" then
+
+
+
+if x . call then emit ( x . call ) end
+return
+
+elseif ( kind == "call" or kind == "safeCall" ) and x . constructorCall then
+
+
+local first = x [ 1 ]
+local line = first and cst . isToken ( first ) and first . line or nil
+e ( x . constructorCall .. "." .. CONSTRUCTOR_MEMBER , line )
+if x . args then emit ( x . args ) end
+return
+
 elseif ( kind == "call" or kind == "safeCall" ) and x . recordConstruct then
 
 local first = x [ 1 ]
@@ -26836,6 +27328,46 @@ if tbl then
 emit ( tbl )
 end
 e ( ", " .. x . recordConstruct .. ")" )
+return
+
+elseif kind == "constructorDecl" and x . inlineRuntimeOwner then
+
+
+
+
+local body = x . body
+local first = x [ 1 ]
+local line = first and cst . isToken ( first ) and first . line or nil
+local names = { }
+for _ , p in ipairs ( body . params or { } ) do
+if p . namedVararg then
+names [ # names + 1 ] = "..."
+elseif p . name then
+names [ # names + 1 ] = p . name . text
+elseif p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
+names [ # names + 1 ] = "..."
+end
+end
+local owner = x . inlineRuntimeOwner
+e ( ( "function %s.%s(%s) local self = setmetatable({}, %s)" )
+: format ( owner , CONSTRUCTOR_MEMBER , table . concat ( names , ", " ) ,
+owner ) , line )
+if body . varargParam then
+e ( ( "const %s = { n = select(\"#\", ...), ... }" )
+: format ( body . varargParam . name . text ) )
+end
+emitFunctionDepth = emitFunctionDepth + 1
+if body . body then emit ( body . body ) end
+emitFunctionDepth = emitFunctionDepth - 1
+local endTok
+for j = # body , 1 , - 1 do
+local child = body [ j ]
+if cst . isToken ( child ) and child . kind == "end" then
+endTok = child
+break
+end
+end
+e ( "return self end" , endTok and endTok . line or nil )
 return
 
 elseif kind == "inlineMethod" and x . inlineRuntimeOwner then
@@ -27171,28 +27703,6 @@ if x . body then
 emit ( x . body )
 end
 e ( "end" , x . endTok and x . endTok . line or nil )
-
-elseif kind == "localStmt" then
-emitChildren ( x )
-
-
-if not x . exprs or # x . exprs == 0 then
-local inits , lastStruct = { } , 0
-for j = 1 , # x . names do
-local tnode = x . types and x . types [ j ]
-if tnode and tnode . reified then
-inits [ j ] = tnode . reified .. "()"
-lastStruct = j
-else
-inits [ j ] = "nil"
-end
-end
-if lastStruct > 0 then
-needsFfi = true
-e ( "=" )
-e ( table . concat ( inits , ", " , 1 , lastStruct ) )
-end
-end
 
 elseif kind == "tableExpr" and x . presize then
 
@@ -28539,6 +29049,12 @@ package.preload["nupp.lexer"] = function(...)
 
 
 local lexer = { }
+
+
+
+
+
+
 
 
 
@@ -30629,9 +31145,10 @@ struct = 22 , interface = 8 , typeParameter = 25 ,
 }
 
 complete . completionWords = {
-"and" , "as" , "break" , "cdef" , "const" , "continue" , "do" , "else" , "elseif" , "end" ,
+"and" , "as" , "break" , "cdef" , "const" , "constructor" , "continue" , "do" ,
+"else" , "elseif" , "end" ,
 "false" , "for" , "function" , "global" , "goto" , "if" , "in" ,
-"interface" , "is" , "local" , "nil" , "not" , "or" , "owned" ,
+"interface" , "is" , "local" , "new" , "nil" , "not" , "or" , "owned" ,
 "borrowed" , "borrows" , "exclusive" , "out" , "takes" , "pinned" , "releases" , "retains" ,
 "unsafe" , "with" , "where" , "metamethod" ,
 "record" , "repeat" , "return" , "struct" , "then" , "true" , "type" ,
@@ -31441,6 +31958,8 @@ and child . text == "is" then
 mark ( child , "keyword" )
 end
 end
+elseif kind == "newExpr" or kind == "constructorDecl" then
+mark ( node [ 1 ] , "keyword" )
 elseif kind == "whereClause" then
 mark ( node [ 1 ] , "keyword" )
 elseif kind == "metamethodDecl" then
@@ -32999,7 +33518,7 @@ end
 
 local function resolvedLiteral ( node )
 local t = node and node . resolvedType
-if not t or t . tag ~= "literal" then
+if not node or not node . immutablePath or not t or t . tag ~= "literal" then
 return nil
 end
 if t . base and ( t . base . tag == "number" or t . base . tag == "integer" )
@@ -34297,6 +34816,46 @@ end
 end
 
 
+
+
+
+
+
+local function atNewexp ( )
+local tok = cur ( )
+if tok . kind ~= "name" or tok . text ~= "new" then return false end
+local after = tokens [ i + 1 ]
+return after ~= nil and after . kind == "name" and after . line == tok . line
+end
+
+
+
+
+
+
+
+
+local function parseNewexp ( )
+local n = setmetatable( { kind = "newExpr" } , cst.NewExpr)
+local kw = advance ( )
+add ( n , kw )
+local call = parseSuffixedexp ( )
+n . call = add ( n , call )
+if call . kind == "call" or call . kind == "safeCall" then
+
+
+local calleeEnd = cst . lastToken ( call . obj )
+if calleeEnd then calleeEnd . constructTarget = true end
+end
+if call . kind ~= "call" and call . kind ~= "safeCall" then
+errAt ( kw , "'new' needs a construction; write new T(...) or new T {...}" ,
+"NUPP1004" ,
+"add the constructor arguments, or `()` when there are none" )
+end
+return n
+end
+
+
 local function parseSimpleexp ( )
 local kind = cur ( ) . kind
 if kind == "number" or kind == "string" then
@@ -34333,6 +34892,8 @@ n . body = add ( n , parseFuncbody ( ) )
 return n
 elseif kind == "{" then
 return parseTableconstructor ( )
+elseif atNewexp ( ) then
+return parseNewexp ( )
 else
 return parseSuffixedexp ( )
 end
@@ -34577,6 +35138,13 @@ elseif cur ( ) . kind == "function" then
 e = setmetatable( { kind = "inlineMethod" } , cst.InlineMethod)
 add ( e , advance ( ) )
 e . name = add ( e , expectName ( "after 'function' in declaration" ) )
+e . body = add ( e , parseFuncbody ( ) )
+elseif cur ( ) . kind == "name" and cur ( ) . text == "constructor"
+and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "(" then
+
+
+e = setmetatable( { kind = "constructorDecl" } , cst.ConstructorDecl)
+add ( e , advance ( ) )
 e . body = add ( e , parseFuncbody ( ) )
 elseif cur ( ) . kind == "name" and cur ( ) . text == "metamethod"
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name" then
@@ -35178,6 +35746,335 @@ end
 return parser
 
 end
+package.preload["nupp.predicate"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.cst" )
+
+local predicate = { }
+
+
+
+predicate.Node = {} predicate.Node.__index = predicate.Node
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local COMPARISONS = {
+[ "==" ] = true , [ "~=" ] = true ,
+[ "<" ] = true , [ "<=" ] = true , [ ">" ] = true , [ ">=" ] = true ,
+}
+
+
+
+local LUA_TYPES = {
+[ "nil" ] = true , boolean = true , number = true , string = true ,
+table = true , [ "function" ] = true , thread = true , userdata = true ,
+cdata = true ,
+}
+
+
+
+
+local function unwrap ( node )
+while node and node . kind == "paren" do node = node . expr end
+return node
+end
+
+
+
+
+local function pathOf ( node )
+node = unwrap ( node )
+if not node then return nil end
+if node . kind == "name" then
+if node . token and node . token . text == "self" then return { } end
+return nil
+end
+if node . kind == "dotIndex" then
+local base = pathOf ( node . obj )
+if not base or not node . name then return nil end
+local out = { }
+for j , segment in ipairs ( base ) do out [ j ] = segment end
+out [ # out + 1 ] = node . name . text
+return out
+end
+return nil
+end
+
+
+
+
+local function literalOf ( node )
+node = unwrap ( node )
+if not node then return nil end
+local kind = node . kind
+if kind == "string" and node . token then
+local text = node . token . text
+local quote = text : sub ( 1 , 1 )
+if quote ~= '"' and quote ~= "'" then return nil end
+return text , text : sub ( 2 , - 2 )
+elseif kind == "number" and node . token then
+local text = node . token . text
+if not text : match ( "^%d+$" ) and not text : match ( "^%d+%.%d+$" ) then
+return nil
+end
+return text , tonumber ( text )
+elseif kind == "trueExpr" then
+return "true" , true
+elseif kind == "falseExpr" then
+return "false" , false
+elseif kind == "nilExpr" then
+return "nil" , nil
+end
+return nil
+end
+
+
+local function typeCallPath ( node )
+node = unwrap ( node )
+if not node or node . kind ~= "call" then return nil end
+local callee = unwrap ( node . obj )
+if not callee or callee . kind ~= "name" then return nil end
+if not callee . token or callee . token . text ~= "type" then return nil end
+local call = node
+local args = call . args and ( call . args ) . exprs or nil
+if not args or # args ~= 1 then return nil end
+return pathOf ( args [ 1 ] )
+end
+
+
+
+
+
+
+
+
+
+function predicate . build ( node )
+node = unwrap ( node )
+if not node then return nil , "an empty refinement" end
+local kind = node . kind
+
+if kind == "trueExpr" or kind == "falseExpr" then
+return setmetatable( { op = "const" , value = kind == "trueExpr" } , predicate.Node)
+end
+
+if kind == "unop" and node . op and node . op . kind == "not" then
+local inner , why = predicate . build ( node . operand )
+if not inner then return nil , why end
+return setmetatable( { op = "not" , a = inner } , predicate.Node)
+end
+
+if kind == "binop" and node . op then
+local op = node . op . kind
+if op == "and" or op == "or" then
+local left , why = predicate . build ( node . lhs )
+if not left then return nil , why end
+local right , why2 = predicate . build ( node . rhs )
+if not right then return nil , why2 end
+return setmetatable( { op = op , a = left , b = right } , predicate.Node)
+end
+if COMPARISONS [ op ] then
+
+
+local typePath = typeCallPath ( node . lhs ) or typeCallPath ( node . rhs )
+if typePath then
+local other = typeCallPath ( node . lhs ) and node . rhs or node . lhs
+local text , value = literalOf ( other )
+if not text or type ( value ) ~= "string" then
+return nil , "a type() test compared with something other "
+.. "than a type name"
+end
+if not LUA_TYPES [ value ] then
+return nil , ( "%q, which type() never answers" ) : format ( value )
+end
+if op ~= "==" and op ~= "~=" then
+return nil , "a type() test ordered rather than compared"
+end
+local test = setmetatable( { op = "typeis" , path = typePath ,
+luaType = value } , predicate.Node)
+if op == "~=" then return setmetatable( { op = "not" , a = test } , predicate.Node) end
+return test
+end
+
+local path = pathOf ( node . lhs )
+local other = node . rhs
+if not path then
+path , other = pathOf ( node . rhs ) , node . lhs
+end
+if not path then
+
+
+for _ , side in ipairs ( { unwrap ( node . lhs ) , unwrap ( node . rhs ) } ) do
+local sideKind = side and side . kind
+if sideKind == "call" or sideKind == "methodCall"
+or sideKind == "safeCall" then
+return nil , "a call"
+end
+if sideKind == "binop" then
+return nil , "arithmetic"
+end
+end
+return nil , "a comparison of two things that are not the "
+.. "declaration's own fields"
+end
+local text = literalOf ( other )
+if not text then
+return nil , "a comparison against something that is not a literal"
+end
+return setmetatable( { op = "cmp" , cmp = op , path = path ,
+literal = text } , predicate.Node)
+end
+return nil , ( "the %s operator" ) : format ( op )
+end
+
+
+local path = pathOf ( node )
+if path then
+if # path == 0 then
+return nil , "the subject itself"
+end
+return setmetatable( { op = "truthy" , path = path } , predicate.Node)
+end
+
+if kind == "call" or kind == "methodCall" or kind == "safeCall" then
+return nil , "a call"
+end
+if kind == "string" or kind == "number" or kind == "nilExpr" then
+return nil , "a literal"
+end
+return nil , "this expression"
+end
+
+
+
+function predicate . paths ( node , out )
+out = out or { }
+if not node then return out end
+if node . path then out [ # out + 1 ] = node . path end
+predicate . paths ( node . a , out )
+predicate . paths ( node . b , out )
+return out
+end
+
+
+
+
+
+
+function predicate . constant ( node )
+if not node then return nil end
+if node . op == "const" then return node . value end
+if node . op == "not" then
+local inner = predicate . constant ( node . a )
+if inner == nil then return nil end
+return not inner
+end
+if node . op == "and" or node . op == "or" then
+local left , right = predicate . constant ( node . a ) , predicate . constant ( node . b )
+if left == nil or right == nil then return nil end
+if node . op == "and" then
+return left and right
+else
+return left or right
+end
+end
+return nil
+end
+
+
+
+
+
+
+
+function predicate . render ( node , subject )
+if not node then return "true" end
+local op = node . op
+
+if op == "const" then return node . value and "true" or "false" end
+if op == "not" then
+return "not (" .. predicate . render ( node . a , subject ) .. ")"
+end
+if op == "and" or op == "or" then
+return "(" .. predicate . render ( node . a , subject ) .. " " .. op .. " "
+.. predicate . render ( node . b , subject ) .. ")"
+end
+
+local path = node . path or { }
+local guards , access = { } , subject
+for j , segment in ipairs ( path ) do
+if j > 1 then guards [ # guards + 1 ] = access .. " ~= nil" end
+access = access .. "." .. segment
+end
+
+local test
+if op == "cmp" then
+test = access .. " " .. ( node . cmp or "==" ) .. " " .. ( node . literal or "nil" )
+elseif op == "typeis" then
+test = ( "type(%s) == %q" ) : format ( access , node . luaType or "nil" )
+else
+test = access .. " ~= nil"
+end
+
+if # guards == 0 then return test end
+return "(" .. table . concat ( guards , " and " ) .. " and " .. test .. ")"
+end
+
+
+
+
+
+
+function predicate . test ( node , subject )
+local body = predicate . render ( node , subject )
+if predicate . constant ( node ) ~= nil then return body end
+return ( "(type(%s) == \"table\" and %s)" ) : format ( subject , body )
+end
+
+return predicate
+
+end
 package.preload["nupp.query"] = function(...)
 
 
@@ -35661,10 +36558,34 @@ return m
 
 {
 title = "Records" ,
-codes = { "NUPP2004" , "NUPP2118" } ,
+codes = { "NUPP2004" , "NUPP2118" , "NUPP2202" , "NUPP2206" , "NUPP2207" ,
+"NUPP2208" } ,
 body = [=[
 A record is a table with declared fields. It may carry inline methods, whose
-`self` is implicit, and it is constructed by calling it with a table.
+`self` is implicit, and it is built with `new`.
+
+`new` is how both records and structs are constructed, and the only way: it
+lowers to the metatable stamp and the ctype call directly, installing nothing,
+which is what leaves `__call` and `__new` to the program. Calling a record that
+declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
+a record or a struct is **NUPP2206**.
+
+The word is contextual — a name has to follow it on the same line — so a
+variable named `new` still means what it did. A construction's brace stands off
+its type, `new Point {x = 1}`, because the fields belong to the type rather than
+being an argument to it; the `f{...}` call sugar it is otherwise spelled like
+still hugs.
+
+`local p: Point` declares storage and constructs nothing, so it holds nil until
+something assigns to it and reading it before that is **NUPP2207**.
+
+A declaration may state how it is built. A `constructor(...)` body is what
+`new T(...)` runs: the instance is made before it and returned after it, so the
+body fills the fields in. Every field that cannot hold nil has to be filled —
+that guarantee is the reason to prefer one over a literal, and it is why
+declaring a constructor closes the literal form for that declaration. Failing
+either is **NUPP2208**. `constructor` is contextual, so a field may still be
+called one.
 
 One explicit type per field: grouped names are rejected.
 ]=] ,
@@ -35682,7 +36603,19 @@ record m.Point
     end
 end
 
-local origin = m.Point{x = 0, y = 0}
+--- A point on a line through the origin.
+record m.Diagonal
+    x: integer
+    y: integer
+
+    constructor(at: integer)
+        self.x = at
+        self.y = at
+    end
+end
+
+local corner = new m.Diagonal(3)
+local origin = new m.Point {x = 0, y = 0}
 local d = origin:lengthSquared()
 
 return m
@@ -35706,6 +36639,47 @@ end
 record m.User is m.Named
     name: string
     id: uint32
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Refinements" ,
+codes = { "NUPP2122" } ,
+body = [=[
+A declaration may carry a `where` refinement, which names the runtime test that
+decides whether a value is one of these. `x is T` compiles to it, so
+`s is Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+
+This is how a declaration answers `is` for values this program did not build —
+a table off a decoder, or anything an untyped library returned. Without a
+refinement a record is identified by the metatable `new` stamps, which such a
+value never received, and an interface has no runtime table at all, so `is` on
+one cannot be compiled without it.
+
+The test runs wherever `is` is written, so it reads the declaration's own fields
+through `self` and nothing else: comparisons against literals, `type()` tests,
+and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
+always answers the same way, or one on a struct — whose ctype already answers
+exactly — is **NUPP2122**.
+]=] ,
+example = [=[
+local m = {}
+
+interface m.Shape
+    kind: string
+end
+
+record m.Circle is m.Shape where self.kind == "circle"
+    kind: string
+    radius: number
+end
+
+function m.area(s: m.Shape): number
+    if s is m.Circle then return 3 * s.radius * s.radius end
+    return 0
 end
 
 return m
@@ -36042,7 +37016,7 @@ return models
 example = [=[
 local models = require("models")
 
-local user: models.User = models.User{id = 1, name = "ada"}
+local user: models.User = new models.User {id = 1, name = "ada"}
 
 return user
 ]=] ,
@@ -38289,6 +39263,12 @@ types.Metatable = {} types.Metatable.__index = types.Metatable
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
+
+
 
 
 
@@ -41052,7 +42032,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         error("profile.sample: stackDepth must be at least 1", 2)
     end
 
-    local session = profile.SampleSession{
+    local session = new profile.SampleSession {
         intervalMs = intervalMs,
         zoneFilter = opts.zone,
         root = opts.root,
@@ -41093,7 +42073,7 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
         local sample = cachedStacks[stack]
         if not sample then
-            sample = profile.Sample{
+            sample = new profile.Sample {
                 zonePath = path, stack = stack, count = 0,
                 compiled = 0, interpreted = 0, cCode = 0,
                 collecting = 0, compiling = 0,
@@ -41181,7 +42161,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
                     or sample.stack
                 local row = merged[path .. "\0" .. stack]
                 if not row then
-                    row = profile.Sample{
+                    row = new profile.Sample {
                         zonePath = path, stack = stack, count = 0,
                         compiled = 0, interpreted = 0, cCode = 0,
                         collecting = 0, compiling = 0,
@@ -41199,7 +42179,7 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         end
     end
 
-    local report = profile.SampleReport{
+    local report = new profile.SampleReport {
         intervalMs = self.intervalMs,
         samples = samples,
         stacks = #kept,
@@ -41357,7 +42337,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     end
 
     local opts: profile.TraceOptions = options or {}
-    local session = profile.TraceSession{
+    local session = new profile.TraceSession {
         includeBenign = opts.includeBenign or false,
         startedAt = os.time() as integer,
         paused = false,
@@ -41395,7 +42375,7 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         if site then
             site.count = site.count + 1
         else
-            session.sites[key] = profile.AbortSite{
+            session.sites[key] = new profile.AbortSite {
                 severity = severity, count = 1, reason = reason,
                 location = location, zonePath = path,
             }
@@ -41463,7 +42443,7 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         return a.location < b.location
     end)
 
-    local report = profile.TraceReport{
+    local report = new profile.TraceReport {
         durationSec = (os.time() as integer) - self.startedAt,
         totalAborts = self.totalAborts,
         blacklisted = self.blacklisted,

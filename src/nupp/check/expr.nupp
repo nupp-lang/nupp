@@ -324,7 +324,6 @@ function expr.install(c: any)
                 call.newReported = true
             end
             return c.infer(call)
->>>>>>> 010b800 (Introduce new as a construction expression)
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then
