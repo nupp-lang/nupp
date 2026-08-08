@@ -158,15 +158,17 @@ function M.stopAtPositionalHandsTheRestToTheProgram()
 end
 
 function M.helpIsRenderedFromTheGrammarThatParses()
-   local text = DEMO:help()
-   -- The point of the abstraction: an option cannot be parsed and undocumented.
-   for _, wanted in ipairs({"--strict", "--target NAME", "-o, --out-dir DIR",
-      "--profile[=MS]", "-Zno-opt=CODE", "-O0, -O1, -O2", "--color[=WHEN]",
-      "-h, --help"}) do
-      assert(text:find(wanted, 1, true),
-         "help documents " .. wanted .. ": " .. text)
-   end
-   assert(text:find("Usage:\n  nupp demo", 1, true), "help has a usage line")
+   ansi.withMode("never", function()
+      local text = DEMO:help()
+      -- The point of the abstraction: an option cannot be parsed and undocumented.
+      for _, wanted in ipairs({"--strict", "--target NAME", "-o, --out-dir DIR",
+         "--profile[=MS]", "-Zno-opt=CODE", "-O0, -O1, -O2", "--color[=WHEN]",
+         "-h, --help"}) do
+         assert(text:find(wanted, 1, true),
+            "help documents " .. wanted .. ": " .. text)
+      end
+      assert(text:find("Usage:\n  nupp demo", 1, true), "help has a usage line")
+   end)
    -- Long help wraps and the continuation aligns under the first line's text.
    local wrapped = spec.wrap("one two three four five", 9)
    assert(#wrapped == 3 and wrapped[1] == "one two", "greedy wrap: " .. wrapped[1])
@@ -202,11 +204,25 @@ function M.colourIsDecidedOncePerStreamAndOverriddenByMode()
       == ansi.forSeverity(painted, "error")("x"),
       "an unknown severity paints as an error")
 
+   ansi.withMode("never", function()
+      assert(not ansi.enabled(io.stdout), "a scoped mode applies in its body")
+   end)
+   assert(ansi.enabled(io.stdout), "a scoped mode restores the caller's mode")
+
+   local ok = pcall(function()
+      ansi.withMode("never", function() error("expected test error") end)
+   end)
+   assert(not ok, "a scoped mode preserves errors")
+   assert(ansi.enabled(io.stdout), "an error also restores the caller's mode")
+
    ansi.setMode("auto")
 end
 
 local function capture(argv)
-   local pipe = assert(io.popen(("'%s' %s 2>&1"):format(NUPP, argv)))
+   -- This test defines automatic colour as a plain pipe, whatever the shell
+   -- that launched the suite put in its environment.
+   local pipe = assert(io.popen(("NO_COLOR= CLICOLOR_FORCE= '%s' %s 2>&1")
+      :format(NUPP, argv)))
    local out = pipe:read("*a")
    pipe:close()
    return out

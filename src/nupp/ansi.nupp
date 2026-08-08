@@ -171,6 +171,18 @@ function ansi.setMode(wanted: string)
     end
 end
 
+--- Runs `body` with a temporary colour mode, restoring the caller's mode even
+--- when `body` raises. This is for renderers and tests that need stable text
+--- while the surrounding process may have made its own colour choice.
+--- @raises whatever `body` raises, after restoring the caller's mode
+function ansi.withMode(wanted: string, body: function(): nil): nil
+    local before = mode
+    ansi.setMode(wanted)
+    local ok, err = pcall(body)
+    ansi.setMode(before)
+    if not ok then error(err, 0) end
+end
+
 --- Whether `stream` should be written to in colour.
 function ansi.enabled(stream: any): boolean
     local known = decided[stream]
