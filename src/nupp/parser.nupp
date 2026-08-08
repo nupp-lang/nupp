@@ -1603,9 +1603,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     parseBlock = function(): Node
         local n = cst.Block{kind = "block"}
         n.stats = {}
+        local returned = false
         while not BLOCK_FOLLOW[cur().kind] do
+            -- A return ends its block [grammar: block = *stat [retstat]]. What
+            -- follows is reported once and then parsed as usual, so the rest of
+            -- the block still checks and the tree still round-trips.
+            if returned then
+                errAt(cur(), "'return' must be the last statement in a block",
+                    nil, "move the 'return' below the statements that follow "
+                        .. "it, or delete them")
+                returned = false
+            end
             local start = i
             local s = parseStatement()
+            if s.kind == "returnStmt" then returned = true end
             n.stats[#n.stats + 1] = add(n, s)
             -- Progress guarantee: recovery may produce a statement out of thin
             -- air (all-missing tokens); if so, consume the offending token so

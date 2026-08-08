@@ -165,6 +165,35 @@ function M.continueStatements()
       "continue cannot cross a function boundary")
 end
 
+function M.returnEndsItsBlock()
+   local legal = assertRoundtrip(table.concat({
+      "local function f(n)",
+      "   if n then return 1 else return 2 end",
+      "end",
+      "do return end",
+      "return f;",
+   }, "\n"))
+   assertEq(#legal.errors, 0, legal.errors[1] and legal.errors[1].msg or "")
+
+   local trailing = assertRoundtrip("return 1\nlocal function f() end")
+   assertEq(#trailing.errors, 1, "the trailing statement is reported")
+   assertEq(trailing.errors[1].code, "NUPP1005", "syntax code")
+   assertEq(trailing.errors[1].msg,
+      "'return' must be the last statement in a block")
+   assertEq(trailing.errors[1].line, 2, "caret is on the trailing statement")
+   assertEq(trailing.errors[1].col, 1, "caret column")
+   assert(trailing.errors[1].help, "the report says what to do")
+   -- Reporting does not discard: what follows still parses into the block.
+   assertEq(#trailing.root.blocks[1].stats, 2, "both statements are kept")
+
+   assertEq(#assertRoundtrip("return 1\nlocal a = 2\nlocal b = 3").errors, 1,
+      "one report for a run of trailing statements, not one each")
+   assertEq(#assertRoundtrip("return 1\nlocal a = 2\nreturn 3\nlocal b = 4")
+      .errors, 2, "a second return that is not last is reported too")
+   assertEq(#assertRoundtrip("local function f() return 1 local x = 2 end")
+      .errors, 1, "the rule holds inside a function body")
+end
+
 function M.interpolatedStringsParse()
    assertEq(exprDump("`n is ${n}!`"),
       "(istring `n is ${ (name n) }!`)")

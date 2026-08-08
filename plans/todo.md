@@ -459,13 +459,6 @@ What is left, in the order the numbers justify:
       (`src/nupp/build/store.nupp:35`) bounds the cold entries, which is fine
       for a project this size and unmeasured for a large one.
 
-## Correctness gaps
-
-- [ ] **The parser accepts statements after a top-level `return`.** Appending
-      `local function f() end` after `return m` parses clean and checks clean,
-      where Lua rejects it. Either a deliberate superset choice that is
-      undocumented, or a gap.
-
 ## Testing and CI
 
 - [ ] **Complete the operator-contract matrix.** Only `__add` has a direct
