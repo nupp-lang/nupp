@@ -735,9 +735,31 @@ Reference and the generated API. What that pass turned up:
       `fixpoint --update-bootstrap` and a new tracked `bootstrap/nupp.lua` in
       the same commit. Until it is settled, `nupp fmt` cannot gate this
       repository.
-- [ ] `nupp.std.resources` has no test coverage, and cannot get any until
-      `@owned` survives a qualified function name — every wrapper is a module
-      member, so nothing can acquire one. Blocked on the entry above.
+- [ ] **`nupp.std.*` is invisible to the checker outside this repository.**
+      `BUNDLED` in `env.nupp` registers `ffi`, `string.buffer`, `cjson`,
+      `cjson.safe` and the `jit.*` submodules, and nothing else, so a user
+      project that writes `require("nupp.std.zone")` gets `any`. The modules are
+      compiled into the closure and reach `package.preload`, so they *run*; what
+      is missing is anything to check a call against.
+
+      For `zone` and `profile` that costs the checking only — `zone.pushhh("x")`
+      is silent — which is a shame given the profiling guide teaches both. For
+      `resources` it is fatal: ownership cannot ride on `any`, so
+      `with file = resources.open_file(path)` is NUPP2610 and every wrapper the
+      module exports is unusable. Qualified functions now carry their type, so
+      this is the whole of what is left.
+
+      The idiomatic fix is a `.d.nupp` overlay per module, registered in
+      `BUNDLED` and shipped the way `decls/*.d.nupp` already are — cheap to
+      parse, and the public surface is what wants declaring anyway. One question
+      to settle first: `@owned` targets `function`, and a declaration file
+      spells its exports as typed bindings, so a cleanup contract has nowhere to
+      attach yet. Parsing the implementations instead avoids that and costs
+      every project a parse of `profile.nupp` on every check.
+
+      Until then `with.md`, the README and the tour teach a locally declared
+      producer instead, and `nupp.std.resources` has no test coverage because
+      nothing outside this tree can acquire from it.
 
 ## Housekeeping
 

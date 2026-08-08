@@ -462,6 +462,47 @@ return use
    end)
 end
 
+-- An explicit `dispose` is the same acquisition problem without the scope, and
+-- was left reporting NUPP2602 about the same unreachable name after `with`
+-- stopped. Whichever way a caller discharges an owner, the cleanup belongs to
+-- the module that declared it.
+function M.anOwnerCrossesAModuleBoundaryIntoAnExplicitDispose()
+   withProject({
+      ["src/res.nupp"] = [[
+local res = {}
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+@owned(closeFile)
+function res.open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+return res
+]],
+      ["src/use.nupp"] = [[
+local res = require("res")
+
+local use = {}
+
+function use.touch(path: string)
+    local file = res.open(path)
+    dispose(file)
+end
+
+return use
+]],
+   }, function(dir)
+      local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
+      assertEq(#diags, 0, "disposing another module's owner: "
+         .. (diags[1] and (diags[1].code .. " " .. diags[1].msg) or ""))
+   end)
+end
+
 -- The name still has to resolve where it was written, which is the one place a
 -- misspelling can be fixed.
 function M.aMisspelledCleanupIsReportedAtItsDeclaration()

@@ -123,9 +123,14 @@ declarations.
 Deterministic resource scopes consume any value returned by an `@owned`
 producer and expose a borrow inside the body:
 
-    local resources = require("nupp.std.resources")
+    @owned(closeFile)
+    function files.open(path: string): LuaFile
+        local file = io.open(path, "r")
+        if not file then error("cannot open " .. path) end
+        return file
+    end
 
-    with file = resources.open_file("input.txt", "r") do
+    with file = files.open("input.txt") do
         print(file:read("*a"))
     end
 

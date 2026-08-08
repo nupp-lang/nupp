@@ -89,14 +89,14 @@ function ownership.install(c: any): any
                 and cleanupT or nil
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
             if not cleanupT and not allowUnknown then
-                -- A cleanup is a bare name looked up where the owner is
-                -- consumed, so a producer in another module naming a file-local
-                -- disposer reports here rather than at the declaration. Saying
-                -- so is the difference between a puzzle and an errand.
+                -- Only a declaration reaches this now: every consuming site passes
+                -- allowUnknown, because a cleanup belongs to the module that
+                -- declared the owner. So the reader is looking at the one place
+                -- the name has to resolve, which is the thing worth telling them.
                 c.diag(code, at, ("@owned cleanup %q is not declared"):format(cleanup),
-                    nil, {notes = {"a cleanup is resolved where the owner is "
-                        .. "consumed, not where it is produced, so a producer "
-                        .. "in another module needs one this file can name"}})
+                    nil, {notes = {"a cleanup is resolved here, where the owner "
+                        .. "is declared, so it has to name a function this file "
+                        .. "can see"}})
             elseif cleanupT and cleanupT ~= T.any and (not firstParam
                 or not isA(rawType(valueT), firstParam)) then
                 c.diag(code, at, ("@owned cleanup %q must accept %s"):format(

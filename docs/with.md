@@ -5,9 +5,18 @@ function carries a cleanup obligation that the checker will not let you drop.
 `with` is the construct that discharges it for you:
 
 ```nupp
-local resources = require("nupp.std.resources")
+local function closeFile(file: LuaFile)
+    file:close()
+end
 
-with file = resources.open_file("input.txt", "r") do
+@owned(closeFile)
+function files.open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+with file = files.open("input.txt") do
     print(file:read("*a"))
 end
 ```
