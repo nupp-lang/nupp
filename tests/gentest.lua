@@ -120,6 +120,24 @@ function M.constSemantics()
       "const should survive type erasure: " .. code)
 end
 
+-- A literal type is a type-only node like any other postfix or shape: the
+-- annotation has to vanish rather than leaving its token behind as a bare
+-- expression statement next to the one the initializer already wrote.
+function M.literalTypeErasure()
+   assertEq(run("local t: true = true\nreturn t"), true)
+   assertEq(run("local f: false = false\nreturn f"), false)
+   assertEq(run("local m: \"read\" = \"read\"\nreturn m"), "read")
+   assertEq(run(
+      "local function mode(x: \"read\"): \"read\" return x end"
+      .. "\nreturn mode(\"read\")"), "read")
+end
+
+-- `const T`, the read-only view, is a type node the same way `T?` or `T*`
+-- are: erased in place, not left as a stray identifier beside the value.
+function M.constTypeErasure()
+   assertEq(run("local x: const number = 42\nreturn x"), 42)
+end
+
 function M.ternarySemantics()
    assertEq(run("return 1 < 2 ? 'yes' : 'no'"), "yes")
    -- falsy middle arm must still be selected (the a-and-b-or-c pitfall)

@@ -42,7 +42,8 @@ local TYPE_KINDS = {
     tname = true, topt = true, tptr = true, tunion = true, tarray = true,
     tmap = true, ttuple = true, tshape = true, tshapeField = true,
     tfunc = true, tfuncParam = true, tparen = true, errorType = true,
-    tpredicate = true, tborrows = true,
+    tpredicate = true, tborrows = true, tliteral = true, tconst = true,
+    tcarray = true,
     generics = true,
 }
 
