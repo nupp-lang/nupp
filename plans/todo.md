@@ -53,13 +53,6 @@ work makes sense in.
       need correlated unions of result packs. Every pack element retains its
       ownership mode and borrow provenance, and an affine result may not be
       silently truncated or discarded by generic forwarding.
-- [ ] **`unknown` for undeclared Lua modules under `--strict`.** `unknown` and
-      `never` landed; requiring a plain Lua module still yields `any`
-      (`src/nupp/check/callexpr.nupp:231`), which is the one place the top type
-      would earn its keep.
-- [ ] **Narrow an exhaustively-matched union to `never`.** `narrowing.subtract`
-      returns the whole type when every member is removed, because there was no
-      empty type to give it (`src/nupp/narrowing.nupp:65`). There is one now.
 - [ ] **Comptime** ([design](comptime.md)): deterministic data evaluation,
       deliberately not a macro or declaration-generation system. Unstarted —
       `comptime` is not a token, and `@comptime` is a reserved annotation that
