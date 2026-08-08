@@ -764,6 +764,33 @@ function M.anAnnotatedMetatableIsHeldToTheSameRules()
    }, "\n"))
 end
 
+-- An `__index` table is what instances read their members through, so a member
+-- written into one has to be what the declaration said it is. A name the
+-- declaration does not have is an ordinary helper, and one it has that the table
+-- leaves out may still be assigned afterwards.
+function M.anIndexTableIsHeldToTheMembersItStandsIn()
+   local counter = table.concat({
+      "local record Counter",
+      "   value: integer",
+      "   label: function(self: Counter): string",
+      "end",
+      "local c = new Counter {value = 1, label = tostring}",
+   }, "\n")
+   assertEq(diagsOf(counter .. table.concat({
+      "",
+      "setmetatable(c, {__index = {label = function(self: Counter): integer",
+      "   return 1",
+      "end}})",
+   }, "\n")), "NUPP2123:6")
+   assertClean(counter .. table.concat({
+      "",
+      "setmetatable(c, {__index = {helper = 42,",
+      "   label = function(self: Counter): string",
+      "      return 'c'",
+      "   end}})",
+   }, "\n"))
+end
+
 -- Nothing here can see what a function returns, so a computed metatable stays
 -- gradual, which is what the documentation has always promised.
 function M.aComputedMetatableStaysGradual()

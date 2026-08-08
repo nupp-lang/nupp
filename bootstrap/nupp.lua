@@ -12575,6 +12575,30 @@ c . diag ( "NUPP2123" , at ,
 { help = ( "the contract is %s" ) : format ( T . tostring ( contract ) ) } )
 end
 
+
+
+
+
+
+local function checkIndexTable ( value , valueT , of )
+for _ , field in ipairs ( value . fields or { } ) do
+if field . kind == "fieldNamed" and field . name then
+local name = field . name . text
+local declared = c . fieldType ( of , name )
+local written = fieldOf ( valueT , name )
+if declared and written then
+local ok , why = isA ( written , declared )
+if not ok then
+c . diag ( "NUPP2123" , field . value or field ,
+( "__index %s: %s" ) : format ( name , why ) , nil ,
+{ help = ( "%s declares it as %s" )
+: format ( T . tostring ( of ) , T . tostring ( declared ) ) } )
+end
+end
+end
+end
+end
+
 local function checkField ( field , of ,
 literalType )
 local key = field . name
@@ -12617,6 +12641,9 @@ if not callable ( valueT ) and not isA ( valueT , T . table_ ) then
 c . diag ( "NUPP2123" , at ,
 ( "%s is a table to defer to or a function to run, not %s" )
 : format ( name , T . tostring ( valueT ) ) )
+elseif name == "__index" and value
+and value . kind == "tableExpr" then
+checkIndexTable ( value , valueT , of )
 end
 elseif not callable ( valueT ) then
 c . diag ( "NUPP2123" , at , ( "%s is called, so it holds a function, "

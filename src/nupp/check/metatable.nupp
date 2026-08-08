@@ -88,6 +88,30 @@ function metatable.install(c: any): any
             {help = ("the contract is %s"):format(T.tostring(contract))})
     end
 
+    --- Checks an `__index` table against the receiver its instances will read through.
+    --- An entry naming nothing the declaration has is an ordinary helper, and a member
+    --- the table leaves out may still be assigned afterwards, so only the names written
+    --- on both sides are compared. What that catches is a member given the wrong shape,
+    --- which the declaration is the authority on.
+    local function checkIndexTable(value: cst.TableExpr, valueT: Type?, of: Type)
+        for _, field in ipairs(value.fields or {}) do
+            if field.kind == "fieldNamed" and field.name then
+                local name = field.name.text
+                local declared = c.fieldType(of, name)
+                local written = fieldOf(valueT, name)
+                if declared and written then
+                    local ok, why = isA(written, declared)
+                    if not ok then
+                        c.diag("NUPP2123", field.value or field,
+                            ("__index %s: %s"):format(name, why), nil,
+                            {help = ("%s declares it as %s")
+                            :format(T.tostring(of), T.tostring(declared))})
+                    end
+                end
+            end
+        end
+    end
+
     local function checkField(field: cst.FieldNamed, of: Type,
         literalType: Type?)
         local key = field.name
@@ -130,6 +154,9 @@ function metatable.install(c: any): any
                 c.diag("NUPP2123", at,
                     ("%s is a table to defer to or a function to run, not %s")
                     :format(name, T.tostring(valueT)))
+            elseif name == "__index" and value
+                and value.kind == "tableExpr" then
+                checkIndexTable(value, valueT, of)
             end
         elseif not callable(valueT) then
             c.diag("NUPP2123", at, ("%s is called, so it holds a function, "
