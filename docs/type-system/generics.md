@@ -42,9 +42,9 @@ NUPP2116: type argument string for T: string is not a number
 
 An `any` argument skips the bound check.
 
-## `where` refinements
+## Refinements
 
-A declaration may carry a `where` refinement, which names the runtime test that
+An interface may carry a `matches` block, which names the runtime test that
 decides whether a value is one of these. `x is T` compiles to that test:
 
 ```nupp
@@ -52,37 +52,43 @@ local interface Shape
     kind: string
 end
 
-local record Circle is Shape where self.kind == "circle"
+local interface Circle is Shape
     kind: string
     radius: number
+
+    matches
+        self.kind == "circle"
+    end
 end
 ```
-
 
 ```lua
 -- `s is Circle` becomes
 (type(s) == "table" and s.kind == "circle")
 ```
 
-This is what lets a declaration answer `is` when its values were not built by
-this program — a table off a decoder, or anything an untyped library returned.
-A record without one is identified by the metatable `new` stamps, which such a
-value never received. An interface has no runtime table at all, so a refinement
-is the only identity it can have; without one, `is` on an interface cannot be
-compiled.
+**Only an interface.** A record is identified by the metatable `new` stamps and
+a struct by its ctype, so both already answer `is` exactly — a refinement beside
+either would be a second answer to a settled question, and which answer `is R`
+gave would depend on whether a body happened to carry one. An interface has no
+runtime table at all, so this is the only identity it can have.
+
+That is also what lets an interface answer `is` for values this program did not
+build — a table off a decoder, or anything an untyped library returned. Such a
+value never received a metatable, so nothing else could identify it.
 
 The test has to run wherever `is` is written, so it reads the declaration's own
 fields through `self` and nothing else: comparisons against literals, `type()`
 tests, and `and` / `or` / `not`. A call, arithmetic, or a name from outside the
 subject is **NUPP2122**, and so is a refinement that always answers the same
 way — always true identifies every value, always false leaves the type
-uninhabited. A struct cannot carry one either: `ffi.istype` already answers
-exactly.
+uninhabited.
 
 A subject that is not a plain name is evaluated once and handed to the test,
 since a refinement may read it more than once. Reaching through a field guards
 the step before it with `?.`, because the test runs against values that are not
-of the type yet — `where self.a.b.c == "x"` compiles to `s.a?.b?.c == "x"`.
+of the type yet — `matches self.a.b.c == "x" end` compiles to
+`s.a?.b?.c == "x"`.
 
 A declaration is held to the refinements of the interfaces it declares.
 `record C is Shape` is a claim the checker proves, and Shape's refinement is

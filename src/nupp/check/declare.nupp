@@ -44,26 +44,30 @@ function declare.install(c: any, reifiableField: any, fix: any,
     --- written, the fields it reads have to exist, and it has to be capable of
     --- answering both ways. Each failure keeps NUPP2122, which now means "this
     --- refinement cannot be enforced" rather than "no refinement is".
-    local function checkRefinement(stat: any, n: any)
-        local clause = stat.whereClause
+    local function checkRefinement(stat: any, n: any, clause: any)
         local help = "a refinement tests the declaration's own fields: "
-            .. "`where self.kind == \"circle\"`"
+            .. "`matches self.kind == \"circle\" end`"
 
-        -- A struct is cdata with a real ctype, so `is` already answers through
-        -- `ffi.istype`. A refinement would be a second, weaker identity beside a
-        -- exact one.
-        if stat.declKind == "struct" then
+        -- A record's identity is the metatable `new` stamps, and a struct's is
+        -- its ctype. Both already answer `is` exactly, so a refinement beside
+        -- one would be a second answer to a settled question — and which answer
+        -- `is R` gave would depend on whether a body happened to carry this.
+        -- An interface has no runtime table at all, so this is the only identity
+        -- it can have, and the only declaration that needs one.
+        if stat.declKind ~= "interface" then
             c.diag("NUPP2122", clause,
-                "a struct is identified by its ctype, so a 'where' refinement "
-                .. "would be a second answer to the same question", nil,
-                {help = "remove it; `is` already tests the struct exactly"})
+                ("a %s is identified by what builds it, so a refinement would "
+                .. "be a second answer to the same question")
+                :format(stat.declKind), nil,
+                {help = "put it on an interface this declares with `is`, or "
+                .. "remove it"})
             return
         end
 
         local built, why = predicate.build(clause.expr)
         if not built then
             c.diag("NUPP2122", clause,
-                ("a 'where' refinement cannot be %s"):format(why), nil,
+                ("a refinement cannot be %s"):format(why), nil,
                 {help = help})
             return
         end
@@ -71,9 +75,9 @@ function declare.install(c: any, reifiableField: any, fix: any,
         local always = predicate.constant(built)
         if always ~= nil then
             c.diag("NUPP2122", clause, always
-                and "this 'where' refinement is always true, so it identifies "
+                and "this refinement is always true, so it identifies "
                 .. "every value rather than this declaration's"
-                or "this 'where' refinement is always false, so nothing can "
+                or "this refinement is always false, so nothing can "
                 .. "ever be one of these", nil, {help = help})
             return
         end
@@ -89,7 +93,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     and current.byname and current.byname[segment] or nil
                 if not field then
                     c.diag("NUPP2122", clause,
-                        ("a 'where' refinement reads %q, which %s does not have")
+                        ("a refinement reads %q, which %s does not have")
                         :format(table.concat(path, ".", 1, depth), n.name),
                         nil, {help = help})
                     ok = false
@@ -664,15 +668,30 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     end
                 end
             end
-            -- The `where` refinement is read last, because it speaks about the
-            -- fields and they are only all here now. It is the declaration's
-            -- runtime identity: a record's instances are stamped, but a value
-            -- typed as one need never have been built here — a table off a
-            -- decoder, a plain Lua library's result — and an interface has no
-            -- table to stamp at all. A refinement is how such a type answers
-            -- `is`.
+            -- The refinement is read last, because it speaks about the fields
+            -- and they are only all here now. It is an interface's runtime
+            -- identity: a record's instances are stamped and a struct is its
+            -- ctype, but an interface has no table to stamp at all, so a
+            -- refinement is the only way one can answer `is`.
+            for _, e in ipairs(stat.entries) do
+                if e.kind == "matchesDecl" then
+                    if n.predicate then
+                        c.diag("NUPP2122", e,
+                            ("%s already declares how it is matched")
+                            :format(n.name), nil,
+                            {help = "combine the tests with `and`"})
+                    else
+                        checkRefinement(stat, n, e)
+                    end
+                end
+            end
+            -- The clause used to sit in the declaration head. It says the same
+            -- thing a `matches` block does and reads worse beside the others,
+            -- so it is answered rather than left to parse into nothing.
             if stat.whereClause then
-                checkRefinement(stat, n)
+                c.diag("NUPP2122", stat.whereClause,
+                    "a refinement is written as a `matches` block in the body",
+                    nil, {help = "write `matches <test> end` among the fields"})
             end
             checkInheritedRefinements(stat, n)
             c.popScope()

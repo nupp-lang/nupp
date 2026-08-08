@@ -265,21 +265,22 @@ Reports: `NUPP2001`. `nupp explain <code>` says more.
 
 ## Refinements
 
-A declaration may carry a `where` refinement, which names the runtime test that
+An interface may carry a `matches` block, which names the runtime test that
 decides whether a value is one of these. `x is T` compiles to it, so
-`s is Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+`s is m.Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
 
-This is how a declaration answers `is` for values this program did not build —
-a table off a decoder, or anything an untyped library returned. Without a
-refinement a record is identified by the metatable `new` stamps, which such a
-value never received, and an interface has no runtime table at all, so `is` on
-one cannot be compiled without it.
+Only an interface. A record is identified by the metatable `new` stamps and a
+struct by its ctype, so both already answer `is` exactly; a refinement beside
+either would be a second answer to a settled question. An interface has no
+runtime table at all, so this is the only identity it can have — and it is what
+lets a value this program did not build, a table off a decoder or anything an
+untyped library returned, answer `is` at all.
 
 The test runs wherever `is` is written, so it reads the declaration's own fields
 through `self` and nothing else: comparisons against literals, `type()` tests,
 and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
-always answers the same way, or one on a struct — whose ctype already answers
-exactly — is **NUPP2122**.
+always answers the same way, or one on a record or struct is **NUPP2122** — as
+is a declaration whose own fields provably fail an interface it declares.
 
 ```nupp
 local m = {}
@@ -288,9 +289,13 @@ interface m.Shape
     kind: string
 end
 
-record m.Circle is m.Shape where self.kind == "circle"
+interface m.Circle is m.Shape
     kind: string
     radius: number
+
+    matches
+        self.kind == "circle"
+    end
 end
 
 function m.area(s: m.Shape): number

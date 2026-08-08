@@ -9480,26 +9480,30 @@ insertBefore , validateAnnotation )
 
 
 
-local function checkRefinement ( stat , n )
-local clause = stat . whereClause
+local function checkRefinement ( stat , n , clause )
 local help = "a refinement tests the declaration's own fields: "
-.. "`where self.kind == \"circle\"`"
+.. "`matches self.kind == \"circle\" end`"
 
 
 
 
-if stat . declKind == "struct" then
+
+
+
+if stat . declKind ~= "interface" then
 c . diag ( "NUPP2122" , clause ,
-"a struct is identified by its ctype, so a 'where' refinement "
-.. "would be a second answer to the same question" , nil ,
-{ help = "remove it; `is` already tests the struct exactly" } )
+( "a %s is identified by what builds it, so a refinement would "
+.. "be a second answer to the same question" )
+: format ( stat . declKind ) , nil ,
+{ help = "put it on an interface this declares with `is`, or "
+.. "remove it" } )
 return
 end
 
 local built , why = predicate . build ( clause . expr )
 if not built then
 c . diag ( "NUPP2122" , clause ,
-( "a 'where' refinement cannot be %s" ) : format ( why ) , nil ,
+( "a refinement cannot be %s" ) : format ( why ) , nil ,
 { help = help } )
 return
 end
@@ -9507,9 +9511,9 @@ end
 local always = predicate . constant ( built )
 if always ~= nil then
 c . diag ( "NUPP2122" , clause , always
-and "this 'where' refinement is always true, so it identifies "
+and "this refinement is always true, so it identifies "
 .. "every value rather than this declaration's"
-or "this 'where' refinement is always false, so nothing can "
+or "this refinement is always false, so nothing can "
 .. "ever be one of these" , nil , { help = help } )
 return
 end
@@ -9525,7 +9529,7 @@ local field = current and current . tag == "nominal"
 and current . byname and current . byname [ segment ] or nil
 if not field then
 c . diag ( "NUPP2122" , clause ,
-( "a 'where' refinement reads %q, which %s does not have" )
+( "a refinement reads %q, which %s does not have" )
 : format ( table . concat ( path , "." , 1 , depth ) , n . name ) ,
 nil , { help = help } )
 ok = false
@@ -10105,10 +10109,25 @@ end
 
 
 
+for _ , e in ipairs ( stat . entries ) do
+if e . kind == "matchesDecl" then
+if n . predicate then
+c . diag ( "NUPP2122" , e ,
+( "%s already declares how it is matched" )
+: format ( n . name ) , nil ,
+{ help = "combine the tests with `and`" } )
+else
+checkRefinement ( stat , n , e )
+end
+end
+end
+
 
 
 if stat . whereClause then
-checkRefinement ( stat , n )
+c . diag ( "NUPP2122" , stat . whereClause ,
+"a refinement is written as a `matches` block in the body" ,
+nil , { help = "write `matches <test> end` among the fields" } )
 end
 checkInheritedRefinements ( stat , n )
 c . popScope ( )
@@ -19440,6 +19459,24 @@ cst.NewExpr = {} cst.NewExpr.__index = cst.NewExpr
 
 
 
+
+
+
+
+
+cst.MatchesDecl = {} cst.MatchesDecl.__index = cst.MatchesDecl
+
+
+
+
+
+
+
+
+
+
+
+
 cst.ConstructorDecl = {} cst.ConstructorDecl.__index = cst.ConstructorDecl
 
 
@@ -19984,6 +20021,7 @@ cst.Tpredicate = {} cst.Tpredicate.__index = cst.Tpredicate
 
 
 cst.Tborrows = {} cst.Tborrows.__index = cst.Tborrows
+
 
 
 
@@ -21911,7 +21949,8 @@ local CONTEXTUAL_KEYWORDS = {
 [ "as" ] = true , borrows = true , cdef = true , constructor = true ,
 exclusive = true , takes = true ,
 const = true , global = true ,
-interface = true , [ "is" ] = true , [ "new" ] = true , own = true , record = true ,
+interface = true , [ "is" ] = true , matches = true , [ "new" ] = true ,
+own = true , record = true ,
 metamethod = true , where = true , with = true ,
 readonly = true , releases = true , retains = true , struct = true ,
 unsafe = true , writeonly = true ,
@@ -24777,10 +24816,12 @@ rule = "A `where` clause names the runtime test that decides whether a "
 .. "same value. Only a provable failure is reported: a refinement "
 .. "whose answer no declaration settles is not evidence of a "
 .. "mistake." ,
-wrong = "local record Circle where tostring(self.kind) == \"circle\"\n"
-.. "    kind: string\nend\n\nreturn Circle\n" ,
-right = "local record Circle where self.kind == \"circle\"\n"
-.. "    kind: string\nend\n\nreturn Circle\n" ,
+wrong = "local interface Circle\n    kind: string\n\n    matches\n"
+.. "        tostring(self.kind) == \"circle\"\n    end\nend\n\n"
+.. "return Circle\n" ,
+right = "local interface Circle\n    kind: string\n\n    matches\n"
+.. "        self.kind == \"circle\"\n    end\nend\n\n"
+.. "return Circle\n" ,
 related = { "NUPP2116" } ,
 docs = "docs/type-system/generics.md" ,
 } ,
@@ -31194,7 +31235,7 @@ complete . completionWords = {
 "and" , "as" , "break" , "cdef" , "const" , "constructor" , "continue" , "do" ,
 "else" , "elseif" , "end" ,
 "false" , "for" , "function" , "global" , "goto" , "if" , "in" ,
-"interface" , "is" , "local" , "new" , "nil" , "not" , "or" , "owned" ,
+"interface" , "is" , "local" , "matches" , "new" , "nil" , "not" , "or" , "owned" ,
 "borrowed" , "borrows" , "exclusive" , "out" , "takes" , "pinned" , "releases" , "retains" ,
 "unsafe" , "with" , "where" , "metamethod" ,
 "record" , "repeat" , "return" , "struct" , "then" , "true" , "type" ,
@@ -32004,7 +32045,8 @@ and child . text == "is" then
 mark ( child , "keyword" )
 end
 end
-elseif kind == "newExpr" or kind == "constructorDecl" then
+elseif kind == "newExpr" or kind == "constructorDecl"
+or kind == "matchesDecl" then
 mark ( node [ 1 ] , "keyword" )
 elseif kind == "whereClause" then
 mark ( node [ 1 ] , "keyword" )
@@ -35192,6 +35234,14 @@ and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "(" then
 e = setmetatable( { kind = "constructorDecl" } , cst.ConstructorDecl)
 add ( e , advance ( ) )
 e . body = add ( e , parseFuncbody ( ) )
+elseif cur ( ) . kind == "name" and cur ( ) . text == "matches"
+and tokens [ i + 1 ] and tokens [ i + 1 ] . kind ~= ":" then
+
+
+e = setmetatable( { kind = "matchesDecl" } , cst.MatchesDecl)
+add ( e , advance ( ) )
+e . expr = add ( e , parseExp ( ) )
+add ( e , expect ( "end" , "to close 'matches'" ) )
 elseif cur ( ) . kind == "name" and cur ( ) . text == "metamethod"
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name" then
 e = setmetatable( { kind = "metamethodDecl" } , cst.MetamethodDecl)
@@ -36787,21 +36837,22 @@ return m
 title = "Refinements" ,
 codes = { "NUPP2122" } ,
 body = [=[
-A declaration may carry a `where` refinement, which names the runtime test that
+An interface may carry a `matches` block, which names the runtime test that
 decides whether a value is one of these. `x is T` compiles to it, so
-`s is Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+`s is m.Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
 
-This is how a declaration answers `is` for values this program did not build —
-a table off a decoder, or anything an untyped library returned. Without a
-refinement a record is identified by the metatable `new` stamps, which such a
-value never received, and an interface has no runtime table at all, so `is` on
-one cannot be compiled without it.
+Only an interface. A record is identified by the metatable `new` stamps and a
+struct by its ctype, so both already answer `is` exactly; a refinement beside
+either would be a second answer to a settled question. An interface has no
+runtime table at all, so this is the only identity it can have — and it is what
+lets a value this program did not build, a table off a decoder or anything an
+untyped library returned, answer `is` at all.
 
 The test runs wherever `is` is written, so it reads the declaration's own fields
 through `self` and nothing else: comparisons against literals, `type()` tests,
 and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
-always answers the same way, or one on a struct — whose ctype already answers
-exactly — is **NUPP2122**.
+always answers the same way, or one on a record or struct is **NUPP2122** — as
+is a declaration whose own fields provably fail an interface it declares.
 ]=] ,
 example = [=[
 local m = {}
@@ -36810,9 +36861,13 @@ interface m.Shape
     kind: string
 end
 
-record m.Circle is m.Shape where self.kind == "circle"
+interface m.Circle is m.Shape
     kind: string
     radius: number
+
+    matches
+        self.kind == "circle"
+    end
 end
 
 function m.area(s: m.Shape): number

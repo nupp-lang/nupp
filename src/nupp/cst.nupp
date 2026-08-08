@@ -1065,6 +1065,24 @@ end
 ---
 --- It has no name and no return type. The instance is made before the body runs
 --- and returned after it, so the body's whole job is to fill the fields in.
+--- `matches ... end` in an interface body: the runtime test for `is`.
+---
+--- An interface has no table to stamp, so this is the only identity it can have.
+--- The expression reads the declaration's own fields through `self`, in a subset
+--- small enough to inline wherever `is` is written.
+record cst.MatchesDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'matchesDecl'
+
+    --- The test.
+    expr: cst.Node?
+
+    --- Annotations written above it.
+    annotations: {cst.Node}?
+end
+
 record cst.ConstructorDecl is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1639,7 +1657,8 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
     | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr
     | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
-    | cst.Vararg | cst.Paren | cst.NewExpr | cst.ConstructorDecl | cst.ErrorExpr
+    | cst.Vararg | cst.Paren | cst.NewExpr | cst.ConstructorDecl
+    | cst.MatchesDecl | cst.ErrorExpr
     | cst.DotIndex | cst.BracketIndex
     | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call
     | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem

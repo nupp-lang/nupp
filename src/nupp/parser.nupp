@@ -1262,6 +1262,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e = new cst.ConstructorDecl {kind = "constructorDecl"}
                 add(e, advance())
                 e.body = add(e, parseFuncbody())
+            elseif cur().kind == "name" and cur().text == "matches"
+                and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
+                -- Contextual: a field named `matches` is followed by a colon,
+                -- because every field states its own type.
+                e = new cst.MatchesDecl {kind = "matchesDecl"}
+                add(e, advance())
+                e.expr = add(e, parseExp())
+                add(e, expect("end", "to close 'matches'"))
             elseif cur().kind == "name" and cur().text == "metamethod"
                 and tokens[i + 1] and tokens[i + 1].kind == "name" then
                 e = new cst.MetamethodDecl {kind = "metamethodDecl"}

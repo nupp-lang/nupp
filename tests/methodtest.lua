@@ -239,13 +239,19 @@ function M.whereRefinementsDecideIsAtRuntime()
       "local interface Shape",
       "   kind: string",
       "end",
-      "local record Circle is Shape where self.kind == 'circle'",
+      "local interface Circle is Shape",
       "   kind: string",
       "   radius: number",
+      "   matches",
+      "      self.kind == 'circle'",
+      "   end",
       "end",
-      "local record Square is Shape where self.kind == 'square'",
+      "local interface Square is Shape",
       "   kind: string",
       "   side: number",
+      "   matches",
+      "      self.kind == 'square'",
+      "   end",
       "end",
       "local function area(s: Shape): number",
       "   if s is Circle then return 3 * s.radius * s.radius end",
@@ -262,8 +268,11 @@ end
 -- could not be compiled at all. A refinement is the answer it can give.
 function M.whereRefinementsGiveAnInterfaceARuntimeIdentity()
    assertEq(run(table.concat({
-      "local interface Tagged where type(self.tag) == 'string'",
+      "local interface Tagged",
       "   tag: string",
+      "   matches",
+      "      type(self.tag) == 'string'",
+      "   end",
       "end",
       "local function describe(v: any): string",
       "   if v is Tagged then return 'tagged ' .. v.tag end",
@@ -277,8 +286,11 @@ end
 -- name is evaluated once and handed to the test.
 function M.aComputedSubjectIsEvaluatedOnce()
    assertEq(run(table.concat({
-      "local interface Tagged where self.tag == 'x'",
+      "local interface Tagged",
       "   tag: string",
+      "   matches",
+      "      self.tag == 'x'",
+      "   end",
       "end",
       "local calls = 0",
       "local function make(): any",
@@ -302,8 +314,11 @@ function M.aRefinementReachesThroughFieldsSafely()
       "local record Mid",
       "   b: Inner",
       "end",
-      "local interface Deep where self.a.b.c == 'x'",
+      "local interface Deep",
       "   a: Mid",
+      "   matches",
+      "      self.a.b.c == 'x'",
+      "   end",
       "end",
    }, "\n")
    -- present, absent halfway, and not a table at all

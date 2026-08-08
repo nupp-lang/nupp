@@ -118,7 +118,7 @@ complete.completionWords = {
     "and", "as", "break", "cdef", "const", "constructor", "continue", "do",
     "else", "elseif", "end",
     "false", "for", "function", "global", "goto", "if", "in",
-    "interface", "is", "local", "new", "nil", "not", "or", "owned",
+    "interface", "is", "local", "matches", "new", "nil", "not", "or", "owned",
     "borrowed", "borrows", "exclusive", "out", "takes", "pinned", "releases", "retains",
     "unsafe", "with", "where", "metamethod",
     "record", "repeat", "return", "struct", "then", "true", "type",

@@ -672,31 +672,83 @@ end
 -- The grammar carries `where`, the formatter keeps it and `nupp doc` renders it
 -- into a signature, and no checker code reads the expression. A constraint that
 -- constrains nothing is worth a diagnostic rather than a footnote.
--- A `where` refinement is the runtime test that decides whether a value is one
--- of these, which is what lets a declaration answer `is` without its values
--- having been built here.
-function M.whereRefinementsAreEnforced()
+-- A refinement is the runtime test that decides whether a value is one of
+-- these. An interface has no table to stamp, so it is the only identity one can
+-- have; a record and a struct already answer `is` exactly, so they may not
+-- carry one.
+function M.refinementsAreEnforced()
    assertClean(table.concat({
-      "local record Circle where self.kind == 'circle'",
+      "local interface Circle",
       "   kind: string",
       "   radius: number",
+      "   matches",
+      "      self.kind == 'circle'",
+      "   end",
       "end",
    }, "\n"))
-   -- an interface has no runtime table at all, so this is its only answer
    assertClean(table.concat({
-      "local interface Tagged where type(self.tag) == 'string'",
+      "local interface Tagged",
       "   tag: string",
+      "   matches",
+      "      type(self.tag) == 'string'",
+      "   end",
       "end",
    }, "\n"))
    -- and it composes the way a test does
    assertClean(table.concat({
-      "local record Both where self.a == 1 and (self.b or not self.c)",
+      "local interface Both",
       "   a: integer",
       "   b: boolean",
       "   c: boolean",
+      "   matches",
+      "      self.a == 1 and (self.b or not self.c)",
+      "   end",
       "end",
    }, "\n"))
    assertClean("local record Even\n   n: integer\nend")
+   -- `matches` stays contextual: a field may still be called one
+   assertClean("local record F\n   matches: string\nend")
+end
+
+-- A record's identity is the metatable `new` stamps and a struct's is its
+-- ctype. A refinement beside either would be a second answer to a settled
+-- question, and which answer `is R` gave would depend on whether a body
+-- happened to carry one.
+function M.onlyAnInterfaceCarriesARefinement()
+   assertEq((diagsOf(table.concat({
+      "local record R",
+      "   kind: string",
+      "   matches",
+      "      self.kind == 'r'",
+      "   end",
+      "end",
+   }, "\n"))), "NUPP2122:3")
+   assertEq((diagsOf(table.concat({
+      "local struct S",
+      "   n: int32",
+      "   matches",
+      "      self.n == 1",
+      "   end",
+      "end",
+   }, "\n"))), "NUPP2122:3")
+   -- one per declaration
+   assertEq((diagsOf(table.concat({
+      "local interface J",
+      "   n: integer",
+      "   matches",
+      "      self.n == 1",
+      "   end",
+      "   matches",
+      "      self.n == 2",
+      "   end",
+      "end",
+   }, "\n"))), "NUPP2122:6")
+   -- and the clause that used to sit in the head says where it went
+   assertEq((diagsOf(table.concat({
+      "local interface I where self.n == 1",
+      "   n: integer",
+      "end",
+   }, "\n"))), "NUPP2122:1")
 end
 
 -- Each rejection names what was written rather than pointing at a list of what
@@ -707,18 +759,24 @@ end
 -- disagree about the same value and nothing at either site shows it.
 function M.aDeclarationIsHeldToTheRefinementsItInherits()
    assertEq((diagsOf(table.concat({
-      "local interface Shape where self.kind == 'shape'",
+      "local interface Shape",
       "   kind: string",
+      "   matches",
+      "      self.kind == 'shape'",
+      "   end",
       "end",
       "local record Circle is Shape",
       "   kind: 'circle'",
       "   radius: number",
       "end",
-   }, "\n"))), "NUPP2122:4")
+   }, "\n"))), "NUPP2122:7")
    -- a tag that agrees is fine
    assertClean(table.concat({
-      "local interface Shape where self.kind == 'circle'",
+      "local interface Shape",
       "   kind: string",
+      "   matches",
+      "      self.kind == 'circle'",
+      "   end",
       "end",
       "local record Circle is Shape",
       "   kind: 'circle'",
@@ -726,8 +784,11 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
    }, "\n"))
    -- so is a type test the declared field satisfies
    assertClean(table.concat({
-      "local interface Shape where type(self.kind) == 'string'",
+      "local interface Shape",
       "   kind: string",
+      "   matches",
+      "      type(self.kind) == 'string'",
+      "   end",
       "end",
       "local record Circle is Shape",
       "   kind: 'circle'",
@@ -735,8 +796,11 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
    }, "\n"))
    -- and a field no declaration settles decides nothing either way
    assertClean(table.concat({
-      "local interface Open where self.n == 1",
+      "local interface Open",
       "   n: integer",
+      "   matches",
+      "      self.n == 1",
+      "   end",
       "end",
       "local record Any is Open",
       "   n: integer",
@@ -744,30 +808,29 @@ function M.aDeclarationIsHeldToTheRefinementsItInherits()
    }, "\n"))
 end
 
-function M.whereRefinementsRejectWhatCannotBeEnforced()
+function M.refinementsRejectWhatCannotBeEnforced()
+   local function refuses(test)
+      return (diagsOf(table.concat({
+         "local interface I",
+         "   n: integer",
+         "   matches",
+         "      " .. test,
+         "   end",
+         "end",
+      }, "\n")))
+   end
    -- arithmetic reaches nothing about the value
-   assertEq((diagsOf("local record Odd where 1 + 1 == 3\n   n: integer\nend")),
-      "NUPP2122:1")
-   -- a struct already answers `is` exactly, through its ctype
-   assertEq((diagsOf("local struct S where false\n   x: float\nend")),
-      "NUPP2122:1")
+   assertEq(refuses("1 + 1 == 3"), "NUPP2122:3")
    -- a constant decides nothing: this one says yes to every value
-   assertEq((diagsOf("local interface I where true\n   n: integer\nend")),
-      "NUPP2122:1")
+   assertEq(refuses("true"), "NUPP2122:3")
    -- and this one says no to all of them
-   assertEq((diagsOf("local record N where false\n   n: integer\nend")),
-      "NUPP2122:1")
+   assertEq(refuses("false"), "NUPP2122:3")
    -- a field the declaration does not have compiles to a test never true
-   assertEq((diagsOf(
-      "local record M where self.nope == 'x'\n   n: integer\nend")),
-      "NUPP2122:1")
+   assertEq(refuses("self.nope == 'x'"), "NUPP2122:3")
    -- a call cannot be made where `is` is written
-   assertEq((diagsOf(
-      "local record C where tostring(self.n) == '1'\n   n: integer\nend")),
-      "NUPP2122:1")
+   assertEq(refuses("tostring(self.n) == '1'"), "NUPP2122:3")
    -- nor can anything outside the subject be read
-   assertEq((diagsOf(
-      "local record O where other == 1\n   n: integer\nend")), "NUPP2122:1")
+   assertEq(refuses("other == 1"), "NUPP2122:3")
 end
 
 return M
