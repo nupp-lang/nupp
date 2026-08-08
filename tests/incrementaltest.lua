@@ -249,4 +249,55 @@ function M.removingGlobalOverlayInvalidatesDependents()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A bundled module is loaded when something asks for it. Together they cost
+-- about as much as the prelude, and a file that does not require `ffi` is not
+-- made any more correct by the compiler having worked out what `ffi` would
+-- have meant. Both halves matter and only one of them is obvious: the loading
+-- has to be lazy, and it also has to happen at most once either way, because
+-- the miss is what an ordinary unresolved name hits on every lookup.
+function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
+   local envMod = require("nupp.env")
+   local check = require("nupp.check")
+   local checked = {}
+   local original = check.check
+   check.check = function(result, filename, ...)
+      checked[filename] = (checked[filename] or 0) + 1
+      return original(result, filename, ...)
+   end
+
+   local dir = "/tmp/nupp-lazy-decls-" .. tostring(os.time())
+   os.execute("mkdir -p '" .. dir .. "'")
+
+   -- Whatever happens, the checker goes back. Counting what gets checked
+   -- means replacing `check.check` for the length of this test, and a failure
+   -- part way through used to leave the replacement installed for every test
+   -- after it -- which does not read as this test's fault when the suite
+   -- crashes four tests later.
+   local ok, err = pcall(function()
+      local env = envMod.new(dir, {cache = false})
+      assertEq(checked["ffi"], nil, "building an environment does not check ffi")
+      assertEq(checked["cjson"], nil, "nor cjson")
+      assertEq(checked["nupp.std.zone"], nil, "nor the standard library")
+
+      -- Asking is what loads it, and asking twice does not check it twice.
+      assert(env.bundled["ffi"], "ffi is still there when wanted")
+      assertEq(checked["ffi"], 1, "asking for ffi checks it")
+      assert(env.bundled["ffi"], "and it is still there the second time")
+      assertEq(checked["ffi"], 1, "asking again does not check it again")
+      assertEq(checked["cjson"], nil, "and does not drag the others in")
+
+      -- A name nothing bundles is remembered as absent rather than looked for
+      -- again, which is what every unresolved name in a project would
+      -- otherwise do on every lookup.
+      assertEq(env.bundled["not.a.bundled.module"], false,
+         "an unbundled name is absent, not a failure")
+      assertEq(rawget(env.bundled, "not.a.bundled.module"), false,
+         "and the absence is remembered")
+   end)
+
+   check.check = original
+   os.execute("rm -rf '" .. dir .. "'")
+   if not ok then error(err, 0) end
+end
+
 return M
