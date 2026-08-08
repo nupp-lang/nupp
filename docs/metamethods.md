@@ -45,11 +45,11 @@ callable metatable after the record has been declared:
 local interface Event
     eventId: integer
     init: function(instance: self, ...: any)
+    metamethod __call: function(self, ...: any): self
 end
 
 local record OnSpawn is Event
     entity: integer
-    metamethod __call: function(self, entity: integer): self
 end
 
 OnSpawn.init = function(instance: OnSpawn, entity: integer)
@@ -73,14 +73,55 @@ newEvent(OnSpawn)
 local spawned: OnSpawn = OnSpawn(42)
 ```
 
-The body of `newEvent` remains gradual where it builds a metatable for generic
-`E`. The bound still checks every call to `newEvent`, and the concrete
-`OnSpawn` declaration checks calls made after registration.
+The contract sits on `Event` rather than on `OnSpawn`, so `newEvent` checks its
+own body: the metatable it builds is a `metatable<E>`, and `E`'s bound says what
+`__call` has to be. Putting the contract on the concrete record instead leaves
+the registrar unchecked and only its call sites held to anything.
 
 Records retain their existing runtime namespace table. `new R {...}` stamps that
 table as the instance metatable, and the table carries `__index = R` for
 ordinary method lookup. A metamethod contract does not add a field to that
 namespace and does not change this lowering.
+
+Because that table *is* the metatable, writing a declared metamethod on it is
+how a contract is fulfilled without `setmetatable` at all, and the value is held
+to the contract there too:
+
+```nupp
+local record I64
+    v: integer
+    metamethod __tostring: function(self): string
+end
+
+I64.__tostring = function(self: I64): string
+    return "I64(" .. tostring(self.v) .. ")"
+end
+```
+
+## What a metatable literal is checked for
+
+Wherever a table literal meets a `metatable<T>` — an argument to `setmetatable`
+or to any function declaring one, and a binding or assignment under a
+`metatable<T>` annotation — each of its `__` keys is checked:
+
+| Key | Held to |
+| --- | --- |
+| one `T` contracts for | the declared contract, `self` specialized to `T` |
+| `__mode` | a string |
+| `__index`, `__newindex` | a table to defer to, or a function to run |
+| any other key LuaJIT knows | a function, since LuaJIT calls it |
+| a `__` name LuaJIT does not know | reported as a misspelling, with the repair |
+
+A table written directly under `__index` is what instances read their members
+through, so an entry naming a declared member is held to what the declaration
+says it is. A name the declaration does not have is an ordinary helper, and a
+member the table leaves out may still be assigned afterwards; neither is
+reported.
+
+All of this is **NUPP2123** except the misspelling, which stays **NUPP2118**.
+
+Only literals are checked. Nothing here can see what a function returns, so
+`setmetatable(t, buildIt())` stays gradual.
 
 ## Supported contracts
 
