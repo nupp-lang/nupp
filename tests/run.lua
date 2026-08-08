@@ -3,8 +3,9 @@
 --
 -- With --json it reports the same run as one document: a record per test with
 -- where it is defined, how long it took, and — when it failed — the message and
--- the file and line the error came from. Lines are 1-based, as everywhere else;
--- a Lua error carries no column, so none is invented.
+-- the file and line the error came from. Standard output and error from a test
+-- are held back unless it fails or --verbose asks for them. Lines are 1-based,
+-- as everywhere else; a Lua error carries no column, so none is invented.
 local dir = arg[0]:match("^(.*)[/\\]") or "."
 package.path = dir .. "/../build/?.lua;" .. dir .. "/?.lua;" .. package.path
 local test = require("assert")
@@ -15,12 +16,85 @@ local test = require("assert")
 assert = test.assert
 
 local asJson = false
+local verbose = false
 local only = nil
 for _, argument in ipairs(arg) do
    if argument == "--json" then
       asJson = true
+   elseif argument == "--verbose" then
+      verbose = true
    elseif argument:sub(1, 1) ~= "-" then
       only = argument
+   end
+end
+
+-- Tests often run a command specifically to make it print a diagnostic. Lua's
+-- `io.output` cannot capture that command's inherited descriptors, so redirect
+-- the descriptors themselves. The runner keeps duplicates for its own progress
+-- marks, which must stay visible while a test owns the usual stdout and stderr.
+local capture
+local progressWrite
+do
+   local loaded, ffi = pcall(require, "ffi")
+   if loaded and ffi.os ~= "Windows" then
+      ffi.cdef[[
+         int dup(int);
+         int dup2(int, int);
+         int open(const char *, int, int);
+         int close(int);
+         int fflush(void *);
+         long write(int, const void *, unsigned long);
+      ]]
+      local C = ffi.C
+      local create = ffi.os == "OSX" and 0x200 or 0x40
+      local truncate = ffi.os == "OSX" and 0x400 or 0x200
+      local statusFd = C.dup(asJson and 2 or 1)
+
+      progressWrite = function(text)
+         C.write(statusFd, text, #text)
+      end
+
+      local function flush()
+         io.stdout:flush(); io.stderr:flush(); C.fflush(nil)
+      end
+
+      local function read(path)
+         local f = assert(io.open(path, "rb"), "cannot read captured test output")
+         local text = f:read("*a")
+         f:close()
+         os.remove(path)
+         return text
+      end
+
+      capture = function(run)
+         local outPath, errPath = os.tmpname(), os.tmpname()
+         flush()
+         local savedOut, savedErr = C.dup(1), C.dup(2)
+         local out = C.open(outPath, 1 + create + truncate, 384)
+         local err = C.open(errPath, 1 + create + truncate, 384)
+         assert(savedOut >= 0 and savedErr >= 0 and out >= 0 and err >= 0,
+            "cannot capture test output")
+         assert(C.dup2(out, 1) >= 0 and C.dup2(err, 2) >= 0,
+            "cannot redirect test output")
+         C.close(out); C.close(err)
+         local ok, problem = pcall(run)
+         flush()
+         assert(C.dup2(savedOut, 1) >= 0 and C.dup2(savedErr, 2) >= 0,
+            "cannot restore test output")
+         C.close(savedOut); C.close(savedErr)
+         return ok, problem, read(outPath), read(errPath)
+      end
+   else
+      -- The runner remains useful on a LuaJIT without descriptor access, but a
+      -- host that cannot redirect descriptors cannot hide child-process output.
+      progressWrite = function(text)
+         local stream = asJson and io.stderr or io.stdout
+         stream:write(text); stream:flush()
+      end
+      capture = function(run)
+         local ok, problem = pcall(run)
+         return ok, problem, "", ""
+      end
    end
 end
 
@@ -84,17 +158,33 @@ end
 local results = {}
 local total, passed, failed, skipped = 0, 0, 0, 0
 local started = now()
-local progress = asJson and io.stderr or io.stdout
 local progressWidth = 0
 
 local function mark(symbol)
-   progress:write(symbol)
-   progress:flush()
+   progressWrite(symbol)
    progressWidth = progressWidth + 1
    if progressWidth == 80 then
-      progress:write("\n")
+      progressWrite("\n")
       progressWidth = 0
    end
+end
+
+local function captured(record)
+   local output = record.output
+   if not output or (output.stdout == "" and output.stderr == "") then return "" end
+   local lines = {"\n  Output from " .. record.suite .. " / " .. record.name .. ":\n"}
+   if output.stdout ~= "" then lines[#lines + 1] = "    stdout:\n" .. output.stdout end
+   if output.stderr ~= "" then lines[#lines + 1] = "    stderr:\n" .. output.stderr end
+   if lines[#lines]:sub(-1) ~= "\n" then lines[#lines + 1] = "\n" end
+   return table.concat(lines)
+end
+
+local function showCaptured(record)
+   local text = captured(record)
+   if text == "" then return end
+   local stream = asJson and io.stderr or io.stdout
+   stream:write(text)
+   stream:flush()
 end
 
 for _, mod in ipairs(names) do
@@ -106,7 +196,7 @@ for _, mod in ipairs(names) do
       total = total + 1
       local file, line = definedAt(suite[name])
       local before = now()
-      local ok, err = pcall(suite[name])
+      local ok, err, stdout, stderr = capture(suite[name])
       local elapsed = now() - before
       local record = {suite = mod, name = name, file = file, line = line,
          durationMs = elapsed, status = ok and "passed" or "failed"}
@@ -122,14 +212,19 @@ for _, mod in ipairs(names) do
          failed = failed + 1
          local message, errFile, errLine = errorPosition(err)
          record.failure = {message = message, file = errFile, line = errLine}
+         record.output = {stdout = stdout, stderr = stderr}
          mark("E")
+      end
+      if verbose then
+         record.output = record.output or {stdout = stdout, stderr = stderr}
+         showCaptured(record)
       end
       results[#results + 1] = record
    end
 end
 local duration = now() - started
 
-if progressWidth ~= 0 then progress:write("\n") end
+if progressWidth ~= 0 then progressWrite("\n") end
 
 if asJson then
    local json = require("cjson").new()
@@ -145,6 +240,7 @@ else
          if record.status == "failed" then
             io.write(("\n  %s / %s\n      %s\n"):format(record.suite,
                record.name, record.failure.message))
+            io.write(captured(record))
          end
       end
    end

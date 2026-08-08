@@ -3,6 +3,7 @@
 ```bash
 nupp test
 nupp test --json
+nupp test --verbose
 nupp test sometest        # extra arguments reach the test command
 ```
 
@@ -51,6 +52,8 @@ consequences:
   a test argument literally named `--help`.
 - `--json` is passed along rather than interpreted, so the test command decides
   what it means.
+- `--verbose` asks this repository's runner to print output captured from every
+  test. Without it, output is shown only for failures.
 
 ## JSON output
 
@@ -72,9 +75,9 @@ for. The shape is a summary plus a record per test:
 }
 ```
 
-A failing record carries the message and the file and line the error came from.
-Lines are 1-based, as everywhere else; a Lua error carries no column, so none
-is invented.
+A failing record carries the message and the file and line the error came from,
+plus its captured `output.stdout` and `output.stderr`. Lines are 1-based, as
+everywhere else; a Lua error carries no column, so none is invented.
 
 ## This repository's suite
 
@@ -82,7 +85,8 @@ The compiler's own tests are a dependency-free runner: `tests/run.lua` loads
 every `tests/*test.lua`, calls every function in the table each returns, and
 prints `.` for a pass, `S` for a skip, and `E` for a failure while it runs.
 Its summary reports every outcome and elapsed time. With `--json`, progress is
-written to stderr and the one JSON document remains clean on stdout.
+written to stderr and the one JSON document remains clean on stdout. Output
+from passing tests is captured; it is printed for failures or with `--verbose`.
 
 ```bash
 ./bin/nupp test              # everything

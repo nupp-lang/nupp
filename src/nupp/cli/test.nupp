@@ -18,6 +18,8 @@ local command = spec.command{
         {name = "--json",
         help = "Ask the test command for one JSON document instead of "
         .. "progress text"},
+        {name = "--verbose",
+        help = "Ask the test command to show output from passing tests"},
         spec.helpOption,
     },
     schema = {
@@ -61,6 +63,15 @@ local command = spec.command{
                                 .. "no column, so none is reported."},
                             },
                             required = {"message"},
+                        },
+                        output = {
+                            type = "object",
+                            description = "Captured output from a failed test.",
+                            properties = {
+                                stdout = {type = "string"},
+                                stderr = {type = "string"},
+                            },
+                            required = {"stdout", "stderr"},
                         },
                         skip = {
                             type = "object",
