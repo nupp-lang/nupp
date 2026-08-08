@@ -529,4 +529,58 @@ return res
    end)
 end
 
+-- A constructor rides the nominal, which is the road a metamethod contract
+-- already travels, and lands on the record's runtime table, which is the one
+-- thing about a record that a consuming module already reaches. Nothing is
+-- registered and nothing is looked up by name at run time.
+function M.aConstructorCrossesAModuleBoundary()
+   withProject({
+      ["src/model.nupp"] = [[
+local model = {}
+
+record model.Account
+    name: string
+    balance: number
+
+    constructor(name: string, opening: number)
+        self.name = name
+        self.balance = opening
+    end
+end
+
+return model
+]],
+      ["src/use.nupp"] = [[
+local model = require("model")
+
+local a = new model.Account("Ada", 42)
+
+return a.balance
+]],
+   }, function(dir)
+      local env = projectEnv(dir)
+      local path = dir .. "/src/use.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      assertEq(#parsed.errors, 0, "the consumer parses")
+      local diags = check.check(parsed, path, env)
+      assertEq(#diags, 0, "the consumer checks: "
+         .. (diags[1] and diags[1].msg or ""))
+
+      local gen = require("nupp.gen")
+      local code = gen.generate(parsed, path)
+      assert(code:find("model.Account.__nuppCtor", 1, true),
+         "the call resolves to the minted constructor: " .. code)
+
+      -- and the wrong arguments are still the consumer's problem
+      local badPath = dir .. "/src/use.nupp"
+      local bad = parser.parse(
+         'local model = require("model")\n'
+         .. 'local a = new model.Account(1, 2)\n'
+         .. "return a.balance\n", badPath)
+      local badDiags = check.check(bad, badPath, projectEnv(dir))
+      assertEq(badDiags[1] and badDiags[1].code, "NUPP2006",
+         "a constructor's parameters are checked across the boundary")
+   end)
+end
+
 return M

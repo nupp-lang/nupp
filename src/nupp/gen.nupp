@@ -136,6 +136,12 @@ CP = C_PRIM
 -- out as it was read.
 local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
 
+-- Where a constructor lands on a record's runtime table. It has to be reachable
+-- from a call in another module, and that table is the one thing about a record
+-- that already crosses; a registry keyed by name would be a link step the
+-- language does not have. The prefix keeps it out of the way of declared fields.
+local CONSTRUCTOR_MEMBER = "__nuppCtor"
+
 -- `is` targets checkable with type(); sized numerics approximate to number.
 local IS_TYPE = {
     string = "string", number = "number", boolean = "boolean",
@@ -446,6 +452,9 @@ function gen.generate(result, filename)
                     entry.recordRuntimeName = runtimeName .. "." .. entry.name.text
                     emit(entry)
                 elseif entry.kind == "inlineMethod" then
+                    entry.inlineRuntimeOwner = runtimeName
+                    emit(entry)
+                elseif entry.kind == "constructorDecl" then
                     entry.inlineRuntimeOwner = runtimeName
                     emit(entry)
                 end
@@ -1014,6 +1023,15 @@ function gen.generate(result, filename)
             if x.call then emit(x.call) end
             return
 
+        elseif (kind == "call" or kind == "safeCall") and x.constructorCall then
+            -- A declared constructor is a direct call to the function minted for
+            -- it, resolved here rather than dispatched at run time.
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            e(x.constructorCall .. "." .. CONSTRUCTOR_MEMBER, line)
+            if x.args then emit(x.args) end
+            return
+
         elseif (kind == "call" or kind == "safeCall") and x.recordConstruct then
             -- R{...} builds an ordinary table carrying R as its metatable
             local first = x[1]
@@ -1024,6 +1042,46 @@ function gen.generate(result, filename)
                 emit(tbl)
             end
             e(", " .. x.recordConstruct .. ")")
+            return
+
+        elseif kind == "constructorDecl" and x.inlineRuntimeOwner then
+            -- The instance is made before the body runs and returned after it,
+            -- so the body only fills fields in. Both halves sit on the lines the
+            -- `constructor` and its `end` already occupy, which is what keeps the
+            -- generated file's line count equal to the source's.
+            local body = x.body
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            local names = {}
+            for _, p in ipairs(body.params or {}) do
+                if p.namedVararg then
+                    names[#names + 1] = "..."
+                elseif p.name then
+                    names[#names + 1] = p.name.text
+                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                    names[#names + 1] = "..."
+                end
+            end
+            local owner = x.inlineRuntimeOwner
+            e(("function %s.%s(%s) local self = setmetatable({}, %s)")
+                :format(owner, CONSTRUCTOR_MEMBER, table.concat(names, ", "),
+                owner), line)
+            if body.varargParam then
+                e(("const %s = { n = select(\"#\", ...), ... }")
+                    :format(body.varargParam.name.text))
+            end
+            emitFunctionDepth = emitFunctionDepth + 1
+            if body.body then emit(body.body) end
+            emitFunctionDepth = emitFunctionDepth - 1
+            local endTok
+            for j = #body, 1, -1 do
+                local child = body[j]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("return self end", endTok and endTok.line or nil)
             return
 
         elseif kind == "inlineMethod" and x.inlineRuntimeOwner then

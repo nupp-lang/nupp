@@ -150,6 +150,12 @@ interface cst.Hints
     --- rather than an ordinary call reaching `__call` or a ctype.
     isNew: boolean?
 
+    --- The runtime path of a record whose declared constructor this call runs.
+    constructorCall: string?
+
+    --- The nominal a constructor body belongs to.
+    ownerNominal: any
+
     --- Set once a `new` operand has been answered as a type, so the call does not
     --- answer for it a second time as a value.
     newReported: boolean?
@@ -1055,6 +1061,26 @@ record cst.NewExpr is cst.Hints
     call: cst.Node?
 end
 
+--- `constructor(...) ... end` in a declaration body: what `new T(...)` runs.
+---
+--- It has no name and no return type. The instance is made before the body runs
+--- and returned after it, so the body's whole job is to fill the fields in.
+record cst.ConstructorDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'constructorDecl'
+
+    --- The parameter list and body.
+    body: cst.Node?
+
+    --- Annotations written above it.
+    annotations: {cst.Node}?
+
+    --- The runtime name the generator minted for it.
+    constructorName: string?
+end
+
 --- An expression the parser could not make sense of.
 record cst.ErrorExpr is cst.Hints
     {cst.Node | lexer.Token}
@@ -1613,8 +1639,8 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
     | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr
     | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
-    | cst.Vararg | cst.Paren | cst.NewExpr | cst.ErrorExpr | cst.DotIndex
-    | cst.BracketIndex
+    | cst.Vararg | cst.Paren | cst.NewExpr | cst.ConstructorDecl | cst.ErrorExpr
+    | cst.DotIndex | cst.BracketIndex
     | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call
     | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem
     | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr

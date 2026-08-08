@@ -197,6 +197,14 @@ still hugs.
 `local p: Point` declares storage and constructs nothing, so it holds nil until
 something assigns to it and reading it before that is **NUPP2207**.
 
+A declaration may state how it is built. A `constructor(...)` body is what
+`new T(...)` runs: the instance is made before it and returned after it, so the
+body fills the fields in. Every field that cannot hold nil has to be filled —
+that guarantee is the reason to prefer one over a literal, and it is why
+declaring a constructor closes the literal form for that declaration. Failing
+either is **NUPP2208**. `constructor` is contextual, so a field may still be
+called one.
+
 One explicit type per field: grouped names are rejected.
 
 ```nupp
@@ -213,13 +221,25 @@ record m.Point
     end
 end
 
+--- A point on a line through the origin.
+record m.Diagonal
+    x: integer
+    y: integer
+
+    constructor(at: integer)
+        self.x = at
+        self.y = at
+    end
+end
+
+local corner = new m.Diagonal(3)
 local origin = new m.Point {x = 0, y = 0}
 local d = origin:lengthSquared()
 
 return m
 ```
 
-Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`, `NUPP2207`. `nupp explain <code>` says more.
+Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`, `NUPP2207`, `NUPP2208`. `nupp explain <code>` says more.
 
 ## Interfaces
 
@@ -718,6 +738,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |
+| NUPP2208 | A constructor does not hold up its declaration |
 
 ## Working with the toolchain
 

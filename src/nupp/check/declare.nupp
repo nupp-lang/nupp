@@ -103,6 +103,84 @@ function declare.install(c: any, reifiableField: any, fix: any,
         n.predicate = built
     end
 
+    --- Every field the body assigns through `self`, anywhere inside it.
+    ---
+    --- Anywhere is deliberate. A field set in one arm of an `if` and not the
+    --- other counts as assigned, which under-reports rather than refusing a
+    --- constructor that is in fact correct — the same direction the unassigned
+    --- binding check takes, and for the same reason.
+    local function assignedFields(node: any, out: any): any
+        out = out or {}
+        if not node or cst.isToken(node) then return out end
+        if node.kind == "assignStmt" then
+            for _, target in ipairs(node.targets or {}) do
+                local base = target.obj
+                if target.kind == "dotIndex" and base and base.kind == "name"
+                    and base.token and base.token.text == "self"
+                    and target.name then
+                    out[target.name.text] = true
+                end
+            end
+        end
+        for _, child in ipairs(node) do assignedFields(child, out) end
+        return out
+    end
+
+    --- Checks a `constructor(...)` body and records it on the declaration.
+    ---
+    --- The instance exists before the body runs and is returned after it, so the
+    --- body has one job: put a value in every field that cannot hold nil. That
+    --- is the whole reason a constructor is worth having over a literal — a
+    --- literal may leave a declared field out, and a constructor may not.
+    local function checkConstructor(e: any, n: any, stat: any)
+        if stat.declKind == "interface" then
+            c.diag("NUPP2208", e,
+                "an interface declares a contract and builds nothing, so it "
+                .. "cannot carry a constructor", nil,
+                {help = "put the constructor on the records that declare it"})
+            return
+        end
+        if e.body and e.body.rets and #e.body.rets > 0 then
+            c.diag("NUPP2208", e.body.rets[1],
+                "a constructor returns the value it builds, so it declares no "
+                .. "return type", nil, {help = "remove the return annotation"})
+        end
+        if n.constructors and #n.constructors > 0 then
+            c.diag("NUPP2208", e,
+                ("%s already declares a constructor"):format(n.name), nil,
+                {help = "one constructor for now; overloads arrive with "
+                .. "intersection types"})
+            return
+        end
+
+        local ft = c.checkFuncbody(e.body, n)
+        c.raises.check(e, e.body)
+
+        -- Every declared field that cannot hold nil has to be filled, or the
+        -- value the constructor hands back does not match its own declaration.
+        local assigned = assignedFields(e.body)
+        local missing = {}
+        for _, name in ipairs(n.fieldOrder or {}) do
+            local ft2 = n.byname[name]
+            if ft2 and ft2.tag ~= "func" and not assigned[name]
+                and not isA(T.nil_, ft2) then
+                missing[#missing + 1] = name
+            end
+        end
+        if #missing > 0 then
+            c.diag("NUPP2208", e,
+                ("this constructor leaves %s unset, and %s cannot hold nil")
+                :format(table.concat(missing, ", "),
+                #missing == 1 and "it" or "they"), nil,
+                {help = "assign every field, or declare the ones that may be "
+                .. "absent as optional"})
+        end
+
+        n.constructors = n.constructors or {}
+        n.constructors[#n.constructors + 1] = ft
+        e.ownerNominal = n
+    end
+
     c.declaredNominal = function(stat, kind)
         local t, projectEntry = nil, nil
         if c.env and c.env.declarationType then
@@ -483,6 +561,8 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         c.markToken(e.name, c.definition(e.name, "method"), mt,
                             "method")
                     end
+                elseif e.kind == "constructorDecl" then
+                    checkConstructor(e, n, stat)
                 elseif e.kind == "inlineMethod" then
                     local isDisposer = false
                     for _, application in ipairs(e.annotations or {}) do

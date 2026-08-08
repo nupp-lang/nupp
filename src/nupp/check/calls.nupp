@@ -348,6 +348,39 @@ function calls.install(c: any): any
                 and args[1].kind == "tableExpr" then
                 tbl = args[1]
             end
+            -- A declaration that states how it is built is built that way and no
+            -- other. Leaving the literal open beside a constructor would let
+            -- every invariant the constructor establishes be walked around, which
+            -- is the whole of what it is for.
+            local constructors = calleeT.constructors
+            if constructors and #constructors > 0 then
+                local named = c.pathKey(node.obj) or calleeT.name
+                if tbl then
+                    c.diag("NUPP2208", node,
+                        ("%s declares a constructor, so it is built by calling "
+                        .. "it"):format(named), nil,
+                        {help = ("write new %s(...) with the constructor's "
+                        .. "arguments"):format(named)})
+                    -- The fields were the wrong shape of argument, not a wrong
+                    -- one; holding them to the constructor's parameters as well
+                    -- would say the same thing twice.
+                    c.infer(tbl)
+                    return calleeT, {calleeT}
+                end
+                node.constructorCall = named
+                -- The construction is settled here. What follows is an ordinary
+                -- application of the constructor's signature, and re-entering
+                -- with `new` still set would ask this same node whether it can
+                -- be constructed a second time.
+                node.isNew = nil
+                local signature = constructors[1]
+                local built = T.func(signature.params, {calleeT},
+                    signature.vararg, signature.paramModes, nil,
+                    signature.typeParams, signature.typeBounds, nil, nil, nil,
+                    nil, signature.varargType)
+                local first, rets = ops.inferCall(node, built, argsNode)
+                return first, rets
+            end
             local genericMap = calleeT.typeParams and {} or nil
             if tbl and calleeT.declKind == "record" then
                 -- tell the generator to stamp the metatable

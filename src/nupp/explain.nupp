@@ -266,6 +266,27 @@ local ENTRIES: {any} = {
         related = {"NUPP2202", "NUPP2206"},
         docs = "docs/reference.md#records",
     },
+    {
+        code = "NUPP2208",
+        summary = "A constructor does not hold up its declaration",
+        rule = "A `constructor(...)` body is what `new T(...)` runs. The "
+            .. "instance is made before it and returned after it, so its whole "
+            .. "job is to fill the fields in — and every field that cannot hold "
+            .. "nil has to be filled, or the value handed back does not match "
+            .. "the declaration it claims. That guarantee is the reason to "
+            .. "prefer a constructor over a literal, so declaring one closes "
+            .. "the literal form for that declaration. An interface builds "
+            .. "nothing and cannot carry one, and there is one constructor per "
+            .. "declaration until overloads arrive with intersection types.",
+        wrong = "local record Account\n    name: string\n    balance: number\n"
+            .. "\n    constructor(name: string)\n        self.name = name\n"
+            .. "    end\nend\n\nreturn Account\n",
+        right = "local record Account\n    name: string\n    balance: number\n"
+            .. "\n    constructor(name: string)\n        self.name = name\n"
+            .. "        self.balance = 0\n    end\nend\n\nreturn Account\n",
+        related = {"NUPP2202", "NUPP2207"},
+        docs = "docs/reference.md#records",
+    },
 }
 
 local byCode: {[string]: any} = {}

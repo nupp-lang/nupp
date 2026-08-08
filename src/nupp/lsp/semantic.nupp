@@ -74,7 +74,7 @@ function semantic.syntaxKinds(result)
                     mark(child, "keyword")
                 end
             end
-        elseif kind == "newExpr" then
+        elseif kind == "newExpr" or kind == "constructorDecl" then
             mark(node[1], "keyword")
         elseif kind == "whereClause" then
             mark(node[1], "keyword")

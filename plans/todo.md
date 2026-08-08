@@ -37,6 +37,12 @@ work makes sense in.
       overload-only type construct unless intersections prove unable to give
       declaration files, the prelude, metamethods, and host APIs precise call
       surfaces.
+
+      A declaration now carries at most one `constructor`, and NUPP2208 says a
+      second waits on this. Overloaded construction is the first user: the set
+      is a callable intersection, `new T(...)` selects from it statically, and a
+      call site emits a direct call to the function minted for the winner, so
+      nothing is dispatched at run time.
 - [ ] **First-class type packs and variadic generics**
       ([design](type-packs.md)). Represent function
       parameters and results as value sequences rather than ordinary tuple

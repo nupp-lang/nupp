@@ -290,6 +290,104 @@ function M.aComputedSubjectIsEvaluatedOnce()
    }, "\n")), 11)
 end
 
+-- A constructor is the whole reason `new` is worth having over a literal: a
+-- literal may leave a declared field out, and a constructor may not.
+function M.constructorsRunAndFillEveryField()
+   assertEq(run(table.concat({
+      "local record Account",
+      "    name: string",
+      "    balance: number",
+      "    constructor(name: string, opening: number)",
+      "        self.name = name",
+      "        self.balance = opening",
+      "    end",
+      "    function deposit(credit: number)",
+      "        self.balance = self.balance + credit",
+      "    end",
+      "end",
+      "local a = new Account('Hina', 500)",
+      "a:deposit(20)",
+      "return a.balance",
+   }, "\n")), 520)
+   -- the instance is a real one: `is` still answers through the metatable
+   assertEq(run(table.concat({
+      "local record R",
+      "    n: integer",
+      "    constructor(v: integer)",
+      "        self.n = v",
+      "    end",
+      "end",
+      "local r = new R(7)",
+      "return (r is R) and r.n or 0",
+   }, "\n")), 7)
+end
+
+function M.constructorsRefuseWhatTheyCannotGuarantee()
+   -- a field that cannot hold nil has to be filled
+   assertEq(diagsOf(table.concat({
+      "local record A",
+      "    name: string",
+      "    balance: number",
+      "    constructor(n: string)",
+      "        self.name = n",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2208:4")
+   -- an optional one need not be
+   assertClean(table.concat({
+      "local record B",
+      "    name: string",
+      "    note: string?",
+      "    constructor(n: string)",
+      "        self.name = n",
+      "    end",
+      "end",
+   }, "\n"))
+   -- an interface builds nothing
+   assertEq(diagsOf(table.concat({
+      "local interface I",
+      "    n: integer",
+      "    constructor(v: integer)",
+      "        self.n = v",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2208:3")
+   -- and one constructor, until overloads arrive with intersections
+   assertEq(diagsOf(table.concat({
+      "local record T",
+      "    n: integer",
+      "    constructor(v: integer)",
+      "        self.n = v",
+      "    end",
+      "    constructor(v: string)",
+      "        self.n = #v",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2208:6")
+end
+
+-- Declaring a constructor closes the literal form. Leaving it open beside one
+-- would let every invariant the constructor establishes be walked around.
+function M.aConstructorClosesTheLiteralForm()
+   local decl = table.concat({
+      "local record A",
+      "    n: integer",
+      "    constructor(v: integer)",
+      "        self.n = v",
+      "    end",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(decl .. "\nlocal a = new A {n = 1}"), "NUPP2208:7")
+   assertClean(decl .. "\nlocal a = new A(1)")
+   -- `constructor` is contextual: a field may still be called one
+   assertClean(table.concat({
+      "local record C",
+      "    constructor: string",
+      "end",
+      "local c = new C {constructor = 'x'}",
+   }, "\n"))
+end
+
 function M.multiValueReturnsInAssignments()
    local two = table.concat({
       "local function two(): number, string",
