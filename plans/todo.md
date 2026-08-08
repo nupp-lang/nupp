@@ -9,11 +9,11 @@ work makes sense in.
 - [x] **Enforce `where` predicates.** A refinement is read into plain data on
       the nominal (`src/nupp/predicate.nupp`), held to the declaration's own
       fields, and compiled: `x is T` becomes the test. That gives an interface a
-      runtime identity it never had — `is` on one was NUPP3001 — and lets a
-      record answer for values this program did not build, which a stamped
-      metatable cannot. NUPP2122 now means the refinement cannot be enforced,
-      naming what was written. The dialect translator no longer needs its
-      unchecked-residue marker.
+      runtime identity it never had — `is` on one was NUPP3001 — so a value this
+      program did not build can answer `is`, which a stamped metatable cannot
+      do. NUPP2122 now means the refinement cannot be enforced, naming what was
+      written. The dialect translator no longer needs its unchecked-residue
+      marker; a `where` in a declaration head says it moved into the body.
 
       Left open: the subset is comparisons against literals, `type()` tests and
       the boolean operators, so a refinement cannot yet say `#self.items > 0`.
