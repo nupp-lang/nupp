@@ -154,6 +154,7 @@ annotated directly.
 | `@owned` | Implemented | Cleanup/default/opaque/output contract | `function`, `c-function` |
 | `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
 | `@dispose` | Implemented | None | `function`, `c-function`, `field` |
+| `@override` | Implemented | None | `function` |
 | `@effects` | Implemented | Named effect members | `function`, `c-function`, `local-binding` |
 | `@relax` | Implemented | Observable guarantee names | `function` |
 | `@jit` | Reserved | None | `function` |
@@ -196,6 +197,13 @@ bare `@owned` result is rejected unless exactly one default applies. See
 type does not need to implement a cleanup interface. The annotation belongs to
 the producer, not the type, so different producers of the same type may carry
 different cleanup contracts.
+
+`@override` marks a member that replaces a default implementation an interface
+provides. It is required there, and equally an error on a member that replaces
+nothing — which catches both the misspelling that silently defines a new method
+instead of overriding, and the interface that later adds a default which would
+otherwise silently shadow an implementor's method. See
+[interfaces](type-system/interfaces.md#default-implementations).
 
 ## Effect contracts
 

@@ -211,6 +211,11 @@ local BUILTINS = {
         targets = {"function", "c-function", "field"},
     },
     {
+        name = "override",
+        arguments = "none",
+        targets = {"function"},
+    },
+    {
         name = "effects",
         arguments = "effects",
         targets = {"function", "c-function", "local-binding"},

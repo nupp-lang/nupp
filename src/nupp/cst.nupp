@@ -65,6 +65,22 @@ interface cst.Hints
     --- The runtime table of a record, which is its identity.
     recordName: string?
 
+    --- The runtime table of an interface, which exists only to hold the default
+    --- bodies a declaration taking the contract references.
+    interfaceName: string?
+
+    --- The nominal a supertype node named, so its runtime spelling can be found
+    --- again from the type.
+    resolvedSupertype: any
+
+    --- The defaults a declaration takes, as `{name, from}` pairs the generator
+    --- turns into assignments.
+    inheritedDefaultNames: any
+
+    --- Set on an inline method emitted as a plain function rather than a method,
+    --- because a default's receiver is the value it is later attached to.
+    inlineDotted: boolean?
+
     --- The runtime test a `where` refinement named, attached by the checker so
     --- `is` compiles to it. A refinement travels as data, so nothing here has to
     --- be resolved a second time.

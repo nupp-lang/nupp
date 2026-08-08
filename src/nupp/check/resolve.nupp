@@ -142,6 +142,9 @@ function resolve.install(c: any)
                         elseif declared.tag == "nominal"
                             and declared.declKind == "record" then
                             node.recordName = declared.runtimePath or key
+                        elseif declared.tag == "nominal"
+                            and declared.declKind == "interface" then
+                            node.interfaceName = declared.runtimePath or key
                         end
                         return applyTypeArgs(declared, node)
                     end
@@ -205,6 +208,9 @@ function resolve.install(c: any)
                     elseif t.tag == "nominal" and t.declKind == "record" then
                         node.recordName = ("require(%q).%s")
                             :format(resolvedModule, typeName)
+                    elseif t.tag == "nominal" and t.declKind == "interface" then
+                        node.interfaceName = ("require(%q).%s")
+                            :format(resolvedModule, typeName)
                     end
                     return applyTypeArgs(t, node)
                 end
@@ -265,6 +271,15 @@ function resolve.install(c: any)
                         node.recordName = ("require(%q).%s"):format(moduleName, name)
                     else
                         node.recordName = name
+                    end
+                elseif t.tag == "nominal" and t.declKind == "interface" then
+                    -- An interface has a table only when it carries defaults, and
+                    -- then only so a declaration taking one can reach the body.
+                    if moduleName and visibility ~= "global" then
+                        node.interfaceName = ("require(%q).%s")
+                            :format(moduleName, name)
+                    else
+                        node.interfaceName = name
                     end
                 end
                 return t

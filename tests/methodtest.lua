@@ -430,6 +430,137 @@ function M.aTaggedInterfaceDerivesItsOwnTest()
    }, "\n")), 2)
 end
 
+-- An interface may implement what it declares. The body is emitted once and
+-- referenced by each declaration that takes it, so an implementor inherits the
+-- behaviour rather than a copy of it, resolved where it is written rather than
+-- looked up at run time.
+function M.interfacesCarryDefaultBodies()
+   assertEq(run(table.concat({
+      "local interface Greeter",
+      "   name: string",
+      "   function greet(): string",
+      "      return 'hello, ' .. self.name",
+      "   end",
+      "end",
+      "local record Person is Greeter",
+      "   name: string",
+      "end",
+      "local p = new Person {name = 'Ada'}",
+      "return p:greet()",
+   }, "\n")), "hello, Ada")
+   -- a struct takes it through the metatype's index table
+   assertEq(run(table.concat({
+      "local interface Sized",
+      "   w: float",
+      "   h: float",
+      "   function area(): number",
+      "      return self.w * self.h",
+      "   end",
+      "end",
+      "local struct Box is Sized",
+      "   w: float",
+      "   h: float",
+      "end",
+      "return (new Box {w = 3, h = 4}):area()",
+   }, "\n")), 12)
+   -- and a chain of interfaces passes it along
+   assertEq(run(table.concat({
+      "local interface Base",
+      "   n: integer",
+      "   function twice(): number",
+      "      return self.n * 2",
+      "   end",
+      "end",
+      "local interface Mid is Base",
+      "   n: integer",
+      "end",
+      "local record Leaf is Mid",
+      "   n: integer",
+      "end",
+      "return (new Leaf {n = 21}):twice()",
+   }, "\n")), 42)
+end
+
+-- Replacing a default has to be said, and saying it when nothing is replaced is
+-- the same mistake from the other side. Java catches neither.
+function M.overridingADefaultIsDeclared()
+   local iface = table.concat({
+      "local interface Greeter",
+      "   name: string",
+      "   function greet(): string",
+      "      return 'hi'",
+      "   end",
+      "end",
+   }, "\n")
+   -- silently shadowing is refused
+   assertEq(diagsOf(iface .. table.concat({
+      "",
+      "local record Silent is Greeter",
+      "   name: string",
+      "   function greet(): string",
+      "      return '...'",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2118:9")
+   -- saying it is fine, and the override runs
+   assertEq(run(iface .. table.concat({
+      "",
+      "local record Loud is Greeter",
+      "   name: string",
+      "   @override",
+      "   function greet(): string",
+      "      return 'LOUD'",
+      "   end",
+      "end",
+      "return (new Loud {name = 'x'}):greet()",
+   }, "\n")), "LOUD")
+   -- and claiming to override nothing is refused too
+   assertEq(diagsOf(table.concat({
+      "local record Bogus",
+      "   n: integer",
+      "   @override",
+      "   function nope(): integer",
+      "      return 1",
+      "   end",
+      "end",
+   }, "\n")), "NUPP2118:4")
+end
+
+-- Two interfaces providing the same name are two implementations and no reason
+-- to prefer either, so the declaration has to say which behaviour it means.
+function M.aDefaultInheritedTwiceMustBeChosen()
+   local ifaces = table.concat({
+      "local interface A",
+      "   function tag(): string",
+      "      return 'a'",
+      "   end",
+      "end",
+      "local interface B",
+      "   function tag(): string",
+      "      return 'b'",
+      "   end",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(ifaces .. table.concat({
+      "",
+      "local record Bad is A, B",
+      "   n: integer",
+      "end",
+   }, "\n")), "NUPP2118:11")
+   -- writing it settles the question
+   assertEq(run(ifaces .. table.concat({
+      "",
+      "local record Good is A, B",
+      "   n: integer",
+      "   @override",
+      "   function tag(): string",
+      "      return 'mine'",
+      "   end",
+      "end",
+      "return (new Good {n = 1}):tag()",
+   }, "\n")), "mine")
+end
+
 -- A constructor is the whole reason `new` is worth having over a literal: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()

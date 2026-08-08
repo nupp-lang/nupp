@@ -263,6 +263,50 @@ return m
 
 Reports: `NUPP2001`. `nupp explain <code>` says more.
 
+## Default implementations
+
+An interface may implement what it declares, and a declaration that takes the
+contract takes the behaviour with it. The body is emitted once and referenced,
+so an implementor inherits the behaviour rather than a copy — resolved where it
+is written rather than looked up at run time.
+
+This is the one thing that gives an interface a runtime presence: one that
+declares only signatures still emits nothing.
+
+`@override` is required on a member replacing an inherited default, and is an
+error on one replacing nothing. Two interfaces providing the same name are two
+implementations and no reason to prefer either, so the declaration writes the
+member itself to say which behaviour it means. Both are **NUPP2118**.
+
+```nupp
+local m = {}
+
+interface m.Greeter
+    name: string
+
+    function greet(): string
+        return "hello, " .. self.name
+    end
+end
+
+record m.Person is m.Greeter
+    name: string
+end
+
+record m.Shouter is m.Greeter
+    name: string
+
+    @override
+    function greet(): string
+        return "HELLO"
+    end
+end
+
+return m
+```
+
+Reports: `NUPP2118`. `nupp explain <code>` says more.
+
 ## Refinements
 
 An interface may carry a `matches` block, which names the runtime test that

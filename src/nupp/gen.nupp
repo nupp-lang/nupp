@@ -275,6 +275,27 @@ function gen.generate(result, filename)
         end
     end
 
+    --- Points a declaration's table at the default bodies it takes.
+    ---
+    --- A reference rather than a copy: the body's source lines are in the
+    --- interface's file, and this file has none to attribute a duplicate to.
+    --- That is also why the interface has to be reachable — through a `require`
+    --- when it lives in another module, which is what the checker resolved the
+    --- name to.
+    local function emitInheritedDefaults(x, runtimeName)
+        local taken = x.inheritedDefaultNames
+        if not taken or #taken == 0 then
+            return
+        end
+        local line = sourceLine(x)
+        local parts = {}
+        for _, one in ipairs(taken) do
+            parts[#parts + 1] = ("%s.%s = %s.%s"):format(runtimeName, one.name,
+                one.from, one.name)
+        end
+        e(table.concat(parts, " "), line)
+    end
+
     local function labelsIn(block)
         local labels = {}
         local function walk(n)
@@ -459,6 +480,40 @@ function gen.generate(result, filename)
                     emit(entry)
                 end
             end
+            emitInheritedDefaults(x, runtimeName)
+            return
+        end
+
+        if kind == "recordDecl" and x.declKind == "interface" then
+            -- An interface is erased unless it implements something. A default
+            -- body has to live somewhere a declaration in another module can
+            -- reach, and the interface's own table is the only place that
+            -- travels; an interface that declares only signatures still emits
+            -- nothing at all.
+            local defaults = {}
+            for _, entry in ipairs(x.entries or {}) do
+                if entry.kind == "inlineMethod" then
+                    defaults[#defaults + 1] = entry
+                end
+            end
+            local inherits = false
+            for _, super in ipairs(x.supertypes or {}) do
+                if super.interfaceName then inherits = true end
+            end
+            if #defaults == 0 and not inherits then return end
+            local line = sourceLine(x)
+            local path = declPath(x)
+            local runtimeName = x.recordRuntimeName or path or x.name.text
+            local attached = x.recordRuntimeName or path
+            local storage = attached and ""
+                or x.visibility == "global" and "" or "local "
+            e(("%s%s = {}"):format(storage, runtimeName), line)
+            for _, entry in ipairs(defaults) do
+                entry.inlineRuntimeOwner = runtimeName
+                entry.inlineDotted = true
+                emit(entry)
+            end
+            emitInheritedDefaults(x, runtimeName)
             return
         end
 
@@ -523,6 +578,11 @@ function gen.generate(result, filename)
                     emit(entry)
                 end
             end
+            -- A struct's members hang off the metatype's index table rather than
+            -- the ctype, so a default it takes lands there too. Reading an
+            -- unknown name on cdata routes through exactly that table, which is
+            -- what makes the call work at all.
+            emitInheritedDefaults(x, mt .. ".__index")
             return
         end
 
@@ -1120,8 +1180,18 @@ function gen.generate(result, filename)
                     names[#names + 1] = "..."
                 end
             end
-            e(("function %s:%s(%s)"):format(x.inlineRuntimeOwner,
-                x.name.text, table.concat(names, ", ")), line)
+            if x.inlineDotted then
+                -- A default is written where its receiver is not yet known, so
+                -- `self` is an ordinary first parameter. Everything that takes
+                -- the default assigns this same function, and the colon call at
+                -- the use site passes the receiver as it always would.
+                table.insert(names, 1, "self")
+                e(("function %s.%s(%s)"):format(x.inlineRuntimeOwner,
+                    x.name.text, table.concat(names, ", ")), line)
+            else
+                e(("function %s:%s(%s)"):format(x.inlineRuntimeOwner,
+                    x.name.text, table.concat(names, ", ")), line)
+            end
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }")
                     :format(body.varargParam.name.text))

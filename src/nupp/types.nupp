@@ -269,6 +269,14 @@ record types.Nominal
     --- belongs to `nupp.predicate`.
     predicate: any
 
+    --- Member names this interface implements rather than only declaring, so a
+    --- declaration taking the contract takes the behaviour with it.
+    defaults: {[string]: boolean}?
+
+    --- The interface each inherited default came from, so the generator knows
+    --- which table to reference it out of.
+    inheritedDefaults: {[string]: types.Type}?
+
     --- Default terminal operations inherited from `@dispose` contracts. Entries are
     --- cleanup paths; `@method:name` invokes `value:name()`.
     defaultDisposers: {string}?

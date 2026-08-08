@@ -145,6 +145,77 @@ function declare.install(c: any, reifiableField: any, fix: any,
         end
     end
 
+    --- The interface a declaration inherits a default for `name` from, if any.
+    ---
+    --- The first one found, because a name provided by more than one is refused
+    --- outright — see `checkInheritedDefaults`.
+    local function inheritedDefault(n: any, name: string): string?
+        for _, super in ipairs(n.supertypes or {}) do
+            if super.defaults and super.defaults[name] then
+                return super.name
+            end
+        end
+        return nil
+    end
+
+    --- Records which defaults a declaration takes, and refuses the ones it
+    --- cannot choose between.
+    ---
+    --- Two interfaces providing the same name are two implementations and no
+    --- reason to prefer either, so the declaration has to say which behaviour it
+    --- means by writing the member itself. The same shape as a bare `@owned`
+    --- with several inherited `@dispose` operations.
+    local function checkInheritedDefaults(stat: any, n: any, localMembers: any)
+        n.inheritedDefaults = {}
+        local providers: {[string]: {string}} = {}
+        for _, super in ipairs(n.supertypes or {}) do
+            for name in pairs(super.defaults or {}) do
+                local into: {string} = providers[name] or {}
+                into[#into + 1] = super.name
+                providers[name] = into
+                n.inheritedDefaults[name] = super
+            end
+        end
+        for name, from in pairs(providers) do
+            if #from > 1 and not localMembers[name] then
+                table.sort(from)
+                c.diag("NUPP2118", stat.name,
+                    ("%s inherits a default %q from %s, and cannot choose")
+                    :format(n.name, name, table.concat(from, " and ")), nil,
+                    {help = ("write %s in %s to say which behaviour it means")
+                    :format(name, n.name)})
+                n.inheritedDefaults[name] = nil
+            elseif localMembers[name] then
+                -- the declaration wrote its own; nothing to take
+                n.inheritedDefaults[name] = nil
+            end
+        end
+        -- An interface passes on what it takes, so a chain of them works.
+        if stat.declKind == "interface" then
+            n.defaults = n.defaults or {}
+            for name in pairs(n.inheritedDefaults) do n.defaults[name] = true end
+        end
+
+        -- The generator needs the runtime spelling of the interface each default
+        -- comes from, which is on the supertype node the resolver answered.
+        local byNominal: {[any]: string} = {}
+        for _, node in ipairs(stat.supertypes or {}) do
+            local resolved = node.resolvedSupertype
+            if resolved and node.interfaceName then
+                byNominal[resolved] = node.interfaceName
+            end
+        end
+        local taken = {}
+        for name, super in pairs(n.inheritedDefaults) do
+            local from = byNominal[super]
+            if from then
+                taken[#taken + 1] = {name = name, from = from}
+            end
+        end
+        table.sort(taken, function(a, b) return a.name < b.name end)
+        stat.inheritedDefaultNames = taken
+    end
+
     --- Every field the body assigns through `self`, anywhere inside it.
     ---
     --- Anywhere is deliberate. A field set in one arm of an `if` and not the
@@ -410,6 +481,9 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         :format(stat.declKind))
                 else
                     n.supertypes[#n.supertypes + 1] = super
+                    -- Which node named it, so the runtime spelling the resolver
+                    -- worked out can be found again from the nominal.
+                    superNode.resolvedSupertype = super
                     for _, disposer in ipairs(super.defaultDisposers or {}) do
                         local seen = false
                         for _, current in ipairs(n.defaultDisposers or {}) do
@@ -606,18 +680,39 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 elseif e.kind == "constructorDecl" then
                     checkConstructor(e, n, stat)
                 elseif e.kind == "inlineMethod" then
-                    local isDisposer = false
+                    local isDisposer, isOverride = false, false
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application,
                             e, stat)
-                        if definition2 and valid
-                            and application.name.text == "dispose" then
-                            isDisposer = true
+                        if definition2 and valid then
+                            if application.name.text == "dispose" then
+                                isDisposer = true
+                            elseif application.name.text == "override" then
+                                isOverride = true
+                            end
                         end
                     end
+                    -- An interface body may implement what it declares. The
+                    -- default is emitted once and referenced by each declaration
+                    -- that takes it, so an implementor inherits the behaviour
+                    -- rather than a copy of it.
                     if stat.declKind == "interface" then
-                        c.diag("NUPP2118", e,
-                            "interface methods declare signatures, not bodies")
+                        n.defaults = n.defaults or {}
+                        n.defaults[e.name.text] = true
+                    end
+                    e.overridesDefault = inheritedDefault(n, e.name.text)
+                    if e.overridesDefault and not isOverride then
+                        c.diag("NUPP2118", e.name,
+                            ("%q replaces the default %s declares, which has "
+                            .. "to be said"):format(e.name.text,
+                            e.overridesDefault), nil,
+                            {help = "write @override above it"})
+                    elseif isOverride and not e.overridesDefault then
+                        c.diag("NUPP2118", e.name,
+                            ("%q overrides nothing: no interface this declares "
+                            .. "provides it"):format(e.name.text), nil,
+                            {help = "remove @override, or declare the interface "
+                            .. "that provides the default"})
                     end
                     if localMembers[e.name.text] then
                         c.diag("NUPP2118", e.name,
@@ -713,6 +808,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 end
                 n.predicate = derived
             end
+            checkInheritedDefaults(stat, n, localMembers)
             checkInheritedRefinements(stat, n)
             c.popScope()
             if stat.isAnnotationDefinition then

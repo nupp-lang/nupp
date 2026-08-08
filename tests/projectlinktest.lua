@@ -583,4 +583,71 @@ return a.balance
    end)
 end
 
+-- A default body is emitted once and referenced by each declaration that takes
+-- it, so the interface has to be reachable from the implementor's module. That
+-- is the whole reason an interface carrying defaults has a runtime table.
+function M.aDefaultBodyCrossesAModuleBoundary()
+   withProject({
+      ["src/greet.nupp"] = [[
+local greet = {}
+
+interface greet.Greeter
+    name: string
+
+    function hello(): string
+        return "hello, " .. self.name
+    end
+end
+
+return greet
+]],
+      ["src/use.nupp"] = [[
+local greet = require("greet")
+
+local record Person is greet.Greeter
+    name: string
+end
+
+return Person
+]],
+   }, function(dir)
+      local env = projectEnv(dir)
+      local path = dir .. "/src/use.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      assertEq(#parsed.errors, 0, "the implementor parses")
+      local diags = check.check(parsed, path, env)
+      assertEq(#diags, 0, "the implementor checks: "
+         .. (diags[1] and diags[1].msg or ""))
+
+      local gen = require("nupp.gen")
+      local code = gen.generate(parsed, path)
+      assert(code:find('require("greet").Greeter.hello', 1, true),
+         "the default is referenced out of its own module: " .. code)
+   end)
+end
+
+-- An interface that only declares still emits nothing, so the runtime table is
+-- paid for by the feature rather than by every interface.
+function M.anInterfaceWithoutDefaultsStaysErased()
+   withProject({
+      ["src/shape.nupp"] = [[
+local shape = {}
+
+interface shape.Named
+    name: string
+end
+
+return shape
+]],
+   }, function(dir)
+      local path = dir .. "/src/shape.nupp"
+      local parsed = parser.parse(readFile(path), path)
+      check.check(parsed, path, projectEnv(dir))
+      local gen = require("nupp.gen")
+      local code = gen.generate(parsed, path)
+      assert(not code:find("Named", 1, true),
+         "an interface with no defaults emits nothing: " .. code)
+   end)
+end
+
 return M

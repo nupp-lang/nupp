@@ -133,6 +133,54 @@ NUPP3001 at code generation.
 Note that `x is integer` compiles to `type(x) == "number"`. Integrality is not
 checked at runtime.
 
+## Default implementations
+
+An interface may implement what it declares, and a declaration that takes the
+contract takes the behaviour with it:
+
+```nupp
+local interface Greeter
+    name: string
+
+    function greet(): string
+        return "hello, " .. self.name
+    end
+end
+
+local record Person is Greeter
+    name: string
+end
+```
+
+```lua
+local Greeter = {}
+function Greeter.greet(self)
+return "hello, " .. self.name
+end
+
+local Person = {} Person.__index = Person Person.greet = Greeter.greet
+```
+
+The body is emitted **once** and referenced, not copied — resolved where the
+implementor is written rather than looked up at run time, so there is no chain
+and no indirection. A struct takes it through its metatype's index table, and a
+chain of interfaces passes it along.
+
+This is the one thing that gives an interface a runtime presence. An interface
+that declares only signatures still emits nothing at all, so the table is paid
+for by the feature rather than by every interface — and it is why an interface
+carrying defaults has to be reachable from an implementor in another module.
+
+**Replacing one has to be said.** `@override` is required on a member that
+replaces an inherited default, and is equally an error on one that replaces
+nothing. That catches the two failures Java cannot: the misspelling that
+silently defines a new method instead of overriding, and the interface that
+later adds a default which silently shadows an implementor's method.
+
+**Two interfaces providing the same name is refused.** They are two
+implementations and no reason to prefer either, so the declaration writes the
+member itself to say which behaviour it means.
+
 ## Metamethod contracts
 
 An interface or record may declare how an operator behaves on it:

@@ -1040,6 +1040,11 @@ arguments = "none" ,
 targets = { "function" , "c-function" , "field" } ,
 } ,
 {
+name = "override" ,
+arguments = "none" ,
+targets = { "function" } ,
+} ,
+{
 name = "effects" ,
 arguments = "effects" ,
 targets = { "function" , "c-function" , "local-binding" } ,
@@ -9585,6 +9590,77 @@ end
 
 
 
+local function inheritedDefault ( n , name )
+for _ , super in ipairs ( n . supertypes or { } ) do
+if super . defaults and super . defaults [ name ] then
+return super . name
+end
+end
+return nil
+end
+
+
+
+
+
+
+
+
+local function checkInheritedDefaults ( stat , n , localMembers )
+n . inheritedDefaults = { }
+local providers = { }
+for _ , super in ipairs ( n . supertypes or { } ) do
+for name in pairs ( super . defaults or { } ) do
+local into = providers [ name ] or { }
+into [ # into + 1 ] = super . name
+providers [ name ] = into
+n . inheritedDefaults [ name ] = super
+end
+end
+for name , from in pairs ( providers ) do
+if # from > 1 and not localMembers [ name ] then
+table . sort ( from )
+c . diag ( "NUPP2118" , stat . name ,
+( "%s inherits a default %q from %s, and cannot choose" )
+: format ( n . name , name , table . concat ( from , " and " ) ) , nil ,
+{ help = ( "write %s in %s to say which behaviour it means" )
+: format ( name , n . name ) } )
+n . inheritedDefaults [ name ] = nil
+elseif localMembers [ name ] then
+
+n . inheritedDefaults [ name ] = nil
+end
+end
+
+if stat . declKind == "interface" then
+n . defaults = n . defaults or { }
+for name in pairs ( n . inheritedDefaults ) do n . defaults [ name ] = true end
+end
+
+
+
+local byNominal = { }
+for _ , node in ipairs ( stat . supertypes or { } ) do
+local resolved = node . resolvedSupertype
+if resolved and node . interfaceName then
+byNominal [ resolved ] = node . interfaceName
+end
+end
+local taken = { }
+for name , super in pairs ( n . inheritedDefaults ) do
+local from = byNominal [ super ]
+if from then
+taken [ # taken + 1 ] = { name = name , from = from }
+end
+end
+table . sort ( taken , function ( a , b ) return a . name < b . name end )
+stat . inheritedDefaultNames = taken
+end
+
+
+
+
+
 
 
 local function assignedFields ( node , out )
@@ -9846,6 +9922,9 @@ c . diag ( "NUPP2117" , superNode ,
 : format ( stat . declKind ) )
 else
 n . supertypes [ # n . supertypes + 1 ] = super
+
+
+superNode . resolvedSupertype = super
 for _ , disposer in ipairs ( super . defaultDisposers or { } ) do
 local seen = false
 for _ , current in ipairs ( n . defaultDisposers or { } ) do
@@ -10042,18 +10121,39 @@ end
 elseif e . kind == "constructorDecl" then
 checkConstructor ( e , n , stat )
 elseif e . kind == "inlineMethod" then
-local isDisposer = false
+local isDisposer , isOverride = false , false
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application ,
 e , stat )
-if definition2 and valid
-and application . name . text == "dispose" then
+if definition2 and valid then
+if application . name . text == "dispose" then
 isDisposer = true
+elseif application . name . text == "override" then
+isOverride = true
 end
 end
+end
+
+
+
+
 if stat . declKind == "interface" then
-c . diag ( "NUPP2118" , e ,
-"interface methods declare signatures, not bodies" )
+n . defaults = n . defaults or { }
+n . defaults [ e . name . text ] = true
+end
+e . overridesDefault = inheritedDefault ( n , e . name . text )
+if e . overridesDefault and not isOverride then
+c . diag ( "NUPP2118" , e . name ,
+( "%q replaces the default %s declares, which has "
+.. "to be said" ) : format ( e . name . text ,
+e . overridesDefault ) , nil ,
+{ help = "write @override above it" } )
+elseif isOverride and not e . overridesDefault then
+c . diag ( "NUPP2118" , e . name ,
+( "%q overrides nothing: no interface this declares "
+.. "provides it" ) : format ( e . name . text ) , nil ,
+{ help = "remove @override, or declare the interface "
+.. "that provides the default" } )
 end
 if localMembers [ e . name . text ] then
 c . diag ( "NUPP2118" , e . name ,
@@ -10149,6 +10249,7 @@ end
 end
 n . predicate = derived
 end
+checkInheritedDefaults ( stat , n , localMembers )
 checkInheritedRefinements ( stat , n )
 c . popScope ( )
 if stat . isAnnotationDefinition then
@@ -14108,6 +14209,9 @@ node . reified = declared . runtimePath or key
 elseif declared . tag == "nominal"
 and declared . declKind == "record" then
 node . recordName = declared . runtimePath or key
+elseif declared . tag == "nominal"
+and declared . declKind == "interface" then
+node . interfaceName = declared . runtimePath or key
 end
 return applyTypeArgs ( declared , node )
 end
@@ -14171,6 +14275,9 @@ node . reified = ( "require(%q).%s" )
 elseif t . tag == "nominal" and t . declKind == "record" then
 node . recordName = ( "require(%q).%s" )
 : format ( resolvedModule , typeName )
+elseif t . tag == "nominal" and t . declKind == "interface" then
+node . interfaceName = ( "require(%q).%s" )
+: format ( resolvedModule , typeName )
 end
 return applyTypeArgs ( t , node )
 end
@@ -14231,6 +14338,15 @@ if moduleName and visibility ~= "global" then
 node . recordName = ( "require(%q).%s" ) : format ( moduleName , name )
 else
 node . recordName = name
+end
+elseif t . tag == "nominal" and t . declKind == "interface" then
+
+
+if moduleName and visibility ~= "global" then
+node . interfaceName = ( "require(%q).%s" )
+: format ( moduleName , name )
+else
+node . interfaceName = name
 end
 end
 return t
@@ -18461,6 +18577,22 @@ package.preload["nupp.cst"] = function(...)
 local lexer = require ( "nupp.lexer" )
 
 local cst = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -26718,6 +26850,27 @@ emit ( child )
 end
 end
 
+
+
+
+
+
+
+
+local function emitInheritedDefaults ( x , runtimeName )
+local taken = x . inheritedDefaultNames
+if not taken or # taken == 0 then
+return
+end
+local line = sourceLine ( x )
+local parts = { }
+for _ , one in ipairs ( taken ) do
+parts [ # parts + 1 ] = ( "%s.%s = %s.%s" ) : format ( runtimeName , one . name ,
+one . from , one . name )
+end
+e ( table . concat ( parts , " " ) , line )
+end
+
 local function labelsIn ( block )
 local labels = { }
 local function walk ( n )
@@ -26902,6 +27055,40 @@ entry . inlineRuntimeOwner = runtimeName
 emit ( entry )
 end
 end
+emitInheritedDefaults ( x , runtimeName )
+return
+end
+
+if kind == "recordDecl" and x . declKind == "interface" then
+
+
+
+
+
+local defaults = { }
+for _ , entry in ipairs ( x . entries or { } ) do
+if entry . kind == "inlineMethod" then
+defaults [ # defaults + 1 ] = entry
+end
+end
+local inherits = false
+for _ , super in ipairs ( x . supertypes or { } ) do
+if super . interfaceName then inherits = true end
+end
+if # defaults == 0 and not inherits then return end
+local line = sourceLine ( x )
+local path = declPath ( x )
+local runtimeName = x . recordRuntimeName or path or x . name . text
+local attached = x . recordRuntimeName or path
+local storage = attached and ""
+or x . visibility == "global" and "" or "local "
+e ( ( "%s%s = {}" ) : format ( storage , runtimeName ) , line )
+for _ , entry in ipairs ( defaults ) do
+entry . inlineRuntimeOwner = runtimeName
+entry . inlineDotted = true
+emit ( entry )
+end
+emitInheritedDefaults ( x , runtimeName )
 return
 end
 
@@ -26966,6 +27153,11 @@ entry . inlineRuntimeOwner = mt .. ".__index"
 emit ( entry )
 end
 end
+
+
+
+
+emitInheritedDefaults ( x , mt .. ".__index" )
 return
 end
 
@@ -27563,8 +27755,18 @@ elseif p [ 1 ] and cst . isToken ( p [ 1 ] ) and p [ 1 ] . kind == "..." then
 names [ # names + 1 ] = "..."
 end
 end
+if x . inlineDotted then
+
+
+
+
+table . insert ( names , 1 , "self" )
+e ( ( "function %s.%s(%s)" ) : format ( x . inlineRuntimeOwner ,
+x . name . text , table . concat ( names , ", " ) ) , line )
+else
 e ( ( "function %s:%s(%s)" ) : format ( x . inlineRuntimeOwner ,
 x . name . text , table . concat ( names , ", " ) ) , line )
+end
 if body . varargParam then
 e ( ( "const %s = { n = select(\"#\", ...), ... }" )
 : format ( body . varargParam . name . text ) )
@@ -37059,6 +37261,51 @@ return m
 } , reference.Section) , setmetatable(
 
 {
+title = "Default implementations" ,
+codes = { "NUPP2118" } ,
+body = [=[
+An interface may implement what it declares, and a declaration that takes the
+contract takes the behaviour with it. The body is emitted once and referenced,
+so an implementor inherits the behaviour rather than a copy — resolved where it
+is written rather than looked up at run time.
+
+This is the one thing that gives an interface a runtime presence: one that
+declares only signatures still emits nothing.
+
+`@override` is required on a member replacing an inherited default, and is an
+error on one replacing nothing. Two interfaces providing the same name are two
+implementations and no reason to prefer either, so the declaration writes the
+member itself to say which behaviour it means. Both are **NUPP2118**.
+]=] ,
+example = [=[
+local m = {}
+
+interface m.Greeter
+    name: string
+
+    function greet(): string
+        return "hello, " .. self.name
+    end
+end
+
+record m.Person is m.Greeter
+    name: string
+end
+
+record m.Shouter is m.Greeter
+    name: string
+
+    @override
+    function greet(): string
+        return "HELLO"
+    end
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
 title = "Refinements" ,
 codes = { "NUPP2122" } ,
 body = [=[
@@ -39681,6 +39928,14 @@ types.Metatable = {} types.Metatable.__index = types.Metatable
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
+
+
+
+
 
 
 
