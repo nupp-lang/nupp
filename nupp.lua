@@ -107,6 +107,7 @@ return {
                .. "C interop, and built-in tooling.",
             github = "https://github.com/nupp-lang/nupp",
             logo = "images/nupp.svg",
+            favicon = "images/nupp-icon-32.png",
             public = "docs/public",
             customCss = "docs/public/nupp.css",
             lexers = "docs/lexers",

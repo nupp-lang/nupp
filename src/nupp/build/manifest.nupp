@@ -56,7 +56,7 @@ end
 local DOCS_KEYS = {
     -- read by nupp.doc
     "sources", "format", "outDir", "title", "name", "description", "github",
-    "logo", "public", "customCss", "lexers", "includePrivate", "all", "pages",
+    "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages",
     -- taken by any build target
     "kind", "dependencies", "entries", "resources", "output", "stub",
 }

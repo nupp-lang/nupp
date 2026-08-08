@@ -17,6 +17,15 @@ local markdownHtml = htmlMod.markdownHtml
 local ICONS = assetsMod.ICONS
 
 local page = {}
+
+-- A `public`-relative asset path is served from the site root, so it needs the
+-- page's depth-dependent prefix; an absolute URL or an already-rooted path does not.
+local function assetHref(prefix, source)
+    source = tostring(source)
+    if source:match("^[%w+.-]+:") or source:sub(1, 1) == "/" then return source end
+    return prefix .. source
+end
+
 local function moduleTree(modules)
     local root = {children = {}, order = {}}
     for _, module in ipairs(modules) do
@@ -254,12 +263,8 @@ end
 local function brand(settings, siteTitle, prefix)
     local out = {'<a class="nuppdoc-brand" href="' .. prefix .. 'index.html">'}
     if settings.logo and settings.logo ~= "" then
-        local source = tostring(settings.logo)
-        if not source:match("^[%w+.-]+:") and source:sub(1, 1) ~= "/" then
-            source = prefix .. source
-        end
         out[#out + 1] = '<img class="nuppdoc-logo" src="'
-            .. htmlEscape(source) .. '" alt="">'
+            .. htmlEscape(assetHref(prefix, settings.logo)) .. '" alt="">'
     else
         out[#out + 1] = '<span class="nuppdoc-mark">++</span>'
     end
@@ -309,11 +314,17 @@ function page.render(title, siteTitle, body, modules, current, items, file,
     local search = '<button class="nuppdoc-search-button" type="button"'
         .. ' data-nuppdoc-search aria-label="Search documentation">'
         .. '<span aria-hidden="true">⌕</span><span>Search</span><kbd>⌘ K</kbd></button>'
+    local favicon = ""
+    if settings.favicon and settings.favicon ~= "" then
+        favicon = '<link rel="icon" href="'
+            .. htmlEscape(assetHref(prefix, settings.favicon)) .. '">'
+    end
     return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         .. '<meta name="viewport" content="width=device-width,initial-scale=1">'
         .. '<meta name="description" content="' .. htmlEscape(settings.description) .. '">'
         .. "<title>" .. htmlEscape(title) .. " | " .. htmlEscape(siteTitle)
-        .. '</title><link rel="stylesheet" href="' .. prefix .. 'assets/style.css">'
+        .. '</title>' .. favicon
+        .. '<link rel="stylesheet" href="' .. prefix .. 'assets/style.css">'
         .. '</head><body><div class="nuppdoc-site"><header class="nuppdoc-header"><nav class="nuppdoc-nav">'
         .. brand(settings, siteTitle, prefix) .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix .. 'index.html">Overview</a><a href="'
