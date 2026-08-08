@@ -1272,6 +1272,18 @@ end
 end
 
 
+
+
+
+function ansi . withMode ( wanted , body )
+local before = mode
+ansi . setMode ( wanted )
+local ok , err = pcall ( body )
+ansi . setMode ( before )
+if not ok then error ( err , 0 ) end
+end
+
+
 function ansi . enabled ( stream )
 local known = decided [ stream ]
 if known ~= nil then
@@ -18817,6 +18829,8 @@ options = {
 { name = "--json" ,
 help = "Ask the test command for one JSON document instead of "
 .. "progress text" } ,
+{ name = "--verbose" ,
+help = "Ask the test command to show output from passing tests" } ,
 spec . helpOption ,
 } ,
 schema = {
@@ -18860,6 +18874,15 @@ description = "1-based. A Lua error carries "
 .. "no column, so none is reported." } ,
 } ,
 required = { "message" } ,
+} ,
+output = {
+type = "object" ,
+description = "Captured output from a failed test." ,
+properties = {
+stdout = { type = "string" } ,
+stderr = { type = "string" } ,
+} ,
+required = { "stdout" , "stderr" } ,
 } ,
 skip = {
 type = "object" ,
@@ -28472,7 +28495,6 @@ ctx . gotos [ x . name . text ] = true
 e ( ( "return %q" ) : format ( "goto:" .. x . name . text ) , sourceLine ( x ) )
 
 elseif kind == "forinStmt" and x . numericIpairs then
-local holder = nextTemp ( )
 local operand = x . numericIpairs . operand
 local names = x . names or { }
 
@@ -28481,11 +28503,11 @@ local names = x . names or { }
 local index = names [ 1 ] and names [ 1 ] . text or nextTemp ( )
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or sourceLine ( x )
-e ( ( "do const %s=" ) : format ( holder ) , line )
-emit ( operand )
-e ( ( ";for %s=1,%d do" ) : format ( index , x . numericIpairs . length ) )
+e ( ( "for %s=1,%d do" ) : format ( index , x . numericIpairs . length ) , line )
 if names [ 2 ] then
-e ( ( "local %s=%s[%s];" ) : format ( names [ 2 ] . text , holder , index ) )
+e ( ( "local %s=" ) : format ( names [ 2 ] . text ) )
+emit ( operand )
+e ( ( "[%s];" ) : format ( index ) )
 end
 for j = 3 , # names do e ( ( "local %s=nil;" ) : format ( names [ j ] . text ) ) end
 emitLoopDepth = emitLoopDepth + 1
@@ -28501,7 +28523,7 @@ endTok = child
 break
 end
 end
-e ( "end end" , endTok and endTok . line or nil )
+e ( "end" , endTok and endTok . line or nil )
 
 elseif kind == "whileStmt" or kind == "fornumStmt"
 or kind == "forinStmt" or kind == "repeatStmt" then
@@ -38363,7 +38385,7 @@ out [ # out + 1 ] = ""
 end
 end
 
-out [ # out + 1 ] = heading ( base + 1 , "Every lint" )
+out [ # out + 1 ] = heading ( base + 1 , "Built-in lints" )
 out [ # out + 1 ] = ""
 for _ , row in ipairs ( lintRows ( ) ) do out [ # out + 1 ] = row end
 out [ # out + 1 ] = ""
