@@ -7,4 +7,8 @@ const... M.bar = {
     nested = {name = "nupp"},
 }
 
+M.replaceable = {
+    const BAZ = 456,
+}
+
 return M

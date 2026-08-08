@@ -284,6 +284,34 @@ function M.propagatesNestedConstFieldsAcrossARequiredModule()
       "required module constants are propagated: " .. code)
 end
 
+function M.requiresEveryImportedPathEdgeToBeConst()
+   local requiredEnv = envMod.new(HERE)
+   local function generated(src)
+      local result = parser.parse(src, "test")
+      assertEq(#result.errors, 0, "consumer parses")
+      local diags = check.check(result, "test", requiredEnv)
+      assertEq(#diags, 0, "consumer checks")
+      optimize.run(result, {level = 1})
+      local code, generatedDiags = gen.generate(result, "test")
+      assertEq(#generatedDiags, 0, "consumer generates")
+      return code
+   end
+
+   local mutableRoot = generated(table.concat({
+      "local Foo = require('fixtures.consts')",
+      "return Foo.bar.BAZ",
+   }, "\n"))
+   assertTrue(mutableRoot:find("Foo . bar . BAZ", 1, true) ~= nil,
+      "a mutable require binding is not propagated: " .. mutableRoot)
+
+   local mutableEdge = generated(table.concat({
+      "const Foo = require('fixtures.consts')",
+      "return Foo.replaceable.BAZ",
+   }, "\n"))
+   assertTrue(mutableEdge:find("Foo . replaceable . BAZ", 1, true) ~= nil,
+      "a mutable parent field blocks propagation: " .. mutableEdge)
+end
+
 function M.foldsPrimitiveStringsAndTruthiness()
    local code = compile("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'")
    assertTrue(code:find('return "nupp"', 1, true) ~= nil,

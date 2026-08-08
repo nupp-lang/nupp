@@ -51,13 +51,17 @@ slot immutable; `const name` inside its fresh table makes that named slot
 immutable too. `const...` is sugar for marking every named slot in a fresh
 table graph. The optimizer can then replace a leaf such as
 `Foo.bar.nested.name` with its exact primitive literal, including when `Foo`
-was obtained with `require`. It never removes or moves the `require`, because
-loading a module may have effects.
+was obtained with `require`. Every edge must be immutable: the required module
+binding is `const`, and each exported field on the path is read-only. One
+replaceable parent field keeps the entire read intact. The pass never removes
+or moves the `require`, because loading a module may have effects.
 
 `luajit bench/constant-folding.lua` measures the intended cold-path saving:
 smaller generated Lua parses and loads faster. The same benchmark also reports
 a hot loop, where LuaJIT normally performs the arithmetic folding itself and no
-material win is expected.
+material win is expected. `luajit bench/constant-propagation.lua` isolates the
+corresponding cost for a nested immutable module path, reporting source size,
+load time, load-and-run time, and an already traced loop.
 
 ### `OPT-1`, presizing
 

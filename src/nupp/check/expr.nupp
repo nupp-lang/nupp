@@ -180,6 +180,7 @@ function expr.install(c: any)
             end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
+            node.immutablePath = entry and entry.constant == true or false
             if entry and entry.withBinding then
                 node.withBinding = entry.withBinding
             end
@@ -272,7 +273,9 @@ function expr.install(c: any)
             return entry and entry.t or T.any -- unknown names are any unless --strict
         elseif kind == "paren" then
             local inner = node.expr
-            return inner and c.infer(inner) or T.any
+            local out = inner and c.infer(inner) or T.any
+            node.immutablePath = inner and inner.immutablePath or false
+            return out
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then

@@ -165,6 +165,9 @@ function index.install(c: any): any
         c.markToken(member, fieldDef, ft, "property")
         local out = kind == "safeIndex" and T.optional(ft) or ft
         node.resolvedType = out
+        node.immutablePath = kind == "dotIndex"
+            and target.immutablePath == true
+            and c.fieldWriteType(base, memberName) == nil
         return out
     end
     handlers.safeIndex = handlers.dotIndex

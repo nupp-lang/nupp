@@ -27,6 +27,9 @@ interface cst.Hints
     --- Lua source replacing a primitive expression the optimizer proved constant.
     folded: string?
 
+    --- Every edge from a const root to this expression is read-only.
+    immutablePath: boolean?
+
     --- A branch whose preceding conditions the optimizer proved false.
     constantBranch: cst.Node?
 

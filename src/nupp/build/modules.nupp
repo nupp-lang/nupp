@@ -106,7 +106,8 @@ local function typeFingerprint(t, active)
         end
         table.sort(items); value = "union(" .. table.concat(items, "|") .. ")"
     elseif tag == "literal" then
-        value = "literal(" .. stable(t.value) .. ")"
+        value = "literal(" .. stable(t.constant) .. ":"
+            .. typeFingerprint(t.base, active) .. ")"
     elseif tag == "typevar" then
         value = "typevar(" .. t.name .. ")"
     else

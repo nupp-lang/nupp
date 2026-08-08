@@ -487,6 +487,42 @@ return {
    remove(dir)
 end
 
+function M.buildPropagatesOnlyCompleteConstModulePaths()
+   local lib = table.concat({
+      "local M = {}",
+      "const... M.bar = {BAZ = 123, nested = {name = 'nupp'}}",
+      "M.replaceable = {const BAZ = 456}",
+      "return M",
+   }, "\n")
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", entries = {"main"}},
+}
+]],
+      ["src/main.nupp"] = table.concat({
+         "const lib = require('lib')",
+         "return lib.bar.BAZ, lib.bar.nested.name, lib.replaceable.BAZ",
+      }, "\n"),
+      ["src/lib.nupp"] = lib,
+   })
+
+   assertEq(project.build(dir, {optLevel = 1}), 0)
+   local output = read(dir .. "/out/main.lua")
+   assert(output:find("return 123 , \"nupp\"", 1, true), output)
+   assert(output:find("lib . replaceable . BAZ", 1, true), output)
+
+   write(dir .. "/src/lib.nupp", lib:gsub("BAZ = 123", "BAZ = 124"))
+   local changed = {}
+   assertEq(project.build(dir, {optLevel = 1, stats = changed}), 0)
+   assertEq(changed.checkedModules, 2,
+      "changing an exported literal invalidates its consumer")
+   output = read(dir .. "/out/main.lua")
+   assert(output:find("return 124 , \"nupp\"", 1, true), output)
+   remove(dir)
+end
+
 function M.storeKeepsWhatItWasGivenAndForgetsNothingLive()
    local dir = "/tmp/nupp-store-test-" .. tostring(process.mkdirCommand and 1 or 1)
    os.execute("rm -rf '" .. dir .. "'")

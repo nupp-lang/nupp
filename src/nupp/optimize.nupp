@@ -380,7 +380,7 @@ end
 
 local function resolvedLiteral(node)
     local t = node and node.resolvedType
-    if not t or t.tag ~= "literal" then
+    if not node or not node.immutablePath or not t or t.tag ~= "literal" then
         return nil
     end
     if t.base and (t.base.tag == "number" or t.base.tag == "integer")
