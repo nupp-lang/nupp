@@ -776,6 +776,32 @@ Reference and the generated API. What that pass turned up:
       acquisitions actionable. Collisions carry every declaration as related
       information and cleanup failures explain the required contract. Neither
       offers an edit because choosing visibility or cleanup changes semantics.
+- [ ] **`nupp doc` picks between two docs targets by hash order.** With no
+      top-level `docs` table, `manifestSettings` takes the first `kind = "docs"`
+      target `pairs()` reaches, and `pairs()` does not promise an order. Two
+      targets named `alpha` and `zulu` sent five consecutive runs to
+      `out-zulu`, `out-alpha`, `out-zulu`, `out-alpha`, `out-alpha`. The
+      command has no `--target`, so there is no way to say which was meant
+      either. Either sort and take the first, prefer `build.default` when it
+      names a docs target, or refuse and ask — but not this.
+- [ ] **A docs target's keys are not validated, so a typo is silent.**
+      `validateManifest` checks `sources`, `format`, `outDir`, `title`,
+      `description` and `kind`; everything else the generator reads —
+      `name`, `github`, `logo`, `public`, `customCss`, `lexers`,
+      `includePrivate`, `all`, `pages` and every per-page key — is passed
+      straight through. `custmCss = "..."` builds a site with no custom CSS and
+      says nothing. The same whitelist is why an unknown key anywhere in the
+      manifest is ignored rather than reported.
+- [ ] **`nupp tasks` reports the docs `all` setting under the name of a
+      different one.** It prints `Include private: true` for `all`, which
+      includes undocumented and `local` declarations, while `includePrivate` —
+      which is what includes `_` members and `internal/` trees — is not
+      reported at all. Two settings, one label, and it is on the wrong one.
+- [ ] `nupp tasks` gives a docs target with no `outDir` the manifest default
+      (`build`) while the generator uses `build/docs`, so the task table names
+      a directory the build does not write to. `nupp clean` still removes it
+      today because one contains the other; that is containment rather than
+      agreement.
 - [ ] `nupp.lua` project config: honor `syntax` and `runtimeTarget` fields end
       to end. `strict` is consumed by builds, direct checks, the incremental
       checker, and LSP sessions; the remaining language-mode fields are
