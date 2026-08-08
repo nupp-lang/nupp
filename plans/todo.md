@@ -37,15 +37,21 @@ work makes sense in.
       answers everything else, and NUPP3001 now names all three where it fires.
       That is a better trade than paying runtime weight across the language for
       the case a reader can resolve by writing one of the three.
-- [ ] **Check metatable bodies, not just key spellings.** Today
-      `setmetatable(t, {…})` on a literal only validates that each `__` key is
-      a real metamethod (`src/nupp/check/callexpr.nupp:265`), and
-      `metatable<T>` subtyping is shape-blind — any table fits any
-      `metatable<T>` (`src/nupp/relations.nupp:329`). Two steps, same
-      mechanism: validate a direct literal's value types against `T`'s declared
-      contracts, then model the contents through a bounded generic receiver so
-      a registrar such as `newEvent<E is Event>` checks its own metatable body
-      instead of relying on checked concrete call sites.
+- [ ] **Check metatable bodies, not just key spellings**
+      ([design](metatables.md)). A declared metamethod contract is not held to
+      the value that fulfils it: `metatable<T>` accepts any table shape
+      (`src/nupp/relations.nupp:415`), and the only checking that exists reads
+      keys rather than values (`src/nupp/check/callexpr.nupp:281`). Four
+      positions, one helper — call arguments, annotated bindings, a record's own
+      table, and a bounded generic receiver, the last of which is the
+      `newEvent<E is Event>` case and needs no new mechanism because
+      `ops.metamethodOf` already resolves through a bound.
+
+      One of the four is a live wrong answer rather than a gap:
+      `I64.__tostring = <correct function>` is refused as "no field", because a
+      record's runtime table *is* the metatable and contracts are deliberately
+      kept out of `byname`. A typo gets the same message, so the diagnostic
+      cannot tell the mistakes apart.
 - [ ] **Intersection types, including overloads as function intersections**
       ([design](intersections.md)).
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,
