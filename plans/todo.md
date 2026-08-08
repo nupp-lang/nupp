@@ -29,7 +29,8 @@ work makes sense in.
       overload-only type construct unless intersections prove unable to give
       declaration files, the prelude, metamethods, and host APIs precise call
       surfaces.
-- [ ] **First-class type packs and variadic generics.** Represent function
+- [ ] **First-class type packs and variadic generics**
+      ([design](type-packs.md)). Represent function
       parameters and results as value sequences rather than ordinary tuple
       types, with a fixed head and optional homogeneous or generic tail. Add
       generic pack binders such as `A...`/`R...` so forwarding functions
