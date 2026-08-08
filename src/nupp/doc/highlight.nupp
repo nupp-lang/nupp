@@ -19,6 +19,12 @@ installed rock's so it can add a lexer the rock does not carry — an ABNF lexer
 for the grammar reference, say — without vendoring the few hundred lexers the
 rock already ships to do it. `lexer.lua` itself still loads from the rock; only
 the search path a loaded lexer walks to find another gains the extra entry.
+
+A stamped binary has no rock tree and no directory to name, and carries the
+lexers it was built with as preloaded modules instead. The property then names
+a path no filesystem has, and the `loadfile` those lexers are found through is
+this module's rather than Lua's — which is all Scintillua's loader needs, since
+it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
 
 local lexer = require("nupp.lexer")
@@ -147,7 +153,46 @@ local SCINTILLUA_ALIASES = {
     md = "markdown", sh = "bash", shell = "bash", ts = "typescript",
 }
 local scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary = nil, nil, nil
+local scintilluaBundled = false
 local scintilluaLexers = {}
+
+-- What a bundle carries a lexer as, and the directory that stands for "not on
+-- any disk". The path is deliberately one no filesystem can answer, so a lexer
+-- the binary was not built with fails the way an uninstalled one does rather
+-- than reaching whatever happens to sit at a real path of that name.
+local BUNDLED_MODULE = "scintillua.lexers."
+local BUNDLED_DIRECTORY = "@bundled/scintillua/lexers"
+
+local function bundledName(path)
+    if type(path) ~= "string" then return nil end
+    local prefix = BUNDLED_DIRECTORY .. "/"
+    if path:sub(1, #prefix) ~= prefix then return nil end
+    return path:sub(#prefix + 1):match("^([%w_+-]+)%.lua$")
+end
+
+-- Scintillua looks a lexer up by handing `loadfile` a path built from the
+-- property above and reading what comes back, so a binary answers those paths
+-- here and hands every other one to the real `loadfile` -- which is what keeps
+-- a project's own lexers directory working beside the carried ones.
+-- `mode` is accepted and ignored: Scintillua asks for "t" and everything on
+-- either side of this is text, so there is nothing for it to rule out.
+local function bundledLoadfile(path, mode, env)
+    local chunk, err
+    local name = bundledName(path)
+    if name then
+        chunk = package.preload[BUNDLED_MODULE .. name]
+        -- The words `searchpath` looks for: a lexer that is not carried is one
+        -- it keeps searching for, not one it reports as broken.
+        if not chunk then return nil, "cannot open " .. path end
+    else
+        chunk, err = loadfile(path)
+        if not chunk then return nil, err end
+    end
+    -- Applied here for both, since a preloaded chunk is already compiled and
+    -- cannot be handed an environment the way a compiler would take one.
+    if env then setfenv(chunk, env) end
+    return chunk
+end
 
 -- Where `require("scintillua.lexers.lexer")` would find its file, asked of the
 -- search path directly rather than through `package.searchpath`: what is wanted
@@ -166,23 +211,30 @@ end
 
 local function configureScintillua(root, settings)
     -- `lexer.lua` itself always loads from the installed rock, found the way
-    -- `require` would find it; a project's `settings.lexers` only extends the
-    -- path a loaded lexer searches for another, ahead of the rock's own.
+    -- `require` would find it, or from the bundle when there is no rock; a
+    -- project's `settings.lexers` only extends the path a loaded lexer searches
+    -- for another, ahead of whichever of those is answering.
     local installed = installedLexers()
-    if not installed or not exists(join(installed, "lexer.lua")) then
+    if installed and not exists(join(installed, "lexer.lua")) then installed = nil end
+    local bundled = not installed
+        and package.preload[BUNDLED_MODULE .. "lexer"] ~= nil
+    if not installed and not bundled then
         scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
             nil, nil, nil, {}
+        scintilluaBundled = false
         return
     end
-    local searchPath = installed
+    local base = installed or BUNDLED_DIRECTORY
+    local searchPath = base
     if settings.lexers then
         local custom = join(root, settings.lexers)
-        if exists(custom) then searchPath = custom .. ";" .. installed end
+        if exists(custom) then searchPath = custom .. ";" .. base end
     end
     if scintilluaSearchPath ~= searchPath then
         scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
-            installed, searchPath, nil, {}
+            base, searchPath, nil, {}
     end
+    scintilluaBundled = bundled
 end
 
 local function loadScintillua(language)
@@ -194,7 +246,20 @@ local function loadScintillua(language)
         return scintilluaLexers[language] or nil
     end
     if not scintilluaLibrary then
-        local chunk = loadfile(join(scintilluaDirectory, "lexer.lua"))
+        local chunk
+        if scintilluaBundled then
+            chunk = package.preload[BUNDLED_MODULE .. "lexer"]
+            -- Every other lexer is found through the `loadfile` this one sees,
+            -- so it is given one that knows where a bundle keeps them. Reads
+            -- fall through to the real globals; what `lexer.lua` assigns --
+            -- `lpeg`, which it requires on first use -- stays in here.
+            if chunk then
+                setfenv(chunk, setmetatable({loadfile = bundledLoadfile},
+                    {__index = _G}))
+            end
+        else
+            chunk = loadfile(join(scintilluaDirectory, "lexer.lua"))
+        end
         if not chunk then return nil end
         local ok, library = pcall(chunk)
         if not ok or type(library) ~= "table" then return nil end

@@ -263,6 +263,7 @@ compiles against are found from the running interpreter's own module path;
 | `version` | The exact version to install |
 | `rockspec` | A rockspec in the project to install from |
 | `path` | A directory to build in place with `luarocks make` |
+| `bundle` | Globs naming what a bundle or binary carries |
 | `tree` | Where to install, `.rocks` by default |
 | `luaVersion` | The tree's Lua version, `5.1` by default |
 | `luaDir` | Where the Lua headers and libraries live |
@@ -291,6 +292,37 @@ docs = {
    sources = { "src" },
 }
 ```
+
+### Carrying a rock into a bundle
+
+A bundle and a binary are one file, and one file cannot bring a rock tree along.
+`bundle` names what goes in with it, as globs over the tree the rock installs
+into:
+
+```lua
+lunamark = {
+   kind = "luarocks",
+   version = "0.6.0-1",
+   bundle = { "lunamark.lua", "lunamark/**.lua", "cosmo.lua", "cosmo/**.lua",
+      "re.lua" },
+}
+```
+
+Each selected file becomes a `package.preload` entry under the name `require`
+would have found it by in the tree — `lunamark/writer/html.lua` becomes
+`lunamark.writer.html`, and a `foo/init.lua` becomes `foo`. So the same
+`require` resolves in a checkout, in a bundle, and in a stamped binary, and the
+program cannot tell which it is running in.
+
+Named rather than swept, because a rock tree also holds test scripts,
+command-line programs and documentation that nothing will ever ask for. A rock
+with no `bundle` is installed and not carried, which is the right answer for
+anything only the build itself uses.
+
+A rock's **C** libraries cannot ride in a payload — a `.so` is not a Lua chunk —
+so a binary that needs one needs a stub linked against it. Nupp's own stub links
+the three its commands cannot run without; see
+[distribution](../distribution.md#what-this-does-not-do).
 
 ## Self-hosting
 

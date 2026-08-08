@@ -93,6 +93,15 @@ content. That is the same mechanism the compiler uses to carry its own standard
 library declarations, so a program's resources and the compiler's behave
 identically and are read through one lookup.
 
+Rock modules ride in `package.preload` too, under the names `require` would
+have found them by in the tree they came from — so `require("lunamark")`
+resolves in a checkout, in a bundle, and in a stamped binary, and the program
+cannot tell which it is running in. A target names what it carries with the
+`bundle` globs on its
+[rock dependencies](tooling/build.md#rock-dependencies); a rock tree also holds
+test scripts, command-line programs and lexers nobody asked for, and a payload
+that swept the tree would carry all of it.
+
 The payload is **deterministic**: modules and resources are emitted in sorted
 order, and nothing records a timestamp, a path from the building machine, or a
 build counter. Two builds of one tree produce byte-identical payloads. This is
@@ -198,5 +207,12 @@ somebody else:
   program needs no LuaJIT and no engine installed. A project with its own C or
   Rust library still ships that library beside the binary, unless it is linked
   into a stub built for the purpose.
+
+  Nupp's own stub links three, and each is there because a command the binary
+  claims to have does not run without it: `lua-cjson`, which the compiler
+  requires before it does anything, and `lpeg` and `luautf8`, which are the C
+  half of what `nupp doc` renders markdown with. The Lua half rides in the
+  payload. A stub for something else carries whatever its own commands need and
+  none of these; the format has no opinion.
 - **It does not make Nupp a Rust project.** The host is a component, built by the
   same machinery that already builds a project's other native dependencies.

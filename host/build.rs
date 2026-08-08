@@ -1,8 +1,8 @@
-// Builds what the stub embeds: a pinned LuaJIT, and a pinned lua-cjson linked
-// against it.
+// Builds what the stub embeds: a pinned LuaJIT, and the pinned C libraries the
+// compiler cannot start or document itself without, linked against it.
 //
-// Both are fetched by revision and verified against the digests below before a
-// byte of either is compiled. LuaJIT used to come from the `luajit-src` crate,
+// Each is fetched by revision and verified against the digests below before a
+// byte of any of them is compiled. LuaJIT used to come from the `luajit-src` crate,
 // which pinned it through Cargo.lock; that pin trails upstream by weeks, and
 // what Nupp needs is not weeks old. Generated Nupp is written in the LuaJIT 3.0
 // syntax that 2.1 backported, so a stub whose interpreter predates the backport
@@ -18,6 +18,17 @@ use std::process::Command;
 
 const CJSON_VERSION: &str = "2.1.0.14";
 const CJSON_SHA256: &str = "14cac5c7a4520b33449a1fc961344556b8b6a2a2c6b739b0e46e3002e6e605bc";
+
+// What `nupp doc` renders with. lunamark's grammar is LPeg, and its entity
+// table needs a utf8.char that Lua 5.1 does not have; neither is optional, so a
+// binary without them is a binary whose documentation command does not run.
+// Both are MIT, both are one small C library, and both are reached through
+// require exactly as they would be from a rock tree.
+const LPEG_VERSION: &str = "1.1.0";
+const LPEG_SHA256: &str = "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a";
+
+const LUAUTF8_VERSION: &str = "0.2.1";
+const LUAUTF8_SHA256: &str = "ea52075cd960aed8c37512ab31cdc166aa77a6458504d29f33ae40b93d2d8594";
 
 // LuaJIT v2.1, at 2.1.1785763465. The floor is 2.1.1784535649, the first build
 // carrying the backported operators; anything older rejects generated Nupp at
@@ -46,6 +57,40 @@ fn main() {
         .define("NDEBUG", None)
         .warnings(false)
         .compile("lua_cjson");
+
+    let lpeg = fetch_archive(
+        &out,
+        &format!("lpeg-{LPEG_VERSION}"),
+        &format!("https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-{LPEG_VERSION}.tar.gz"),
+        LPEG_SHA256,
+        "lptree.c",
+    );
+    cc::Build::new()
+        .include(&include)
+        .files(
+            ["lpcap.c", "lpcode.c", "lpcset.c", "lpprint.c", "lptree.c", "lpvm.c"]
+                .iter()
+                .map(|name| lpeg.join(name)),
+        )
+        .define("NDEBUG", None)
+        .warnings(false)
+        .compile("lpeg");
+
+    let luautf8 = fetch_archive(
+        &out,
+        &format!("luautf8-{LUAUTF8_VERSION}"),
+        &format!(
+            "https://github.com/starwing/luautf8/archive/refs/tags/{LUAUTF8_VERSION}.tar.gz"
+        ),
+        LUAUTF8_SHA256,
+        "lutf8lib.c",
+    );
+    cc::Build::new()
+        .include(&include)
+        .file(luautf8.join("lutf8lib.c"))
+        .define("NDEBUG", None)
+        .warnings(false)
+        .compile("lua_utf8");
 
     println!("cargo:rustc-link-search=native={}", include.display());
     println!("cargo:rustc-link-lib=static=luajit");
@@ -136,22 +181,36 @@ fn link_libraries() -> &'static [&'static str] {
 
 /// The extracted lua-cjson source, fetched once per output directory.
 fn fetch_cjson(out: &Path) -> PathBuf {
-    let extracted = out.join(format!("lua-cjson-{CJSON_VERSION}"));
-    if extracted.join("lua_cjson.c").exists() {
+    fetch_archive(
+        out,
+        &format!("lua-cjson-{CJSON_VERSION}"),
+        &format!(
+            "https://github.com/openresty/lua-cjson/archive/refs/tags/{CJSON_VERSION}.tar.gz"
+        ),
+        CJSON_SHA256,
+        "lua_cjson.c",
+    )
+}
+
+/// One pinned source archive, extracted once per output directory. `marker` is a
+/// file the archive is known to contain, which is how an extraction that already
+/// happened is told from one that has not; `digest` is checked before anything
+/// is unpacked, so a mirror that served something else is refused rather than
+/// compiled.
+fn fetch_archive(out: &Path, directory: &str, url: &str, digest: &str, marker: &str) -> PathBuf {
+    let extracted = out.join(directory);
+    if extracted.join(marker).exists() {
         return extracted;
     }
 
-    let archive = out.join("lua-cjson.tar.gz");
-    let url = format!(
-        "https://github.com/openresty/lua-cjson/archive/refs/tags/{CJSON_VERSION}.tar.gz"
-    );
-    run(Command::new("curl").args(["-sSL", "-o"]).arg(&archive).arg(&url));
+    let archive = out.join(format!("{directory}.tar.gz"));
+    run(Command::new("curl").args(["-sSL", "-o"]).arg(&archive).arg(url));
 
-    let digest = sha256(&archive);
+    let found = sha256(&archive);
     assert_eq!(
-        digest, CJSON_SHA256,
-        "lua-cjson {CJSON_VERSION} does not match its pinned digest; refusing to \
-         compile something other than what this build was written against"
+        found, digest,
+        "{directory} does not match its pinned digest; refusing to compile \
+         something other than what this build was written against"
     );
 
     run(Command::new("tar").arg("xzf").arg(&archive).arg("-C").arg(out));

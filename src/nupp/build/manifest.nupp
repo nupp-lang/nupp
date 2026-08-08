@@ -115,6 +115,11 @@ local function validateRock(dep, label)
         return nil, label .. " must pin the rock: give a version, a rockspec, "
             .. "or a path to build it from"
     end
+    -- What a bundle carries of this rock, as globs over the tree it installs
+    -- into. A rock tree is mostly things a program never asks for, so this is
+    -- a list rather than a switch.
+    local valid, err = validateArray(dep.bundle, label .. ".bundle", "string")
+    if not valid then return nil, err end
     -- LuaRocks resolves what a rock needs. Letting one name a dependency here
     -- would read as declaring that and mean nothing, which is the one way a
     -- configuration file can lie to the person who wrote it.

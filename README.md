@@ -203,6 +203,12 @@ tree that `bin/nupp` and `tests/run` also put on the search path. Nothing is
 installed globally, so two checkouts can hold different versions without either
 breaking the other. The compiler itself does not need them; `nupp doc` does.
 
+A stamped binary has no rock tree to install into, so it carries them: the
+`dist` target lists both as `bundle` rocks, their Lua rides in the payload, and
+the LPeg and utf8 they need in C are linked into the host stub beside cjson.
+`nupp doc` works out of the box from a binary, on a machine with no LuaJIT and
+no LuaRocks.
+
 The toolchain compiles and runs generated code, so it needs the same LuaJIT
 generated code does: **2.1.1784535649 or newer**, the first build carrying the
 backported syntax extensions. `./bin/nupp` checks and says which build is
@@ -261,7 +267,8 @@ required: `nupp doc` says so and stops if it is not installed. Scintillua is
 optional and degrades — if it or a requested lexer is unavailable, nuppdoc
 still emits safely escaped code without highlighting that block. Both are rocks
 the docs target depends on, so the command that renders is the command that
-installs them.
+installs them — and both are carried by the `dist` binary, which renders
+without installing anything at all.
 
 Documentation is also a build target kind, so it participates in the ordinary
 manifest workflow:

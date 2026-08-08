@@ -552,6 +552,42 @@ local function rockPaths(root, config, target)
     return {path = table.concat(paths, ";"), cpath = table.concat(cpaths, ";")}
 end
 
+--- The rock modules a target asks a bundle to carry, as name -> file.
+---
+--- A bundle is one file and a binary is one file, and neither can bring a rock
+--- tree along. What they can carry is modules, which is what a rock installs:
+--- the `bundle` globs name the files, and the name each is reached by is the
+--- one `require` would have used to find it in the tree it came from. So the
+--- same `require("lunamark")` resolves in a checkout, in a bundle, and in a
+--- stamped binary, and the program cannot tell which it is running in.
+---
+--- Only what a target names. A rock tree holds test scripts, examples and a
+--- hundred and sixty lexers nobody asked for, and a bundle that swept the tree
+--- would carry all of it.
+local function rockModules(root, config, target)
+    local selected, seen = {}, {}
+    for _, name in ipairs(target and target.dependencies or {}) do
+        local dep = (config.dependencies or {})[name]
+        if type(dep) == "table" and dep.kind == "luarocks" and dep.bundle then
+            local tree, luaVersion = rockTree(root, dep)
+            local share = join(tree, "share/lua/" .. luaVersion)
+            for _, pattern in ipairs(dep.bundle) do
+                for _, path in ipairs(expandGlob(share, pattern)) do
+                    local relative = path:sub(#share + 2)
+                    local module = relative:gsub("%.lua$", "")
+                        :gsub("/init$", ""):gsub("/", ".")
+                    if not seen[module] then
+                        seen[module] = true
+                        selected[#selected + 1] = {name = module, path = path}
+                    end
+                end
+            end
+        end
+    end
+    table.sort(selected, function(a, b) return a.name < b.name end)
+    return selected
+end
+
 local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo,
     luarocks = buildRock}
 
@@ -593,5 +629,6 @@ end
 deps.expandGlob = expandGlob
 deps.build = buildDependencies
 deps.rockPaths = rockPaths
+deps.rockModules = rockModules
 
 return deps

@@ -1,3 +1,29 @@
+-- The languages a stamped binary can highlight a fenced block in. Scintillua
+-- ships a hundred and sixty lexers and they are 1.7 MB, which is more than the
+-- rest of the binary put together; these are the ones a technical document
+-- actually fences, and a fence in anything else renders as escaped text the way
+-- it does with no Scintillua at all.
+--
+-- Nupp itself is not here: it is highlighted by the compiler's own lexer, which
+-- is the only one that agrees with the compiler about what a token is.
+--
+-- Closed under embedding. A lexer loads another to highlight what it contains --
+-- HTML reaches for CSS and JavaScript, Markdown for everything it fences -- so
+-- leaving one out breaks the lexer that wanted it rather than only itself.
+local LEXERS = {
+   "lexer", "awk", "bash", "batch", "c", "clojure", "cmake", "coffeescript",
+   "cpp", "csharp", "css", "diff", "dockerfile", "elixir", "erlang", "go",
+   "haskell", "html", "ini", "java", "javascript", "json", "julia", "latex",
+   "lua", "makefile", "markdown", "nim", "perl", "php", "powershell", "python",
+   "r", "ruby", "rust", "scala", "sql", "swift", "text", "toml", "typescript",
+   "xml", "yaml", "zig",
+}
+
+local bundledLexers = {}
+for _, name in ipairs(LEXERS) do
+   bundledLexers[#bundledLexers + 1] = "scintillua/lexers/" .. name .. ".lua"
+end
+
 return {
    include = { "src" },
 
@@ -9,13 +35,27 @@ return {
    dependencies = {
       -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
       -- which LuaRocks resolves rather than this file listing them.
-      lunamark = { kind = "luarocks", version = "0.6.0-1" },
+      --
+      -- `bundle` is what a binary carries: the Lua of it, since the C of it --
+      -- LPeg, and the utf8 the entity table needs -- is linked into the host
+      -- stub instead. Named rather than swept, because the tree also holds a
+      -- command-line program and its tests, which nothing here ever asks for.
+      lunamark = {
+         kind = "luarocks",
+         version = "0.6.0-1",
+         bundle = {
+            "lunamark.lua", "lunamark/**.lua",
+            "cosmo.lua", "cosmo/**.lua",
+            "re.lua",
+         },
+      },
       -- Syntax highlighting for fenced code in the generated site. Not
       -- published on LuaRocks, so the rockspec beside it stands in for the one
       -- upstream does not ship.
       scintillua = {
          kind = "luarocks",
          rockspec = "rocks/scintillua-6.7-1.rockspec",
+         bundle = bundledLexers,
       },
    },
 
@@ -41,6 +81,10 @@ return {
             kind = "binary",
             description = "Stamp the compiler into a self-contained binary",
             entries = { "nupp.main" },
+            -- Carried, not just installed: a binary is handed to someone who
+            -- has no rock tree, and `nupp doc` is one of the commands it
+            -- claims to have.
+            dependencies = { "lunamark", "scintillua" },
             resources = {
                "src/nupp/decls/*.d.nupp",
                "src/nupp/decls/jit/*.d.nupp",

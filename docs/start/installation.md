@@ -23,6 +23,10 @@ Everything else is optional and buys one feature each:
  Rust toolchain building the binary host stub     rustup
 ```
 
+That table is about a **checkout**. A stamped binary carries all three of the
+first ones already — see [the binary](#a-self-contained-binary) — and needs
+nothing installed to check, compile, run or document a project.
+
 ## From a checkout
 
 ```bash
@@ -71,17 +75,36 @@ Every command's `--json` output and the language server read it.
 ## Putting `nupp` on PATH
 
 Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
-`bin` on your path, or build a self-contained binary:
+`bin` on your path, or build a self-contained binary.
+
+## A self-contained binary
 
 ```bash
 cargo build --release --manifest-path host/Cargo.toml
 ./bin/nupp build --target dist
 ```
 
-That writes `build/dist/nupp`, a single file carrying the compiler and its
-standard library with no LuaJIT installed alongside. See
-[distribution](../distribution.md) for the stub-and-payload format it uses, and
-for publishing a host of your own.
+That writes `build/dist/nupp`, a single file carrying the compiler, its
+standard library, and what it documents with, needing no LuaJIT installed
+alongside:
+
+```
+ Carried              How                          For
+ ───────────────────  ───────────────────────────  ──────────────────────
+ LuaJIT               linked into the stub         running anything
+ lua-cjson            linked into the stub         --json and the LSP
+ LPeg, luautf8        linked into the stub         nupp doc's renderer
+ lunamark             in the payload               nupp doc's markdown
+ Scintillua (44)      in the payload               highlighting fences
+```
+
+The lexers are a chosen set rather than all hundred and sixty Scintillua
+ships — the languages a technical document actually fences, listed at the top
+of `nupp.lua`. A fence in something else renders as escaped text, which is what
+it does with no Scintillua at all. See
+[distribution](../distribution.md) for the stub-and-payload format, and
+[rock dependencies](../tooling/build.md#carrying-a-rock-into-a-bundle) for
+carrying your own.
 
 ## Checking that it works
 

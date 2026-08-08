@@ -166,6 +166,11 @@ by how quickly a real user hits the gap. Milestone references are to
         from a directory in the tree — into a project-local `.rocks`, put it
         on the search path of the build and of the test command, and let
         LuaRocks resolve what a rock itself depends on
+  - [x] rocks in a payload: a bundle or binary carries the rock modules its
+        target names, preloaded under the names `require` finds them by, so
+        `nupp doc` renders from a stamped binary with no rock tree anywhere.
+        The C half — LPeg and luautf8, beside cjson — is linked into the stub,
+        since a `.so` is not a Lua chunk
   - [x] repo dogfood: tracked stage-0 bundle, bootstrap via `nupp build`,
         no Makefile, and a staged byte-identical fixpoint
   - [x] staleness tests: content-identical warm builds check and generate

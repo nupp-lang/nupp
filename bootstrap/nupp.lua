@@ -1142,6 +1142,42 @@ if # paths == 0 then return nil end
 return { path = table . concat ( paths , ";" ) , cpath = table . concat ( cpaths , ";" ) }
 end
 
+
+
+
+
+
+
+
+
+
+
+
+
+local function rockModules ( root , config , target )
+local selected , seen = { } , { }
+for _ , name in ipairs ( target and target . dependencies or { } ) do
+local dep = ( config . dependencies or { } ) [ name ]
+if type ( dep ) == "table" and dep . kind == "luarocks" and dep . bundle then
+local tree , luaVersion = rockTree ( root , dep )
+local share = join ( tree , "share/lua/" .. luaVersion )
+for _ , pattern in ipairs ( dep . bundle ) do
+for _ , path in ipairs ( expandGlob ( share , pattern ) ) do
+local relative = path : sub ( # share + 2 )
+local module = relative : gsub ( "%.lua$" , "" )
+: gsub ( "/init$" , "" ) : gsub ( "/" , "." )
+if not seen [ module ] then
+seen [ module ] = true
+selected [ # selected + 1 ] = { name = module , path = path }
+end
+end
+end
+end
+end
+table . sort ( selected , function ( a , b ) return a . name < b . name end )
+return selected
+end
+
 local PROVIDERS = { c = buildC , cargo = buildCargo , rust = buildCargo ,
 luarocks = buildRock }
 
@@ -1183,6 +1219,7 @@ end
 deps . expandGlob = expandGlob
 deps . build = buildDependencies
 deps . rockPaths = rockPaths
+deps . rockModules = rockModules
 
 return deps
 
@@ -1407,6 +1444,11 @@ if dep . version == nil and dep . rockspec == nil and dep . path == nil then
 return nil , label .. " must pin the rock: give a version, a rockspec, "
 .. "or a path to build it from"
 end
+
+
+
+local valid , err = validateArray ( dep . bundle , label .. ".bundle" , "string" )
+if not valid then return nil , err end
 
 
 
@@ -2080,6 +2122,7 @@ end
 
 
 
+
 local function bundleText ( root , config , target , banner , modules )
 local outDir = target . outDir or "build"
 local _ , mainPath = entryModule ( root , outDir , target )
@@ -2097,6 +2140,17 @@ local chunks = { banner or "" }
 
 
 
+
+
+
+for _ , rock in ipairs ( deps . rockModules ( root , config , target ) ) do
+local text , readErr = readFile ( rock . path )
+if not text then return nil , readErr end
+chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" )
+: format ( rock . name )
+chunks [ # chunks + 1 ] = text
+chunks [ # chunks + 1 ] = "\nend\n"
+end
 
 local names = { }
 for name in pairs ( modules or { } ) do names [ # names + 1 ] = name end
@@ -18061,6 +18115,12 @@ package.preload["nupp.doc.highlight"] = function(...)
 
 
 
+
+
+
+
+
+
 local lexer = require ( "nupp.lexer" )
 local stringsMod = require ( "nupp.doc.strings" )
 local filesMod = require ( "nupp.doc.files" )
@@ -18187,7 +18247,46 @@ local SCINTILLUA_ALIASES = {
 md = "markdown" , sh = "bash" , shell = "bash" , ts = "typescript" ,
 }
 local scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary = nil , nil , nil
+local scintilluaBundled = false
 local scintilluaLexers = { }
+
+
+
+
+
+local BUNDLED_MODULE = "scintillua.lexers."
+local BUNDLED_DIRECTORY = "@bundled/scintillua/lexers"
+
+local function bundledName ( path )
+if type ( path ) ~= "string" then return nil end
+local prefix = BUNDLED_DIRECTORY .. "/"
+if path : sub ( 1 , # prefix ) ~= prefix then return nil end
+return path : sub ( # prefix + 1 ) : match ( "^([%w_+-]+)%.lua$" )
+end
+
+
+
+
+
+
+
+local function bundledLoadfile ( path , mode , env )
+local chunk , err
+local name = bundledName ( path )
+if name then
+chunk = package . preload [ BUNDLED_MODULE .. name ]
+
+
+if not chunk then return nil , "cannot open " .. path end
+else
+chunk , err = loadfile ( path )
+if not chunk then return nil , err end
+end
+
+
+if env then setfenv ( chunk , env ) end
+return chunk
+end
 
 
 
@@ -18208,21 +18307,28 @@ local function configureScintillua ( root , settings )
 
 
 
+
 local installed = installedLexers ( )
-if not installed or not exists ( join ( installed , "lexer.lua" ) ) then
+if installed and not exists ( join ( installed , "lexer.lua" ) ) then installed = nil end
+local bundled = not installed
+and package . preload [ BUNDLED_MODULE .. "lexer" ] ~= nil
+if not installed and not bundled then
 scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary , scintilluaLexers =
 nil , nil , nil , { }
+scintilluaBundled = false
 return
 end
-local searchPath = installed
+local base = installed or BUNDLED_DIRECTORY
+local searchPath = base
 if settings . lexers then
 local custom = join ( root , settings . lexers )
-if exists ( custom ) then searchPath = custom .. ";" .. installed end
+if exists ( custom ) then searchPath = custom .. ";" .. base end
 end
 if scintilluaSearchPath ~= searchPath then
 scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary , scintilluaLexers =
-installed , searchPath , nil , { }
+base , searchPath , nil , { }
 end
+scintilluaBundled = bundled
 end
 
 local function loadScintillua ( language )
@@ -18234,7 +18340,20 @@ if scintilluaLexers [ language ] ~= nil then
 return scintilluaLexers [ language ] or nil
 end
 if not scintilluaLibrary then
-local chunk = loadfile ( join ( scintilluaDirectory , "lexer.lua" ) )
+local chunk
+if scintilluaBundled then
+chunk = package . preload [ BUNDLED_MODULE .. "lexer" ]
+
+
+
+
+if chunk then
+setfenv ( chunk , setmetatable ( { loadfile = bundledLoadfile } ,
+{ __index = _G } ) )
+end
+else
+chunk = loadfile ( join ( scintilluaDirectory , "lexer.lua" ) )
+end
 if not chunk then return nil end
 local ok , library = pcall ( chunk )
 if not ok or type ( library ) ~= "table" then return nil end
@@ -33484,9 +33603,26 @@ local loadstring: function(s: string, name: string?): (any, string?)
 --- running it.
 ---
 --- @param path the file to compile, or nil for standard input
+--- @param mode "b", "t" or "bt", limiting binary or text sources
+--- @param env the environment the chunk sees as its globals
 --- @return the compiled chunk, or nil when it does not load
 --- @return the load error, when there was one
-local loadfile: function(path: string?): (any, string?)
+local loadfile: function(path: string?, mode: string?, env: table?): (any, string?)
+
+--- Sets the environment a function sees as its globals. `f` is the function
+--- itself, or a stack level: 1 is the caller, 0 the running thread.
+---
+--- @param f the function whose globals are being replaced, or a stack level
+--- @param env the table to use as that function's globals
+--- @return `f`, when it was a function
+local setfenv: function(f: any, env: table): any
+
+--- Returns the environment a function sees as its globals, addressed the way
+--- `setfenv` addresses one.
+---
+--- @param f the function to ask about, or a stack level
+--- @return that function's globals
+local getfenv: function(f: any?): table
 
 --- Loads and runs the file at `path`, or standard input when it is omitted.
 --- Errors from the chunk propagate to the caller.

@@ -210,9 +210,26 @@ local loadstring: function(s: string, name: string?): (any, string?)
 --- running it.
 ---
 --- @param path the file to compile, or nil for standard input
+--- @param mode "b", "t" or "bt", limiting binary or text sources
+--- @param env the environment the chunk sees as its globals
 --- @return the compiled chunk, or nil when it does not load
 --- @return the load error, when there was one
-local loadfile: function(path: string?): (any, string?)
+local loadfile: function(path: string?, mode: string?, env: table?): (any, string?)
+
+--- Sets the environment a function sees as its globals. `f` is the function
+--- itself, or a stack level: 1 is the caller, 0 the running thread.
+---
+--- @param f the function whose globals are being replaced, or a stack level
+--- @param env the table to use as that function's globals
+--- @return `f`, when it was a function
+local setfenv: function(f: any, env: table): any
+
+--- Returns the environment a function sees as its globals, addressed the way
+--- `setfenv` addresses one.
+---
+--- @param f the function to ask about, or a stack level
+--- @return that function's globals
+local getfenv: function(f: any?): table
 
 --- Loads and runs the file at `path`, or standard input when it is omitted.
 --- Errors from the chunk propagate to the caller.

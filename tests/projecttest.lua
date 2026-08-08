@@ -517,6 +517,41 @@ return {
    remove(dir)
 end
 
+-- A bundle carries modules, not files, so what a rock's files are called on the
+-- way in is what `require` calls them on the way out.
+function M.bundledRockModulesAreNamedTheWayRequireFindsThem()
+   local dir = tempProject({
+      [".rocks/share/lua/5.1/lunamark.lua"] = "return {}\n",
+      [".rocks/share/lua/5.1/lunamark/util.lua"] = "return {}\n",
+      [".rocks/share/lua/5.1/lunamark/writer/html.lua"] = "return {}\n",
+      [".rocks/share/lua/5.1/cosmo/init.lua"] = "return {}\n",
+      [".rocks/share/lua/5.1/unasked.lua"] = "return {}\n",
+   })
+   local config = {
+      dependencies = {
+         lunamark = {
+            kind = "luarocks", version = "0.6.0-1",
+            bundle = {"lunamark.lua", "lunamark/**.lua", "cosmo/init.lua"},
+         },
+      },
+   }
+   local carried = deps.rockModules(dir, config, {dependencies = {"lunamark"}})
+   local names = {}
+   for _, module in ipairs(carried) do names[#names + 1] = module.name end
+   assertEq(table.concat(names, " "),
+      "cosmo lunamark lunamark.util lunamark.writer.html",
+      "a directory module keeps its init, a nested one keeps its path")
+
+   assertEq(deps.rockModules(dir, config, {dependencies = {}})[1], nil,
+      "a target that asks for no rock carries none")
+   local unasked = {
+      dependencies = {lunamark = {kind = "luarocks", version = "0.6.0-1"}},
+   }
+   assertEq(deps.rockModules(dir, unasked, {dependencies = {"lunamark"}})[1], nil,
+      "and a rock with no bundle globs is installed rather than carried")
+   remove(dir)
+end
+
 -- What a test command has to be told, since it is a fresh interpreter that has
 -- never heard of the tree the build installed into.
 function M.rockPathsNameTheTreesATargetDependsOn()

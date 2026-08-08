@@ -206,6 +206,69 @@ function M.aBundleCarriesWhatTheBuildCompiledNotWhatIsLyingAround()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A rock is a library the program needs and the bundle cannot leave behind: a
+-- binary handed to somebody with no rock tree still has to run every command it
+-- claims to have. What it carries is what the manifest named, under the name
+-- `require` would have found it by in the tree it came from.
+local ROCK_MANIFEST = [[
+return {
+   include = { "src" },
+   dependencies = {
+      tiny = {
+         kind = "luarocks",
+         rock = "tinyrock",
+         path = "vendor/tinyrock",
+         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec",
+         bundle = { "tinyrock.lua" },
+      },
+   },
+   build = {
+      outDir = "build",
+      default = "app",
+      targets = {
+         app = {
+            kind = "bundle",
+            entries = { "app.main" },
+            dependencies = { "tiny" },
+         },
+      },
+   },
+}
+]]
+
+local ROCK_MAIN = [[
+local tiny = require("tinyrock")
+print("answer " .. tostring(tiny.answer))
+]]
+
+local TINY_ROCKSPEC = [[
+package = "tinyrock"
+version = "1.0-1"
+source = { url = "file://tinyrock.lua" }
+description = { summary = "A rock that ships with the project." }
+dependencies = { "lua >= 5.1" }
+build = { type = "builtin", modules = { tinyrock = "tinyrock.lua" } }
+]]
+
+function M.aBundleCarriesTheRockModulesItWasToldTo()
+   local dir = tempProject({
+      ["nupp.lua"] = ROCK_MANIFEST,
+      ["src/app/main.nupp"] = ROCK_MAIN,
+      ["vendor/tinyrock/tinyrock.lua"] = "return {answer = 42}\n",
+      ["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC,
+   })
+   local out, ok = run(dir, "'" .. NUPP .. "' build")
+   assert(ok, "the bundle target builds: " .. out)
+
+   -- With an empty search path, so nothing installed on this machine can
+   -- answer the require: what runs is what the bundle brought.
+   local ran, ranOk = run(dir, "LUA_PATH= LUA_CPATH= luajit build/app.lua")
+   assert(ranOk, "the bundle runs with nothing on its path: " .. ran)
+   assert(ran:find("answer 42", 1, true),
+      "the rock's module came with it: " .. ran)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- The compiler's own stage-0 bundle goes through this same code. If the two
 -- ever diverge, the bootstrap is being produced by a path nothing else tests.
 function M.theBootstrapIsProducedByTheGeneralBundler()

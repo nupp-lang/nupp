@@ -49,7 +49,8 @@ local function entryModule(root, outDir, target)
 end
 
 --- One target as a single Lua chunk: every module it built preloaded, every
---- resource it declared carried alongside them, and the entry's own code last.
+--- rock module it asked to carry preloaded beside them, every resource it
+--- declared alongside those, and the entry's own code last.
 ---
 --- The result runs under a plain `luajit` with nothing beside it. That is what
 --- makes it worth having on its own, and it is also the payload a stub carries;
@@ -83,6 +84,17 @@ local function bundleText(root, config, target, banner, modules)
     --
     -- The build already knows the difference, and it knows the module's name
     -- rather than a path a name has to be guessed back out of.
+    -- The rocks first, so a project module and a rock module of one name leave
+    -- the project's own in place: a bundle should run what the build compiled.
+    for _, rock in ipairs(deps.rockModules(root, config, target)) do
+        local text, readErr = readFile(rock.path)
+        if not text then return nil, readErr end
+        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n")
+            :format(rock.name)
+        chunks[#chunks + 1] = text
+        chunks[#chunks + 1] = "\nend\n"
+    end
+
     local names = {}
     for name in pairs(modules or {}) do names[#names + 1] = name end
     table.sort(names)

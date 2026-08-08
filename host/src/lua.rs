@@ -37,12 +37,17 @@ extern "C" {
 
 type LuaFunction = unsafe extern "C" fn(*mut lua_State) -> c_int;
 
-// The vendored lua-cjson, linked into this binary. Reached through require like
-// any other module, which is what keeps a stamped binary and a plain
-// interpreter looking the same to the program running on them.
+// The vendored C libraries, linked into this binary. Each is reached through
+// require like any other module, which is what keeps a stamped binary and a
+// plain interpreter looking the same to the program running on them: cjson
+// because the compiler requires it before it does anything, LPeg and utf8
+// because `nupp doc` renders with lunamark and lunamark is a PEG grammar and an
+// entity table.
 extern "C" {
     fn luaopen_cjson(state: *mut lua_State) -> c_int;
     fn luaopen_cjson_safe(state: *mut lua_State) -> c_int;
+    fn luaopen_lpeg(state: *mut lua_State) -> c_int;
+    fn luaopen_utf8(state: *mut lua_State) -> c_int;
 }
 
 pub struct Lua {
@@ -62,6 +67,10 @@ impl Lua {
         unsafe { luaL_openlibs(self.state) };
         self.preload("cjson", luaopen_cjson);
         self.preload("cjson.safe", luaopen_cjson_safe);
+        self.preload("lpeg", luaopen_lpeg);
+        // Under the name luautf8 installs it as, since that is the name
+        // lunamark asks for; LuaJIT has no utf8 of its own to collide with.
+        self.preload("lua-utf8", luaopen_utf8);
     }
 
     /// Puts a C module in `package.preload`, so `require` finds it without a
