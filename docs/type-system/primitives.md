@@ -68,6 +68,42 @@ end
 local text = reply as string           -- fine: an explicit cast
 ```
 
+It names in a function type the same as any other type, in parameter or
+return position:
+
+```nupp
+local type Reducer = function(acc: unknown, item: unknown): unknown
+
+local sum: Reducer = function(acc: unknown, item: unknown): unknown
+    return (acc as number) + (item as number)
+end
+```
+
+A variadic parameter typed `unknown` takes anything, the way bare `...`
+does, but gives each extra argument a type to narrow before use instead of
+none at all:
+
+```nupp
+local function collect(...: unknown): integer
+    return select("#", ...)
+end
+```
+
+Equality against a literal narrows `unknown` the same way it narrows any
+other type, so a chain that checks it against every member of a literal-type
+union narrows all the way there:
+
+```nupp
+local type Mode = "read" | "write"
+
+local function asMode(v: unknown): Mode
+    if v == "read" or v == "write" then
+        return v                       -- narrowed to Mode
+    end
+    error("bad mode")
+end
+```
+
 Use `unknown` where `any` would otherwise stand for "I have not looked at
 this value yet, and every use of it should have to say how."
 
@@ -97,6 +133,35 @@ see that for itself: a loop that never ends, or a declaration with no body to
 read, such as `local error: function(msg: any, level: number?): never` in the
 prelude. Declaring `never` on a function that does return is an ordinary
 return-type mismatch, since nothing but `never` fits `never`.
+
+A function type carries it in return position with no special syntax beyond
+the name:
+
+```nupp
+local type Bailer = function(msg: string): never
+```
+
+A `never` variadic parameter takes no extra arguments at all — nothing but
+`never` fits `never`, so any value offered there is refused:
+
+```nupp
+local function noExtras(a: integer, ...: never): integer
+    return a
+end
+
+noExtras(1)                            -- fine
+noExtras(1, "oops")                    -- NUPP2006: argument 2: string is not a never
+```
+
+Because it fits anywhere, a `never`-returning call also satisfies a literal
+type, the same as any other declared return:
+
+```nupp
+local function pick(ok: boolean): "yes" | "no"
+    if ok then return "yes" end
+    return fail("not ok")
+end
+```
 
 ## Numbers
 
