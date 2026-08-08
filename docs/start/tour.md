@@ -160,20 +160,7 @@ Type arguments are inferred from the call. Constraints use `is`:
 A value with a cleanup obligation carries it in its type, and the checker will
 not let you drop it.
 
-```nupp
-local resources = require("nupp.std.resources")
-
-with file = resources.open_file("input.txt", "r") do
-    print(file:read("*a"))
-end
-```
-
-`with` releases on fallthrough, `return`, `break`, `continue`, a `goto` leaving
-the body, and an error raised anywhere inside. It is the only construct that
-closes something for you; an ordinary local owner has to be disposed,
-transferred, or returned, and forgetting is a compile error.
-
-Producers declare the obligation, so any type can be a resource:
+A producer declares the obligation, and any type can carry one:
 
 ```nupp
 local record Session
@@ -190,6 +177,21 @@ local function openSession(): Session
     return Session{closed = false}
 end
 ```
+
+`@dispose` marks the operation that consumes the resource; `@owned` marks the
+function that produces one. Now the checker will not let the result be dropped,
+and `with` discharges it:
+
+```nupp
+with session = openSession() do
+    print(session.closed)
+end
+```
+
+`with` releases on fallthrough, `return`, `break`, `continue`, a `goto` leaving
+the body, and an error raised anywhere inside. It is the only construct that
+closes something for you; an ordinary local owner has to be disposed,
+transferred, or returned, and forgetting is a compile error.
 
 [Ownership](ownership.md) starts from here; the
 [ownership reference](../ownership.md) has the whole model.

@@ -476,4 +476,17 @@ function M.gradualDefaults()
       "local f: function() = function() end\nf = nil")), "NUPP2001:2")
 end
 
+-- The grammar carries `where`, the formatter keeps it and `nupp doc` renders it
+-- into a signature, and no checker code reads the expression. A constraint that
+-- constrains nothing is worth a diagnostic rather than a footnote.
+function M.whereRefinementsReportThatTheyAreUnchecked()
+   assertEq((diagsOf("local record Odd where 1 + 1 == 3\n   n: integer\nend")),
+      "NUPP2122:1")
+   assertEq((diagsOf("local struct S where false\n   x: float\nend")),
+      "NUPP2122:1")
+   assertEq((diagsOf("local interface I where true\n   n: integer\nend")),
+      "NUPP2122:1")
+   assertClean("local record Even\n   n: integer\nend")
+end
+
 return M

@@ -181,6 +181,17 @@ function declare.install(c: any, reifiableField: any, fix: any,
             n.byname = n.byname or {}
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
+            -- The grammar carries a `where` refinement and nothing checks it, so a
+            -- declaration that states a constraint gets no constraint. Saying so is
+            -- the honest reading: a silently ignored predicate is worse than one
+            -- the compiler admits it cannot evaluate.
+            if stat.whereClause then
+                c.diag("NUPP2122", stat.whereClause,
+                    "a 'where' refinement is not implemented, so this "
+                    .. "constraint is not checked",
+                    nil, {help = "remove it, or express the constraint as a "
+                    .. "type: an enum, a union of literals, or a bound"})
+            end
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
             -- Every declaration has a private type scope: `self`, generic binders, and

@@ -60,7 +60,7 @@ function control.install(c: any): any
                 end
                 if missing then
                     c.diag("NUPP2619", stat.exprs[j] or stat,
-                        "cannot prove all declared borrowed-c.result sources")
+                        "cannot prove all declared borrowed-result sources")
                 end
             end
             if ownershipKind(valueT) == "borrowed"
@@ -72,7 +72,7 @@ function control.install(c: any): any
                 c.diag(expr.withBinding and "NUPP2612" or ownCode or "NUPP2603",
                     expr, expr.withBinding
                     and "a visible 'with' borrow cannot be returned"
-                    or ownCode and "an owning c.result cannot retain an input borrow"
+                    or ownCode and "an owning result cannot retain an input borrow"
                     or "borrowed value cannot be returned")
             elseif ownershipKind(valueT) == "owned"
                 or ownershipKind(valueT) == "pinned" then

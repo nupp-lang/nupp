@@ -390,7 +390,7 @@ function bindings.install(c: any): any
         end
         if ignoredOwner then
             c.diag("NUPP2603", called,
-                "owned call c.result is ignored instead of being consumed")
+                "owned call result is ignored instead of being consumed")
         end
     end
 

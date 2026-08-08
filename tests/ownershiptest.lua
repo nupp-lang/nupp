@@ -971,13 +971,18 @@ end
 
 function M.callbackPointersRequireUnsafe()
    assertEq(codes("local cb = ffi.cast<voidptr>(function() end)"), "NUPP2604")
-   assertClean(table.concat({
+   -- Inside `unsafe` the cast is permitted, and what is left to say is the cost:
+   -- the callback stays registered and a trace cannot compile through it. That
+   -- is advice, so it is a lint and a project may wave it away.
+   local permitted = table.concat({
       "unsafe do",
       "   local callback = function() end",
       "   local cb = ffi.cast<voidptr>(callback)",
       "   local handle = pin(cb, callback)",
       "end",
-   }, "\n"))
+   }, "\n")
+   assertEq(codes(permitted), "NUPP2502")
+   assertClean('@allow("jit-callback")\n' .. permitted)
 end
 
 function M.rawPointerAccessRequiresUnsafe()

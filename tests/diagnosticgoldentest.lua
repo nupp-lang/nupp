@@ -66,7 +66,39 @@ NUPP2503 warning 10:22+4
 number does not fit every int32; cast if the narrowing is intended
 fix: cast to `int32`]]
 
+-- The checker threads its context through a local named `c`, so `c.result` and
+-- its neighbours are ordinary expressions in code and a rename artifact inside a
+-- string. Four messages shipped reading "owned call c.result is ignored" after
+-- one ran through the literals. Reading the sources catches the next one whether
+-- or not a test happens to exercise that diagnostic.
+local function stringLiteralsMentioningContext()
+   local found = {}
+   local list = io.popen("find '" .. ROOT .. "/src/nupp' -name '*.nupp'")
+   for path in list:lines() do
+      local line = 0
+      for text in io.lines(path) do
+         line = line + 1
+         for literal in text:gmatch('"([^"]*)"') do
+            if literal:find("%f[%w]c%.%a") then
+               found[#found + 1] = ("%s:%d: %s"):format(
+                  path:gsub("^.*/src/nupp/", ""), line, literal)
+            end
+         end
+      end
+   end
+   list:close()
+   return found
+end
+
 local M = {}
+
+function M.noDiagnosticMessageQuotesTheCheckerContext()
+   local found = stringLiteralsMentioningContext()
+   if #found > 0 then
+      error("a checker context expression leaked into a string literal:\n  "
+         .. table.concat(found, "\n  "), 2)
+   end
+end
 
 function M.curatedBadCodeMessagesStayUseful()
    local actual = table.concat({

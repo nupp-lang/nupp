@@ -63,7 +63,7 @@ function expr.install(c: any)
 
     -- Ordering follows LuaJIT's primitive families. The gradual checker also accepts
     -- one optional numeric/string family: unannotated Lua routinely compares a tonumber
-    -- c.result after a lexical guard the facts engine cannot yet express. Unrelated
+    -- result after a lexical guard the facts engine cannot yet express. Unrelated
     -- union members remain rejected.
     local function orderingFamily(t)
         if t == T.any then return "any" end

@@ -84,7 +84,7 @@ function ffi.install(c: any): any
             end
             if name == "typeof" then return T.ctype(resolved) end
             if name == "cast" then
-                -- a cast is the programmer asserting a type, so the c.result is the
+                -- a cast is the programmer asserting a type, so the result is the
                 -- non-null form
                 return subtract(resolved, T.nil_)
             end
@@ -112,11 +112,22 @@ function ffi.install(c: any): any
                     return T.borrowed(argT)
                 end
                 if name == "cast" and c.pointerShaped(argT)
-                    and ffiArgs[1] and rawType(ffiArgs[1]).tag == "func"
-                    and c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node,
-                        "creating an FFI callback requires unsafe do and "
-                        .. "an explicit retained owner")
+                    and ffiArgs[1] and rawType(ffiArgs[1]).tag == "func" then
+                    if c.unsafeDepth == 0 then
+                        c.diag("NUPP2604", node,
+                            "creating an FFI callback requires unsafe do and "
+                            .. "an explicit retained owner")
+                    else
+                        -- Inside `unsafe` the callback is permitted, and what is
+                        -- left to say is what it costs: LuaJIT registers the Lua
+                        -- function as a C callback for the life of the process,
+                        -- and a trace cannot compile through the boundary.
+                        c.diag("jit-callback", node,
+                            "a Lua function cast to a C callback stays "
+                            .. "registered and cannot be compiled through",
+                            nil, {help = "keep the callback off hot paths, "
+                            .. "or call C with a plain pointer instead"})
+                    end
                 end
                 if name == "cast" and ffiArgs[1]
                     and c.ownershipKind(ffiArgs[1]) then
