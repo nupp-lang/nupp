@@ -289,7 +289,16 @@ function importc.import(headerPath, opts)
     -- LuaJIT's parser is the arbiter and the source of the declarations we
     -- render. Included simple typedefs supply the vocabulary removed when
     -- the target header was isolated through cpp linemarkers.
-    local parsed, ffiErr = cdecl.inspect(text, typedefText)
+    --
+    -- Declaration by declaration, so one the parser will not take costs itself
+    -- and not the header. `fcntl.h` holds one struct laid out from a type
+    -- whose definition another header owns, and taking the file as one unit
+    -- spent `open` and `fcntl` on it.
+    local units = {}
+    for _, statement in ipairs(statements(text)) do
+        units[#units + 1] = statement .. ";"
+    end
+    local parsed, ffiErr = cdecl.inspect(units, typedefText)
     if not parsed then
         return nil, {"LuaJIT cdef: " .. tostring(ffiErr)}
     end
@@ -303,6 +312,21 @@ function importc.import(headerPath, opts)
     emit("-- committed and hand-editable: fix or extend freely, re-import")
     emit("-- only when the header changes.")
     emit("")
+
+    -- What the parser would not take, said in the file that is missing it and
+    -- again on the way out. The count is the part that carries: one skipped
+    -- declaration out of thirty is a header with a corner in it, and
+    -- twenty-seven out of thirty is a vocabulary that broke upstream and a
+    -- module not worth having.
+    if #parsed.rejected > 0 then
+        for _, reject in ipairs(parsed.rejected) do
+            emit(("-- import-c: skipped declaration (%s)"):format(reject.reason))
+            emit("--   " .. reject.text:sub(1, 100))
+        end
+        emit("")
+        warnings[#warnings + 1] = ("%d of %d declarations skipped: %s"):format(
+            #parsed.rejected, parsed.declared, parsed.rejected[1].reason)
+    end
 
     for _, declaration in ipairs(parsed.structs) do
         local name = declaration.name

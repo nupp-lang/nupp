@@ -74,4 +74,27 @@ function M.anUnusablePreludeEntryCostsOnlyItself()
    assertEq(parsed.structs[1].name, "NuppCdeclKept")
 end
 
+function M.aRejectedDeclarationIsSetAsideNotFatal()
+   local parsed, err = cdecl.inspect({
+      "struct NuppCdeclOpaque;",
+      "struct NuppCdeclUnsized { struct NuppCdeclOpaque inner; };",
+      "int nuppCdeclSurvives(int a);",
+   })
+   assert(parsed, err)
+   assertEq(#parsed.rejected, 1)
+   assertEq(parsed.declared, 3)
+   assertEq(#parsed.functions, 1)
+   assertEq(parsed.functions[1].name, "nuppCdeclSurvives")
+   assert(parsed.rejected[1].reason:find("size", 1, true),
+      "the reason travels with it: " .. parsed.rejected[1].reason)
+end
+
+function M.oneBlobIsStillTakenOrLeftWhole()
+   -- What a `cheader` pins is not a subset: a header that will not parse is
+   -- the answer, and quietly typing part of it would be the wrong one.
+   local parsed = cdecl.inspect(
+      "struct NuppCdeclWhole { struct NuppCdeclNeverDefined inner; };")
+   assertEq(parsed, nil)
+end
+
 return M

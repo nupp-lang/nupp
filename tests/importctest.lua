@@ -149,6 +149,23 @@ function M.anEnumMemberIsAcceptedWhereItsFunctionWantsIt()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.aDeclarationTheParserRejectsCostsOnlyItself()
+   local text = importc.import(HERE .. "/fixtures/partial.h")
+   assert(text, "a rejected declaration must not take the header with it")
+   assertContains(text, "cdef function partial_add(a: int32, b: int32): int32")
+   assertContains(text, "cdef function partial_scale(v: number): number")
+   assertContains(text, "-- import-c: skipped declaration")
+   assertContains(text, "partialHolder", "the residue names what was lost")
+end
+
+function M.skippedDeclarationsAreCountedOnTheWayOut()
+   -- The count is the signal: one of four is a corner in the header, and
+   -- four of four is a module not worth having.
+   local _, warnings = importc.import(HERE .. "/fixtures/partial.h")
+   assert(#warnings == 1, "expected one warning, got " .. #warnings)
+   assertContains(warnings[1], "1 of 4 declarations skipped")
+end
+
 function M.typedefsAreDeclaredInTheOrderCCanReadThem()
    -- chain_base.h reaches chain_size_t through names that sort before the
    -- ones they are built from, which is how Darwin spells its own.

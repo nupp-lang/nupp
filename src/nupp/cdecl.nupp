@@ -204,9 +204,19 @@ local function preludeList(prelude)
     return {}
 end
 
+-- `text` is one blob to take or leave, or a list of declarations to take what
+-- parses of. A blob is what a `cheader` pins, where a header that will not
+-- parse is the answer; a list is what import-c ejects, where it is one entry.
+local function targetUnits(text)
+    if type(text) == "table" then return text, true end
+    return {text}, false
+end
+
 function cdecl.inspect(text, prelude)
     local declarations = preludeList(prelude)
-    local key = table.concat(declarations, "\n") .. "\0" .. text
+    local units, perUnit = targetUnits(text)
+    local key = table.concat(declarations, "\n") .. "\0"
+        .. table.concat(units, "\n")
     local hit = inspectCache[key]
     if hit then return hit end
 
@@ -231,8 +241,25 @@ function cdecl.inspect(text, prelude)
         if info(id) then before[id] = true end
     end
 
-    local ok, err = pcall(ffi.cdef, text)
-    if not ok then return nil, tostring(err) end
+    -- What LuaJIT will not parse is set aside rather than taken as the answer
+    -- for the whole header. One declaration commonly fails for a reason local
+    -- to itself — a struct laid out from a type whose definition lives in a
+    -- header that was filtered away — and the rest of the file is unaffected
+    -- and worth having. The caller is told what it lost.
+    local rejected = {}
+    for _, unit in ipairs(units) do
+        local ok, err = pcall(ffi.cdef, unit)
+        if not ok then
+            rejected[#rejected + 1] = {
+                text = unit,
+                -- LuaJIT prefixes its own chunk name and line
+                reason = tostring(err):gsub("^.-:%d+:%s*", ""),
+            }
+        end
+    end
+    if not perUnit and #rejected > 0 then
+        return nil, rejected[1].reason
+    end
 
     local structs, functions, enums = {}, {}, {}
     for id = 1, MAX_CTYPE_ID do
@@ -253,7 +280,13 @@ function cdecl.inspect(text, prelude)
             end
         end
     end
-    local result = {structs = structs, functions = functions, enums = enums}
+    local result = {
+        structs = structs,
+        functions = functions,
+        enums = enums,
+        rejected = rejected,
+        declared = #units,
+    }
     inspectCache[key] = result
     return result
 end
