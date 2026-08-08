@@ -32,6 +32,18 @@ plus a returned module table. It is deliberately hand-editable. Review it,
 remove declarations your program does not use, and add contracts the header
 cannot express.
 
+Only the header you name is imported. Whatever arrives through its `#include`s
+belongs to those files and is left in them, so the module stays about the API
+you asked for rather than the closure behind it. Their typedefs are still read,
+because the header is written in them, but their declarations and their macros
+are not yours.
+
+That is worth knowing before you point this at a system header, because a
+system header is usually a facade: macOS declares `strlen` in `_string.h` and
+`EPERM` in `sys/errno.h`, so importing `string.h` or `errno.h` there is correct
+and almost empty. Import the file that holds the declarations, or write the few
+you need by hand.
+
 Use the generated module like any other:
 
 ```nupp
@@ -100,11 +112,25 @@ Coming the other way, every pointer that `import-c` produces is nullable
 from the building machine, so `long` and `size_t` are correct per platform.
 
 `import-c` handles scalars, named structs by value and by pointer, function
-pointers in parameter position, C varargs, and object-like macros. It leaves an
-`-- import-c: skipped` comment for what it will not translate: anonymous
-structs, unions, arrays, widths other than 8/16/32/64, function pointers in
-return or field position, function-like macros, and names that collide with Lua
-keywords.
+pointers in parameter position, C varargs, object-like macros, and enum
+members. It leaves an `-- import-c: skipped` comment for what it will not
+translate: anonymous structs, unions, arrays, widths other than 8/16/32/64,
+function pointers in return or field position, function-like macros, and names
+that collide with Lua keywords.
+
+An enum's members come across as named `int32` constants:
+
+```nupp
+local STATUS_OK: int32 = 0
+local STATUS_BUSY: int32 = 1
+```
+
+They arrive whether or not the enum itself is named, since `typedef enum { ... }
+Mode;` names the type and the members are the point either way. The type is an
+integer wherever it appears — that is all a C enum ever is, and C checks nothing
+about which integer — so a member passes to the function it belongs to without a
+cast, and any other integer passes too. A name declared twice keeps its first
+meaning.
 
 ## Type the header in place
 
