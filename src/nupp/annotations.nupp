@@ -210,11 +210,6 @@ local BUILTINS = {
         targets = {"function", "c-function", "local-binding"},
     },
     {
-        name = "stable",
-        arguments = "none",
-        targets = {"local-binding"},
-    },
-    {
         name = "relax",
         arguments = "names",
         targets = {"function"},

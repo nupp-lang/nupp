@@ -403,7 +403,7 @@ function control.install(c: any): any
         local operandType = operand and c.refType(operand) or nil
         if calleeTok and calleeTok.text == "ipairs" and global
             and calleeTok.definition == global.definition and operand
-            and global.definition and global.definition.stable
+            and global.definition and global.definition.constant
             and operand.kind == "name" and operandType
             and operandType.tag == "array" then
             stat.builtinIpairs = {operand = operand, type = operandType}

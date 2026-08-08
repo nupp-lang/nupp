@@ -142,27 +142,6 @@ function pragma.install(c: any): any
             return
         end
 
-        if written == "stable" then
-            if not c.declarationFile then
-                c.diag("NUPP2112", stat,
-                    "@stable is for bodyless declaration surfaces; visible Nupp "
-                    .. "bindings are analyzed directly")
-            elseif target and target.kind == "localStmt"
-                and #(target.exprs or {}) > 0 then
-                c.diag("NUPP2112", stat,
-                    "@stable requires a bodyless declaration binding")
-            elseif valid and target and target.kind == "localStmt" then
-                target.stableContract = true
-            end
-            if stat.stat then c.checkStat(stat.stat) end
-            if target and target.kind == "localStmt" and target.stableContract then
-                for _, name in ipairs(target.names or {}) do
-                    if name.definition then name.definition.stable = true end
-                end
-            end
-            return
-        end
-
         if written == "relax" then
             local relaxed = {}
             for _, arg in ipairs(stat.annotationArgs or {}) do

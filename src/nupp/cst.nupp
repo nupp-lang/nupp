@@ -34,9 +34,6 @@ interface cst.Hints
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 
-    --- Whether `@stable` promises a bodyless exported binding stays unchanged.
-    stableContract: boolean?
-
     --- Observable guarantees an optimization may change at this declaration.
     relaxedGuarantees: any
 

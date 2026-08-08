@@ -63,8 +63,7 @@ local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
 --- @typearg V the element type
 --- @param t the array to traverse
 --- @return an iterator yielding each index and the element stored there
-@stable
-local ipairs: function<V>(t: {V}): function(): (integer, V)
+const ipairs: function<V>(t: {V}): function(): (integer, V)
 
 --- Returns the pair that follows key `k` in `t`. Passing nil, or omitting
 --- `k`, returns the first pair; the traversal order is unspecified.

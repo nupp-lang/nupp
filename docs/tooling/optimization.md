@@ -100,7 +100,7 @@ pessimistic effect summaries, including captured-table effects and return
 aliases. An unknown call, an unresolved argument that may be mutated, a yield,
 a metatable effect, or a possible shape change keeps the original `ipairs`
 loop. The builtin itself is recognized by definition, not spelling, and its
-declaration is `@stable`, so a shadowed or replaceable `ipairs` is never
+declaration is `const`, so a shadowed or replaceable `ipairs` is never
 rewritten. Neither `#t` nor the array type alone supplies the missing boundary
 proof.
 

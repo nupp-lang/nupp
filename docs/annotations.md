@@ -155,7 +155,6 @@ annotated directly.
 | `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
 | `@dispose` | Implemented | None | `function`, `c-function`, `field` |
 | `@effects` | Implemented | Named effect members | `function`, `c-function`, `local-binding` |
-| `@stable` | Implemented | None | A bodyless local binding in `.d.nupp` |
 | `@relax` | Implemented | Observable guarantee names | `function` |
 | `@jit` | Reserved | None | `function` |
 | `@comptime` | Reserved | None | `local-function` |
@@ -225,26 +224,24 @@ function has no observable effects; it does not mean “infer these later.” An
 unknown call widens a visible function to unknown effects and therefore cannot
 be hidden by an empty contract.
 
-## Stable declaration bindings
+## Const declaration bindings
 
-`@stable` says that a bodyless binding keeps the same runtime value. It is a
-shallow identity promise, not deep immutability: applying it to a module value
-does not freeze the module's fields.
+`const` on a bodyless declaration says that the binding keeps the same runtime
+value. It is a shallow identity promise, not deep immutability: a const module
+binding does not freeze the module's fields.
 
 ```nupp
 -- clock.d.nupp: a declaration for an implementation outside this source
-@stable
-local monotonicNow: function(): number
+const monotonicNow: function(): number
 
 return {monotonicNow = monotonicNow}
 ```
 
-This annotation should almost never appear in an ordinary module. In fact the
-checker rejects it there: visible Nupp bindings can be analyzed directly, so a
-trusted promise would add risk without adding information. Its intended home is
-`.d.nupp` files and similar bodyless declaration surfaces. Reassigning a stable
-binding is also an error. The standard declaration of `ipairs` uses `@stable`;
-that identity fact is one part of the proof for numeric array-loop lowering.
+In visible Nupp, `const` is checked from the binding itself. In `.d.nupp` files
+and similar bodyless declaration surfaces, it is the trusted statement that the
+host implementation will not replace the binding. Reassigning a const binding
+is an error. The standard declaration of `ipairs` is const; that identity fact
+is one part of the proof for numeric array-loop lowering.
 
 ## Relaxing observable guarantees
 

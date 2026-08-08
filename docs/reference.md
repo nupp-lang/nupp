@@ -462,10 +462,9 @@ definition and every application are erased from the generated Lua.
 
 Built-in contracts use the same surface. `@effects` is a complete effect
 summary: visible bodies are checked against it and bodyless declarations are
-trusted. `@stable` is the exceptional shallow identity promise for a bodyless
-binding in a `.d.nupp`; ordinary modules are analyzed and cannot apply it.
-`@relax` records a closed set of observable guarantees an optimization may
-change, locally to one function.
+trusted. `const` is the shallow identity promise for a bodyless binding in a
+`.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
+of observable guarantees an optimization may change, locally to one function.
 
 ```nupp
 local m = {}
@@ -667,4 +666,3 @@ against a sample.
 
 The loop that works: run `check --json --strict`, apply a complete fix whose
 title matches the intended repair, re-run, and run `nupp test` before committing.
-

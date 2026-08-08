@@ -104,9 +104,9 @@ function M.relaxationsUseAClosedSetOfObservableGuarantees()
         "NUPP2112")
 end
 
-function M.stableMarksBodylessDeclarationBindings()
+function M.constMarksBodylessDeclarationBindings()
     local source = table.concat({
-        "@stable", "local service: function(): integer",
+        "const service: function(): integer",
         "return {service = service}",
     }, "\n")
     local result = parser.parse(source, "service.d.nupp")
@@ -114,39 +114,19 @@ function M.stableMarksBodylessDeclarationBindings()
     local diags = check.check(result, "service.d.nupp",
         envMod.new(HERE .. "/.."))
     assertEq(#diags, 0, "diagnostics")
-    local declaration = result.root.blocks[1].stats[1].stat
-    assertEq(declaration.stableContract, true)
-    assertEq(declaration.names[1].definition.stable, true)
+    local declaration = result.root.blocks[1].stats[1]
+    assertEq(declaration.isConst, true)
+    assertEq(declaration.names[1].definition.constant, true)
 end
 
-function M.stableIsRejectedForVisibleModules()
-    assertEq(checked("@stable\nlocal M = {}\nreturn M"), "NUPP2112")
-end
-
-function M.stableOnlyDecoratesLocalBindings()
-    local result = parser.parse(
-        "@stable\nlocal function service(): integer return 1 end",
-        "service.d.nupp")
-    assertEq(#result.errors, 0, "syntax")
-    local diags = check.check(result, "service.d.nupp",
-        envMod.new(HERE .. "/.."))
-    assertEq(diags[1] and diags[1].code, "NUPP2112")
-end
-
-function M.stableRequiresABodylessDeclaration()
-    local result = parser.parse("@stable\nlocal service: integer = 1",
-        "service.d.nupp")
-    assertEq(#result.errors, 0, "syntax")
-    local diags = check.check(result, "service.d.nupp",
-        envMod.new(HERE .. "/.."))
-    assertEq(diags[1] and diags[1].code, "NUPP2112")
+function M.stableIsNoLongerABuiltInAnnotation()
+    assertEq(checked("@stable\nlocal service = 1"), "NUPP2111")
 end
 
 function M.effectContractsAttachToDeclarationBindings()
     local source = table.concat({
         '@effects(raises = true)',
-        "@stable",
-        "local fail: function(message: string): never",
+        "const fail: function(message: string): never",
         "return {fail = fail}",
     }, "\n")
     local result = parser.parse(source, "failure.d.nupp")
@@ -154,18 +134,18 @@ function M.effectContractsAttachToDeclarationBindings()
     local diags = check.check(result, "failure.d.nupp",
         envMod.new(HERE .. "/.."))
     assertEq(#diags, 0, "diagnostics")
-    local declaration = result.root.blocks[1].stats[1].stat.stat
+    local declaration = result.root.blocks[1].stats[1].stat
     assertEq(declaration.names[1].definition.effectContract.raises, true)
-    assertEq(declaration.names[1].definition.stable, true)
+    assertEq(declaration.names[1].definition.constant, true)
 end
 
-function M.stableBindingsCannotBeReassigned()
+function M.constDeclarationBindingsCannotBeReassigned()
     local codes = checked(table.concat({
         "ipairs = function(values)",
         "    return next, values, nil",
         "end",
     }, "\n"))
-    assert(codes:find("NUPP2112", 1, true), codes)
+    assert(codes:find("NUPP2008", 1, true), codes)
 end
 
 function M.unknownAnnotationsAreErrors()

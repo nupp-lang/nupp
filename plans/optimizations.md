@@ -162,6 +162,72 @@ Each entry is tagged with where its win lands:
 - `real` **Call-site monomorphization** to avoid trace explosion at
   polymorphic sites.
 
+### Nested constant exports
+
+`OPT-3` currently folds exact primitive expressions, propagates a local
+`const` binding, and selects a conditional whose predicates are all constants.
+The common useful extension is propagating a literal through a required
+module's immutable export path:
+
+```nupp
+-- settings.nupp
+local M: module = {}
+
+const M.palette = {
+    const accent = "#5e81ac",
+}
+
+return M
+
+-- app.nupp
+const settings = require("settings")
+print(settings.palette.accent)
+```
+
+The intended output retains the require, since loading a module may have
+effects, but replaces the read with its literal:
+
+```lua
+const settings = require("settings")
+print("#5e81ac")
+```
+
+`module` is the structural declaration that a local is the returned export
+table. It lets the checker collect a closed, named export interface while the
+module initializes. `const M.field = value` fixes that export slot after its
+one initialization. A nested `const field = value` inside a table constructor
+does the same for that table slot. This permits deliberately mixed surfaces:
+
+```nupp
+const M.state = {
+    const protocol = "nupp/1",
+    requests = 0,
+}
+```
+
+Only `protocol` is propagated; `requests` remains ordinary mutable state.
+`const... M.field = {...}` is optional sugar for making every newly-created
+table slot in the value graph const recursively. It is accepted only for a
+fresh graph of primitives and other deep-const values. Calls, cdata, mutable
+aliases, and dynamic/foreign escapes either prevent the guarantee or require a
+visible unsafe boundary. This keeps deep const a static promise rather than a
+runtime proxy or metatable scheme that would alter LuaJIT behaviour.
+
+The export interface must record both a stable path and its literal value, and
+its hash must change when either changes. Consumers then rebuild when
+`palette.accent` changes even if its broad type remains `string`. A path is
+foldable only when every edge is const, every access is a plain field read
+without an indexing metamethod, and the required module has completed its
+initialization. Circular require, `package.loaded` replacement, dynamic loads,
+and foreign code are explicit closed-world escape hatches, never assumptions
+the optimizer makes silently.
+
+`@stable` is removed in favour of `const`. In visible Nupp, const is checked.
+In a bodyless `.d.nupp` declaration, const is the necessary trusted statement
+that a host binding (such as `ipairs`) will not be replaced. It is shallow and
+does not freeze a table; `module` describes exports, and const describes which
+bindings and fields do not change.
+
 ## Constraints
 
 Four constraints are specific to nupp and rule out approaches that would
@@ -288,11 +354,12 @@ questions the resource checker already answers for `@owned` values.
 Every `cold`-tagged item needs "this binding never changes," and
 inferring that across a program is defeated by a single `load`,
 `setfenv`, or write through `_G`. `const` already exists and means the
-binding cannot be reassigned (plans/comptime.md, §Decision). What is
-missing is an exceptional guarantee for bodyless declaration surfaces:
-`@stable` bindings, so a declared host function such as `math.max` is stable
-by contract rather than by whole-program analysis. Visible Nupp modules should
-be analyzed directly; `@stable` is not a module-freezing mechanism.
+binding cannot be reassigned (plans/comptime.md, §Decision). Bodyless
+declaration surfaces use `const` for the exceptional guarantee a visible
+implementation cannot establish itself: a declared host function such as
+`math.max` has stable identity by contract rather than by whole-program
+analysis. Visible Nupp modules should be analyzed directly; a const binding is
+not a module-freezing mechanism.
 
 This is the highest-leverage language change in this document. It
 converts a class of optimizations from "requires an analysis that any
