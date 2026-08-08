@@ -124,10 +124,28 @@
         visible contract rather than being attributed to comptime
 - [ ] **import-c hardening:** ~~typedef handling~~, ~~`from "lib"`
       clauses with `ffi.load`~~, ~~const byte pointers as `cstring`~~
-      (landed; zlib.h imports and calls correctly). Remaining: macOS
-      asm-rename/attribute sweep on more real headers, ~~function-pointer
+      (landed; zlib.h imports and calls correctly), ~~function-pointer
       params as typed callbacks~~ (landed through the shared header model),
-      ~~struct-by-value arguments~~, enums as constants.
+      ~~struct-by-value arguments~~, ~~enums as constants~~ (landed: members
+      arrive as named `int32` constants, anonymous enums included, negatives
+      read back through the C namespace because LuaJIT keeps the value where
+      -1 means "no size"). Remaining: the real-header sweep, which was never
+      about asm renames or attributes — those were already stripped. Two
+      other things were stopping every system header, and both are fixed:
+      typedefs were declared in sorted rather than source order, and one
+      unusable link in that chain failed the whole import. What is left is
+      visible now that headers parse:
+  - [ ] a target LuaJIT rejects wholesale still produces nothing. `fcntl.h`
+        fails on an incomplete type and loses the other declarations with it,
+        where a per-statement parse would eject that one as a comment and keep
+        the rest — the module's stated bargain everywhere else
+  - [ ] declarations reached only through a private sibling header are
+        invisible: macOS puts `strlen` in `_string.h`, so importing `string.h`
+        correctly yields nothing. Whether to follow a `_`-prefixed sibling is a
+        design call, not a bug
+  - [ ] `#define` constants are read from the target file's own text, so
+        `errno.h`, which defines `EPERM` in `sys/errno.h`, imports no
+        constants at all — the same boundary question as above
 
 ## Testing
 
