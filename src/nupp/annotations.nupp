@@ -206,11 +206,6 @@ local BUILTINS = {
         targets = {"function", "c-function", "field"},
     },
     {
-        name = "noreturn",
-        arguments = "none",
-        targets = {"function", "c-function", "local-binding"},
-    },
-    {
         name = "jit",
         arguments = "none",
         targets = {"function"},

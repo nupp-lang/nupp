@@ -228,12 +228,11 @@ function M.noreturnIsNotInferredWhenAPathReturns()
    }, "\n")), "NUPP2003:7")
 end
 
--- The annotation says what the checker cannot see, and is refused where it
--- plainly contradicts the body.
-function M.noreturnAnnotation()
+-- A declared `never` return says what the checker cannot see, and is refused
+-- where it plainly contradicts the body.
+function M.declaredNeverReturn()
    assertClean(table.concat({
-      "@noreturn",
-      "local function bail(code: integer)",
+      "local function bail(code: integer): never",
       "    print(code)",
       "    error('bail')",
       "end",
@@ -244,13 +243,26 @@ function M.noreturnAnnotation()
       "return {use = use}",
    }, "\n"))
    assertEq(diagsOf(table.concat({
-      "@noreturn",
-      "local function claims(x: integer): integer",
+      "local function claims(x: integer): never",
       "    if x > 0 then return x end",
       "    error('no')",
       "end",
       "return {claims = claims}",
-   }, "\n")), "NUPP2121:1")
+   }, "\n")), "NUPP2002:2")
+end
+
+-- The prelude declares `error` itself as returning `never`, not through an
+-- annotation. `never` fits any declared return, which is what lets `return
+-- error(...)` satisfy a typed result in one line -- previously a type error,
+-- since a call to the old zero-result signature typed as `nil`.
+function M.errorItselfReturnsNever()
+   assertClean(table.concat({
+      "local function pick(s: string?): string",
+      "    if s then return s end",
+      "    return error('missing')",
+      "end",
+      "return {pick = pick}",
+   }, "\n"))
 end
 
 return M

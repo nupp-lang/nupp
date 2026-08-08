@@ -6,6 +6,8 @@ These names, and only these, resolve as bare builtin types:
  Name       Means
  ─────────  ──────────────────────────────────────────────────────
  any        The gradual type; compatible with everything
+ unknown    The top type; everything fits it, it fits nothing else
+ never      The bottom type; fits everything, nothing fits it
  nil        The nil singleton
  boolean    true or false
  string     A Lua string
@@ -28,11 +30,73 @@ These names, and only these, resolve as bare builtin types:
  uint64
 ```
 
-There is no `unknown` and no `never`.
-
 `metatable<T>`, `ctype<T>`, `carray<T>`, `owned<T>`, `borrowed<T>`, and
 `pinned<T>` are constructors rather than names — each needs a type argument,
 and bare `metatable` is an unknown type name.
+
+## `unknown`, the top type
+
+`any` is the gradual opt-out: it is compatible with everything in both
+directions, silently, which is exactly right for code that has not been
+annotated yet. `unknown` is the sound alternative, for a value whose type
+genuinely is not known — a JSON decode, a `pcall` result, reflection over an
+undeclared table:
+
+```nupp
+local function decode(json: string): unknown
+    return nil
+end
+
+local reply = decode("{}")
+print(reply.status)                    -- NUPP2004: no field "status" in unknown
+```
+
+Anything fits into `unknown`, but it fits nowhere else on its own — reading a
+field, calling it, comparing it against a typed value, all need it narrowed or
+cast first, the same as any other concrete type that is not what the
+operation wants:
+
+```nupp
+local record Status
+    ok: boolean
+end
+
+if reply is Status then
+    print(reply.ok)                    -- fine: narrowed to Status
+end
+
+local text = reply as string           -- fine: an explicit cast
+```
+
+Use `unknown` where `any` would otherwise stand for "I have not looked at
+this value yet, and every use of it should have to say how."
+
+## `never`, the bottom type
+
+`never` is uninhabited: no value has it. That makes it fit anywhere any type
+is wanted (there being no value of it to violate the expectation) while
+nothing but `never` itself fits into it. It is what a function that always
+raises, exits, or loops forever returns:
+
+```nupp
+local function fail(msg: string): never
+    error(msg)
+end
+
+local function use(x: string?)
+    if not x then fail("missing") end
+    print(#x)                          -- x is string here
+end
+```
+
+A call to a `never`-returning function leaves the block it stands in the same
+way an inline `error` does, which is what lets the guard clause above narrow
+`x`. The checker infers this for a body whose every path raises, whether or
+not it says `never` — the return type is only needed where the checker cannot
+see that for itself: a loop that never ends, or a declaration with no body to
+read, such as `local error: function(msg: any, level: number?): never` in the
+prelude. Declaring `never` on a function that does return is an ordinary
+return-type mismatch, since nothing but `never` fits `never`.
 
 ## Numbers
 

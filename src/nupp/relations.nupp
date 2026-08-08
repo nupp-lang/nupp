@@ -17,10 +17,11 @@ local relations = {}
 --- A type, as nupp.types builds them.
 local type Type = T.Type
 
---- True when nil is a member of `t`: an optional, `any`, or nil itself. A shape field
---- of such a type need not be present at all.
+--- True when nil is a member of `t`: an optional, `any`, `unknown`, or nil itself. A
+--- shape field of such a type need not be present at all. `never` admits nothing, nil
+--- included: there is no value of that type to leave out.
 local function admitsNil(t: Type): boolean
-    if t == T.nil_ or t == T.any then return true end
+    if t == T.nil_ or t == T.any or t == T.unknown then return true end
     return t.tag == "union" and t.hasNil or false
 end
 
@@ -75,6 +76,12 @@ local function check(a: Type, b: Type): boolean, string?
     if a == b then return true end
     local atag, btag = a.tag, b.tag
     if atag == "any" or btag == "any" then return true end
+    -- `never` is uninhabited, so a value of it (there being none) fits anywhere.
+    -- `unknown` is the reverse: everything fits into it, but it fits nowhere else on
+    -- its own — narrow it or write `as` first. Neither is gradual like `any`: only one
+    -- direction is free.
+    if atag == "never" then return true end
+    if btag == "unknown" then return true end
     -- Unsubstituted type parameters behave gradually (call-site instantiation replaces
     -- them before real checking).
     if atag == "typevar" then

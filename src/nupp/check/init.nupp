@@ -933,7 +933,7 @@ function checkMod.check(result, filename, env, opts)
 
     --- Whether calling this expression never comes back. `error` is recognized by name
     --- so that untyped code keeps the behaviour it always had; anything else has to say
-    --- so, through `@noreturn` or through a body that only ever raises.
+    --- so, through a declared `never` result or through a body that only ever raises.
     ---
     --- @param call the called expression, if the statement had one
     local function neverReturns(call: Node?): boolean
@@ -973,7 +973,7 @@ function checkMod.check(result, filename, env, opts)
     --- Whether every path out of this block raises rather than returning: the last
     --- statement is a call that never comes back, or a `do` block or a complete `if`
     --- chain of which the same is true. This is what makes a helper that only ever
-    --- throws a `@noreturn` function without being told.
+    --- throws behave as if it were declared to return `never`, without being told.
     ---
     --- @param block the body to judge
     local function alwaysRaises(block: Node?): boolean

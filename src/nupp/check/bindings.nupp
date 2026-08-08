@@ -120,15 +120,6 @@ function bindings.install(c: any): any
                 moveExpression(initializers[j], init, "local initialization",
                     ownershipKind(init))
             end
-            -- `@noreturn local exit: function(code: any?)` is how a declaration
-            -- file states it, there being no body to read.
-            if stat.noreturnContract and bound.tag == "func" then
-                bound = T.func(bound.params, bound.rets, bound.vararg,
-                    bound.paramModes, bound.predicate, bound.typeParams,
-                    bound.typeBounds, bound.borrowsParam, bound.borrowsSelf,
-                    bound.borrowsParams, bound.ffiOut, bound.varargType,
-                    true)
-            end
             if ann and nameTok.text == c.moduleLocal then
                 c.moduleLocalAnnotated = true
             end

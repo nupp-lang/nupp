@@ -100,6 +100,36 @@ function M.subtypingRules()
    assert(not isA(takesInt, takesNum))
 end
 
+-- `unknown` is the top type: everything fits into it, but -- unlike `any` --
+-- it does not fit anywhere else on its own. It is not gradual in `any`'s
+-- sense; only the one direction is free.
+function M.unknownIsTheTopType()
+   local isA = relations.isA
+   assert(isA(T.integer, T.unknown))
+   assert(isA(T.string, T.unknown))
+   assert(isA(T.nil_, T.unknown))
+   assert(isA(T.func({ T.number }, { T.boolean }, false), T.unknown))
+   assert(not isA(T.unknown, T.integer))
+   assert(not isA(T.unknown, T.string))
+   assert(isA(T.unknown, T.unknown))
+   -- any remains bidirectional, including against unknown
+   assert(isA(T.any, T.unknown))
+   assert(isA(T.unknown, T.any))
+end
+
+-- `never` is the bottom type: uninhabited, so it fits anywhere any type is
+-- wanted, and nothing but itself fits into it.
+function M.neverIsTheBottomType()
+   local isA = relations.isA
+   assert(isA(T.never, T.integer))
+   assert(isA(T.never, T.string))
+   assert(isA(T.never, T.unknown))
+   assert(isA(T.never, T.never))
+   assert(not isA(T.integer, T.never))
+   assert(not isA(T.string, T.never))
+   assert(not isA(T.nil_, T.never))
+end
+
 ---------------------------------------------------------------------------
 -- checker
 ---------------------------------------------------------------------------
@@ -474,6 +504,57 @@ function M.gradualDefaults()
    assertClean("local function f() end\nf = nil")
    assertEq((diagsOf(
       "local f: function() = function() end\nf = nil")), "NUPP2001:2")
+end
+
+-- `unknown` accepts anything, but using one without narrowing or casting
+-- first is an ordinary type error -- the same one any other mismatched type
+-- would get, since nothing in the checker gives `unknown` a pass the way it
+-- does `any`.
+function M.unknownNeedsNarrowingOrACast()
+   assertClean("local a: unknown = 5")
+   assertClean("local b: unknown = 'text'")
+   assertEq((diagsOf("local a: unknown = 5\nlocal s: string = a")),
+      "NUPP2001:2")
+   assertEq((diagsOf("local a: unknown = 5\nprint(a.field)")), "NUPP2004:2")
+   assertEq((diagsOf("local a: unknown = 5\nprint(a + 1)")), "NUPP2003:2")
+   assertClean("local a: unknown = 5\nlocal s = a as string\nprint(s)")
+   assertClean(table.concat({
+      "local record P",
+      "   x: integer",
+      "end",
+      "local a: unknown = P{x = 1}",
+      "if a is P then print(a.x) end",
+   }, "\n"))
+end
+
+-- `never` is what a function that always raises returns; declaring it lets
+-- the checker catch a path that returns after all, the same way any other
+-- return-type mismatch is caught.
+function M.neverAsAReturnType()
+   assertClean(table.concat({
+      "local function bail(msg: string): never",
+      "   error(msg)",
+      "end",
+      "print(bail)",
+   }, "\n"))
+   assertEq((diagsOf(table.concat({
+      "local function bail(x: integer): never",
+      "   if x > 0 then return end",
+      "   error('no')",
+      "end",
+      "print(bail)",
+   }, "\n"))), "NUPP2002:2")
+   -- a never-returning call leaves the block, narrowing what follows
+   assertClean(table.concat({
+      "local function bail(msg: string): never",
+      "   error(msg)",
+      "end",
+      "local function use(s: string?)",
+      "   if not s then bail('missing') end",
+      "   print(#s)",
+      "end",
+      "print(use)",
+   }, "\n"))
 end
 
 -- The grammar carries `where`, the formatter keeps it and `nupp doc` renders it

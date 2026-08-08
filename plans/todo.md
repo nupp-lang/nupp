@@ -19,16 +19,22 @@
       `borrows`/`exclusive`, which govern lifetime and aliasing rather than member
       access. The first validation cases are declaration-file APIs, immutable
       snapshots, output-style interfaces, and the tecs `ByteView` surface.
-- [ ] **`unknown` and a real `never` bottom type.** `unknown` is the safe top
-      type: any value fits it, but it must be narrowed or explicitly cast
-      before use; `any` remains the deliberate opt-out. Use `unknown` for
-      genuinely untyped inputs such as JSON/reflection results and, under
-      strict checking, plain Lua modules without declarations. Nupp currently
-      has `@noreturn` control-flow tracking but no `never` type in the type
-      lattice; add the bottom type for impossible branches, exhaustive
-      narrowing, and generic cases such as `Result<T, never>`, then express
-      noreturn results through it instead of a parallel special case where
-      practical.
+- [x] `unknown` and a real `never` bottom type. `unknown` is the safe top
+      type: any value fits it, but it fits nowhere else without narrowing or
+      an explicit `as` — the existing gradual machinery gives this for free
+      once it is a distinct type from `any`, since every operation the
+      checker allows without proof is keyed to `any` specifically. `never` is
+      the bottom type: uninhabited, so it fits anywhere and nothing but
+      itself fits it, derived automatically wherever a function type's sole
+      result is `never` (`types.func`). `@noreturn` is gone; a function that
+      never returns says so as an ordinary return type, and the annotation's
+      two jobs — forcing the claim past what the checker can see, and typing
+      a body-less declaration — are both just `never` in that position now.
+      See [primitives](../docs/type-system/primitives.md#unknown-the-top-type).
+      Left for later: `unknown` for plain Lua modules without declarations
+      under `--strict` (they still type as `any`), and narrowing an
+      exhaustively-matched union down to `never` rather than leaving it whole
+      (`narrowing.subtract`'s "no empty type to give it" still holds).
 - [ ] **Intersection types, including overloads as function intersections.**
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,
       and member composition. An intersection of callable types is the

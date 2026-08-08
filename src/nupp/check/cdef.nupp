@@ -186,8 +186,7 @@ function cdef.install(c: any, reifiableField: any): any
             output.returnIndex = #rets
         end
         local cdefType = T.func(params, rets, stat.varargs or false,
-            paramModes, nil, nil, nil, nil, nil, nil, ffiOut, nil,
-            stat.noreturnContract or false)
+            paramModes, nil, nil, nil, nil, nil, nil, ffiOut, nil, false)
         local cdefName = stat.name
         if not cdefName then return end
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")

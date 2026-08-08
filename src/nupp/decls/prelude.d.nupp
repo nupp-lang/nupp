@@ -143,8 +143,7 @@ local assert: function<T>(v: T?, msg: any?): T
 ---
 --- @param msg the error value to raise
 --- @param level whose position to blame, or 0 for none
-@noreturn
-local error: function(msg: any, level: number?)
+local error: function(msg: any, level: number?): never
 
 --- Calls `f` with the given arguments, trapping any error it raises.
 ---

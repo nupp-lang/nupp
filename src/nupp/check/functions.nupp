@@ -295,20 +295,14 @@ function functions.install(c: any): any
         c.retStack[#c.retStack] = nil
         c.popScope()
         c.functionDepth = c.functionDepth - 1
-        -- A body that only ever raises never comes back, whether or not it was told to;
-        -- saying so is what lets a guard clause written as a helper narrow at the call
-        -- site the way an inline `error` does.
+        -- A body that only ever raises never comes back, whether or not its return
+        -- type says so; inferring it is what lets a guard clause written as a helper
+        -- narrow at the call site the way an inline `error` does. A declared `never`
+        -- return additionally forces the claim where the checker cannot see through a
+        -- loop that never ends or a call it has no type for; a `return` the checker
+        -- can see is caught the ordinary way, as a value that does not fit `never`.
         local noreturn = c.alwaysRaises(body.body)
             and not c.returnsSomewhere(body.body)
-        if body.noreturnContract and not noreturn then
-            -- the claim is kept anyway: the checker cannot see through a loop that
-            -- never ends, or through a call it has no type for
-            noreturn = true
-            if c.returnsSomewhere(body.body) then
-                c.diag("NUPP2121", body.noreturnTok or body,
-                    "@noreturn is declared, but this function returns")
-            end
-        end
         local predicate
         local first = body.rets and body.rets[1]
         if first and first.kind == "tpredicate" then
@@ -418,8 +412,7 @@ function functions.install(c: any): any
         if #rets == 0 then rets[1] = T.any end
         c.popScope()
         return T.func(params, rets, vararg, modes,
-            nil, typeParams, typeBounds, nil, nil, nil, nil, varargType,
-            body and body.noreturnContract or false)
+            nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, false)
     end
 
     c.inferredParameterModes = inferredParameterModes

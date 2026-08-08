@@ -154,7 +154,6 @@ annotated directly.
 | `@owned` | Implemented | Cleanup/default/opaque/output contract | `function`, `c-function` |
 | `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
 | `@dispose` | Implemented | None | `function`, `c-function`, `field` |
-| `@noreturn` | Implemented | None | `function`, `c-function`, `local-binding` |
 | `@jit` | Reserved | None | `function` |
 | `@comptime` | Reserved | None | `local-function` |
 
@@ -182,14 +181,9 @@ from = source, success = zero)` does the same for a view tied to a `borrows`
 input. These contracts allocate and position the C output holder while
 presenting an ordinary Lua multiple return.
 
-`@noreturn` states that a declaration never comes back: it raises, exits, or
-loops forever. A call to one leaves the block it stands in, so a guard clause
-written as a helper narrows the way an inline `error` does. The checker infers
-it for a body whose every path raises, so the annotation is only needed where
-it cannot see that — an imported C `abort`, a declaration file with no body
-(`@noreturn local error: function(msg: any, level: number?)`), or a loop that
-never ends. Declaring it on a function that does return is `NUPP2121`, and the
-declaration is believed anyway so one mistake does not cascade.
+A declaration that never comes back — it raises, exits, or loops forever —
+says so with `never` as its return type, not an annotation; see
+[primitives](type-system/primitives.md#never-the-bottom-type).
 
 `@dispose` marks a consuming function, method, or interface field as a type's
 default disposal operation. A disposal contract must take its resource, and a

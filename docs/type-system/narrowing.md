@@ -29,7 +29,7 @@ end
  Ternary arms                     v is Point ? v.x : 0
  while cond do                    the body sees the condition
  Guard clauses                    if not s then return end
- @noreturn helper calls           bail() narrows like an inline error
+ never-returning helper calls     bail() narrows like an inline error
 ```
 
 Discriminant narrowing also follows a copied local, so binding the value to a
@@ -106,12 +106,11 @@ the rest on faith.
 
 ## Guard clauses
 
-A function that never returns narrows the code after a call to it, the way an
-inline `error` does:
+A function that returns `never` narrows the code after a call to it, the way
+an inline `error` does:
 
 ```nupp
-@noreturn
-local function bail(msg: string)
+local function bail(msg: string): never
     error(msg)
 end
 
@@ -121,9 +120,10 @@ local function use(s: string?)
 end
 ```
 
-The checker infers `@noreturn` for a body whose every path raises, so the
-annotation is only needed where it cannot see that — an imported C `abort`, a
-declaration file with no body, or a loop that never ends.
+The checker infers this for a body whose every path raises, so the `never`
+return type is only needed where it cannot see that — an imported C `abort`,
+a declaration file with no body, or a loop that never ends. See
+[primitives](primitives.md#never-the-bottom-type).
 
 ## Exhaustiveness
 

@@ -148,12 +148,6 @@ interface cst.Hints
     --- Whether a `with` body captures its enclosing scope.
     capturesEnclosing: boolean?
 
-    --- Whether `@noreturn` was written on this declaration.
-    noreturnContract: boolean?
-
-    --- Where it was written.
-    noreturnTok: lexer.Token?
-
     --- Whether `@dispose` was written on this declaration.
     disposeContract: boolean?
 

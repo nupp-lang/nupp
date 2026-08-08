@@ -218,22 +218,6 @@ function pragma.install(c: any): any
             return
         end
 
-        -- @noreturn is a claim about control, not about values: the declaration it
-        --     decorates never comes back, so a call to it leaves the block the way
-        --     `error` does. The body is checked against the claim where there is a
-        --     body to check.
-        if written == "noreturn" then
-            if valid and targetBody then
-                targetBody.noreturnContract = true
-                targetBody.noreturnTok = annotationName
-            elseif valid and target then
-                target.noreturnContract = true
-                target.noreturnTok = annotationName
-            end
-            if stat.stat then c.checkStat(stat.stat) end
-            return
-        end
-
         if written ~= "allow" then
             if stat.stat then c.checkStat(stat.stat) end
             return

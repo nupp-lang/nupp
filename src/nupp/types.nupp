@@ -29,7 +29,8 @@ local types = {}
 --- is what makes them nominal.
 
 --- Which primitive: the tags that carry no parts.
-type types.PrimTag = 'any' | 'nil' | 'boolean' | 'string' | 'number' | 'integer'
+type types.PrimTag = 'any' | 'unknown' | 'never' | 'nil' | 'boolean' | 'string'
+    | 'number' | 'integer'
     | 'table' | 'thread' | 'userdata' | 'float' | 'cdata' | 'cstring'
     | 'voidptr' | 'int8' | 'int16' | 'int32' | 'int64' | 'uint8'
     | 'uint16' | 'uint32' | 'uint64'
@@ -316,6 +317,15 @@ local function prim(tag: types.PrimTag): types.Type
 end
 
 types.any = prim("any")
+-- The top type: every value fits it, but (unlike `any`) it does not fit
+-- anywhere else without narrowing or an explicit `as`. `any` is the gradual
+-- opt-out; `unknown` is the sound one, for genuinely untyped input such as a
+-- JSON decode.
+types.unknown = prim("unknown")
+-- The bottom type: uninhabited, so it fits anywhere any type is wanted, and
+-- nothing but itself fits it. It is what a function that never returns
+-- returns.
+types.never = prim("never")
 types.nil_ = prim("nil")
 types.boolean = prim("boolean")
 types.string = prim("string")
@@ -347,7 +357,8 @@ types.uint64 = prim("uint64")
 
 --- Name to type, for resolving an annotation that names a builtin.
 local builtins: {[string]: types.Type} = {
-    any = types.any, boolean = types.boolean, string = types.string,
+    any = types.any, unknown = types.unknown, never = types.never,
+    boolean = types.boolean, string = types.string,
     number = types.number, integer = types.integer, table = types.table_,
     thread = types.thread, userdata = types.userdata, float = types.float,
     int8 = types.int8, int16 = types.int16, int32 = types.int32,
@@ -498,6 +509,11 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
     typeBounds: {types.Type}?, borrowsParam: integer?,
     borrowsSelf: boolean?, borrowsParams: {integer}?, ffiOut: any,
     varargType: types.Type?, noreturn: boolean?): types.Type
+    -- A single declared result of `never` is a promise the call never comes
+    -- back, the same promise `noreturn` records; deriving it here means a
+    -- signature only has to say `never` once; it does not also carry a
+    -- parallel boolean.
+    if #rets == 1 and rets[1] == types.never then noreturn = true end
     local pids: {string} = {}
     local rids: {string} = {}
     local modes: {string} = {}

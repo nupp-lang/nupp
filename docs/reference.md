@@ -44,9 +44,16 @@ Reports: `NUPP2119`. `nupp explain <code>` says more.
 
 ## Types
 
-Primitives: `any`, `nil`, `boolean`, `string`, `number`, `integer`, `table`,
-`thread`, `userdata`. The C numeric tower: `float`, `int8`…`int64`,
-`uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and `voidptr`.
+Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
+`integer`, `table`, `thread`, `userdata`. The C numeric tower: `float`,
+`int8`…`int64`, `uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and
+`voidptr`.
+
+`any` is gradual: compatible with everything, in both directions, silently.
+`unknown` is its sound counterpart — everything fits into it, but it fits
+nowhere else until narrowed or cast, the top of the type lattice. `never` is
+the bottom: uninhabited, so it fits anywhere and nothing but itself fits it —
+what a function that always raises, exits, or loops forever returns.
 
 Postfix suffixes apply left to right: `T?` optional, `T*` pointer, `T[?]` a
 variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
@@ -66,6 +73,7 @@ local type Counts = {[string]: integer}
 local type Row = {integer}
 local type Point = {x: integer, y: integer}
 local type Handler = function(event: string): boolean
+local type Reply = unknown
 return m
 ```
 
@@ -80,6 +88,9 @@ Under `--strict`, an exported function whose signature mentions `any` anywhere i
 treated as unannotated and reported: `any` is the absence of a type, not a type.
 A function that returns nothing still needs to say so, as `: nil`.
 
+A function that always raises, exits, or loops forever returns `never`; a call
+to it leaves the block it stands in, the way an inline `error` does.
+
 ```nupp
 local m = {}
 
@@ -93,6 +104,10 @@ end
 
 function m.log(message: string): nil
     print(message)
+end
+
+function m.fail(message: string): never
+    error(message)
 end
 
 return m
