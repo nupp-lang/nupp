@@ -365,10 +365,33 @@ function expr.install(c: any)
             return target
         elseif kind == "isExpr" then
             local subject = node.expr
-            if subject then
-                c.infer(subject)
+            local from = subject and c.infer(subject) or nil
+            local target = c.resolveType(node.type)
+            -- A test the declaration already answers is not worth running. This
+            -- is what makes `is` on an interface work for a value already known
+            -- to implement it, whatever the interface can or cannot test at run
+            -- time.
+            --
+            -- Gradual types prove nothing: `any` and an unsubstituted parameter
+            -- fit everything, so eliding on them would turn every test true.
+            --
+            -- Only a subject that is a name or a path of them: anything computed
+            -- has to run whether or not its answer was already known, and a test
+            -- that stands in for a call is not the place to decide that.
+            if from and target and subject and c.pathKey(subject)
+                and from ~= T.any and from.tag ~= "typevar"
+                and from ~= T.never and target ~= T.any then
+                -- The nil an optional admits is the only part its declaration
+                -- does not settle, so it is taken off before asking and put back
+                -- as the one question left.
+                local admitsNil = isA(T.nil_, from)
+                local present = admitsNil and subtract(from, T.nil_) or from
+                if present ~= T.never and present.tag ~= "typevar"
+                    and isA(present, target) then
+                    node.provenStatically = true
+                    node.provenNeedsNil = admitsNil
+                end
             end
-            c.resolveType(node.type)
             return T.boolean
         elseif kind == "funcExpr" then
             local body = node.body

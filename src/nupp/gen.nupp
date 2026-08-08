@@ -598,7 +598,19 @@ function gen.generate(result, filename)
         elseif kind == "isExpr" then
             local t = x.type
             local firstTok = x[1] and (cst.isToken(x[1]) and x[1] or x[1][1])
-            if t.kind == "tname" and t.base.kind == "nil" then
+            if x.provenStatically then
+                -- The subject's own type already answers this, so there is
+                -- nothing to test. The checker only marks a subject that is a
+                -- path, so dropping it drops no effect; when the type admits
+                -- nil, that is the one question left.
+                if x.provenNeedsNil then
+                    e("(", firstTok and firstTok.line)
+                    emit(x.expr)
+                    e("~= nil )")
+                else
+                    e("( true )", firstTok and firstTok.line)
+                end
+            elseif t.kind == "tname" and t.base.kind == "nil" then
                 e("(", firstTok and firstTok.line)
                 emit(x.expr)
                 e("== nil )")

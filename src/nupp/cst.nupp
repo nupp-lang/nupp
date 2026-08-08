@@ -70,6 +70,13 @@ interface cst.Hints
     --- be resolved a second time.
     wherePredicate: any
 
+    --- Set on an `is` whose answer the subject's own type already settles.
+    provenStatically: boolean?
+
+    --- Whether that subject still admits nil, which is then the only question
+    --- left to ask at run time.
+    provenNeedsNil: boolean?
+
     --- Generator-owned runtime path for a nested record.
     recordRuntimeName: string?
 

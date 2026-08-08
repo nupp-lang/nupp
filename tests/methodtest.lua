@@ -370,6 +370,26 @@ function M.instancesAreRecognisedThroughTheirPrototype()
    }, "\n")), 3)
 end
 
+-- `is` against an interface has no runtime test to run unless the interface
+-- says what one is. When the subject's own type already declares the interface,
+-- there is nothing to run: the declaration answered it.
+function M.aProvenInterfaceNeedsNoTest()
+   assertEq(run(table.concat({
+      "local interface Shape",
+      "   kind: string",
+      "end",
+      "local record Circle is Shape",
+      "   kind: string",
+      "   radius: number",
+      "end",
+      "local c = new Circle {kind = 'c', radius = 1}",
+      "local maybe: Circle? = c",
+      "local absent: Circle? = nil",
+      "return (c is Shape and 1 or 0) + (maybe is Shape and 2 or 0)",
+      "   + (absent is Shape and 100 or 0)",
+   }, "\n")), 3)
+end
+
 -- A constructor is the whole reason `new` is worth having over a literal: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()

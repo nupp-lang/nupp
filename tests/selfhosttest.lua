@@ -138,11 +138,30 @@ function M.recordIdentityCompiles()
       "local record R",
       "    x: integer",
       "end",
-      "local v = new R {x = 1}",
+      -- `any`, because a subject whose own type proves the answer is elided
+      -- rather than tested, and it is the test being checked here
+      "local v: any = new R {x = 1}",
       "print(v is R)",
    }, "\n"))
    assert(code:find("getmetatable", 1, true),
-      "`is` on a record compares metatable identity: " .. code)
+      "`is` on a record reaches the declaration through __index: " .. code)
+end
+
+-- A test the subject's own type already answers is not worth running, and an
+-- optional's nil is the only part of that answer its declaration leaves open.
+function M.aProvenIdentityIsNotTested()
+   local code = generate(table.concat({
+      "local record R",
+      "    x: integer",
+      "end",
+      "local v = new R {x = 1}",
+      "local maybe: R? = v",
+      "print(v is R, maybe is R)",
+   }, "\n"))
+   assert(not code:find("getmetatable", 1, true),
+      "neither test runs: " .. code)
+   assert(code:find("maybe ~= nil", 1, true),
+      "the optional still answers for its nil: " .. code)
 end
 
 -- The comma between two return types belongs to the annotation, so it has

@@ -10521,10 +10521,33 @@ end
 return target
 elseif kind == "isExpr" then
 local subject = node . expr
-if subject then
-c . infer ( subject )
+local from = subject and c . infer ( subject ) or nil
+local target = c . resolveType ( node . type )
+
+
+
+
+
+
+
+
+
+
+
+if from and target and subject and c . pathKey ( subject )
+and from ~= T . any and from . tag ~= "typevar"
+and from ~= T . never and target ~= T . any then
+
+
+
+local admitsNil = isA ( T . nil_ , from )
+local present = admitsNil and subtract ( from , T . nil_ ) or from
+if present ~= T . never and present . tag ~= "typevar"
+and isA ( present , target ) then
+node . provenStatically = true
+node . provenNeedsNil = admitsNil
 end
-c . resolveType ( node . type )
+end
 return T . boolean
 elseif kind == "funcExpr" then
 local body = node . body
@@ -18418,6 +18441,13 @@ package.preload["nupp.cst"] = function(...)
 local lexer = require ( "nupp.lexer" )
 
 local cst = { }
+
+
+
+
+
+
+
 
 
 
@@ -26991,7 +27021,19 @@ emit ( x . expr )
 elseif kind == "isExpr" then
 local t = x . type
 local firstTok = x [ 1 ] and ( cst . isToken ( x [ 1 ] ) and x [ 1 ] or x [ 1 ] [ 1 ] )
-if t . kind == "tname" and t . base . kind == "nil" then
+if x . provenStatically then
+
+
+
+
+if x . provenNeedsNil then
+e ( "(" , firstTok and firstTok . line )
+emit ( x . expr )
+e ( "~= nil )" )
+else
+e ( "( true )" , firstTok and firstTok . line )
+end
+elseif t . kind == "tname" and t . base . kind == "nil" then
 e ( "(" , firstTok and firstTok . line )
 emit ( x . expr )
 e ( "== nil )" )

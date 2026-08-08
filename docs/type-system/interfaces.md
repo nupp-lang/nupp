@@ -90,11 +90,18 @@ declaration through `__index`, so a value the declaration built answers yes
 whether it was stamped directly or linked back to), and structs
 (`ffi.istype`).
 
-An interface has no runtime table of its own, so it compiles only when the
-interface declares a `matches` block — which is what such a declaration's
-identity is. Without one, and against an alias, there is nothing to test and
-that is NUPP3001 at code generation. Give the interface a `matches` block, test
-against a concrete record, or compare a discriminant field.
+A test the subject's own type already answers does not run at all. `c is Shape`
+where `c` is a `Circle` and `Circle is Shape` is `true` by the declaration, and
+an optional's nil is the only part left to ask — `maybe is Shape` compiles to
+`maybe ~= nil`. This works whatever the interface can or cannot test at run
+time, and is the usual reason `is` against an interface succeeds.
+
+Where the subject's type does not settle it, an interface has no runtime table
+of its own, so the test compiles only when the interface declares a `matches`
+block — which is what such a declaration's identity is. Without one, and against
+an alias, there is nothing to test and that is NUPP3001 at code generation. Give
+the interface a `matches` block, test against a concrete record, or compare a
+discriminant field.
 
 Note that `x is integer` compiles to `type(x) == "number"`. Integrality is not
 checked at runtime.
