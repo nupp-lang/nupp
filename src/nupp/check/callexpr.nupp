@@ -16,7 +16,6 @@ local relations = require("nupp.relations")
 local generics = require("nupp.generics")
 local lexer = require("nupp.lexer")
 local cst = require("nupp.cst")
-local operators = require("nupp.check.operators")
 local ffiMod = require("nupp.check.ffi")
 
 local isA = relations.isA
@@ -288,26 +287,13 @@ function callexpr.install(c: any): any
                 knownAts = {at}
             end
         end
-        -- A direct metatable literal is an ordinary runtime value, but a misspelled
-        -- double-underscore key is almost certainly a broken contract. Computed/generic
-        -- metatables stay unchecked.
-        if calleeName == "setmetatable" then
-            local args = argExprs
-            local mt = args[2]
-            if mt and mt.kind == "tableExpr" then
-                for _, field in ipairs(mt.fields or {}) do
-                    if field.kind == "fieldNamed" then
-                        local name = field.name.text
-                        if name:match("^__")
-                            and not operators.runtimeMetamethod[name] then
-                            c.diag("NUPP2118", field.name,
-                                ("unknown metatable key %q"):format(name),
-                                c.edits.spellingFix(field.name,
-                                operators.runtimeMetamethod))
-                        end
-                    end
-                end
-            end
+        -- Every metatable literal is checked where it meets a `metatable<T>`, which is
+        -- what the prelude declares `setmetatable` to take. A run with no prelude has
+        -- no such parameter to read the receiver off, and the name is then the only
+        -- thing saying this argument is a metatable at all -- enough to spell its keys,
+        -- which is what that run could check before.
+        if calleeName == "setmetatable" and calleeT.tag ~= "func" then
+            c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
         end
         local first, rets = c.inferCall(node, calleeT, node.args, knownAts)
         c.lastCallRets = rets

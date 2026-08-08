@@ -39,6 +39,7 @@ local control = require("nupp.check.control")
 local functions = require("nupp.check.functions")
 local cdef = require("nupp.check.cdef")
 local pragma = require("nupp.check.pragma")
+local metatable = require("nupp.check.metatable")
 local generics = require("nupp.generics")
 local cst = require("nupp.cst")
 local annotationMod = require("nupp.annotations")
@@ -1102,6 +1103,10 @@ function checkMod.check(result, filename, env, opts)
     local validateTypeBounds = apply.validateTypeBounds
     local applyContract = apply.applyContract
     local inferCall = apply.inferCall
+
+    -- A metatable literal is where a declared contract is fulfilled, so what it puts
+    -- under each key is checked wherever one is written. See nupp.check.metatable.
+    metatable.install(c)
 
     -- The type an expression has. See nupp.check.expr.
     expr.install(c)

@@ -784,6 +784,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |
 | NUPP2122 | A 'where' refinement cannot be enforced |
+| NUPP2123 | A metatable value does not fit the key it is written under |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |

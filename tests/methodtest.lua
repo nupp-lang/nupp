@@ -680,6 +680,87 @@ function M.aConstructorClosesTheLiteralForm()
    }, "\n"))
 end
 
+-- A metamethod declaration is a contract, and a metatable literal is where the
+-- value fulfilling it is written. Until it is checked there the contract is
+-- rendered and never read.
+function M.aContractIsHeldToTheValueThatFulfilsIt()
+   local i64 = table.concat({
+      "local record I64",
+      "   v: integer",
+      "   metamethod __add: function(self: I64, other: I64): I64",
+      "end",
+      "local x = new I64 {v = 1}",
+   }, "\n")
+   assertEq(diagsOf(i64 .. "\nsetmetatable(x, {__add = 'not a function'})"),
+      "NUPP2123:6")
+   assertClean(i64 .. table.concat({
+      "",
+      "setmetatable(x, {__add = function(a: I64, b: I64): I64",
+      "   return new I64 {v = a.v + b.v}",
+      "end})",
+   }, "\n"))
+end
+
+-- Where a declaration contracts for nothing, LuaJIT still says what it will do
+-- with the key it reads.
+function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
+   local r = "local record R end\nlocal r = new R {}\n"
+   assertEq(diagsOf(r .. "setmetatable(r, {__mode = 42})"), "NUPP2123:3")
+   assertEq(diagsOf(r .. "setmetatable(r, {__gc = 'soon'})"), "NUPP2123:3")
+   assertEq(diagsOf(r .. "setmetatable(r, {__index = 42})"), "NUPP2123:3")
+   assertClean(r .. "setmetatable(r, {__index = r, __mode = 'k'})")
+   -- and an unknown key is still a broken contract rather than a field
+   assertEq(diagsOf(r .. "setmetatable(r, {__tostirng = tostring})"),
+      "NUPP2118:3")
+end
+
+-- Nothing here can see what a function returns, so a computed metatable stays
+-- gradual, which is what the documentation has always promised.
+function M.aComputedMetatableStaysGradual()
+   assertClean(table.concat({
+      "local record R",
+      "   metamethod __tostring: function(self): string",
+      "end",
+      "local r = new R {}",
+      "local function build(): table",
+      "   return {__tostring = 42}",
+      "end",
+      "setmetatable(r, build())",
+   }, "\n"))
+end
+
+-- A registrar takes its receiver through a bound, so the contract it has to
+-- fulfil is the bound's. Checking it there is what lets the registrar's own body
+-- be wrong rather than only its call sites.
+function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
+   local event = table.concat({
+      "local interface Event",
+      "   eventId: integer",
+      "   metamethod __call: function(self, ...: any): self",
+      "end",
+      "local record OnSpawn is Event",
+      "   eventId: integer",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(event .. table.concat({
+      "",
+      "local function newEvent<E is Event>(event: E)",
+      "   setmetatable(event, {__call = 'not callable'})",
+      "end",
+      "return newEvent",
+   }, "\n")), "NUPP2123:9")
+   assertClean(event .. table.concat({
+      "",
+      "local function newEvent<E is Event>(event: E)",
+      "   local instanceMt = {__index = event}",
+      "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+      "      return setmetatable({eventId = 7}, instanceMt) as E",
+      "   end})",
+      "end",
+      "return newEvent",
+   }, "\n"))
+end
+
 function M.multiValueReturnsInAssignments()
    local two = table.concat({
       "local function two(): number, string",

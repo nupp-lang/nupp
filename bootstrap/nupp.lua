@@ -5528,6 +5528,7 @@ local control = require ( "nupp.check.control" )
 local functions = require ( "nupp.check.functions" )
 local cdef = require ( "nupp.check.cdef" )
 local pragma = require ( "nupp.check.pragma" )
+local metatable = require ( "nupp.check.metatable" )
 local generics = require ( "nupp.generics" )
 local cst = require ( "nupp.cst" )
 local annotationMod = require ( "nupp.annotations" )
@@ -6591,6 +6592,10 @@ local metamethodOf = apply . metamethodOf
 local validateTypeBounds = apply . validateTypeBounds
 local applyContract = apply . applyContract
 local inferCall = apply . inferCall
+
+
+
+metatable . install ( c )
 
 
 expr . install ( c )
@@ -7682,7 +7687,6 @@ local relations = require ( "nupp.relations" )
 local generics = require ( "nupp.generics" )
 local lexer = require ( "nupp.lexer" )
 local cst = require ( "nupp.cst" )
-local operators = require ( "nupp.check.operators" )
 local ffiMod = require ( "nupp.check.ffi" )
 
 local isA = relations . isA
@@ -7944,23 +7948,10 @@ end
 
 
 
-if calleeName == "setmetatable" then
-local args = argExprs
-local mt = args [ 2 ]
-if mt and mt . kind == "tableExpr" then
-for _ , field in ipairs ( mt . fields or { } ) do
-if field . kind == "fieldNamed" then
-local name = field . name . text
-if name : match ( "^__" )
-and not operators . runtimeMetamethod [ name ] then
-c . diag ( "NUPP2118" , field . name ,
-( "unknown metatable key %q" ) : format ( name ) ,
-c . edits . spellingFix ( field . name ,
-operators . runtimeMetamethod ) )
-end
-end
-end
-end
+
+
+if calleeName == "setmetatable" and calleeT . tag ~= "func" then
+c . checkMetatableLiteral ( argExprs [ 2 ] , nil , T . metatable ( T . any ) )
 end
 local first , rets = c . inferCall ( node , calleeT , node . args , knownAts )
 c . lastCallRets = rets
@@ -8634,6 +8625,13 @@ if not ok then
 c . diag ( "NUPP2006" , cst . isToken ( args [ j ] ) and node or args [ j ] ,
 ( "argument %d: %s" ) : format ( j , why ) , nil ,
 callDetails ( node ) )
+end
+
+
+
+
+if not cst . isToken ( args [ j ] ) then
+c . checkMetatableLiteral ( args [ j ] , ats [ j ] , params [ j ] )
 end
 if mode == "takes" then
 local withBorrow = c . ownershipKind ( ats [ j ] ) == "borrowed"
@@ -12431,6 +12429,174 @@ return ops
 end
 
 return loopclosure
+
+end
+package.preload["nupp.check.metatable"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local T = require ( "nupp.types" )
+local relations = require ( "nupp.relations" )
+local cst = require ( "nupp.cst" )
+local operators = require ( "nupp.check.operators" )
+
+local isA = relations . isA
+local rawType = T . unwrapOwnership
+
+local metatable = { }
+
+
+
+
+
+
+
+
+
+
+
+function metatable . install ( c )
+local ops = { }
+
+
+
+local function receiverOf ( t )
+if not t then
+return nil
+end
+local bare = rawType ( t )
+if bare . tag == "metatable" then
+return bare . of
+end
+if bare . tag == "union" then
+for _ , member in ipairs ( bare . members ) do
+local of = receiverOf ( member )
+if of then
+return of
+end
+end
+end
+return nil
+end
+
+
+
+
+local function fieldOf ( literalType , name )
+local bare = literalType and rawType ( literalType ) or nil
+if bare and bare . tag == "shape" then
+return bare . byname [ name ]
+end
+return nil
+end
+
+
+
+local function callable ( t )
+return t == T . any or rawType ( t ) . tag == "func"
+end
+
+function ops . checkContract ( at , name , valueT ,
+contract , of )
+local ok , why = isA ( valueT , contract )
+if ok then
+return
+end
+c . diag ( "NUPP2123" , at ,
+( "%s does not fulfil the contract %s declares: %s" )
+: format ( name , of and T . tostring ( of ) or "the receiver" , why ) , nil ,
+{ help = ( "the contract is %s" ) : format ( T . tostring ( contract ) ) } )
+end
+
+local function checkField ( field , of ,
+literalType )
+local key = field . name
+if not key then
+return
+end
+local name = key . text
+if name : sub ( 1 , 2 ) ~= "__" then
+return
+end
+local value = field . value
+local at = value or field
+local contract = c . metamethodOf ( of , name )
+local valueT = fieldOf ( literalType , name )
+if contract then
+if valueT then
+ops . checkContract ( at , name , valueT , contract , of )
+end
+return
+end
+if not operators . runtimeMetamethod [ name ] then
+c . diag ( "NUPP2118" , key ,
+( "unknown metatable key %q" ) : format ( name ) ,
+c . edits . spellingFix ( key , operators . runtimeMetamethod ) )
+return
+end
+if not valueT then
+return
+end
+if name == "__metatable" then
+
+elseif name == "__mode" then
+if not isA ( valueT , T . string ) then
+c . diag ( "NUPP2123" , at ,
+( "__mode is read as a string, not %s" )
+: format ( T . tostring ( valueT ) ) )
+end
+elseif name == "__index" or name == "__newindex" then
+if not callable ( valueT ) and not isA ( valueT , T . table_ ) then
+c . diag ( "NUPP2123" , at ,
+( "%s is a table to defer to or a function to run, not %s" )
+: format ( name , T . tostring ( valueT ) ) )
+end
+elseif not callable ( valueT ) then
+c . diag ( "NUPP2123" , at , ( "%s is called, so it holds a function, "
+.. "not %s" ) : format ( name , T . tostring ( valueT ) ) )
+end
+end
+
+
+
+
+
+
+function ops . checkLiteral ( node , literalType , target )
+if not node or node . kind ~= "tableExpr" then
+return
+end
+local of = receiverOf ( target )
+if not of then
+return
+end
+for _ , field in ipairs ( node . fields or { } ) do
+if field . kind == "fieldNamed" then
+checkField ( field , of , literalType )
+end
+end
+end
+
+c . checkMetatableLiteral = ops . checkLiteral
+c . checkMetamethodValue = ops . checkContract
+return ops
+end
+
+return metatable
 
 end
 package.preload["nupp.check.narrow"] = function(...)
@@ -25029,6 +25195,31 @@ related = { "NUPP2116" } ,
 docs = "docs/type-system/generics.md" ,
 } ,
 {
+code = "NUPP2123" ,
+summary = "A metatable value does not fit the key it is written under" ,
+rule = "A metamethod declaration is a contract, and a metatable literal "
+.. "is where the value fulfilling it is written, so the value is "
+.. "held to it — with `self` specialized to the receiver, through a "
+.. "bounded type parameter as readily as through a concrete type. "
+.. "Where the declaration contracts for nothing, LuaJIT still says "
+.. "what it will do with the key: `__mode` is read as a string, "
+.. "`__index` and `__newindex` are a table to defer to or a function "
+.. "to run, and everything else it knows is called.\n\n"
+.. "Only a literal is checked. What a function returns cannot be "
+.. "seen from here, so a computed metatable stays gradual." ,
+wrong = "local record I64\n    v: integer\n"
+.. "    metamethod __add: function(self: I64, other: I64): I64\n"
+.. "end\n\nlocal x = new I64 {v = 1}\n"
+.. "setmetatable(x, {__add = \"not a function\"})\n\nreturn x\n" ,
+right = "local record I64\n    v: integer\n"
+.. "    metamethod __add: function(self: I64, other: I64): I64\n"
+.. "end\n\nlocal x = new I64 {v = 1}\n"
+.. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
+.. "    return new I64 {v = a.v + b.v}\nend})\n\nreturn x\n" ,
+related = { "NUPP2118" , "NUPP2006" } ,
+docs = "docs/metamethods.md" ,
+} ,
+{
 code = "NUPP2202" ,
 summary = "A declaration is built with 'new'" ,
 rule = "Records and structs are constructed with `new`. Calling a "
@@ -28076,17 +28267,18 @@ ctx . gotos [ x . name . text ] = true
 e ( ( "return %q" ) : format ( "goto:" .. x . name . text ) , sourceLine ( x ) )
 
 elseif kind == "forinStmt" and x . numericIpairs then
-local holder , index = nextTemp ( ) , nextTemp ( )
+local holder = nextTemp ( )
 local operand = x . numericIpairs . operand
+local names = x . names or { }
+
+
+
+local index = names [ 1 ] and names [ 1 ] . text or nextTemp ( )
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or sourceLine ( x )
 e ( ( "do local %s=" ) : format ( holder ) , line )
 emit ( operand )
 e ( ( ";for %s=1,%d do" ) : format ( index , x . numericIpairs . length ) )
-local names = x . names or { }
-if names [ 1 ] then
-e ( ( "local %s=%s;" ) : format ( names [ 1 ] . text , index ) )
-end
 if names [ 2 ] then
 e ( ( "local %s=%s[%s];" ) : format ( names [ 2 ] . text , holder , index ) )
 end

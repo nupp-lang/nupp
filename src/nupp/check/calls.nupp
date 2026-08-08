@@ -605,6 +605,13 @@ function calls.install(c: any): any
                     ("argument %d: %s"):format(j, why), nil,
                     callDetails(node))
             end
+            -- The parameter is fully substituted by now, so a `metatable<T>` says
+            -- whose metatable this argument is. That is how `setmetatable` and any
+            -- registrar taking one reach the receiver's contracts, a bounded
+            -- generic's included.
+            if not cst.isToken(args[j]) then
+                c.checkMetatableLiteral(args[j], ats[j], params[j])
+            end
             if mode == "takes" then
                 local withBorrow = c.ownershipKind(ats[j]) == "borrowed"
                     and not cst.isToken(args[j]) and args[j].withBinding

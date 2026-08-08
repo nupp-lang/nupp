@@ -224,6 +224,31 @@ local ENTRIES: {any} = {
         docs = "docs/type-system/generics.md",
     },
     {
+        code = "NUPP2123",
+        summary = "A metatable value does not fit the key it is written under",
+        rule = "A metamethod declaration is a contract, and a metatable literal "
+            .. "is where the value fulfilling it is written, so the value is "
+            .. "held to it — with `self` specialized to the receiver, through a "
+            .. "bounded type parameter as readily as through a concrete type. "
+            .. "Where the declaration contracts for nothing, LuaJIT still says "
+            .. "what it will do with the key: `__mode` is read as a string, "
+            .. "`__index` and `__newindex` are a table to defer to or a function "
+            .. "to run, and everything else it knows is called.\n\n"
+            .. "Only a literal is checked. What a function returns cannot be "
+            .. "seen from here, so a computed metatable stays gradual.",
+        wrong = "local record I64\n    v: integer\n"
+            .. "    metamethod __add: function(self: I64, other: I64): I64\n"
+            .. "end\n\nlocal x = new I64 {v = 1}\n"
+            .. "setmetatable(x, {__add = \"not a function\"})\n\nreturn x\n",
+        right = "local record I64\n    v: integer\n"
+            .. "    metamethod __add: function(self: I64, other: I64): I64\n"
+            .. "end\n\nlocal x = new I64 {v = 1}\n"
+            .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
+            .. "    return new I64 {v = a.v + b.v}\nend})\n\nreturn x\n",
+        related = {"NUPP2118", "NUPP2006"},
+        docs = "docs/metamethods.md",
+    },
+    {
         code = "NUPP2202",
         summary = "A declaration is built with 'new'",
         rule = "Records and structs are constructed with `new`. Calling a "
