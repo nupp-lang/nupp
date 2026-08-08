@@ -296,6 +296,32 @@ local ENTRIES: {any} = {
         related = {"NUPP2202", "NUPP2207"},
         docs = "docs/reference.md#records",
     },
+    {
+        code = "NUPP3001",
+        summary = "`is` has nothing to test against this type",
+        rule = "A record is identified by the metatable it stamps and a struct "
+            .. "by its ctype, so both answer `is` exactly. An interface has "
+            .. "neither, by design — it is conformance rather than provenance — "
+            .. "so something has to stand in for one.\n\n"
+            .. "Three things can. A literal-typed field is a tag, and the test "
+            .. "is read off it with nothing written. A `matches` block says the "
+            .. "test outright, for a shape no tag describes. And a subject "
+            .. "whose own type declares the interface needs no test at all: the "
+            .. "declaration already answered, so the `is` compiles to `true`. "
+            .. "An alias has none of these and never will.",
+        wrong = "local interface Drawable\n    width: number\nend\n\n"
+            .. "local record Sprite is Drawable\n    width: number\nend\n\n"
+            .. "local unknown: any = new Sprite {width = 1}\n\n"
+            .. "return unknown is Drawable\n",
+        right = "local interface Drawable\n    kind: \"drawable\"\n"
+            .. "    width: number\nend\n\n"
+            .. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
+            .. "    width: number\nend\n\n"
+            .. "local unknown: any = new Sprite {kind = \"drawable\", width = 1}\n\n"
+            .. "return unknown is Drawable\n",
+        related = {"NUPP2122"},
+        docs = "docs/type-system/interfaces.md",
+    },
 }
 
 local byCode: {[string]: any} = {}

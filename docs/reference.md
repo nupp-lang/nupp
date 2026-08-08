@@ -788,6 +788,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |
 | NUPP2208 | A constructor does not hold up its declaration |
+| NUPP3001 | `is` has nothing to test against this type |
 
 ## Working with the toolchain
 

@@ -72,7 +72,21 @@ One comparison for a `new`-built instance, two for a prototype instance. Deeper
 user-made chains are out of scope and documented as such; there is no cycle
 hazard because there is no loop.
 
-## Declared conformance
+## Declared conformance — designed, then declined
+
+**Not built.** The mechanism below works and was verified, but the case it
+serves shrank while the rest of this plan was implemented: elision answers any
+subject whose type proves conformance, and a derived tag answers a decoded
+value. What a marker adds is an *untagged* interface against a subject whose
+type does not prove it — one case, against every interface gaining a runtime
+table and every declaration gaining a `__nuppIs` set.
+
+A tag, static knowledge, or a `matches` block covers the rest, and NUPP3001
+names all three where it fires. Paying runtime weight across the language to
+avoid writing one of them is the worse trade. The design is kept here because it
+is sound and the reasoning against it is about value, not correctness.
+
+
 
 Each declaration registers what it implements, where it is declared. Nothing is
 enumerated and nothing is scanned.

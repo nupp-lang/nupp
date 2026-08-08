@@ -216,8 +216,9 @@ function gen.generate(result, filename)
     local emitLoopDepth = 0
     local emitFunctionDepth = 0
 
-    local function diag(tok, code, msg)
+    local function diag(tok, code, msg, help)
         diags[#diags + 1] = {code = code, msg = msg, filename = filename,
+            help = help,
             line = tok and tok.line or 0, col = tok and tok.col or 0,
             offset = tok and tok.offset or 0,
             length = tok and #tok.text or 0}
@@ -729,8 +730,26 @@ function gen.generate(result, filename)
                 emit(x.expr)
                 e(")")
             else
-                diag(t[1] and (cst.isToken(t[1]) and t[1] or nil), "NUPP3001",
-                    "cannot compile `is` for this type yet (no runtime identity)")
+                -- An interface is not missing a feature here: it has no runtime
+                -- table by design, because it is conformance rather than
+                -- provenance. Three things can answer for one, so the message
+                -- names them rather than implying a fourth is coming.
+                local at = t[1] and (cst.isToken(t[1]) and t[1] or nil)
+                if t.interfaceName then
+                    diag(at, "NUPP3001",
+                        "an interface has no runtime identity of its own, so "
+                        .. "this `is` has nothing to test",
+                        "give it a literal-typed field and the tag becomes the "
+                        .. "test; or a `matches` block, which says the test "
+                        .. "outright; or test a subject whose own type declares "
+                        .. "the interface, which needs no test at all")
+                else
+                    diag(at, "NUPP3001",
+                        "this type has no runtime identity, so `is` has "
+                        .. "nothing to test",
+                        "test against a record, a struct, or an interface that "
+                        .. "can say what it is")
+                end
                 e("true")
             end
 

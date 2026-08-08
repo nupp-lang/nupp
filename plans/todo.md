@@ -30,11 +30,13 @@ work makes sense in.
       record. An interface may implement what it declares, with `@override`
       required to replace a default and two providers of one name refused.
 
-      Left open: conformance markers, the one part of that design not built.
-      Elision and derived tags cover the cases that motivated them, so what
-      markers would add is `is I` for an *untagged* interface against a value
-      whose static type does not prove conformance — narrower than it looked,
-      and it costs a two-step read because `?[` is not in the grammar.
+      Conformance markers are deliberately not built. Giving every interface a
+      runtime table and every declaration a `__nuppIs` set, so `is I` could be
+      exact, buys one case: an *untagged* interface against a subject whose type
+      does not prove conformance. A tag, static knowledge, or a `matches` block
+      answers everything else, and NUPP3001 now names all three where it fires.
+      That is a better trade than paying runtime weight across the language for
+      the case a reader can resolve by writing one of the three.
 - [ ] **Check metatable bodies, not just key spellings.** Today
       `setmetatable(t, {…})` on a literal only validates that each `__` key is
       a real metamethod (`src/nupp/check/callexpr.nupp:265`), and

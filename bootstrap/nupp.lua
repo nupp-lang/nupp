@@ -25101,6 +25101,32 @@ right = "local record Account\n    name: string\n    balance: number\n"
 related = { "NUPP2202" , "NUPP2207" } ,
 docs = "docs/reference.md#records" ,
 } ,
+{
+code = "NUPP3001" ,
+summary = "`is` has nothing to test against this type" ,
+rule = "A record is identified by the metatable it stamps and a struct "
+.. "by its ctype, so both answer `is` exactly. An interface has "
+.. "neither, by design — it is conformance rather than provenance — "
+.. "so something has to stand in for one.\n\n"
+.. "Three things can. A literal-typed field is a tag, and the test "
+.. "is read off it with nothing written. A `matches` block says the "
+.. "test outright, for a shape no tag describes. And a subject "
+.. "whose own type declares the interface needs no test at all: the "
+.. "declaration already answered, so the `is` compiles to `true`. "
+.. "An alias has none of these and never will." ,
+wrong = "local interface Drawable\n    width: number\nend\n\n"
+.. "local record Sprite is Drawable\n    width: number\nend\n\n"
+.. "local unknown: any = new Sprite {width = 1}\n\n"
+.. "return unknown is Drawable\n" ,
+right = "local interface Drawable\n    kind: \"drawable\"\n"
+.. "    width: number\nend\n\n"
+.. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
+.. "    width: number\nend\n\n"
+.. "local unknown: any = new Sprite {kind = \"drawable\", width = 1}\n\n"
+.. "return unknown is Drawable\n" ,
+related = { "NUPP2122" } ,
+docs = "docs/type-system/interfaces.md" ,
+} ,
 }
 
 local byCode = { }
@@ -26806,8 +26832,9 @@ local withStack = { }
 local emitLoopDepth = 0
 local emitFunctionDepth = 0
 
-local function diag ( tok , code , msg )
+local function diag ( tok , code , msg , help )
 diags [ # diags + 1 ] = { code = code , msg = msg , filename = filename ,
+help = help ,
 line = tok and tok . line or 0 , col = tok and tok . col or 0 ,
 offset = tok and tok . offset or 0 ,
 length = tok and # tok . text or 0 }
@@ -27319,8 +27346,26 @@ firstTok and firstTok . line )
 emit ( x . expr )
 e ( ")" )
 else
-diag ( t [ 1 ] and ( cst . isToken ( t [ 1 ] ) and t [ 1 ] or nil ) , "NUPP3001" ,
-"cannot compile `is` for this type yet (no runtime identity)" )
+
+
+
+
+local at = t [ 1 ] and ( cst . isToken ( t [ 1 ] ) and t [ 1 ] or nil )
+if t . interfaceName then
+diag ( at , "NUPP3001" ,
+"an interface has no runtime identity of its own, so "
+.. "this `is` has nothing to test" ,
+"give it a literal-typed field and the tag becomes the "
+.. "test; or a `matches` block, which says the test "
+.. "outright; or test a subject whose own type declares "
+.. "the interface, which needs no test at all" )
+else
+diag ( at , "NUPP3001" ,
+"this type has no runtime identity, so `is` has "
+.. "nothing to test" ,
+"test against a record, a struct, or an interface that "
+.. "can say what it is" )
+end
 e ( "true" )
 end
 

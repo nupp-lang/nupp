@@ -31,15 +31,19 @@ end
 
 --- Every code the compiler reports for one source. A strict-only rule is asked
 --- for strictly, since otherwise its example would correctly report nothing.
+---
+--- Through `build` rather than `check`, because the generator reports too — the
+--- NUPP3 family is what a program that checks cleanly cannot be lowered to, so
+--- checking it would report nothing and the example would look wrong.
 local function codesFor(source, strict)
    local dir = tempProject(source)
-   local pipe = assert(io.popen(("cd '%s' && '%s' check %s--json sample.nupp 2>/dev/null")
+   local pipe = assert(io.popen(("cd '%s' && '%s' build %s--json sample.nupp 2>/dev/null")
       :format(dir, NUPP, strict and "--strict " or "")))
    local out = pipe:read("*a")
    pipe:close()
    os.execute("rm -rf '" .. dir .. "'")
    local ok, decoded = pcall(json.decode, out)
-   assert(ok, "check --json did not produce JSON: " .. out)
+   assert(ok, "build --json did not produce JSON: " .. out)
    local codes = {}
    for _, diagnostic in ipairs(decoded.diagnostics or {}) do
       if diagnostic.code then codes[diagnostic.code] = true end
