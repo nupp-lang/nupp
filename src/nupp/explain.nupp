@@ -206,7 +206,14 @@ local ENTRIES: {any} = {
             .. "cannot be evaluated there. A refinement that always answers the "
             .. "same way is also refused — always true identifies every value, "
             .. "always false leaves the type uninhabited — and so is one on a "
-            .. "struct, which `ffi.istype` already answers exactly.",
+            .. "struct, which `ffi.istype` already answers exactly.\n\n"
+            .. "A declaration is also held to the refinements of the interfaces "
+            .. "it declares. `record C is Shape` is a claim the checker proves, "
+            .. "and Shape's refinement is what `is Shape` runs, so fields that "
+            .. "make that test fail would leave the two disagreeing about the "
+            .. "same value. Only a provable failure is reported: a refinement "
+            .. "whose answer no declaration settles is not evidence of a "
+            .. "mistake.",
         wrong = "local record Circle where tostring(self.kind) == \"circle\"\n"
             .. "    kind: string\nend\n\nreturn Circle\n",
         right = "local record Circle where self.kind == \"circle\"\n"

@@ -702,6 +702,48 @@ end
 -- Each rejection names what was written rather than pointing at a list of what
 -- is allowed. The subset exists so the test can run wherever `is` is written,
 -- which rules out calls, arithmetic, and anything outside the subject.
+-- `record C is Shape` is a claim the checker proves, and Shape's refinement is
+-- what `is Shape` runs. When C's own fields make that test fail, the two
+-- disagree about the same value and nothing at either site shows it.
+function M.aDeclarationIsHeldToTheRefinementsItInherits()
+   assertEq((diagsOf(table.concat({
+      "local interface Shape where self.kind == 'shape'",
+      "   kind: string",
+      "end",
+      "local record Circle is Shape",
+      "   kind: 'circle'",
+      "   radius: number",
+      "end",
+   }, "\n"))), "NUPP2122:4")
+   -- a tag that agrees is fine
+   assertClean(table.concat({
+      "local interface Shape where self.kind == 'circle'",
+      "   kind: string",
+      "end",
+      "local record Circle is Shape",
+      "   kind: 'circle'",
+      "end",
+   }, "\n"))
+   -- so is a type test the declared field satisfies
+   assertClean(table.concat({
+      "local interface Shape where type(self.kind) == 'string'",
+      "   kind: string",
+      "end",
+      "local record Circle is Shape",
+      "   kind: 'circle'",
+      "end",
+   }, "\n"))
+   -- and a field no declaration settles decides nothing either way
+   assertClean(table.concat({
+      "local interface Open where self.n == 1",
+      "   n: integer",
+      "end",
+      "local record Any is Open",
+      "   n: integer",
+      "end",
+   }, "\n"))
+end
+
 function M.whereRefinementsRejectWhatCannotBeEnforced()
    -- arithmetic reaches nothing about the value
    assertEq((diagsOf("local record Odd where 1 + 1 == 3\n   n: integer\nend")),

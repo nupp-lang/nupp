@@ -43,6 +43,10 @@ record predicate.Node
     --- The right-hand literal, already written the way Lua spells it.
     literal: string?
 
+    --- The same literal as a value, so a declared literal type can be compared
+    --- against it without parsing the spelling back.
+    constant: any
+
     --- What `type()` must answer, for `typeis`.
     luaType: string?
 
@@ -209,12 +213,12 @@ function predicate.build(node: cst.Node?): predicate.Node?, string?
                 return nil, "a comparison of two things that are not the "
                     .. "declaration's own fields"
             end
-            local text = literalOf(other)
+            local text, value = literalOf(other)
             if not text then
                 return nil, "a comparison against something that is not a literal"
             end
             return new predicate.Node {op = "cmp", cmp = op, path = path,
-                literal = text}
+                literal = text, constant = value}
         end
         return nil, ("the %s operator"):format(op)
     end
@@ -246,6 +250,97 @@ function predicate.paths(node: predicate.Node?, out: {{string}}?): {{string}}
     predicate.paths(node.a, out)
     predicate.paths(node.b, out)
     return out
+end
+
+--- What `type()` answers for a value of `t`, when that is decided by the type.
+---
+--- Only the tags whose runtime answer is fixed. A union, a type parameter, and
+--- `any` are all several answers, so they are no answer at all.
+local function luaTypeOf(t: any): string?
+    if type(t) ~= "table" then return nil end
+    local tag = t.tag
+    if tag == "literal" then return luaTypeOf(t.base) end
+    if tag == "prim" then
+        local name = t.id
+        if name == "string" or name == "cstring" then return "string" end
+        if name == "number" or name == "integer" or name == "float" then
+            return "number"
+        end
+        if name == "boolean" then return "boolean" end
+        if name == "table" then return "table" end
+        if name == "thread" then return "thread" end
+        if name == "userdata" then return "userdata" end
+        return nil
+    end
+    if tag == "nominal" then
+        if t.declKind == "struct" then return "cdata" end
+        if t.declKind == "record" or t.declKind == "interface" then
+            return "table"
+        end
+        return nil
+    end
+    if tag == "shape" or tag == "map" or tag == "array" or tag == "tuple" then
+        return "table"
+    end
+    if tag == "func" then return "function" end
+    return nil
+end
+
+--- Whether a declaration whose fields `fieldAt` reports must satisfy the
+--- refinement, must fail it, or cannot be told either way.
+---
+--- Three-valued on purpose. A declaration that provably fails an interface's own
+--- test is a contradiction worth reporting — the checker would prove it conforms
+--- while `is` answered no — but an answer that merely cannot be computed is not
+--- evidence of anything, so it stays silent.
+---
+--- @param node the refinement
+--- @param fieldAt the declared type at a field path, or nil when there is none
+--- @return true, false, or nil when undecided
+function predicate.satisfiedBy(node: predicate.Node?, fieldAt: any): boolean?
+    if not node then return nil end
+    local op = node.op
+
+    if op == "const" then return node.value end
+    if op == "not" then
+        local inner = predicate.satisfiedBy(node.a, fieldAt)
+        if inner == nil then return nil end
+        return not inner
+    end
+    if op == "and" or op == "or" then
+        local left = predicate.satisfiedBy(node.a, fieldAt)
+        local right = predicate.satisfiedBy(node.b, fieldAt)
+        if op == "and" then
+            -- one false settles it, whatever the other side turns out to be
+            if left == false or right == false then return false end
+            if left == true and right == true then return true end
+            return nil
+        end
+        if left == true or right == true then return true end
+        if left == false and right == false then return false end
+        return nil
+    end
+
+    local t = fieldAt(node.path or {})
+    if t == nil then return nil end
+
+    if op == "typeis" then
+        local answer = luaTypeOf(t)
+        if answer == nil then return nil end
+        return answer == node.luaType
+    end
+    if op == "cmp" and (node.cmp == "==" or node.cmp == "~=") then
+        -- Only a literal-typed field settles a comparison: it admits exactly one
+        -- value, so the answer is known without running anything.
+        if type(t) ~= "table" or t.tag ~= "literal" then return nil end
+        local same = t.constant == node.constant
+        if node.cmp == "~=" then
+            return not same
+        else
+            return same
+        end
+    end
+    return nil
 end
 
 --- What the refinement always answers, when it answers the same thing every time.

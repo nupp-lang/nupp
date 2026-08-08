@@ -9545,6 +9545,44 @@ end
 
 
 
+
+
+
+
+local function checkInheritedRefinements ( stat , n )
+local function fieldAt ( path )
+local current = n
+for _ , segment in ipairs ( path ) do
+current = current and current . tag == "nominal"
+and current . byname and current . byname [ segment ] or nil
+if not current then return nil end
+end
+return current
+end
+for _ , super in ipairs ( n . supertypes or { } ) do
+if super . predicate then
+if predicate . satisfiedBy ( super . predicate , fieldAt ) == false then
+local at = nil
+for _ , node in ipairs ( stat . supertypes or { } ) do
+at = at or node
+end
+c . diag ( "NUPP2122" , at or stat . name ,
+( "%s declares %s, whose refinement its own fields "
+.. "cannot satisfy" ) : format ( n . name , super . name ) , nil ,
+{ help = ( "`is %s` would answer no for every %s; change "
+.. "the fields or the refinement" ) : format ( super . name ,
+n . name ) } )
+end
+end
+end
+end
+
+
+
+
+
+
+
 local function assignedFields ( node , out )
 out = out or { }
 if not node or cst . isToken ( node ) then return out end
@@ -10072,6 +10110,7 @@ end
 if stat . whereClause then
 checkRefinement ( stat , n )
 end
+checkInheritedRefinements ( stat , n )
 c . popScope ( )
 if stat . isAnnotationDefinition then
 
@@ -24730,7 +24769,14 @@ rule = "A `where` clause names the runtime test that decides whether a "
 .. "cannot be evaluated there. A refinement that always answers the "
 .. "same way is also refused — always true identifies every value, "
 .. "always false leaves the type uninhabited — and so is one on a "
-.. "struct, which `ffi.istype` already answers exactly." ,
+.. "struct, which `ffi.istype` already answers exactly.\n\n"
+.. "A declaration is also held to the refinements of the interfaces "
+.. "it declares. `record C is Shape` is a claim the checker proves, "
+.. "and Shape's refinement is what `is Shape` runs, so fields that "
+.. "make that test fail would leave the two disagreeing about the "
+.. "same value. Only a provable failure is reported: a refinement "
+.. "whose answer no declaration settles is not evidence of a "
+.. "mistake." ,
 wrong = "local record Circle where tostring(self.kind) == \"circle\"\n"
 .. "    kind: string\nend\n\nreturn Circle\n" ,
 right = "local record Circle where self.kind == \"circle\"\n"
@@ -35799,6 +35845,10 @@ predicate.Node = {} predicate.Node.__index = predicate.Node
 
 
 
+
+
+
+
 local COMPARISONS = {
 [ "==" ] = true , [ "~=" ] = true ,
 [ "<" ] = true , [ "<=" ] = true , [ ">" ] = true , [ ">=" ] = true ,
@@ -35958,12 +36008,12 @@ end
 return nil , "a comparison of two things that are not the "
 .. "declaration's own fields"
 end
-local text = literalOf ( other )
+local text , value = literalOf ( other )
 if not text then
 return nil , "a comparison against something that is not a literal"
 end
 return setmetatable( { op = "cmp" , cmp = op , path = path ,
-literal = text } , predicate.Node)
+literal = text , constant = value } , predicate.Node)
 end
 return nil , ( "the %s operator" ) : format ( op )
 end
@@ -35995,6 +36045,97 @@ if node . path then out [ # out + 1 ] = node . path end
 predicate . paths ( node . a , out )
 predicate . paths ( node . b , out )
 return out
+end
+
+
+
+
+
+local function luaTypeOf ( t )
+if type ( t ) ~= "table" then return nil end
+local tag = t . tag
+if tag == "literal" then return luaTypeOf ( t . base ) end
+if tag == "prim" then
+local name = t . id
+if name == "string" or name == "cstring" then return "string" end
+if name == "number" or name == "integer" or name == "float" then
+return "number"
+end
+if name == "boolean" then return "boolean" end
+if name == "table" then return "table" end
+if name == "thread" then return "thread" end
+if name == "userdata" then return "userdata" end
+return nil
+end
+if tag == "nominal" then
+if t . declKind == "struct" then return "cdata" end
+if t . declKind == "record" or t . declKind == "interface" then
+return "table"
+end
+return nil
+end
+if tag == "shape" or tag == "map" or tag == "array" or tag == "tuple" then
+return "table"
+end
+if tag == "func" then return "function" end
+return nil
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function predicate . satisfiedBy ( node , fieldAt )
+if not node then return nil end
+local op = node . op
+
+if op == "const" then return node . value end
+if op == "not" then
+local inner = predicate . satisfiedBy ( node . a , fieldAt )
+if inner == nil then return nil end
+return not inner
+end
+if op == "and" or op == "or" then
+local left = predicate . satisfiedBy ( node . a , fieldAt )
+local right = predicate . satisfiedBy ( node . b , fieldAt )
+if op == "and" then
+
+if left == false or right == false then return false end
+if left == true and right == true then return true end
+return nil
+end
+if left == true or right == true then return true end
+if left == false and right == false then return false end
+return nil
+end
+
+local t = fieldAt ( node . path or { } )
+if t == nil then return nil end
+
+if op == "typeis" then
+local answer = luaTypeOf ( t )
+if answer == nil then return nil end
+return answer == node . luaType
+end
+if op == "cmp" and ( node . cmp == "==" or node . cmp == "~=" ) then
+
+
+if type ( t ) ~= "table" or t . tag ~= "literal" then return nil end
+local same = t . constant == node . constant
+if node . cmp == "~=" then
+return not same
+else
+return same
+end
+end
+return nil
 end
 
 

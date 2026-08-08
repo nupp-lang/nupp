@@ -84,6 +84,11 @@ since a refinement may read it more than once. Reaching through a field guards
 the step before it with `?.`, because the test runs against values that are not
 of the type yet — `where self.a.b.c == "x"` compiles to `s.a?.b?.c == "x"`.
 
+A declaration is held to the refinements of the interfaces it declares.
+`record C is Shape` is a claim the checker proves, and Shape's refinement is
+what `is Shape` runs, so fields that provably fail it are **NUPP2122** — the
+alternative is a value the checker calls a `Shape` and `is` calls otherwise.
+
 ## Inference at a call site
 
 Type arguments come from the arguments:

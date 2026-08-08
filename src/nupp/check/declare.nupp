@@ -103,6 +103,44 @@ function declare.install(c: any, reifiableField: any, fix: any,
         n.predicate = built
     end
 
+    --- Holds a declaration to the refinements of the interfaces it declares.
+    ---
+    --- `record C is Shape` is a claim the checker proves, and Shape's refinement
+    --- is what `is Shape` runs. If C's own fields make that test fail, the two
+    --- disagree about the same value: the checker says C is a Shape and `is`
+    --- answers no. Nothing about the disagreement is visible at either site,
+    --- which is why it is worth proving here.
+    ---
+    --- Only a provable failure is reported. A refinement whose answer depends on
+    --- something no declaration settles is not evidence of a mistake.
+    local function checkInheritedRefinements(stat: any, n: any)
+        local function fieldAt(path: {string}): any
+            local current: any = n
+            for _, segment in ipairs(path) do
+                current = current and current.tag == "nominal"
+                    and current.byname and current.byname[segment] or nil
+                if not current then return nil end
+            end
+            return current
+        end
+        for _, super in ipairs(n.supertypes or {}) do
+            if super.predicate then
+                if predicate.satisfiedBy(super.predicate, fieldAt) == false then
+                    local at = nil
+                    for _, node in ipairs(stat.supertypes or {}) do
+                        at = at or node
+                    end
+                    c.diag("NUPP2122", at or stat.name,
+                        ("%s declares %s, whose refinement its own fields "
+                        .. "cannot satisfy"):format(n.name, super.name), nil,
+                        {help = ("`is %s` would answer no for every %s; change "
+                        .. "the fields or the refinement"):format(super.name,
+                        n.name)})
+                end
+            end
+        end
+    end
+
     --- Every field the body assigns through `self`, anywhere inside it.
     ---
     --- Anywhere is deliberate. A field set in one arm of an `if` and not the
@@ -636,6 +674,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
             if stat.whereClause then
                 checkRefinement(stat, n)
             end
+            checkInheritedRefinements(stat, n)
             c.popScope()
             if stat.isAnnotationDefinition then
             -- The declaration is a metadata schema, not a runtime constructor. Its type
