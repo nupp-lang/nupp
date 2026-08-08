@@ -269,7 +269,7 @@ return {
 Resolution runs registry default → category setting → name setting → the
 `@allow` on the statement. The most specific wins.
 
-## Suppressing one place
+## Local suppressions
 
 ```nupp
 @allow("missing-require")
