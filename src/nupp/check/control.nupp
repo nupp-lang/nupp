@@ -185,15 +185,13 @@ function control.install(c: any): any
                         :format(binding.name.text, why))
                 end
             end
-            -- Unknown names are allowed here, and only here. A cleanup is named by
-            -- the module that declared the owner and is usually local to it, so an
-            -- acquisition in another file cannot see it — and could not act on
-            -- being told about it either. The declaration site validated the
-            -- contract when it was written, which is where a misspelled or
-            -- wrong-typed cleanup is both reported and fixable. What an acquisition
-            -- still has to know is checked above: that the value is owned, and that
-            -- something will close it.
+            -- The contract itself was validated where it was written, which is the
+            -- only place a misspelled or wrong-typed cleanup can be repaired, so an
+            -- unresolvable name is not re-reported as a declaration error here.
+            -- What this scope does have to establish is that the cleanup can be
+            -- called from it, because a call to it by name is what gets emitted.
             validateCleanups(acquired, cleanups, binding.expr, "NUPP2615", true)
+            c.own.requireReachableCleanups(acquired, cleanups, binding.expr)
             if ownershipKind(acquired) == "owned" then
                 moveExpression(binding.expr, acquired, "with acquisition")
             end

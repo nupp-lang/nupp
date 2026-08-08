@@ -420,11 +420,13 @@ return shapes
    end)
 end
 
--- A cleanup is named by the module that declared the owner and is usually local
--- to it, so an acquisition in another file cannot see the name. Reporting it
--- there told a reader about a function they could not reach and could not fix,
--- and the declaring module had already checked the contract.
-function M.anOwnerCrossesAModuleBoundaryIntoAWith()
+-- These two asserted that a private cleanup may cross a module boundary. It may
+-- not, and letting it through was worse than the error it replaced: the program
+-- type-checked and then died on `attempt to call a nil value`, because a
+-- discharge emits a call to the cleanup by name and the name is not there. Until
+-- a cleanup is a resolved reference rather than a spelling, the checker has to
+-- refuse what the generator cannot emit. See plans/todo.md.
+function M.aPrivateCleanupCannotCrossIntoAWith()
    withProject({
       ["src/res.nupp"] = [[
 local res = {}
@@ -457,16 +459,17 @@ return use
 ]],
    }, function(dir)
       local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
-      assertEq(#diags, 0, "acquiring another module's owner: "
-         .. (diags[1] and (diags[1].code .. " " .. diags[1].msg) or ""))
+      assertEq(diags[1] and diags[1].code, "NUPP2620",
+         "a with cannot acquire an owner whose cleanup it cannot call")
+      assert(diags[1].help:find("@dispose", 1, true),
+         "and is told the form that would travel with the value")
    end)
 end
 
--- An explicit `dispose` is the same acquisition problem without the scope, and
--- was left reporting NUPP2602 about the same unreachable name after `with`
--- stopped. Whichever way a caller discharges an owner, the cleanup belongs to
--- the module that declared it.
-function M.anOwnerCrossesAModuleBoundaryIntoAnExplicitDispose()
+-- An explicit `dispose` emits the same call in the same scope, so it has to be
+-- refused on the same grounds. Whichever way a caller discharges an owner, the
+-- cleanup has to be reachable from where the call is written.
+function M.aPrivateCleanupCannotCrossIntoAnExplicitDispose()
    withProject({
       ["src/res.nupp"] = [[
 local res = {}
@@ -498,8 +501,8 @@ return use
 ]],
    }, function(dir)
       local diags = checkFile(projectEnv(dir), dir .. "/src/use.nupp")
-      assertEq(#diags, 0, "disposing another module's owner: "
-         .. (diags[1] and (diags[1].code .. " " .. diags[1].msg) or ""))
+      assertEq(diags[1] and diags[1].code, "NUPP2620",
+         "a dispose cannot discharge an owner whose cleanup it cannot call")
    end)
 end
 

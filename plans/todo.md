@@ -698,6 +698,78 @@ through idempotency and parse-stability in addition to exact match:
       site validates the contract, which is where a misspelling is reported and
       repairable; an acquisition still has to be owned (NUPP2610) and still has
       to have cleanups (NUPP2611).
+
+      That was half a fix and the wrong half. Suppressing the complaint let the
+      program through to a generator that emits the cleanup *by name*, so it
+      type-checked and then died on `attempt to call a nil value`. A
+      compile-time refusal became a run-time crash, and the pattern was then
+      copied to `dispose`. NUPP2620 below restores the refusal.
+- [x] **A discharge refuses a cleanup it cannot call.** NUPP2620, at both `with`
+      and `dispose`: a cleanup named by a bare name has to resolve where the
+      discharge is written, because that is what gets emitted there. The forms
+      that travel with the value — a `@dispose` method, a cleanup through a
+      field — are never refused. This is a restriction standing in for the
+      design below, not the answer to it.
+- [ ] **A cleanup is a spelling, not a resolved reference.** `Type.cleanups` is
+      `{string}`, so every reader re-resolves it in its own scope: the checker
+      through `lookupVar`, the generator as a bare identifier. They agree only
+      inside the declaring module, which is why letting an owner cross produced
+      a program that checked clean and crashed. It is a linking problem wearing
+      a codegen costume — source spellings written into object files and
+      resolved again at each use.
+
+      Resolve it once, at the declaration, and store what it resolved to. The
+      generator already emits two such forms: `@method:` calls through the
+      owner, `@field|` through one of its fields. Both travel with the value and
+      cross boundaries free. The missing third is a free function, which needs
+      to name where it lives.
+
+      Prefer a registry over an exported path. A module-qualified reference
+      would work, but forces the cleanup public — and a cleanup is the other
+      half of a contract, not surface anyone should call. Instead let the
+      declaring module register the function object under a key it already owns,
+      and let a consumer hoist one lookup at load:
+
+          -- in nupp.std.resources, at load
+          __nupp_cleanup["nupp.std.resources#close_file"] = close_file
+
+          -- in the consumer, once per module
+          local __c1 = __nupp_cleanup["nupp.std.resources#close_file"]
+          ...
+          pcall(__c1, handle)
+
+      The key is the module plus the name, not a counter: separate compilation
+      has no link step to hand out globally unique integers, and two modules
+      would both mint the same one. Hoisting keeps the discharge a direct call
+      on an upvalue, so this costs one table read per consuming module rather
+      than anything per discharge — which is the only version compatible with
+      ownership lowering to nothing.
+
+      Landing this removes the NUPP2620 restriction, removes the `allowUnknown`
+      suppression at both discharge sites, and unblocks the standard library
+      item below. `@dispose` should still be the documented default for a type
+      you define; the free-function form is for foreign types — `LuaFile`, C
+      pointers, cdata — that cannot carry a method.
+- [ ] **`@dispose` on a record method double-registers when the module is
+      reached through a consumer.** `check` and `build` disagree:
+
+          $ nupp check --strict main.nupp     # clean
+          $ nupp run main.nupp
+          res.nupp:12:2: error: NUPP2602: bare @owned has multiple inherited
+          @dispose operations; choose one with @owned(cleanup)
+
+      There is exactly one `@dispose`. The build path appears to check the
+      declaring module a second time and append again to the same nominal's
+      `defaultDisposers`, so the count reaches two. Two things make this worth
+      doing early: a diagnostic that only appears on one of two commands is the
+      kind nobody trusts, and `@dispose` is the repair NUPP2620 tells people to
+      reach for, so it has to work across modules before that advice is honest.
+- [ ] **A cleanup takes the owner and nothing else.** `@owned(cleanup)` emits
+      `cleanup(owner)`, so a cleanup needing context — an allocator, an arena, a
+      parent handle, `ctx_free(ctx, ptr)` — has nowhere to put it. Capturing the
+      context would mean a closure per owner, which is the allocation this model
+      exists to avoid. Real in FFI and unaddressed; worth a design before
+      someone hits it, and independent of the reference question above.
 - [ ] **`nupp.std.*` is untyped outside the compiler's own tree.** Module
       resolution searches a project's `include` roots, and the standard library
       is not among them, so `require("nupp.std.resources")` in a user project

@@ -68,6 +68,45 @@ function ownership.install(c: any): any
             and inner.hasNil
     end
 
+    --- Whether every cleanup this owner carries can be called from where it is
+    --- being discharged.
+    ---
+    --- A cleanup named by a bare name reaches the generated code as that name, so
+    --- `with` and `dispose` emit a call to it in whatever module they stand in.
+    --- When the owner came from elsewhere and its cleanup is private there, the
+    --- name resolves to nothing and the program fails at run time having type-
+    --- checked clean. Refusing it keeps the checker's side of the bargain: what it
+    --- accepts, the generator can emit.
+    ---
+    --- The forms that travel with the value — a `@dispose` method, a cleanup
+    --- reached through a field — need no name and are never refused. That is also
+    --- the repair, and why the help says so.
+    ---
+    --- This is a restriction rather than a rule: a cleanup is currently a spelling
+    --- rather than a resolved reference, which is what makes reachability depend on
+    --- who is reading. See plans/todo.md.
+    ---
+    --- @param valueT the owner being discharged
+    --- @param cleanups its cleanup list
+    --- @param at where to report
+    function own.requireReachableCleanups(valueT, cleanups, at)
+        for _, cleanup in ipairs(cleanups or {}) do
+            local travels = cleanup:match("^@method:") or cleanup:match("^@field|")
+                or cleanup:match("^@dropfield|")
+            if not travels and not c.lookupVar(cleanup) then
+                c.diag("NUPP2620", at,
+                    ("@owned cleanup %q cannot be reached from this module, so "
+                    .. "this value cannot be discharged here"):format(cleanup),
+                    nil,
+                    {help = "give the type a @dispose method, so its cleanup "
+                        .. "travels with the value rather than being named",
+                     notes = {"the cleanup is private to the module that "
+                        .. "declared the owner, and a discharge emits a call "
+                        .. "to it by name"}})
+            end
+        end
+    end
+
     function own.validateCleanups(valueT, cleanups, at, code, allowUnknown)
         code = code or "NUPP2602"
         local signature = {rawType(valueT).id}

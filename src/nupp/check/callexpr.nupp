@@ -191,14 +191,14 @@ function callexpr.install(c: any): any
                         "dispose needs @owned cleanup functions; transfer this owner "
                         .. "to a declared takes parameter")
                 end
-                -- Unknown names are allowed, for the reason a `with` acquisition
-                -- allows them: the cleanup belongs to the module that declared the
-                -- owner and is usually local to it, so a caller elsewhere can
-                -- neither see it nor fix it. The declaration validated the
-                -- contract. That the value is owned and has cleanups at all is
-                -- checked just above, and that is what disposing here depends on.
+                -- The contract was validated where it was written, so an
+                -- unresolvable name is not re-reported as a declaration error
+                -- here. What a dispose does have to establish is that the cleanup
+                -- can be called from this module, since that is what it emits.
                 c.validateCleanups(valueT, valueT.cleanups,
                     args[1] or node, nil, true)
+                c.own.requireReachableCleanups(valueT, valueT.cleanups,
+                    args[1] or node)
                 node.ownershipIntrinsic = "dispose"
                 node.ownerCleanups = valueT.cleanups or {}
                 return T.nil_
