@@ -151,6 +151,34 @@ function M.aMisspelledDocsKeyIsRejectedWithTheNameItMeant()
       'has no key "wibble"')
 end
 
+-- `fmt` gets the same treatment as any other manifest table: a typo names
+-- itself rather than configuring nothing.
+function M.fmtManifestKeyIsValidated()
+   local function loadFmt(fmt)
+      local dir = tempProject({["nupp.lua"] =
+         'return {include = {"src"}, fmt = ' .. fmt .. '}\n'})
+      local config, err = project.loadManifest(dir)
+      remove(dir)
+      return config, err
+   end
+
+   local config = loadFmt('{methodParens = false}')
+   assert(config, "a valid fmt table is accepted")
+   assertEq(config.fmt.methodParens, false, "and its value survives")
+
+   local _, err = loadFmt('"off"')
+   assert(err and err:find("fmt must be a table", 1, true), err)
+
+   local _, typeErr = loadFmt('{methodParens = "no"}')
+   assert(typeErr and typeErr:find("fmt.methodParens must be a boolean", 1, true),
+      typeErr)
+
+   local _, nameErr = loadFmt('{methodParen = false}')
+   assert(nameErr and nameErr:find(
+      'fmt has no key "methodParen"; did you mean "methodParens"?', 1, true),
+      nameErr)
+end
+
 -- A docs target is still a build target, so what any target takes belongs on
 -- one too. This project's declares the rocks `nupp doc` renders with.
 function M.aDocsTargetKeepsTheKeysEveryTargetTakes()

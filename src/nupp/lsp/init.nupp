@@ -13,6 +13,7 @@ with is next door.
 local incremental = require("nupp.incremental")
 
 local cst = require("nupp.cst")
+local envMod = require("nupp.env")
 local fmt = require("nupp.fmt")
 local lexer = require("nupp.lexer")
 local T = require("nupp.types")
@@ -677,6 +678,7 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             resolveAnnotation = function(name)
                 return s.inc.env.resolveProjectAnnotation(s.inc.env, path, name)
             end,
+            methodParens = envMod.fmtMethodParensDefault(s.inc.env),
         })
         if #errors > 0 or formatted == doc.text then return nil end
         return formatted

@@ -1942,6 +1942,31 @@ function M.formattingAnswersWithTheLinesThatChanged()
    assert(ranged[1].newText == "local z = 3\n", "formatted as written")
 end
 
+-- Format-on-save uses the same formatter as `nupp fmt`, so a manifest that
+-- turns method-call parenthesization off reaches the editor too.
+function M.formattingHonorsAManifestThatTurnsMethodParensOff()
+   local projectDir = makeDir()
+   writeInto(projectDir, "nupp.lua",
+      'return { fmt = { methodParens = false } }\n')
+   local source = "obj:m{a = 1}\n"
+   local uri = "file://" .. projectDir .. "/sugar.nupp"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/formatting",
+        params = { textDocument = { uri = uri }, options = {} } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local edits = responseWithId(out, 10).result
+   assert(#edits == 0,
+      "the manifest's default leaves the sugar formatted, so nothing to edit")
+end
+
 -- A whole-document formatter cannot reformat half a run of lines, so a run
 -- reaching past the selection is not offered: formatting a selection must not
 -- rewrite the lines around it.

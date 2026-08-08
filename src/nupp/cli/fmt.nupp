@@ -70,7 +70,8 @@ file that could not be formatted from one that merely is not.
 
 A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
 parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
-as written.]],
+as written, and so does a manifest with fmt = { methodParens = false }; the
+flag wins if both are given.]],
 }
 
 local function run(parsed: any): integer
@@ -88,6 +89,11 @@ local function run(parsed: any): integer
     local reportMod = require("nupp.cli.report")
     local asJson = values.format == "json"
     local env = envMod.new(".")
+    -- The manifest's default, unless --no-method-parens overrides it for
+    -- this run; there is no flag to force it back on over a manifest that
+    -- turned it off, the same one-way shape as --no-color over --color.
+    local methodParens = not values.noMethodParens
+        and envMod.fmtMethodParensDefault(env)
     local paths: {string} = parsed.positional
     local wholeProject = #paths == 0
     -- The project form and --check both ask rather than transform, so both report a
@@ -131,7 +137,7 @@ local function run(parsed: any): integer
                 resolveAnnotation = function(name: string): any
                     return env.resolveProjectAnnotation(env, path, name)
                 end,
-                methodParens = not values.noMethodParens,
+                methodParens = methodParens,
             })
             if #errors > 0 then
                 -- Could not be formatted, which is a different answer from being

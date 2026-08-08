@@ -7,10 +7,9 @@ nupp fmt --check      # report only
 nupp fmt src/x.nupp   # format one file to stdout
 ```
 
-The style is fixed. There is no configuration file, no manifest key, and no
-editor setting. `nupp fmt` otherwise takes options about what to do with the
-result, plus one knob over the style itself: `--no-method-parens`, described
-below.
+The style is fixed. There is no configuration file and no editor setting.
+`nupp fmt` otherwise takes options about what to do with the result, plus one
+knob over the style itself, described below.
 
 ## Three modes
 
@@ -70,7 +69,17 @@ obj:log("starting")
 A plain call is not a method call and keeps its sugar — `f{...}` and `f"..."`
 are how the language spells a record constructor, and touching those would be
 a much bigger, noisier rewrite than "give a method its parens back." Pass
-`--no-method-parens` to turn this off and leave every call exactly as written.
+`--no-method-parens` to turn this off and leave every call exactly as written,
+or set it once for the whole project in `nupp.lua`:
+
+```lua
+return {
+    fmt = { methodParens = false },
+}
+```
+
+`--no-method-parens` wins if both are given; there is no flag to force parens
+back on over a manifest that turned them off.
 
 ## What it will not do
 

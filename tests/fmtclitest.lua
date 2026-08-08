@@ -264,6 +264,32 @@ function M.noMethodParensLeavesTheSugarAlone()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A manifest can turn it off for the whole project, without a flag on every
+-- invocation.
+function M.manifestCanTurnMethodParensOffProjectWide()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" }, '
+         .. 'fmt = { methodParens = false } }\n',
+      ["src/sugar.nupp"] = "obj:m{a = 1}\n",
+   })
+   local out, ok = run(dir, "fmt --check")
+   assert(ok and out == "",
+      "the manifest default leaves the sugar formatted: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- --no-method-parens is redundant over that manifest, but not a conflict.
+function M.noMethodParensAgreesWithAManifestThatAlreadySaysSo()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" }, '
+         .. 'fmt = { methodParens = false } }\n',
+      ["src/sugar.nupp"] = "obj:m{a = 1}\n",
+   })
+   local out, ok = run(dir, "fmt --check --no-method-parens")
+   assert(ok and out == "", "still passes: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A file that does not parse is reported and nothing is written, whether it was
 -- named or reached through the project.
 function M.refusesToFormatWhatItCannotParse()

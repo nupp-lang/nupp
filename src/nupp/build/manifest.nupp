@@ -210,11 +210,27 @@ end
 
 local LINT_LEVELS = {off = true, note = true, warning = true, error = true}
 
+-- Room for other formatter settings to land beside `methodParens` without a
+-- top-level key of their own.
+local FMT_KEYS = {"methodParens"}
+
 local function validateManifest(config)
     local valid, err = validateArray(config.include, "include", "string")
     if not valid then return nil, err end
     if config.strict ~= nil and type(config.strict) ~= "boolean" then
         return nil, "strict must be a boolean"
+    end
+
+    if config.fmt ~= nil then
+        if type(config.fmt) ~= "table" then
+            return nil, "fmt must be a table"
+        end
+        valid, err = validateKeys(config.fmt, FMT_KEYS, "fmt")
+        if not valid then return nil, err end
+        if config.fmt.methodParens ~= nil
+            and type(config.fmt.methodParens) ~= "boolean" then
+            return nil, "fmt.methodParens must be a boolean"
+        end
     end
 
     -- A typo here would silently leave a lint at its default, which is the one
