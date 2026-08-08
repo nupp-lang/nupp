@@ -42,19 +42,45 @@ NUPP2116: type argument string for T: string is not a number
 
 An `any` argument skips the bound check.
 
-The grammar also carries a `where` refinement on a declaration. Nothing checks
-the expression, so writing one is **NUPP2122** rather than a constraint:
+## `where` refinements
+
+A declaration may carry a `where` refinement, which names the runtime test that
+decides whether a value is one of these. `x is T` compiles to that test:
 
 ```nupp
-local record Odd where 1 + 1 == 3
-    n: integer
+local interface Shape
+    kind: string
 end
--- NUPP2122: a 'where' refinement is not implemented, so this constraint
--- is not checked
+
+local record Circle is Shape where self.kind == "circle"
+    kind: string
+    radius: number
+end
 ```
 
-Express the constraint as a type where one fits — a union of literals, or a
-bound like the ones above.
+
+```lua
+-- `s is Circle` becomes
+(type(s) == "table" and s.kind == "circle")
+```
+
+This is what lets a declaration answer `is` when its values were not built by
+this program — a table off a decoder, or anything an untyped library returned.
+A record without one is identified by the metatable `new` stamps, which such a
+value never received. An interface has no runtime table at all, so a refinement
+is the only identity it can have; without one, `is` on an interface cannot be
+compiled.
+
+The test has to run wherever `is` is written, so it reads the declaration's own
+fields through `self` and nothing else: comparisons against literals, `type()`
+tests, and `and` / `or` / `not`. A call, arithmetic, or a name from outside the
+subject is **NUPP2122**, and so is a refinement that always answers the same
+way — always true identifies every value, always false leaves the type
+uninhabited. A struct cannot carry one either: `ffi.istype` already answers
+exactly.
+
+A subject that is not a plain name is evaluated once and handed to the test,
+since a refinement may read it more than once.
 
 ## Inference at a call site
 

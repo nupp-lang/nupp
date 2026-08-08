@@ -672,14 +672,60 @@ end
 -- The grammar carries `where`, the formatter keeps it and `nupp doc` renders it
 -- into a signature, and no checker code reads the expression. A constraint that
 -- constrains nothing is worth a diagnostic rather than a footnote.
-function M.whereRefinementsReportThatTheyAreUnchecked()
+-- A `where` refinement is the runtime test that decides whether a value is one
+-- of these, which is what lets a declaration answer `is` without its values
+-- having been built here.
+function M.whereRefinementsAreEnforced()
+   assertClean(table.concat({
+      "local record Circle where self.kind == 'circle'",
+      "   kind: string",
+      "   radius: number",
+      "end",
+   }, "\n"))
+   -- an interface has no runtime table at all, so this is its only answer
+   assertClean(table.concat({
+      "local interface Tagged where type(self.tag) == 'string'",
+      "   tag: string",
+      "end",
+   }, "\n"))
+   -- and it composes the way a test does
+   assertClean(table.concat({
+      "local record Both where self.a == 1 and (self.b or not self.c)",
+      "   a: integer",
+      "   b: boolean",
+      "   c: boolean",
+      "end",
+   }, "\n"))
+   assertClean("local record Even\n   n: integer\nend")
+end
+
+-- Each rejection names what was written rather than pointing at a list of what
+-- is allowed. The subset exists so the test can run wherever `is` is written,
+-- which rules out calls, arithmetic, and anything outside the subject.
+function M.whereRefinementsRejectWhatCannotBeEnforced()
+   -- arithmetic reaches nothing about the value
    assertEq((diagsOf("local record Odd where 1 + 1 == 3\n   n: integer\nend")),
       "NUPP2122:1")
+   -- a struct already answers `is` exactly, through its ctype
    assertEq((diagsOf("local struct S where false\n   x: float\nend")),
       "NUPP2122:1")
+   -- a constant decides nothing: this one says yes to every value
    assertEq((diagsOf("local interface I where true\n   n: integer\nend")),
       "NUPP2122:1")
-   assertClean("local record Even\n   n: integer\nend")
+   -- and this one says no to all of them
+   assertEq((diagsOf("local record N where false\n   n: integer\nend")),
+      "NUPP2122:1")
+   -- a field the declaration does not have compiles to a test never true
+   assertEq((diagsOf(
+      "local record M where self.nope == 'x'\n   n: integer\nend")),
+      "NUPP2122:1")
+   -- a call cannot be made where `is` is written
+   assertEq((diagsOf(
+      "local record C where tostring(self.n) == '1'\n   n: integer\nend")),
+      "NUPP2122:1")
+   -- nor can anything outside the subject be read
+   assertEq((diagsOf(
+      "local record O where other == 1\n   n: integer\nend")), "NUPP2122:1")
 end
 
 return M

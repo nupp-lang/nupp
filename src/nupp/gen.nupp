@@ -34,6 +34,7 @@ represented.
 ]]
 
 local cst = require("nupp.cst")
+local predicate = require("nupp.predicate")
 
 local gen = {}
 
@@ -600,6 +601,29 @@ function gen.generate(result, filename)
                 e("( type(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(') == "function" )')
+            elseif t.wherePredicate then
+                -- A `where` refinement is the declaration's own answer to `is`,
+                -- and it comes first: a type carrying one is saying that being
+                -- stamped here is not what makes a value one of these. It is also
+                -- the only answer an interface can have.
+                local line = firstTok and firstTok.line
+                local subject = x.expr and x.expr.kind == "name"
+                    and x.expr.token and x.expr.token.text or nil
+                if subject then
+                    -- A name is read as many times as the test names it, and
+                    -- reading a name twice is reading the same value twice.
+                    e("( " .. predicate.test(t.wherePredicate, subject) .. " )",
+                        line)
+                else
+                    -- Anything else is evaluated once and handed to the test,
+                    -- because a refinement may read the subject more than once
+                    -- and the expression may not be free to run twice.
+                    local temp = nextTemp()
+                    e(("((function(%s) return %s end)("):format(temp,
+                        predicate.test(t.wherePredicate, temp)), line)
+                    emit(x.expr)
+                    e("))")
+                end
             elseif t.recordName then
                 -- a record stamps its runtime table as the metatable, so identity is
                 -- the test

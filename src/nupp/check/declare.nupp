@@ -16,6 +16,7 @@ local relations = require("nupp.relations")
 local generics = require("nupp.generics")
 local cst = require("nupp.cst")
 local operators = require("nupp.check.operators")
+local predicate = require("nupp.predicate")
 
 local declare = {}
 
@@ -34,6 +35,73 @@ local type Node = cst.Node
 --- @param c the run's state
 function declare.install(c: any, reifiableField: any, fix: any,
     insertBefore: any, validateAnnotation: any)
+
+    --- Reads a `where` refinement into the runtime test it names, and holds it to
+    --- the declaration it belongs to.
+    ---
+    --- Three things have to be true before a refinement is worth compiling: the
+    --- subset it is written in has to be one that can run anywhere `is` is
+    --- written, the fields it reads have to exist, and it has to be capable of
+    --- answering both ways. Each failure keeps NUPP2122, which now means "this
+    --- refinement cannot be enforced" rather than "no refinement is".
+    local function checkRefinement(stat: any, n: any)
+        local clause = stat.whereClause
+        local help = "a refinement tests the declaration's own fields: "
+            .. "`where self.kind == \"circle\"`"
+
+        -- A struct is cdata with a real ctype, so `is` already answers through
+        -- `ffi.istype`. A refinement would be a second, weaker identity beside a
+        -- exact one.
+        if stat.declKind == "struct" then
+            c.diag("NUPP2122", clause,
+                "a struct is identified by its ctype, so a 'where' refinement "
+                .. "would be a second answer to the same question", nil,
+                {help = "remove it; `is` already tests the struct exactly"})
+            return
+        end
+
+        local built, why = predicate.build(clause.expr)
+        if not built then
+            c.diag("NUPP2122", clause,
+                ("a 'where' refinement cannot be %s"):format(why), nil,
+                {help = help})
+            return
+        end
+
+        local always = predicate.constant(built)
+        if always ~= nil then
+            c.diag("NUPP2122", clause, always
+                and "this 'where' refinement is always true, so it identifies "
+                .. "every value rather than this declaration's"
+                or "this 'where' refinement is always false, so nothing can "
+                .. "ever be one of these", nil, {help = help})
+            return
+        end
+
+        -- Every field it reads has to be one this declaration has. A refinement
+        -- naming a field that is not here would compile to a test that is simply
+        -- never true, which is the failure hardest to see from the outside.
+        local ok = true
+        for _, path in ipairs(predicate.paths(built)) do
+            local current = n
+            for depth, segment in ipairs(path) do
+                local field = current and current.tag == "nominal"
+                    and current.byname and current.byname[segment] or nil
+                if not field then
+                    c.diag("NUPP2122", clause,
+                        ("a 'where' refinement reads %q, which %s does not have")
+                        :format(table.concat(path, ".", 1, depth), n.name),
+                        nil, {help = help})
+                    ok = false
+                    break
+                end
+                current = field
+            end
+        end
+        if not ok then return end
+
+        n.predicate = built
+    end
 
     c.declaredNominal = function(stat, kind)
         local t, projectEntry = nil, nil
@@ -168,17 +236,6 @@ function declare.install(c: any, reifiableField: any, fix: any,
             n.writeByname = n.writeByname or {}
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
-            -- The grammar carries a `where` refinement and nothing checks it, so a
-            -- declaration that states a constraint gets no constraint. Saying so is the
-            -- honest reading: a silently ignored predicate is worse than one the
-            -- compiler admits it cannot evaluate.
-            if stat.whereClause then
-                c.diag("NUPP2122", stat.whereClause,
-                    "a 'where' refinement is not implemented, so this "
-                    .. "constraint is not checked",
-                    nil, {help = "remove it, or express the constraint as a "
-                    .. "type: a union of literals, or a bound"})
-            end
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
             -- Every declaration has a private type scope: `self`, generic binders, and
@@ -488,6 +545,16 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         end
                     end
                 end
+            end
+            -- The `where` refinement is read last, because it speaks about the
+            -- fields and they are only all here now. It is the declaration's
+            -- runtime identity: a record's instances are stamped, but a value
+            -- typed as one need never have been built here — a table off a
+            -- decoder, a plain Lua library's result — and an interface has no
+            -- table to stamp at all. A refinement is how such a type answers
+            -- `is`.
+            if stat.whereClause then
+                checkRefinement(stat, n)
             end
             c.popScope()
             if stat.isAnnotationDefinition then

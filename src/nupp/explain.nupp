@@ -194,16 +194,23 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2122",
-        summary = "A 'where' refinement is not checked",
-        rule = "The grammar carries a `where` clause on a declaration, the "
-        .. "formatter keeps it, and `nupp doc` renders it into a signature "
-        .. "— and no checker code reads the expression. A constraint that "
-        .. "constrains nothing is reported rather than left to look like "
-        .. "it works. Express the constraint as a type where one fits: a "
-        .. "union of literals, or a generic bound.",
-        wrong = "local record Odd where 1 + 1 == 3\n    n: integer\nend\n\n"
-        .. "return Odd\n",
-        right = "local record Odd\n    n: integer\nend\n\nreturn Odd\n",
+
+
+        summary = "A 'where' refinement cannot be enforced",
+        rule = "A `where` clause names the runtime test that decides whether a "
+            .. "value is one of these, and `x is T` compiles to it. That test "
+            .. "has to run wherever `is` is written, so it reads the "
+            .. "declaration's own fields through `self` and nothing else: "
+            .. "comparisons against literals, `type()` tests, `and`, `or`, "
+            .. "`not`. A call, arithmetic, or a name from outside the subject "
+            .. "cannot be evaluated there. A refinement that always answers the "
+            .. "same way is also refused — always true identifies every value, "
+            .. "always false leaves the type uninhabited — and so is one on a "
+            .. "struct, which `ffi.istype` already answers exactly.",
+        wrong = "local record Circle where tostring(self.kind) == \"circle\"\n"
+            .. "    kind: string\nend\n\nreturn Circle\n",
+        right = "local record Circle where self.kind == \"circle\"\n"
+            .. "    kind: string\nend\n\nreturn Circle\n",
         related = {"NUPP2116"},
         docs = "docs/type-system/generics.md",
     },

@@ -83,6 +83,12 @@ function resolve.install(c: any)
     -- A generic application means the same thing however the name was reached, so every
     -- way of resolving a type name ends here rather than only the unqualified one.
     local function applyTypeArgs(t, node)
+        -- A refinement is what `is` compiles to, and every path that resolves a
+        -- declared name arrives here, so this is the one place it has to be
+        -- attached from. It travels as data, so nothing is resolved twice.
+        if t and t.tag == "nominal" and t.predicate then
+            node.wherePredicate = t.predicate
+        end
         if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
             return t
         end

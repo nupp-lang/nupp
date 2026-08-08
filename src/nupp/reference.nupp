@@ -303,6 +303,47 @@ return m
     },
 
     new reference.Section {
+        title = "Refinements",
+        codes = {"NUPP2122"},
+        body = [=[
+A declaration may carry a `where` refinement, which names the runtime test that
+decides whether a value is one of these. `x is T` compiles to it, so
+`s is Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+
+This is how a declaration answers `is` for values this program did not build —
+a table off a decoder, or anything an untyped library returned. Without a
+refinement a record is identified by the metatable `new` stamps, which such a
+value never received, and an interface has no runtime table at all, so `is` on
+one cannot be compiled without it.
+
+The test runs wherever `is` is written, so it reads the declaration's own fields
+through `self` and nothing else: comparisons against literals, `type()` tests,
+and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
+always answers the same way, or one on a struct — whose ctype already answers
+exactly — is **NUPP2122**.
+]=],
+        example = [=[
+local m = {}
+
+interface m.Shape
+    kind: string
+end
+
+record m.Circle is m.Shape where self.kind == "circle"
+    kind: string
+    radius: number
+end
+
+function m.area(s: m.Shape): number
+    if s is m.Circle then return 3 * s.radius * s.radius end
+    return 0
+end
+
+return m
+]=],
+    },
+
+    new reference.Section {
         title = "Structs",
         codes = {"NUPP2203"},
         body = [=[

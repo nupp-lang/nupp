@@ -65,6 +65,11 @@ interface cst.Hints
     --- The runtime table of a record, which is its identity.
     recordName: string?
 
+    --- The runtime test a `where` refinement named, attached by the checker so
+    --- `is` compiles to it. A refinement travels as data, so nothing here has to
+    --- be resolved a second time.
+    wherePredicate: any
+
     --- Generator-owned runtime path for a nested record.
     recordRuntimeName: string?
 

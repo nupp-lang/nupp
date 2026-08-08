@@ -207,8 +207,7 @@ coalescing/compound assignment, and strict mode. Active Tier 3 work includes:
 - deterministic
   [comptime](comptime.md) data evaluation with target-aware layout and
   read-only reflection (no macros or declaration splicing);
-- enforcement of parsed `where` refinements and stronger checking of generic
-  metatable assembly;
+- stronger checking of generic metatable assembly;
 - tooling completion, codegen polish, struct unions/bitfields, malloc-backed
   arrays, dialect import/translation, and import-c hardening;
 - the full tecs subsystem translation and runtime-equivalence acceptance test.
@@ -495,9 +494,10 @@ never a black-box shim), named accordingly: `import-tl`.
   from dialect sources. Mechanical rules: map types gain the indexer
   (`{K:V}` → `{[K]: V}`); multi-returns parenthesize where type position
   requires; metamethod declarations, `record X is Y`, bounded generics, and
-  declaration-scoped `self` carry over one-to-one. A `where` clause can be
-  preserved syntactically but must be marked as unchecked until refinement
-  enforcement lands. Macro facilities and other declarations without a clean
+  declaration-scoped `self` carry over one-to-one. A `where` clause carries
+  over as one, since refinements are enforced and compiled; one written outside
+  the subset the test admits becomes marked residue like anything else. Macro
+  facilities and other declarations without a clean
   translation become clearly marked comments with `any` fallbacks so the
   output always parses and checks — residue is visible, never silent. The
   build system accepts `.tl` inputs and runs

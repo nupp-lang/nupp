@@ -6,12 +6,20 @@ work makes sense in.
 
 ## Type system
 
-- [ ] **Enforce `where` predicates.** They parse, format, highlight and
-      document, and the checker's only reaction is to say so: NUPP2122 reports
-      that the refinement is not implemented
-      (`src/nupp/check/declare.nupp:188`). Nothing evaluates them. Until this
-      lands, the dialect translator must preserve a `where` with an explicit
-      unchecked-residue marker rather than implying it is checked.
+- [x] **Enforce `where` predicates.** A refinement is read into plain data on
+      the nominal (`src/nupp/predicate.nupp`), held to the declaration's own
+      fields, and compiled: `x is T` becomes the test. That gives an interface a
+      runtime identity it never had — `is` on one was NUPP3001 — and lets a
+      record answer for values this program did not build, which a stamped
+      metatable cannot. NUPP2122 now means the refinement cannot be enforced,
+      naming what was written. The dialect translator no longer needs its
+      unchecked-residue marker.
+
+      Left open: the subset is comparisons against literals, `type()` tests and
+      the boolean operators, so a refinement cannot yet say `#self.items > 0`.
+      Nothing checks that a union's members have refinements that can tell each
+      other apart, and nothing checks a construction against the refinement of
+      what it builds — `new Circle {kind = "square"}` passes.
 - [ ] **Check metatable bodies, not just key spellings.** Today
       `setmetatable(t, {…})` on a literal only validates that each `__` key is
       a real metamethod (`src/nupp/check/callexpr.nupp:265`), and

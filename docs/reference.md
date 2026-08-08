@@ -243,6 +243,46 @@ return m
 
 Reports: `NUPP2001`. `nupp explain <code>` says more.
 
+## Refinements
+
+A declaration may carry a `where` refinement, which names the runtime test that
+decides whether a value is one of these. `x is T` compiles to it, so
+`s is Circle` below becomes `type(s) == "table" and s.kind == "circle"`.
+
+This is how a declaration answers `is` for values this program did not build —
+a table off a decoder, or anything an untyped library returned. Without a
+refinement a record is identified by the metatable `new` stamps, which such a
+value never received, and an interface has no runtime table at all, so `is` on
+one cannot be compiled without it.
+
+The test runs wherever `is` is written, so it reads the declaration's own fields
+through `self` and nothing else: comparisons against literals, `type()` tests,
+and `and`/`or`/`not`. A call, arithmetic, an outside name, a refinement that
+always answers the same way, or one on a struct — whose ctype already answers
+exactly — is **NUPP2122**.
+
+```nupp
+local m = {}
+
+interface m.Shape
+    kind: string
+end
+
+record m.Circle is m.Shape where self.kind == "circle"
+    kind: string
+    radius: number
+end
+
+function m.area(s: m.Shape): number
+    if s is m.Circle then return 3 * s.radius * s.radius end
+    return 0
+end
+
+return m
+```
+
+Reports: `NUPP2122`. `nupp explain <code>` says more.
+
 ## Structs
 
 A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
@@ -674,7 +714,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2106 | An exported declaration needs a type annotation |
 | NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |
-| NUPP2122 | A 'where' refinement is not checked |
+| NUPP2122 | A 'where' refinement cannot be enforced |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |

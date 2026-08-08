@@ -231,6 +231,65 @@ function M.newRefusesWhatCannotBeConstructed()
    }, "\n")), "NUPP2206:4")
 end
 
+-- A refinement is what `is` compiles to. The values here were never built by
+-- this program, which is the case a stamped metatable cannot answer: a table
+-- off a decoder, or anything an untyped library handed back.
+function M.whereRefinementsDecideIsAtRuntime()
+   assertEq(run(table.concat({
+      "local interface Shape",
+      "   kind: string",
+      "end",
+      "local record Circle is Shape where self.kind == 'circle'",
+      "   kind: string",
+      "   radius: number",
+      "end",
+      "local record Square is Shape where self.kind == 'square'",
+      "   kind: string",
+      "   side: number",
+      "end",
+      "local function area(s: Shape): number",
+      "   if s is Circle then return 3 * s.radius * s.radius end",
+      "   if s is Square then return s.side * s.side end",
+      "   return 0",
+      "end",
+      "local decoded: Shape = {kind = 'circle', radius = 2} as Shape",
+      "local other: Shape = {kind = 'square', side = 3} as Shape",
+      "return area(decoded) + area(other)",
+   }, "\n")), 21)
+end
+
+-- An interface has no runtime table to stamp, so `is` on one was NUPP3001 and
+-- could not be compiled at all. A refinement is the answer it can give.
+function M.whereRefinementsGiveAnInterfaceARuntimeIdentity()
+   assertEq(run(table.concat({
+      "local interface Tagged where type(self.tag) == 'string'",
+      "   tag: string",
+      "end",
+      "local function describe(v: any): string",
+      "   if v is Tagged then return 'tagged ' .. v.tag end",
+      "   return 'untagged'",
+      "end",
+      "return describe({tag = 'x'}) .. '/' .. describe(42)",
+   }, "\n")), "tagged x/untagged")
+end
+
+-- A refinement may read the subject more than once, so a subject that is not a
+-- name is evaluated once and handed to the test.
+function M.aComputedSubjectIsEvaluatedOnce()
+   assertEq(run(table.concat({
+      "local interface Tagged where self.tag == 'x'",
+      "   tag: string",
+      "end",
+      "local calls = 0",
+      "local function make(): any",
+      "   calls = calls + 1",
+      "   return {tag = 'x'}",
+      "end",
+      "local hit = make() is Tagged",
+      "return (hit and 10 or 0) + calls",
+   }, "\n")), 11)
+end
+
 function M.multiValueReturnsInAssignments()
    local two = table.concat({
       "local function two(): number, string",

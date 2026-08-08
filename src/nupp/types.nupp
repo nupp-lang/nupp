@@ -263,6 +263,12 @@ record types.Nominal
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?
 
+    --- The runtime test a `where` refinement named, as data. It is what `is`
+    --- compiles to for a declaration whose values need not have been stamped
+    --- here, and for an interface, which has no table to stamp at all. Its shape
+    --- belongs to `nupp.predicate`.
+    predicate: any
+
     --- Default terminal operations inherited from `@dispose` contracts. Entries are
     --- cleanup paths; `@method:name` invokes `value:name()`.
     defaultDisposers: {string}?
