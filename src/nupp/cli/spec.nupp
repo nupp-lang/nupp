@@ -217,7 +217,7 @@ local function normalize(raw: any): spec.Option
             longest = name
         end
     end
-    return spec.Option{
+    return new spec.Option{
         names = names,
         key = raw.key or derivedKey(longest),
         value = raw.value,
@@ -283,7 +283,7 @@ function spec.command(raw: any): spec.Command
         end
         for _, name in ipairs(option.names) do byName[name] = option end
     end
-    return spec.Command{
+    return new spec.Command{
         name = raw.name,
         helpName = raw.helpName or raw.name,
         summary = raw.summary,
@@ -439,7 +439,7 @@ function spec.Command:parse(args: {string}): spec.Result?, string?
             end
         end
     end
-    return spec.Result{values = values, positional = positional}
+    return new spec.Result{values = values, positional = positional}
 end
 
 --- The command's whole help text, with the options rendered from the grammar that

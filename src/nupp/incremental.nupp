@@ -142,7 +142,7 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         strict = env.config.strict == true
     end
     local q = query.new()
-    local inc = incremental.Inc{env = env, q = q}
+    local inc = new incremental.Inc{env = env, q = q}
 
     -- One store per environment, shared with whatever else reaches the same env: a
     -- check of one named file builds the project index through

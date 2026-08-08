@@ -634,7 +634,7 @@ function M.unknownNeedsNarrowingOrACast()
       "local record P",
       "   x: integer",
       "end",
-      "local a: unknown = P{x = 1}",
+      "local a: unknown = new P{x = 1}",
       "if a is P then print(a.x) end",
    }, "\n"))
 end

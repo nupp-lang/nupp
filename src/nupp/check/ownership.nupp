@@ -220,8 +220,12 @@ function ownership.install(c: any): any
     end
 
     function own.provenanceOwner(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
-            expr = expr.expr
+        -- `new` wraps the construction it decides, and provenance is about where
+        -- a value came from rather than how it was written, so it reads through
+        -- the word exactly as it reads through a paren or a cast.
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr"
+            or expr.kind == "newExpr") do
+            expr = expr.kind == "newExpr" and expr.call or expr.expr
         end
         if not expr then
             return nil
@@ -261,6 +265,9 @@ function ownership.install(c: any): any
         out, seen = out or {}, seen or {}
         if not expr or cst.isToken(expr) then
             return out
+        end
+        if expr.kind == "newExpr" then
+            return own.provenanceOwners(expr.call, out, seen)
         end
         if expr.borrowOwners then
             for _, owner in ipairs(expr.borrowOwners) do

@@ -51,4 +51,4 @@ local function run(parsed: any): integer
     return code
 end
 
-return spec.Handler{spec = command, run = run}
+return new spec.Handler{spec = command, run = run}

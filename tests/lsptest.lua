@@ -902,7 +902,7 @@ function M.qualifiedMembersNavigateAcrossFiles()
    local uri = "file://" .. usePath
    -- column 34 sits on `Point` in the annotation
    local source = "local shapes = require(\"shapes\")\n"
-      .. "local p: shapes.Point = shapes.Point{x = 1}\n"
+      .. "local p: shapes.Point = new shapes.Point{x = 1}\n"
    local out = runSession({
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
       { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
@@ -978,7 +978,7 @@ function M.renamesTheMemberAndNotItsTable()
    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
    local uri = "file://" .. projectDir .. "/shapes.nupp"
    local source = "local shapes = {}\n\nrecord shapes.Point\n   x: number\nend\n"
-      .. "\nlocal p: shapes.Point = shapes.Point{x = 1}\n\nreturn shapes\n"
+      .. "\nlocal p: shapes.Point = new shapes.Point{x = 1}\n\nreturn shapes\n"
    local out = runSession({
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
       { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
@@ -1257,7 +1257,7 @@ function M.completionAfterAValueDotOffersItsFields()
       "    end",
       "end",
       "",
-      "local p: shapes.Point = shapes.Point{x = 1, y = 2}",
+      "local p: shapes.Point = new shapes.Point{x = 1, y = 2}",
       "local n = p.x",
       "",
       "return shapes",
@@ -2021,7 +2021,7 @@ local OUTLINE = table.concat({
    "type shapes.Colour = 'red' | 'blue'",
    "",
    "function shapes.origin(): shapes.Point",
-   "    return shapes.Point{x = 0, y = 0}",
+   "    return new shapes.Point{x = 0, y = 0}",
    "end",
    "",
    "local function helper(): number",
@@ -2439,7 +2439,7 @@ local OWNER_PRELUDE = table.concat({
    "",
    "@owned(close_resource)",
    "local function open_resource(name: string): Resource",
-   "    return Resource{name = name}",
+   "    return new Resource{name = name}",
    "end",
    "",
    "local function use(value: Resource)",

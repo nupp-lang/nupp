@@ -37,7 +37,7 @@ end
 
 local samples: {Sample} = {}
 for i = 1, 5 do
-    table.insert(samples, Sample{
+    table.insert(samples, new Sample{
         value = i * 1.5,
         weight = i % 2 == 0 ? 2 : 1,
     })

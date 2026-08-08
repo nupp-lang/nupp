@@ -119,7 +119,7 @@ end
 
 @owned(closeChannel)
 local function openChannel(id: integer): Channel
-   return Channel{id = id}
+   return new Channel{id = id}
 end
 ```
 
@@ -162,7 +162,7 @@ end
 
 @owned
 local function openFile(): File
-   return File{closed = false}
+   return new File{closed = false}
 end
 
 local file = openFile()
@@ -179,7 +179,7 @@ local record Socket end
 local function closeSocket(takes socket: Socket) end
 
 @owned
-local function connect(): Socket return Socket{} end
+local function connect(): Socket return new Socket{} end
 ```
 
 An interface can declare the contract once and subtypes inherit it:
@@ -199,7 +199,7 @@ local record File is Closeable
 end
 
 @owned
-local function openFile(): File return File{fd = 1} end
+local function openFile(): File return new File{fd = 1} end
 ```
 
 This gives a Closeable-style abstraction without privileging the name
@@ -366,7 +366,7 @@ happens. A result may name several roots:
 @owned(closePair)
 local function pair(borrows left: Resource, borrows right: Resource)
    : Pair borrows(left, right)
-   return Pair{left = left, right = right}
+   return new Pair{left = left, right = right}
 end
 ```
 
@@ -558,7 +558,7 @@ local record Bundle
    output: owned<File>
 end
 
-local bundle = Bundle{
+local bundle = new Bundle{
    input = openFile(),
    output = openFile(),
 }

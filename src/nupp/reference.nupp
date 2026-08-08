@@ -50,7 +50,7 @@ end
 -- Everything the reader needs, in the order it is worth reading.
 local SECTIONS: {reference.Section} = {
 
-    reference.Section{
+    new reference.Section {
         title = "What Nupp is",
         codes = {},
         body = [=[
@@ -66,7 +66,7 @@ Generated code targets LuaJIT 2.1.1784535649 or newer.
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Declaring things",
         codes = {"NUPP2119"},
         body = [=[
@@ -95,7 +95,7 @@ return models
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Types",
         codes = {"NUPP2101", "NUPP2001"},
         body = [=[
@@ -133,7 +133,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Functions",
         codes = {"NUPP2002", "NUPP2106"},
         body = [=[
@@ -170,7 +170,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Generics and bounds",
         codes = {"NUPP2101"},
         body = [=[
@@ -196,7 +196,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Property capabilities",
         codes = {"NUPP2001", "NUPP2009"},
         body = [=[
@@ -234,12 +234,21 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Records",
-        codes = {"NUPP2004", "NUPP2118"},
+        codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206"},
         body = [=[
 A record is a table with declared fields. It may carry inline methods, whose
-`self` is implicit, and it is constructed by calling it with a table.
+`self` is implicit, and it is built with `new`.
+
+`new` is how both records and structs are constructed, and the only way: it
+lowers to the metatable stamp and the ctype call directly, installing nothing,
+which is what leaves `__call` and `__new` to the program. Calling a record that
+declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
+a record or a struct is **NUPP2206**.
+
+The word is contextual — a name has to follow it on the same line — so a
+variable named `new` still means what it did.
 
 One explicit type per field: grouped names are rejected.
 ]=],
@@ -257,14 +266,14 @@ record m.Point
     end
 end
 
-local origin = m.Point{x = 0, y = 0}
+local origin = new m.Point {x = 0, y = 0}
 local d = origin:lengthSquared()
 
 return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Interfaces",
         codes = {"NUPP2001"},
         body = [=[
@@ -287,7 +296,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Structs",
         codes = {"NUPP2203"},
         body = [=[
@@ -312,7 +321,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Literal and tagged unions",
         codes = {"NUPP2107"},
         body = [=[
@@ -361,7 +370,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Narrowing",
         codes = {"NUPP2001"},
         body = [=[
@@ -397,7 +406,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Owned resources",
         codes = {"NUPP2603", "NUPP2615"},
         body = [=[
@@ -440,7 +449,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "with scopes",
         codes = {"NUPP2610"},
         body = [=[
@@ -480,7 +489,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "C interop",
         codes = {"NUPP2203", "NUPP2101"},
         body = [=[
@@ -513,7 +522,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Annotations",
         codes = {"NUPP2119"},
         body = [=[
@@ -551,7 +560,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Docblocks",
         codes = {"NUPP2506"},
         body = [=[
@@ -582,7 +591,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Modules",
         codes = {"NUPP2120", "NUPP2101"},
         body = [=[
@@ -617,13 +626,13 @@ return models
         example = [=[
 local models = require("models")
 
-local user: models.User = models.User{id = 1, name = "ada"}
+local user: models.User = new models.User {id = 1, name = "ada"}
 
 return user
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "LuaJIT 3.0 syntax",
         codes = {"NUPP2504"},
         body = [=[
@@ -674,7 +683,7 @@ return m
 ]=],
     },
 
-    reference.Section{
+    new reference.Section {
         title = "Lints and suppression",
         codes = {"NUPP2108"},
         body = [=[

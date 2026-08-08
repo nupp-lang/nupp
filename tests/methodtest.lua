@@ -90,7 +90,7 @@ end
 function M.recordMethodsRunAtRuntime()
    assertEq(run(TASK .. table.concat({
       "",
-      "local t = Task{title = 'ok'}",
+      "local t = new Task{title = 'ok'}",
       "return t:describe()",
    }, "\n")), "ok")
 end
@@ -104,7 +104,7 @@ function M.structMethodsDispatchThroughMetatype()
       "function Vec2:len(): number",
       "    return (self.x * self.x + self.y * self.y) ^ 0.5",
       "end",
-      "local v = Vec2{x = 3, y = 4}",
+      "local v = new Vec2{x = 3, y = 4}",
       "return v:len()",
    }, "\n")
    assertClean(src)
@@ -117,7 +117,7 @@ function M.structMethodsDispatchThroughMetatype()
       "function P:twice(): number",
       "    return self.n * 2",
       "end",
-      "local p = P{n = 21}",
+      "local p = new P{n = 21}",
       "return p:twice()",
    }, "\n")), 42)
 end
@@ -161,7 +161,7 @@ function M.onlyACallExpandsAcrossTargets()
       "    one: function(n: string?): string?",
       "    two: function(n: string?): (string?, any)",
       "end",
-      "local b = m.Box{}",
+      "local b = new m.Box{}",
       "b.one = function(n)",
       "    if n == 'x' then return b.one(n) end",
       "    return b.two(n)",

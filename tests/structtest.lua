@@ -73,28 +73,28 @@ function M.fieldValidation()
 end
 
 function M.constructionChecking()
-   assertClean(VEC .. "local v = Vec2{x = 1, y = 2}")
-   assertClean(VEC .. "local v = Vec2(1, 2)")
-   assertClean(VEC .. "local v = Vec2()")
-   assertEq((diagsOf(VEC .. "local v = Vec2{x = 1, z = 9}")), "NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = Vec2{x = 'no'}")), "NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = Vec2(1, 2, 3)")), "NUPP2202:5")
-   assertEq((diagsOf(VEC .. "local v = Vec2('a', 2)")), "NUPP2202:5")
+   assertClean(VEC .. "local v = new Vec2{x = 1, y = 2}")
+   assertClean(VEC .. "local v = new Vec2(1, 2)")
+   assertClean(VEC .. "local v = new Vec2()")
+   assertEq((diagsOf(VEC .. "local v = new Vec2{x = 1, z = 9}")), "NUPP2202:5")
+   assertEq((diagsOf(VEC .. "local v = new Vec2{x = 'no'}")), "NUPP2202:5")
+   assertEq((diagsOf(VEC .. "local v = new Vec2(1, 2, 3)")), "NUPP2202:5")
+   assertEq((diagsOf(VEC .. "local v = new Vec2('a', 2)")), "NUPP2202:5")
    -- the instance types as the nominal
-   assertClean(VEC .. "local v: Vec2 = Vec2{x = 1, y = 2}")
-   assertEq((diagsOf(VEC .. "local n: number = Vec2{x = 1}")), "NUPP2001:5")
+   assertClean(VEC .. "local v: Vec2 = new Vec2{x = 1, y = 2}")
+   assertEq((diagsOf(VEC .. "local n: number = new Vec2{x = 1}")), "NUPP2001:5")
 end
 
 function M.runtimeStructSemantics()
    assertEq(run(VEC .. [[
-local v = Vec2{x = 3, y = 4}
+local v = new Vec2{x = 3, y = 4}
 v.x = v.x + 1
 return v.x + v.y]]), 8)
    -- positional construction
-   assertEq(run(VEC .. "local v = Vec2(3, 4)\nreturn v.y"), 4)
+   assertEq(run(VEC .. "local v = new Vec2(3, 4)\nreturn v.y"), 4)
    -- float storage really is float-width (not a Lua table)
    assertEq(run(VEC .. [[
-local v = Vec2{x = 0.1, y = 0}
+local v = new Vec2{x = 0.1, y = 0}
 return v.x == 0.1]]), false) -- 0.1 is not representable in float32
 end
 
@@ -106,7 +106,7 @@ function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
       "      return self.x * 2",
       "   end",
       "end",
-      "local v = Vec{x = 21}",
+      "local v = new Vec{x = 21}",
       "return v:doubled()",
    }, "\n")), 42)
    assertEq((diagsOf(table.concat({
@@ -130,7 +130,7 @@ function M.referenceSemantics()
 local function bump(v: Vec2)
    v.x = v.x + 10
 end
-local v = Vec2{x = 1, y = 0}
+local v = new Vec2{x = 1, y = 0}
 bump(v)
 return v.x]]), 11)
 end
@@ -141,15 +141,15 @@ local struct Body
    pos: Vec2
    vel: Vec2
 end
-local b = Body{}
+local b = new Body{}
 b.pos.x = 5
-b.vel = Vec2{x = 1, y = 2}
+b.vel = new Vec2{x = 1, y = 2}
 return b.pos.x + b.vel.y]]), 7)
 end
 
 function M.istypeNarrowingAtRuntime()
    assertEq(run(VEC .. [[
-local v: any = Vec2{x = 1, y = 2}
+local v: any = new Vec2{x = 1, y = 2}
 return v is Vec2]]), true)
    assertEq(run(VEC .. [[
 local v: any = {x = 1}
@@ -157,8 +157,8 @@ return v is Vec2]]), false)
 end
 
 function M.structFieldAccessChecked()
-   assertEq((diagsOf(VEC .. "local v = Vec2()\nlocal z = v.z")), "NUPP2004:6")
-   assertClean(VEC .. "local v = Vec2()\nlocal x: number = v.x")
+   assertEq((diagsOf(VEC .. "local v = new Vec2()\nlocal z = v.z")), "NUPP2004:6")
+   assertClean(VEC .. "local v = new Vec2()\nlocal x: number = v.x")
 end
 
 function M.lineCountInvariantWithStructs()

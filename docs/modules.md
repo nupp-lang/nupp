@@ -57,7 +57,7 @@ file shows where it came from:
 ```nupp
 local shapes = require("geom.shapes")
 
-local p: shapes.Point = shapes.Point{x = 3, y = 4}
+local p: shapes.Point = new shapes.Point{x = 3, y = 4}
 ```
 
 A module path also names a type directly, without a runtime `require`:
@@ -116,7 +116,7 @@ member on the type side. Records and structs are values too, which is what lets
 a dependent construct one:
 
 ```nupp
-local p = shapes.Point{x = 1, y = 2}   -->  setmetatable({x = 1, y = 2}, shapes.Point)
+local p = new shapes.Point{x = 1, y = 2}   -->  setmetatable({x = 1, y = 2}, shapes.Point)
 ```
 
 Which local is the module is read off the `return` statement, so wrapping it
@@ -141,7 +141,7 @@ record m.Shapes
     type Id = uint32
 end
 
-local p: m.Shapes.Point = m.Shapes.Point{x = 1}
+local p: m.Shapes.Point = new m.Shapes.Point{x = 1}
 ```
 
 Attaching to any other table is not an export. It is a perfectly good way to
@@ -276,7 +276,7 @@ type shapes.Drawable = shapes.Point | shapes.Path
 local type Scratch = {integer}   -- private to this file
 
 function shapes.origin(): shapes.Point
-    return shapes.Point{x = 0, y = 0}
+    return new shapes.Point{x = 0, y = 0}
 end
 
 return shapes
@@ -287,8 +287,8 @@ return shapes
 ```nupp
 local shapes = require("geom.shapes")
 
-local p: shapes.Point = shapes.Point{x = 1, y = 2}
-local path: shapes.Path = shapes.Path{points = {p}, cutFrom = nil}
+local p: shapes.Point = new shapes.Point{x = 1, y = 2}
+local path: shapes.Path = new shapes.Path{points = {p}, cutFrom = nil}
 local d: shapes.Drawable = p
 
 print(path:count(), shapes.origin().x, d is shapes.Point)

@@ -59,7 +59,7 @@ local POOL = table.concat({
    "local function close_pool(p: Pool) end",
    "@owned(close_pool)",
    "local function open_pool(): Pool",
-   "   return Pool{items = {}}",
+   "   return new Pool{items = {}}",
    "end",
    "function Pool:get(index: integer): Res borrows self",
    "   return self.items[index]",
@@ -178,11 +178,11 @@ local LAYERED = table.concat({
    "local function close_tls(t: TLS) end",
    "@owned(close_socket)",
    "local function open_socket(): Socket",
-   "   return Socket{fd = 1}",
+   "   return new Socket{fd = 1}",
    "end",
    "@owned(close_tls)",
    "local function open_tls(borrows s: Socket): TLS borrows s",
-   "   return TLS{s = s}",
+   "   return new TLS{s = s}",
    "end",
 }, "\n")
 
@@ -341,7 +341,7 @@ function M.bareOwnedUsesTheDeclaredDefaultDisposer()
       "end",
       "@owned",
       "local function openFile(): File",
-      "   return File{closed = false}",
+      "   return new File{closed = false}",
       "end",
       "local file = openFile()",
       "dispose(file)",
@@ -368,7 +368,7 @@ function M.defaultDisposersAreInheritedFromInterfaces()
       "function File:close() self.closed = true end",
       "@owned",
       "local function openFile(): File",
-      "   return File{closed = false}",
+      "   return new File{closed = false}",
       "end",
       "with file = openFile() do print(file.closed) end",
    }, "\n"))
@@ -380,7 +380,7 @@ function M.bareOwnedRejectsMissingAndAmbiguousDefaults()
       "   closed: boolean",
       "end",
       "@owned",
-      "local function openFile(): File return File{closed = false} end",
+      "local function openFile(): File return new File{closed = false} end",
    }, "\n")), "NUPP2602")
 
    assertEq(codes(table.concat({
@@ -396,7 +396,7 @@ function M.bareOwnedRejectsMissingAndAmbiguousDefaults()
       "   closed: boolean",
       "end",
       "@owned",
-      "local function openFile(): File return File{closed = false} end",
+      "local function openFile(): File return new File{closed = false} end",
    }, "\n")), "NUPP2602")
 end
 
@@ -728,7 +728,7 @@ function M.borrowedResultsCanNameMultipleSources()
       "@owned(closePair)",
       "local function pair(borrows left: resource*, borrows right: resource*)",
       "   : Pair borrows(left, right)",
-      "   return Pair{left = left, right = right}",
+      "   return new Pair{left = left, right = right}",
       "end",
    }, "\n")
    assertClean(source .. table.concat({
@@ -762,13 +762,13 @@ function M.affineRecordsDisposeOwnedFieldsInReverseOrder()
       "end",
       "@owned(closeRes)",
       "local function openRes(name: string): Res",
-      "   return Res{name = name}",
+      "   return new Res{name = name}",
       "end",
       "local record Bundle",
       "   first: owned<Res>",
       "   second: owned<Res>",
       "end",
-      "local bundle = Bundle{first = openRes('a'), second = openRes('b')}",
+      "local bundle = new Bundle{first = openRes('a'), second = openRes('b')}",
       "dispose(bundle)",
       "return calls",
    }, "\n")
@@ -786,11 +786,11 @@ function M.affineRecordsRejectPartialFieldMoves()
       "local record Res end",
       "local function closeRes(value: Res) end",
       "@owned(closeRes)",
-      "local function openRes(): Res return Res{} end",
+      "local function openRes(): Res return new Res{} end",
       "local record Bundle",
       "   value: owned<Res>",
       "end",
-      "local bundle = Bundle{value = openRes()}",
+      "local bundle = new Bundle{value = openRes()}",
       "local value = bundle.value",
    }, "\n"))
    assert(got:find("NUPP2602", 1, true),
@@ -803,7 +803,7 @@ function M.customDisposersMustDischargeEveryOwnedField()
       "@dispose",
       "local function closeRes(takes value: Res) end",
       "@owned(closeRes)",
-      "local function openRes(): Res return Res{} end",
+      "local function openRes(): Res return new Res{} end",
    }, "\n")
    assertClean(prefix .. "\n" .. table.concat({
       "local record Bundle",
@@ -815,7 +815,7 @@ function M.customDisposersMustDischargeEveryOwnedField()
       "      closeRes(self.first)",
       "   end",
       "end",
-      "local bundle = Bundle{first = openRes(), second = openRes()}",
+      "local bundle = new Bundle{first = openRes(), second = openRes()}",
       "dispose(bundle)",
    }, "\n"))
    assertEq(codes(prefix .. "\n" .. table.concat({

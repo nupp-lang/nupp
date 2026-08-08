@@ -318,6 +318,27 @@ function calls.install(c: any): any
                 nil, {help = "`new` builds a record or a struct"})
             node.newReported = true
         end
+        -- Calling a declaration is no longer how it is built, so the call belongs
+        -- to whatever the program installed: a record's `__call`, a struct's
+        -- ctype. A record that declared no contract is the one case worth
+        -- reporting, since calling it was until now the way to construct it.
+        if constructible and not node.isNew then
+            if calleeT.declKind == "record" then
+                local callContract = ops.metamethodOf(calleeT, "__call")
+                if callContract then
+                    return ops.inferCall(node, dropSelf(callContract), argsNode)
+                end
+            end
+            local named = c.pathKey(node.obj) or calleeT.name
+            c.diag("NUPP2202", node,
+                ("%s is constructed with `new`"):format(named), nil,
+                {help = ("write new %s%s"):format(named,
+                (argsNode and argsNode.table) and "{...}" or "(...)")})
+            for _, arg in ipairs(args) do
+                if not cst.isToken(arg) then c.infer(arg) end
+            end
+            return calleeT, {calleeT}
+        end
         if constructible then
             local affineValues = {}
             local tbl = nil
@@ -332,12 +353,8 @@ function calls.install(c: any): any
                 -- tell the generator to stamp the metatable
                 node.recordConstruct = c.pathKey(node.obj) or calleeT.name
             elseif calleeT.declKind == "record" then
-                local callContract = ops.metamethodOf(calleeT, "__call")
-                if callContract then
-                    return ops.inferCall(node, dropSelf(callContract), argsNode)
-                end
                 c.diag("NUPP2202", node,
-                    ("record %s is constructed with named fields: %s{...}")
+                    ("record %s is constructed with named fields: new %s{...}")
                     :format(calleeT.name, calleeT.name))
             end
             if tbl then

@@ -48,7 +48,7 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 --- options, so every one of them reads them the same way.
 function compile.settings(values: {[string]: any},
     collected: {any}?): compile.Settings
-    return compile.Settings{
+    return new compile.Settings{
         strict = values.strict,
         optLevel = LEVELS[values.optLevel] or 0,
         remarks = values.remarks and true or false,

@@ -86,4 +86,4 @@ local function run(args: any): integer
     return project.test(".", args)
 end
 
-return spec.Handler{spec = command, raw = true, run = run}
+return new spec.Handler{spec = command, raw = true, run = run}

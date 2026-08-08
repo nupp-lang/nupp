@@ -121,4 +121,4 @@ local function run(parsed: any): integer
     return 0
 end
 
-return spec.Handler{spec = command, run = run}
+return new spec.Handler{spec = command, run = run}

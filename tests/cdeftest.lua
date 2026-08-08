@@ -74,7 +74,7 @@ function M.cdefStructTyping()
       "   tv_sec: int64",
       "   tv_usec: int64",
       "end",
-      "local tv = timeval()",
+      "local tv = new timeval()",
       "local s: number = tv.tv_sec",
    }, "\n"))
    -- cstring fields are legal in C structs (unlike GC-managed structs)
@@ -106,7 +106,7 @@ function M.pointerConversions()
       "   sec: int64",
       "end",
       "cdef function fill(t: tval*, z: voidptr?): int32",
-      "local t = tval()",
+      "local t = new tval()",
       "fill(t, nil)",
    }, "\n"))
    -- and a non-null pointer refuses NULL, which is why both spellings exist
@@ -125,7 +125,7 @@ function M.pointerConversions()
       "   n: int32",
       "end",
       "cdef function fill2(t: tval2*): int32",
-      "fill2(other())",
+      "fill2(new other())",
    }, "\n"))), "NUPP2006:8")
 end
 
@@ -147,7 +147,7 @@ function M.cdefStructRuntime()
       "   a: int32",
       "   b: int32",
       "end",
-      "local p = nuppTestPair{a = 3, b = 9}",
+      "local p = new nuppTestPair{a = 3, b = 9}",
       "return p.a + p.b",
    }, "\n")), 12)
 end

@@ -207,6 +207,40 @@ local ENTRIES: {any} = {
         related = {"NUPP2116"},
         docs = "docs/type-system/generics.md",
     },
+    {
+        code = "NUPP2202",
+        summary = "A declaration is built with 'new'",
+        rule = "Records and structs are constructed with `new`. Calling a "
+            .. "declaration used to be the construction, which meant the call "
+            .. "was never the program's own: a record's `__call` was shadowed "
+            .. "whenever the argument was a table, and a struct's ctype call "
+            .. "was claimed outright. Saying construction in the source gives "
+            .. "those hooks back. A record that does declare a `__call` "
+            .. "contract is called, not reported.",
+        wrong = "local record Point\n    x: integer\nend\n\n"
+            .. "local p = Point{x = 1}\n\nreturn p\n",
+        right = "local record Point\n    x: integer\nend\n\n"
+            .. "local p = new Point{x = 1}\n\nreturn p\n",
+        related = {"NUPP2206"},
+        docs = "docs/reference.md#records",
+    },
+    {
+        code = "NUPP2206",
+        summary = "Only a record or a struct can be constructed",
+        rule = "`new` names a type and builds a value of it, so the operand "
+            .. "has to be a declaration with something to build. An interface "
+            .. "declares a contract and has no runtime table to stamp; an enum "
+            .. "value is one of its declared strings, written directly. The "
+            .. "operand is answered as a type rather than through whatever "
+            .. "value stands under the name, because an interface binds none.",
+        wrong = "local interface Named\n    name: string\nend\n\n"
+            .. "local n = new Named{name = \"ada\"}\n\nreturn n\n",
+        right = "local interface Named\n    name: string\nend\n\n"
+            .. "local record User is Named\n    name: string\nend\n\n"
+            .. "local n = new User{name = \"ada\"}\n\nreturn n\n",
+        related = {"NUPP2202"},
+        docs = "docs/reference.md#records",
+    },
 }
 
 local byCode: {[string]: any} = {}
@@ -257,7 +291,7 @@ function explain.lookup(code: string): explain.Entry?
     end
     local lint = lintFor(code)
     if entry then
-        return explain.Entry{
+        return new explain.Entry{
             code = code,
             summary = entry.summary,
             rule = entry.rule,
@@ -269,7 +303,7 @@ function explain.lookup(code: string): explain.Entry?
             family = false,
         }
     end
-    return explain.Entry{
+    return new explain.Entry{
         code = code,
         summary = lint and lint.summary or family.summary,
         rule = lint and ("A lint, reported at " .. lint.level

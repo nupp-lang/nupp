@@ -86,12 +86,12 @@ local SEVERITY_COLOUR = {
 local PLAIN_SEVERITY: {[string]: function(string): string} = {}
 for name in pairs(SEVERITY_COLOUR) do PLAIN_SEVERITY[name] = plain end
 
-local PLAIN: ansi.Style = ansi.Style{
+local PLAIN: ansi.Style = new ansi.Style{
     strong = plain, faint = plain, path = plain, gutter = plain,
     severity = PLAIN_SEVERITY,
 }
 
-local COLOURED: ansi.Style = ansi.Style{
+local COLOURED: ansi.Style = new ansi.Style{
     strong = styler(SGR.strong),
     faint = styler(SGR.faint),
     path = styler(SGR.strong),

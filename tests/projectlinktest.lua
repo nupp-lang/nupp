@@ -127,7 +127,7 @@ end
 return setmetatable(model, {})
 ]],
       ["src/use.nupp"] = "local model = require(\"model\")\n"
-         .. "local w: model.Wrapped = model.Wrapped{id = 1}\n",
+         .. "local w: model.Wrapped = new model.Wrapped{id = 1}\n",
    }, function(dir)
       assertEq(#checkFile(projectEnv(dir), dir .. "/src/use.nupp"), 0,
          "setmetatable(M, ...) still returns M")
@@ -340,8 +340,8 @@ local geometry = require("geometry")
 local mathutil = require("mathutil")
 
 local doubled: number = mathutil.double(21)
-local point: geometry.Point = geometry.Point { x = 3, y = 4 }
-local origin: Origin = Origin { x = 5 }
+local point: geometry.Point = new geometry.Point { x = 3, y = 4 }
+local origin: Origin = new Origin { x = 5 }
 print(doubled, point.x + point.y, origin.x)
 ]],
       ["src/mathutil.nupp"] = [[
@@ -385,8 +385,8 @@ function M.cliConstructsRecordsFromAnotherModule()
       ["main.nupp"] = [[
 local shapes = require("geom.shapes")
 
-local p: shapes.Point = shapes.Point{x = 3, y = 4}
-local named: shapes.Named = shapes.Named{label = "origin", at = shapes.origin()}
+local p: shapes.Point = new shapes.Point{x = 3, y = 4}
+local named: shapes.Named = new shapes.Named{label = "origin", at = shapes.origin()}
 print(p.x + p.y, named.label, named.at.x, p is shapes.Point)
 ]],
       ["src/geom/shapes.nupp"] = [[
@@ -403,7 +403,7 @@ record shapes.Named
 end
 
 function shapes.origin(): shapes.Point
-    return shapes.Point{x = 0, y = 0}
+    return new shapes.Point{x = 0, y = 0}
 end
 
 return shapes

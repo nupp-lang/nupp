@@ -237,7 +237,7 @@ function M.highlightsLjppWithTheNativeLexer()
       "   inspect(box)",
       "end",
       "local function make(point: Point): Point",
-      "   return point ?? Point{x = 1}",
+      "   return point ?? new Point{x = 1}",
       "end",
    }, "\n"), {Point = "#math.Point"})
    assert(html:find("nuppdoc-token-comment", 1, true))

@@ -180,7 +180,16 @@ Reports: `NUPP2001`, `NUPP2009`. `nupp explain <code>` says more.
 ## Records
 
 A record is a table with declared fields. It may carry inline methods, whose
-`self` is implicit, and it is constructed by calling it with a table.
+`self` is implicit, and it is built with `new`.
+
+`new` is how both records and structs are constructed, and the only way: it
+lowers to the metatable stamp and the ctype call directly, installing nothing,
+which is what leaves `__call` and `__new` to the program. Calling a record that
+declares no `__call` contract is **NUPP2202**, and `new` on anything that is not
+a record or a struct is **NUPP2206**.
+
+The word is contextual — a name has to follow it on the same line — so a
+variable named `new` still means what it did.
 
 One explicit type per field: grouped names are rejected.
 
@@ -198,13 +207,13 @@ record m.Point
     end
 end
 
-local origin = m.Point{x = 0, y = 0}
+local origin = new m.Point{x = 0, y = 0}
 local d = origin:lengthSquared()
 
 return m
 ```
 
-Reports: `NUPP2004`, `NUPP2118`. `nupp explain <code>` says more.
+Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`. `nupp explain <code>` says more.
 
 ## Interfaces
 
@@ -549,7 +558,7 @@ return models
 ```nupp
 local models = require("models")
 
-local user: models.User = models.User{id = 1, name = "ada"}
+local user: models.User = new models.User{id = 1, name = "ada"}
 
 return user
 ```
@@ -660,6 +669,8 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |
 | NUPP2122 | A 'where' refinement is not checked |
+| NUPP2202 | A declaration is built with 'new' |
+| NUPP2206 | Only a record or a struct can be constructed |
 
 ## Working with the toolchain
 

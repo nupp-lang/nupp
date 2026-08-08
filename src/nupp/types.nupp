@@ -348,7 +348,7 @@ end
 
 --- A primitive type, interned under its own tag.
 local function prim(tag: types.PrimTag): types.Type
-    return intern(tag, function() return types.Prim{tag = tag} end)
+    return intern(tag, function() return new types.Prim {tag = tag} end)
 end
 
 types.any = prim("any")
@@ -412,7 +412,7 @@ types.builtins = builtins
 --- uses.
 function types.array(elem: types.Type): types.Type
     return intern("{" .. elem.id .. "}",
-        function() return types.Array{tag = "array", elem = elem} end)
+        function() return new types.Array {tag = "array", elem = elem} end)
 end
 
 --- A table from `key` to `value`. Reading one yields an optional, since an absent key
@@ -431,7 +431,7 @@ function types.indexer(readKey: types.Type?, readValue: types.Type?,
         .. (writeKey and writeKey.id or "-") .. ":"
         .. (writeValue and writeValue.id or "-") .. ")"
     return intern(id, function()
-        return types.Map{tag = "map", key = key, value = value,
+        return new types.Map {tag = "map", key = key, value = value,
             readable = readValue ~= nil, writeKey = writeKey,
             writeValue = writeValue}
     end)
@@ -442,7 +442,7 @@ function types.tuple(elems: {types.Type}): types.Type
     local ids: {string} = {}
     for j, e in ipairs(elems) do ids[j] = e.id end
     return intern("tuple(" .. table.concat(ids, ",") .. ")",
-        function() return types.Tuple{tag = "tuple", elems = elems} end)
+        function() return new types.Tuple {tag = "tuple", elems = elems} end)
 end
 
 --- A structural shape: a table known by the fields it has.
@@ -492,7 +492,7 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?,
     local key = "shape(" .. table.concat(parts, ",") .. ")"
         .. (fresh and "!fresh" or "")
     return intern(key, function()
-        return types.Shape{tag = "shape", fields = sorted, byname = byname,
+        return new types.Shape {tag = "shape", fields = sorted, byname = byname,
             writeByname = writeByname, indexReadKey = irk,
             indexReadValue = irv, indexWriteKey = iwk,
             indexWriteValue = iwv, fresh = fresh or nil}
@@ -535,7 +535,7 @@ function types.union(members: {types.Type}): types.Type
                 hasNil = true
             end
         end
-        return types.Union{tag = "union", members = flat, hasNil = hasNil}
+        return new types.Union {tag = "union", members = flat, hasNil = hasNil}
     end)
 end
 
@@ -547,7 +547,7 @@ end
 --- A pointer to `t`. Non-null unless wrapped in an optional.
 function types.ptr(t: types.Type): types.Type
     return intern(t.id .. "*",
-        function() return types.Ptr{tag = "ptr", elem = t} end)
+        function() return new types.Ptr {tag = "ptr", elem = t} end)
 end
 
 -- Ownership qualifiers exist only in the static model. Both erase to the wrapped cdata
@@ -559,13 +559,13 @@ function types.owned(t: types.Type, cleanups: {string}?): types.Type
     for j, name in ipairs(cleanups or {}) do list[j] = name end
     return intern("owned(" .. table.concat(list, ",") .. ":" .. t.id .. ")",
         function()
-        return types.Owned{tag = "owned", inner = t, cleanups = list}
+        return new types.Owned {tag = "owned", inner = t, cleanups = list}
     end)
 end
 
 function types.borrowed(t: types.Type): types.Type
     return intern("borrowed(" .. t.id .. ")", function()
-        return types.Borrowed{tag = "borrowed", inner = t}
+        return new types.Borrowed {tag = "borrowed", inner = t}
     end)
 end
 
@@ -574,7 +574,7 @@ end
 -- account for every outstanding retained reference.
 function types.pinned(t: types.Type): types.Type
     return intern("pinned(" .. t.id .. ")", function()
-        return types.Pinned{tag = "pinned", inner = t}
+        return new types.Pinned {tag = "pinned", inner = t}
     end)
 end
 
@@ -650,7 +650,7 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
         key = key .. "|noreturn"
     end
     return intern(key, function()
-        return types.Func{tag = "func", params = params, rets = rets,
+        return new types.Func {tag = "func", params = params, rets = rets,
             vararg = vararg or false,
             varargType = vararg and varargType or nil, paramModes = modes,
             predicate = predicate, typeParams = typeParams,
@@ -668,7 +668,7 @@ function types.literal(value: any, base: types.Type?): types.Type
     local of = base or types.string
     return intern("lit(" .. of.tag .. ":" .. tostring(value) .. ")",
         function()
-        return types.Literal{tag = "literal", constant = value, base = of}
+        return new types.Literal {tag = "literal", constant = value, base = of}
     end)
 end
 
@@ -679,7 +679,7 @@ end
 function types.carray(elem: types.Type, count: integer?): types.Type
     return intern("carray(" .. elem.id .. "," .. tostring(count) .. ")",
         function()
-        return types.CArray{tag = "carray", elem = elem, count = count}
+        return new types.CArray {tag = "carray", elem = elem, count = count}
     end)
 end
 
@@ -690,13 +690,13 @@ function types.constOf(t: types.Type): types.Type
         return t
     end
     return intern("const(" .. t.id .. ")",
-        function() return types.Const{tag = "const", inner = t} end)
+        function() return new types.Const {tag = "const", inner = t} end)
 end
 
 -- The runtime ctype object standing for T, as ffi.typeof returns.
 function types.ctype(t: types.Type): types.Type
     return intern("ctype(" .. t.id .. ")",
-        function() return types.CType{tag = "ctype", of = t} end)
+        function() return new types.CType {tag = "ctype", of = t} end)
 end
 
 -- Generic type parameters. A declaration-derived identity keeps shadowed T binders
@@ -704,12 +704,12 @@ end
 -- are built per call site.
 function types.typevar(name: string, identity: string?): types.Type
     return intern("tv(" .. (identity or name) .. ")",
-        function() return types.TypeVar{tag = "typevar", name = name} end)
+        function() return new types.TypeVar {tag = "typevar", name = name} end)
 end
 
 function types.metatable(t: types.Type): types.Type
     return intern("metatable(" .. t.id .. ")",
-        function() return types.Metatable{tag = "metatable", of = t} end)
+        function() return new types.Metatable {tag = "metatable", of = t} end)
 end
 
 -- Cheap containment test used to decide whether instantiation is needed.
@@ -730,7 +730,7 @@ local nominalCounter: integer = 0
 --- @param declKind "record", "interface" or "struct"
 function types.nominal(name: string, declKind: string): types.Nominal
     nominalCounter = nominalCounter + 1
-    local t = types.Nominal{
+    local t = new types.Nominal {
         tag = "nominal",
         declKind = declKind,
         name = name,

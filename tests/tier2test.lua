@@ -91,7 +91,7 @@ local CIRCLE = table.concat({
 
 function M.interfacesConformStructurally()
    -- no `implements` clause: carrying the members is enough
-   assertClean(SHAPE .. "\n" .. CIRCLE .. "\nlocal s: Shape = Circle{r = 1}")
+   assertClean(SHAPE .. "\n" .. CIRCLE .. "\nlocal s: Shape = new Circle {r = 1}")
 end
 
 function M.interfaceConformanceIsChecked()
@@ -101,7 +101,7 @@ function M.interfaceConformanceIsChecked()
       "end",
    }, "\n")
    local d = diagsOf(SHAPE .. "\n" .. wrongShape
-      .. "\nlocal s: Shape = Square{side = 1}")
+      .. "\nlocal s: Shape = new Square {side = 1}")
    assertEq(d, "NUPP2001:7")
    -- a member with the wrong type is caught too
    local badArea = table.concat({
@@ -113,7 +113,7 @@ function M.interfaceConformanceIsChecked()
       "end",
    }, "\n")
    assertEq(diagsOf(SHAPE .. "\n" .. badArea
-      .. "\nlocal s: Shape = Blob{n = 1}"), "NUPP2001:10")
+      .. "\nlocal s: Shape = new Blob {n = 1}"), "NUPP2001:10")
 end
 
 function M.interfacesAcceptPlainShapes()
@@ -186,15 +186,15 @@ function M.differentArgumentsAreDifferentTypes()
 end
 
 function M.constructionInfersTheArgument()
-   assertClean(BOX .. "\nlocal b: Box<number> = Box{value = 1}")
-   assertClean(BOX .. "\nlocal b: Box<string> = Box{value = 'x'}")
-   assertEq(diagsOf(BOX .. "\nlocal b: Box<string> = Box{value = 1}"),
+   assertClean(BOX .. "\nlocal b: Box<number> = new Box {value = 1}")
+   assertClean(BOX .. "\nlocal b: Box<string> = new Box {value = 'x'}")
+   assertEq(diagsOf(BOX .. "\nlocal b: Box<string> = new Box {value = 1}"),
       "NUPP2001:4")
 end
 
 function M.readTypeArgumentsVaryCovariantly()
    -- A read-only integer property is usable as a number property.
-   assertClean(BOX .. "\nlocal b: Box<number> = Box{value = 1}")
+   assertClean(BOX .. "\nlocal b: Box<number> = new Box {value = 1}")
 end
 
 return M
