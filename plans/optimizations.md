@@ -125,7 +125,7 @@ Each entry is tagged with where its win lands:
 
 ### Functions
 
-- `real` **Exact constant folding and propagation.** Fold primitive literal
+- `cold` **Exact constant folding and propagation.** Fold primitive literal
   expressions, select constant conditional arms, and propagate `const`
   bindings. Keep floating-point arithmetic, cdata, allocation, calls, and
   mutable bindings at runtime unless the target semantics are specified exactly.

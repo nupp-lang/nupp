@@ -21,8 +21,8 @@ no rewrite at all. Generated Lua at `-O0` is what the language means, with types
 erased and nothing else done to it. When an optimization goes wrong, `-O0` is
 the way to keep working without waiting for a release.
 
-`-O1` and `-O2` currently run the same two passes. The levels are separated now
-so that the flag does not have to change later.
+`-O1` and `-O2` currently run the same passes. The levels are separated now so
+that the flag does not have to change later.
 
 The level is part of the build key. Changing it rebuilds rather than leaving
 half the project compiled at the old level, so switching costs a cold build and
@@ -45,6 +45,11 @@ point arithmetic, cdata, calls, allocation, and mutable bindings to LuaJIT, so
 the target retains their rounding, identity, error, and lifetime semantics.
 When every condition in an `if` is one of those constants, it emits only the
 selected arm, retaining its block scope.
+
+`luajit bench/constant-folding.lua` measures the intended cold-path saving:
+smaller generated Lua parses and loads faster. The same benchmark also reports
+a hot loop, where LuaJIT normally performs the arithmetic folding itself and no
+material win is expected.
 
 ### `OPT-1`, presizing
 
