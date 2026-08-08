@@ -481,6 +481,13 @@ package.preload["nupp.build.cache"] = function(...)
 
 
 
+
+
+
+
+
+
+
 local hash = require ( "nupp.build.hash" )
 local json = require ( "cjson" ) . new ( )
 local fs = require ( "nupp.fs" )
@@ -520,7 +527,7 @@ end
 
 local function hashFile ( path )
 local text = readFile ( path )
-return text and hash . sha256 ( text ) or nil
+return text and hash . digest ( text ) or nil
 end
 
 local function hashFiles ( files )
@@ -528,7 +535,7 @@ local parts = { }
 for _ , path in ipairs ( files ) do
 parts [ # parts + 1 ] = path .. "\0" .. ( hashFile ( path ) or "missing" )
 end
-return hash . sha256 ( table . concat ( parts , "\0" ) )
+return hash . digest ( table . concat ( parts , "\0" ) )
 end
 
 local function moduleDir ( )
@@ -536,7 +543,13 @@ local source = debug . getinfo ( 1 , "S" ) . source
 return source : match ( "^@(.*)[/\\]" ) or "."
 end
 
+
+
+
+local toolFingerprintMemo = nil
+
 local function toolFingerprint ( )
+if toolFingerprintMemo then return toolFingerprintMemo end
 local dir = moduleDir ( )
 
 
@@ -549,15 +562,26 @@ for _ , path in ipairs ( listFiles ( dir ) ) do
 if path : match ( "%.lua$" ) then files [ # files + 1 ] = path end
 end
 end
-return hashFiles ( files )
+toolFingerprintMemo = hashFiles ( files )
+return toolFingerprintMemo
+end
+
+
+
+
+local STATE_VERSION = 2
+
+local function emptyState ( )
+return { version = STATE_VERSION , modules = { } , dependencies = { } ,
+outputs = { } , targets = { } }
 end
 
 local function loadState ( path )
 local text = readFile ( path )
-if not text then return { version = 1 , modules = { } , dependencies = { } , outputs = { } , targets = { } } end
+if not text then return emptyState ( ) end
 local ok , state = pcall ( json . decode , text )
-if not ok or type ( state ) ~= "table" or state . version ~= 1 then
-return { version = 1 , modules = { } , dependencies = { } , outputs = { } , targets = { } }
+if not ok or type ( state ) ~= "table" or state . version ~= STATE_VERSION then
+return emptyState ( )
 end
 state . modules = state . modules or { }
 state . dependencies = state . dependencies or { }
@@ -583,6 +607,8 @@ cache . moduleDir = moduleDir
 cache . toolFingerprint = toolFingerprint
 cache . loadState = loadState
 cache . saveState = saveState
+cache . emptyState = emptyState
+cache . STATE_VERSION = STATE_VERSION
 
 return cache
 
@@ -754,7 +780,7 @@ local code , flags = process . capture ( { "pkg-config" , "--cflags" , "--libs" 
 if code ~= 0 then return nil , "pkg-config failed for " .. dep . pkgConfig .. ": " .. flags end
 pkgFlags = splitFlags ( flags )
 end
-local key = hash . sha256 ( stable ( dep ) .. "\0" .. hashFiles ( nativeInputs )
+local key = hash . digest ( stable ( dep ) .. "\0" .. hashFiles ( nativeInputs )
 .. "\0" .. version .. "\0" .. stable ( pkgFlags )
 .. "\0" .. stable ( childResults ) )
 local output = nil
@@ -823,7 +849,7 @@ local manifest = join ( root , dep . manifest or join ( dep . path or name , "Ca
 local crateDir = dirname ( manifest )
 local cargo = dep . cargo or "cargo"
 local _ , version = process . capture ( { cargo , "--version" } )
-local key = hash . sha256 ( stable ( dep ) .. "\0" .. hashFiles ( cargoSourceFiles ( crateDir ) )
+local key = hash . digest ( stable ( dep ) .. "\0" .. hashFiles ( cargoSourceFiles ( crateDir ) )
 .. "\0" .. version )
 local targetDir = join ( root , dep . targetDir or join ( outDir , "cargo/" .. name ) )
 local profile = dep . profile or "release"
@@ -1225,6 +1251,21 @@ return deps
 
 end
 package.preload["nupp.build.hash"] = function(...)
+local __nuppFfi = require("ffi"); 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1234,11 +1275,13 @@ package.preload["nupp.build.hash"] = function(...)
 
 
 local bit = require ( "bit" )
+local ffi = require ( "ffi" )
 
 local hash = { }
 
 local band , bor , bxor = bit . band , bit . bor , bit . bxor
 local bnot , rshift , ror = bit . bnot , bit . rshift , bit . ror
+local rol = bit . rol
 
 local K = {
 0x428a2f98 , 0x71374491 , 0xb5c0fbcf , 0xe9b5dba5 ,
@@ -1322,6 +1365,122 @@ out [ # out + 1 ] = ( "%08x" ) : format ( value )
 end
 return table . concat ( out )
 end
+
+local P1 = 0x9E3779B185EBCA87ULL
+local P2 = 0xC2B2AE3D27D4EB4FULL
+local P3 = 0x165667B19E3779F9ULL
+local P4 = 0x85EBCA77C2B2AE63ULL
+local P5 = 0x27D4EB2F165667C5ULL
+
+local function round ( acc , input )
+acc = acc + input * P2
+acc = rol ( acc , 31 )
+return acc * P1
+end
+
+local function mergeRound ( acc , value )
+value = round ( 0ULL , value )
+acc = bxor ( acc , value )
+return acc * P1 + P4
+end
+
+
+
+
+
+
+
+
+local function xxh64 ( input , seed )
+local size = # input
+local words = __nuppFfi.cast("const uint64_t *" , input )
+local h
+
+
+
+local at = 0
+if size >= 32 then
+local v1 , v2 = seed + P1 + P2 , seed + P2
+local v3 , v4 = seed + 0ULL , seed - P1
+local stripes = ( math.floor(( size ) / ( 32 )) ) * 4
+local w = 0
+repeat
+v1 = round ( v1 , words [ w ] )
+v2 = round ( v2 , words [ w + 1 ] )
+v3 = round ( v3 , words [ w + 2 ] )
+v4 = round ( v4 , words [ w + 3 ] )
+w = w + 4
+until w >= stripes
+at = w * 8
+h = rol ( v1 , 1 ) + rol ( v2 , 7 ) + rol ( v3 , 12 ) + rol ( v4 , 18 )
+h = mergeRound ( h , v1 )
+h = mergeRound ( h , v2 )
+h = mergeRound ( h , v3 )
+h = mergeRound ( h , v4 )
+else
+h = seed + P5
+end
+h = h + size
+while size - at >= 8 do
+h = bxor ( h , round ( 0ULL , words [ math.floor(( at ) / ( 8 )) ] ) )
+h = rol ( h , 27 ) * P1 + P4
+at = at + 8
+end
+if size - at >= 4 then
+local halves = __nuppFfi.cast("const uint32_t *" , input )
+h = bxor ( h , __nuppFfi.cast("uint64_t" , halves [ math.floor(( at ) / ( 4 )) ] ) * P1 )
+h = rol ( h , 23 ) * P2 + P3
+at = at + 4
+end
+if at < size then
+local bytes = __nuppFfi.cast("const uint8_t *" , input )
+while at < size do
+h = bxor ( h , __nuppFfi.cast("uint64_t" , bytes [ at ] ) * P5 )
+h = rol ( h , 11 ) * P1
+at = at + 1
+end
+end
+h = bxor ( h , rshift ( h , 33 ) )
+h = h * P2
+h = bxor ( h , rshift ( h , 29 ) )
+h = h * P3
+return bxor ( h , rshift ( h , 32 ) )
+end
+
+
+
+
+
+local function hex64 ( value )
+return ( "%08x%08x" ) : format (
+tonumber ( band ( rshift ( value , 32 ) , 0xFFFFFFFFULL ) ) ,
+tonumber ( band ( value , 0xFFFFFFFFULL ) ) )
+end
+
+
+
+
+
+local SEED_A = 0ULL
+local SEED_B = 0x9E3779B97F4A7C15ULL
+
+
+
+
+
+function hash . digest ( input )
+return hex64 ( xxh64 ( input , SEED_A ) ) .. hex64 ( xxh64 ( input , SEED_B ) )
+end
+
+
+
+
+
+
+hash . DIGEST = "xxh64x2"
+
+hash . xxh64 = xxh64
+hash . hex64 = hex64
 
 return hash
 
@@ -1788,13 +1947,24 @@ if active [ t ] then return "@" .. ( t . name or t . tag ) end
 active [ t ] = true
 local tag , value = t . tag , nil
 if tag == "nominal" then
-local fields = { }
-for name , fieldType in pairs ( t . fields or { } ) do
-fields [ # fields + 1 ] = name .. ":" .. typeFingerprint ( fieldType , active )
-end
-table . sort ( fields )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 value = "nominal(" .. tostring ( t . declKind ) .. ":" .. tostring ( t . name )
-.. "{" .. table . concat ( fields , "," ) .. "})"
+.. ")"
 elseif tag == "shape" then
 local fields = { }
 for _ , field in ipairs ( t . fields or { } ) do
@@ -1878,7 +2048,7 @@ moduleName = header . moduleName ,
 declarations = declarations ,
 }
 end
-return hash . sha256 ( stable ( headers ) )
+return hash . digest ( stable ( headers ) )
 end
 
 local function copyModuleRecord ( record )
@@ -1892,11 +2062,12 @@ interfaceHash = record . interfaceHash ,
 artifactHash = record . artifactHash ,
 dependencies = dependencies ,
 output = record . output ,
+diags = record . diags ,
 }
 end
 
 local function buildModules ( root , outDir , config , target , oldState , newState ,
-checkOnly , strict , stats , diagnostics )
+checkOnly , strict , stats , diagnostics , checkState )
 local envConfig = { }
 for key , value in pairs ( config ) do envConfig [ key ] = value end
 envConfig . include = { }
@@ -1906,8 +2077,12 @@ end
 envConfig . include [ # envConfig . include + 1 ] = join ( outDir , "generated" )
 local inc = incremental . new ( root , { config = envConfig , strict = strict } )
 newState . projectIndexHash = projectIndexFingerprint ( inc )
-local cacheCompatible = not checkOnly
-and oldState . compilerHash == newState . compilerHash
+
+
+
+
+
+local cacheCompatible = oldState . compilerHash == newState . compilerHash
 and oldState . configHash == newState . configHash
 and oldState . projectIndexHash == newState . projectIndexHash
 
@@ -1959,10 +2134,15 @@ if name then seed ( name , path ) end
 end
 
 local records , reused , codeFor , paths = { } , { } , { } , { }
-local order , errors , queued , cursor = { } , { } , { } , 1
-local checkFailed = false
+local order , queued , cursor = { } , { } , 1
 stats = stats or { }
 stats . checkedModules , stats . generatedModules , stats . reusedModules = 0 , 0 , 0
+
+
+
+
+
+local said = { }
 
 local function enqueue ( name , path )
 if queued [ name ] or records [ name ] then return end
@@ -1973,20 +2153,22 @@ queue [ # queue + 1 ] = { name = name , path = normalize ( path ) }
 end
 end
 
+
+
+
+local function isFatalIn ( diags )
+for _ , diag in ipairs ( diags or { } ) do
+if isFatal ( diag ) then return true end
+end
+return false
+end
+
 local function compile ( name , path , sourceHash )
 local result = inc . checkFile ( path )
 stats . checkedModules = stats . checkedModules + 1
-
-
-
-local fatal = false
-for _ , diag in ipairs ( result . diags or { } ) do
-errors [ # errors + 1 ] = diag
-if isFatal ( diag ) then
-checkFailed = true
-fatal = true
-end
-end
+local mine = { }
+for _ , diag in ipairs ( result . diags or { } ) do mine [ # mine + 1 ] = diag end
+local fatal = isFatalIn ( mine )
 local depNames = inc . moduleDependencies ( path )
 local output = join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
 local artifactHash , code
@@ -1997,22 +2179,27 @@ local remarks = optimize . run ( result . result ,
 disabled = config . _disabledPasses } )
 if config . _remarks then
 for _ , note in ipairs ( remarks ) do
-errors [ # errors + 1 ] = note
+mine [ # mine + 1 ] = note
 end
 end
 code , genDiags = gen . generate ( result . result , path )
 stats . generatedModules = stats . generatedModules + 1
 for _ , diag in ipairs ( genDiags or { } ) do
-errors [ # errors + 1 ] = diag
+mine [ # mine + 1 ] = diag
 end
-if # genDiags == 0 then artifactHash = hash . sha256 ( code ) end
+if # genDiags == 0 then artifactHash = hash . digest ( code ) end
 end
+said [ name ] = mine
 records [ name ] = {
 sourceHash = sourceHash ,
-interfaceHash = hash . sha256 ( typeFingerprint ( result . moduleType ) ) ,
+interfaceHash = hash . digest ( typeFingerprint ( result . moduleType ) ) ,
 artifactHash = artifactHash ,
 dependencies = jsonArray ( depNames ) ,
 output = output ,
+
+
+
+diags = jsonArray ( result . diags or { } ) ,
 }
 codeFor [ name ] = code
 reused [ name ] = nil
@@ -2032,14 +2219,28 @@ local sourceHash = hashFile ( path )
 local previous = oldState . modules [ item . name ]
 local output = join ( root , join ( outDir ,
 item . name : gsub ( "%." , "/" ) .. ".lua" ) )
-if cacheCompatible and previous
+
+
+
+local usable = cacheCompatible and previous
 and previous . sourceHash == sourceHash
-and previous . interfaceHash and previous . artifactHash
+and previous . interfaceHash
 and type ( previous . dependencies ) == "table"
-and hashFile ( output ) == previous . artifactHash then
+and type ( previous . diags ) == "table"
+if usable and not checkOnly then
+usable = previous . artifactHash
+and hashFile ( output ) == previous . artifactHash
+end
+if usable then
 records [ item . name ] = copyModuleRecord ( previous )
 records [ item . name ] . output = output
 reused [ item . name ] = true
+
+
+
+
+
+said [ item . name ] = previous . diags
 for _ , depName in ipairs ( previous . dependencies ) do
 enqueue ( depName )
 end
@@ -2080,9 +2281,48 @@ processQueue ( )
 end
 
 
-local fatal = false
+
+
+
+
+for _ , name in ipairs ( order ) do
+if reused [ name ] then
+stats . reusedModules = stats . reusedModules + 1
+end
+end
+
+
+
+
+
+
+
+inc . persist ( )
+if checkOnly and checkState then
+local checked = { }
+for _ , name in ipairs ( order ) do checked [ name ] = records [ name ] end
+newState . modules = checked
+checkState . set ( newState )
+checkState . save ( )
+end
+
+
+
+
+local errors = { }
+for _ , name in ipairs ( order ) do
+for _ , diag in ipairs ( said [ name ] or { } ) do
+errors [ # errors + 1 ] = diag
+end
+end
+local fatal , checkFailed = false , false
 for _ , e in ipairs ( errors ) do
-if isFatal ( e ) then fatal = true end
+if isFatal ( e ) then
+fatal = true
+
+
+if not e . code or e . code : sub ( 1 , 5 ) ~= "NUPP3" then checkFailed = true end
+end
 end
 if diagnostics then
 for _ , diagnostic in ipairs ( errors ) do
@@ -2106,9 +2346,7 @@ for _ , name in ipairs ( order ) do
 local record = records [ name ]
 newState . modules [ name ] = record
 outputs [ record . output ] = true
-if reused [ name ] then
-stats . reusedModules = stats . reusedModules + 1
-else
+if not reused [ name ] then
 local code = codeFor [ name ]
 if code and hashFile ( record . output ) ~= record . artifactHash then
 pending [ # pending + 1 ] = { path = record . output , text = code }
@@ -2128,7 +2366,7 @@ local output = join ( root , join ( outDir , resourceRelative ( config , source 
 local text , err = readFile ( source )
 if not text then return nil , err end
 outputs [ output ] = true
-if hashFile ( output ) ~= hash . sha256 ( text ) then
+if hashFile ( output ) ~= hash . digest ( text ) then
 pending [ # pending + 1 ] = { path = output , text = text }
 end
 end
@@ -2510,8 +2748,15 @@ local tasks = require ( "nupp.build.tasks" )
 local deps = require ( "nupp.build.deps" )
 local modules = require ( "nupp.build.modules" )
 local packaging = require ( "nupp.build.package" )
+local storeMod = require ( "nupp.build.store" )
 
 local project = { }
+
+
+
+
+
+local CHECK_STATE_STAMP = "checks/1"
 
 local normalize , join = fs . normalize , fs . join
 local dirname , basename = fs . dirname , fs . basename
@@ -2586,14 +2831,26 @@ end
 local outDir = normalize ( opts . outDir or target . outDir or "build" )
 local completionPath = join ( root , join ( outDir , ".nupp-complete" ) )
 if not opts . checkOnly then os . remove ( completionPath ) end
+
+
+
+
+
 local statePath = join ( root , join ( outDir , ".nupp-state.json" ) )
-local oldState = loadState ( statePath )
-local newState = {
-version = 1 , modules = { } , dependencies = { } , outputs = { } ,
-targets = { } ,
-compilerHash = toolFingerprint ( ) ,
-configHash = hash . sha256 ( stable ( config ) ) ,
-}
+local checkState = nil
+local oldState
+if opts . checkOnly then
+checkState = storeMod . openValue (
+join ( root , join ( outDir , "cache/checks.buf" ) ) , CHECK_STATE_STAMP )
+oldState = checkState . value or cache . emptyState ( )
+oldState . targets = oldState . targets or { }
+oldState . dependencies = oldState . dependencies or { }
+else
+oldState = loadState ( statePath )
+end
+local newState = cache . emptyState ( )
+newState . compilerHash = toolFingerprint ( )
+newState . configHash = hash . digest ( stable ( config ) )
 
 
 for name , produced in pairs ( oldState . targets ) do
@@ -2606,7 +2863,7 @@ if not dependencies then io . stderr : write ( "nupp: " .. depErr .. "\n" ) ; re
 newState . dependencies = dependencies
 local result , buildErr = buildModules ( root , outDir , config , target ,
 oldState , newState , opts . checkOnly , strict , opts . stats ,
-opts . diagnostics )
+opts . diagnostics , checkState )
 if not result then
 if buildErr ~= "project has errors" and buildErr ~= "code generation failed" then
 io . stderr : write ( "nupp: " .. buildErr .. "\n" )
@@ -2731,7 +2988,7 @@ if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" then
 parts [ # parts + 1 ] = relative .. "\0" .. ( hashFile ( file ) or "" )
 end
 end
-return hash . sha256 ( table . concat ( parts , "\0" ) ) , files
+return hash . digest ( table . concat ( parts , "\0" ) ) , files
 end
 
 local function removeTree ( path )
@@ -2962,6 +3219,207 @@ return 0
 end
 
 return project
+
+end
+package.preload["nupp.build.store"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local buffer = require ( "string.buffer" )
+local fs = require ( "nupp.fs" )
+
+local store = { }
+
+
+
+local FORMAT = 1
+
+
+
+
+
+
+
+local KEEP_COLD = 2048
+
+
+store.Store = {} store.Store.__index = store.Store
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function store . open ( path , stamp )
+local entries = { }
+local order = { }
+local live = { }
+local dirty = false
+local stats = { gets = 0 , hits = 0 , puts = 0 }
+local self = setmetatable( { path = path , stamp = stamp , stats = stats } , store.Store)
+
+if path then
+local text = fs . readFile ( path )
+if text then
+
+
+
+local ok , decoded = pcall ( buffer . decode , text )
+if ok and type ( decoded ) == "table"
+and decoded . format == FORMAT and decoded . stamp == stamp
+and type ( decoded . order ) == "table"
+and type ( decoded . entries ) == "table" then
+entries = decoded . entries
+for _ , key in ipairs ( decoded . order ) do
+if entries [ key ] ~= nil then order [ # order + 1 ] = key end
+end
+end
+end
+end
+
+function self . get ( key )
+stats . gets = ( stats . gets or 0 ) + 1
+local value = entries [ key ]
+if value == nil then return nil end
+stats . hits = ( stats . hits or 0 ) + 1
+live [ key ] = true
+return value
+end
+
+function self . put ( key , value )
+stats . puts = ( stats . puts or 0 ) + 1
+if entries [ key ] == nil then order [ # order + 1 ] = key end
+entries [ key ] = value
+live [ key ] = true
+dirty = true
+end
+
+function self . save ( )
+if not path or not dirty then return end
+
+
+
+
+local keptOrder = { }
+local keptEntries = { }
+for _ , key in ipairs ( order ) do
+if live [ key ] then
+keptOrder [ # keptOrder + 1 ] = key
+keptEntries [ key ] = entries [ key ]
+end
+end
+local cold = 0
+for index = # order , 1 , - 1 do
+local key = order [ index ]
+if not live [ key ] and cold < KEEP_COLD then
+cold = cold + 1
+keptOrder [ # keptOrder + 1 ] = key
+keptEntries [ key ] = entries [ key ]
+end
+end
+local ok , text = pcall ( buffer . encode , {
+format = FORMAT , stamp = stamp ,
+order = keptOrder , entries = keptEntries ,
+} )
+
+
+if ok then pcall ( fs . writeFile , path , text ) end
+dirty = false
+end
+
+return self
+end
+
+
+
+
+
+
+
+store.Value = {} store.Value.__index = store.Value
+
+
+
+
+
+
+
+
+
+
+
+function store . openValue ( path , stamp )
+local self = setmetatable( { } , store.Value)
+local dirty = false
+if path then
+local text = fs . readFile ( path )
+if text then
+local ok , decoded = pcall ( buffer . decode , text )
+if ok and type ( decoded ) == "table"
+and decoded . format == FORMAT and decoded . stamp == stamp then
+self . value = decoded . value
+end
+end
+end
+function self . set ( value )
+self . value = value
+dirty = true
+end
+function self . save ( )
+if not path or not dirty then return end
+local ok , text = pcall ( buffer . encode ,
+{ format = FORMAT , stamp = stamp , value = self . value } )
+if ok then pcall ( fs . writeFile , path , text ) end
+dirty = false
+end
+return self
+end
+
+return store
 
 end
 package.preload["nupp.build.tasks"] = function(...)
@@ -11951,6 +12409,10 @@ end
 end
 end
 end
+
+
+
+require ( "nupp.env" ) . persist ( env )
 if asJson then
 reportMod . json ( diagnostics )
 end
@@ -19935,6 +20397,13 @@ local build = ( env . config or { } ) . build or { }
 return normalizePath ( rootDir .. "/" .. ( build . outDir or "build" ) )
 end
 
+
+
+
+function envMod . outDir ( env )
+return outDirFor ( env )
+end
+
 function envMod . listProjectFiles ( env )
 local files , seen = { } , { }
 local outDir = outDirFor ( env )
@@ -19990,6 +20459,29 @@ table . sort ( files )
 return files
 end
 
+
+
+
+
+
+
+
+
+function envMod . isProjectPath ( env , path )
+path = normalizePath ( path )
+if not path : match ( "%.nupp$" ) then return false end
+if isBookkeepingPath ( path , outDirFor ( env ) ) then return false end
+for _ , rawRoot in ipairs ( env . roots or { } ) do
+local root = normalizePath ( rawRoot )
+if root == "." or root == "" then
+if path : sub ( 1 , 1 ) ~= "/" then return true end
+elseif path : sub ( 1 , # root + 1 ) == root .. "/" then
+return true
+end
+end
+return false
+end
+
 function envMod . moduleNameForPath ( env , path )
 path = normalizePath ( path )
 local best = nil
@@ -20031,6 +20523,27 @@ end
 
 
 
+
+
+
+
+
+
+
+
+local function declarationToken ( tok )
+local trivia = { }
+for index , item in ipairs ( tok . trivia or { } ) do
+trivia [ index ] = { kind = item . kind , text = item . text ,
+offset = item . offset , line = item . line , col = item . col }
+end
+return { kind = tok . kind , text = tok . text , offset = tok . offset ,
+line = tok . line , col = tok . col , trivia = trivia }
+end
+
+
+
+
 function envMod . projectHeader ( env , path , parsed )
 path = normalizePath ( path )
 local header = {
@@ -20054,7 +20567,7 @@ name = declaration . name . text ,
 kind = declarationKind ( declaration ) ,
 statKind = declaration . kind ,
 visibility = visibility ,
-token = declaration . name ,
+token = declarationToken ( declaration . name ) ,
 signature = cst . textOf ( stat ) ,
 isAnnotation = isAnnotation ,
 }
@@ -20133,13 +20646,72 @@ end
 
 
 
+
+
+
+
+
+function envMod . headerStore ( env )
+if env . headerStoreOpened then return env . headerStore end
+env . headerStoreOpened = true
+if env . cacheDisabled then return nil end
+local storeMod = require ( "nupp.build.store" )
+local cacheMod = require ( "nupp.build.cache" )
+
+
+
+
+
+
+env . headerStore = storeMod . open (
+( env . cacheDir or ( outDirFor ( env ) .. "/cache" ) ) .. "/headers.buf" ,
+cacheMod . toolFingerprint ( ) )
+return env . headerStore
+end
+
+
+
+
+
+
+
+function envMod . headerKey ( env , path , text )
+local hashMod = require ( "nupp.build.hash" )
+if not env . headerRootsKey then
+local roots = { }
+for index , root in ipairs ( env . roots or { } ) do
+roots [ index ] = normalizePath ( root )
+end
+table . sort ( roots )
+env . headerRootsKey = hashMod . digest ( table . concat ( roots , "\0" ) )
+end
+return hashMod . digest ( env . headerRootsKey .. "\0" .. path .. "\0" .. text )
+end
+
+
+
+function envMod . persist ( env )
+if env . headerStore then env . headerStore . save ( ) end
+end
+
+
+
+
 function envMod . ensureProjectIndex ( env )
 if env . projectIndex then return env . projectIndex end
+local store = envMod . headerStore ( env )
 local headers = { }
 for _ , path in ipairs ( envMod . listProjectFiles ( env ) ) do
 local source = readFile ( path )
-headers [ # headers + 1 ] = envMod . projectHeader ( env , path ,
+local header = nil
+local key = source and store and envMod . headerKey ( env , path , source )
+if key then header = store . get ( key ) end
+if not header then
+header = envMod . projectHeader ( env , path ,
 source and parser . parse ( source , path ) or nil )
+if key then store . put ( key , header ) end
+end
+headers [ # headers + 1 ] = header
 end
 env . projectNominals = env . projectNominals or { }
 env . projectIndex = envMod . buildProjectIndex ( headers , env . projectNominals )
@@ -20153,6 +20725,12 @@ end
 
 function envMod . declarationType ( env , filename , name , kind , visibility )
 if visibility ~= "module" and visibility ~= "global" then return nil end
+
+
+
+
+
+if not envMod . isProjectPath ( env , filename ) then return nil end
 local index = projectIndexFor ( env )
 local path = normalizePath ( filename )
 for _ , entry in ipairs ( index . byPath [ path ] or { } ) do
@@ -20433,6 +21011,12 @@ declarationType = envMod . declarationType ,
 moduleNameForPath = envMod . moduleNameForPath ,
 ensureProjectIndex = envMod . ensureProjectIndex ,
 rootDir = rootDir ,
+
+
+
+
+cacheDisabled = opts and opts . cache == false or nil ,
+cacheDir = opts and opts . cacheDir or nil ,
 }
 
 local config = opts and opts . config or configAt ( rootDir )
@@ -22164,6 +22748,18 @@ if name == "cstring" then return "const char *" end
 if name == "voidptr" then return "void *" end
 if t . cdefName then return "struct " .. t . cdefName end
 return CP [ name ]
+elseif t . kind == "tconst" then
+local inner = cdefCType ( t . inner )
+if inner then return "const " .. inner end
+elseif t . kind == "tcarray" then
+
+
+
+
+local element = cdefCType ( t . element )
+if element then
+return element .. "[" .. ( t . count and t . count . text or "?" ) .. "]"
+end
 elseif t . kind == "tptr" then
 local inner = cdefCType ( t . inner )
 if inner then return inner .. " *" end
@@ -22852,6 +23448,25 @@ local line = first and cst . isToken ( first ) and first . line or nil
 
 local ctypeExpr = x . ffiTypeName
 if not ctypeExpr then
+local typeNode = x . ffiTypeNode
+
+
+
+
+if x . ffiIntrinsic == "cast" and typeNode
+and typeNode . kind == "tcarray" then
+typeNode = typeNode . element
+local element = typeNode and cdefCType ( typeNode )
+if element then
+e ( ( "__nuppFfi.cast(%q" ) : format ( element .. " *" ) , line )
+for _ , arg in ipairs ( x . args and x . args . exprs or { } ) do
+e ( "," )
+emit ( arg )
+end
+e ( ")" )
+return
+end
+end
 local spelling = x . ffiTypeNode and cdefCType ( x . ffiTypeNode )
 if not spelling then
 diag ( x . name or ( x [ 1 ] and cst . isToken ( x [ 1 ] ) and x [ 1 ] ) ,
@@ -23980,6 +24595,7 @@ local query = require ( "nupp.query" )
 local parser = require ( "nupp.parser" )
 local check = require ( "nupp.check" )
 local envMod = require ( "nupp.env" )
+local storeMod = require ( "nupp.build.store" )
 
 local incremental = { }
 
@@ -24084,6 +24700,16 @@ incremental.Inc = {} incremental.Inc.__index = incremental.Inc
 
 
 
+
+
+
+
+
+
+
+
+
+
 function incremental . new ( rootDir , opts )
 opts = opts or { }
 local env = envMod . new ( rootDir , opts )
@@ -24091,6 +24717,14 @@ local strict = opts . strict
 if strict == nil then strict = env . config . strict == true end
 local q = query . new ( )
 local inc = setmetatable( { env = env , q = q } , incremental.Inc)
+
+
+
+
+
+local headerStore = envMod . headerStore ( env ) or storeMod . open ( nil , "" )
+inc . headerStore = headerStore
+
 local diskPaths = { }
 local openPaths = { }
 for _ , path in ipairs ( envMod . listProjectFiles ( env ) ) do diskPaths [ path ] = true end
@@ -24149,8 +24783,27 @@ end
 return true
 end
 
+
+
+
+
+
+
+
+
+
 q : define ( "projectHeader" , function ( self , path )
-return envMod . projectHeader ( env , path , self : get ( "parse" , path ) )
+local text = self : get ( "fileText" , path )
+if text == nil then return envMod . projectHeader ( env , path , nil ) end
+local key = envMod . headerKey ( env , path , text )
+local cached = headerStore . get ( key )
+if cached then return cached end
+
+
+
+local header = envMod . projectHeader ( env , path , self : get ( "parse" , path ) )
+headerStore . put ( key , header )
+return header
 end , sameHeader )
 
 local projectNominals = env . projectNominals or { }
@@ -24304,6 +24957,11 @@ end
 end
 table . sort ( names )
 return names
+end
+
+function inc . persist ( )
+envMod . persist ( env )
+headerStore . save ( )
 end
 
 return inc
@@ -26548,6 +27206,7 @@ local path = uriToPath ( uri )
 local r = s . inc . checkFile ( path )
 local changed = r ~= doc . checkResult
 doc . checkResult = r
+doc . path = path
 doc . result = r . result
 
 
@@ -27156,7 +27815,17 @@ and tok . kind ~= "," and tok . kind ~= ";" and tok . kind ~= "." then
 kind = "operator"
 end
 if kind then
-local declaration = tok . definition and tok . definition . token == tok
+
+
+
+
+
+
+
+local def = tok . definition
+local declaration = def ~= nil and def . token ~= nil
+and def . token . offset == tok . offset
+and ( def . filename == nil or def . filename == doc . path )
 local modifiers = declaration and 1 or 0
 if tok . definition and tok . definition . constant then
 modifiers = modifiers + 2
