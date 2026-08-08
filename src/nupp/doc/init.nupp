@@ -341,6 +341,18 @@ local function report(errors)
     end
 end
 
+--- Where a documentation target writes when the manifest names no `outDir`.
+---
+--- `nupp tasks` reports this and `nupp clean` removes it, so the default lives
+--- here rather than being spelled again wherever it is needed: a build that
+--- writes somewhere the task table does not name is a build clean can miss.
+---
+--- @param format site, markdown, or both
+--- @return the path, relative to the project root
+function doc.defaultOutDir(format)
+    return format == "markdown" and "docs/api.md" or "build/docs"
+end
+
 function doc.build(root, config, settings, opts)
     root, settings, opts = root or ".", settings or {}, opts or {}
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
@@ -349,7 +361,7 @@ function doc.build(root, config, settings, opts)
     local format = opts.format or settings.format or "site"
     local title = opts.title or settings.title or config.name or "Nupp API"
     local output = normalize(opts.output or settings.outDir
-        or (format == "markdown" and "docs/api.md" or "build/docs"))
+        or doc.defaultOutDir(format))
     output = join(root, output)
     -- Recording is on for the writes below and off again before returning, so a
     -- later caller without a collector cannot inherit this one's.

@@ -124,6 +124,51 @@ return {
    remove(dir)
 end
 
+-- A docs target with no outDir does not land in the manifest's default
+-- directory; the generator has its own, and for markdown it is not even under
+-- it. `nupp clean` removes what the task table names, so naming the wrong
+-- place left the output behind and took an unrelated directory with it.
+function M.aDocsTaskReportsWhereTheGeneratorWillWrite()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {targets = {
+      site = {kind = "docs", sources = {"src"}},
+      api = {kind = "docs", sources = {"src"}, format = "markdown"},
+      chosen = {kind = "docs", sources = {"src"}, outDir = "elsewhere"},
+   }},
+}
+]],
+   })
+   local site = assert(project.describeTasks(dir, "site"))
+   assertEq(site.outDir, "build/docs", "a site target defaults below build")
+   local api = assert(project.describeTasks(dir, "api"))
+   assertEq(api.outDir, "docs/api.md", "a markdown target defaults to a file")
+   local chosen = assert(project.describeTasks(dir, "chosen"))
+   assertEq(chosen.outDir, "elsewhere", "an explicit outDir still wins")
+   remove(dir)
+end
+
+-- `all` and `includePrivate` include different things, and the task table
+-- reported the first under the second's name while never mentioning the second.
+function M.docsTaskReportsBothInclusionSettingsSeparately()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {targets = {site = {
+      kind = "docs", sources = {"src"}, all = true, includePrivate = false,
+   }}},
+}
+]],
+   })
+   local task = assert(project.describeTasks(dir, "site"))
+   assertEq(task.all, true, "all is reported as itself")
+   assertEq(task.includePrivate, false, "and includePrivate as itself")
+   remove(dir)
+end
+
 function M.strictProjectChecksReachTheIncrementalChecker()
    local dir = tempProject({
       ["nupp.lua"] = [[

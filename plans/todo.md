@@ -797,16 +797,16 @@ Reference and the generated API. What that pass turned up:
       straight through. `custmCss = "..."` builds a site with no custom CSS and
       says nothing. The same whitelist is why an unknown key anywhere in the
       manifest is ignored rather than reported.
-- [ ] **`nupp tasks` reports the docs `all` setting under the name of a
-      different one.** It prints `Include private: true` for `all`, which
-      includes undocumented and `local` declarations, while `includePrivate` —
-      which is what includes `_` members and `internal/` trees — is not
-      reported at all. Two settings, one label, and it is on the wrong one.
-- [ ] `nupp tasks` gives a docs target with no `outDir` the manifest default
-      (`build`) while the generator uses `build/docs`, so the task table names
-      a directory the build does not write to. `nupp clean` still removes it
-      today because one contains the other; that is containment rather than
-      agreement.
+- [x] `nupp tasks` reports `all` and `includePrivate` as themselves. It printed
+      `Include private` for `all`, which takes in undocumented and `local`
+      declarations, while the setting that label belongs to went unreported.
+- [x] A docs target with no `outDir` is reported as the directory the generator
+      will actually write to, which it asks the generator for rather than
+      keeping a second copy of the answer. Worse than it read when it was
+      written down: for `format = "markdown"` the output is `docs/api.md`,
+      nowhere near the `build` the task table named, so `nupp clean` removed an
+      unrelated directory and left the generated file behind. The site case was
+      only ever right by containment.
 - [ ] `nupp.lua` project config: honor `syntax` and `runtimeTarget` fields end
       to end. `strict` is consumed by builds, direct checks, the incremental
       checker, and LSP sessions; the remaining language-mode fields are

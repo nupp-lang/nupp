@@ -36,8 +36,17 @@ local command = spec.command{
                     kind = {type = "string"},
                     category = {type = "string"},
                     command = {type = "array", items = {type = "string"}},
-                    outDir = {type = "string"},
+                    outDir = {type = "string",
+                        description = "Where the target writes, including the "
+                            .. "default a docs target takes from the generator "
+                            .. "rather than from the manifest."},
                     buildTarget = {type = "string"},
+                    all = {type = "boolean",
+                        description = "Documentation: include declarations "
+                            .. "that are undocumented or local."},
+                    includePrivate = {type = "boolean",
+                        description = "Documentation: include `_` members and "
+                            .. "files below internal/."},
                     entries = {type = "array", items = {type = "string"}},
                     sources = {type = "array", items = {type = "string"}},
                     resources = {type = "array", items = {type = "string"}},
@@ -83,7 +92,10 @@ local function writeTask(out: {string}, style: any, task: any)
     field("Title", task.title)
     field("Format", task.format)
     if task.all ~= nil then
-        field("Include private", tostring(task.all))
+        field("Include undocumented", tostring(task.all))
+    end
+    if task.includePrivate ~= nil then
+        field("Include private", tostring(task.includePrivate))
     end
     if task.argv then
         writeItems(out, style, "Arguments", task.argv)
