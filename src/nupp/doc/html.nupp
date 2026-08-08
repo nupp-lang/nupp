@@ -242,8 +242,9 @@ local function markdownHtml(text, links, headingShift)
     if not parse then
         local built, err = buildParser()
         if not built then
-            error("nupp doc needs lunamark; run scripts/rocks (" ..
-                tostring(err) .. ")", 0)
+            error("nupp doc needs lunamark; declare it as a luarocks "
+                .. "dependency of the docs target and it is installed with "
+                .. "the build (" .. tostring(err) .. ")", 0)
         end
         parse = built
     end

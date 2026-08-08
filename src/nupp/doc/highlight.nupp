@@ -4,8 +4,8 @@ Source code as coloured HTML.
 Nupp is highlighted by the compiler's own lexer, which is the only highlighter
 that agrees with the compiler about what a token is, and which knows enough to
 turn a name into a link. Every other language in a fenced block is handed to
-Scintillua, installed by `scripts/rocks`; without it a block renders as plain
-escaped text.
+Scintillua, a rock the documentation target depends on; without it a block
+renders as plain escaped text.
 
 Scintillua's lexers find each other by path rather than by `require` — a lexer
 embeds another by reading its file out of the directory named in the

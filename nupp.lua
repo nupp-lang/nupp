@@ -1,6 +1,24 @@
 return {
    include = { "src" },
 
+   -- What `nupp doc` renders with. Both are installed into `.rocks`, a tree
+   -- this checkout owns, so two checkouts can want different versions without
+   -- either able to break the other's build by upgrading something. `bin/nupp`
+   -- and `tests/run` put that tree on the search path, and a build puts it
+   -- there for itself, so nothing here is installed globally.
+   dependencies = {
+      -- Renders the markdown. Pulls in lpeg, cosmo, alt-getopt and luautf8,
+      -- which LuaRocks resolves rather than this file listing them.
+      lunamark = { kind = "luarocks", version = "0.6.0-1" },
+      -- Syntax highlighting for fenced code in the generated site. Not
+      -- published on LuaRocks, so the rockspec beside it stands in for the one
+      -- upstream does not ship.
+      scintillua = {
+         kind = "luarocks",
+         rockspec = "rocks/scintillua-6.7-1.rockspec",
+      },
+   },
+
    build = {
       outDir = "build",
       default = "compiler",
@@ -32,6 +50,7 @@ return {
          },
          docs = {
             kind = "docs",
+            dependencies = { "lunamark", "scintillua" },
             sources = { "src/nupp" },
             format = "both",
             outDir = "build/docs",

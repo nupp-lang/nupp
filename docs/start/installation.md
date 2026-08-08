@@ -18,8 +18,8 @@ Everything else is optional and buys one feature each:
  Component      Needed for                        Installed by
  ─────────────  ────────────────────────────────  ─────────────────────
  lua-cjson      --json output and the LSP server  luarocks install
- lunamark       nupp doc                          ./scripts/rocks
- Scintillua     highlighting in generated sites   ./scripts/rocks
+ lunamark       nupp doc                          nupp doc
+ Scintillua     highlighting in generated sites   nupp doc
  Rust toolchain building the binary host stub     rustup
 ```
 
@@ -42,18 +42,23 @@ repository, and it is what a fresh clone uses for its first build.
 
 ## The optional libraries
 
+Nothing to run: lunamark and Scintillua are declared in `nupp.lua` as
+dependencies of the documentation target, so the command that needs them
+installs them.
+
 ```bash
-./scripts/rocks
+./bin/nupp doc
 ```
 
-This installs lunamark and Scintillua — and, through them, LPeg — into a
-project-local `.rocks` tree that `bin/nupp` and `tests/run` put on the search
-path. Two checkouts can hold different versions without either disturbing the
-other, and nothing lands in a global tree.
+That installs both — and, through them, LPeg — into a project-local `.rocks`
+tree that `bin/nupp` and `tests/run` put on the search path. Two checkouts can
+hold different versions without either disturbing the other, and nothing lands
+in a global tree. See [rock dependencies](../tooling/build.md#rock-dependencies)
+for declaring your own.
 
-`nupp doc` needs lunamark and stops with a message when it is missing.
-Scintillua degrades instead: a fence in a language it cannot load renders as
-escaped text without highlighting.
+`nupp doc` needs lunamark and stops with a message when it cannot install or
+load it. Scintillua degrades instead: a fence in a language it cannot load
+renders as escaped text without highlighting.
 
 `lua-cjson` comes from wherever your LuaJIT already looks:
 
