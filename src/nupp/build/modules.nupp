@@ -126,7 +126,7 @@ local function projectIndexFingerprint(inc)
             declarations = declarations,
         }
     end
-    return hash.sha256(stable(headers))
+    return hash.digest(stable(headers))
 end
 
 local function copyModuleRecord(record)
@@ -253,11 +253,11 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             for _, diag in ipairs(genDiags or {}) do
                 errors[#errors + 1] = diag
             end
-            if #genDiags == 0 then artifactHash = hash.sha256(code) end
+            if #genDiags == 0 then artifactHash = hash.digest(code) end
         end
         records[name] = {
             sourceHash = sourceHash,
-            interfaceHash = hash.sha256(typeFingerprint(result.moduleType)),
+            interfaceHash = hash.digest(typeFingerprint(result.moduleType)),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
             output = output,
@@ -376,7 +376,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             local text, err = readFile(source)
             if not text then return nil, err end
             outputs[output] = true
-            if hashFile(output) ~= hash.sha256(text) then
+            if hashFile(output) ~= hash.digest(text) then
                 pending[#pending + 1] = {path = output, text = text}
             end
         end

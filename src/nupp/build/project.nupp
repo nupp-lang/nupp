@@ -101,12 +101,9 @@ function project.build(root, opts)
     if not opts.checkOnly then os.remove(completionPath) end
     local statePath = join(root, join(outDir, ".nupp-state.json"))
     local oldState = loadState(statePath)
-    local newState = {
-        version = 1, modules = {}, dependencies = {}, outputs = {},
-        targets = {},
-        compilerHash = toolFingerprint(),
-        configHash = hash.sha256(stable(config)),
-    }
+    local newState = cache.emptyState()
+    newState.compilerHash = toolFingerprint()
+    newState.configHash = hash.digest(stable(config))
     -- Every other target's record is carried through untouched, so building one
     -- does not make the others look like they produced nothing.
     for name, produced in pairs(oldState.targets) do
@@ -244,7 +241,7 @@ local function treeDigest(path)
             parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
         end
     end
-    return hash.sha256(table.concat(parts, "\0")), files
+    return hash.digest(table.concat(parts, "\0")), files
 end
 
 local function removeTree(path)

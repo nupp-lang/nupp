@@ -66,6 +66,18 @@ local function cdefCType(t)
         if name == "voidptr" then return "void *" end
         if t.cdefName then return "struct " .. t.cdefName end
         return CP[name]
+    elseif t.kind == "tconst" then
+        local inner = cdefCType(t.inner)
+        if inner then return "const " .. inner end
+    elseif t.kind == "tcarray" then
+        -- `T[?]` and `T[N]` spell as C writes them. A cast is the exception,
+        -- and the caller below handles it: LuaJIT has no cast to a
+        -- variable-length array, and a pointer is what viewing memory as one
+        -- means anyway.
+        local element = cdefCType(t.element)
+        if element then
+            return element .. "[" .. (t.count and t.count.text or "?") .. "]"
+        end
     elseif t.kind == "tptr" then
         local inner = cdefCType(t.inner)
         if inner then return inner .. " *" end
@@ -754,6 +766,25 @@ function gen.generate(result, filename)
             -- named by its C spelling
             local ctypeExpr = x.ffiTypeName
             if not ctypeExpr then
+                local typeNode = x.ffiTypeNode
+                -- Viewing memory as a C array is a pointer cast. LuaJIT
+                -- refuses a cast to `T[?]` outright, and for `T[N]` it would
+                -- mean a pointer to the whole array rather than to its first
+                -- element, which is not what indexing the result expects.
+                if x.ffiIntrinsic == "cast" and typeNode
+                    and typeNode.kind == "tcarray" then
+                    typeNode = typeNode.element
+                    local element = typeNode and cdefCType(typeNode)
+                    if element then
+                        e(("__nuppFfi.cast(%q"):format(element .. " *"), line)
+                        for _, arg in ipairs(x.args and x.args.exprs or {}) do
+                            e(",")
+                            emit(arg)
+                        end
+                        e(")")
+                        return
+                    end
+                end
                 local spelling = x.ffiTypeNode and cdefCType(x.ffiTypeNode)
                 if not spelling then
                     diag(x.name or (x[1] and cst.isToken(x[1]) and x[1]),

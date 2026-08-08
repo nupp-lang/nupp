@@ -59,6 +59,47 @@ function M.sha256KnownVectors()
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 end
 
+-- The published XXH64 answers. Cache keys never leave this machine, so
+-- nothing forces the digest to be a particular function -- but a hand-rolled
+-- one that is subtly wrong is a hand-rolled one nobody notices is wrong, and
+-- these vectors are how a rewrite gets caught.
+function M.xxh64KnownVectors()
+   local function xxh(input, seed)
+      return hash.hex64(hash.xxh64(input, seed))
+   end
+   assertEq(xxh("", 0), "ef46db3751d8e999")
+   assertEq(xxh("a", 0), "d24ec4f1a98c6e5b")
+   assertEq(xxh("abc", 0), "44bc2cf5ad770999")
+   assertEq(xxh("abcd", 0), "de0327b0d25d92cc")
+   assertEq(xxh("heiå", 0), "b9d3d990d2001a1a")
+   assertEq(xxh("", 1), "d5afba1336a3be4b")
+   assertEq(xxh("Nobody inspects the spammish repetition", 0),
+      "fbcea83c8a378bf1")
+end
+
+-- Every tail branch and the stripe loop, at every length that reaches them.
+-- The interesting failures here are off-by-one, not wrong constants: a digest
+-- that ignores the last byte agrees with itself forever.
+function M.digestSeparatesEveryLength()
+   local seen = {}
+   for n = 0, 200 do
+      local input = ("abcdefgh"):rep(30):sub(1, n)
+      local d = hash.digest(input)
+      assertEq(#d, 32)
+      assertEq(seen[d], nil)
+      seen[d] = n
+      assertEq(hash.digest(input), d)
+   end
+   -- A one-byte change anywhere has to move the answer, including in the
+   -- final byte, which is the one a tail loop drops.
+   for _, n in ipairs({1, 4, 7, 8, 15, 16, 31, 32, 33, 64, 100}) do
+      local input = ("x"):rep(n)
+      local flipped = input:sub(1, n - 1) .. "y"
+      assert(hash.digest(input) ~= hash.digest(flipped),
+         "digest ignored the last byte at length " .. n)
+   end
+end
+
 function M.windowsMkdirUsesNativePathAndIsIdempotent()
    local command = process.mkdirCommand("build/nupp", true)
    assertEq(table.concat(command, " "),

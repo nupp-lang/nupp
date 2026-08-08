@@ -137,4 +137,33 @@ function M.builtinTypesUseTheirCSpelling()
       "a builtin is named by its C spelling:\n" .. code)
 end
 
+-- Viewing a string as a C array is how the build's digest reads eight bytes at
+-- a time. The checker already typed it; the generator had no spelling for it.
+function M.castToACArrayIsAPointerCast()
+   local function codeFor(src)
+      local result = parser.parse(src, "test")
+      check.check(result, "test", env)
+      return gen.generate(result, "test")
+   end
+   -- The string is bound first: a pointer into a temporary outlives it, and
+   -- the ownership checker says so (NUPP2501).
+   local code = codeFor(
+      'local s = "abcdefgh"\nlocal w = ffi.cast<const uint64[?]>(s)')
+   -- Not `uint64_t[?]`: LuaJIT refuses a cast to a variable-length array, and
+   -- a pointer is what indexing the result wants anyway.
+   assert(code:find('__nuppFfi.cast("const uint64_t *"', 1, true),
+      "a C array cast is a pointer cast:\n" .. code)
+   local fixed = codeFor(
+      'local s = "abcdefgh"\nlocal w = ffi.cast<uint32[4]>(s)')
+   assert(fixed:find('__nuppFfi.cast("uint32_t *"', 1, true),
+      "a fixed C array casts to its element pointer too:\n" .. fixed)
+   -- Away from a cast, an array keeps the spelling C gives it.
+   local allocated = codeFor("local w = ffi.sizeof<uint64[4]>()")
+   assert(allocated:find('__nuppFfi.sizeof("uint64_t[4]"', 1, true),
+      "an array spells as an array everywhere else:\n" .. allocated)
+   assertEq(run('local s = "ABC"\nlocal w = ffi.cast<const uint8[?]>(s)\nreturn w[1]'),
+      66)
+   assertEq(run("return ffi.sizeof<uint64[4]>()"), 32)
+end
+
 return M

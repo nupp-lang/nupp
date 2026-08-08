@@ -1,17 +1,34 @@
 --[[
-Portable SHA-256, for build cache keys.
+The two digests the build uses, which are two because they answer different
+questions.
 
-A cache key has to mean the same thing on every machine that reads the cache, so
-the digest is computed here in 32-bit integer arithmetic over LuaJIT's `bit`
-library rather than delegated to whatever hashing utility a platform ships.
+`digest` decides whether a build has to redo something. Nothing outside this
+machine reads the answer -- it is compared against the digest the last build
+wrote, and then thrown away -- so the properties that matter are that equal
+inputs agree, that different inputs practically never do, and that computing it
+costs nothing. That is XXH64 under two seeds, 128 bits of it, reading eight
+bytes at a time as a C array. A whole compiler tree digests in under two
+milliseconds, where the SHA-256 below takes four hundred.
+
+`sha256` is for a digest that leaves this machine: the one `nupp.build.package`
+writes into a stamped binary's trailer, where it is part of the file format and
+a reader elsewhere has to arrive at the same number. It is computed in 32-bit
+arithmetic over LuaJIT's `bit` library rather than delegated to whatever hashing
+utility a platform ships, so it agrees everywhere.
+
+Do not swap one for the other. A cache key that changes between releases costs
+one rebuild; a trailer digest that changes makes every binary already stamped
+unreadable.
 ]]
 
 local bit = require("bit")
+local ffi = require("ffi")
 
 local hash = {}
 
 local band, bor, bxor = bit.band, bit.bor, bit.bxor
 local bnot, rshift, ror = bit.bnot, bit.rshift, bit.ror
+local rol = bit.rol
 
 local K = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -95,5 +112,121 @@ function hash.sha256(input)
     end
     return table.concat(out)
 end
+
+local P1 = 0x9E3779B185EBCA87ULL
+local P2 = 0xC2B2AE3D27D4EB4FULL
+local P3 = 0x165667B19E3779F9ULL
+local P4 = 0x85EBCA77C2B2AE63ULL
+local P5 = 0x27D4EB2F165667C5ULL
+
+local function round(acc, input)
+    acc = acc + input * P2
+    acc = rol(acc, 31)
+    return acc * P1
+end
+
+local function mergeRound(acc, value)
+    value = round(0ULL, value)
+    acc = bxor(acc, value)
+    return acc * P1 + P4
+end
+
+--- XXH64 of `input` under `seed`, as a `uint64`.
+---
+--- The published algorithm, so `tests/projecttest.lua` can hold its published
+--- answers rather than whatever this happens to compute. It reads
+--- little-endian, which is what every machine LuaJIT is built for reads; on a
+--- big-endian one the number would differ, and for a key nobody ships that
+--- costs one rebuild and nothing else.
+local function xxh64(input, seed)
+    local size = #input
+    local words = ffi.cast<const uint64[?]>(input)
+    local h
+    -- Positions are byte offsets, and the reads index the view whose element
+    -- size divides the offset. Everything up to the four-byte tail sits on an
+    -- eight-byte boundary, so no read here is unaligned.
+    local at = 0
+    if size >= 32 then
+        local v1, v2 = seed + P1 + P2, seed + P2
+        local v3, v4 = seed + 0ULL, seed - P1
+        local stripes = (size // 32) * 4
+        local w = 0
+        repeat
+            v1 = round(v1, words[w])
+            v2 = round(v2, words[w + 1])
+            v3 = round(v3, words[w + 2])
+            v4 = round(v4, words[w + 3])
+            w = w + 4
+        until w >= stripes
+        at = w * 8
+        h = rol(v1, 1) + rol(v2, 7) + rol(v3, 12) + rol(v4, 18)
+        h = mergeRound(h, v1)
+        h = mergeRound(h, v2)
+        h = mergeRound(h, v3)
+        h = mergeRound(h, v4)
+    else
+        h = seed + P5
+    end
+    h = h + size
+    while size - at >= 8 do
+        h = bxor(h, round(0ULL, words[at // 8]))
+        h = rol(h, 27) * P1 + P4
+        at = at + 8
+    end
+    if size - at >= 4 then
+        local halves = ffi.cast<const uint32[?]>(input)
+        h = bxor(h, ffi.cast<uint64>(halves[at // 4]) * P1)
+        h = rol(h, 23) * P2 + P3
+        at = at + 4
+    end
+    if at < size then
+        local bytes = ffi.cast<const uint8[?]>(input)
+        while at < size do
+            h = bxor(h, ffi.cast<uint64>(bytes[at]) * P5)
+            h = rol(h, 11) * P1
+            at = at + 1
+        end
+    end
+    h = bxor(h, rshift(h, 33))
+    h = h * P2
+    h = bxor(h, rshift(h, 29))
+    h = h * P3
+    return bxor(h, rshift(h, 32))
+end
+
+--- Sixteen hex digits of a `uint64`, high half first.
+---
+--- Written as two 32-bit halves because `%x` takes a Lua number, and a whole
+--- word has lost bits by the time `format` sees it as one.
+local function hex64(value)
+    return ("%08x%08x"):format(
+        tonumber(band(rshift(value, 32), 0xFFFFFFFFULL)),
+        tonumber(band(value, 0xFFFFFFFFULL)))
+end
+
+-- Two seeds, so the answer is 128 bits rather than 64. Two different files
+-- agreeing means the build keeps a stale artifact and says nothing about it,
+-- which is the one failure a cache must not have; at 128 bits it will not
+-- happen, and the second pass costs about a millisecond over a whole compiler.
+local SEED_A = 0ULL
+local SEED_B = 0x9E3779B97F4A7C15ULL
+
+--- A 128-bit content digest of `input`, as 32 hex digits.
+---
+--- For cache keys. Read the note at the top of the file before reaching for it
+--- where the answer gets written down somewhere durable.
+function hash.digest(input)
+    return hex64(xxh64(input, SEED_A)) .. hex64(xxh64(input, SEED_B))
+end
+
+--- Which digest the cache keys were computed with.
+---
+--- Recorded in the build state, so that changing the algorithm discards what
+--- the last version wrote instead of comparing hex against hex that meant
+--- something else.
+hash.DIGEST = "xxh64x2"
+
+hash.xxh64 = xxh64
+hash.hex64 = hex64
 
 return hash

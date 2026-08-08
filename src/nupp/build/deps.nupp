@@ -164,7 +164,7 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         if code ~= 0 then return nil, "pkg-config failed for " .. dep.pkgConfig .. ": " .. flags end
         pkgFlags = splitFlags(flags)
     end
-    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(nativeInputs)
+    local key = hash.digest(stable(dep) .. "\0" .. hashFiles(nativeInputs)
         .. "\0" .. version .. "\0" .. stable(pkgFlags)
         .. "\0" .. stable(childResults))
     local output = nil
@@ -233,7 +233,7 @@ local function buildCargo(root, outDir, name, dep, previous)
     local crateDir = dirname(manifest)
     local cargo = dep.cargo or "cargo"
     local _, version = process.capture({cargo, "--version"})
-    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(cargoSourceFiles(crateDir))
+    local key = hash.digest(stable(dep) .. "\0" .. hashFiles(cargoSourceFiles(crateDir))
         .. "\0" .. version)
     local targetDir = join(root, dep.targetDir or join(outDir, "cargo/" .. name))
     local profile = dep.profile or "release"
