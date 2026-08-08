@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
   <title id="title">Nupp programming language icon</title>
-  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a blue circle.</desc>
+  <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a blue circle,
+    with drooping closed eyes and a small mouth.</desc>
 
   <!-- Theme accent blue disc behind the figure. -->
   <circle cx="64" cy="64" r="62" fill="#176b8a"/>
@@ -31,6 +32,14 @@
     <g stroke-width="3.8">
       <path d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
       <path d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
+    </g>
+    <!-- Sunken eyes: tapered lid strokes, outer corners drooping, and a small mouth. -->
+    <g fill="#176b8a" stroke="none">
+      <path d="M37 61 Q46 45 59 51 Q46 51 40 61 Z"/>
+      <path d="M43 66 Q50 59 60 61 Q50 63 45 67 Z"/>
+      <path d="M91 61 Q82 45 69 51 Q82 51 88 61 Z"/>
+      <path d="M85 66 Q78 59 68 61 Q78 63 83 67 Z"/>
+      <path d="M57 78 Q64 88 75 79 Q64 84 59 81 Z"/>
     </g>
   </g>
 
