@@ -27,8 +27,35 @@ than mixing artifacts compiled at different levels.
 | `OPT-3` | constant-fold | `-O1` | Fold exact primitives, branches, and immutable paths |
 | `OPT-4` | static-callable | `-O1` | Bind repeated immutable dotted callees at first use |
 
-Each example below shows Nupp beside its `-O1` and `-O0` output. Generated
-temporary names are illustrative.
+Each `OPT-n` example below shows Nupp beside its `-O1` and `-O0` output.
+Generated temporary names are illustrative.
+
+### Always-on table intrinsics
+
+`table.new` and `table.clear` are lowering rather than an `OPT-n` pass: they
+work at `-O0` because LuaJIT does not expose them until their builtin modules
+are loaded.
+
+::: code-group
+```nupp [Original Nupp]
+local cache = table.new(128, 8)
+cache.ready = true
+table.clear(cache)
+```
+
+```lua [Generated Lua]
+local __nuppNew = require("table.new")
+local __nuppClear = require("table.clear")
+local cache = __nuppNew(128, 8)
+cache.ready = true
+__nuppClear(cache)
+```
+:::
+
+Each used builtin is bound once per generated module and omitted when unused.
+`OPT-1` shares the `table.new` binding. Recognition follows the stable prelude
+definition, so a locally shadowed `table` is untouched, and generated modules
+remain standalone under external LuaJIT.
 
 ### `OPT-1`, presizing
 
