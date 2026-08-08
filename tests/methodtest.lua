@@ -714,6 +714,39 @@ function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
       "NUPP2118:3")
 end
 
+-- A record's runtime table is the metatable its instances carry, so it is a
+-- `metatable<R>` and the oldest way to write a class in Lua checks. Reaching a
+-- member through the wrapper reaches the record's.
+function M.aRecordsTableSatisfiesItsOwnMetatableType()
+   local foo = table.concat({
+      "local record Foo",
+      "   v: integer",
+      "   function double(): integer",
+      "      return self.v * 2",
+      "   end",
+      "end",
+   }, "\n")
+   assertClean(foo .. table.concat({
+      "",
+      "local raw: table = {v = 1}",
+      "local mt: metatable<Foo> = Foo",
+      "setmetatable(raw, Foo)",
+      "return mt",
+   }, "\n"))
+   -- and the members are reached through it
+   assertClean(foo .. table.concat({
+      "",
+      "local mt: metatable<Foo> = Foo",
+      "local f: function(self: Foo): integer = mt.double",
+      "return f",
+   }, "\n"))
+   assertEq(diagsOf(foo .. table.concat({
+      "",
+      "local mt: metatable<Foo> = Foo",
+      "return mt.nosuch",
+   }, "\n")), "NUPP2004:8")
+end
+
 -- A record's runtime table is the metatable its instances carry, so writing a
 -- declared metamethod on it is how a contract is fulfilled. It used to be
 -- refused as a missing field, with the same message a typo got.

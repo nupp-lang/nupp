@@ -8096,6 +8096,11 @@ t = rawType ( t )
 if t . tag == "ptr" then
 return c . fieldType ( t . elem , name )
 end
+
+
+if t . tag == "metatable" then
+return c . fieldType ( t . of , name )
+end
 if t . tag == "typevar" and t . bound then
 local bound = t . bound
 local ft , fieldDef = c . fieldType ( bound , name )
@@ -8154,6 +8159,9 @@ t = rawType ( t )
 if t . tag == "ptr" then
 return c . fieldWriteType ( t . elem , name )
 end
+if t . tag == "metatable" then
+return c . fieldWriteType ( t . of , name )
+end
 if t . tag == "typevar" and t . bound then
 local bound = t . bound
 local ft , fieldDef = c . fieldWriteType ( bound , name )
@@ -8207,6 +8215,9 @@ t = rawType ( t )
 if t . tag == "ptr" then
 return c . fieldNames ( t . elem , writing )
 end
+if t . tag == "metatable" then
+return c . fieldNames ( t . of , writing )
+end
 if t . tag == "typevar" and t . bound then
 return c . fieldNames ( t . bound , writing )
 end
@@ -8247,6 +8258,9 @@ end
 if t . tag == "typevar" and t . bound then
 return c . metamethodNames ( t . bound )
 end
+if t . tag == "metatable" then
+return c . metamethodNames ( t . of )
+end
 local names = { }
 if t . tag == "nominal" then
 for name in pairs ( t . metamethods or { } ) do names [ name ] = true end
@@ -8256,6 +8270,11 @@ end
 
 function ops . metamethodOf ( t , name )
 t = rawType ( t )
+
+
+if t . tag == "metatable" then
+return ops . metamethodOf ( t . of , name )
+end
 if t . tag == "typevar" and t . bound then
 local bound = t . bound
 local ft = ops . metamethodOf ( bound , name )
@@ -38739,8 +38758,12 @@ return fail ( a , b )
 end
 
 if btag == "metatable" then
+
+
+
+
 if atag == "shape" or atag == "map" or atag == "table"
-or atag == "metatable" then
+or atag == "metatable" or atag == "nominal" then
 return true
 end
 return fail ( a , b )

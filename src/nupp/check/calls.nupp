@@ -49,6 +49,11 @@ function calls.install(c: any): any
         if t.tag == "ptr" then
             return c.fieldType(t.elem, name)
         end
+        -- A record's runtime table holds its methods, its statics and its nested
+        -- declarations, so reaching a member through `metatable<R>` reaches R's.
+        if t.tag == "metatable" then
+            return c.fieldType(t.of, name)
+        end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
             local ft, fieldDef = c.fieldType(bound, name)
@@ -107,6 +112,9 @@ function calls.install(c: any): any
         if t.tag == "ptr" then
             return c.fieldWriteType(t.elem, name)
         end
+        if t.tag == "metatable" then
+            return c.fieldWriteType(t.of, name)
+        end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
             local ft, fieldDef = c.fieldWriteType(bound, name)
@@ -160,6 +168,9 @@ function calls.install(c: any): any
         if t.tag == "ptr" then
             return c.fieldNames(t.elem, writing)
         end
+        if t.tag == "metatable" then
+            return c.fieldNames(t.of, writing)
+        end
         if t.tag == "typevar" and t.bound then
             return c.fieldNames(t.bound, writing)
         end
@@ -200,6 +211,9 @@ function calls.install(c: any): any
         if t.tag == "typevar" and t.bound then
             return c.metamethodNames(t.bound)
         end
+        if t.tag == "metatable" then
+            return c.metamethodNames(t.of)
+        end
         local names = {}
         if t.tag == "nominal" then
             for name in pairs(t.metamethods or {}) do names[name] = true end
@@ -209,6 +223,11 @@ function calls.install(c: any): any
 
     function ops.metamethodOf(t, name)
         t = rawType(t)
+        -- The contracts a metatable carries are the ones its receiver declared;
+        -- that is what makes it that receiver's metatable rather than a table.
+        if t.tag == "metatable" then
+            return ops.metamethodOf(t.of, name)
+        end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
             local ft = ops.metamethodOf(bound, name)
