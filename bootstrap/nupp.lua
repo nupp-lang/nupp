@@ -1373,6 +1373,80 @@ end
 return true
 end
 
+
+
+
+
+
+
+
+
+
+local DOCS_KEYS = {
+
+"sources" , "format" , "outDir" , "title" , "name" , "description" , "github" ,
+"logo" , "public" , "customCss" , "lexers" , "includePrivate" , "all" , "pages" ,
+
+"kind" , "dependencies" , "entries" , "resources" , "output" , "stub" ,
+}
+
+local PAGE_KEYS = {
+"path" , "title" , "source" , "layout" ,
+"heroTitle" , "heroText" , "heroImage" , "heroImageAlt" , "heroActions" ,
+
+"hero_title" , "hero_text" , "hero_image" , "hero_image_alt" , "hero_actions" ,
+"features" ,
+}
+
+local HERO_ACTION_KEYS = { "text" , "path" , "theme" }
+local FEATURE_KEYS = { "icon" , "image" , "title" , "details" }
+
+local function validateKeys ( value , known , label )
+if type ( value ) ~= "table" then return true end
+local allowed = { }
+for _ , name in ipairs ( known ) do allowed [ name ] = true end
+local unknown = { }
+for key in pairs ( value ) do
+if type ( key ) == "string" and not allowed [ key ] then
+unknown [ # unknown + 1 ] = key
+end
+end
+table . sort ( unknown )
+local key = unknown [ 1 ]
+if not key then return true end
+local suggestion = require ( "nupp.check.fixits" ) . nearest ( key , known )
+if suggestion then
+return nil , ( "%s has no key %q; did you mean %q?" ) : format (
+label , key , suggestion )
+end
+return nil , ( "%s has no key %q" ) : format ( label , key )
+end
+
+local function validateDocsTarget ( target , label )
+local valid , err = validateKeys ( target , DOCS_KEYS , label )
+if not valid then return nil , err end
+if target . pages ~= nil and type ( target . pages ) ~= "table" then
+return nil , label .. ".pages must be an array of page tables"
+end
+for index , page in ipairs ( target . pages or { } ) do
+local pageLabel = ( "%s.pages[%d]" ) : format ( label , index )
+if type ( page ) ~= "table" then return nil , pageLabel .. " must be a table" end
+valid , err = validateKeys ( page , PAGE_KEYS , pageLabel )
+if not valid then return nil , err end
+for actionIndex , action in ipairs ( page . heroActions or page . hero_actions or { } ) do
+valid , err = validateKeys ( action , HERO_ACTION_KEYS ,
+( "%s.heroActions[%d]" ) : format ( pageLabel , actionIndex ) )
+if not valid then return nil , err end
+end
+for featureIndex , feature in ipairs ( page . features or { } ) do
+valid , err = validateKeys ( feature , FEATURE_KEYS ,
+( "%s.features[%d]" ) : format ( pageLabel , featureIndex ) )
+if not valid then return nil , err end
+end
+end
+return true
+end
+
 local function validateTarget ( target , label , dependencies )
 if type ( target ) ~= "table" then return nil , label .. " must be a table" end
 local kind = target . kind or "modules"
@@ -1422,6 +1496,10 @@ if type ( dependencies [ name ] ) ~= "table" then
 return nil , label .. ".dependencies references unknown dependency " .. name
 end
 end
+if kind == "docs" then
+valid , err = validateDocsTarget ( target , label )
+if not valid then return nil , err end
+end
 return true
 end
 
@@ -1461,11 +1539,27 @@ end
 
 local LINT_LEVELS = { off = true , note = true , warning = true , error = true }
 
+
+
+local FMT_KEYS = { "methodParens" }
+
 local function validateManifest ( config )
 local valid , err = validateArray ( config . include , "include" , "string" )
 if not valid then return nil , err end
 if config . strict ~= nil and type ( config . strict ) ~= "boolean" then
 return nil , "strict must be a boolean"
+end
+
+if config . fmt ~= nil then
+if type ( config . fmt ) ~= "table" then
+return nil , "fmt must be a table"
+end
+valid , err = validateKeys ( config . fmt , FMT_KEYS , "fmt" )
+if not valid then return nil , err end
+if config . fmt . methodParens ~= nil
+and type ( config . fmt . methodParens ) ~= "boolean" then
+return nil , "fmt.methodParens must be a boolean"
+end
 end
 
 
@@ -2921,6 +3015,18 @@ for _ , item in ipairs ( items or { } ) do copied [ # copied + 1 ] = item end
 return copied
 end
 
+
+
+
+
+local function outDirOf ( target )
+if target . outDir then return target . outDir end
+if target . kind == "docs" then
+return require ( "nupp.doc" ) . defaultOutDir ( target . format or "site" )
+end
+return "build"
+end
+
 local function taskDescription ( config , name , isDefault )
 local requested = config . build . targets and name or nil
 local target , err = targetConfig ( config , requested )
@@ -2931,12 +3037,17 @@ default = isDefault ,
 category = "build" ,
 description = target . description ,
 kind = target . kind or "modules" ,
-outDir = target . outDir or "build" ,
+outDir = outDirOf ( target ) ,
 entries = copyStrings ( target . entries ) ,
 sources = copyStrings ( target . sources ) ,
 format = target . format ,
 title = target . title ,
+
+
+
+
 all = target . all ,
+includePrivate = target . includePrivate ,
 resources = copyStrings ( target . resources ) ,
 dependencies = copyStrings ( target . dependencies ) ,
 command = jsonArray ( { "nupp" , "build" , "--target" , name } ) ,
@@ -3624,6 +3735,10 @@ local checkMod = { }
 
 
 checkMod.Checker = {} checkMod.Checker.__index = checkMod.Checker
+
+
+
+
 
 
 
@@ -5703,10 +5818,10 @@ end
 
 
 
-
-
 c . validateCleanups ( valueT , valueT . cleanups ,
 args [ 1 ] or node , nil , true )
+c . own . requireReachableCleanups ( valueT , valueT . cleanups ,
+args [ 1 ] or node )
 node . ownershipIntrinsic = "dispose"
 node . ownerCleanups = valueT . cleanups or { }
 return T . nil_
@@ -6304,26 +6419,27 @@ if not withBorrow then
 c . moveExpression ( cst . isToken ( args [ j ] ) and node or args [ j ] ,
 ats [ j ] , ( "argument %d" ) : format ( j ) )
 end
-elseif mode == "inout" then
+elseif mode == "exclusive" then
 local entry , nameNode = c . ownershipEntry ( args [ j ] )
 entry = c . ownershipState ( entry )
 if c . ownershipKind ( ats [ j ] ) == "borrowed" then
 c . diag ( "NUPP2602" , args [ j ] or node ,
-"inout requires exclusive access, not a shared borrow" )
+"an exclusive parameter needs sole access, not a shared borrow" )
 elseif entry and ( entry . activeBorrows or 0 ) > 0 then
 c . diag ( "NUPP2602" , nameNode or args [ j ] ,
-"inout cannot invalidate a value while a derived borrow is live" )
+"an exclusive parameter cannot invalidate a value while a "
+.. "derived borrow is live" )
 end
 elseif mode == "borrows" and c . ownershipKind ( ats [ j ] ) == "borrowed" then
 
 elseif mode == "plain" and c . ownershipKind ( ats [ j ] ) then
 c . diag ( "NUPP2603" , args [ j ] or node ,
-"an owner or borrow needs a borrows, inout, or takes contract" )
+"an owner or borrow needs a borrows, exclusive, or takes contract" )
 elseif mode == "plain" and node . cdefCall
 and c . pointerShaped ( ats [ j ] ) and c . unsafeDepth == 0 then
 c . diag ( "NUPP2604" , args [ j ] or node ,
 "passing a raw pointer to C requires unsafe do or a "
-.. "borrows, inout, takes, retains, or releases contract" )
+.. "borrows, exclusive, takes, retains, or releases contract" )
 elseif mode == "retains" or mode == "releases" then
 local entry , nameNode = c . ownershipEntry ( args [ j ] )
 entry = c . ownershipState ( entry )
@@ -6812,10 +6928,8 @@ end
 
 
 
-
-
-
 validateCleanups ( acquired , cleanups , binding . expr , "NUPP2615" , true )
+c . own . requireReachableCleanups ( acquired , cleanups , binding . expr )
 if ownershipKind ( acquired ) == "owned" then
 moveExpression ( binding . expr , acquired , "with acquisition" )
 end
@@ -8381,6 +8495,38 @@ end
 return self
 end
 
+
+
+
+
+
+
+
+
+fixits . editDistance = editDistance
+
+
+
+
+
+
+
+
+function fixits . nearest ( name , candidates )
+local limit = # name < 5 and 1 or 2
+local best , distance , tied = nil , nil , false
+for _ , candidate in ipairs ( candidates ) do
+local candidateDistance = editDistance ( name , candidate )
+if not distance or candidateDistance < distance then
+best , distance , tied = candidate , candidateDistance , false
+elseif candidateDistance == distance then
+tied = true
+end
+end
+if tied or not distance or distance > limit then return nil end
+return best
+end
+
 return fixits
 
 end
@@ -8430,7 +8576,7 @@ if not at then return end
 local current = modes [ at ]
 if current == "takes" or current == "plain" then return end
 if effect == "takes" or effect == "plain"
-or effect == "inout" and current == "borrows" then
+or effect == "exclusive" and current == "borrows" then
 modes [ at ] = effect
 end
 end
@@ -8581,7 +8727,7 @@ c . diag ( "NUPP2602" , p ,
 mode .. " parameters must have a pointer-shaped type" )
 end
 local bound = mode == "takes" and T . owned ( pt )
-or ( mode == "borrows" or mode == "inout" )
+or ( mode == "borrows" or mode == "exclusive" )
 and T . borrowed ( pt ) or pt
 c . bindVar ( p . name . text , bound , p . type ~= nil , p . name , "parameter" )
 else
@@ -10118,6 +10264,45 @@ function own . optionalOwned ( t )
 local inner = rawType ( t )
 return own . ownershipKind ( t ) == "owned" and inner . tag == "union"
 and inner . hasNil
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function own . requireReachableCleanups ( valueT , cleanups , at )
+for _ , cleanup in ipairs ( cleanups or { } ) do
+local travels = cleanup : match ( "^@method:" ) or cleanup : match ( "^@field|" )
+or cleanup : match ( "^@dropfield|" )
+if not travels and not c . lookupVar ( cleanup ) then
+c . diag ( "NUPP2620" , at ,
+( "@owned cleanup %q cannot be reached from this module, so "
+.. "this value cannot be discharged here" ) : format ( cleanup ) ,
+nil ,
+{ help = "give the type a @dispose method, so its cleanup "
+.. "travels with the value rather than being named" ,
+notes = { "the cleanup is private to the module that "
+.. "declared the owner, and a discharge emits a call "
+.. "to it by name" } } )
+end
+end
 end
 
 function own . validateCleanups ( valueT , cleanups , at , code , allowUnknown )
@@ -12278,7 +12463,8 @@ local spec = require ( "nupp.cli.spec" )
 local command = spec . command {
 name = "fmt" ,
 summary = "Format Nupp source" ,
-usage = { "nupp fmt [-w|--write] [--check] [--format text|json] [file...]" } ,
+usage = { "nupp fmt [-w|--write] [--check] [--no-method-parens] "
+.. "[--format text|json] [file...]" } ,
 intro = [[With files named, each is formatted to stdout, or rewritten with --write.
 
 With none, the project is the subject: every .nupp and .d.nupp under the
@@ -12294,6 +12480,9 @@ options = require ( "nupp.cli.options" ) . join (
 help = "Rewrite files in place instead of writing to stdout" } ,
 { name = "--check" ,
 help = "Report which files are not formatted; write nothing" } ,
+{ name = "--no-method-parens" ,
+help = "Leave obj:m{...} and obj:m\"...\" written without "
+.. "parentheses, instead of adding them" } ,
 require ( "nupp.cli.options" ) . format ( ) ) ,
 schema = {
 type = "object" ,
@@ -12324,7 +12513,12 @@ description = "True when nothing was left unformatted and "
 required = { "ok" , "unformatted" , "written" , "failed" } ,
 } ,
 detail = [[--json always reports the list, whichever form was asked for, and separates a
-file that could not be formatted from one that merely is not.]] ,
+file that could not be formatted from one that merely is not.
+
+A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
+parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
+as written, and so does a manifest with fmt = { methodParens = false }; the
+flag wins if both are given.]] ,
 }
 
 local function run ( parsed )
@@ -12342,6 +12536,11 @@ local diagnosticMod = require ( "nupp.diagnostics" )
 local reportMod = require ( "nupp.cli.report" )
 local asJson = values . format == "json"
 local env = envMod . new ( "." )
+
+
+
+local methodParens = not values . noMethodParens
+and envMod . fmtMethodParensDefault ( env )
 local paths = parsed . positional
 local wholeProject = # paths == 0
 
@@ -12385,6 +12584,7 @@ annotations = env . annotations ,
 resolveAnnotation = function ( name )
 return env . resolveProjectAnnotation ( env , path , name )
 end ,
+methodParens = methodParens ,
 } )
 if # errors > 0 then
 
@@ -14613,8 +14813,17 @@ description = { type = "string" } ,
 kind = { type = "string" } ,
 category = { type = "string" } ,
 command = { type = "array" , items = { type = "string" } } ,
-outDir = { type = "string" } ,
+outDir = { type = "string" ,
+description = "Where the target writes, including the "
+.. "default a docs target takes from the generator "
+.. "rather than from the manifest." } ,
 buildTarget = { type = "string" } ,
+all = { type = "boolean" ,
+description = "Documentation: include declarations "
+.. "that are undocumented or local." } ,
+includePrivate = { type = "boolean" ,
+description = "Documentation: include `_` members and "
+.. "files below internal/." } ,
 entries = { type = "array" , items = { type = "string" } } ,
 sources = { type = "array" , items = { type = "string" } } ,
 resources = { type = "array" , items = { type = "string" } } ,
@@ -14660,7 +14869,10 @@ field ( "Bootstrap" , task . bootstrap )
 field ( "Title" , task . title )
 field ( "Format" , task . format )
 if task . all ~= nil then
-field ( "Include private" , tostring ( task . all ) )
+field ( "Include undocumented" , tostring ( task . all ) )
+end
+if task . includePrivate ~= nil then
+field ( "Include private" , tostring ( task . includePrivate ) )
 end
 if task . argv then
 writeItems ( out , style , "Arguments" , task . argv )
@@ -17061,6 +17273,18 @@ err . line or 1 , err . col or 1 , err . msg or "documentation error" ) )
 end
 end
 
+
+
+
+
+
+
+
+
+function doc . defaultOutDir ( format )
+return format == "markdown" and "docs/api.md" or "build/docs"
+end
+
 function doc . build ( root , config , settings , opts )
 root , settings , opts = root or "." , settings or { } , opts or { }
 local modules , errors = loadModules ( root , config or { } , settings , opts . sources )
@@ -17069,7 +17293,7 @@ if opts . checkOnly then return 0 end
 local format = opts . format or settings . format or "site"
 local title = opts . title or settings . title or config . name or "Nupp API"
 local output = normalize ( opts . output or settings . outDir
-or ( format == "markdown" and "docs/api.md" or "build/docs" ) )
+or doc . defaultOutDir ( format ) )
 output = join ( root , output )
 
 
@@ -18136,7 +18360,7 @@ unknown = true , userdata = true ,
 }
 
 local CONTEXTUAL_KEYWORDS = {
-[ "as" ] = true , borrows = true , cdef = true , inout = true , takes = true ,
+[ "as" ] = true , borrows = true , cdef = true , exclusive = true , takes = true ,
 const = true , enum = true , global = true ,
 interface = true , [ "is" ] = true , own = true , record = true ,
 metamethod = true , where = true , with = true ,
@@ -20274,25 +20498,68 @@ local BUNDLED = {
 [ "jit.zone" ] = "/decls/jit/zone.d.nupp" ,
 [ "jit.vmdef" ] = "/decls/jit/vmdef.d.nupp" ,
 }
-for name , file in pairs ( BUNDLED ) do
-local bundledSrc = bundledSource ( file )
-if bundledSrc then
-local result = parser . parse ( bundledSrc , name )
-if # result . errors == 0 then
 
+
+
+
+
+
+local BUNDLED_SOURCE = {
+[ "nupp.std.resources" ] = "/std/resources.nupp" ,
+[ "nupp.std.zone" ] = "/std/zone.nupp" ,
+[ "nupp.std.profile" ] = "/std/profile.nupp" ,
+}
+
+
+
+local function loadBundled ( name , file , declarationFile )
+local bundledSrc = bundledSource ( file )
+if not bundledSrc then return false end
+local result = parser . parse ( bundledSrc , name )
+if # result . errors > 0 then return false end
 
 
 
 local diags , moduleType , exports = check . check ( result , name , env ,
-{ moduleName = name , declarationFile = true } )
+{ moduleName = name , declarationFile = declarationFile } )
 if # diags == 0 and moduleType then
-env . bundled [ name ] = { type = moduleType , exports = exports }
+return { type = moduleType , exports = exports }
 end
-end
-end
+return false
 end
 
+
+
+
+
+
+
+local PENDING = { }
+for name , file in pairs ( BUNDLED ) do
+PENDING [ name ] = { file = file , declaration = true }
+end
+for name , file in pairs ( BUNDLED_SOURCE ) do
+PENDING [ name ] = { file = file , declaration = false }
+end
+setmetatable ( env . bundled , { __index = function ( store , name )
+local pending = PENDING [ name ]
+local loaded = false
+if pending then
+loaded = loadBundled ( name , pending . file , pending . declaration )
+end
+rawset ( store , name , loaded )
+return loaded
+end } )
+
 return env
+end
+
+
+
+
+function envMod . fmtMethodParensDefault ( env )
+local fmtConfig = env . config . fmt
+return not ( fmtConfig and fmtConfig . methodParens == false )
 end
 
 return envMod
@@ -20578,6 +20845,11 @@ return explain
 
 end
 package.preload["nupp.fmt"] = function(...)
+
+
+
+
+
 
 
 
@@ -21399,17 +21671,64 @@ end
 end
 end
 
+
+
+
+
+
+
+
+
+
+local function parenthesizeMethodCalls ( result , opts )
+if opts and opts . methodParens == false then return end
+local before , after = { } , { }
+local function walk ( node )
+if not node or cst . isToken ( node ) then return end
+if node . kind == "methodCall" then
+local args = node . args
+if args and not args . exprs and ( args . table or args . str ) then
+local sugar = args . table or args . str
+local first , last = cst . firstToken ( sugar ) , cst . lastToken ( sugar )
+if first and last then
+local open = { kind = "(" , text = "(" , offset = first . offset ,
+line = first . line , col = first . col , trivia = first . trivia }
+local close = { kind = ")" , text = ")" , offset = last . offset ,
+line = last . line , col = last . col , trivia = { } }
+first . trivia = { }
+args [ 1 ] , args [ 2 ] , args [ 3 ] = open , sugar , close
+before [ first ] , after [ last ] = open , close
+end
+end
+end
+for _ , child in ipairs ( node ) do
+if not cst . isToken ( child ) then walk ( child ) end
+end
+end
+walk ( result . root )
+if not next ( before ) then return end
+local tokens = { }
+for _ , tok in ipairs ( result . tokens ) do
+if before [ tok ] then tokens [ # tokens + 1 ] = before [ tok ] end
+tokens [ # tokens + 1 ] = tok
+if after [ tok ] then tokens [ # tokens + 1 ] = after [ tok ] end
+end
+result . tokens = tokens
+end
+
 function fmt . format ( source , filename , opts )
 local result = parser . parse ( source , filename )
 if # result . errors > 0 then
 return source , result . errors
 end
 canonicalizeSingleValueAnnotations ( result , opts )
+parenthesizeMethodCalls ( result , opts )
 annotate ( result . root )
 local items = collectItems ( result . tokens )
 markDocumented ( items )
 local lines = breakLines ( buildLines ( items ) )
 local text = render ( lines )
+
 
 
 
@@ -24705,6 +25024,7 @@ package.preload["nupp.lsp"] = function(...)
 local incremental = require ( "nupp.incremental" )
 
 local cst = require ( "nupp.cst" )
+local envMod = require ( "nupp.env" )
 local fmt = require ( "nupp.fmt" )
 local lexer = require ( "nupp.lexer" )
 local T = require ( "nupp.types" )
@@ -25369,6 +25689,7 @@ annotations = s . inc . env . annotations ,
 resolveAnnotation = function ( name )
 return s . inc . env . resolveProjectAnnotation ( s . inc . env , path , name )
 end ,
+methodParens = envMod . fmtMethodParensDefault ( s . inc . env ) ,
 } )
 if # errors > 0 or formatted == doc . text then return nil end
 return formatted
@@ -25973,7 +26294,7 @@ complete . completionWords = {
 "and" , "as" , "break" , "cdef" , "const" , "continue" , "do" , "else" , "elseif" , "end" ,
 "enum" , "false" , "for" , "function" , "global" , "goto" , "if" , "in" ,
 "interface" , "is" , "local" , "nil" , "not" , "or" , "owned" ,
-"borrowed" , "borrows" , "inout" , "out" , "takes" , "pinned" , "releases" , "retains" ,
+"borrowed" , "borrows" , "exclusive" , "out" , "takes" , "pinned" , "releases" , "retains" ,
 "unsafe" , "with" , "where" , "metamethod" ,
 "record" , "repeat" , "return" , "struct" , "then" , "true" , "type" ,
 "until" , "while" ,
@@ -28431,7 +28752,7 @@ n . params [ # n . params + 1 ] = add ( n , p )
 break
 elseif cur ( ) . kind == "name"
 and ( cur ( ) . text == "takes" or cur ( ) . text == "borrows"
-or cur ( ) . text == "inout"
+or cur ( ) . text == "exclusive"
 or cur ( ) . text == "retains" or cur ( ) . text == "releases" )
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name"
 and tokens [ i + 2 ] and tokens [ i + 2 ] . kind == ":" then
@@ -28981,7 +29302,7 @@ break
 end
 if cur ( ) . kind == "name"
 and ( cur ( ) . text == "takes" or cur ( ) . text == "borrows"
-or cur ( ) . text == "inout"
+or cur ( ) . text == "exclusive"
 or cur ( ) . text == "retains" or cur ( ) . text == "releases" )
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name" then
 p . modeTok = add ( p , advance ( ) )
@@ -29246,7 +29567,7 @@ break
 end
 if cur ( ) . kind == "name"
 and ( cur ( ) . text == "takes" or cur ( ) . text == "borrows"
-or cur ( ) . text == "inout"
+or cur ( ) . text == "exclusive"
 or cur ( ) . text == "retains" or cur ( ) . text == "releases"
 or cur ( ) . text == "out" )
 and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name" then
@@ -30200,8 +30521,9 @@ returned as an owner, or converted with `intoRaw`. Forgetting is a compile error
 not a leak.
 
 Parameter modes say what a call does with what it is given: `takes` consumes,
-`borrows` does not (and the borrow cannot escape), `inout` mutates in place, and
-`retains`/`releases` describe C holding a pointer across a call.
+`borrows` does not (and the borrow cannot escape), `exclusive` borrows with no
+other view live, and `retains`/`releases` describe C holding a pointer across a
+call.
 ]=] ,
 example = [=[
 local m = {}
@@ -34675,6 +34997,992 @@ local encode: function(v: any): string
 local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
+]=],
+["/std/profile.nupp"] = [=[
+--[[
+Profiling, in two channels.
+
+  * `profile.sample` is the statistical sampler. A timer interrupts the program
+    and writes down where it was; what comes back is collapsed-stack text, the
+    format speedscope.app, FlameGraph.pl and inferno all read. It answers where
+    the time went.
+  * `profile.trace` watches the JIT give up. It aggregates trace aborts, so
+    blacklisted hot code, a bytecode the compiler will not record, and traces
+    that grew past a limit all become rows rather than silence. It answers
+    whether the time went there compiled or interpreted.
+
+The second question is the one a sampler cannot answer and the one that usually
+matters here: code the JIT refused is an order of magnitude slower than code it
+took, and nothing says so out loud.
+
+Both channels attribute work through `nupp.std.zone`, so a sample or an abort
+carries the zone path that was open when it happened. Both are process-wide
+rather than per-coroutine, and at most one session of each kind runs at a time.
+
+Neither is free. A sample session pays a timer interrupt, a stack walk and a
+table write at every interval; a trace session pays a callback at every abort,
+inside the compiler. Stop a session once the question it was opened for has an
+answer.
+
+    local profile = require("nupp.std.profile")
+
+    local session = profile.sample({intervalMs = 5})
+    render()
+    local report = session:stop("profile.out")
+    print(report.samples, report.stacks)
+]]
+
+local zone = require("nupp.std.zone")
+local jitProfile = require("jit.profile")
+local jitUtil = require("jit.util")
+local vmdef = require("jit.vmdef")
+
+local profile = {}
+
+--- What `profile.sample` collects, and how much of it. Every field is optional.
+type profile.SampleOptions = {
+    --- Milliseconds between samples; 10 by default, which is 100 a second.
+    --- Below about 10 the timer starts taking real time away from the thread it
+    --- is measuring, so lower it for a short window and read the result knowing
+    --- that it was paid for.
+    intervalMs: integer?,
+
+    --- How many frames to walk per sample; 16 by default. The walk is linear in
+    --- this and it happens on the interrupted thread, so raise it only when a
+    --- specific question needs the depth.
+    stackDepth: integer?,
+
+    --- Keep only the samples taken under a zone path starting with this, so
+    --- "frame/render" reads as that subtree alone.
+    ---
+    --- Applied at `stop` rather than while sampling: narrowing it costs nothing
+    --- at runtime, and widening it afterwards is not possible, because the
+    --- prefix is fixed when the session starts.
+    zone: string?,
+
+    --- The module the program starts at, as a stack frame names it. Everything
+    --- below the outermost frame from it is dropped.
+    ---
+    --- A profiler samples the whole stack it is embedded in, and what is under
+    --- the program — the loader that read it, the pcall that guards it — is
+    --- not the program. Naming its module cuts the report back to it.
+    ---
+    --- Frames read "<module>:<name>", so the module is the part to give. A
+    --- stack with no frame from it is kept whole rather than emptied, and two
+    --- stacks that differ only below the root become one, their counts summed.
+    root: string?,
+}
+
+--- What `profile.trace` counts. Every field is optional.
+type profile.TraceOptions = {
+    --- Include the aborts that are ordinary trace formation rather than a
+    --- refusal — leaving a loop, recursion, an inner loop. False by default;
+    --- turn it on when the question is why a particular trace never formed.
+    includeBenign: boolean?,
+}
+
+--- How much an abort is worth reading.
+---
+--- `blacklist` is always actionable: the code is demoted to the interpreter for
+--- the rest of the process. `warn` is a refusal that may or may not sit on a
+--- hot path. `info` is trace formation working as designed.
+enum profile.Severity
+    "blacklist"
+    "warn"
+    "info"
+end
+
+--- One distinct stack, and what landed on it.
+---
+--- A row of a `SampleReport`, built at `stop`. The five state counts sum to
+--- `count`.
+record profile.Sample
+    --- The zone path the samples were taken under, "" when none was open.
+    zonePath: string
+
+    --- The stack as `dumpstack` rendered it, ";" between frames, outermost
+    --- first.
+    stack: string
+
+    --- Samples on this stack, in every VM state.
+    count: integer
+
+    --- Samples running compiled machine code.
+    compiled: integer
+
+    --- Samples in the interpreter.
+    interpreted: integer
+
+    --- Samples inside a C function.
+    cCode: integer
+
+    --- Samples in the garbage collector.
+    collecting: integer
+
+    --- Samples inside the JIT compiler itself.
+    compiling: integer
+end
+
+--- What a sample session saw, as `SampleSession:stop` returns it.
+---
+--- `tostring` on it is the collapsed-stack text, so it prints and pipes
+--- directly.
+record profile.SampleReport
+    --- The interval the session ran at, so the sample counts can be read as
+    --- time.
+    intervalMs: integer
+
+    --- Samples recorded, after the zone filter.
+    samples: integer
+
+    --- Distinct stacks they fell on.
+    stacks: integer
+
+    --- One line per stack: semicolon-separated frames, a space, then the sample
+    --- count. Ordered by count descending. Empty when nothing was sampled,
+    --- which a short session and a zone prefix that matched nothing both
+    --- produce.
+    text: string
+
+    metamethod __tostring: function(self): string
+end
+
+--- A running sampler, as `profile.sample` returns it.
+---
+--- Live until `stop`, and there is at most one at a time. Dropping the handle
+--- without stopping leaves the timer running for the rest of the process.
+record profile.SampleSession
+    --- The interval it was started at.
+    intervalMs: integer
+
+    --- The zone prefix `stop` will filter by, or nil for all of them.
+    zoneFilter: string?
+
+    --- The module `stop` will cut the stacks back to, or nil to keep them
+    --- whole.
+    root: string?
+
+    --- Whether recording is suspended. The timer keeps firing.
+    paused: boolean
+
+    --- Whether `stop` has run.
+    stopped: boolean
+
+    --- Samples so far, by zone path and then by stack. Two levels rather than
+    --- one joined key, so a sample taken in a zone that has not changed since
+    --- the last one costs a single table lookup.
+    aggregate: {[string]: {[string]: profile.Sample}}
+end
+
+--- One place the JIT gave up, and how often it did.
+---
+--- A row of a `TraceReport`, built at `stop`.
+record profile.AbortSite
+    --- How much it is worth reading.
+    severity: profile.Severity
+
+    --- Times this exact severity, reason, location and zone fired.
+    count: integer
+
+    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is
+    --- rendered with the opcode's name.
+    reason: string
+
+    --- "<file>:<line>" of the function being recorded when it aborted.
+    location: string
+
+    --- The zone path that was open, "" when none was.
+    zonePath: string
+end
+
+--- What a trace session saw, as `TraceSession:stop` returns it.
+---
+--- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and
+--- diffs directly.
+record profile.TraceReport
+    --- Wallclock seconds the session was active, in whole seconds: it comes
+    --- from `os.time`, so a session shorter than one reads as zero and dividing
+    --- by it is the caller's problem.
+    durationSec: integer
+
+    --- Abort events recorded. Excludes the benign ones unless `includeBenign`
+    --- was set.
+    totalAborts: integer
+
+    --- Blacklist events among them. Always actionable.
+    blacklisted: integer
+
+    --- One row per distinct severity, reason, location and zone. Ordered by
+    --- severity, then by count descending.
+    sites: {profile.AbortSite}
+
+    metamethod __tostring: function(self): string
+end
+
+--- A running trace-abort collector, as `profile.trace` returns it.
+---
+--- Live until `stop`, and there is at most one at a time. Dropping the handle
+--- without stopping leaves the event hook attached for the rest of the process.
+record profile.TraceSession
+    --- Whether the benign trace-formation events are being counted.
+    includeBenign: boolean
+
+    --- `os.time` when the session started.
+    startedAt: integer
+
+    --- Whether aggregation is suspended. The hook stays attached.
+    paused: boolean
+
+    --- Whether `stop` has run.
+    stopped: boolean
+
+    --- Aborts so far, by severity, reason, location and zone joined.
+    sites: {[string]: profile.AbortSite}
+
+    --- Aborts counted so far.
+    totalAborts: integer
+
+    --- Blacklist events among them.
+    blacklisted: integer
+
+    --- The handler to hand back to `jit.attach` to detach it. Dropping the last
+    --- reference to a handler does not remove it.
+    callback: function(...: any)
+end
+
+-------------------------------------------------------------------------------
+-- Shared
+-------------------------------------------------------------------------------
+
+-- Writes `text` to `path`, replacing whatever was there. Raised errors carry
+-- the path, since the caller passed a name and a failure that does not repeat
+-- it says nothing about which name was wrong.
+local function writeFile(path: string, text: string)
+    local file, openReason = io.open(path, "w")
+    if not file then
+        error("profile: cannot write '" .. path .. "': "
+            .. (openReason or "unknown"), 3)
+    end
+    local written, writeReason = file:write(text)
+    if not written then
+        file:close()
+        error("profile: cannot write '" .. path .. "': "
+            .. (writeReason or "unknown"), 3)
+    end
+    local closed, closeReason = file:close()
+    if not closed then
+        error("profile: cannot close '" .. path .. "': "
+            .. (closeReason or "unknown"), 3)
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Sampling
+-------------------------------------------------------------------------------
+
+-- The zone path and the stack are joined with ";" and "/" respectively, and a
+-- collapsed-stack line ends at its first newline, so a frame carrying either
+-- would be read as two frames or as two lines. Nothing legitimately names a
+-- function this way; what does is a chunk loaded from a string.
+local function sanitize(frame: string): string
+    return (frame:gsub("[;/\n\r]", "_"))
+end
+
+-- The VM state the most samples on a stack were in, as the one character
+-- `jit.profile` reports it with. Ties go to the earlier test, which puts
+-- "compiled" ahead of the states that are all forms of not running the program.
+local function dominantState(sample: profile.Sample): string
+    local state, best = "N", sample.compiled
+    if sample.interpreted > best then state, best = "I", sample.interpreted end
+    if sample.cCode > best then state, best = "C", sample.cCode end
+    if sample.collecting > best then state, best = "G", sample.collecting end
+    if sample.compiling > best then state, best = "J", sample.compiling end
+    return state
+end
+
+-- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces
+-- are dropped: a zone path is "" when no zone is open, and dumpstack can render
+-- a frame it has no name for as nothing at all.
+local function appendFrames(frames: {string}, text: string, separator: string)
+    if text == "" then return end
+
+    local pattern = "[^" .. separator .. "]+"
+    for piece in text:gmatch(pattern) do
+        frames[#frames + 1] = sanitize(piece)
+    end
+end
+
+-- Collapsed-stack text: one line per stack, frames separated by ";", then a
+-- space and the sample count. The zone path leads, so a flame graph opens on
+-- the zones and drills into the code beneath each.
+--
+-- The leaf carries the dominant VM state as a "_[N]" suffix, the convention
+-- FlameGraph and speedscope already colour on. The letters are LuaJIT's own:
+-- N compiled, I interpreted, C in a C function, G collecting, J compiling.
+local function collapse(samples: {profile.Sample}): string
+    if #samples == 0 then return "" end
+
+    table.sort(samples, function(a: profile.Sample, b: profile.Sample): boolean
+        if a.count ~= b.count then return a.count > b.count end
+        if a.zonePath ~= b.zonePath then return a.zonePath < b.zonePath end
+        return a.stack < b.stack
+    end)
+
+    local lines: {string} = {}
+    for index = 1, #samples do
+        local sample = samples[index]
+        local frames: {string} = {}
+        appendFrames(frames, sample.zonePath, "/")
+        appendFrames(frames, sample.stack, ";")
+        if #frames == 0 then frames[1] = "<root>" end
+        frames[#frames] = frames[#frames] .. "_[" .. dominantState(sample) .. "]"
+        lines[index] = table.concat(frames, ";") .. " "
+            .. string.format("%d", sample.count)
+    end
+    return table.concat(lines, "\n")
+end
+
+-- Everything below the outermost frame belonging to `root` is what started the
+-- program rather than the program. Frames read "<module>:<name>", so the module
+-- is matched at a frame boundary; a substring match anywhere would cut a stack
+-- at a function that merely mentions the name.
+--
+-- A stack with no frame from `root` is left whole. That is the honest answer
+-- for a sample taken before the program was entered, or after it returned.
+local function trimToRoot(stack: string, root: string): string
+    local prefix = root .. ":"
+    local from = 1
+    while from <= #stack do
+        if stack:sub(from, from + #prefix - 1) == prefix then
+            return stack:sub(from)
+        end
+        local nextFrame = stack:find(";", from, true)
+        if not nextFrame then return stack end
+        from = nextFrame + 1
+    end
+    return stack
+end
+
+-- One session at a time: the profiler is a process-wide singleton, and starting
+-- a second would silently replace the first's callback while its handle still
+-- looked live.
+local sampling = false
+
+--- Starts sampling.
+---
+--- @param options omitted samples every zone at 10 ms to a depth of 16
+--- @return the handle whose `stop` produces the report
+--- @raises when a sample session is already running
+function profile.sample(options: profile.SampleOptions?): profile.SampleSession
+    if sampling then
+        error("profile.sample: a sample session is already running; stop it first", 2)
+    end
+
+    local opts: profile.SampleOptions = options or {}
+    local intervalMs = opts.intervalMs or 10
+    if intervalMs < 1 then
+        error("profile.sample: intervalMs must be at least 1", 2)
+    end
+    local stackDepth = opts.stackDepth or 16
+    if stackDepth < 1 then
+        error("profile.sample: stackDepth must be at least 1", 2)
+    end
+
+    local session = profile.SampleSession{
+        intervalMs = intervalMs,
+        zoneFilter = opts.zone,
+        root = opts.root,
+        paused = false,
+        stopped = false,
+        aggregate = {},
+    }
+
+    -- Negative, so the walk runs outermost frame first: that is the order a
+    -- collapsed stack is written in, and reversing it here would mean building
+    -- a list per sample on the interrupted thread.
+    local walk = -stackDepth
+    local aggregate = session.aggregate
+    -- The zone path is a string the zone module holds onto until the stack
+    -- changes, so consecutive samples in one zone hit the same table entry
+    -- without hashing a fresh key.
+    local cachedPath = ""
+    local cachedStacks: {[string]: profile.Sample} = {}
+    aggregate[cachedPath] = cachedStacks
+
+    local function record(thread: any, samples: integer, vmstate: string)
+        if session.paused then return end
+
+        local path = zone.path()
+        if path ~= cachedPath then
+            local stacks = aggregate[path]
+            if not stacks then
+                stacks = {}
+                aggregate[path] = stacks
+            end
+            cachedPath, cachedStacks = path, stacks
+        end
+
+        -- Only meaningful for the thread this callback was handed, and only
+        -- while it is running.
+        local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
+        local sample = cachedStacks[stack]
+        if not sample then
+            sample = profile.Sample{
+                zonePath = path, stack = stack, count = 0,
+                compiled = 0, interpreted = 0, cCode = 0,
+                collecting = 0, compiling = 0,
+            }
+            cachedStacks[stack] = sample
+        end
+
+        sample.count = sample.count + samples
+        if vmstate == "N" then sample.compiled = sample.compiled + samples
+        elseif vmstate == "I" then sample.interpreted = sample.interpreted + samples
+        elseif vmstate == "C" then sample.cCode = sample.cCode + samples
+        elseif vmstate == "G" then sample.collecting = sample.collecting + samples
+        elseif vmstate == "J" then sample.compiling = sample.compiling + samples
+        end
+    end
+
+    zone.acquire()
+    -- "l" keys the sampler on the source line, which is the finest thing it
+    -- coalesces on: consecutive samples sharing a key arrive as one call
+    -- carrying their count, so anything coarser would attribute a run of
+    -- samples to whichever stack the last of them was on. "i<n>" is the
+    -- interval. The stack and the VM state arrive either way.
+    jitProfile.start("li" .. string.format("%d", intervalMs), record)
+    sampling = true
+    return session
+end
+
+--- Stops recording without ending the session. The timer keeps firing, at the
+--- cost of one test per sample, and what was recorded on either side of the
+--- pause is kept — which is how a benchmark leaves its setup out.
+---
+--- Idempotent.
+---
+--- @raises once the session has stopped
+function profile.SampleSession:pause()
+    if self.stopped then
+        error("SampleSession:pause: the session has already stopped", 2)
+    end
+    self.paused = true
+end
+
+--- Resumes recording. Idempotent.
+---
+--- @raises once the session has stopped
+function profile.SampleSession:resume()
+    if self.stopped then
+        error("SampleSession:resume: the session has already stopped", 2)
+    end
+    self.paused = false
+end
+
+--- Ends the session and reports what it saw.
+---
+--- @param filename also write the collapsed-stack text there, replacing
+---     whatever was in it
+--- @return the report, whose `tostring` is that same text
+--- @raises once the session has stopped, so it cannot be called twice
+function profile.SampleSession:stop(filename: string?): profile.SampleReport
+    if self.stopped then
+        error("SampleSession:stop: the session has already stopped", 2)
+    end
+    self.stopped = true
+    jitProfile.stop()
+    sampling = false
+    zone.release()
+
+    local prefix = self.zoneFilter
+    local root = self.root
+    local kept: {profile.Sample} = {}
+    local samples: integer = 0
+    -- Trimming can bring two stacks together, when what they differed in was
+    -- only what started them, so the rows are merged rather than the first one
+    -- standing for both. The key holds a NUL because a zone name and a frame
+    -- can hold anything else.
+    local merged: {[string]: profile.Sample} = {}
+    for path, stacks in pairs(self.aggregate) do
+        if not prefix or path:sub(1, #prefix) == prefix then
+            for _, sample in pairs(stacks) do
+                samples = samples + sample.count
+                local stack = root and trimToRoot(sample.stack, root)
+                    or sample.stack
+                local row = merged[path .. "\0" .. stack]
+                if not row then
+                    row = profile.Sample{
+                        zonePath = path, stack = stack, count = 0,
+                        compiled = 0, interpreted = 0, cCode = 0,
+                        collecting = 0, compiling = 0,
+                    }
+                    merged[path .. "\0" .. stack] = row
+                    kept[#kept + 1] = row
+                end
+                row.count = row.count + sample.count
+                row.compiled = row.compiled + sample.compiled
+                row.interpreted = row.interpreted + sample.interpreted
+                row.cCode = row.cCode + sample.cCode
+                row.collecting = row.collecting + sample.collecting
+                row.compiling = row.compiling + sample.compiling
+            end
+        end
+    end
+
+    local report = profile.SampleReport{
+        intervalMs = self.intervalMs,
+        samples = samples,
+        stacks = #kept,
+        text = collapse(kept),
+    }
+    if filename then writeFile(filename, report.text) end
+    return report
+end
+
+-------------------------------------------------------------------------------
+-- Trace aborts
+-------------------------------------------------------------------------------
+
+local traceerr = vmdef.traceerr
+local bcnames = vmdef.bcnames
+
+-- Opcode names come packed six characters each and space-padded, so the name is
+-- the slice with its padding trimmed.
+local function opcodeName(opcode: integer): string
+    local start = opcode * 6 + 1
+    return (bcnames:sub(start, start + 5):gsub("%s+$", ""))
+end
+
+-- The reason a trace aborted, as text. `traceerr` holds format strings, and the
+-- argument that fills one in is the abort's own second operand — an opcode for
+-- the unrecordable-bytecode errors, a number or a string for the rest.
+local function abortReason(errorCode: any, errorArg: any): string
+    if not errorCode then return "abort" end
+
+    local format = traceerr[errorCode as integer]
+    if not format then
+        return "error " .. tostring(errorCode)
+    end
+    if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
+        return "NYI: bytecode " .. opcodeName(errorArg as integer)
+    end
+    if errorArg == nil then return format end
+
+    local ok, filled = pcall(string.format, format, errorArg)
+    return ok and filled as string or format
+end
+
+-- Trace formation reports the ordinary as an abort too: a loop that was left,
+-- recursion in either direction, an inner loop found. None of those is the
+-- compiler refusing anything, so they are separated out rather than counted.
+local function classify(reason: string): profile.Severity
+    if reason:find("blacklist", 1, true) then return "blacklist" end
+    if reason:find("leaving loop", 1, true) then return "info" end
+    if reason:find("inner loop", 1, true) then return "info" end
+    if reason:find("down-recursion", 1, true) then return "info" end
+    if reason:find("up-recursion", 1, true) then return "info" end
+    return "warn"
+end
+
+local function severityRank(severity: profile.Severity): integer
+    if severity == "blacklist" then
+        return 0
+    elseif severity == "warn" then
+        return 1
+    else
+        return 2
+    end
+end
+
+-- Lua prefixes a file source with "@", and the function descriptions inherit
+-- it. Strip it so a row reads "path:line". A source that is not a file — "[C]",
+-- a loaded string — does not carry the prefix and is left as it is.
+local function trimSource(source: string): string
+    if source:sub(1, 1) == "@" then return source:sub(2) end
+    return source
+end
+
+-- Where the compiler was when it gave up. `funcinfo` knows the bytecode
+-- position, so it can name the line inside the function rather than the line
+-- the function started on; `debug.getinfo` is the fallback for the case where
+-- it answers nothing useful.
+local function describeLocation(func: any, pc: any): string
+    if func then
+        local ok, info = pcall(jitUtil.funcinfo, func, pc as integer)
+        if ok and info then
+            local described = info as {[string]: any}
+            local source = described.short_src or described.source or "?"
+            local line = described.currentline or described.linedefined or 0
+            return string.format("%s:%d", trimSource(source as string),
+                line as integer)
+        end
+    end
+    if type(func) == "function" then
+        local info = debug.getinfo(func, "S")
+        return string.format("%s:%d", trimSource(info and info.short_src or "?"),
+            (info and info.linedefined or 0) as integer)
+    end
+    return "?:0"
+end
+
+-- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an
+-- embedded quote is doubled. In practice only `reason` ever needs it.
+local function csvField(text: string): string
+    if text:find("[,\"\n\r]") then
+        return "\"" .. text:gsub("\"", "\"\"") .. "\""
+    end
+    return text
+end
+
+local function serializeTraceReport(report: profile.TraceReport): string
+    local lines: {string} = {"severity,count,reason,location,zone"}
+    for index = 1, #report.sites do
+        local site = report.sites[index]
+        lines[#lines + 1] = table.concat({
+            site.severity,
+            string.format("%d", site.count),
+            csvField(site.reason),
+            csvField(site.location),
+            csvField(site.zonePath),
+        }, ",")
+    end
+    return table.concat(lines, "\n")
+end
+
+-- A record's namespace table is the metatable its instances are stamped with,
+-- so installing a declared contract is an ordinary assignment to it. The cast
+-- is because the contract is not a field: see docs/metamethods.md.
+(profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
+
+(profile.SampleReport as {[string]: any}).__tostring =
+    function(report: profile.SampleReport): string return report.text end
+
+local tracing = false
+
+--- Starts collecting trace aborts.
+---
+--- @param options omitted leaves the benign trace-formation events out
+--- @return the handle whose `stop` produces the report
+--- @raises when a trace session is already running
+function profile.trace(options: profile.TraceOptions?): profile.TraceSession
+    if tracing then
+        error("profile.trace: a trace session is already running; stop it first", 2)
+    end
+
+    local opts: profile.TraceOptions = options or {}
+    local session = profile.TraceSession{
+        includeBenign = opts.includeBenign or false,
+        startedAt = os.time() as integer,
+        paused = false,
+        stopped = false,
+        sites = {},
+        totalAborts = 0,
+        blacklisted = 0,
+        callback = function() end,
+    }
+
+    -- Variadic because `jit.attach` hands each event its own arguments; a
+    -- "trace" event's are what this unpacks. The trace number is the one this
+    -- does not need: what identifies a site is where the compiler was, not
+    -- which attempt it was on.
+    local function onTraceEvent(...: any)
+        local what, _, func, pc, errorCode, errorArg = ...
+        if what ~= "abort" or session.paused then return end
+
+        local reason = abortReason(errorCode, errorArg)
+        local severity = classify(reason)
+        if severity == "info" and not session.includeBenign then return end
+
+        session.totalAborts = session.totalAborts + 1
+        if severity == "blacklist" then
+            session.blacklisted = session.blacklisted + 1
+        end
+
+        local location = describeLocation(func, pc)
+        local path = zone.path()
+        local key = severity .. "|" .. reason .. "|" .. location .. "|" .. path
+        local site = session.sites[key]
+        if site then
+            site.count = site.count + 1
+        else
+            session.sites[key] = profile.AbortSite{
+                severity = severity, count = 1, reason = reason,
+                location = location, zonePath = path,
+            }
+        end
+    end
+
+    session.callback = onTraceEvent
+    zone.acquire()
+    jit.attach(onTraceEvent, "trace")
+    tracing = true
+    return session
+end
+
+--- Stops counting without ending the session. The hook stays attached, at the
+--- cost of one test per abort, and what was counted on either side of the pause
+--- is kept.
+---
+--- Idempotent.
+---
+--- @raises once the session has stopped
+function profile.TraceSession:pause()
+    if self.stopped then
+        error("TraceSession:pause: the session has already stopped", 2)
+    end
+    self.paused = true
+end
+
+--- Resumes counting. Idempotent.
+---
+--- @raises once the session has stopped
+function profile.TraceSession:resume()
+    if self.stopped then
+        error("TraceSession:resume: the session has already stopped", 2)
+    end
+    self.paused = false
+end
+
+--- Ends the session and reports what it saw.
+---
+--- @param filename also write the CSV there, replacing whatever was in it
+--- @return the report, whose `tostring` is that CSV
+--- @raises once the session has stopped, so it cannot be called twice
+function profile.TraceSession:stop(filename: string?): profile.TraceReport
+    if self.stopped then
+        error("TraceSession:stop: the session has already stopped", 2)
+    end
+    self.stopped = true
+    -- No event names the handler to remove.
+    jit.attach(self.callback)
+    tracing = false
+    zone.release()
+
+    local sites: {profile.AbortSite} = {}
+    for _, site in pairs(self.sites) do sites[#sites + 1] = site end
+    table.sort(sites, function(a: profile.AbortSite, b: profile.AbortSite): boolean
+        local left, right = severityRank(a.severity), severityRank(b.severity)
+        if left ~= right then return left < right end
+        if a.count ~= b.count then return a.count > b.count end
+        if a.reason ~= b.reason then return a.reason < b.reason end
+        return a.location < b.location
+    end)
+
+    local report = profile.TraceReport{
+        durationSec = (os.time() as integer) - self.startedAt,
+        totalAborts = self.totalAborts,
+        blacklisted = self.blacklisted,
+        sites = sites,
+    }
+    if filename then writeFile(filename, tostring(report)) end
+    return report
+end
+
+return profile
+]=],
+["/std/resources.nupp"] = [=[
+--[[
+Owning wrappers for Lua's file handles.
+
+`io.open` hands back a borrowed handle, which means nothing has to close it and
+nothing complains when nobody does. These are the same calls annotated as owners,
+so the checker knows a handle must be discharged and a `with` scope can do it —
+on fallthrough, on error, and on structured control flow alike.
+
+See `docs/ownership.md` and `docs/with.md`.
+]]
+
+local resources = {}
+
+local function close_file(file: LuaFile)
+    local ok, reason = file:close()
+    if not ok then
+        error(reason or "file close failed")
+    end
+end
+
+@owned(close_file)
+function resources.open_file(path: string, mode: string?): LuaFile
+    local file, reason = io.open(path, mode)
+    if not file then
+        error(reason or "file open failed")
+    end
+    return file
+end
+
+@owned(close_file)
+function resources.open_process(command: string, mode: string?): LuaFile
+    local file, reason = io.popen(command, mode)
+    if not file then
+        error(reason or "process open failed")
+    end
+    return file
+end
+
+@owned(close_file)
+function resources.temporary_file(): LuaFile
+    local file = io.tmpfile()
+    if not file then
+        error("temporary file creation failed")
+    end
+    return file
+end
+
+return resources
+]=],
+["/std/zone.nupp"] = [=[
+--[[
+Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
+it.
+
+Stock `jit.zone` pushes and pops whether or not anything is listening. Skipping
+that is worth doing, but it is not the main cost: a zone marker is a call inside
+the code being measured, and calls in a hot path abort traces. Mark warm paths,
+not the hottest ones.
+
+`jit.zone` itself is left alone. Replacing its `__call` with a no-op would
+silently blank every other user of the one global stack, `luajit -jp=z` included.
+The trade is that while a session is held this is the only writer: a direct
+`jit.zone` push in that window is overwritten.
+
+`acquire` and `release` are counted, so several channels can share one stack.
+This is process-wide, not per-coroutine.
+]]
+
+local zone = {}
+
+-- The array part is what the profiler reads, so writing it directly is what
+-- it sees.
+local stack = require("jit.zone") as {string}
+
+-- Annotated: an unannotated integer binding widens to number, and these index
+-- the stack.
+local references: integer = 0
+local active = false
+local generation: integer = 0
+local depth: integer = 0
+
+-- Bumped by every change to the stack, so `path` can tell whether the string it
+-- built last time still describes it.
+local version: integer = 0
+local pathVersion: integer = -1
+local pathText = ""
+local pathBuffer: {string} = {}
+
+--- Whether pushes and pops are being recorded.
+function zone.isActive(): boolean
+    return active
+end
+
+--- How many zones are pushed. Zero when inactive.
+function zone.depth(): integer
+    return depth
+end
+
+--- Starts recording, or joins a recording in progress. Needs a matching
+--- `release`. The first caller clears the stack and opens a new generation,
+--- so tokens from an earlier session cannot pop into this one.
+function zone.acquire()
+    references = references + 1
+    if references > 1 then return end
+
+    for index = #stack, 1, -1 do stack[index] = nil end
+    depth = 0
+    version = version + 1
+    generation = generation + 1
+    active = true
+end
+
+--- Releases one `acquire`; the last empties the stack. Releasing nothing is
+--- ignored, so a teardown that runs twice is harmless.
+function zone.release()
+    if references == 0 then return end
+
+    references = references - 1
+    if references > 0 then return end
+
+    for index = #stack, 1, -1 do stack[index] = nil end
+    depth = 0
+    version = version + 1
+    active = false
+end
+
+--- Pushes a zone. A no-op while inactive.
+function zone.push(name: string)
+    if not active then return end
+
+    depth = depth + 1
+    stack[depth] = name
+    version = version + 1
+end
+
+--- Pops the innermost zone, or nil when inactive or empty. Empty is not an
+--- error: a profile can start or stop part-way through a frame, leaving half
+--- a pair outside the session.
+function zone.pop(): string?
+    if not active or depth == 0 then return nil end
+
+    local name = stack[depth]
+    stack[depth] = nil
+    depth = depth - 1
+    version = version + 1
+    return name
+end
+
+--- The innermost zone, without popping it.
+function zone.current(): string?
+    if depth == 0 then return nil end
+    return stack[depth]
+end
+
+--- The pushed zones joined with "/", outermost first, or "" when none are.
+---
+--- Cached until the stack next changes, so reading it repeatedly between two
+--- pushes costs a comparison. That is worth the two words it takes: a profiler
+--- reads this from the sampling callback, on the thread it interrupted, and a
+--- string built fresh there is an allocation charged to whatever the program
+--- happened to be doing — which the same profiler then reports as collector
+--- time the program did not spend.
+function zone.path(): string
+    if version == pathVersion then return pathText end
+
+    if depth == 0 then
+        pathText = ""
+    else
+        for index = 1, depth do pathBuffer[index] = stack[index] end
+        pathText = table.concat(pathBuffer, "/", 1, depth)
+    end
+    pathVersion = version
+    return pathText
+end
+
+--- Pushes a zone and returns a token for `leave`, or 0 when inactive.
+---
+--- The paired form, for a `leave` that may run after its session ended —
+--- usually a coroutine resumed after a profile stopped. The token carries the
+--- generation, so a late `leave` is discarded rather than popping someone
+--- else's zone.
+function zone.enter(name: string): integer
+    if not active then return 0 end
+
+    depth = depth + 1
+    stack[depth] = name
+    version = version + 1
+    return generation
+end
+
+--- Closes a zone opened by `enter`. A zero token, a stale generation, or an
+--- empty stack are all ignored.
+function zone.leave(token: integer)
+    if token == 0 or not active or token ~= generation then return end
+    if depth == 0 then return end
+
+    stack[depth] = nil
+    depth = depth - 1
+    version = version + 1
+end
+
+return zone
 ]=],
 }
 end
