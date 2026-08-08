@@ -14,8 +14,9 @@ local command = spec.command{
     name = "build",
     summary = "Build source files or a configured project target",
     usage = {
-        "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]",
-        "nupp build [--strict] [-O<n>] [-o DIR] <file...>",
+        "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]"
+            .. " [--format text|json]",
+        "nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>",
     },
     options = optionsMod.join(
         {name = "--target", value = "NAME", help = "Build a named manifest target"},

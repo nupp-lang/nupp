@@ -15,15 +15,33 @@ local FORMATS: {[string]: string} = {
 local command = spec.command{
     name = "doc",
     summary = "Generate API documentation from source comments",
-    usage = {"nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [path...]"},
-    options = {
+    usage = {"nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all]"
+        .. " [--format text|json] [path...]"},
+    options = require("nupp.cli.options").join(
         {names = {"-o", "--output"}, value = "PATH", key = "output",
             help = "Output file or directory"},
         {name = "--title", value = "TITLE", help = "Documentation title"},
         {name = "--all", help = "Include private declarations"},
+        require("nupp.cli.options").format()),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean"},
+            format = {type = "string",
+                description = "The resolved format: site, markdown, or both."},
+            output = {type = "string",
+                description = "The file or directory the run was pointed at."},
+            files = {type = "array", items = {type = "string"},
+                description = "Every path written. A file whose contents did "
+                    .. "not change is not rewritten and is not listed."},
+        },
+        required = {"ok", "format", "output", "files"},
     },
     detail = [[The first argument may name the format: site, markdown (or md), or both.
-With none, the manifest's configured format is used, and site if it has none.]],
+With none, the manifest's configured format is used, and site if it has none.
+
+--format names the shape of this command's own report and is unrelated to the
+documentation format, which is the positional word.]],
 }
 
 local function run(parsed: any): integer
@@ -54,7 +72,15 @@ local function run(parsed: any): integer
     if values.all then
         settings.all = true
     end
-    return doc.build(".", config, settings, opts)
+    local asJson = values.format == "json"
+    local written: {string} = {}
+    if asJson then opts.written = written end
+    local code, output, resolved = doc.build(".", config, settings, opts)
+    if asJson then
+        require("nupp.cli.report").write({ok = code == 0, files = written,
+            output = output or "", format = resolved or ""})
+    end
+    return code
 end
 
 return spec.Handler{spec = command, run = run}

@@ -11,7 +11,7 @@ local spec = require("nupp.cli.spec")
 local command = spec.command{
     name = "clean",
     summary = "Remove build outputs configured in nupp.lua",
-    usage = {"nupp clean [--target NAME] [--dry-run]"},
+    usage = {"nupp clean [--target NAME] [--dry-run] [--format text|json]"},
     options = require("nupp.cli.options").join(
         {name = "--target", value = "NAME",
             help = "Clean only the named build target"},

@@ -351,21 +351,27 @@ function doc.build(root, config, settings, opts)
     local output = normalize(opts.output or settings.outDir
         or (format == "markdown" and "docs/api.md" or "build/docs"))
     output = join(root, output)
+    -- Recording is on for the writes below and off again before returning, so a
+    -- later caller without a collector cannot inherit this one's.
+    filesMod.collect(opts.written)
+    local code, message = 0, nil
     if format == "markdown" then
         local ok, err = writeFile(output, doc.markdown(modules, title))
-        if not ok then io.stderr:write("nupp: " .. tostring(err) .. "\n"); return 1 end
+        if not ok then code, message = 1, tostring(err) end
     elseif format == "site" then
         local ok, err = renderSite(root, output, modules, title, settings)
-        if not ok then io.stderr:write("nupp: " .. tostring(err) .. "\n"); return 1 end
+        if not ok then code, message = 1, tostring(err) end
     elseif format == "both" then
         local ok, err = renderSite(root, output, modules, title, settings)
         if ok then ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title)) end
-        if not ok then io.stderr:write("nupp: " .. tostring(err) .. "\n"); return 1 end
+        if not ok then code, message = 1, tostring(err) end
     else
-        io.stderr:write("nupp: documentation format must be site, markdown, or both\n")
-        return 2
+        code = 2
+        message = "documentation format must be site, markdown, or both"
     end
-    return 0
+    filesMod.collect(nil)
+    if message then io.stderr:write("nupp: " .. message .. "\n") end
+    return code, output, format
 end
 
 --- The documentation settings a manifest configured, either as its own `docs`

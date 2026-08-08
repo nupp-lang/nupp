@@ -30,9 +30,8 @@ Status: pre-0.1, with the typed checker, incremental query core, C interop,
 and editor tooling under active development. The resource model also covers
 default `@dispose` operations, affine records, checked owned/borrowed C output
 parameters, parameter-effect inference, and raw coroutine suspension. See
-[docs/ownership.md](docs/ownership.md) for the complete contract reference,
-[docs/ownership-migration.md](docs/ownership-migration.md) for the vocabulary
-migration, and [plans/plan.md](plans/plan.md) for the broader roadmap.
+[docs/ownership.md](docs/ownership.md) for the complete contract reference and
+[plans/plan.md](plans/plan.md) for the broader roadmap.
 
     nupp ast [--json] <file>    dump an indented parsed syntax tree
     nupp check [file...]        check files, or the manifest project graph

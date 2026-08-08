@@ -86,19 +86,6 @@ type lsp.Session = {
 -- The codec and its array marker are configured once, on the wire.
 local json = wire.json
 
--- Diagnostics a build refuses but an editor should not shout about. They are errors
--- because the program does not work; they are warnings here because a file being typed
--- into is half-written by definition, and the missing half is usually the next thing
--- the author writes. The level to show a lint at while it is being typed, when that
--- differs from the level a build enforces.
-local EDITOR_ADVICE = {
-    ["NUPP2120"] = "warning", -- a project module used without requiring it
-}
-
-local PROTOCOL_SEVERITY = {
-    error = 1, warning = 2, note = 3, -- 3 is Information
-}
-
 --- Creates one language-server session whose outgoing protocol messages are handed to
 --- `emit`. The stdio server and the command-line language operations share this session
 --- so there is only one implementation of semantic behavior.

@@ -11,7 +11,8 @@ local spec = require("nupp.cli.spec")
 local command = spec.command{
     name = "import-c",
     summary = "Generate typed Nupp bindings from a C header",
-    usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] <header.h>"},
+    usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]"
+        .. " <header.h>"},
     options = require("nupp.cli.options").join(
         {name = "-o", value = "FILE", key = "out",
             help = "Write the generated module to FILE"},

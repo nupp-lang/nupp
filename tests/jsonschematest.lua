@@ -187,6 +187,16 @@ function M.cleanOutputMatchesItsSchema()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.docOutputMatchesItsSchema()
+   local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n',
+      ["good.nupp"] = "--- A point in the plane.\nglobal record Point\n"
+         .. "    x: number\nend\n"})
+   local decoded = agrees(dir, "doc markdown -o out/api.md")
+   assert(decoded.format == "markdown", "the resolved format is reported")
+   assert(#decoded.files > 0, "and every path it wrote")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.lspOperationsMatchTheirOwnSchemas()
    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n',
       ["lib.nupp"] = "local lib = {}\n\n--- Double a value.\n"

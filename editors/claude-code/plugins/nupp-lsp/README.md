@@ -23,15 +23,16 @@ directory, so it takes the project root from there and reads `nupp.lua` for the
 ## What Claude Code gets
 
 Of the operations Claude Code's LSP tool offers, the server answers
-`goToDefinition`, `findReferences`, and `hover`. References run over the whole
-project rather than the open documents.
+`goToDefinition`, `findReferences`, `hover`, `documentSymbol`, and
+`workspaceSymbol`. References and workspace symbols run over the whole project
+rather than the open documents.
 
-`documentSymbol`, `workspaceSymbol`, `goToImplementation` and the call
-hierarchy are not implemented yet and return a method-not-found error; see
+`goToImplementation` and the call hierarchy have no handler and return a
+method-not-found error; see
 [plan.md](../../../../plans/plan.md#lsp-follow-up). The server also serves
-diagnostics, completion, signature help, rename, semantic tokens, formatting,
-and code actions, which that tool does not expose but an editor client does —
-see [editors/vscode](../../../vscode).
+diagnostics, completion, signature help, rename, semantic tokens, folding,
+selection ranges, formatting, and code actions, which that tool does not expose
+but an editor client does — see [editors/vscode](../../../vscode).
 
 ## Installing
 

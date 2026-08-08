@@ -12,7 +12,8 @@ local spec = require("nupp.cli.spec")
 local command = spec.command{
     name = "fixpoint",
     summary = "Verify a byte-identical self-hosting rebuild",
-    usage = {"nupp fixpoint [--update-bootstrap]", "nupp fixpoint --binary"},
+    usage = {"nupp fixpoint [--update-bootstrap] [--format text|json]",
+        "nupp fixpoint --binary [--format text|json]"},
     intro = [[By default the compiler compiles itself twice and the two must agree.
 
 --binary makes the same claim about packaging: the target named by

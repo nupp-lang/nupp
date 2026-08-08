@@ -12,7 +12,7 @@ local ansi = require("nupp.ansi")
 local command = spec.command{
     name = "lints",
     summary = "List the lints and the level each runs at",
-    usage = {"nupp lints"},
+    usage = {"nupp lints [--format text|json]"},
     intro = [[Levels are off, note, warning and error; only an error stops a build. A
 project moves one in nupp.lua by name or by category:
 

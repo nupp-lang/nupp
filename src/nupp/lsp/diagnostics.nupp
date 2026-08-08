@@ -22,7 +22,11 @@ local readFile = text.readFile
 
 local diagnostics = {}
 
--- Diagnostics a build refuses but an editor should not shout about.
+-- Diagnostics a build refuses but an editor should not shout about. They are errors
+-- because the program does not work; they are warnings here because a file being typed
+-- into is half-written by definition, and the missing half is usually the next thing
+-- the author writes. This is the only place the two levels differ, so it is the only
+-- place that knows they can.
 local EDITOR_ADVICE = {
     ["NUPP2120"] = "warning", -- a project module used without requiring it
 }

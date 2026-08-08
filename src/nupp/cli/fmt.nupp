@@ -16,7 +16,7 @@ local spec = require("nupp.cli.spec")
 local command = spec.command{
     name = "fmt",
     summary = "Format Nupp source",
-    usage = {"nupp fmt [-w|--write] [--check] [file...]"},
+    usage = {"nupp fmt [-w|--write] [--check] [--format text|json] [file...]"},
     intro = [[With files named, each is formatted to stdout, or rewritten with --write.
 
 With none, the project is the subject: every .nupp and .d.nupp under the
