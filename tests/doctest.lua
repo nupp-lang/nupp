@@ -388,6 +388,10 @@ function M.siteMatchesTheNuppdocPageModel()
          "",
          "Human-readable setup instructions.",
          "",
+         "::: note Before you begin",
+         "Use **Lunamark** inside this callout.",
+         ":::",
+         "",
          "## Checked workflows",
          "",
          "Build and run the example.",
@@ -474,6 +478,12 @@ function M.siteMatchesTheNuppdocPageModel()
       "Scintillua did not highlight GLSL")
    assert(guide:find('class="nuppdoc-code-group" role="radiogroup"',
       1, true), "code tabs missing")
+   assert(guide:find('class="nuppdoc-admonition nuppdoc-admonition-note"',
+      1, true), "admonition missing")
+   assert(guide:find('<p class="nuppdoc-admonition-title">Before you begin</p>',
+      1, true), guide)
+   assert(guide:find("Use <strong>Lunamark</strong> inside this callout.",
+      1, true), guide)
    assert(guide:find('class="nuppdoc-code-tab"', 1, true),
       "code-tab labels missing")
    assert(guide:find('class="nuppdoc-code-block has-line-numbers"', 1, true), guide)
@@ -548,6 +558,7 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(css:find("%-%-nuppdoc%-hero%-glow%-color"), css)
    assert(css:find("color%-mix%(in srgb,var%(%-%-nuppdoc%-hero%-glow%-color%)"), css)
    assert(css:find("nuppdoc%-code%-tab%-input:checked"), css)
+   assert(css:find("nuppdoc%-admonition%-warning"), css)
    assert(css:find("@media print", 1, true), css)
    assert(css:find("%-%-example%-project%-accent:#315f58"), css)
    assert(css:find("clip%-path:circle%(50%% at 50%% 50%%%)"), css)
@@ -604,6 +615,41 @@ function M.fencedBlocksKeepTheirOptions()
    assert(group:find(">two</label>", 1, true), group)
    -- and the prose on the far side of the block is still prose
    assert(group:find("<p>after</p>", 1, true), group)
+end
+
+-- Lunamark does not parse `:::` containers itself. The container is lifted out,
+-- while its body goes through the same Lunamark parser as the surrounding page.
+function M.admonitionsKeepLunamarkMarkdown()
+   local html = require("nupp.doc.html")
+   local out = html.markdownHtml(table.concat({
+      "::: warning Check this <title>",
+      "Use **strong text**, [a link](https://example.com), and a list:",
+      "",
+      "- first",
+      "- second",
+      ":::",
+      "",
+      "after",
+   }, "\n"), {})
+   assert(out:find('class="nuppdoc-admonition nuppdoc-admonition-warning"',
+      1, true), out)
+   assert(out:find('aria-label="Check this &lt;title&gt;"', 1, true), out)
+   assert(out:find("<strong>strong text</strong>", 1, true), out)
+   assert(out:find('<a href="https://example.com">a link</a>', 1, true), out)
+   assert(out:find("<li>first</li>", 1, true), out)
+   assert(out:find("<p>after</p>", 1, true), out)
+
+   local default = html.markdownHtml("::: tip\nUseful.\n:::", {})
+   assert(default:find(">Tip</p>", 1, true), default)
+
+   local nested = html.markdownHtml(table.concat({
+      "::: note", "Outside.", "", "::: tip", "Inside.", ":::", "",
+      "```text", ":::", "```", ":::",
+   }, "\n"), {})
+   assert(nested:find("nuppdoc-admonition-note", 1, true), nested)
+   assert(nested:find("nuppdoc-admonition-tip", 1, true), nested)
+   assert(nested:find("nuppdoc-code-block", 1, true), nested)
+   assert(nested:find(":::<", 1, true), nested)
 end
 
 -- The id is Nupp's slug rather than lunamark's, and each heading keeps the

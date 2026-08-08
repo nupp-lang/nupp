@@ -150,6 +150,18 @@ local Point = {} Point.__index = Point
 :::
 ````
 
+**Admonitions**, whose bodies remain ordinary Lunamark Markdown:
+
+````
+::: note Optional title
+Use **normal Markdown** here, including links, lists, and fenced code.
+:::
+````
+
+The supported kinds are `note`, `info`, `tip`, `warning`, and `danger`. Omit
+the title to use the capitalized kind. Containers may nest, and a fenced code
+block containing `:::` does not close its admonition.
+
 **File embeds**, which read a file at build time:
 
 ```

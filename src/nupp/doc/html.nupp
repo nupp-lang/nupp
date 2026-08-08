@@ -5,15 +5,17 @@ The markdown itself is lunamark's, which is a PEG grammar rather than a pile of
 patterns, and so gets the things patterns get wrong: nested emphasis, escapes,
 a link whose URL contains a bracket, a `*` inside a code span.
 
-What is not lunamark's is the fenced blocks. A fence here carries more than a
-language — an optional `[caption]`, `:line-numbers` with an optional start — and
-a `::: code-group` gathers several fences into one tabbed widget. Rather than
-teach a markdown grammar about any of that, every fenced region is lifted out
-before lunamark sees the document and an HTML comment is left in its place;
-markdown does not touch a comment, so the rendered block goes back exactly where
-it came from afterwards. Reading the fences here also avoids the trap of reading
-them back out of the output, where the whole info string has been folded into
-one class attribute and `lua [caption]` no longer matches `lua`.
+What is not lunamark's is the fenced blocks and `:::` containers. A fence here
+carries more than a language — an optional `[caption]`, `:line-numbers` with an
+optional start — and a `::: code-group` gathers several fences into one tabbed
+widget. Note, info, tip, warning, and danger containers become admonitions whose
+bodies are still rendered by lunamark. Rather than teach a markdown grammar
+about any of that, every custom region is lifted out before lunamark sees the
+document and an HTML comment is left in its place; markdown does not touch a
+comment, so the rendered block goes back exactly where it came from afterwards.
+Reading the fences here also avoids the trap of reading them back out of the
+output, where the whole info string has been folded into one class attribute
+and `lua [caption]` no longer matches `lua`.
 
 Headings are the other thing kept: the id is Nupp's own slug, and each carries
 the anchor link the site's stylesheet expects.
@@ -57,6 +59,15 @@ local function markdownOutline(text)
 end
 
 local codeGroupIndex = 0
+local markdownHtml
+
+local ADMONITION_TITLES = {
+    note = "Note",
+    info = "Info",
+    tip = "Tip",
+    warning = "Warning",
+    danger = "Danger",
+}
 
 -- `:line-numbers` on the fence, optionally `:line-numbers=12` when the excerpt starts
 -- somewhere other than the top of a file.
@@ -125,6 +136,15 @@ local function codeGroupHtml(blocks, links)
     return table.concat(out)
 end
 
+local function admonitionHtml(kind, title, source, links)
+    title = title ~= "" and title or ADMONITION_TITLES[kind]
+    return '<aside class="nuppdoc-admonition nuppdoc-admonition-'
+        .. htmlEscape(kind) .. '" aria-label="' .. htmlEscape(title) .. '">'
+        .. '<p class="nuppdoc-admonition-title">' .. htmlEscape(title) .. "</p>"
+        .. '<div class="nuppdoc-admonition-body">'
+        .. markdownHtml(source, links) .. "</div></aside>"
+end
+
 -- Reads one fence, starting at its opening line, and returns the block it describes
 -- plus the index of the line after its closer.
 local function readFence(lines, index)
@@ -146,6 +166,33 @@ local function readFence(lines, index)
     }, index + 1
 end
 
+-- Reads a `:::` region while respecting nested containers and fenced code. The inner
+-- source is handed back to markdownHtml, so an admonition does not create a second,
+-- less capable Markdown dialect.
+local function readContainer(lines, index)
+    local body, depth, fenced = {}, 1, false
+    index = index + 1
+    while index <= #lines do
+        local line = lines[index]
+        if line:match("^```") then
+            fenced = not fenced
+        elseif not fenced then
+            local marker = trim(line)
+            if marker == ":::" then
+                depth = depth - 1
+                if depth == 0 then
+                    return table.concat(body, "\n"), index + 1
+                end
+            elseif marker:match("^:::%s+[%w-]+") then
+                depth = depth + 1
+            end
+        end
+        body[#body + 1] = line
+        index = index + 1
+    end
+    return nil, index
+end
+
 -- Lifts every fenced region out of the document, rendering each and leaving a comment
 -- in its place. Markdown has nothing to say about a comment, so it arrives in the
 -- output untouched and is swapped back for the block.
@@ -160,7 +207,9 @@ local function extractBlocks(text, links, rendered)
     end
     while index <= #lines do
         local line = lines[index]
-        if trim(line) == "::: code-group" then
+        local marker = trim(line)
+        local directive, title = marker:match("^:::%s+([%w-]+)%s*(.-)%s*$")
+        if marker == "::: code-group" then
             local blocks = {}
             index = index + 1
             while index <= #lines and trim(lines[index]) ~= ":::" do
@@ -173,6 +222,14 @@ local function extractBlocks(text, links, rendered)
                 end
             end
             placeholder(codeGroupHtml(blocks, links))
+        elseif directive and ADMONITION_TITLES[directive] then
+            local body, after = readContainer(lines, index)
+            if body then
+                index = after - 1
+                placeholder(admonitionHtml(directive, title, body, links))
+            else
+                out[#out + 1] = line
+            end
         elseif lines[index]:match("^```") then
             local block, after = readFence(lines, index)
             index = after - 1
@@ -234,7 +291,7 @@ local function buildParser()
     })
 end
 
-local function markdownHtml(text, links, headingShift)
+markdownHtml = function(text, links, headingShift)
     text = tostring(text or "")
     if text == "" then
         return ""
