@@ -384,6 +384,17 @@ local function foldExpr(node, current)
             node.folded = folded.code
             return folded
         end
+        if left.kind == right.kind and (left.kind == "number" or left.kind == "string")
+            and (op == "<" or op == ">" or op == "<=" or op == ">=") then
+            local answer
+            if op == "<" then answer = left.value < right.value
+            elseif op == ">" then answer = left.value > right.value
+            elseif op == "<=" then answer = left.value <= right.value
+            else answer = left.value >= right.value end
+            local folded = literal("boolean", answer, tostring(answer))
+            node.folded = folded.code
+            return folded
+        end
         return nil
     elseif kind == "call" or kind == "safeCall" then
         foldExpr(node.obj, current)
@@ -452,12 +463,19 @@ local function foldStatement(stat, current)
             current.constants[stat.target.token.text] = false
         end
     elseif kind == "ifStmt" then
+        local selected, allConstant = nil, true
         for _, clause in ipairs(stat.clauses or {}) do
-            foldExpr(clause.cond, current)
+            local condition = foldExpr(clause.cond, current)
+            if not condition then allConstant = false
+            elseif not selected and truthy(condition) then selected = clause.body end
             if clause.body then foldBlock(clause.body, scope(current)) end
         end
         if stat.elseClause and stat.elseClause.body then
             foldBlock(stat.elseClause.body, scope(current))
+        end
+        if allConstant then
+            stat.constantBranch = selected or (stat.elseClause and stat.elseClause.body)
+            stat.constantBranchNone = stat.constantBranch == nil
         end
     elseif kind == "whileStmt" then
         foldExpr(stat.cond, current)

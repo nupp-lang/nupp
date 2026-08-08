@@ -228,6 +228,32 @@ function M.foldsPrimitiveStringsAndTruthiness()
       "folded string result")
 end
 
+function M.foldsExactPrimitiveComparisons()
+   local code = compile("return 'nupp' < 'rust' and 9 >= 3")
+   assertTrue(code:find("return true", 1, true) ~= nil,
+      "primitive comparisons fold: " .. code)
+   assertEq(run("return 'nupp' < 'rust' and 9 >= 3"), true,
+      "folded comparison result")
+end
+
+function M.elidesConstantConditionalArms()
+   local src = table.concat({
+      "if false then",
+      "   error('unreachable')",
+      "elseif true then",
+      "   return 9",
+      "else",
+      "   return 10",
+      "end",
+   }, "\n")
+   local code = compile(src)
+   assertEq(code:find("unreachable", 1, true), nil,
+      "the false arm is absent from generated code")
+   assertEq(code:find("return 10", 1, true), nil,
+      "the unselected else arm is absent from generated code")
+   assertEq(run(src), 9, "the selected arm remains")
+end
+
 function M.leavesFloatingPointArithmeticForTheTarget()
    local code = compile("return 1.5 + 2")
    assertTrue(code:find("1.5 + 2", 1, true) ~= nil,

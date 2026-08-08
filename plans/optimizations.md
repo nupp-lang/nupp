@@ -126,9 +126,9 @@ Each entry is tagged with where its win lands:
 ### Functions
 
 - `real` **Exact constant folding and propagation.** Fold primitive literal
-  expressions and propagate `const` bindings. Keep floating-point arithmetic,
-  cdata, allocation, calls, and mutable bindings at runtime unless the target
-  semantics are specified exactly.
+  expressions, select constant conditional arms, and propagate `const`
+  bindings. Keep floating-point arithmetic, cdata, allocation, calls, and
+  mutable bindings at runtime unless the target semantics are specified exactly.
 - `core` **Type-narrowing DCE.** Nil checks against non-nil types,
   branches made unreachable by narrowing, assertions the checker has
   already discharged.

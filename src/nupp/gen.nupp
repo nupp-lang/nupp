@@ -323,6 +323,23 @@ function gen.generate(result, filename)
             e(x.folded, sourceLine(x))
             return
         end
+        if kind == "ifStmt" and (x.constantBranch or x.constantBranchNone) then
+            -- OPT-3: every condition was a primitive constant. A `do` block
+            -- preserves the selected arm's local scope while the source lines
+            -- of the omitted arms remain blank.
+            e("do", sourceLine(x))
+            if x.constantBranch then emit(x.constantBranch) end
+            local endTok
+            for i = #x, 1, -1 do
+                local child = x[i]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            return
+        end
         if kind == "recordDecl" and x.declKind == "record" then
             -- Records keep a runtime table: `function R:m()` attaches to it
             -- and `R{...}` stamps it as the instance metatable, which is

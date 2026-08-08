@@ -27,6 +27,10 @@ interface cst.Hints
     --- Lua source replacing a primitive expression the optimizer proved constant.
     folded: string?
 
+    --- A branch whose preceding conditions the optimizer proved false.
+    constantBranch: cst.Node?
+    constantBranchNone: boolean?
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 

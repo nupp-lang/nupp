@@ -43,6 +43,8 @@ string concatenation, comparisons, and boolean selection. A `const` binding to
 one of those values is propagated at each use. It deliberately leaves floating
 point arithmetic, cdata, calls, allocation, and mutable bindings to LuaJIT, so
 the target retains their rounding, identity, error, and lifetime semantics.
+When every condition in an `if` is one of those constants, it emits only the
+selected arm, retaining its block scope.
 
 ### `OPT-1`, presizing
 
