@@ -685,6 +685,9 @@ local package: {
     --- Search templates used by `require` for Lua modules.
     path: string,
 
+    --- Search templates used by `require` for C modules.
+    cpath: string,
+
     --- Modules made available without consulting the filesystem.
     preload: {[string]: function(...: any): any},
 

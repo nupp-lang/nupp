@@ -72,6 +72,17 @@ function project.build(root, opts)
     config._remarks = opts.remarks and true or false
     config._disabledPasses = opts.disabled or {}
     if target.kind == "docs" then
+        -- A documentation target declares dependencies like any other, and its
+        -- are the renderer's own: lunamark is a rock, not something a checkout
+        -- is expected to have found its way to. Installed before the build
+        -- rather than discovered missing halfway through a page.
+        local installed, depErr = buildDependencies(root,
+            normalize(opts.outDir or target.outDir or "build"), config, {},
+            target)
+        if not installed then
+            io.stderr:write("nupp: " .. depErr .. "\n")
+            return 1
+        end
         return require("nupp.doc").build(root, config, target, {
             checkOnly = opts.checkOnly,
             output = opts.outDir,
@@ -206,7 +217,23 @@ function project.test(root, args)
     local argv = {}
     for _, item in ipairs(config.test.argv) do argv[#argv + 1] = item end
     for _, item in ipairs(args or {}) do argv[#argv + 1] = item end
-    return process.run(argv, {cwd = root, env = config.test.env})
+    local env = config.test.env
+    -- The rocks the tested target depends on were installed into a tree that
+    -- belongs to the project, and the test command is a fresh interpreter that
+    -- has never heard of it. A trailing empty entry is where Lua substitutes
+    -- its own path, so the tree is added to what a test can load rather than
+    -- put in place of it.
+    local rocks = deps.rockPaths(root, config,
+        targetConfig(config, config.test.build))
+    if rocks then
+        env = {}
+        for key, value in pairs(config.test.env or {}) do env[key] = value end
+        env.LUA_PATH = rocks.path .. ";"
+            .. (env.LUA_PATH or os.getenv("LUA_PATH") or "")
+        env.LUA_CPATH = rocks.cpath .. ";"
+            .. (env.LUA_CPATH or os.getenv("LUA_CPATH") or "")
+    end
+    return process.run(argv, {cwd = root, env = env})
 end
 
 local function treeDigest(path)

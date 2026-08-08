@@ -96,6 +96,35 @@ local function validateTarget(target, label, dependencies)
     return true
 end
 
+-- A rock has to say which rock, at which version. LuaRocks will happily install
+-- whatever is newest when a version is left out, and a dependency that resolves
+-- to whatever is newest is a build that means something different tomorrow --
+-- so a rock is pinned to a version, to a rockspec, or to a directory that is
+-- already in the tree, and a manifest that pins none of the three is refused.
+local ROCK_STRINGS = {"rock", "version", "rockspec", "path", "tree",
+    "luaVersion", "server", "luaDir", "luarocks"}
+
+local function validateRock(dep, label)
+    for _, field in ipairs(ROCK_STRINGS) do
+        if dep[field] ~= nil then
+            local valid, err = validateString(dep[field], label .. "." .. field)
+            if not valid then return nil, err end
+        end
+    end
+    if dep.version == nil and dep.rockspec == nil and dep.path == nil then
+        return nil, label .. " must pin the rock: give a version, a rockspec, "
+            .. "or a path to build it from"
+    end
+    -- LuaRocks resolves what a rock needs. Letting one name a dependency here
+    -- would read as declaring that and mean nothing, which is the one way a
+    -- configuration file can lie to the person who wrote it.
+    if #(dep.dependencies or {}) > 0 then
+        return nil, label .. ".dependencies is not for a rock: LuaRocks "
+            .. "resolves what a rock depends on"
+    end
+    return true
+end
+
 local LINT_LEVELS = {off = true, note = true, warning = true, error = true}
 
 local function validateManifest(config)
@@ -135,13 +164,18 @@ local function validateManifest(config)
         if type(dep) ~= "table" then
             return nil, "dependencies." .. name .. " must be a table"
         end
-        if dep.kind ~= "c" and dep.kind ~= "cargo" and dep.kind ~= "rust" then
+        if dep.kind ~= "c" and dep.kind ~= "cargo" and dep.kind ~= "rust"
+            and dep.kind ~= "luarocks" then
             return nil, "dependencies." .. name
-                .. ".kind must be \"c\", \"cargo\", or \"rust\""
+                .. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
         end
         valid, err = validateArray(dep.dependencies,
             "dependencies." .. name .. ".dependencies", "string")
         if not valid then return nil, err end
+        if dep.kind == "luarocks" then
+            valid, err = validateRock(dep, "dependencies." .. name)
+            if not valid then return nil, err end
+        end
         for _, child in ipairs(dep.dependencies or {}) do
             if type(dependencies[child]) ~= "table" then
                 return nil, "dependencies." .. name

@@ -1,11 +1,12 @@
 --[[
 Building what a project depends on but did not write.
 
-A dependency is fetched if it is remote, built if it is C or Rust, and then
-described to the checker as a typed module so that calling into it is checked
-like anything else. The three providers differ in what they run -- a compiler
-driver, cargo -- and agree on what they hand back: a shared library, the files
-that went into it, and a fingerprint that says whether any of that changed.
+A dependency is fetched if it is remote, built if it is C or Rust, installed if
+it is a rock, and then described to the checker as a typed module so that
+calling into it is checked like anything else. What the providers hand back
+differs with what they produce -- a shared library and a binding from the native
+ones, a search path from a rock -- and agrees on a fingerprint that says whether
+any of it changed.
 ]]
 
 local hash = require("nupp.build.hash")
@@ -297,9 +298,267 @@ local function buildCargo(root, outDir, name, dep, previous)
     return {key = key, output = output, binding = generated}
 end
 
-local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo}
+--[[
+Rocks are not built into anything. They are installed, into a tree that belongs
+to the project rather than to whoever is logged in, and what the provider hands
+back is the search path that tree adds. Two checkouts can then want different
+versions of one library without either able to break the other's build by
+upgrading something -- which is the whole reason not to install into the user's
+tree.
 
-local function buildDependencies(root, outDir, config, previous)
+Every rock is pinned: to a version, to a rockspec, or to a directory in the
+source tree. LuaRocks resolves transitive dependencies itself, which is the
+point of using it, but the version a project was written against is named here
+so that a fresh install and an old one are the same install.
+]]
+
+local ROCK_LUA_VERSION = "5.1"
+local ROCK_TREE = ".rocks"
+
+local windows = package.config:sub(1, 1) == "\\"
+
+local currentDirectory = nil
+
+local function absolute(path)
+    path = normalize(path or "")
+    if path:sub(1, 1) == "/" or path:match("^%a:") then return path end
+    if not currentDirectory then
+        local _, printed = process.capture(windows
+            and {"cmd", "/d", "/c", "cd"} or {"pwd"})
+        currentDirectory = normalize((printed or "."):gsub("%s+$", ""))
+    end
+    if path == "" or path == "." then return currentDirectory end
+    return join(currentDirectory, path)
+end
+
+-- Where the headers a C rock compiles against live. LuaRocks has to be pointed
+-- at LuaJIT's: LuaJIT is Lua 5.1, and a rock compiled against another 5.1 loads
+-- into a VM that cannot call it. The running interpreter's own module path says
+-- where it was installed, and the entries that are rock trees rather than
+-- installations -- this toolchain prepends some of them itself -- are told apart
+-- by having no headers under them.
+local function luaDirectory(dep)
+    if dep.luaDir then return dep.luaDir end
+    local named = os.getenv("NUPP_LUA_DIR")
+    if named and named ~= "" then return named end
+    for entry in (package.cpath .. ";"):gmatch("([^;]*);") do
+        local prefix = entry:match("^(.*)/lib/lua/")
+        if prefix and (exists(join(prefix, "include/luajit-2.1/lua.h"))
+            or exists(join(prefix, "include/lua.h"))) then
+            return prefix
+        end
+    end
+    return nil
+end
+
+local function treePaths(tree, luaVersion)
+    local share = tree .. "/share/lua/" .. luaVersion
+    return {
+        path = share .. "/?.lua;" .. share .. "/?/init.lua",
+        cpath = tree .. "/lib/lua/" .. luaVersion
+            .. (windows and "/?.dll" or "/?.so"),
+    }
+end
+
+-- A rock this build installs is one this process may be about to require --
+-- `nupp doc` renders with lunamark moments after installing it -- and the
+-- search path was fixed when the interpreter started. Prepending is what makes
+-- the install take effect now rather than on somebody's next run.
+local function prepended(current, entries)
+    current = current or ""
+    local fresh = {}
+    for entry in (entries .. ";"):gmatch("([^;]*);") do
+        if entry ~= "" and not (";" .. current .. ";")
+            :find(";" .. entry .. ";", 1, true) then
+            fresh[#fresh + 1] = entry
+        end
+    end
+    if #fresh == 0 then return current end
+    return table.concat(fresh, ";") .. ";" .. current
+end
+
+local function rockTree(root, dep)
+    return absolute(join(root, dep.tree or ROCK_TREE)),
+        dep.luaVersion or ROCK_LUA_VERSION
+end
+
+local function declaredVersion(rockspec)
+    local text = rockspec and readFile(rockspec)
+    if not text then return nil end
+    return text:match("[\r\n]version%s*=%s*[\"']([^\"']+)[\"']")
+        or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
+end
+
+-- One listing per tree per run, and one version per LuaRocks. Nothing but this
+-- process installs into the tree while it runs, so asking twice would start a
+-- second subprocess to be told what the first one said.
+local listings = {}
+local toolVersions = {}
+
+-- False rather than a version when there is no LuaRocks to ask, so that a
+-- missing tool is reported as the missing tool rather than as a rock that would
+-- not install.
+local function toolVersion(luarocks)
+    if toolVersions[luarocks] == nil then
+        local code, printed = process.capture({luarocks, "--version"})
+        toolVersions[luarocks] = code == 0 and (printed or "") or false
+    end
+    return toolVersions[luarocks]
+end
+
+local function installedRocks(argv, tree, luaVersion)
+    local id = tree .. "\0" .. luaVersion
+    if listings[id] then return listings[id] end
+    local listArgv = {}
+    for _, item in ipairs(argv) do listArgv[#listArgv + 1] = item end
+    listArgv[#listArgv + 1] = "list"
+    listArgv[#listArgv + 1] = "--porcelain"
+    local code, printed = process.capture(listArgv)
+    local installed = {}
+    if code == 0 then
+        for line in printed:gmatch("[^\r\n]+") do
+            local rock, version = line:match("^(%S+)\t(%S+)\t")
+            if rock then installed[rock] = version end
+        end
+    end
+    listings[id] = installed
+    return installed
+end
+
+-- What a rock is built from, for the fingerprint. Only what could have been an
+-- input: a rock built where it sits leaves its object files beside its sources,
+-- and hashing those would reinstall it on every build to no purpose.
+local ROCK_ARTIFACTS = {o = true, a = true, so = true, dylib = true, dll = true}
+
+local function rockSourceFiles(dir)
+    local files = {}
+    for _, path in ipairs(listFiles(dir)) do
+        local suffix = path:match("%.([%w]+)$")
+        if not (suffix and ROCK_ARTIFACTS[suffix:lower()]) then
+            files[#files + 1] = path
+        end
+    end
+    table.sort(files)
+    return files
+end
+
+local function buildRock(root, outDir, name, dep, previous)
+    local rock = dep.rock or name
+    local tree, luaVersion = rockTree(root, dep)
+    local source = dep.path and absolute(join(root, dep.path)) or nil
+    local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
+    if rockspec and not exists(rockspec) then
+        return nil, "dependency " .. name .. " names a rockspec that is not "
+            .. "there: " .. dep.rockspec
+    end
+    local declared = declaredVersion(rockspec)
+    if dep.version and declared and declared ~= dep.version then
+        return nil, ("dependency %s asks for %s %s, and %s declares %s")
+            :format(name, rock, dep.version, dep.rockspec, declared)
+    end
+    local wanted = dep.version or declared
+
+    local luarocks = dep.luarocks or "luarocks"
+    local version = toolVersion(luarocks)
+    if not version then
+        return nil, ("dependency %s is a rock and %s is not on PATH; install "
+            .. "LuaRocks to build it"):format(name, luarocks)
+    end
+    local argv = {luarocks, "--lua-version=" .. luaVersion, "--tree=" .. tree}
+    local luaDir = luaDirectory(dep)
+    if luaDir then argv[#argv + 1] = "--lua-dir=" .. luaDir end
+    if dep.server then argv[#argv + 1] = "--server=" .. dep.server end
+
+    local inputs = {}
+    if rockspec then inputs[#inputs + 1] = rockspec end
+    if source then
+        local files = rockSourceFiles(source)
+        -- A directory that is not there lists nothing, and `luarocks make` in a
+        -- directory that is not there fails as the shell rather than as the
+        -- dependency it was.
+        if #files == 0 then
+            return nil, ("dependency %s builds from %s, which has nothing in it")
+                :format(name, dep.path)
+        end
+        for _, path in ipairs(files) do inputs[#inputs + 1] = path end
+    end
+    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(inputs)
+        .. "\0" .. version .. "\0" .. tree)
+
+    -- What is on disk answers for a pinned rock. The version asked for is
+    -- installed or it is not, and installing one that is there again costs a
+    -- download to be told so -- which is what a documentation build, whose
+    -- dependencies outlive no cache, would pay on every run. A rock built from
+    -- the source tree has no version that means anything, since the sources
+    -- beside it may have moved, so it is remade unless the fingerprint says
+    -- they have not.
+    local installed = installedRocks(argv, tree, luaVersion)
+    local present = installed[rock]
+    local satisfied = present ~= nil and (wanted == nil or present == wanted)
+    local unchanged = previous ~= nil and previous.key == key
+    if not satisfied or (source and not unchanged) then
+        local install = {}
+        for _, item in ipairs(argv) do install[#install + 1] = item end
+        if source then
+            -- `make` builds what is already in the tree, so nothing is fetched
+            -- and the rockspec's own paths are read from where it sits.
+            install[#install + 1] = "make"
+            if rockspec then install[#install + 1] = rockspec end
+        else
+            install[#install + 1] = "install"
+            if rockspec then install[#install + 1] = rockspec
+            else
+                install[#install + 1] = rock
+                install[#install + 1] = dep.version
+            end
+        end
+        local code, printed = process.capture(install, {cwd = source})
+        if code ~= 0 then
+            io.stderr:write(printed)
+            return nil, "LuaRocks install failed for " .. name
+        end
+        installed[rock] = wanted or "installed"
+    end
+
+    local paths = treePaths(tree, luaVersion)
+    package.path = prepended(package.path, paths.path)
+    package.cpath = prepended(package.cpath, paths.cpath)
+    return {key = key, rock = rock, version = installed[rock], tree = tree,
+        luaVersion = luaVersion, path = paths.path, cpath = paths.cpath}
+end
+
+--- The search-path entries the rocks a target depends on are installed under.
+---
+--- A build installs into a tree that belongs to the project, so a program the
+--- toolchain starts afterwards -- the configured test command above all -- has
+--- to be told where that tree is; inside this process the provider has already
+--- said so. Returns nil when the target depends on no rocks.
+local function rockPaths(root, config, target)
+    local paths, cpaths, seen = {}, {}, {}
+    for _, name in ipairs(target and target.dependencies or {}) do
+        local dep = (config.dependencies or {})[name]
+        if type(dep) == "table" and dep.kind == "luarocks" then
+            local tree, luaVersion = rockTree(root, dep)
+            local id = tree .. "\0" .. luaVersion
+            if not seen[id] then
+                seen[id] = true
+                local entries = treePaths(tree, luaVersion)
+                paths[#paths + 1] = entries.path
+                cpaths[#cpaths + 1] = entries.cpath
+            end
+        end
+    end
+    if #paths == 0 then return nil end
+    return {path = table.concat(paths, ";"), cpath = table.concat(cpaths, ";")}
+end
+
+local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo,
+    luarocks = buildRock}
+
+-- The target is passed rather than read off the config for the one caller that
+-- has no build to hang it on: `nupp doc` renders straight from the manifest, and
+-- the docs target's dependencies are the renderer's.
+local function buildDependencies(root, outDir, config, previous, target)
     local results, visiting = {}, {}
     local function buildOne(name)
         if results[name] then return results[name] end
@@ -322,7 +581,7 @@ local function buildDependencies(root, outDir, config, previous)
         results[name] = result
         return result
     end
-    local targetDeps = config._target.dependencies or {}
+    local targetDeps = (target or config._target or {}).dependencies or {}
     for _, name in ipairs(targetDeps) do
         local _, err = buildOne(name)
         if err then return nil, err end
@@ -333,5 +592,6 @@ end
 
 deps.expandGlob = expandGlob
 deps.build = buildDependencies
+deps.rockPaths = rockPaths
 
 return deps

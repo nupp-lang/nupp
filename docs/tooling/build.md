@@ -216,6 +216,82 @@ are part of the dependency cache key.
 When `bindings.cbindgen` is enabled, the provider runs cbindgen in the crate
 directory before passing its header through `import-c`.
 
+## Rock dependencies
+
+`kind = "luarocks"` installs a Lua library with LuaRocks. Nothing is built and
+nothing is generated: what the provider produces is a populated tree and the
+two search-path entries that reach it.
+
+```lua
+dependencies = {
+   -- From the LuaRocks server, at the version named here.
+   lunamark = { kind = "luarocks", version = "0.6.0-1" },
+   -- From a rockspec in the project, for a library upstream does not publish.
+   scintillua = {
+      kind = "luarocks",
+      rockspec = "rocks/scintillua-6.7-1.rockspec",
+   },
+   -- From sources that ship with the project: `luarocks make`, no fetch.
+   tinyrock = {
+      kind = "luarocks",
+      rock = "tinyrock",
+      path = "vendor/tinyrock",
+      rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec",
+   },
+}
+```
+
+A rock must be pinned by one of those three — a `version`, a `rockspec`, or a
+`path` — and a manifest that pins none of them is refused before any build work
+starts. Naming both a `version` and a `rockspec` that declares a different one
+is refused too. A rock does not list `dependencies` of its own: LuaRocks
+resolves what a rock needs, which is the reason to use it.
+
+Rocks install into `.rocks` in the project root, a tree the project owns rather
+than the one the user's account owns, so two checkouts can hold different
+versions of a library without either able to break the other's build by
+upgrading something. `tree` moves it, and `luaVersion` selects the tree's Lua
+version, which defaults to `5.1` — LuaJIT is Lua 5.1, and a C rock compiled
+against another 5.1 loads into a VM that cannot call it. The headers a C rock
+compiles against are found from the running interpreter's own module path;
+`luaDir`, or the `NUPP_LUA_DIR` environment variable, names them instead.
+`server` adds a rocks server to fetch from, and `luarocks` names the executable.
+
+| Field | Meaning |
+| --- | --- |
+| `rock` | The rock's name, when it differs from the dependency's |
+| `version` | The exact version to install |
+| `rockspec` | A rockspec in the project to install from |
+| `path` | A directory to build in place with `luarocks make` |
+| `tree` | Where to install, `.rocks` by default |
+| `luaVersion` | The tree's Lua version, `5.1` by default |
+| `luaDir` | Where the Lua headers and libraries live |
+| `server` | An additional rocks server to fetch from |
+| `luarocks` | The LuaRocks executable, `luarocks` by default |
+
+A pinned rock already installed at the version asked for is left alone, so a
+warm build reaches for nothing. A rock built from `path` is remade whenever its
+sources change, which is what the fingerprint is for.
+
+The tree is added to the search path of the build that installed it, so a
+target's own dependencies are loadable the moment they are installed —
+`nupp doc` installs its renderer and renders with it in one command. `nupp test`
+puts the tested target's trees on `LUA_PATH` and `LUA_CPATH` for the test
+command, ahead of what is already there and without replacing it. Anything else
+that runs outside the build reads the tree the way LuaRocks trees are always
+read.
+
+Documentation targets take dependencies as well, and the renderer's are the
+usual case:
+
+```lua
+docs = {
+   kind = "docs",
+   dependencies = { "lunamark", "scintillua" },
+   sources = { "src" },
+}
+```
+
 ## Self-hosting
 
 This repository configures `selfHost` in `nupp.lua`. `nupp fixpoint` builds a

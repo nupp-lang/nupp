@@ -255,6 +255,219 @@ end
 return annotations
 
 end
+package.preload["nupp.ansi"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ansi = { }
+
+
+
+ansi.Style = {} ansi.Style.__index = ansi.Style
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local SGR = {
+strong = "1" ,
+faint = "2" ,
+red = "1;31" ,
+yellow = "1;33" ,
+cyan = "1;36" ,
+green = "1;32" ,
+blue = "1;34" ,
+}
+
+local RESET = "\27[0m"
+
+
+
+local function plain ( text )
+return text
+end
+
+
+
+local function styler ( code )
+local prefix = "\27[" .. code .. "m"
+return function ( text )
+return prefix .. text .. RESET
+end
+end
+
+
+
+
+local SEVERITY_COLOUR = {
+error = "red" ,
+warning = "yellow" ,
+note = "cyan" ,
+help = "green" ,
+}
+
+local PLAIN_SEVERITY = { }
+for name in pairs ( SEVERITY_COLOUR ) do PLAIN_SEVERITY [ name ] = plain end
+
+local PLAIN = setmetatable( {
+strong = plain , faint = plain , path = plain , gutter = plain ,
+severity = PLAIN_SEVERITY ,
+} , ansi.Style)
+
+local COLOURED = setmetatable( {
+strong = styler ( SGR . strong ) ,
+faint = styler ( SGR . faint ) ,
+path = styler ( SGR . strong ) ,
+gutter = styler ( SGR . blue ) ,
+severity = { } ,
+} , ansi.Style)
+for name , colour in pairs ( SEVERITY_COLOUR ) do
+COLOURED . severity [ name ] = styler ( SGR [ colour ] )
+end
+
+local windows = package . config : sub ( 1 , 1 ) == "\\"
+
+
+
+
+local function requested ( name )
+local value = os . getenv ( name )
+return value ~= nil and value ~= "" and value ~= "0"
+end
+
+
+
+
+
+
+
+local function isatty ( fd )
+local loaded , ffi = pcall ( require , "ffi" )
+if not loaded then
+return false
+end
+
+
+
+pcall ( ffi . cdef , "int isatty(int);" )
+local ok , result = pcall ( function ( ) return ffi . C . isatty ( fd ) end )
+if ok then
+return result ~= 0
+end
+
+pcall ( ffi . cdef , "int _isatty(int);" )
+local retried , retriedResult = pcall ( function ( ) return ffi . C . _isatty ( fd ) end )
+return retried and retriedResult ~= 0
+end
+
+
+
+
+
+local function capable ( fd )
+if os . getenv ( "TERM" ) == "dumb" then
+return false
+end
+if windows and not ( requested ( "WT_SESSION" ) or requested ( "ANSICON" )
+or requested ( "ConEmuANSI" ) or os . getenv ( "TERM" ) ) then
+return false
+end
+return isatty ( fd )
+end
+
+
+local mode = "auto"
+
+
+
+local decided = { }
+
+local DESCRIPTOR = { [ io . stdout ] = 1 , [ io . stderr ] = 2 }
+
+
+
+
+function ansi . setMode ( wanted )
+if wanted ~= mode then
+mode = wanted
+decided = { }
+end
+end
+
+
+function ansi . enabled ( stream )
+local known = decided [ stream ]
+if known ~= nil then
+return known
+end
+local answer
+if mode == "always" then
+answer = true
+elseif mode == "never" then
+answer = false
+elseif requested ( "NO_COLOR" ) then
+
+answer = false
+elseif requested ( "CLICOLOR_FORCE" ) then
+answer = true
+else
+answer = capable ( DESCRIPTOR [ stream ] or 1 )
+end
+decided [ stream ] = answer
+return answer
+end
+
+
+
+function ansi . style ( stream )
+return ansi . enabled ( stream ) and COLOURED or PLAIN
+end
+
+
+
+
+function ansi . forSeverity ( style , name )
+return style . severity [ name or "error" ] or style . severity . error or PLAIN . strong
+end
+
+return ansi
+
+end
 package.preload["nupp.build.cache"] = function(...)
 
 
@@ -375,6 +588,7 @@ return cache
 
 end
 package.preload["nupp.build.deps"] = function(...)
+
 
 
 
@@ -674,9 +888,267 @@ if bindingErr then return nil , bindingErr end
 return { key = key , output = output , binding = generated }
 end
 
-local PROVIDERS = { c = buildC , cargo = buildCargo , rust = buildCargo }
 
-local function buildDependencies ( root , outDir , config , previous )
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ROCK_LUA_VERSION = "5.1"
+local ROCK_TREE = ".rocks"
+
+local windows = package . config : sub ( 1 , 1 ) == "\\"
+
+local currentDirectory = nil
+
+local function absolute ( path )
+path = normalize ( path or "" )
+if path : sub ( 1 , 1 ) == "/" or path : match ( "^%a:" ) then return path end
+if not currentDirectory then
+local _ , printed = process . capture ( windows
+and { "cmd" , "/d" , "/c" , "cd" } or { "pwd" } )
+currentDirectory = normalize ( ( printed or "." ) : gsub ( "%s+$" , "" ) )
+end
+if path == "" or path == "." then return currentDirectory end
+return join ( currentDirectory , path )
+end
+
+
+
+
+
+
+
+local function luaDirectory ( dep )
+if dep . luaDir then return dep . luaDir end
+local named = os . getenv ( "NUPP_LUA_DIR" )
+if named and named ~= "" then return named end
+for entry in ( package . cpath .. ";" ) : gmatch ( "([^;]*);" ) do
+local prefix = entry : match ( "^(.*)/lib/lua/" )
+if prefix and ( exists ( join ( prefix , "include/luajit-2.1/lua.h" ) )
+or exists ( join ( prefix , "include/lua.h" ) ) ) then
+return prefix
+end
+end
+return nil
+end
+
+local function treePaths ( tree , luaVersion )
+local share = tree .. "/share/lua/" .. luaVersion
+return {
+path = share .. "/?.lua;" .. share .. "/?/init.lua" ,
+cpath = tree .. "/lib/lua/" .. luaVersion
+.. ( windows and "/?.dll" or "/?.so" ) ,
+}
+end
+
+
+
+
+
+local function prepended ( current , entries )
+current = current or ""
+local fresh = { }
+for entry in ( entries .. ";" ) : gmatch ( "([^;]*);" ) do
+if entry ~= "" and not ( ";" .. current .. ";" )
+: find ( ";" .. entry .. ";" , 1 , true ) then
+fresh [ # fresh + 1 ] = entry
+end
+end
+if # fresh == 0 then return current end
+return table . concat ( fresh , ";" ) .. ";" .. current
+end
+
+local function rockTree ( root , dep )
+return absolute ( join ( root , dep . tree or ROCK_TREE ) ) ,
+dep . luaVersion or ROCK_LUA_VERSION
+end
+
+local function declaredVersion ( rockspec )
+local text = rockspec and readFile ( rockspec )
+if not text then return nil end
+return text : match ( "[\r\n]version%s*=%s*[\"']([^\"']+)[\"']" )
+or text : match ( "^version%s*=%s*[\"']([^\"']+)[\"']" )
+end
+
+
+
+
+local listings = { }
+local toolVersions = { }
+
+
+
+
+local function toolVersion ( luarocks )
+if toolVersions [ luarocks ] == nil then
+local code , printed = process . capture ( { luarocks , "--version" } )
+toolVersions [ luarocks ] = code == 0 and ( printed or "" ) or false
+end
+return toolVersions [ luarocks ]
+end
+
+local function installedRocks ( argv , tree , luaVersion )
+local id = tree .. "\0" .. luaVersion
+if listings [ id ] then return listings [ id ] end
+local listArgv = { }
+for _ , item in ipairs ( argv ) do listArgv [ # listArgv + 1 ] = item end
+listArgv [ # listArgv + 1 ] = "list"
+listArgv [ # listArgv + 1 ] = "--porcelain"
+local code , printed = process . capture ( listArgv )
+local installed = { }
+if code == 0 then
+for line in printed : gmatch ( "[^\r\n]+" ) do
+local rock , version = line : match ( "^(%S+)\t(%S+)\t" )
+if rock then installed [ rock ] = version end
+end
+end
+listings [ id ] = installed
+return installed
+end
+
+
+
+
+local ROCK_ARTIFACTS = { o = true , a = true , so = true , dylib = true , dll = true }
+
+local function rockSourceFiles ( dir )
+local files = { }
+for _ , path in ipairs ( listFiles ( dir ) ) do
+local suffix = path : match ( "%.([%w]+)$" )
+if not ( suffix and ROCK_ARTIFACTS [ suffix : lower ( ) ] ) then
+files [ # files + 1 ] = path
+end
+end
+table . sort ( files )
+return files
+end
+
+local function buildRock ( root , outDir , name , dep , previous )
+local rock = dep . rock or name
+local tree , luaVersion = rockTree ( root , dep )
+local source = dep . path and absolute ( join ( root , dep . path ) ) or nil
+local rockspec = dep . rockspec and absolute ( join ( root , dep . rockspec ) ) or nil
+if rockspec and not exists ( rockspec ) then
+return nil , "dependency " .. name .. " names a rockspec that is not "
+.. "there: " .. dep . rockspec
+end
+local declared = declaredVersion ( rockspec )
+if dep . version and declared and declared ~= dep . version then
+return nil , ( "dependency %s asks for %s %s, and %s declares %s" )
+: format ( name , rock , dep . version , dep . rockspec , declared )
+end
+local wanted = dep . version or declared
+
+local luarocks = dep . luarocks or "luarocks"
+local version = toolVersion ( luarocks )
+if not version then
+return nil , ( "dependency %s is a rock and %s is not on PATH; install "
+.. "LuaRocks to build it" ) : format ( name , luarocks )
+end
+local argv = { luarocks , "--lua-version=" .. luaVersion , "--tree=" .. tree }
+local luaDir = luaDirectory ( dep )
+if luaDir then argv [ # argv + 1 ] = "--lua-dir=" .. luaDir end
+if dep . server then argv [ # argv + 1 ] = "--server=" .. dep . server end
+
+local inputs = { }
+if rockspec then inputs [ # inputs + 1 ] = rockspec end
+if source then
+local files = rockSourceFiles ( source )
+
+
+
+if # files == 0 then
+return nil , ( "dependency %s builds from %s, which has nothing in it" )
+: format ( name , dep . path )
+end
+for _ , path in ipairs ( files ) do inputs [ # inputs + 1 ] = path end
+end
+local key = hash . sha256 ( stable ( dep ) .. "\0" .. hashFiles ( inputs )
+.. "\0" .. version .. "\0" .. tree )
+
+
+
+
+
+
+
+
+local installed = installedRocks ( argv , tree , luaVersion )
+local present = installed [ rock ]
+local satisfied = present ~= nil and ( wanted == nil or present == wanted )
+local unchanged = previous ~= nil and previous . key == key
+if not satisfied or ( source and not unchanged ) then
+local install = { }
+for _ , item in ipairs ( argv ) do install [ # install + 1 ] = item end
+if source then
+
+
+install [ # install + 1 ] = "make"
+if rockspec then install [ # install + 1 ] = rockspec end
+else
+install [ # install + 1 ] = "install"
+if rockspec then install [ # install + 1 ] = rockspec
+else
+install [ # install + 1 ] = rock
+install [ # install + 1 ] = dep . version
+end
+end
+local code , printed = process . capture ( install , { cwd = source } )
+if code ~= 0 then
+io . stderr : write ( printed )
+return nil , "LuaRocks install failed for " .. name
+end
+installed [ rock ] = wanted or "installed"
+end
+
+local paths = treePaths ( tree , luaVersion )
+package . path = prepended ( package . path , paths . path )
+package . cpath = prepended ( package . cpath , paths . cpath )
+return { key = key , rock = rock , version = installed [ rock ] , tree = tree ,
+luaVersion = luaVersion , path = paths . path , cpath = paths . cpath }
+end
+
+
+
+
+
+
+
+local function rockPaths ( root , config , target )
+local paths , cpaths , seen = { } , { } , { }
+for _ , name in ipairs ( target and target . dependencies or { } ) do
+local dep = ( config . dependencies or { } ) [ name ]
+if type ( dep ) == "table" and dep . kind == "luarocks" then
+local tree , luaVersion = rockTree ( root , dep )
+local id = tree .. "\0" .. luaVersion
+if not seen [ id ] then
+seen [ id ] = true
+local entries = treePaths ( tree , luaVersion )
+paths [ # paths + 1 ] = entries . path
+cpaths [ # cpaths + 1 ] = entries . cpath
+end
+end
+end
+if # paths == 0 then return nil end
+return { path = table . concat ( paths , ";" ) , cpath = table . concat ( cpaths , ";" ) }
+end
+
+local PROVIDERS = { c = buildC , cargo = buildCargo , rust = buildCargo ,
+luarocks = buildRock }
+
+
+
+
+local function buildDependencies ( root , outDir , config , previous , target )
 local results , visiting = { } , { }
 local function buildOne ( name )
 if results [ name ] then return results [ name ] end
@@ -699,7 +1171,7 @@ if not result then return nil , err end
 results [ name ] = result
 return result
 end
-local targetDeps = config . _target . dependencies or { }
+local targetDeps = ( target or config . _target or { } ) . dependencies or { }
 for _ , name in ipairs ( targetDeps ) do
 local _ , err = buildOne ( name )
 if err then return nil , err end
@@ -710,6 +1182,7 @@ end
 
 deps . expandGlob = expandGlob
 deps . build = buildDependencies
+deps . rockPaths = rockPaths
 
 return deps
 
@@ -915,6 +1388,35 @@ end
 return true
 end
 
+
+
+
+
+
+local ROCK_STRINGS = { "rock" , "version" , "rockspec" , "path" , "tree" ,
+"luaVersion" , "server" , "luaDir" , "luarocks" }
+
+local function validateRock ( dep , label )
+for _ , field in ipairs ( ROCK_STRINGS ) do
+if dep [ field ] ~= nil then
+local valid , err = validateString ( dep [ field ] , label .. "." .. field )
+if not valid then return nil , err end
+end
+end
+if dep . version == nil and dep . rockspec == nil and dep . path == nil then
+return nil , label .. " must pin the rock: give a version, a rockspec, "
+.. "or a path to build it from"
+end
+
+
+
+if # ( dep . dependencies or { } ) > 0 then
+return nil , label .. ".dependencies is not for a rock: LuaRocks "
+.. "resolves what a rock depends on"
+end
+return true
+end
+
 local LINT_LEVELS = { off = true , note = true , warning = true , error = true }
 
 local function validateManifest ( config )
@@ -954,13 +1456,18 @@ end
 if type ( dep ) ~= "table" then
 return nil , "dependencies." .. name .. " must be a table"
 end
-if dep . kind ~= "c" and dep . kind ~= "cargo" and dep . kind ~= "rust" then
+if dep . kind ~= "c" and dep . kind ~= "cargo" and dep . kind ~= "rust"
+and dep . kind ~= "luarocks" then
 return nil , "dependencies." .. name
-.. ".kind must be \"c\", \"cargo\", or \"rust\""
+.. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
 end
 valid , err = validateArray ( dep . dependencies ,
 "dependencies." .. name .. ".dependencies" , "string" )
 if not valid then return nil , err end
+if dep . kind == "luarocks" then
+valid , err = validateRock ( dep , "dependencies." .. name )
+if not valid then return nil , err end
+end
 for _ , child in ipairs ( dep . dependencies or { } ) do
 if type ( dependencies [ child ] ) ~= "table" then
 return nil , "dependencies." .. name
@@ -1904,6 +2411,17 @@ config . _optLevel = opts . optLevel or 0
 config . _remarks = opts . remarks and true or false
 config . _disabledPasses = opts . disabled or { }
 if target . kind == "docs" then
+
+
+
+
+local installed , depErr = buildDependencies ( root ,
+normalize ( opts . outDir or target . outDir or "build" ) , config , { } ,
+target )
+if not installed then
+io . stderr : write ( "nupp: " .. depErr .. "\n" )
+return 1
+end
 return require ( "nupp.doc" ) . build ( root , config , target , {
 checkOnly = opts . checkOnly ,
 output = opts . outDir ,
@@ -2005,6 +2523,12 @@ for _ , output in ipairs ( oldState . targets [ targetKey ] or { } ) do
 if not newState . outputs [ output ] then os . remove ( output ) end
 end
 newState . targets [ targetKey ] = mine
+
+
+if opts . produced then
+opts . produced . target = targetKey
+opts . produced . outputs = mine
+end
 local ok , stateErr = saveState ( statePath , newState )
 if not ok then io . stderr : write ( "nupp: " .. stateErr .. "\n" ) ; return 1 end
 local completed , completionErr = writeFile ( completionPath ,
@@ -2032,7 +2556,23 @@ if project . build ( root , { target = config . test . build } ) ~= 0 then retur
 local argv = { }
 for _ , item in ipairs ( config . test . argv ) do argv [ # argv + 1 ] = item end
 for _ , item in ipairs ( args or { } ) do argv [ # argv + 1 ] = item end
-return process . run ( argv , { cwd = root , env = config . test . env } )
+local env = config . test . env
+
+
+
+
+
+local rocks = deps . rockPaths ( root , config ,
+targetConfig ( config , config . test . build ) )
+if rocks then
+env = { }
+for key , value in pairs ( config . test . env or { } ) do env [ key ] = value end
+env . LUA_PATH = rocks . path .. ";"
+.. ( env . LUA_PATH or os . getenv ( "LUA_PATH" ) or "" )
+env . LUA_CPATH = rocks . cpath .. ";"
+.. ( env . LUA_CPATH or os . getenv ( "LUA_CPATH" ) or "" )
+end
+return process . run ( argv , { cwd = root , env = env } )
 end
 
 local function treeDigest ( path )
@@ -2095,14 +2635,19 @@ end
 end
 if not covered then selected [ # selected + 1 ] = path end
 end
+
+
+local collected = opts . removed
 for _ , path in ipairs ( selected ) do
-if opts . dryRun then
-io . write ( "would remove " .. path .. "\n" )
-else
-if removeTree ( join ( root , path ) ) ~= 0 then
+if not opts . dryRun and removeTree ( join ( root , path ) ) ~= 0 then
 io . stderr : write ( "nupp: cannot remove build output " .. path .. "\n" )
 return 1
 end
+if collected then
+collected [ # collected + 1 ] = path
+elseif opts . dryRun then
+io . write ( "would remove " .. path .. "\n" )
+else
 io . write ( "removed " .. path .. "\n" )
 end
 end
@@ -2154,7 +2699,7 @@ end
 
 
 
-function project . binaryFixpoint ( root )
+function project . binaryFixpoint ( root , opts )
 root = root or "."
 local config , err = project . loadManifest ( root )
 if not config then io . stderr : write ( err .. "\n" ) ; return 1 end
@@ -2207,11 +2752,18 @@ end
 if first ~= second then
 io . stderr : write ( ( "nupp: packaging fixpoint mismatch: %d bytes then %d; "
 .. "%s kept for inspection\n" ) : format ( # first , # second , stage1 ) )
+if opts and opts . result then
+opts . result . reason = "the stamped binary stamped a different one"
+end
 return 1
 end
 os . remove ( stage1 )
+if opts and opts . result then
+opts . result . target , opts . result . bytes = targetName , # first
+else
 io . write ( ( "packaging fixpoint ok: %s stamps out a binary identical to "
 .. "itself (%d bytes)\n" ) : format ( targetName , # first ) )
+end
 return 0
 end
 
@@ -2238,6 +2790,9 @@ local first = treeDigest ( join ( root , stage1 ) )
 local second = treeDigest ( join ( root , stage2 ) )
 if first ~= second then
 io . stderr : write ( "nupp: self-hosting fixpoint mismatch; stages kept for inspection\n" )
+if opts . result then
+opts . result . reason = "the two stages differ"
+end
 return 1
 end
 local destination = join ( root , target . outDir or "build" )
@@ -2249,7 +2804,12 @@ local updated , updateErr = project . updateBootstrap ( root )
 if not updated then io . stderr : write ( "nupp: " .. updateErr .. "\n" ) ; return 1 end
 end
 removeTree ( join ( root , stage1 ) ) ; removeTree ( join ( root , stage2 ) )
+if opts . result then
+opts . result . target = targetName
+opts . result . updatedBootstrap = opts . updateBootstrap and true or false
+else
 io . write ( "fixpoint ok: compiler rebuilds itself byte-identically\n" )
+end
 return 0
 end
 
@@ -2945,6 +3505,8 @@ local lints = require ( "nupp.lints" )
 local fixits = require ( "nupp.check.fixits" )
 local annotate = require ( "nupp.check.annotate" )
 local ownership = require ( "nupp.check.ownership" )
+local loopclosure = require ( "nupp.check.loopclosure" )
+local undocumentedraise = require ( "nupp.check.undocumentedraise" )
 local narrow = require ( "nupp.check.narrow" )
 local calls = require ( "nupp.check.calls" )
 local expr = require ( "nupp.check.expr" )
@@ -3008,21 +3570,6 @@ local checkMod = { }
 
 
 checkMod.Checker = {} checkMod.Checker.__index = checkMod.Checker
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -3448,8 +3995,7 @@ pending = { } , parent = nil } ,
 retStack = { } , ownReturnStack = { } , borrowReturnStack = { } ,
 disposerFieldStack = { } , validatedCleanupContracts = { } ,
 unsafeDepth = 0 , functionDepth = 0 ,
-captureWatches = { } , loopStack = { } , inReturn = false ,
-allowed = { } , hoisting = false ,
+captureWatches = { } , allowed = { } , hoisting = false ,
 resolvingAlias = { } , lastCallRets = nil ,
 moduleFields = { } , moduleFieldTokens = { } , moduleLocalAnnotated = false ,
 } , checkMod.Checker)
@@ -3475,6 +4021,11 @@ c . missingRequire = c . edits . missingRequire
 
 local own = ownership . install ( c )
 c . own = own
+
+
+
+c . loops = loopclosure . install ( c )
+c . raises = undocumentedraise . install ( c )
 resolve . install ( c )
 local ownershipKind = own . ownershipKind
 local ownershipState = own . ownershipState
@@ -3549,54 +4100,6 @@ pending = { } , parent = c . scope ,
 depth = ( c . scope and c . scope . depth or 0 ) + 1 }
 end
 
-
-
-
-c . pushLoop = function ( )
-c . loopStack [ # c . loopStack + 1 ] =
-{ depth = c . scope . depth , functionDepth = c . functionDepth }
-end
-c . popLoop = function ( )
-c . loopStack [ # c . loopStack ] = nil
-end
-
-
-
-
-
-
-
-
-
-
-c . beginLoopClosure = function ( enclosing )
-if c . inReturn then return nil end
-local loop = c . loopStack [ # c . loopStack ]
-if not loop or loop . functionDepth ~= enclosing then return nil end
-local watch = { depth = c . scope . depth , floor = loop . depth , captured = false }
-c . captureWatches [ # c . captureWatches + 1 ] = watch
-return watch
-end
-
-
-
-
-
-c . endLoopClosure = function ( watch , at )
-if not watch then return end
-for i = # c . captureWatches , 1 , - 1 do
-if c . captureWatches [ i ] == watch then
-table . remove ( c . captureWatches , i )
-break
-end
-end
-if watch . captured then return end
-c . diag ( "NUPP2505" , at ,
-"this function is built once per iteration but does not use the "
-.. "iteration, so every one of them is the same function" ,
-nil ,
-{ help = "declare it once above the loop and pass the name" } )
-end
 local function auditScope ( s )
 for name , entry in pairs ( s . vars or { } ) do
 local state = entry . ownershipOrigin or entry
@@ -4938,7 +5441,7 @@ end
 end
 if ignoredOwner then
 c . diag ( "NUPP2603" , called ,
-"owned call c.result is ignored instead of being consumed" )
+"owned call result is ignored instead of being consumed" )
 end
 end
 
@@ -5142,8 +5645,14 @@ c . diag ( "NUPP2602" , args [ 1 ] or node ,
 "dispose needs @owned cleanup functions; transfer this owner "
 .. "to a declared takes parameter" )
 end
+
+
+
+
+
+
 c . validateCleanups ( valueT , valueT . cleanups ,
-args [ 1 ] or node )
+args [ 1 ] or node , nil , true )
 node . ownershipIntrinsic = "dispose"
 node . ownerCleanups = valueT . cleanups or { }
 return T . nil_
@@ -6096,10 +6605,9 @@ local handlers = { }
 handlers . returnStmt = function ( stat )
 local annotated = c . retStack [ # c . retStack ]
 local ts = { }
-local wasReturning = c . inReturn
-c . inReturn = true
+local wasReturning = c . loops . setReturning ( true )
 for j , e in ipairs ( stat . exprs or { } ) do ts [ j ] = c . infer ( e ) end
-c . inReturn = wasReturning
+c . loops . setReturning ( wasReturning )
 for j , valueT in ipairs ( ts ) do
 local borrowContract = j == 1
 and c . borrowReturnStack [ # c . borrowReturnStack ] or nil
@@ -6120,7 +6628,7 @@ if not found then missing = true end
 end
 if missing then
 c . diag ( "NUPP2619" , stat . exprs [ j ] or stat ,
-"cannot prove all declared borrowed-c.result sources" )
+"cannot prove all declared borrowed-result sources" )
 end
 end
 if ownershipKind ( valueT ) == "borrowed"
@@ -6132,7 +6640,7 @@ and "NUPP2616" or nil
 c . diag ( expr . withBinding and "NUPP2612" or ownCode or "NUPP2603" ,
 expr , expr . withBinding
 and "a visible 'with' borrow cannot be returned"
-or ownCode and "an owning c.result cannot retain an input borrow"
+or ownCode and "an owning result cannot retain an input borrow"
 or "borrowed value cannot be returned" )
 elseif ownershipKind ( valueT ) == "owned"
 or ownershipKind ( valueT ) == "pinned" then
@@ -6245,7 +6753,15 @@ c . diag ( "NUPP2001" , binding . expr ,
 : format ( binding . name . text , why ) )
 end
 end
-validateCleanups ( acquired , cleanups , binding . expr , "NUPP2615" )
+
+
+
+
+
+
+
+
+validateCleanups ( acquired , cleanups , binding . expr , "NUPP2615" , true )
 if ownershipKind ( acquired ) == "owned" then
 moveExpression ( binding . expr , acquired , "with acquisition" )
 end
@@ -6393,9 +6909,9 @@ c . infer ( cond )
 local facts = analyzeCond ( cond )
 c . pushScope ( )
 applyFacts ( facts . t )
-c . pushLoop ( )
+c . loops . push ( stat . body )
 c . checkBlock ( stat . body , true )
-c . popLoop ( )
+c . loops . pop ( )
 c . popScope ( )
 end
 end
@@ -6403,9 +6919,9 @@ end
 handlers . repeatStmt = function ( stat )
 
 c . pushScope ( )
-c . pushLoop ( )
+c . loops . push ( stat . body )
 c . checkBlock ( stat . body , true )
-c . popLoop ( )
+c . loops . pop ( )
 if stat . cond then c . infer ( stat . cond ) end
 c . popScope ( )
 end
@@ -6432,9 +6948,9 @@ c . pushScope ( )
 c . bindVar ( var . text ,
 ( isA ( st , T . integer ) and isA ( et , T . integer ) ) and T . integer or T . number ,
 false , var )
-c . pushLoop ( )
+c . loops . push ( stat . body )
 c . checkBlock ( stat . body , true )
-c . popLoop ( )
+c . loops . pop ( )
 c . popScope ( )
 end
 
@@ -6454,9 +6970,9 @@ vt = iterT . rets [ j ]
 end
 c . bindVar ( nameTok . text , vt , false , nameTok )
 end
-c . pushLoop ( )
+c . loops . push ( stat . body )
 c . checkBlock ( stat . body , true )
-c . popLoop ( )
+c . loops . pop ( )
 c . popScope ( )
 end
 
@@ -6650,6 +7166,17 @@ end
 n . byname = n . byname or { }
 n . metamethods = n . metamethods or { }
 n . nestedTypes = n . nestedTypes or { }
+
+
+
+
+if stat . whereClause then
+c . diag ( "NUPP2122" , stat . whereClause ,
+"a 'where' refinement is not implemented, so this "
+.. "constraint is not checked" ,
+nil , { help = "remove it, or express the constraint as a "
+.. "type: an enum, a union of literals, or a bound" } )
+end
 
 c . bindDeclaredType ( stat , n )
 
@@ -6847,6 +7374,7 @@ e . body . disposeMethod = true
 end
 local ft = addSelf ( c . checkFuncbody ( e . body , n ) , n ,
 isDisposer and "takes" or nil )
+c . raises . check ( e , e . body )
 if isDisposer then
 n . defaultDisposers [ # n . defaultDisposers + 1 ] =
 "@method:" .. e . name . text
@@ -7214,9 +7742,8 @@ end
 local rets
 
 
-local loopClosure = c . beginLoopClosure ( c . functionDepth )
-local wasReturning = c . inReturn
-c . inReturn = false
+local loopClosure = c . loops . begin ( c . functionDepth )
+local wasReturning = c . loops . setReturning ( false )
 if node . expr then
 rets = { c . infer ( node . expr ) }
 else
@@ -7225,8 +7752,8 @@ c . checkBlock ( node . body , true )
 c . retStack [ # c . retStack ] = nil
 rets = { T . any }
 end
-c . inReturn = wasReturning
-c . endLoopClosure ( loopClosure , node )
+c . loops . setReturning ( wasReturning )
+c . loops . finish ( loopClosure , node )
 c . popScope ( )
 return T . func ( params , rets , vararg )
 elseif kind == "istring" then
@@ -7416,11 +7943,22 @@ argExprs [ 1 ] )
 return T . borrowed ( argT )
 end
 if name == "cast" and c . pointerShaped ( argT )
-and ffiArgs [ 1 ] and rawType ( ffiArgs [ 1 ] ) . tag == "func"
-and c . unsafeDepth == 0 then
+and ffiArgs [ 1 ] and rawType ( ffiArgs [ 1 ] ) . tag == "func" then
+if c . unsafeDepth == 0 then
 c . diag ( "NUPP2604" , node ,
 "creating an FFI callback requires unsafe do and "
 .. "an explicit retained owner" )
+else
+
+
+
+
+c . diag ( "jit-callback" , node ,
+"a Lua function cast to a C callback stays "
+.. "registered and cannot be compiled through" ,
+nil , { help = "keep the callback off hot paths, "
+.. "or call C with a plain pointer instead" } )
+end
 end
 if name == "cast" and ffiArgs [ 1 ]
 and c . ownershipKind ( ffiArgs [ 1 ] ) then
@@ -8065,14 +8603,13 @@ end
 c . disposerFieldStack [ # c . disposerFieldStack + 1 ] = disposerContext or false
 
 
-local loopClosure = c . beginLoopClosure ( c . functionDepth - 1 )
+local loopClosure = c . loops . begin ( c . functionDepth - 1 )
 
 
-local wasReturning = c . inReturn
-c . inReturn = false
+local wasReturning = c . loops . setReturning ( false )
 c . checkBlock ( body . body , true )
-c . inReturn = wasReturning
-c . endLoopClosure ( loopClosure , body )
+c . loops . setReturning ( wasReturning )
+c . loops . finish ( loopClosure , body )
 if body . disposeContract and disposeRoot and disposeRoot ~= "self" then
 local terminal = ownershipState ( c . lookupEntry ( disposeRoot ) )
 if terminal then terminal . moved = true end
@@ -8149,7 +8686,7 @@ c . diag ( "NUPP2109" , sourceToken ,
 ( "%s names no parameter of this function" ) : format ( want ) )
 elseif type ( found ) == "number" and paramModes [ found ] == "takes" then
 c . diag ( "NUPP2618" , sourceToken ,
-( "%s is consumed by this function, so its c.result "
+( "%s is consumed by this function, so its result "
 .. "cannot borrow from it" ) : format ( want ) )
 elseif type ( found ) == "number" then
 borrowsParams [ # borrowsParams + 1 ] = found
@@ -8230,6 +8767,7 @@ c . bindVar ( nameTok . text , T . any , false , nameTok , "function" ,
 stat . isConst )
 local ft = c . checkFuncbody ( body )
 c . bindVar ( nameTok . text , ft )
+c . raises . check ( stat , body )
 if body . disposeContract then
 registerDefaultDisposer ( ft , nameTok . text ,
 body . disposeTok or stat )
@@ -8258,11 +8796,22 @@ if not fname . method and # fname == 1 and fname . base then
 c . bindVar ( fname . base . text , T . any , false , fname . base , "function" )
 end
 local ft = c . checkFuncbody ( body , selfType )
+c . raises . check ( stat , body )
 
 
 if not fname . method and ownerKey == c . moduleLocal and memberTok then
 c . moduleFields [ memberTok . text ] = ft
 c . moduleFieldTokens [ memberTok . text ] = memberTok
+end
+
+
+
+
+
+
+
+if not fname . method and not owner and ownerKey and memberTok then
+c . applyFacts ( { [ ownerKey .. "." .. memberTok . text ] = ft } )
 end
 if body . disposeContract and not owner then
 registerDefaultDisposer ( ft ,
@@ -8544,6 +9093,135 @@ return handlers
 end
 
 return index
+
+end
+package.preload["nupp.check.loopclosure"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local loopclosure = { }
+
+
+
+local function leavesFirstPass ( body )
+local stats = body and body . kind == "block" and body . stats or { }
+local last = stats [ # stats ]
+if not last then return false end
+return last . kind == "returnStmt" or last . kind == "breakStmt"
+end
+
+
+
+
+
+function loopclosure . install ( c )
+local ops = { }
+
+
+
+local loops = { }
+
+
+local returning = false
+
+
+
+
+function ops . push ( body )
+loops [ # loops + 1 ] = {
+depth = c . scope . depth ,
+functionDepth = c . functionDepth ,
+once = leavesFirstPass ( body ) ,
+}
+end
+
+
+function ops . pop ( )
+loops [ # loops ] = nil
+end
+
+
+
+
+
+
+
+function ops . setReturning ( value )
+local was = returning
+returning = value
+return was
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function ops . begin ( enclosing )
+if returning then return nil end
+local loop = loops [ # loops ]
+if not loop or loop . once or loop . functionDepth ~= enclosing then
+return nil
+end
+local watch = { depth = c . scope . depth , floor = loop . depth , captured = false }
+c . captureWatches [ # c . captureWatches + 1 ] = watch
+return watch
+end
+
+
+
+
+
+
+function ops . finish ( watch , at )
+if not watch then return end
+for i = # c . captureWatches , 1 , - 1 do
+if c . captureWatches [ i ] == watch then
+table . remove ( c . captureWatches , i )
+break
+end
+end
+if watch . captured then return end
+c . diag ( "NUPP2505" , at ,
+"this function is built once per iteration but does not use the "
+.. "iteration, so every one of them is the same function" ,
+nil ,
+{ help = "declare it once above the loop and pass the name" } )
+end
+
+return ops
+end
+
+return loopclosure
 
 end
 package.preload["nupp.check.narrow"] = function(...)
@@ -9409,7 +10087,14 @@ local cleanupFunc = cleanupT and cleanupT . tag == "func"
 and cleanupT or nil
 local firstParam = cleanupFunc and cleanupFunc . params [ 1 ] or nil
 if not cleanupT and not allowUnknown then
-c . diag ( code , at , ( "@owned cleanup %q is not declared" ) : format ( cleanup ) )
+
+
+
+
+c . diag ( code , at , ( "@owned cleanup %q is not declared" ) : format ( cleanup ) ,
+nil , { notes = { "a cleanup is resolved here, where the owner "
+.. "is declared, so it has to name a function this file "
+.. "can see" } } )
 elseif cleanupT and cleanupT ~= T . any and ( not firstParam
 or not isA ( rawType ( valueT ) , firstParam ) ) then
 c . diag ( code , at , ( "@owned cleanup %q must accept %s" ) : format (
@@ -10328,6 +11013,3757 @@ end
 end
 
 return resolve
+
+end
+package.preload["nupp.check.undocumentedraise"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.cst" )
+local docblock = require ( "nupp.docblock" )
+
+local undocumentedraise = { }
+
+
+
+
+local function raisesAt ( node )
+if not node or cst . isToken ( node ) then return nil end
+local kind = node . kind
+if kind == "funcbody" or kind == "shortfn" then return nil end
+if kind == "call" then
+local callee = node . obj
+if callee and callee . kind == "name" and callee . token
+and callee . token . text == "error" then
+return callee . token
+end
+end
+for _ , child in ipairs ( node ) do
+local at = raisesAt ( child )
+if at then return at end
+end
+return nil
+end
+
+
+
+
+
+function undocumentedraise . install ( c )
+local ops = { }
+
+
+
+
+
+
+
+function ops . check ( stat , body )
+if not stat or not body then return end
+local raiseTok = raisesAt ( body . body )
+if not raiseTok then return end
+local info , documented = docblock . of ( stat )
+if not documented or # info . raises > 0 then return end
+local label = stat . name and ( cst . textOf ( stat . name ) : gsub ( "%s+" , "" ) )
+or "this function"
+
+
+local at = stat . name and cst . lastToken ( stat . name ) or stat
+c . diag ( "NUPP2506" , at ,
+( "%s raises, but its documentation does not say when" ) : format ( label ) ,
+nil ,
+{ help = "add an @raises line saying what makes it raise" ,
+related = { c . related ( raiseTok , "raises here" ) } } )
+end
+
+return ops
+end
+
+return undocumentedraise
+
+end
+package.preload["nupp.cli"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local specMod = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+local ansi = require ( "nupp.ansi" )
+
+local cli = { }
+
+
+
+
+
+
+local REGISTRY = {
+{ name = "ast" , load = function ( ) return require ( "nupp.cli.ast" ) end } ,
+{ name = "check" , load = function ( ) return require ( "nupp.cli.check" ) end } ,
+{ name = "fmt" , load = function ( ) return require ( "nupp.cli.fmt" ) end } ,
+{ name = "build" , load = function ( ) return require ( "nupp.cli.build" ) end } ,
+{ name = "clean" , load = function ( ) return require ( "nupp.cli.clean" ) end } ,
+{ name = "tasks" , load = function ( ) return require ( "nupp.cli.tasks" ) end } ,
+{ name = "lints" , load = function ( ) return require ( "nupp.cli.lints" ) end } ,
+{ name = "explain" , load = function ( ) return require ( "nupp.cli.explain" ) end } ,
+{ name = "reference" , load = function ( ) return require ( "nupp.cli.reference" ) end } ,
+{ name = "test" , load = function ( ) return require ( "nupp.cli.test" ) end } ,
+{ name = "doc" , load = function ( ) return require ( "nupp.cli.doc" ) end } ,
+{ name = "fixpoint" , load = function ( ) return require ( "nupp.cli.fixpoint" ) end } ,
+{ name = "run" , load = function ( ) return require ( "nupp.cli.run" ) end } ,
+{ name = "import-c" , load = function ( ) return require ( "nupp.cli.importc" ) end } ,
+{ name = "lsp" , load = function ( ) return require ( "nupp.cli.lsp" ) end } ,
+}
+
+
+
+local HELP_COMMAND = specMod . command {
+name = "help" ,
+summary = "Show general or command-specific help" ,
+usage = { "nupp help [command]" } ,
+detail = "With no command, prints the command list." ,
+}
+
+local byName = { }
+for _ , entry in ipairs ( REGISTRY ) do byName [ entry . name ] = entry . load end
+
+
+local function lookup ( name )
+local load = byName [ name ]
+return load and load ( ) or nil
+end
+
+
+
+local function mainHelp ( )
+local style = ansi . style ( io . stdout )
+local out = {
+"Nupp compiler and project tool" ,
+"" ,
+style . strong ( "Usage:" ) ,
+"  nupp <command> [options]" ,
+"  nupp help [command]" ,
+"" ,
+style . strong ( "Commands:" ) ,
+}
+local width = # "import-c"
+local summaries = { }
+for _ , entry in ipairs ( REGISTRY ) do
+summaries [ # summaries + 1 ] = { name = entry . name ,
+summary = entry . load ( ) . spec . summary }
+if # entry . name > width then
+width = # entry . name
+end
+end
+summaries [ # summaries + 1 ] = { name = HELP_COMMAND . name ,
+summary = HELP_COMMAND . summary }
+local paint = ansi . forSeverity ( style , "note" )
+for _ , entry in ipairs ( summaries ) do
+out [ # out + 1 ] = "  " .. paint ( entry . name )
+.. ( " " ) : rep ( width - # entry . name + 2 ) .. entry . summary
+end
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "Run 'nupp help <command>' for command-specific options."
+return table . concat ( out , "\n" ) .. "\n"
+end
+
+local function fail ( message , hint )
+local style = ansi . style ( io . stderr )
+io . stderr : write ( ansi . forSeverity ( style , "error" ) ( "nupp:" ) .. " " .. message
+.. "\n" .. hint .. "\n" )
+return 2
+end
+
+
+local function runHelp ( args )
+local name = args [ 1 ]
+if args [ 2 ] then
+return fail ( "help accepts at most one command name" ,
+"Try 'nupp help' for a list of commands." )
+end
+if not name then
+io . write ( mainHelp ( ) )
+return 0
+end
+if name == "-h" or name == "--help" then
+io . write ( HELP_COMMAND : help ( ) )
+return 0
+end
+if name == "help" then
+io . write ( HELP_COMMAND : help ( ) )
+return 0
+end
+local command = lookup ( name )
+if not command then
+return fail ( "unknown command " .. name ,
+"Try 'nupp help' for a list of commands." )
+end
+io . write ( command . spec : help ( ) )
+return 0
+end
+
+
+
+
+local function applyColor ( values )
+local wanted = values . color
+if type ( wanted ) == "string" then
+ansi . setMode ( wanted )
+end
+end
+
+
+function cli . main ( argv )
+local name = argv [ 1 ]
+if not name or name == "-h" or name == "--help" then
+
+
+io . write ( mainHelp ( ) )
+return 0
+end
+local rest = { }
+for index = 2 , # argv do rest [ # rest + 1 ] = argv [ index ] end
+if name == "help" then
+return runHelp ( rest )
+end
+local command = lookup ( name )
+if not command then
+return fail ( "unknown command " .. name ,
+"Try 'nupp help' for a list of commands." )
+end
+if command . raw then
+
+
+if rest [ 1 ] == "-h" or rest [ 1 ] == "--help" then
+io . write ( command . spec : help ( ) )
+return 0
+end
+if rest [ 1 ] == "--schema" and command . spec . schema then
+require ( "nupp.cli.report" ) . write ( command . spec . schema )
+return 0
+end
+return command . run ( rest )
+end
+local parsed , err = command . spec : parse ( rest )
+if not parsed then
+return command . spec : usageError ( err )
+end
+applyColor ( parsed . values )
+if parsed . values . help then
+io . write ( command . spec : help ( ) )
+return 0
+end
+if parsed . values . schema then
+
+
+
+require ( "nupp.cli.report" ) . write ( command . spec . schema )
+return 0
+end
+return command . run ( parsed )
+end
+
+cli . spec = specMod
+cli . options = optionsMod
+
+
+function cli . names ( )
+local names = { }
+for _ , entry in ipairs ( REGISTRY ) do names [ # names + 1 ] = entry . name end
+names [ # names + 1 ] = "help"
+return names
+end
+
+return cli
+
+end
+package.preload["nupp.cli.ast"] = function(...)
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+
+local command = spec . command {
+name = "ast" ,
+summary = "Dump a Nupp file's parsed syntax tree" ,
+usage = { "nupp ast [--format text|json] <file>" } ,
+options = optionsMod . format ( ) ,
+schema = {
+type = "object" ,
+properties = {
+file = { type = "string" } ,
+root = { [ "$ref" ] = "#/definitions/node" } ,
+errors = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = { code = { type = "string" } ,
+message = { type = "string" } ,
+offset = { type = "integer" } , length = { type = "integer" } ,
+line = { type = "integer" } , col = { type = "integer" } ,
+help = { type = "string" } } ,
+} ,
+} ,
+} ,
+required = { "file" , "root" , "errors" } ,
+definitions = {
+node = {
+description = "A structural node, or a token with the trivia "
+.. "attached to it. The tree is lossless: every byte of the "
+.. "source is in exactly one token or one piece of trivia." ,
+type = "object" ,
+properties = {
+tag = { type = "string" , enum = { "node" , "token" } } ,
+kind = { type = "string" } ,
+children = { type = "array" ,
+items = { [ "$ref" ] = "#/definitions/node" } } ,
+text = { type = "string" } ,
+offset = { type = "integer" } , line = { type = "integer" } ,
+col = { type = "integer" } ,
+missing = { type = "boolean" ,
+description = "Inserted by error recovery; not in the "
+.. "source." } ,
+trivia = {
+type = "array" ,
+items = { type = "object" , properties = {
+kind = { type = "string" } , text = { type = "string" } ,
+offset = { type = "integer" } ,
+line = { type = "integer" } , col = { type = "integer" } } } ,
+} ,
+} ,
+required = { "tag" , "kind" } ,
+} ,
+} ,
+} ,
+detail = [[The parser produces a lossless concrete syntax tree. Text output is an indented
+outline with quoted tokens; JSON includes structural children, tokens, trivia,
+locations, and parse errors. A recovered tree is still printed when parsing
+fails.]] ,
+}
+
+
+local function syntaxTreeValue ( cst , value )
+if cst . isToken ( value ) then
+local trivia = { }
+for _ , item in ipairs ( value . trivia ) do
+trivia [ # trivia + 1 ] = { kind = item . kind , text = item . text ,
+offset = item . offset , line = item . line , col = item . col }
+end
+return {
+tag = "token" , kind = value . kind , text = value . text ,
+offset = value . offset , line = value . line , col = value . col ,
+missing = value . missing and true or nil , trivia = trivia ,
+}
+end
+local children = { }
+for _ , child in ipairs ( value ) do
+children [ # children + 1 ] = syntaxTreeValue ( cst , child )
+end
+return { tag = "node" , kind = value . kind , children = children }
+end
+
+local function run ( parsed )
+local paths = parsed . positional
+if # paths ~= 1 then
+return command : usageError ( "exactly one source file is required" )
+end
+local path = paths [ 1 ]
+local fs = require ( "nupp.fs" )
+local source , readErr = fs . readFile ( path )
+if not source then
+io . stderr : write ( "nupp: " .. tostring ( readErr ) .. "\n" )
+return 1
+end
+local parser = require ( "nupp.parser" )
+local cst = require ( "nupp.cst" )
+local result = parser . parse ( source , path )
+if ( parsed . values . format or "text" ) == "text" then
+io . write ( cst . pretty ( result . root ) .. "\n" )
+else
+local errors = { }
+for _ , err in ipairs ( result . errors ) do
+errors [ # errors + 1 ] = { code = err . code , message = err . msg ,
+offset = err . offset , length = err . length , line = err . line ,
+col = err . col , help = err . help }
+end
+local json = require ( "cjson" ) . new ( )
+json . encode_empty_table_as_object ( false )
+json . encode_invalid_numbers ( false )
+io . write ( json . encode ( { file = path ,
+root = syntaxTreeValue ( cst , result . root ) , errors = errors } ) .. "\n" )
+end
+return require ( "nupp.diagnostics" ) . report ( result . errors ) and 1 or 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.build"] = function(...)
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+
+local command = spec . command {
+name = "build" ,
+summary = "Build source files or a configured project target" ,
+usage = {
+"nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]"
+.. " [--format text|json]" ,
+"nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>" ,
+} ,
+options = optionsMod . join (
+{ name = "--target" , value = "NAME" , help = "Build a named manifest target" } ,
+
+
+
+{ name = "--out-dir" , value = "DIR" , key = "projectOutDir" ,
+help = "Override the manifest target's output directory" } ,
+{ name = "-o" , value = "DIR" , key = "outDir" ,
+help = "Output directory for explicit source-file builds" } ,
+optionsMod . strict ,
+optionsMod . optimize ( ) ,
+optionsMod . format ( ) ) ,
+schema = {
+type = "object" ,
+description = "What a build reported and what it produced." ,
+properties = {
+diagnostics = require ( "nupp.cli.report" ) . DIAGNOSTICS ,
+target = { type = "string" ,
+description = "The manifest target that was built. Absent for a "
+.. "build of explicitly named source files." } ,
+written = { type = "array" , items = { type = "string" } ,
+description = "Every output path the build produced, sorted." } ,
+ok = { type = "boolean" ,
+description = "Whether the build completed. False when a "
+.. "diagnostic stopped it." } ,
+} ,
+required = { "ok" , "diagnostics" , "written" } ,
+} ,
+detail = [[Manifest target options cannot be combined with explicit source files.
+Use 'nupp tasks' to discover target names and configuration.
+
+The level is part of the build key, so changing it rebuilds rather than
+mixing artifacts compiled at two different levels. See plans/optimizations.md.
+
+--json reports the same diagnostics as 'nupp check --json' alongside what the
+build wrote, so one call answers both what went wrong and what landed.]] ,
+}
+
+local function run ( parsed )
+local values = parsed . values
+local paths = parsed . positional
+
+
+local outDir , projectOutDir = values . outDir , values . projectOutDir
+local target = values . target
+if # paths > 0 and ( projectOutDir or target ) then
+return command : usageError (
+"--target and --out-dir cannot be used with explicit source files" )
+end
+if # paths == 0 and outDir then
+return command : usageError ( "-o requires at least one explicit source file" )
+end
+local reportMod = require ( "nupp.cli.report" )
+local asJson = values . format == "json"
+
+
+local diagnostics = { }
+local compile = require ( "nupp.cli.compile" )
+local settings = compile . settings ( values , asJson and diagnostics or nil )
+local function finish ( code , builtTarget , outputs )
+if asJson then
+reportMod . write ( { ok = code == 0 ,
+diagnostics = reportMod . diagnosticValues ( diagnostics ) ,
+target = builtTarget , written = outputs } )
+end
+return code
+end
+if # paths == 0 then
+local project = require ( "nupp.build.project" )
+local produced = { }
+local code = project . build ( "." , { outDir = projectOutDir , target = target ,
+strict = settings . strict , optLevel = settings . optLevel ,
+remarks = settings . remarks , disabled = settings . disabled ,
+diagnostics = asJson and diagnostics or nil ,
+produced = asJson and produced or nil } )
+return finish ( code , produced . target , produced . outputs or { } )
+end
+local process = require ( "nupp.build.process" )
+if outDir and process . run ( process . mkdirCommand ( outDir ) ) ~= 0 then
+io . stderr : write ( "nupp: cannot create output directory " .. outDir .. "\n" )
+return finish ( 1 , nil , { } )
+end
+local env = require ( "nupp.env" ) . new ( "." )
+local failed = false
+local written = { }
+local outputs = { }
+local function emitModule ( path )
+if written [ path ] then
+return true
+end
+written [ path ] = true
+local code = compile . module ( path , env , settings )
+if not code then
+return false
+end
+local outPath
+if outDir then
+local base = path : match ( "([^/\\]+)%.nupp$" ) or path
+outPath = outDir .. "/" .. base .. ".lua"
+else
+outPath = path : gsub ( "%.nupp$" , "" ) .. ".lua"
+end
+local out , err = io . open ( outPath , "wb" )
+if not out then
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+return false
+end
+out : write ( code )
+out : close ( )
+outputs [ # outputs + 1 ] = outPath
+return true
+end
+
+for _ , path in ipairs ( paths ) do
+if not emitModule ( path ) then
+failed = true
+end
+end
+
+
+
+
+
+local pending = true
+while pending do
+pending = false
+local reached = { }
+for _ , record in pairs ( env . loaded or { } ) do
+if record . path then
+reached [ # reached + 1 ] = record . path
+end
+end
+table . sort ( reached )
+for _ , path in ipairs ( reached ) do
+if path : match ( "%.nupp$" ) and not path : match ( "%.d%.nupp$" )
+and not written [ path ] then
+pending = true
+if not emitModule ( path ) then
+failed = true
+end
+end
+end
+end
+table . sort ( outputs )
+return finish ( failed and 1 or 0 , nil , outputs )
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.check"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+
+local command = spec . command {
+name = "check" ,
+summary = "Type-check source without emitting Lua" ,
+usage = { "nupp check [--strict] [--target NAME] [--format text|json] [file...]" } ,
+options = optionsMod . join (
+optionsMod . strict ,
+{ name = "--target" , value = "NAME" , help = "Check a named manifest target" } ,
+optionsMod . format ( ) ) ,
+schema = {
+type = "object" ,
+properties = { diagnostics = require ( "nupp.cli.report" ) . DIAGNOSTICS } ,
+required = { "diagnostics" } ,
+} ,
+detail = "With no files, checks the default target from nupp.lua." ,
+}
+
+local function run ( parsed )
+local paths = parsed . positional
+local values = parsed . values
+local target = values . target
+if target and # paths > 0 then
+return command : usageError ( "--target cannot be combined with source files" )
+end
+local asJson = values . format == "json"
+local reportMod = require ( "nupp.cli.report" )
+local diagnostics = { }
+if # paths == 0 then
+local project = require ( "nupp.build.project" )
+local code = project . check ( "." , { strict = values . strict , target = target ,
+diagnostics = asJson and diagnostics or nil } )
+if asJson then
+reportMod . json ( diagnostics )
+end
+return code
+end
+local fs = require ( "nupp.fs" )
+local parser = require ( "nupp.parser" )
+local check = require ( "nupp.check" )
+local diagnosticMod = require ( "nupp.diagnostics" )
+local env = require ( "nupp.env" ) . new ( "." )
+local failed = false
+for _ , path in ipairs ( paths ) do
+local source , err = fs . readFile ( path )
+if not source then
+if asJson then
+diagnostics [ # diagnostics + 1 ] = { filename = path , line = 0 ,
+col = 0 , offset = 0 , length = 0 , code = "NUPP0001" ,
+msg = err , help = "check that the path exists and is readable" }
+else
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+end
+failed = true
+else
+local result = parser . parse ( source , path )
+if # result . errors > 0 then
+if asJson then
+for _ , diagnostic in ipairs ( result . errors ) do
+diagnostics [ # diagnostics + 1 ] = diagnostic
+end
+else
+diagnosticMod . report ( result . errors )
+end
+failed = true
+else
+local diags = check . check ( result , path , env ,
+{ strict = values . strict } )
+if asJson then
+for _ , diagnostic in ipairs ( diags ) do
+diagnostics [ # diagnostics + 1 ] = diagnostic
+if reportMod . fatal ( diagnostic ) then
+failed = true
+end
+end
+elseif diagnosticMod . report ( diags ) then
+failed = true
+end
+end
+end
+end
+if asJson then
+reportMod . json ( diagnostics )
+end
+return failed and 1 or 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.clean"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local command = spec . command {
+name = "clean" ,
+summary = "Remove build outputs configured in nupp.lua" ,
+usage = { "nupp clean [--target NAME] [--dry-run] [--format text|json]" } ,
+options = require ( "nupp.cli.options" ) . join (
+{ name = "--target" , value = "NAME" ,
+help = "Clean only the named build target" } ,
+{ name = "--dry-run" , help = "Print output paths without removing them" } ,
+require ( "nupp.cli.options" ) . format ( ) ) ,
+schema = {
+type = "object" ,
+properties = {
+removed = { type = "array" , items = { type = "string" } ,
+description = "The output paths, removed unless dryRun is set, "
+.. "in which case these are the paths that would be." } ,
+dryRun = { type = "boolean" } ,
+ok = { type = "boolean" } ,
+} ,
+required = { "ok" , "removed" , "dryRun" } ,
+} ,
+detail = [[With no target, cleans every configured target output. Paths outside the
+project and paths that resolve to the project root are always rejected.]] ,
+}
+
+local function run ( parsed )
+local positional = parsed . positional
+if # positional > 0 then
+return command : usageError ( "unexpected argument " .. positional [ 1 ] )
+end
+local values = parsed . values
+local asJson = values . format == "json"
+local dryRun = values . dryRun and true or false
+local project = require ( "nupp.build.project" )
+local removed = { }
+local code = project . clean ( "." , { target = values . target , dryRun = values . dryRun ,
+removed = asJson and removed or nil } )
+if asJson then
+require ( "nupp.cli.report" ) . write ( { ok = code == 0 , removed = removed ,
+dryRun = dryRun } )
+end
+return code
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.compile"] = function(...)
+
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local diagnosticMod = require ( "nupp.diagnostics" )
+local fs = require ( "nupp.fs" )
+
+local compile = { }
+
+
+compile.Settings = {} compile.Settings.__index = compile.Settings
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local LEVELS = { [ "0" ] = 0 , [ "1" ] = 1 , [ "2" ] = 2 }
+
+
+
+function compile . settings ( values ,
+collected )
+return setmetatable( {
+strict = values . strict ,
+optLevel = LEVELS [ values . optLevel ] or 0 ,
+remarks = values . remarks and true or false ,
+disabled = values . disabled or { } ,
+diagnostics = collected ,
+} , compile.Settings)
+end
+
+
+
+function compile . module ( path , env ,
+settings )
+local collected = settings . diagnostics
+
+
+local function say ( values )
+if not collected then return diagnosticMod . report ( values ) end
+local fatal = false
+for _ , diagnostic in ipairs ( values ) do
+collected [ # collected + 1 ] = diagnostic
+if diagnosticMod . isFatal ( diagnostic ) then fatal = true end
+end
+return fatal
+end
+local source , readErr = fs . readFile ( path )
+if not source then
+if collected then
+collected [ # collected + 1 ] = { filename = path , line = 0 , col = 0 ,
+offset = 0 , length = 0 , code = "NUPP0001" , msg = readErr ,
+help = "check that the path exists and is readable" }
+else
+io . stderr : write ( "nupp: " .. tostring ( readErr ) .. "\n" )
+end
+return nil , readErr
+end
+local parser = require ( "nupp.parser" )
+local result = parser . parse ( source , path )
+if # result . errors > 0 then
+say ( result . errors )
+return nil , "syntax errors"
+end
+local check = require ( "nupp.check" )
+local diags = check . check ( result , path , env , { strict = settings . strict } )
+if say ( diags ) then
+return nil , "type errors"
+end
+local remarks = require ( "nupp.optimize" ) . run ( result , { level = settings . optLevel ,
+filename = path , disabled = settings . disabled } )
+if settings . remarks then
+say ( remarks )
+end
+local gen = require ( "nupp.gen" )
+local code , genDiags = gen . generate ( result , path )
+if # genDiags > 0 then
+say ( genDiags )
+return nil , "code generation errors"
+end
+return code
+end
+
+return compile
+
+end
+package.preload["nupp.cli.doc"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local FORMATS = {
+site = "site" , markdown = "markdown" , md = "markdown" , both = "both" ,
+}
+
+local command = spec . command {
+name = "doc" ,
+summary = "Generate API documentation from source comments" ,
+usage = { "nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all]"
+.. " [--format text|json] [path...]" } ,
+options = require ( "nupp.cli.options" ) . join (
+{ names = { "-o" , "--output" } , value = "PATH" , key = "output" ,
+help = "Output file or directory" } ,
+{ name = "--title" , value = "TITLE" , help = "Documentation title" } ,
+{ name = "--all" , help = "Include private declarations" } ,
+require ( "nupp.cli.options" ) . format ( ) ) ,
+schema = {
+type = "object" ,
+properties = {
+ok = { type = "boolean" } ,
+format = { type = "string" ,
+description = "The resolved format: site, markdown, or both." } ,
+output = { type = "string" ,
+description = "The file or directory the run was pointed at." } ,
+files = { type = "array" , items = { type = "string" } ,
+description = "Every path written. A file whose contents did "
+.. "not change is not rewritten and is not listed." } ,
+} ,
+required = { "ok" , "format" , "output" , "files" } ,
+} ,
+detail = [[The first argument may name the format: site, markdown (or md), or both.
+With none, the manifest's configured format is used, and site if it has none.
+
+--format names the shape of this command's own report and is unrelated to the
+documentation format, which is the positional word.]] ,
+}
+
+local function run ( parsed )
+local positional = parsed . positional
+local values = parsed . values
+local doc = require ( "nupp.doc" )
+local config , configErr = doc . loadConfig ( "." )
+if not config then
+io . stderr : write ( "nupp: " .. tostring ( configErr ) .. "\n" )
+return 1
+end
+local settings = doc . manifestSettings ( config )
+
+
+
+
+local deps = require ( "nupp.build.deps" )
+local installed , depErr = deps . build ( "." ,
+settings . outDir or "build" , config , { } , settings )
+if not installed then
+io . stderr : write ( "nupp: " .. tostring ( depErr ) .. "\n" )
+return 1
+end
+local opts = { output = values . output , title = values . title }
+
+
+local sources = { }
+local first = positional [ 1 ]
+local named = first and FORMATS [ first ] or nil
+if named then
+opts . format = named
+end
+for index = named and 2 or 1 , # positional do
+sources [ # sources + 1 ] = positional [ index ]
+end
+if # sources > 0 then
+opts . sources = sources
+end
+if values . all then
+settings . all = true
+end
+local asJson = values . format == "json"
+local written = { }
+if asJson then opts . written = written end
+local code , output , resolved = doc . build ( "." , config , settings , opts )
+if asJson then
+require ( "nupp.cli.report" ) . write ( { ok = code == 0 , files = written ,
+output = output or "" , format = resolved or "" } )
+end
+return code
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.explain"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+local ansi = require ( "nupp.ansi" )
+
+local command = spec . command {
+name = "explain" ,
+summary = "Describe a diagnostic code, with an example either way" ,
+usage = { "nupp explain <code> [--format text|json]" , "nupp explain --list" } ,
+options = optionsMod . join (
+{ name = "--list" , help = "List the codes with a worked example" } ,
+optionsMod . format ( ) ) ,
+schema = {
+type = "object" ,
+properties = {
+code = { type = "string" } ,
+summary = { type = "string" , description = "One line." } ,
+rule = { type = "string" ,
+description = "The general statement the code enforces." } ,
+wrong = { type = "string" ,
+description = "A program that reports the code. Absent when "
+.. "only the family is known." } ,
+right = { type = "string" , description = "The same program, corrected." } ,
+related = { type = "array" , items = { type = "string" } ,
+description = "Codes worth reading beside it." } ,
+docs = { type = "string" ,
+description = "The reference section, as a path and anchor. The "
+.. "same value every diagnostic carries under `docs`." } ,
+family = { type = "boolean" ,
+description = "True when this is what the code's family says "
+.. "rather than what is known about the code itself, which "
+.. "is when the examples are absent." } ,
+strict = { type = "boolean" ,
+description = "True when the rule is only reported under "
+.. "--strict, or with strict = true in the manifest." } ,
+codes = { type = "array" , items = { type = "string" } ,
+description = "Present for --list instead of the fields above." } ,
+} ,
+} ,
+detail = [[Every diagnostic written by --json carries the same `docs` anchor this
+reports, so a reader holding a diagnostic can reach the reference without
+being told where it is.
+
+A code with no worked example still resolves through its family, and says so
+with `family: true`, rather than an example being invented to fit it.]] ,
+}
+
+local function run ( parsed )
+local explain = require ( "nupp.explain" )
+local values = parsed . values
+local asJson = values . format == "json"
+local positional = parsed . positional
+if values . list then
+local codes = explain . codes ( )
+if asJson then
+require ( "nupp.cli.report" ) . write ( { codes = codes } )
+else
+io . write ( table . concat ( codes , "\n" ) , "\n" )
+end
+return 0
+end
+if # positional ~= 1 then
+return command : usageError ( "exactly one diagnostic code is required" )
+end
+
+
+local code = positional [ 1 ] : upper ( )
+local entry = explain . lookup ( code )
+if not entry then
+return command : usageError ( "unknown diagnostic code " .. positional [ 1 ] )
+end
+if asJson then
+require ( "nupp.cli.report" ) . write ( {
+code = entry . code , summary = entry . summary , rule = entry . rule ,
+wrong = entry . wrong , right = entry . right , related = entry . related ,
+docs = entry . docs , family = entry . family , strict = entry . strict ,
+} )
+return 0
+end
+local style = ansi . style ( io . stdout )
+local out = {
+style . strong ( entry . code ) .. "  " .. entry . summary ,
+"" ,
+}
+for _ , line in ipairs ( spec . wrap ( entry . rule , 79 ) ) do out [ # out + 1 ] = line end
+
+
+
+local function quote ( heading , source )
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = heading
+out [ # out + 1 ] = ""
+for line in ( source : gsub ( "\n$" , "" ) .. "\n" ) : gmatch ( "([^\n]*)\n" ) do
+out [ # out + 1 ] = line == "" and "" or ( "    " .. line )
+end
+end
+local wrong , right = entry . wrong , entry . right
+if wrong then
+quote ( ansi . forSeverity ( style , "error" ) ( "Reports it:" ) , wrong )
+end
+if right then
+quote ( ansi . forSeverity ( style , "help" ) ( "Does not:" ) , right )
+end
+if entry . strict then
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = style . faint ( "Reported only under --strict." )
+end
+if entry . family then
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = style . faint ( "No worked example is recorded for this code; "
+.. "the rule above is its family's." )
+end
+if # entry . related > 0 then
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = style . faint ( "Related: " ) .. table . concat ( entry . related , ", " )
+end
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = style . faint ( "Reference: " ) .. entry . docs
+io . write ( table . concat ( out , "\n" ) , "\n" )
+return 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.fixpoint"] = function(...)
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local command = spec . command {
+name = "fixpoint" ,
+summary = "Verify a byte-identical self-hosting rebuild" ,
+usage = { "nupp fixpoint [--update-bootstrap] [--format text|json]" ,
+"nupp fixpoint --binary [--format text|json]" } ,
+intro = [[By default the compiler compiles itself twice and the two must agree.
+
+--binary makes the same claim about packaging: the target named by
+selfHost.binary is stamped, and the binary that comes out stamps another
+identical to itself. It is what the payload format's determinism rests on.]] ,
+options = require ( "nupp.cli.options" ) . join (
+{ name = "--update-bootstrap" ,
+help = "Refresh the tracked stage-0 bundle after verification" } ,
+{ name = "--binary" ,
+help = "Verify the packaged binary instead of the compiler" } ,
+require ( "nupp.cli.options" ) . format ( ) ) ,
+schema = {
+type = "object" ,
+properties = {
+ok = { type = "boolean" ,
+description = "Whether the rebuild reproduced itself." } ,
+kind = { type = "string" , enum = { "compiler" , "binary" } ,
+description = "Which claim was checked: the compiler compiling "
+.. "itself twice, or the packaged binary stamping another." } ,
+target = { type = "string" ,
+description = "The manifest target that was verified." } ,
+bytes = { type = "integer" ,
+description = "The size of the verified binary, for --binary." } ,
+updatedBootstrap = { type = "boolean" ,
+description = "Whether the tracked stage-0 bundle was refreshed." } ,
+reason = { type = "string" ,
+description = "Why it failed. Absent when ok is true." } ,
+} ,
+required = { "ok" , "kind" } ,
+} ,
+}
+
+local function run ( parsed )
+local positional = parsed . positional
+if # positional > 0 then
+return command : usageError ( "unexpected argument " .. positional [ 1 ] )
+end
+local values = parsed . values
+if values . binary and values . updateBootstrap then
+return command : usageError (
+"--binary verifies the packaged binary and has no bootstrap to refresh" )
+end
+local asJson = values . format == "json"
+local project = require ( "nupp.build.project" )
+
+
+local result = { }
+local code
+if values . binary then
+code = project . binaryFixpoint ( "." , { result = asJson and result or nil } )
+else
+code = project . fixpoint ( "." , { updateBootstrap = values . updateBootstrap ,
+result = asJson and result or nil } )
+end
+if asJson then
+result . ok = code == 0
+result . kind = values . binary and "binary" or "compiler"
+require ( "nupp.cli.report" ) . write ( result )
+end
+return code
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.fmt"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local command = spec . command {
+name = "fmt" ,
+summary = "Format Nupp source" ,
+usage = { "nupp fmt [-w|--write] [--check] [--format text|json] [file...]" } ,
+intro = [[With files named, each is formatted to stdout, or rewritten with --write.
+
+With none, the project is the subject: every .nupp and .d.nupp under the
+manifest's include roots, minus the build output. The files that are not
+formatted are listed and the exit status is 1, so a build can gate on it;
+--write formats them and lists what it changed.
+
+--check asks that question of whatever it was given, so a build can gate on
+the files a change touched. Nothing is written and nothing goes to stdout but
+the list; the exit status is 1 if it is not empty.]] ,
+options = require ( "nupp.cli.options" ) . join (
+{ names = { "-w" , "--write" } ,
+help = "Rewrite files in place instead of writing to stdout" } ,
+{ name = "--check" ,
+help = "Report which files are not formatted; write nothing" } ,
+require ( "nupp.cli.options" ) . format ( ) ) ,
+schema = {
+type = "object" ,
+description = "Which files are not formatted, and what was done about it." ,
+properties = {
+unformatted = { type = "array" , items = { type = "string" } ,
+description = "Files whose formatting differs from the "
+.. "formatter's. Under --write these are the files that "
+.. "were rewritten." } ,
+written = { type = "boolean" ,
+description = "Whether the files listed were rewritten rather "
+.. "than merely reported." } ,
+failed = {
+type = "array" ,
+description = "Files that could not be formatted at all, which "
+.. "is a different answer from being unformatted." ,
+items = {
+type = "object" ,
+properties = { file = { type = "string" } ,
+diagnostics = require ( "nupp.cli.report" ) . DIAGNOSTICS } ,
+required = { "file" , "diagnostics" } ,
+} ,
+} ,
+ok = { type = "boolean" ,
+description = "True when nothing was left unformatted and "
+.. "nothing failed." } ,
+} ,
+required = { "ok" , "unformatted" , "written" , "failed" } ,
+} ,
+detail = [[--json always reports the list, whichever form was asked for, and separates a
+file that could not be formatted from one that merely is not.]] ,
+}
+
+local function run ( parsed )
+local values = parsed . values
+local write , asking = values . write , values . check
+if write and asking then
+return command : usageError (
+"--write and --check ask for opposite things: one fixes the "
+.. "formatting, the other reports it" )
+end
+local fs = require ( "nupp.fs" )
+local fmt = require ( "nupp.fmt" )
+local envMod = require ( "nupp.env" )
+local diagnosticMod = require ( "nupp.diagnostics" )
+local reportMod = require ( "nupp.cli.report" )
+local asJson = values . format == "json"
+local env = envMod . new ( "." )
+local paths = parsed . positional
+local wholeProject = # paths == 0
+
+
+
+local reporting = asking or wholeProject or asJson
+local failures = { }
+local function finish ( code , unformatted )
+if asJson then
+reportMod . write ( { ok = code == 0 , written = write and true or false ,
+unformatted = unformatted , failed = failures } )
+end
+return code
+end
+if wholeProject then
+paths = envMod . listSourceFiles ( env )
+if # paths == 0 then
+io . stderr : write ( "nupp: no source files found under the project's "
+.. "include roots\n" )
+return finish ( 1 , { } )
+end
+end
+local failed = false
+local unformatted = { }
+for _ , path in ipairs ( paths ) do
+local source , err = fs . readFile ( path )
+if not source then
+if asJson then
+failures [ # failures + 1 ] = { file = path , diagnostics =
+reportMod . diagnosticValues ( { { filename = path , line = 0 ,
+col = 0 , offset = 0 , length = 0 , code = "NUPP0001" ,
+msg = err ,
+help = "check that the path exists and is readable" } } ) }
+else
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+end
+failed = true
+else
+local formatted , errors = fmt . format ( source , path , {
+annotations = env . annotations ,
+resolveAnnotation = function ( name )
+return env . resolveProjectAnnotation ( env , path , name )
+end ,
+} )
+if # errors > 0 then
+
+
+if asJson then
+failures [ # failures + 1 ] = { file = path ,
+diagnostics = reportMod . diagnosticValues ( errors ) }
+else
+diagnosticMod . report ( errors )
+end
+failed = true
+elseif write then
+if formatted ~= source then
+local out = assert ( io . open ( path , "wb" ) )
+out : write ( formatted )
+out : close ( )
+unformatted [ # unformatted + 1 ] = path
+end
+elseif reporting then
+if formatted ~= source then
+unformatted [ # unformatted + 1 ] = path
+end
+else
+
+
+
+io . write ( formatted )
+end
+end
+end
+if reporting then
+if # unformatted > 0 and not asJson then
+io . write ( table . concat ( unformatted , "\n" ) , "\n" )
+end
+
+
+if not write and # unformatted > 0 then
+failed = true
+end
+end
+return finish ( failed and 1 or 0 , unformatted )
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.importc"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local command = spec . command {
+name = "import-c" ,
+summary = "Generate typed Nupp bindings from a C header" ,
+usage = { "nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]"
+.. " <header.h>" } ,
+options = require ( "nupp.cli.options" ) . join (
+{ name = "-o" , value = "FILE" , key = "out" ,
+help = "Write the generated module to FILE" } ,
+{ names = { "-l" , "--lib" } , value = "NAME" , key = "lib" ,
+help = "Name the native library loaded by the bindings" } ,
+require ( "nupp.cli.options" ) . format ( ) ) ,
+schema = {
+type = "object" ,
+properties = {
+ok = { type = "boolean" } ,
+output = { type = "string" ,
+description = "Where the generated module was written. Absent "
+.. "when nothing was generated." } ,
+warnings = { type = "array" , items = { type = "string" } ,
+description = "What the header contained that the bindings "
+.. "could not represent. Present whether or not it "
+.. "succeeded; a warning is not a failure." } ,
+} ,
+required = { "ok" , "warnings" } ,
+} ,
+}
+
+local function run ( parsed )
+local paths = parsed . positional
+if # paths ~= 1 then
+return command : usageError ( "exactly one C header is required" )
+end
+local header = paths [ 1 ]
+local asJson = parsed . values . format == "json"
+local reportMod = require ( "nupp.cli.report" )
+local importc = require ( "nupp.importc" )
+local text , warnings = importc . import ( header , { lib = parsed . values . lib } )
+local function fail ( )
+if asJson then
+reportMod . write ( { ok = false , warnings = warnings } )
+else
+for _ , warning in ipairs ( warnings ) do
+io . stderr : write ( "nupp: " .. warning .. "\n" )
+end
+end
+return 1
+end
+if not text then return fail ( ) end
+if not asJson then
+for _ , warning in ipairs ( warnings ) do
+io . stderr : write ( "nupp: warning: " .. warning .. "\n" )
+end
+end
+local out = parsed . values . out
+or ( ( header : match ( "([^/\\]+)%.h$" ) or "out" ) .. ".nupp" )
+local handle , writeErr = io . open ( out , "wb" )
+if not handle then
+if asJson then
+warnings [ # warnings + 1 ] = tostring ( writeErr )
+return fail ( )
+end
+io . stderr : write ( "nupp: " .. tostring ( writeErr ) .. "\n" )
+return 1
+end
+handle : write ( text )
+handle : close ( )
+if asJson then
+reportMod . write ( { ok = true , output = out , warnings = warnings } )
+else
+io . write ( out .. "\n" )
+end
+return 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.lints"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local ansi = require ( "nupp.ansi" )
+
+local command = spec . command {
+name = "lints" ,
+summary = "List the lints and the level each runs at" ,
+usage = { "nupp lints [--format text|json]" } ,
+intro = [[Levels are off, note, warning and error; only an error stops a build. A
+project moves one in nupp.lua by name or by category:
+
+  lints = { ["missing-require"] = "warning", pedantic = "warning" }
+
+A statement waves one away with @allow("missing-require"). See docs/lints.md.]] ,
+options = require ( "nupp.cli.options" ) . format ( ) ,
+schema = {
+type = "object" ,
+properties = {
+lints = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = {
+name = { type = "string" ,
+description = "What an @allow suppression writes." } ,
+code = { type = "string" ,
+description = "The diagnostic code it reports under, "
+.. "which survives the name being reconsidered." } ,
+category = { type = "string" } ,
+level = { type = "string" ,
+enum = { "off" , "note" , "warning" , "error" } ,
+description = "The level this project runs it at." } ,
+default = { type = "string" ,
+enum = { "off" , "note" , "warning" , "error" } ,
+description = "The level it runs at when a project "
+.. "says nothing." } ,
+moved = { type = "boolean" ,
+description = "Whether this project moved it off "
+.. "its default." } ,
+summary = { type = "string" } ,
+} ,
+required = { "name" , "code" , "category" , "level" , "default" ,
+"moved" , "summary" } ,
+} ,
+} ,
+} ,
+required = { "lints" } ,
+} ,
+}
+
+
+
+local LEVEL_SEVERITY = {
+error = "error" , warning = "warning" , note = "note" ,
+}
+
+local function run ( parsed )
+local lints = require ( "nupp.lints" )
+local project = require ( "nupp.build.project" )
+
+
+local config , err = project . loadManifest ( "." )
+if not config and err then
+io . stderr : write ( err .. "\n" )
+return 1
+end
+local lintConfig = config and config . lints or nil
+local style = ansi . style ( io . stdout )
+local rows = { }
+local nameWidth , categoryWidth = 4 , 8
+for _ , lint in ipairs ( lints . all ) do
+local level = lints . level ( lint , lintConfig )
+rows [ # rows + 1 ] = {
+name = lint . name , code = lint . code , category = lint . category ,
+level = level , summary = lint . summary , default = lint . level ,
+moved = level ~= lint . level ,
+}
+if # lint . name > nameWidth then
+nameWidth = # lint . name
+end
+if # lint . category > categoryWidth then
+categoryWidth = # lint . category
+end
+end
+table . sort ( rows , function ( a , b ) return a . name < b . name end )
+if parsed . values . format == "json" then
+require ( "nupp.cli.report" ) . write ( { lints = rows } )
+return 0
+end
+
+
+local out = { }
+local function pad ( text , width )
+return text .. ( " " ) : rep ( width - # text )
+end
+out [ # out + 1 ] = style . faint ( pad ( "lint" , nameWidth ) .. "  "
+.. pad ( "category" , categoryWidth ) .. "  " .. pad ( "level" , 7 )
+.. "  summary" )
+for _ , row in ipairs ( rows ) do
+local summary = row . summary
+if row . moved then
+summary = summary .. style . faint ( ( " (default %s)" ) : format ( row . default ) )
+end
+local level = pad ( row . level , 7 )
+local severity = LEVEL_SEVERITY [ row . level ]
+if severity then
+level = ansi . forSeverity ( style , severity ) ( level )
+end
+out [ # out + 1 ] = style . strong ( pad ( row . name , nameWidth ) ) .. "  "
+.. style . faint ( pad ( row . category , categoryWidth ) ) .. "  " .. level
+.. "  " .. summary
+end
+io . write ( table . concat ( out , "\n" ) , "\n" )
+return 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.lsp"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local json = require ( "cjson" ) . new ( )
+local lsp = require ( "nupp.lsp" )
+local spec = require ( "nupp.cli.spec" )
+
+
+
+
+
+
+json . decode_array_with_array_mt ( true )
+json . decode_invalid_numbers ( false )
+json . encode_empty_table_as_object ( true )
+json . encode_invalid_numbers ( false )
+
+local function jsonArray ( items )
+return setmetatable ( items , json . array_mt )
+end
+
+local function readFile ( path )
+local file , err = io . open ( path , "rb" )
+if not file then return nil , err end
+local source = file : read ( "*a" )
+file : close ( )
+return source
+end
+
+local function writeFile ( path , source )
+local file , err = io . open ( path , "wb" )
+if not file then return nil , err end
+local ok , writeErr = file : write ( source )
+local closeOk , closeErr = file : close ( )
+if not ok then return nil , writeErr end
+if not closeOk then return nil , closeErr end
+return true
+end
+
+local function normalizePath ( path )
+path = path : gsub ( "\\" , "/" ) : gsub ( "/+" , "/" )
+path = path : gsub ( "^%./" , "" ) : gsub ( "/%./" , "/" )
+return ( path : gsub ( "/$" , "" ) )
+end
+
+local function absolutePath ( path )
+return path : match ( "^/" ) or path : match ( "^[A-Za-z]:[/\\]" )
+end
+
+local function resolvePath ( root , path )
+if absolutePath ( path ) or root == "." or root == "" then
+return normalizePath ( path )
+end
+return normalizePath ( root .. "/" .. path )
+end
+
+local function displayPath ( root , path )
+root , path = normalizePath ( root ) , normalizePath ( path )
+if root ~= "." and root ~= "" and path : sub ( 1 , # root + 1 ) == root .. "/" then
+return path : sub ( # root + 2 )
+end
+return path
+end
+
+local function pathToUri ( path )
+return "file://" .. path : gsub ( "[^%w%-%._~/:]" , function ( ch )
+return ( "%%%02X" ) : format ( ch : byte ( ) )
+end )
+end
+
+local function uriToPath ( uri )
+local path = uri : gsub ( "^file://" , "" )
+return normalizePath ( ( path : gsub ( "%%(%x%x)" , function ( hex )
+return string . char ( tonumber ( hex , 16 ) or 0 )
+end ) ) )
+end
+
+local function utf8Char ( source , offset )
+local first = source : byte ( offset )
+if not first or first < 0x80 then return 1 , 1 end
+local bytes = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
+return bytes , bytes == 4 and 2 or 1
+end
+
+local function lineStart ( source , wanted )
+local line , offset = 1 , 1
+while line < wanted do
+local newline = source : find ( "\n" , offset , true )
+if not newline then return nil end
+offset , line = newline + 1 , line + 1
+end
+return offset
+end
+
+
+local function toLspPosition ( source , line , column )
+local start = lineStart ( source , line )
+if not start then return nil , "line is past the end of the file" end
+local finish = source : find ( "\n" , start , true ) or ( # source + 1 )
+local target = start + column - 1
+if target < start or target > finish then
+return nil , "column is past the end of the line"
+end
+local offset , units = start , 0
+while offset < target do
+local bytes , width = utf8Char ( source , offset )
+if offset + bytes > target then
+return nil , "column is inside a UTF-8 character"
+end
+offset , units = offset + bytes , units + width
+end
+return { line = line - 1 , character = units }
+end
+
+
+local function fromLspPosition ( source , position )
+local line = ( position . line or 0 ) + 1
+local start = lineStart ( source , line ) or ( # source + 1 )
+local offset , units = start , 0
+local wanted = position . character or 0
+while offset <= # source and source : byte ( offset ) ~= 10 and units < wanted do
+local bytes , width = utf8Char ( source , offset )
+offset , units = offset + bytes , units + width
+end
+return { line = line , column = offset - start + 1 , offset = offset }
+end
+
+local optionsMod = require ( "nupp.cli.options" )
+
+
+
+local reportMod = require ( "nupp.cli.report" )
+
+local function operationSpec ( name , summary , usage ,
+extra , schema )
+local declared = {
+{ name = "--root" , value = "DIR" ,
+help = "Project root (default: current directory)" } ,
+}
+for _ , option in ipairs ( extra ) do declared [ # declared + 1 ] = option end
+for _ , option in ipairs ( optionsMod . format ( ) ) do
+declared [ # declared + 1 ] = option
+end
+return spec . command {
+name = "lsp " .. name ,
+
+
+helpName = "lsp" ,
+summary = summary ,
+usage = { usage } ,
+options = declared ,
+schema = schema ,
+}
+end
+
+
+local SYMBOL = {
+type = "object" ,
+properties = {
+name = { type = "string" } ,
+kind = { type = "string" ,
+description = "The LSP symbol kind, spelled as a word." } ,
+type = { type = "string" } ,
+detail = { type = "string" } ,
+documentation = { type = "string" } ,
+container = { type = "string" } ,
+definition = reportMod . LOCATION ,
+location = reportMod . LOCATION ,
+range = reportMod . RANGE ,
+children = { type = "array" , items = { [ "$ref" ] = "#/definitions/symbol" } } ,
+} ,
+}
+
+local EDIT = {
+type = "object" ,
+properties = { file = { type = "string" } , range = reportMod . RANGE ,
+newText = { type = "string" } } ,
+required = { "file" , "range" , "newText" } ,
+}
+
+local OPERATION_SPECS = {
+inspect = operationSpec ( "inspect" , "Describe the symbol at a position" ,
+"nupp lsp inspect [options] <file> <line> <column>" , { } , {
+type = "object" ,
+description = "The symbol at the position, or null where there is "
+.. "nothing to describe." ,
+properties = { symbol = { [ "$ref" ] = "#/definitions/symbol" } } ,
+definitions = { symbol = SYMBOL } ,
+} ) ,
+definition = operationSpec ( "definition" ,
+"Find where the symbol at a position is defined" ,
+"nupp lsp definition [options] <file> <line> <column>" , { } , {
+type = "object" ,
+properties = { definition = reportMod . LOCATION } ,
+} ) ,
+references = operationSpec ( "references" ,
+"Find the semantic references to the symbol at a position" ,
+"nupp lsp references [options] <file> <line> <column>" , {
+{ name = "--include-declaration" ,
+help = "Include the declaration among the references" } ,
+} , {
+type = "object" ,
+properties = {
+declarationIncluded = { type = "boolean" } ,
+references = { type = "array" , items = reportMod . LOCATION } ,
+} ,
+required = { "declarationIncluded" , "references" } ,
+} ) ,
+symbols = operationSpec ( "symbols" , "Search workspace or document symbols" ,
+"nupp lsp symbols [options] [--file FILE] [pattern]" , {
+{ name = "--file" , value = "FILE" ,
+help = "Search one document instead of the workspace" } ,
+} , {
+type = "object" ,
+properties = { symbols = { type = "array" ,
+items = { [ "$ref" ] = "#/definitions/symbol" } } } ,
+required = { "symbols" } ,
+definitions = { symbol = SYMBOL } ,
+} ) ,
+rename = operationSpec ( "rename" ,
+"Rename a symbol and every semantic reference to it" ,
+"nupp lsp rename [options] <file> <line> <column> <new-name>" , {
+{ names = { "-w" , "--write" } ,
+help = "Apply the rename instead of previewing it" } ,
+} , {
+type = "object" ,
+properties = {
+oldName = { type = "string" } ,
+newName = { type = "string" } ,
+written = { type = "boolean" ,
+description = "False for a preview, which is the default." } ,
+edits = { type = "array" , items = EDIT } ,
+} ,
+required = { "newName" , "written" , "edits" } ,
+} ) ,
+actions = operationSpec ( "actions" ,
+"List the code actions available at a position" ,
+"nupp lsp actions [options] <file> <line> <column>" , {
+{ name = "--only" , value = "KIND" , choices = { "quickfix" , "refactor" } ,
+help = "Narrow the results to quickfix or refactor" } ,
+} , {
+type = "object" ,
+properties = {
+actions = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = {
+kind = { type = "string" } ,
+title = { type = "string" } ,
+diagnostic = { type = "object" , properties = {
+code = { type = "string" } ,
+message = { type = "string" } } } ,
+edits = { type = "array" , items = EDIT } ,
+} ,
+required = { "title" , "edits" } ,
+} ,
+} ,
+} ,
+required = { "actions" } ,
+} ) ,
+}
+
+local command = spec . command {
+name = "lsp" ,
+summary = "Language-server and semantic source operations" ,
+usage = {
+"nupp lsp [root]" ,
+"nupp lsp serve [root]" ,
+"nupp lsp inspect [options] <file> <line> <column>" ,
+"nupp lsp definition [options] <file> <line> <column>" ,
+"nupp lsp references [options] [--include-declaration] <file> <line> <column>" ,
+"nupp lsp symbols [options] [--file FILE] [pattern]" ,
+"nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>" ,
+"nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>" ,
+} ,
+universal = false ,
+options = {
+{ name = "--root" , value = "DIR" ,
+help = "Project root (default: current directory)" } ,
+{ name = "--format" , value = "FORMAT" ,
+help = "Output format: text (default) or json" } ,
+{ name = "--json" , help = "Shorthand for --format json" } ,
+{ name = "--text" , help = "Shorthand for --format text" } ,
+{ name = "--include-declaration" ,
+help = "references only: include the declaration" } ,
+{ name = "--file" , value = "FILE" ,
+help = "symbols only: search one document instead of the workspace" } ,
+{ name = "--only" , value = "KIND" ,
+help = "actions only: narrow to quickfix or refactor" } ,
+{ names = { "-w" , "--write" } ,
+help = "rename only: apply the rename instead of previewing it" } ,
+{ name = "--schema" ,
+help = "Print the JSON Schema of an operation's --json output; each "
+.. "operation answers with its own" } ,
+spec . helpOption ,
+} ,
+detail = [[With no operation, or with only a root, runs the language server over stdio for
+compatibility. `serve` names that mode explicitly. Source positions are 1-based
+byte line and column numbers, matching compiler diagnostics. Rename previews by
+default and changes files only with --write.]] ,
+}
+
+local function usageError ( message )
+return command : usageError ( message )
+end
+
+local function newClient ( root )
+local emitted = { }
+local sources = { }
+local session = lsp . newSession ( root , function ( message )
+emitted [ # emitted + 1 ] = message
+end )
+local nextId = 0
+
+local function request ( method , params )
+nextId = nextId + 1
+local id = nextId
+session . dispatch ( { jsonrpc = "2.0" , id = id , method = method ,
+params = params } )
+for index = # emitted , 1 , - 1 do
+local message = emitted [ index ]
+if message . id == id then
+if message . error then return nil , message . error . message end
+return message . result
+end
+end
+return nil , "language service did not answer " .. method
+end
+
+local function notify ( method , params )
+session . dispatch ( { jsonrpc = "2.0" , method = method , params = params } )
+end
+
+local _ , initErr = request ( "initialize" , { } )
+if initErr then return nil , initErr end
+notify ( "initialized" , { } )
+
+local function source ( path )
+path = normalizePath ( path )
+if sources [ path ] then return sources [ path ] end
+local text , err = readFile ( path )
+if not text then return nil , err end
+sources [ path ] = text
+return text
+end
+
+local function open ( path )
+path = normalizePath ( path )
+local text , err = source ( path )
+if not text then return nil , err end
+notify ( "textDocument/didOpen" , { textDocument = {
+uri = pathToUri ( path ) , languageId = "nupp" , version = 1 , text = text ,
+} } )
+return text
+end
+
+return { request = request , notify = notify , open = open , source = source ,
+root = root , sources = sources }
+end
+
+local function rangeValue ( client , path , range )
+local source = client . source ( path ) or ""
+return {
+start = fromLspPosition ( source , range . start ) ,
+[ "end" ] = fromLspPosition ( source , range [ "end" ] ) ,
+}
+end
+
+local function locationValue ( client , location )
+if not location or location == json . null then return nil end
+local path = uriToPath ( location . uri )
+return { file = displayPath ( client . root , path ) ,
+range = rangeValue ( client , path , location . range ) }
+end
+
+local function positionParams ( path , position )
+return { textDocument = { uri = pathToUri ( path ) } , position = position }
+end
+
+local function locationText ( location )
+if not location then return "" end
+local start = location . range . start
+return ( "%s:%d:%d" ) : format ( location . file , start . line , start . column )
+end
+
+local SYMBOL_KINDS = {
+[ 1 ] = "file" , [ 2 ] = "module" , [ 3 ] = "namespace" , [ 4 ] = "package" ,
+[ 5 ] = "class" , [ 6 ] = "method" , [ 7 ] = "property" , [ 8 ] = "field" ,
+[ 9 ] = "constructor" , [ 10 ] = "enum" , [ 11 ] = "interface" ,
+[ 12 ] = "function" , [ 13 ] = "variable" , [ 14 ] = "constant" ,
+[ 15 ] = "string" , [ 16 ] = "number" , [ 17 ] = "boolean" , [ 18 ] = "array" ,
+[ 19 ] = "object" , [ 20 ] = "key" , [ 21 ] = "null" , [ 22 ] = "enum-member" ,
+[ 23 ] = "struct" , [ 24 ] = "event" , [ 25 ] = "operator" ,
+[ 26 ] = "type-parameter" ,
+}
+
+local function editValues ( client , changes )
+local edits = jsonArray ( { } )
+local uris , seen = { } , { }
+for uri in pairs ( changes or { } ) do uris [ # uris + 1 ] = uri end
+table . sort ( uris )
+for _ , uri in ipairs ( uris ) do
+local path = uriToPath ( uri )
+for _ , edit in ipairs ( changes [ uri ] ) do
+local start , finish = edit . range . start , edit . range [ "end" ]
+local key = path .. ":" .. start . line .. ":" .. start . character
+.. ":" .. finish . line .. ":" .. finish . character
+.. ":" .. edit . newText
+if not seen [ key ] then
+seen [ key ] = true
+edits [ # edits + 1 ] = {
+file = displayPath ( client . root , path ) ,
+range = rangeValue ( client , path , edit . range ) ,
+newText = edit . newText ,
+}
+end
+end
+end
+table . sort ( edits , function ( left , right )
+if left . file ~= right . file then return left . file < right . file end
+return left . range . start . offset < right . range . start . offset
+end )
+return edits
+end
+
+local function jsonOutput ( value )
+io . write ( json . encode ( value ) .. "\n" )
+end
+
+local function parsePositive ( value , label )
+local number = tonumber ( value )
+if not number or number < 1 or number ~= math . floor ( number ) then
+return nil , label .. " must be a positive integer"
+end
+return number
+end
+
+
+
+
+local function parseOptions ( operation , args )
+local parsed , err = OPERATION_SPECS [ operation ] : parse ( args )
+if not parsed then return nil , err end
+local opts = parsed . values
+opts . root = opts . root or "."
+opts . format = opts . format or "text"
+opts . positional = parsed . positional
+return opts
+end
+
+local function target ( client , opts , expected )
+if # opts . positional ~= expected then
+return nil , nil , nil , "expected FILE LINE COLUMN"
+end
+local path = resolvePath ( opts . root , opts . positional [ 1 ] )
+local source , readErr = client . open ( path )
+if not source then return nil , nil , nil , readErr end
+local line , lineErr = parsePositive ( opts . positional [ 2 ] , "line" )
+if not line then return nil , nil , nil , lineErr end
+local column , columnErr = parsePositive ( opts . positional [ 3 ] , "column" )
+if not column then return nil , nil , nil , columnErr end
+local position , positionErr = toLspPosition ( source , line , column )
+if not position then return nil , nil , nil , positionErr end
+return path , source , position
+end
+
+local function runInspect ( client , opts )
+local path , _ , position , err = target ( client , opts , 3 )
+if not path then return nil , err end
+local result , requestErr = client . request ( "$/nupp/inspect" ,
+positionParams ( path , position ) )
+if requestErr then return nil , requestErr end
+if result == json . null then result = nil end
+local value = result and {
+name = result . name ,
+kind = result . kind ,
+type = result . type ,
+detail = result . detail ,
+documentation = result . documentation ,
+definition = locationValue ( client , result . definition ) ,
+range = result . range and rangeValue ( client , path , result . range ) or nil ,
+} or nil
+if opts . format == "json" then jsonOutput ( { symbol = value or json . null } )
+elseif value then
+io . write ( value . name .. " (" .. value . kind .. ")\n" )
+if value . type then io . write ( value . type .. "\n" ) end
+if value . detail then io . write ( value . detail .. "\n" ) end
+if value . documentation then io . write ( "\n" .. value . documentation .. "\n" ) end
+if value . definition then
+io . write ( "Defined at " .. locationText ( value . definition ) .. "\n" )
+end
+end
+return true
+end
+
+local function runDefinition ( client , opts )
+local path , _ , position , err = target ( client , opts , 3 )
+if not path then return nil , err end
+local result , requestErr = client . request ( "textDocument/definition" ,
+positionParams ( path , position ) )
+if requestErr then return nil , requestErr end
+local value = locationValue ( client , result )
+if opts . format == "json" then jsonOutput ( { definition = value or json . null } )
+elseif value then io . write ( locationText ( value ) .. "\n" ) end
+return true
+end
+
+local function runReferences ( client , opts )
+local path , _ , position , err = target ( client , opts , 3 )
+if not path then return nil , err end
+local params = positionParams ( path , position )
+params . context = { includeDeclaration = opts . includeDeclaration or false }
+local result , requestErr = client . request ( "textDocument/references" , params )
+if requestErr then return nil , requestErr end
+local values = jsonArray ( { } )
+local seen = { }
+if type ( result ) ~= "table" then result = { } end
+for _ , location in ipairs ( result ) do
+local value = locationValue ( client , location )
+local start , finish = value . range . start , value . range [ "end" ]
+local key = value . file .. ":" .. start . offset .. ":" .. finish . offset
+if not seen [ key ] then
+seen [ key ] = true
+values [ # values + 1 ] = value
+end
+end
+if opts . format == "json" then
+jsonOutput ( { declarationIncluded = opts . includeDeclaration or false ,
+references = values } )
+else
+for _ , value in ipairs ( values ) do io . write ( locationText ( value ) .. "\n" ) end
+end
+return true
+end
+
+local function documentSymbolValue ( client , path , symbol )
+local value = {
+name = symbol . name ,
+kind = SYMBOL_KINDS [ symbol . kind ] or "unknown" ,
+location = { file = displayPath ( client . root , path ) ,
+range = rangeValue ( client , path , symbol . selectionRange or symbol . range ) } ,
+}
+if symbol . children and # symbol . children > 0 then
+value . children = jsonArray ( { } )
+for _ , child in ipairs ( symbol . children ) do
+value . children [ # value . children + 1 ] = documentSymbolValue ( client , path , child )
+end
+end
+return value
+end
+
+local function printSymbol ( symbol , indent )
+io . write ( ( "  " ) : rep ( indent ) .. symbol . kind .. " " .. symbol . name .. " "
+.. locationText ( symbol . location ) .. "\n" )
+for _ , child in ipairs ( symbol . children or { } ) do printSymbol ( child , indent + 1 ) end
+end
+
+local function runSymbols ( client , opts )
+if # opts . positional > 1 then return nil , "symbols accepts at most one pattern" end
+local values = jsonArray ( { } )
+local seen = { }
+if opts . file then
+local path = resolvePath ( opts . root , opts . file )
+local _ , openErr = client . open ( path )
+if openErr then return nil , openErr end
+local result , requestErr = client . request ( "textDocument/documentSymbol" ,
+{ textDocument = { uri = pathToUri ( path ) } } )
+if requestErr then return nil , requestErr end
+local pattern = opts . positional [ 1 ] and opts . positional [ 1 ] : lower ( )
+if type ( result ) ~= "table" then result = { } end
+for _ , symbol in ipairs ( result ) do
+if not pattern or symbol . name : lower ( ) : find ( pattern , 1 , true ) then
+local value = documentSymbolValue ( client , path , symbol )
+local key = value . name .. ":" .. value . location . range . start . offset
+if not seen [ key ] then
+seen [ key ] = true
+values [ # values + 1 ] = value
+end
+end
+end
+else
+local result , requestErr = client . request ( "workspace/symbol" ,
+{ query = opts . positional [ 1 ] or "" } )
+if requestErr then return nil , requestErr end
+if type ( result ) ~= "table" then result = { } end
+for _ , symbol in ipairs ( result ) do
+local value = {
+name = symbol . name ,
+kind = SYMBOL_KINDS [ symbol . kind ] or "unknown" ,
+container = symbol . containerName ,
+location = locationValue ( client , symbol . location ) ,
+}
+local key = value . name .. ":" .. value . location . file .. ":"
+.. value . location . range . start . offset
+if not seen [ key ] then
+seen [ key ] = true
+values [ # values + 1 ] = value
+end
+end
+end
+if opts . format == "json" then jsonOutput ( { symbols = values } )
+else for _ , symbol in ipairs ( values ) do printSymbol ( symbol , 0 ) end end
+return true
+end
+
+
+local function latestFirst ( left , right )
+return left . from > right . from
+end
+
+local function rewrittenFiles ( client , rawChanges )
+local rewritten , previews , grouped , seen = { } , { } , { } , { }
+for uri , rawEdits in pairs ( rawChanges or { } ) do
+local path = uriToPath ( uri )
+grouped [ path ] = grouped [ path ] or { }
+seen [ path ] = seen [ path ] or { }
+for _ , edit in ipairs ( rawEdits ) do
+local start , finish = edit . range . start , edit . range [ "end" ]
+local key = start . line .. ":" .. start . character .. ":"
+.. finish . line .. ":" .. finish . character .. ":" .. edit . newText
+if not seen [ path ] [ key ] then
+seen [ path ] [ key ] = true
+grouped [ path ] [ # grouped [ path ] + 1 ] = edit
+end
+end
+end
+for path , rawEdits in pairs ( grouped ) do
+local source , readErr = client . source ( path )
+if not source then return nil , nil , readErr end
+local edits = { }
+for _ , edit in ipairs ( rawEdits ) do
+local from = fromLspPosition ( source , edit . range . start ) . offset
+local to = fromLspPosition ( source , edit . range [ "end" ] ) . offset
+edits [ # edits + 1 ] = { from = from , to = to , newText = edit . newText ,
+oldText = source : sub ( from , to - 1 ) ,
+range = rangeValue ( client , path , edit . range ) }
+end
+table . sort ( edits , latestFirst )
+local last = # source + 1
+local text = source
+for _ , edit in ipairs ( edits ) do
+if edit . to > last then return nil , nil , "rename edits overlap" end
+text = text : sub ( 1 , edit . from - 1 ) .. edit . newText .. text : sub ( edit . to )
+last = edit . from
+end
+rewritten [ path ] = text
+previews [ path ] = edits
+end
+return rewritten , previews
+end
+
+local function identifierAt ( source , line , column )
+local start = lineStart ( source , line )
+local offset = start and start + column - 1
+if not offset then return nil end
+local left , right = offset , offset
+while left > 1 and source : sub ( left - 1 , left - 1 ) : match ( "[A-Za-z0-9_]" ) do
+left = left - 1
+end
+while right <= # source and source : sub ( right , right ) : match ( "[A-Za-z0-9_]" ) do
+right = right + 1
+end
+local name = source : sub ( left , right - 1 )
+return name ~= "" and name or nil
+end
+
+local function runRename ( client , opts )
+if # opts . positional ~= 4 then return nil , "expected FILE LINE COLUMN NEW_NAME" end
+local newName = opts . positional [ 4 ]
+local targetOpts = { positional = { opts . positional [ 1 ] , opts . positional [ 2 ] ,
+opts . positional [ 3 ] } , root = opts . root }
+local path , source , position , err = target ( client , targetOpts , 3 )
+if not path then return nil , err end
+local params = positionParams ( path , position )
+params . newName = newName
+local result , requestErr = client . request ( "textDocument/rename" , params )
+if requestErr then return nil , requestErr end
+local changes = result and result . changes or { }
+local edits = editValues ( client , changes )
+local rewritten , previews , rewriteErr = rewrittenFiles ( client , changes )
+if not rewritten then return nil , rewriteErr end
+local changedFiles = { }
+for changedPath in pairs ( rewritten ) do changedFiles [ # changedFiles + 1 ] = changedPath end
+table . sort ( changedFiles )
+if opts . write then
+for _ , changedPath in ipairs ( changedFiles ) do
+local ok , writeErr = writeFile ( changedPath , rewritten [ changedPath ] )
+if not ok then return nil , writeErr end
+end
+end
+local oldName = identifierAt ( source , tonumber ( opts . positional [ 2 ] ) ,
+tonumber ( opts . positional [ 3 ] ) )
+if opts . format == "json" then
+jsonOutput ( { oldName = oldName , newName = newName , written = opts . write or false ,
+edits = edits } )
+elseif opts . write then
+io . write ( ( "Renamed %s to %s in %d location%s across %d file%s\n" ) : format (
+oldName or "symbol" , newName , # edits , # edits == 1 and "" or "s" ,
+# changedFiles , # changedFiles == 1 and "" or "s" ) )
+for _ , changedPath in ipairs ( changedFiles ) do
+io . write ( displayPath ( opts . root , changedPath ) .. "\n" )
+end
+else
+for _ , changedPath in ipairs ( changedFiles ) do
+io . write ( "--- " .. displayPath ( opts . root , changedPath ) .. "\n" )
+io . write ( "+++ " .. displayPath ( opts . root , changedPath ) .. "\n" )
+for index = # previews [ changedPath ] , 1 , - 1 do
+local edit = previews [ changedPath ] [ index ]
+io . write ( ( "@@ %d:%d @@\n" ) : format ( edit . range . start . line ,
+edit . range . start . column ) )
+io . write ( "-" .. edit . oldText .. "\n" )
+io . write ( "+" .. edit . newText .. "\n" )
+end
+end
+end
+return true
+end
+
+local function runActions ( client , opts )
+local path , _ , position , err = target ( client , opts , 3 )
+if not path then return nil , err end
+local params = positionParams ( path , position )
+params . range = { start = position , [ "end" ] = position }
+local context = { diagnostics = jsonArray ( { } ) }
+if opts . only then
+context . only = jsonArray ( { opts . only == "refactor"
+and "refactor.rewrite" or opts . only } )
+end
+params . context = context
+local result , requestErr = client . request ( "textDocument/codeAction" , params )
+if requestErr then return nil , requestErr end
+local actions = jsonArray ( { } )
+if type ( result ) ~= "table" then result = { } end
+for _ , action in ipairs ( result ) do
+local diagnostic = action . diagnostics and action . diagnostics [ 1 ]
+actions [ # actions + 1 ] = {
+kind = action . kind ,
+title = action . title ,
+diagnostic = diagnostic and {
+code = diagnostic . code , message = diagnostic . message ,
+} or nil ,
+edits = editValues ( client , action . edit and action . edit . changes or { } ) ,
+}
+end
+if opts . format == "json" then jsonOutput ( { actions = actions } )
+else
+for _ , action in ipairs ( actions ) do
+io . write ( action . kind .. ": " .. action . title .. "\n" )
+end
+end
+return true
+end
+
+local OPERATIONS = {
+inspect = runInspect ,
+definition = runDefinition ,
+references = runReferences ,
+symbols = runSymbols ,
+rename = runRename ,
+actions = runActions ,
+}
+
+local function dispatch ( args )
+if # args == 0 then return lsp . run ( "." ) end
+local operation = args [ 1 ]
+if operation == "serve" or operation == "server" then
+if # args > 2 then return usageError ( "lsp serve accepts at most one root" ) end
+if args [ 2 ] and args [ 2 ] : sub ( 1 , 1 ) == "-" then
+return usageError ( "unknown option " .. args [ 2 ] )
+end
+return lsp . run ( args [ 2 ] or "." )
+end
+local run = OPERATIONS [ operation ]
+if not run then
+
+if # args == 1 and operation : sub ( 1 , 1 ) ~= "-" then return lsp . run ( operation ) end
+return usageError ( "unknown lsp operation " .. operation )
+end
+local rest = { }
+for index = 2 , # args do rest [ # rest + 1 ] = args [ index ] end
+
+local grammar = assert ( OPERATION_SPECS [ operation ] )
+local opts , optionErr = parseOptions ( operation , rest )
+if not opts then return grammar : usageError ( optionErr ) end
+if opts . help then
+io . write ( grammar : help ( ) )
+return 0
+end
+if opts . schema then
+reportMod . write ( grammar . schema )
+return 0
+end
+local ansi = require ( "nupp.ansi" )
+if type ( opts . color ) == "string" then ansi . setMode ( opts . color ) end
+local client , clientErr = newClient ( opts . root )
+if not client then io . stderr : write ( "nupp: " .. clientErr .. "\n" ) ; return 1 end
+local ok , runErr = run ( client , opts )
+if not ok then io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" ) ; return 1 end
+return 0
+end
+
+return setmetatable( { spec = command , raw = true , run = dispatch } , spec.Handler)
+
+end
+package.preload["nupp.cli.options"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+local options = { }
+
+
+options . strict = {
+name = "--strict" ,
+help = "Treat strict checker rules as errors" ,
+}
+
+
+
+
+local DUPLICATE_FORMAT = "output format was specified more than once"
+
+
+
+function options . format ( )
+return {
+{ name = "--format" , value = "FORMAT" , choices = { "text" , "json" } ,
+duplicate = DUPLICATE_FORMAT ,
+help = "Output format: text (default) or json" } ,
+{ name = "--json" , key = "format" , constant = "json" ,
+duplicate = DUPLICATE_FORMAT , help = "Shorthand for --format json" } ,
+{ name = "--text" , key = "format" , constant = "text" ,
+duplicate = DUPLICATE_FORMAT , help = "Shorthand for --format text" } ,
+}
+end
+
+
+
+
+
+function options . optimize ( )
+return {
+{ name = "-O" , pattern = "^%-O(%d)$" , value = "n" , key = "optLevel" ,
+choices = { "0" , "1" , "2" } , display = "-O0, -O1, -O2" ,
+invalid = "the optimization level is -O0, -O1 or -O2" ,
+help = "Optimization level (default -O0, which rewrites nothing)" } ,
+{ name = "--remarks" ,
+help = "Report what the optimizer did and what it declined to do" } ,
+{ name = "-Zno-opt" , value = "CODE" , form = "attached" , key = "disabled" ,
+repeats = true , set = true , display = "-Zno-opt=CODE" ,
+help = "Turn off one pass, named by its stable code, to bisect a "
+.. "miscompile. Unstable: the spelling may change or go away" } ,
+}
+end
+
+
+
+function options . join ( ... )
+local joined = { }
+for _ , group in ipairs ( { ... } ) do
+if group . name or group . names then
+joined [ # joined + 1 ] = group
+else
+for _ , option in ipairs ( group ) do joined [ # joined + 1 ] = option end
+end
+end
+return joined
+end
+
+return options
+
+end
+package.preload["nupp.cli.reference"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local command = spec . command {
+name = "reference" ,
+summary = "Print the language reference, or eject it as an agent skill" ,
+usage = { "nupp reference [--format markdown|skill|json] [-o PATH]" } ,
+intro = [[Every construct, the shortest program that uses it, and the diagnostic
+codes that report getting it wrong. Around four thousand tokens, so it fits in a
+prompt whole.
+
+  nupp reference > docs/reference.md
+  nupp reference --format skill -o .claude/skills/nupp/SKILL.md]] ,
+options = {
+{ name = "--format" , value = "FORMAT" ,
+choices = { "markdown" , "skill" , "json" } ,
+duplicate = "output format was specified more than once" ,
+help = "Output format: markdown (default), skill, or json" } ,
+{ name = "--skill" , key = "format" , constant = "skill" ,
+duplicate = "output format was specified more than once" ,
+help = "Shorthand for --format skill" } ,
+{ name = "--json" , key = "format" , constant = "json" ,
+duplicate = "output format was specified more than once" ,
+help = "Shorthand for --format json" } ,
+{ names = { "-o" , "--output" } , value = "PATH" , key = "output" ,
+help = "Write to this file rather than to standard output" } ,
+} ,
+detail = [[The skill's description is what a harness keeps in context permanently;
+the body loads when something is actually being written. See docs/reference.md
+for the same document rendered into the site.]] ,
+schema = {
+type = "object" ,
+properties = {
+title = { type = "string" } ,
+sections = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = {
+title = { type = "string" ,
+description = "The heading, and its anchor." } ,
+body = { type = "string" ,
+description = "What the construct is for, as markdown." } ,
+example = { type = "string" ,
+description = "A complete module using it. Every one "
+.. "is compiled by the compiler's own tests." } ,
+codes = { type = "array" , items = { type = "string" } ,
+description = "The codes that report getting it "
+.. "wrong. 'nupp explain <code>' says more." } ,
+} ,
+required = { "title" , "body" , "codes" } ,
+} ,
+} ,
+tooling = { type = "string" ,
+description = "How to drive the toolchain, as markdown." } ,
+markdown = { type = "string" ,
+description = "The whole document, as `--format markdown` writes it." } ,
+} ,
+required = { "title" , "sections" , "tooling" , "markdown" } ,
+} ,
+}
+
+local function run ( parsed )
+local reference = require ( "nupp.reference" )
+local format = parsed . values . format or "markdown"
+local text
+if format == "skill" then
+text = reference . skill ( )
+else
+text = reference . markdown ( )
+end
+
+if format == "json" then
+local sections = { }
+for _ , section in ipairs ( reference . sections ) do
+sections [ # sections + 1 ] = {
+title = section . title , body = section . body ,
+example = section . example , codes = section . codes ,
+}
+end
+local payload = {
+title = "Nupp language reference" , sections = sections ,
+tooling = reference . tooling , markdown = text ,
+}
+if parsed . values . output then
+local file , err = io . open ( parsed . values . output , "w" )
+if not file then
+io . stderr : write ( tostring ( err ) .. "\n" )
+return 1
+end
+file : write ( require ( "nupp.cli.report" ) . encode ( payload ) , "\n" )
+file : close ( )
+return 0
+end
+require ( "nupp.cli.report" ) . write ( payload )
+return 0
+end
+
+if parsed . values . output then
+local file , err = io . open ( parsed . values . output , "w" )
+if not file then
+io . stderr : write ( tostring ( err ) .. "\n" )
+return 1
+end
+file : write ( text , "\n" )
+file : close ( )
+return 0
+end
+io . write ( text , "\n" )
+return 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.report"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+local fs = require ( "nupp.fs" )
+local explain = require ( "nupp.explain" )
+
+local report = { }
+
+local REPORTED = { note = "note" , warning = "warning" }
+
+
+
+local function positionAtByte ( source , offset )
+if not source or not offset or offset < 1 then
+return { line = 0 , column = 0 , offset = offset or 0 }
+end
+local line , lineStart , cursor = 1 , 1 , 1
+while cursor < offset and cursor <= # source do
+if source : byte ( cursor ) == 10 then
+line , lineStart = line + 1 , cursor + 1
+end
+cursor = cursor + 1
+end
+return { line = line , column = offset - lineStart + 1 , offset = offset }
+end
+
+
+local function sourceReader ( )
+local sources = { }
+return function ( path )
+if not path then
+return nil
+end
+if sources [ path ] == nil then
+sources [ path ] = fs . readFile ( path ) or false
+end
+return sources [ path ] or nil
+end
+end
+
+local function rangeAt ( source , offset , length )
+local start = positionAtByte ( source , offset or 1 )
+local span = length or 0
+if source then
+return { start = start ,
+[ "end" ] = positionAtByte ( source ,
+math . min ( # source + 1 , ( offset or 1 ) + span ) ) }
+end
+return { start = start , [ "end" ] = { line = start . line ,
+column = start . column + ( length or 1 ) ,
+offset = start . offset + ( length or 1 ) } }
+end
+
+
+
+
+
+function report . encode ( value )
+local encoder = require ( "cjson" ) . new ( )
+encoder . encode_empty_table_as_object ( false )
+encoder . encode_invalid_numbers ( false )
+return encoder . encode ( value )
+end
+
+
+
+function report . write ( value )
+io . write ( report . encode ( value ) .. "\n" )
+end
+
+
+
+function report . diagnosticValues ( diagnostics )
+local read = sourceReader ( )
+local values = { }
+for _ , e in ipairs ( diagnostics ) do
+local source = read ( e . filename )
+local fixes = { }
+for _ , fix in ipairs ( e . fixes or { } ) do
+local edits = { }
+for _ , edit in ipairs ( fix . edits or { } ) do
+edits [ # edits + 1 ] = {
+file = e . filename ,
+range = { start = positionAtByte ( source , edit . offset ) ,
+[ "end" ] = positionAtByte ( source ,
+edit . offset + edit . length ) } ,
+newText = edit . newText ,
+}
+end
+fixes [ # fixes + 1 ] = { title = fix . title , edits = edits }
+end
+local related = { }
+for _ , item in ipairs ( e . related or { } ) do
+local relatedFile = item . filename or e . filename
+related [ # related + 1 ] = { file = relatedFile , message = item . message ,
+range = rangeAt ( read ( relatedFile ) , item . offset , item . length ) }
+end
+values [ # values + 1 ] = {
+file = e . filename ,
+severity = REPORTED [ e . severity ] or "error" ,
+code = e . code ,
+lint = e . lint ,
+
+
+
+
+docs = explain . anchor ( e . code ) ,
+message = e . msg ,
+range = rangeAt ( source , e . offset , e . length ) ,
+fixes = fixes ,
+help = e . help ,
+notes = e . notes or { } ,
+related = related ,
+}
+end
+return values
+end
+
+
+
+function report . json ( diagnostics )
+report . write ( { diagnostics = report . diagnosticValues ( diagnostics ) } )
+end
+
+
+function report . fatal ( diagnostic )
+return REPORTED [ diagnostic . severity ] == nil
+end
+
+
+
+
+
+local POSITION = {
+type = "object" ,
+description = "A 1-based byte position." ,
+properties = {
+line = { type = "integer" } ,
+column = { type = "integer" } ,
+offset = { type = "integer" } ,
+} ,
+required = { "line" , "column" , "offset" } ,
+}
+
+local RANGE = {
+type = "object" ,
+properties = { start = POSITION , [ "end" ] = POSITION } ,
+required = { "start" , "end" } ,
+}
+
+
+
+report . POSITION = POSITION
+report . RANGE = RANGE
+
+
+report . LOCATION = {
+type = "object" ,
+properties = { file = { type = "string" } , range = RANGE } ,
+required = { "file" , "range" } ,
+}
+
+local EDIT = {
+type = "object" ,
+properties = {
+file = { type = "string" } ,
+range = RANGE ,
+newText = { type = "string" } ,
+} ,
+required = { "range" , "newText" } ,
+}
+
+
+report . DIAGNOSTIC = {
+type = "object" ,
+properties = {
+file = { type = "string" } ,
+severity = { type = "string" , enum = { "error" , "warning" , "note" } } ,
+code = { type = "string" ,
+description = "A stable code such as NUPP2004, or OPT-n for an "
+.. "optimizer remark." } ,
+lint = { type = "string" ,
+description = "The lint name, when the diagnostic came from one. "
+.. "This is what an @allow suppression writes." } ,
+docs = { type = "string" ,
+description = "The reference section covering this code, as a path "
+.. "and anchor. 'nupp explain <code>' says more." } ,
+message = { type = "string" } ,
+range = RANGE ,
+help = { type = "string" , description = "A concrete repair direction." } ,
+notes = { type = "array" , items = { type = "string" } } ,
+related = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = { file = { type = "string" } ,
+message = { type = "string" } , range = RANGE } ,
+required = { "range" } ,
+} ,
+} ,
+fixes = {
+type = "array" ,
+description = "Machine-applicable repairs. A fix is all-or-nothing: "
+.. "apply every edit in it or none." ,
+items = {
+type = "object" ,
+properties = { title = { type = "string" } ,
+edits = { type = "array" , items = EDIT } } ,
+required = { "title" , "edits" } ,
+} ,
+} ,
+} ,
+required = { "severity" , "message" , "range" , "fixes" , "notes" , "related" } ,
+}
+
+
+
+report . DIAGNOSTICS = { type = "array" , items = report . DIAGNOSTIC }
+
+return report
+
+end
+package.preload["nupp.cli.run"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+
+local command = spec . command {
+name = "run" ,
+summary = "Compile and run a Nupp or Lua program" ,
+usage = {
+"nupp run [--strict] [-O<n>] [--profile[=MS]] [--profile-out PATH]" ,
+"         [--jit-aborts[=PATH]] <file> [args...]" ,
+} ,
+stopAtPositional = true ,
+options = optionsMod . join (
+optionsMod . strict ,
+optionsMod . optimize ( ) ,
+{ name = "--profile" , value = "MS" , form = "optional" ,
+help = "Sample the program every MS milliseconds (default 10)" } ,
+{ name = "--profile-out" , value = "PATH" ,
+help = "Where the samples go (default profile.out)" } ,
+{ name = "--jit-aborts" , value = "PATH" , form = "optional" ,
+help = "Record where the JIT gave up (default jit-aborts.csv)" } ) ,
+detail = [[Program arguments are passed to the loaded chunk. Use '--' before a file name
+that starts with a dash.
+
+--profile writes collapsed-stack text: one line per stack, frames separated by
+semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
+all read it directly. Frames are prefixed by the zone path that was open, so a
+program that calls nupp.std.zone reports itself in its own terms, and the leaf
+carries the VM state most of its samples were in: N compiled, I interpreted,
+C in a C function, G collecting, J compiling.
+
+--jit-aborts answers the question a sampler cannot: whether the hot code was
+compiled at all. It writes CSV, one row per place the compiler gave up, with a
+blacklisted trace — permanently demoted to the interpreter — ranked first.
+
+Both cover the program only: the session opens once the file has compiled and
+closes when it returns, so the compiler's own work stays out of the report. A
+program that fails still writes what was collected before it did. Each reports
+a summary line on stderr.]] ,
+}
+
+local DEFAULT_INTERVAL_MS = 10
+
+local function run ( parsed )
+local values = parsed . values
+local positional = parsed . positional
+local profiling = values . profile ~= nil
+local intervalMs = DEFAULT_INTERVAL_MS
+if type ( values . profile ) == "string" then
+local given = tonumber ( values . profile )
+if not given or given < 1 or given ~= math . floor ( given ) then
+return command : usageError ( "--profile takes a whole number of "
+.. "milliseconds, not " .. values . profile )
+end
+intervalMs = math . floor ( given )
+end
+
+
+
+if values . profileOut and not profiling then
+return command : usageError ( "--profile-out names where --profile writes, "
+.. "which was not asked for" )
+end
+local profileOut = values . profileOut or "profile.out"
+local tracingAborts = values . jitAborts ~= nil
+if values . jitAborts == "" then
+return command : usageError ( "--jit-aborts= requires a file name" )
+end
+local abortsOut = type ( values . jitAborts ) == "string" and values . jitAborts
+or "jit-aborts.csv"
+
+local path = positional [ 1 ]
+if not path then
+return command : usageError ( "a program file is required" )
+end
+local programArgs = { }
+for index = 2 , # positional do
+programArgs [ # programArgs + 1 ] = positional [ index ]
+end
+
+local compile = require ( "nupp.cli.compile" )
+local settings = compile . settings ( values )
+local projectEnv = require ( "nupp.env" ) . new ( "." )
+local chunk , err
+if path : find ( "%.nupp$" ) then
+local code = compile . module ( path , projectEnv , settings )
+if not code then
+return 1
+end
+chunk , err = loadstring ( code , "@" .. path )
+else
+chunk , err = loadfile ( path )
+end
+if not chunk then
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+return 1
+end
+
+
+
+local sampling , tracing = nil , nil
+if profiling or tracingAborts then
+local profile = require ( "nupp.std.profile" )
+if profiling then
+
+
+sampling = profile . sample ( { intervalMs = intervalMs , root = path } )
+end
+if tracingAborts then
+tracing = profile . trace ( )
+end
+end
+
+local runtime = require ( "nupp.runtime" )
+local removeLoader = runtime . install ( projectEnv , function ( modulePath ,
+env )
+return compile . module ( modulePath , env , settings )
+end )
+local ok , runErr = pcall ( chunk , unpack ( programArgs ) )
+removeLoader ( )
+
+
+
+
+if sampling then
+local summary = sampling : stop ( profileOut )
+io . stderr : write ( ( "nupp: %d samples on %d stacks every %dms, written to "
+.. "%s\n" ) : format ( summary . samples , summary . stacks ,
+summary . intervalMs , profileOut ) )
+end
+if tracing then
+local summary = tracing : stop ( abortsOut )
+io . stderr : write ( ( "nupp: %d trace aborts, %d blacklisted, written to "
+.. "%s\n" ) : format ( summary . totalAborts , summary . blacklisted ,
+abortsOut ) )
+end
+
+if not ok then
+io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" )
+return 1
+end
+return 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.spec"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local ansi = require ( "nupp.ansi" )
+
+local spec = { }
+
+
+
+
+
+
+
+
+
+
+spec.Option = {} spec.Option.__index = spec.Option
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+spec.Result = {} spec.Result.__index = spec.Result
+
+
+
+
+
+
+
+
+spec.Command = {} spec.Command.__index = spec.Command
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+spec.Handler = {} spec.Handler.__index = spec.Handler
+
+
+
+
+
+
+
+
+
+
+
+
+
+local WIDTH = 79
+local INDENT = "  "
+
+
+
+local LABEL_LIMIT = 20
+
+local function isOption ( value )
+return value : sub ( 1 , 1 ) == "-" and value ~= "-"
+end
+
+
+
+local function derivedKey ( name )
+local bare = name : gsub ( "^%-+" , "" )
+return ( bare : gsub ( "%-(%w)" , function ( ch ) return ch : upper ( ) end ) )
+end
+
+
+
+local function wrap ( text , width )
+local lines , line = { } , ""
+for word in text : gmatch ( "%S+" ) do
+if line == "" then
+line = word
+elseif # line + 1 + # word <= width then
+line = line .. " " .. word
+else
+lines [ # lines + 1 ] = line
+line = word
+end
+end
+if line ~= "" then
+lines [ # lines + 1 ] = line
+end
+return lines
+end
+
+
+local function label ( option )
+local display = option . display
+if display then
+return display
+end
+local names = table . concat ( option . names , ", " )
+local placeholder = option . value
+if not placeholder then
+return names
+end
+local form = option . form
+if form == "value" then
+return names .. " " .. placeholder
+elseif form == "attached" then
+return names .. "=" .. placeholder
+else
+return names .. "[=" .. placeholder .. "]"
+end
+end
+
+
+
+local function normalize ( raw )
+local names = type ( raw . names ) == "table" and raw . names or { raw . name }
+local form = raw . form or ( raw . value and "value" or "flag" )
+
+
+local longest = names [ 1 ]
+for _ , name in ipairs ( names ) do
+if # name > # longest then
+longest = name
+end
+end
+return setmetatable( {
+names = names ,
+key = raw . key or derivedKey ( longest ) ,
+value = raw . value ,
+form = form ,
+pattern = raw . pattern ,
+choices = raw . choices ,
+constant = raw . constant ,
+repeats = raw . repeats ,
+set = raw . set ,
+display = raw . display ,
+duplicate = raw . duplicate ,
+invalid = raw . invalid ,
+help = raw . help or "" ,
+} , spec.Option)
+end
+
+
+
+
+
+local UNIVERSAL = {
+{ name = "--color" , value = "WHEN" , form = "optional" , constant = "always" ,
+choices = { "always" , "never" , "auto" } ,
+help = "When to colour output: always, never, or auto (default)" } ,
+{ name = "--no-color" , key = "color" , constant = "never" ,
+duplicate = "colour was both asked for and refused" ,
+help = "Never colour output; the same as --color=never" } ,
+{ names = { "-h" , "--help" } , help = "Show this help" } ,
+}
+
+
+
+spec . helpOption = UNIVERSAL [ 3 ]
+
+
+
+local SCHEMA_OPTION = {
+name = "--schema" ,
+help = "Print the JSON Schema of --json output and exit" ,
+}
+
+
+
+
+
+function spec . command ( raw )
+local options = { }
+local byName = { }
+local patterned = { }
+local declared = { }
+for _ , entry in ipairs ( raw . options or { } ) do declared [ # declared + 1 ] = entry end
+if raw . schema then declared [ # declared + 1 ] = SCHEMA_OPTION end
+if raw . universal ~= false then
+for _ , entry in ipairs ( UNIVERSAL ) do declared [ # declared + 1 ] = entry end
+end
+for _ , entry in ipairs ( declared ) do
+local option = normalize ( entry )
+options [ # options + 1 ] = option
+if option . pattern then
+patterned [ # patterned + 1 ] = option
+end
+for _ , name in ipairs ( option . names ) do byName [ name ] = option end
+end
+return setmetatable( {
+name = raw . name ,
+helpName = raw . helpName or raw . name ,
+summary = raw . summary ,
+usage = raw . usage or { } ,
+options = options ,
+intro = raw . intro ,
+detail = raw . detail ,
+schema = raw . schema ,
+stopAtPositional = raw . stopAtPositional ,
+byName = byName ,
+patterned = patterned ,
+} , spec.Command)
+end
+
+
+local function store ( values , seen ,
+option , value )
+local key = option . key
+if option . repeats then
+local list = values [ key ]
+if not list then
+list = { }
+values [ key ] = list
+end
+if option . set then
+list [ value ] = true
+else
+list [ # list + 1 ] = value
+end
+return nil
+end
+local already = seen [ key ]
+if already then
+
+
+return already . duplicate or option . duplicate
+or ( "option " .. option . names [ 1 ] .. " was specified more than once" )
+end
+seen [ key ] = option
+values [ key ] = value
+return nil
+end
+
+local function checkChoice ( option , value )
+local choices = option . choices
+if not choices then
+return nil
+end
+for _ , choice in ipairs ( choices ) do
+if value == choice then
+return nil
+end
+end
+return option . invalid or ( "option " .. option . names [ 1 ] .. " does not take "
+.. value .. "; expected " .. table . concat ( choices , ", " ) )
+end
+
+
+
+function spec . Command : parse ( args )
+local values = { }
+local seen = { }
+local positional = { }
+local literal = false
+local index = 1
+while index <= # args do
+local current = args [ index ]
+if literal then
+positional [ # positional + 1 ] = current
+index = index + 1
+elseif current == "--" then
+literal = true
+index = index + 1
+else
+local option = self . byName [ current ]
+local value = nil
+local consumed = 1
+local failure = nil
+if option then
+local form = option . form
+if form == "value" then
+local given = args [ index + 1 ]
+if not given or given == "" or isOption ( given ) then
+failure = "option " .. current .. " requires a value"
+else
+value , consumed = given , 2
+end
+elseif form == "attached" then
+failure = "option " .. current .. " requires a value; write "
+.. current .. "=" .. ( option . value or "VALUE" )
+else
+
+
+value = option . constant
+if value == nil then
+value = true
+end
+end
+else
+
+
+local name , attached = current : match ( "^(%-%-?[^=]+)=(.*)$" )
+if name and attached then
+local named = self . byName [ name ]
+if named and named . form == "flag" then
+failure = "option " .. name .. " does not take a value"
+elseif named and attached == "" and named . form ~= "optional" then
+failure = "option " .. name .. " requires a value"
+elseif named then
+
+
+
+
+option , value = named , attached
+end
+end
+if not option and not failure then
+for _ , candidate in ipairs ( self . patterned ) do
+local pattern = candidate . pattern
+local captured = pattern and current : match ( pattern )
+if captured then
+option , value = candidate , captured
+break
+end
+end
+end
+end
+if failure then
+return nil , failure
+end
+if option then
+if type ( value ) == "string" then
+local wrong = checkChoice ( option , value )
+if wrong then
+return nil , wrong
+end
+end
+local repeated = store ( values , seen , option , value )
+if repeated then
+return nil , repeated
+end
+index = index + consumed
+elseif isOption ( current ) then
+return nil , "unknown option " .. current
+elseif self . stopAtPositional then
+for rest = index , # args do
+positional [ # positional + 1 ] = args [ rest ]
+end
+break
+else
+positional [ # positional + 1 ] = current
+index = index + 1
+end
+end
+end
+return setmetatable( { values = values , positional = positional } , spec.Result)
+end
+
+
+
+function spec . Command : help ( )
+local style = ansi . style ( io . stdout )
+local paint = ansi . forSeverity ( style , "note" )
+local out = { self . summary , "" , style . strong ( "Usage:" ) }
+for _ , line in ipairs ( self . usage ) do out [ # out + 1 ] = INDENT .. line end
+local intro = self . intro
+if intro then
+out [ # out + 1 ] = "" ; out [ # out + 1 ] = intro
+end
+if # self . options > 0 then
+local labels = { }
+local width = 0
+for position , option in ipairs ( self . options ) do
+local text = label ( option )
+labels [ position ] = text
+if # text > width and # text <= LABEL_LIMIT then
+width = # text
+end
+end
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = style . strong ( "Options:" )
+local gap = # INDENT + width + 2
+local padding = ( " " ) : rep ( gap )
+for position , option in ipairs ( self . options ) do
+local text = labels [ position ]
+local lines = wrap ( option . help , WIDTH - gap )
+
+
+local head = INDENT .. paint ( text )
+if # text > width then
+out [ # out + 1 ] = head
+for _ , line in ipairs ( lines ) do out [ # out + 1 ] = padding .. line end
+else
+out [ # out + 1 ] = head .. ( " " ) : rep ( width - # text + 2 )
+.. ( lines [ 1 ] or "" )
+for line = 2 , # lines do
+out [ # out + 1 ] = padding .. lines [ line ]
+end
+end
+end
+end
+local detail = self . detail
+if detail then
+out [ # out + 1 ] = "" ; out [ # out + 1 ] = detail
+end
+return table . concat ( out , "\n" ) .. "\n"
+end
+
+
+
+
+function spec . Command : usageError ( message )
+local style = ansi . style ( io . stderr )
+io . stderr : write ( ansi . forSeverity ( style , "error" ) ( "nupp:" ) .. " "
+.. tostring ( message ) .. "\nTry '"
+.. style . strong ( "nupp help " .. self . helpName )
+.. "' for more information.\n" )
+return 2
+end
+
+spec . isOption = isOption
+spec . wrap = wrap
+
+return spec
+
+end
+package.preload["nupp.cli.tasks"] = function(...)
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+local optionsMod = require ( "nupp.cli.options" )
+local ansi = require ( "nupp.ansi" )
+
+local command = spec . command {
+name = "tasks" ,
+summary = "List or inspect project tasks from nupp.lua" ,
+usage = { "nupp tasks [--format text|json]" , "nupp tasks <name> [--format text|json]" } ,
+options = optionsMod . format ( ) ,
+schema = {
+description = "The task list, or one task's effective configuration when "
+.. "a name was given." ,
+type = "object" ,
+properties = {
+tasks = {
+type = "array" ,
+description = "Present when no name was given." ,
+items = { [ "$ref" ] = "#/definitions/task" } ,
+} ,
+} ,
+definitions = {
+task = {
+type = "object" ,
+properties = {
+name = { type = "string" } ,
+[ "default" ] = { type = "boolean" } ,
+description = { type = "string" } ,
+kind = { type = "string" } ,
+category = { type = "string" } ,
+command = { type = "array" , items = { type = "string" } } ,
+outDir = { type = "string" } ,
+buildTarget = { type = "string" } ,
+entries = { type = "array" , items = { type = "string" } } ,
+sources = { type = "array" , items = { type = "string" } } ,
+resources = { type = "array" , items = { type = "string" } } ,
+dependencies = { type = "array" , items = { type = "string" } } ,
+argv = { type = "array" , items = { type = "string" } } ,
+} ,
+required = { "name" } ,
+} ,
+} ,
+} ,
+detail = [[With no name, lists build targets plus configured test and self-host actions.
+With a name, prints the task's effective configuration.]] ,
+}
+
+local function writeItems ( out , style , label , items )
+out [ # out + 1 ] = style . faint ( label .. ":" )
+if # items == 0 then
+out [ # out + 1 ] = "  (none)"
+return
+end
+for _ , item in ipairs ( items ) do out [ # out + 1 ] = "  - " .. item end
+end
+
+
+
+local function writeTask ( out , style , task )
+local function field ( label , value )
+if value ~= nil then
+out [ # out + 1 ] = style . faint ( label .. ":" ) .. " " .. tostring ( value )
+end
+end
+out [ # out + 1 ] = style . faint ( "Name:" ) .. " " .. style . strong ( task . name )
+field ( "Default" , task . default and "yes" or "no" )
+field ( "Description" , task . description )
+field ( "Kind" , task . kind )
+field ( "Category" , task . category )
+if task . command then
+field ( "Command" , table . concat ( task . command , " " ) )
+end
+field ( "Output directory" , task . outDir )
+field ( "Build target" , task . buildTarget )
+field ( "Bootstrap" , task . bootstrap )
+field ( "Title" , task . title )
+field ( "Format" , task . format )
+if task . all ~= nil then
+field ( "Include private" , tostring ( task . all ) )
+end
+if task . argv then
+writeItems ( out , style , "Arguments" , task . argv )
+end
+if task . env then
+local environment = { }
+for name , value in pairs ( task . env ) do
+environment [ # environment + 1 ] = name .. "=" .. value
+end
+table . sort ( environment )
+writeItems ( out , style , "Environment" , environment )
+end
+if task . entries then
+writeItems ( out , style , "Entries" , task . entries )
+end
+if task . sources and # task . sources > 0 then
+writeItems ( out , style , "Sources" , task . sources )
+end
+if task . resources then
+writeItems ( out , style , "Resources" , task . resources )
+end
+if task . dependencies then
+writeItems ( out , style , "Dependencies" , task . dependencies )
+end
+end
+
+local function run ( parsed )
+local positional = parsed . positional
+if # positional > 1 then
+return command : usageError ( "only one task name may be queried" )
+end
+local name = positional [ 1 ]
+local project = require ( "nupp.build.project" )
+local info , err = project . describeTasks ( "." , name )
+if not info then
+io . stderr : write ( tostring ( err ) .. "\n" )
+return 1
+end
+if parsed . values . format == "json" then
+io . write ( project . encodeJson ( info ) .. "\n" )
+return 0
+end
+local style = ansi . style ( io . stdout )
+local out = { }
+if name then
+writeTask ( out , style , info )
+else
+for _ , task in ipairs ( info . tasks ) do
+local line = style . strong ( task . name )
+if task . default then
+line = line .. style . faint ( " (default)" )
+end
+if task . description then
+line = line .. " - " .. task . description
+end
+out [ # out + 1 ] = line
+end
+end
+if # out > 0 then
+io . write ( table . concat ( out , "\n" ) , "\n" )
+end
+return 0
+end
+
+return setmetatable( { spec = command , run = run } , spec.Handler)
+
+end
+package.preload["nupp.cli.test"] = function(...)
+
+
+
+
+
+
+
+
+
+local spec = require ( "nupp.cli.spec" )
+
+local command = spec . command {
+name = "test" ,
+summary = "Build and run the configured test command" ,
+usage = { "nupp test [args...]" } ,
+universal = false ,
+options = {
+{ name = "--json" ,
+help = "Ask the test command for one JSON document instead of "
+.. "progress text" } ,
+spec . helpOption ,
+} ,
+schema = {
+type = "object" ,
+description = "One run: the totals, and a record per test. This is what "
+.. "the runner in tests/run.lua writes; a project that configures a "
+.. "different test command is the one answering for its --json." ,
+properties = {
+ok = { type = "boolean" } ,
+total = { type = "integer" } ,
+passed = { type = "integer" } ,
+failed = { type = "integer" } ,
+durationMs = { type = "number" ,
+description = "Wall-clock milliseconds for the whole run." } ,
+tests = {
+type = "array" ,
+items = {
+type = "object" ,
+properties = {
+suite = { type = "string" ,
+description = "The test file, without its extension." } ,
+name = { type = "string" } ,
+status = { type = "string" , enum = { "passed" , "failed" } } ,
+durationMs = { type = "number" } ,
+file = { type = "string" ,
+description = "Where the test is defined." } ,
+line = { type = "integer" ,
+description = "1-based, as everywhere else." } ,
+failure = {
+type = "object" ,
+description = "Absent when the test passed." ,
+properties = {
+message = { type = "string" } ,
+file = { type = "string" ,
+description = "Where the error came from, "
+.. "which is often not where the test "
+.. "is defined." } ,
+line = { type = "integer" ,
+description = "1-based. A Lua error carries "
+.. "no column, so none is reported." } ,
+} ,
+required = { "message" } ,
+} ,
+} ,
+required = { "suite" , "name" , "status" , "durationMs" } ,
+} ,
+} ,
+} ,
+required = { "ok" , "total" , "passed" , "failed" , "tests" } ,
+} ,
+detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
+a test argument named --help.
+
+--json is passed along to the test command rather than interpreted here, since
+the arguments past this point are that command's. --schema describes what the
+runner in tests/run.lua writes for it.]] ,
+}
+
+local function run ( args )
+
+
+if args [ 1 ] == "--" then
+table . remove ( args , 1 )
+end
+local project = require ( "nupp.build.project" )
+return project . test ( "." , args )
+end
+
+return setmetatable( { spec = command , raw = true , run = run } , spec.Handler)
 
 end
 package.preload["nupp.cst"] = function(...)
@@ -12108,6 +16544,18 @@ package.preload["nupp.diagnostics"] = function(...)
 
 
 
+
+
+
+
+
+
+
+
+
+
+local ansi = require ( "nupp.ansi" )
+
 local diagnostics = { }
 
 
@@ -12140,23 +16588,33 @@ local finish = source : find ( "\n" , start , true ) or ( # source + 1 )
 return source : sub ( start , finish - 1 ) : gsub ( "\r$" , "" )
 end
 
-local function writeSourceMark ( source , diagnostic )
+
+
+
+local function writeSourceMark ( out , style , paint , source , diagnostic )
 local shown = lineText ( source , diagnostic . line )
 if not shown then return end
 local number = tostring ( diagnostic . line )
 local col = math . max ( 1 , diagnostic . col or 1 )
+
+
 local prefix = shown : sub ( 1 , col - 1 ) : gsub ( "[^\t]" , " " )
 local available = math . max ( 1 , # shown - col + 1 )
 local length = math . max ( 1 , math . min ( diagnostic . length or 1 , available ) )
-io . stderr : write ( ( " %s | %s\n" ) : format ( number , shown ) )
-io . stderr : write ( ( " %s | %s^%s\n" ) : format ( ( " " ) : rep ( # number ) , prefix ,
-( "~" ) : rep ( length - 1 ) ) )
+local rail = style . gutter ( " " .. number .. " |" )
+local blank = style . gutter ( " " .. ( " " ) : rep ( # number ) .. " |" )
+out [ # out + 1 ] = rail .. " " .. shown .. "\n"
+out [ # out + 1 ] = blank .. " " .. prefix
+.. paint ( "^" .. ( "~" ) : rep ( length - 1 ) ) .. "\n"
 end
 
 
 function diagnostics . report ( values )
+if # values == 0 then return false end
+local style = ansi . style ( io . stderr )
 local failed = false
 local sources = { }
+local out = { }
 local function sourceFor ( path )
 if not path then return nil end
 if sources [ path ] == nil then sources [ path ] = readFile ( path ) or false end
@@ -12165,32 +16623,40 @@ end
 for _ , diagnostic in ipairs ( values ) do
 local severity = REPORTED [ diagnostic . severity ] or "error"
 if severity == "error" then failed = true end
+local paint = ansi . forSeverity ( style , severity )
 local code = diagnostic . code or ""
 if diagnostic . lint then
+
+
 code = code ~= "" and ( code .. " " .. diagnostic . lint )
 or diagnostic . lint
 end
-if code ~= "" then code = code .. ": " end
-io . stderr : write ( ( "%s:%d:%d: %s: %s%s\n" ) : format (
+if code ~= "" then code = style . faint ( code .. ":" ) .. " " end
+out [ # out + 1 ] = style . path ( ( "%s:%d:%d:" ) : format (
 diagnostic . filename or "?" , diagnostic . line or 0 ,
-diagnostic . col or 0 , severity , code ,
-diagnostic . msg or "error" ) )
-writeSourceMark ( sourceFor ( diagnostic . filename ) , diagnostic )
+diagnostic . col or 0 ) ) .. " " .. paint ( severity ) .. ": " .. code
+.. style . strong ( diagnostic . msg or "error" ) .. "\n"
+writeSourceMark ( out , style , paint , sourceFor ( diagnostic . filename ) ,
+diagnostic )
+local notePaint = ansi . forSeverity ( style , "note" )
 for _ , related in ipairs ( diagnostic . related or { } ) do
-io . stderr : write ( ( "%s:%d:%d: note: %s\n" ) : format (
+out [ # out + 1 ] = style . path ( ( "%s:%d:%d:" ) : format (
 related . filename or diagnostic . filename or "?" ,
-related . line or 0 , related . col or 0 ,
-related . message or "related location" ) )
-writeSourceMark ( sourceFor ( related . filename or diagnostic . filename ) ,
-related )
+related . line or 0 , related . col or 0 ) ) .. " "
+.. notePaint ( "note" ) .. ": "
+.. ( related . message or "related location" ) .. "\n"
+writeSourceMark ( out , style , notePaint ,
+sourceFor ( related . filename or diagnostic . filename ) , related )
 end
 for _ , note in ipairs ( diagnostic . notes or { } ) do
-io . stderr : write ( "note: " .. note .. "\n" )
+out [ # out + 1 ] = notePaint ( "note" ) .. ": " .. note .. "\n"
 end
 if diagnostic . help then
-io . stderr : write ( "help: " .. diagnostic . help .. "\n" )
+out [ # out + 1 ] = ansi . forSeverity ( style , "help" ) ( "help" ) .. ": "
+.. diagnostic . help .. "\n"
 end
 end
+io . stderr : write ( table . concat ( out ) )
 return failed
 end
 
@@ -12291,6 +16757,27 @@ table . sort ( modules , function ( left , right ) return left . name < right . 
 return modules , errors
 end
 
+
+
+
+
+local function embedFiles ( root , markdown )
+local out = { }
+for line in ( markdown .. "\n" ) : gmatch ( "(.-)\n" ) do
+local path = line : match ( "^<<<%s+@(%S+)%s*$" )
+if path then
+local contents , err = readFile ( join ( root , path ) )
+if not contents then return nil , err end
+out [ # out + 1 ] = "```" .. ( path : match ( "%.([%w_]+)$" ) or "text" )
+out [ # out + 1 ] = ( contents : gsub ( "\n$" , "" ) )
+out [ # out + 1 ] = "```"
+else
+out [ # out + 1 ] = line
+end
+end
+return table . concat ( out , "\n" )
+end
+
 local function configuredPages ( root , settings , title )
 local pages , seen , home = { } , { } , false
 for index , configured in ipairs ( settings . pages or { } ) do
@@ -12318,6 +16805,8 @@ if source : sub ( 1 , 4 ) == "---\n" then
 local ending = source : find ( "\n---\n" , 5 , true )
 if ending then source = source : sub ( ending + 5 ) end
 end
+source , err = embedFiles ( root , source )
+if not source then return nil , err end
 candidate . markdown = source
 end
 pages [ # pages + 1 ] = candidate
@@ -12528,24 +17017,33 @@ local title = opts . title or settings . title or config . name or "Nupp API"
 local output = normalize ( opts . output or settings . outDir
 or ( format == "markdown" and "docs/api.md" or "build/docs" ) )
 output = join ( root , output )
+
+
+filesMod . collect ( opts . written )
+local code , message = 0 , nil
 if format == "markdown" then
 local ok , err = writeFile ( output , doc . markdown ( modules , title ) )
-if not ok then io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" ) ; return 1 end
+if not ok then code , message = 1 , tostring ( err ) end
 elseif format == "site" then
 local ok , err = renderSite ( root , output , modules , title , settings )
-if not ok then io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" ) ; return 1 end
+if not ok then code , message = 1 , tostring ( err ) end
 elseif format == "both" then
 local ok , err = renderSite ( root , output , modules , title , settings )
 if ok then ok , err = writeFile ( join ( output , "api.md" ) , doc . markdown ( modules , title ) ) end
-if not ok then io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" ) ; return 1 end
+if not ok then code , message = 1 , tostring ( err ) end
 else
-io . stderr : write ( "nupp: documentation format must be site, markdown, or both\n" )
-return 2
+code = 2
+message = "documentation format must be site, markdown, or both"
 end
-return 0
+filesMod . collect ( nil )
+if message then io . stderr : write ( "nupp: " .. message .. "\n" ) end
+return code , output , format
 end
 
-local function manifestSettings ( config )
+
+
+
+function doc . manifestSettings ( config )
 if type ( config . docs ) == "table" then return config . docs end
 for name , target in pairs ( config . build and config . build . targets or { } ) do
 if type ( target ) == "table" and target . kind == "docs" then
@@ -12558,43 +17056,14 @@ end
 return { }
 end
 
-function doc . command ( root , args )
-root = root or "."
-local config = { }
-local manifest = loadfile ( join ( root , "nupp.lua" ) )
-if manifest then
+
+
+function doc . loadConfig ( root )
+local manifest = loadfile ( join ( root or "." , "nupp.lua" ) )
+if not manifest then return { } end
 local ok , loaded = pcall ( manifest )
-if not ok then io . stderr : write ( "nupp: " .. tostring ( loaded ) .. "\n" ) ; return 1 end
-if type ( loaded ) == "table" then config = loaded end
-end
-local settings = manifestSettings ( config )
-local opts = { sources = { } }
-local index = 1
-if args [ 1 ] == "site" or args [ 1 ] == "markdown" or args [ 1 ] == "md"
-or args [ 1 ] == "both" then
-opts . format = args [ 1 ] == "md" and "markdown" or args [ 1 ]
-index = 2
-end
-while index <= # args do
-local value = args [ index ]
-if value == "-o" or value == "--output" then
-opts . output = args [ index + 1 ] ; index = index + 2
-elseif value == "--title" then
-opts . title = args [ index + 1 ] ; index = index + 2
-elseif value == "--all" then
-settings . all = true ; index = index + 1
-elseif value == "--help" or value == "-h" then
-io . write ( "usage: nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [PATH...]\n" )
-return 0
-elseif value : sub ( 1 , 1 ) == "-" then
-io . stderr : write ( "nupp: unknown doc option " .. value .. "\n" )
-return 2
-else
-opts . sources [ # opts . sources + 1 ] = value ; index = index + 1
-end
-end
-if # opts . sources == 0 then opts . sources = nil end
-return doc . build ( root , config , settings , opts )
+if not ok then return nil , tostring ( loaded ) end
+return type ( loaded ) == "table" and loaded or { }
 end
 
 doc . theme = THEME
@@ -12665,6 +17134,18 @@ local function inlineNupp ( source , links )
 return "<code>" .. highlightNupp ( source , links ) .. "</code>"
 end
 
+
+
+local function raisesHtml ( raises , heading , links )
+if # raises == 0 then return "" end
+local entries = { }
+for _ , condition in ipairs ( raises ) do
+entries [ # entries + 1 ] = "<li>" .. markdownHtml ( condition , links ) .. "</li>"
+end
+return "<" .. heading .. ">Raises</" .. heading .. "><ul>"
+.. table . concat ( entries ) .. "</ul>"
+end
+
 local function renderHtmlItem ( out , item , links )
 out [ # out + 1 ] = '<section class="nuppdoc-api-item" id="'
 .. htmlEscape ( item . path ) .. '"><h2><code>' .. htmlEscape ( item . name )
@@ -12702,6 +17183,7 @@ markdownHtml ( value . text , links ) }
 end
 out [ # out + 1 ] = "<h3>Returns</h3>" .. tableHtml ( { "Type" , "Description" } , rows )
 end
+out [ # out + 1 ] = raisesHtml ( item . raises , "h3" , links )
 local fields , methods = splitMembers ( item . members )
 if # methods > 0 then
 out [ # out + 1 ] = "<h3>Methods</h3>"
@@ -12733,6 +17215,7 @@ end
 out [ # out + 1 ] = "<h5>Returns</h5>"
 .. tableHtml ( { "Type" , "Description" } , rows )
 end
+out [ # out + 1 ] = raisesHtml ( method . raises , "h5" , links )
 out [ # out + 1 ] = "</div>"
 end
 end
@@ -12784,7 +17267,7 @@ local THEME = [[
  * otherwise add up to twice the gap where both are honored. */
 .nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 2rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
 .nuppdoc-shell{display:grid;width:100%;max-width:var(--nuppdoc-layout-max-width);min-height:calc(100vh - var(--nuppdoc-header-height));grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) var(--nuppdoc-outline-width);margin:auto}.nuppdoc-sidebar,.nuppdoc-outline{position:sticky;top:var(--nuppdoc-header-height);overflow:auto;max-height:calc(100vh - var(--nuppdoc-header-height));padding:1.25rem 1rem 2rem}.nuppdoc-sidebar{border-right:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:-100vw 0 0 100vw var(--nuppdoc-background-alt)}.nuppdoc-sidebar h2,.nuppdoc-outline h2{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.nuppdoc-sidebar ul,.nuppdoc-outline ol{margin:0;padding:0;list-style:none}.nuppdoc-sidebar a,.nuppdoc-outline a{display:block;overflow:hidden;padding:.24rem .55rem;color:var(--nuppdoc-text-muted);border-radius:6px;font-size:.7rem;font-weight:500;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-sidebar a:hover{color:var(--nuppdoc-text);background:color-mix(in srgb,var(--nuppdoc-accent-soft) 55%,transparent)}.nuppdoc-sidebar a[aria-current="page"],.nuppdoc-outline a:hover{color:var(--nuppdoc-accent);font-weight:650}.nuppdoc-outline{padding-left:1.25rem}.nuppdoc-outline ol{padding-left:1rem;border-left:1px solid var(--nuppdoc-border)}.nuppdoc-outline a{padding:.16rem 0;font-size:.66rem}
-.nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.8rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
+.nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
 .nuppdoc-token-comment{color:var(--nuppdoc-syntax-comment);font-style:italic}.nuppdoc-token-boolean{color:var(--nuppdoc-syntax-boolean)}.nuppdoc-token-keyword{color:var(--nuppdoc-syntax-keyword)}.nuppdoc-token-meta{color:var(--nuppdoc-syntax-meta)}.nuppdoc-token-number{color:var(--nuppdoc-syntax-number)}.nuppdoc-token-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-token-operator{color:var(--nuppdoc-syntax-operator)}.nuppdoc-token-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-token-punctuation{color:var(--nuppdoc-syntax-punctuation)}.nuppdoc-token-string{color:var(--nuppdoc-syntax-string)}.nuppdoc-token-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-token-variable{color:var(--nuppdoc-syntax-variable)}.nuppdoc-code-link,.nuppdoc-code-link:visited,.nuppdoc-code-link:hover{border-bottom:1px dotted currentColor;text-decoration:none}.nuppdoc-code-link:hover{border-bottom-style:solid}.nuppdoc-code-link-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-code-link-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-code-link-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-code-link-variable{color:var(--nuppdoc-syntax-variable)}
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
@@ -13076,6 +17559,7 @@ package.preload["nupp.doc.extract"] = function(...)
 
 local cst = require ( "nupp.cst" )
 local parser = require ( "nupp.parser" )
+local docblock = require ( "nupp.docblock" )
 local stringsMod = require ( "nupp.doc.strings" )
 local filesMod = require ( "nupp.doc.files" )
 
@@ -13099,67 +17583,7 @@ end
 
 
 
-
-local function docLines ( node )
-local token = firstToken ( node )
-local lines , pending = { } , { }
-for _ , trivia in ipairs ( token and token . trivia or { } ) do
-if trivia . kind == "comment" and trivia . text : match ( "^%-%-%-" ) then
-pending [ # pending + 1 ] = trivia . text : gsub ( "^%-%-%- ?" , "" , 1 )
-elseif trivia . kind == "comment" then
-pending = { }
-elseif trivia . kind == "whitespace" then
-local _ , newlines = trivia . text : gsub ( "\n" , "" )
-if newlines > 1 then pending = { } end
-end
-end
-for _ , line in ipairs ( pending ) do lines [ # lines + 1 ] = line end
-return lines
-end
-
-local function parseDoc ( lines )
-local info = { text = "" , params = { } , returns = { } , fields = { } ,
-typeargs = { } , tags = { } }
-local body , active , activeName = { } , nil , nil
-for _ , line in ipairs ( lines ) do
-local tag , value = line : match ( "^@([%w_-]+)%s*(.*)$" )
-if tag then
-active = tag
-if tag == "param" or tag == "field" or tag == "typearg" then
-local name , description = value : match ( "^(%S+)%s*(.*)$" )
-if name then
-activeName = name
-info [ tag .. "s" ] [ name ] = description
-end
-elseif tag == "return" or tag == "returns" then
-info . returns [ # info . returns + 1 ] = value
-else
-info . tags [ tag ] = value ~= "" and value or true
-end
-elseif active and line : match ( "^%s+" ) then
-local continuation = trim ( line )
-if active == "return" or active == "returns" then
-local index = # info . returns
-info . returns [ index ] = trim ( ( info . returns [ index ] or "" ) .. " "
-.. continuation )
-elseif ( active == "param" or active == "field" or active == "typearg" )
-and activeName then
-local descriptions = info [ active .. "s" ]
-descriptions [ activeName ] = trim ( ( descriptions [ activeName ] or "" )
-.. " " .. continuation )
-else
-body [ # body + 1 ] = line
-end
-else
-active , activeName = nil , nil
-body [ # body + 1 ] = line
-end
-end
-while # body > 0 and trim ( body [ 1 ] ) == "" do table . remove ( body , 1 ) end
-while # body > 0 and trim ( body [ # body ] ) == "" do table . remove ( body ) end
-info . text = table . concat ( body , "\n" )
-return info
-end
+local docLines , parseDoc = docblock . linesOf , docblock . parse
 
 
 
@@ -13349,7 +17773,8 @@ local item = {
 name = name , kind = kind , signature = signature , doc = info ,
 path = itemPath ,
 line = firstToken ( stat ) and firstToken ( stat ) . line or 1 ,
-members = { } , values = { } , params = { } , returns = { } , typeargs = { } ,
+members = { } , values = { } , params = { } , returns = { } ,
+raises = info . raises , typeargs = { } ,
 }
 local declaredFunction = stat . kind == "localStmt"
 and typeFunction ( stat . types and stat . types [ 1 ] ) or nil
@@ -13377,7 +17802,7 @@ name = entry . name . text , type = syntax ( entry . type ) ,
 text = fieldInfo . text ~= "" and fieldInfo . text
 or info . fields [ entry . name . text ] or "" ,
 path = item . path .. "." .. entry . name . text ,
-params = { } , returns = { } ,
+params = { } , returns = { } , raises = fieldInfo . raises ,
 }
 local fieldFunction = typeFunction ( entry . type )
 if fieldFunction then
@@ -13399,6 +17824,7 @@ type = functionSignature ( entry , entry . name . text ) ,
 text = methodInfo . text ,
 path = item . path .. "." .. entry . name . text ,
 params = details . params , returns = details . returns ,
+raises = methodInfo . raises ,
 isFunction = true ,
 }
 elseif entry . name and ( includePrivate or not privateName ( entry . name . text ) ) then
@@ -13406,7 +17832,7 @@ item . members [ # item . members + 1 ] = {
 name = entry . name . text , type = entry . kind ,
 text = parseDoc ( docLines ( entry ) ) . text ,
 path = item . path .. "." .. entry . name . text ,
-params = { } , returns = { } ,
+params = { } , returns = { } , raises = { } ,
 }
 end
 end
@@ -13517,7 +17943,23 @@ local files = { }
 
 local normalize , join , dirname = fs . normalize , fs . join , fs . dirname
 local readFile , exists = fs . readFile , fs . exists
-local writeFile = fs . writeFileIfChanged
+
+
+
+
+
+local collector = nil
+
+local function writeFile ( path , contents )
+local ok , err = fs . writeFileIfChanged ( path , contents )
+if ok and collector then collector [ # collector + 1 ] = normalize ( path ) end
+return ok , err
+end
+
+
+function files . collect ( into )
+collector = into
+end
 
 
 
@@ -13596,6 +18038,13 @@ return files
 
 end
 package.preload["nupp.doc.highlight"] = function(...)
+
+
+
+
+
+
+
 
 
 
@@ -13737,7 +18186,7 @@ local SCINTILLUA_ALIASES = {
 [ "c++" ] = "cpp" , html = "hypertext" , js = "javascript" ,
 md = "markdown" , sh = "bash" , shell = "bash" , ts = "typescript" ,
 }
-local scintilluaDirectory , scintilluaLibrary = nil , nil
+local scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary = nil , nil , nil
 local scintilluaLexers = { }
 
 
@@ -13756,22 +18205,24 @@ return nil
 end
 
 local function configureScintillua ( root , settings )
-local candidates = { }
 
 
-if settings . lexers then candidates [ # candidates + 1 ] = join ( root , settings . lexers ) end
-local found = installedLexers ( )
-if found then candidates [ # candidates + 1 ] = found end
-for _ , candidate in ipairs ( candidates ) do
-if exists ( join ( candidate , "lexer.lua" ) ) then
-if scintilluaDirectory ~= candidate then
-scintilluaDirectory , scintilluaLibrary = candidate , nil
-scintilluaLexers = { }
-end
+
+local installed = installedLexers ( )
+if not installed or not exists ( join ( installed , "lexer.lua" ) ) then
+scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary , scintilluaLexers =
+nil , nil , nil , { }
 return
 end
+local searchPath = installed
+if settings . lexers then
+local custom = join ( root , settings . lexers )
+if exists ( custom ) then searchPath = custom .. ";" .. installed end
 end
-scintilluaDirectory , scintilluaLibrary , scintilluaLexers = nil , nil , { }
+if scintilluaSearchPath ~= searchPath then
+scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary , scintilluaLexers =
+installed , searchPath , nil , { }
+end
 end
 
 local function loadScintillua ( language )
@@ -13788,7 +18239,7 @@ if not chunk then return nil end
 local ok , library = pcall ( chunk )
 if not ok or type ( library ) ~= "table" then return nil end
 library . property = setmetatable ( {
-[ "scintillua.lexers" ] = scintilluaDirectory ,
+[ "scintillua.lexers" ] = scintilluaSearchPath ,
 } , {
 __index = function ( ) return "" end ,
 __newindex = function ( t , key , value )
@@ -14099,8 +18550,9 @@ end
 if not parse then
 local built , err = buildParser ( )
 if not built then
-error ( "nupp doc needs lunamark; run scripts/rocks (" ..
-tostring ( err ) .. ")" , 0 )
+error ( "nupp doc needs lunamark; declare it as a luarocks "
+.. "dependency of the docs target and it is installed with "
+.. "the build (" .. tostring ( err ) .. ")" , 0 )
 end
 parse = built
 end
@@ -14204,6 +18656,18 @@ end
 out [ # out + 1 ] = ""
 end
 
+
+
+local function markdownRaises ( out , raises , heading )
+if # raises == 0 then return end
+out [ # out + 1 ] = heading .. " Raises"
+out [ # out + 1 ] = ""
+for _ , condition in ipairs ( raises ) do
+out [ # out + 1 ] = "- " .. markdownCell ( condition )
+end
+out [ # out + 1 ] = ""
+end
+
 local function renderMarkdownItem ( out , item )
 out [ # out + 1 ] = '<a id="' .. item . path .. '"></a>'
 out [ # out + 1 ] = "### `" .. item . name .. "` _" .. item . kind .. "_"
@@ -14229,6 +18693,7 @@ out [ # out + 1 ] = ""
 end
 markdownArguments ( out , item . params , "####" )
 markdownReturns ( out , item . returns , "####" )
+markdownRaises ( out , item . raises , "####" )
 local fields , methods = splitMembers ( item . members )
 if # methods > 0 then
 out [ # out + 1 ] = "#### Methods"
@@ -14247,6 +18712,7 @@ out [ # out + 1 ] = "```"
 out [ # out + 1 ] = ""
 markdownArguments ( out , method . params , "######" )
 markdownReturns ( out , method . returns , "######" )
+markdownRaises ( out , method . raises , "######" )
 end
 end
 if # fields > 0 then
@@ -14791,11 +19257,28 @@ local function pageLink ( prefix , route )
 return prefix .. routeFile ( route )
 end
 
+
+
+
+
+
+local function resolveDots ( path )
+local parts = { }
+for segment in path : gmatch ( "[^/]+" ) do
+if segment == ".." and # parts > 0 and parts [ # parts ] ~= ".." then
+parts [ # parts ] = nil
+elseif segment ~= "." then
+parts [ # parts + 1 ] = segment
+end
+end
+return table . concat ( parts , "/" )
+end
+
 local function rewriteConfiguredPageLinks ( markdown , candidate , pages , file )
 if not candidate . source then return markdown end
 local routes = { }
 for _ , page in ipairs ( pages ) do
-if page . source then routes [ normalize ( page . source ) ] = page . path end
+if page . source then routes [ resolveDots ( normalize ( page . source ) ) ] = page . path end
 end
 local sourceDirectory = dirname ( normalize ( candidate . source ) )
 return ( markdown : gsub ( "(%[[^%]]+%]%()([^%)]+)(%))" ,
@@ -14806,8 +19289,8 @@ return opening .. target .. closing
 end
 local path , fragment = target : match ( "^([^#]+)(#.*)$" )
 path , fragment = path or target , fragment or ""
-local route = routes [ normalize ( join ( sourceDirectory , path ) ) ]
-or routes [ normalize ( path ) ]
+local route = routes [ resolveDots ( normalize ( join ( sourceDirectory , path ) ) ) ]
+or routes [ resolveDots ( normalize ( path ) ) ]
 if route == nil then return opening .. target .. closing end
 return opening .. relativePrefix ( file ) .. routeFile ( route )
 .. fragment .. closing
@@ -14824,6 +19307,173 @@ urls . pageLink = pageLink
 urls . rewriteConfiguredPageLinks = rewriteConfiguredPageLinks
 
 return urls
+
+end
+package.preload["nupp.docblock"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.cst" )
+
+local docblock = { }
+
+
+docblock.Doc = {} docblock.Doc.__index = docblock.Doc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function trim ( text )
+return ( text : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+end
+
+
+
+local function firstToken ( node )
+if not node then return nil end
+if cst . isToken ( node ) then return node end
+for _ , child in ipairs ( node ) do
+local token = firstToken ( child )
+if token then return token end
+end
+return nil
+end
+
+
+
+
+
+
+
+
+
+function docblock . linesOf ( node )
+local token = firstToken ( node )
+local lines = { }
+local pending = { }
+for _ , trivia in ipairs ( token and token . trivia or { } ) do
+if trivia . kind == "comment" and trivia . text : match ( "^%-%-%-" ) then
+pending [ # pending + 1 ] = trivia . text : gsub ( "^%-%-%- ?" , "" , 1 )
+elseif trivia . kind == "comment" then
+pending = { }
+elseif trivia . kind == "whitespace" then
+local _ , newlines = trivia . text : gsub ( "\n" , "" )
+if newlines > 1 then pending = { } end
+end
+end
+for _ , line in ipairs ( pending ) do lines [ # lines + 1 ] = line end
+return lines
+end
+
+
+
+
+
+
+
+
+
+function docblock . parse ( lines )
+local params = { }
+local fields = { }
+local typeargs = { }
+local returns = { }
+local raises = { }
+local tags = { }
+
+
+
+local named =
+{ param = params , field = fields , typearg = typeargs }
+local listed =
+{ [ "return" ] = returns , returns = returns , raises = raises }
+
+local body = { }
+local active = nil
+local activeName = nil
+for _ , line in ipairs ( lines ) do
+local tag , value = line : match ( "^@([%w_-]+)%s*(.*)$" )
+if tag then
+local text = value or ""
+active , activeName = tag , nil
+local into , list = named [ tag ] , listed [ tag ]
+if into then
+local name , description = text : match ( "^(%S+)%s*(.*)$" )
+if name then
+activeName = name
+into [ name ] = description or ""
+end
+elseif list then
+list [ # list + 1 ] = text
+else
+tags [ tag ] = text ~= "" and text or true
+end
+elseif active and line : match ( "^%s+" ) then
+local continuation = trim ( line )
+local into , list = named [ active ] , listed [ active ]
+if list then
+local index = # list
+list [ index ] = trim ( ( list [ index ] or "" ) .. " " .. continuation )
+elseif into and activeName then
+into [ activeName ] = trim ( ( into [ activeName ] or "" )
+.. " " .. continuation )
+else
+body [ # body + 1 ] = line
+end
+else
+active , activeName = nil , nil
+body [ # body + 1 ] = line
+end
+end
+while # body > 0 and trim ( body [ 1 ] ) == "" do table . remove ( body , 1 ) end
+while # body > 0 and trim ( body [ # body ] ) == "" do table . remove ( body ) end
+return setmetatable( {
+text = table . concat ( body , "\n" ) ,
+params = params , returns = returns , raises = raises ,
+fields = fields , typeargs = typeargs , tags = tags ,
+} , docblock.Doc)
+end
+
+
+
+
+
+
+
+function docblock . of ( node )
+local lines = docblock . linesOf ( node )
+return docblock . parse ( lines ) , # lines > 0
+end
+
+return docblock
 
 end
 package.preload["nupp.env"] = function(...)
@@ -15527,6 +20177,285 @@ return env
 end
 
 return envMod
+
+end
+package.preload["nupp.explain"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local explain = { }
+
+
+explain.Entry = {} explain.Entry.__index = explain.Entry
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local FAMILIES = {
+{ prefix = "NUPP0" , summary = "Source input could not be read" ,
+rule = "The compiler was given a path it could not read. This is about "
+.. "the file system rather than the program: the path does not "
+.. "exist, or is not readable." ,
+docs = "docs/diagnostics.md#code-families" } ,
+{ prefix = "NUPP1" , summary = "The source is not syntactically valid" ,
+rule = "The parser could not read the file as Nupp. Recovery continues "
+.. "past the first error, so several of these often describe one "
+.. "mistake." ,
+docs = "docs/diagnostics.md#code-families" } ,
+{ prefix = "NUPP2" , summary = "A type, declaration, lint, FFI or ownership rule" ,
+rule = "The program parses but does not mean something the checker can "
+.. "accept, or means something its author probably did not intend." ,
+docs = "docs/diagnostics.md#code-families" } ,
+{ prefix = "NUPP3" , summary = "Code generation cannot represent the construct" ,
+rule = "The program checked, but the generator cannot lower it to Lua. "
+.. "This is a limit of the backend rather than a mistake in the "
+.. "program's typing." ,
+docs = "docs/diagnostics.md#code-families" } ,
+{ prefix = "NUPP4" , summary = "Formatting could not safely produce the result" ,
+rule = "The formatter declines to rewrite source it cannot prove it "
+.. "would preserve. Formatting is never allowed to change meaning." ,
+docs = "docs/diagnostics.md#code-families" } ,
+{ prefix = "OPT" , summary = "An optimizer remark" ,
+rule = "Not a problem. A pass saying what it rewrote, or what it looked "
+.. "at and declined to rewrite. Always a note, and never fails a "
+.. "build." ,
+docs = "plans/optimizations.md" } ,
+}
+
+
+local ENTRIES = {
+{
+code = "NUPP0001" ,
+summary = "A source file could not be read" ,
+rule = "The path named on the command line, or reached from a require, "
+.. "could not be opened. Check the spelling and that the file is "
+.. "readable from the directory the compiler was run in." ,
+related = { } ,
+docs = "docs/diagnostics.md#code-families" ,
+} ,
+{
+code = "NUPP1002" ,
+summary = "A required token is missing" ,
+rule = "A construct was opened and not closed. The position reported is "
+.. "where the closing token was expected, which is the end of the "
+.. "file when nothing closed it at all." ,
+wrong = "local function f(): integer\n    if true then\n        return 1\n"
+.. "end\n" ,
+right = "local function f(): integer\n    if true then\n        return 1\n"
+.. "    end\n    return 0\nend\n" ,
+related = { "NUPP1004" } ,
+docs = "docs/diagnostics.md#code-families" ,
+} ,
+{
+code = "NUPP2001" ,
+summary = "A value does not fit the type it is bound to" ,
+rule = "An annotated binding accepts only values of that type. The "
+.. "annotation is the claim; the initializer has to keep it." ,
+wrong = "local count: integer = \"twelve\"\nreturn count\n" ,
+right = "local count: integer = 12\nreturn count\n" ,
+related = { "NUPP2002" , "NUPP2006" } ,
+docs = "docs/diagnostics.md#code-families" ,
+} ,
+{
+code = "NUPP2004" ,
+summary = "The field does not exist on that type" ,
+rule = "A field read has to name a field the receiver's type actually "
+.. "has. When the name is close to a real one the diagnostic "
+.. "carries a fix that spells it correctly." ,
+wrong = "local record Point\n    x: number\n    y: number\nend\n\n"
+.. "local function show(p: Point): number\n    return p.z\nend\n\n"
+.. "return show\n" ,
+right = "local record Point\n    x: number\n    y: number\nend\n\n"
+.. "local function show(p: Point): number\n    return p.x\nend\n\n"
+.. "return show\n" ,
+related = { "NUPP2005" , "NUPP2119" } ,
+docs = "docs/modules.md#diagnostics" ,
+} ,
+{
+code = "NUPP2106" ,
+summary = "An exported declaration needs a type annotation" ,
+strict = true ,
+rule = "What a module returns is its interface, and an interface is "
+.. "written down rather than inferred. A function attached to the "
+.. "module table needs its parameter and result types. This is a "
+.. "strict rule: it is reported only under --strict, or when the "
+.. "manifest sets strict = true." ,
+wrong = "local m = {}\n\nfunction m.double(n)\n    return n * 2\nend\n\n"
+.. "return m\n" ,
+right = "local m = {}\n\nfunction m.double(n: integer): integer\n"
+.. "    return n * 2\nend\n\nreturn m\n" ,
+related = { "NUPP2119" } ,
+docs = "docs/modules.md#diagnostics" ,
+} ,
+{
+code = "NUPP2107" ,
+summary = "An enum dispatch leaves members unhandled" ,
+rule = "When every branch returns, the dispatch is exhaustive or it is "
+.. "not, and the checker can tell which. Add the missing branches, "
+.. "or an else that says the rest are deliberately alike." ,
+wrong = "local type Color = 'red' | 'green' | 'blue'\n\n"
+.. "local function name(c: Color): string\n"
+.. "    if c == 'red' then return \"red\" end\n"
+.. "    return \"other\"\nend\n\nreturn name\n" ,
+
+
+right = "local type Color = 'red' | 'green' | 'blue'\n\n"
+.. "local function name(c: Color): string\n"
+.. "    if c == 'red' then\n        return \"red\"\n"
+.. "    elseif c == 'green' then\n        return \"green\"\n"
+.. "    else\n        return \"blue\"\n    end\nend\n\nreturn name\n" ,
+related = { "NUPP2004" } ,
+docs = "docs/lints.md" ,
+} ,
+{
+code = "NUPP2119" ,
+summary = "A declaration does not say where it lives" ,
+rule = "A declaration is file-local (`local`), a member of a table "
+.. "(`record m.R`), or a project global (`global`). Plain Lua would "
+.. "have made it a global silently; Nupp asks instead, because a "
+.. "name that means one thing here and another elsewhere is worth "
+.. "one word to prevent." ,
+wrong = "record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
+right = "local record Loose\n    id: integer\nend\n\nreturn Loose\n" ,
+related = { "NUPP2106" , "NUPP2120" } ,
+docs = "docs/modules.md#diagnostics" ,
+} ,
+{
+code = "NUPP2122" ,
+summary = "A 'where' refinement is not checked" ,
+rule = "The grammar carries a `where` clause on a declaration, the "
+.. "formatter keeps it, and `nupp doc` renders it into a signature "
+.. "— and no checker code reads the expression. A constraint that "
+.. "constrains nothing is reported rather than left to look like "
+.. "it works. Express the constraint as a type where one fits: an "
+.. "enum, a union of literals, or a generic bound." ,
+wrong = "local record Odd where 1 + 1 == 3\n    n: integer\nend\n\n"
+.. "return Odd\n" ,
+right = "local record Odd\n    n: integer\nend\n\nreturn Odd\n" ,
+related = { "NUPP2116" } ,
+docs = "docs/type-system/generics.md" ,
+} ,
+}
+
+local byCode = { }
+for _ , entry in ipairs ( ENTRIES ) do byCode [ entry . code ] = entry end
+
+
+
+local function lintFor ( code )
+local lints = require ( "nupp.lints" )
+for _ , lint in ipairs ( lints . all ) do
+if lint . code == code then return lint end
+end
+return nil
+end
+
+local function familyFor ( code )
+for _ , family in ipairs ( FAMILIES ) do
+if code : sub ( 1 , # family . prefix ) == family . prefix then return family end
+end
+return nil
+end
+
+
+
+
+function explain . anchor ( code )
+if not code then return nil end
+local entry = byCode [ code ]
+if entry then return entry . docs end
+local family = familyFor ( code )
+return family and family . docs or nil
+end
+
+
+function explain . lookup ( code )
+local entry = byCode [ code ]
+local family = familyFor ( code )
+if not entry and not family then return nil end
+local lint = lintFor ( code )
+if entry then
+return setmetatable( {
+code = code ,
+summary = entry . summary ,
+rule = entry . rule ,
+wrong = entry . wrong ,
+right = entry . right ,
+strict = entry . strict and true or false ,
+related = entry . related or { } ,
+docs = entry . docs ,
+family = false ,
+} , explain.Entry)
+end
+return setmetatable( {
+code = code ,
+summary = lint and lint . summary or family . summary ,
+rule = lint and ( "A lint, reported at " .. lint . level
+.. " by default and configurable by name or by category. "
+.. family . rule ) or family . rule ,
+wrong = nil ,
+right = nil ,
+strict = false ,
+related = { } ,
+docs = lint and "docs/lints.md" or family . docs ,
+family = true ,
+} , explain.Entry)
+end
+
+
+
+function explain . codes ( )
+local codes = { }
+for _ , entry in ipairs ( ENTRIES ) do codes [ # codes + 1 ] = entry . code end
+table . sort ( codes )
+return codes
+end
+
+
+explain . entries = ENTRIES
+
+return explain
 
 end
 package.preload["nupp.fmt"] = function(...)
@@ -19576,6 +24505,11 @@ summary = "a customary operator where Lua has a word" ,
 name = "loop-invariant-closure" , code = "NUPP2505" ,
 category = "suspicious" , level = "warning" ,
 summary = "a loop builds the same function every iteration" ,
+} , lints.Lint) , setmetatable(
+{
+name = "undocumented-raise" , code = "NUPP2506" ,
+category = "suspicious" , level = "warning" ,
+summary = "a documented function raises without saying so" ,
 } , lints.Lint) ,
 }
 
@@ -19724,19 +24658,6 @@ local walkNodes = tree . walkNodes
 
 
 local json = wire . json
-
-
-
-
-
-
-local EDITOR_ADVICE = {
-[ "NUPP2120" ] = "warning" ,
-}
-
-local PROTOCOL_SEVERITY = {
-error = 1 , warning = 2 , note = 3 ,
-}
 
 
 
@@ -20822,685 +25743,6 @@ end
 return actions
 
 end
-package.preload["nupp.lsp.cli"] = function(...)
-
-
-
-
-
-
-
-
-
-
-local json = require ( "cjson" ) . new ( )
-local lsp = require ( "nupp.lsp" )
-
-local cli = { }
-
-
-
-
-
-
-json . decode_array_with_array_mt ( true )
-json . decode_invalid_numbers ( false )
-json . encode_empty_table_as_object ( true )
-json . encode_invalid_numbers ( false )
-
-local function jsonArray ( items )
-return setmetatable ( items , json . array_mt )
-end
-
-local function readFile ( path )
-local file , err = io . open ( path , "rb" )
-if not file then return nil , err end
-local source = file : read ( "*a" )
-file : close ( )
-return source
-end
-
-local function writeFile ( path , source )
-local file , err = io . open ( path , "wb" )
-if not file then return nil , err end
-local ok , writeErr = file : write ( source )
-local closeOk , closeErr = file : close ( )
-if not ok then return nil , writeErr end
-if not closeOk then return nil , closeErr end
-return true
-end
-
-local function normalizePath ( path )
-path = path : gsub ( "\\" , "/" ) : gsub ( "/+" , "/" )
-path = path : gsub ( "^%./" , "" ) : gsub ( "/%./" , "/" )
-return ( path : gsub ( "/$" , "" ) )
-end
-
-local function absolutePath ( path )
-return path : match ( "^/" ) or path : match ( "^[A-Za-z]:[/\\]" )
-end
-
-local function resolvePath ( root , path )
-if absolutePath ( path ) or root == "." or root == "" then
-return normalizePath ( path )
-end
-return normalizePath ( root .. "/" .. path )
-end
-
-local function displayPath ( root , path )
-root , path = normalizePath ( root ) , normalizePath ( path )
-if root ~= "." and root ~= "" and path : sub ( 1 , # root + 1 ) == root .. "/" then
-return path : sub ( # root + 2 )
-end
-return path
-end
-
-local function pathToUri ( path )
-return "file://" .. path : gsub ( "[^%w%-%._~/:]" , function ( ch )
-return ( "%%%02X" ) : format ( ch : byte ( ) )
-end )
-end
-
-local function uriToPath ( uri )
-local path = uri : gsub ( "^file://" , "" )
-return normalizePath ( ( path : gsub ( "%%(%x%x)" , function ( hex )
-return string . char ( tonumber ( hex , 16 ) or 0 )
-end ) ) )
-end
-
-local function utf8Char ( source , offset )
-local first = source : byte ( offset )
-if not first or first < 0x80 then return 1 , 1 end
-local bytes = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
-return bytes , bytes == 4 and 2 or 1
-end
-
-local function lineStart ( source , wanted )
-local line , offset = 1 , 1
-while line < wanted do
-local newline = source : find ( "\n" , offset , true )
-if not newline then return nil end
-offset , line = newline + 1 , line + 1
-end
-return offset
-end
-
-
-local function toLspPosition ( source , line , column )
-local start = lineStart ( source , line )
-if not start then return nil , "line is past the end of the file" end
-local finish = source : find ( "\n" , start , true ) or ( # source + 1 )
-local target = start + column - 1
-if target < start or target > finish then
-return nil , "column is past the end of the line"
-end
-local offset , units = start , 0
-while offset < target do
-local bytes , width = utf8Char ( source , offset )
-if offset + bytes > target then
-return nil , "column is inside a UTF-8 character"
-end
-offset , units = offset + bytes , units + width
-end
-return { line = line - 1 , character = units }
-end
-
-
-local function fromLspPosition ( source , position )
-local line = ( position . line or 0 ) + 1
-local start = lineStart ( source , line ) or ( # source + 1 )
-local offset , units = start , 0
-local wanted = position . character or 0
-while offset <= # source and source : byte ( offset ) ~= 10 and units < wanted do
-local bytes , width = utf8Char ( source , offset )
-offset , units = offset + bytes , units + width
-end
-return { line = line , column = offset - start + 1 , offset = offset }
-end
-
-local function usageError ( message )
-io . stderr : write ( "nupp: " .. message .. "\n" )
-io . stderr : write ( "Try 'nupp help lsp' for more information.\n" )
-return 2
-end
-
-local function newClient ( root )
-local emitted = { }
-local sources = { }
-local session = lsp . newSession ( root , function ( message )
-emitted [ # emitted + 1 ] = message
-end )
-local nextId = 0
-
-local function request ( method , params )
-nextId = nextId + 1
-local id = nextId
-session . dispatch ( { jsonrpc = "2.0" , id = id , method = method ,
-params = params } )
-for index = # emitted , 1 , - 1 do
-local message = emitted [ index ]
-if message . id == id then
-if message . error then return nil , message . error . message end
-return message . result
-end
-end
-return nil , "language service did not answer " .. method
-end
-
-local function notify ( method , params )
-session . dispatch ( { jsonrpc = "2.0" , method = method , params = params } )
-end
-
-local _ , initErr = request ( "initialize" , { } )
-if initErr then return nil , initErr end
-notify ( "initialized" , { } )
-
-local function source ( path )
-path = normalizePath ( path )
-if sources [ path ] then return sources [ path ] end
-local text , err = readFile ( path )
-if not text then return nil , err end
-sources [ path ] = text
-return text
-end
-
-local function open ( path )
-path = normalizePath ( path )
-local text , err = source ( path )
-if not text then return nil , err end
-notify ( "textDocument/didOpen" , { textDocument = {
-uri = pathToUri ( path ) , languageId = "nupp" , version = 1 , text = text ,
-} } )
-return text
-end
-
-return { request = request , notify = notify , open = open , source = source ,
-root = root , sources = sources }
-end
-
-local function rangeValue ( client , path , range )
-local source = client . source ( path ) or ""
-return {
-start = fromLspPosition ( source , range . start ) ,
-[ "end" ] = fromLspPosition ( source , range [ "end" ] ) ,
-}
-end
-
-local function locationValue ( client , location )
-if not location or location == json . null then return nil end
-local path = uriToPath ( location . uri )
-return { file = displayPath ( client . root , path ) ,
-range = rangeValue ( client , path , location . range ) }
-end
-
-local function positionParams ( path , position )
-return { textDocument = { uri = pathToUri ( path ) } , position = position }
-end
-
-local function locationText ( location )
-if not location then return "" end
-local start = location . range . start
-return ( "%s:%d:%d" ) : format ( location . file , start . line , start . column )
-end
-
-local SYMBOL_KINDS = {
-[ 1 ] = "file" , [ 2 ] = "module" , [ 3 ] = "namespace" , [ 4 ] = "package" ,
-[ 5 ] = "class" , [ 6 ] = "method" , [ 7 ] = "property" , [ 8 ] = "field" ,
-[ 9 ] = "constructor" , [ 10 ] = "enum" , [ 11 ] = "interface" ,
-[ 12 ] = "function" , [ 13 ] = "variable" , [ 14 ] = "constant" ,
-[ 15 ] = "string" , [ 16 ] = "number" , [ 17 ] = "boolean" , [ 18 ] = "array" ,
-[ 19 ] = "object" , [ 20 ] = "key" , [ 21 ] = "null" , [ 22 ] = "enum-member" ,
-[ 23 ] = "struct" , [ 24 ] = "event" , [ 25 ] = "operator" ,
-[ 26 ] = "type-parameter" ,
-}
-
-local function editValues ( client , changes )
-local edits = jsonArray ( { } )
-local uris , seen = { } , { }
-for uri in pairs ( changes or { } ) do uris [ # uris + 1 ] = uri end
-table . sort ( uris )
-for _ , uri in ipairs ( uris ) do
-local path = uriToPath ( uri )
-for _ , edit in ipairs ( changes [ uri ] ) do
-local start , finish = edit . range . start , edit . range [ "end" ]
-local key = path .. ":" .. start . line .. ":" .. start . character
-.. ":" .. finish . line .. ":" .. finish . character
-.. ":" .. edit . newText
-if not seen [ key ] then
-seen [ key ] = true
-edits [ # edits + 1 ] = {
-file = displayPath ( client . root , path ) ,
-range = rangeValue ( client , path , edit . range ) ,
-newText = edit . newText ,
-}
-end
-end
-end
-table . sort ( edits , function ( left , right )
-if left . file ~= right . file then return left . file < right . file end
-return left . range . start . offset < right . range . start . offset
-end )
-return edits
-end
-
-local function jsonOutput ( value )
-io . write ( json . encode ( value ) .. "\n" )
-end
-
-local function parsePositive ( value , label )
-local number = tonumber ( value )
-if not number or number < 1 or number ~= math . floor ( number ) then
-return nil , label .. " must be a positive integer"
-end
-return number
-end
-
-local function parseOptions ( operation , args )
-local opts = { root = "." , format = "text" , positional = { } }
-local formatSet = false
-local index = 1
-while index <= # args do
-local value = args [ index ]
-if value == "--root" or value == "--format" or value == "--file"
-or value == "--only" then
-local nextValue = args [ index + 1 ]
-if not nextValue or nextValue == "" or nextValue : sub ( 1 , 1 ) == "-" then
-return nil , "option " .. value .. " requires a value"
-end
-if value == "--root" then opts . root = nextValue
-elseif value == "--file" then opts . file = nextValue
-elseif value == "--only" then opts . only = nextValue
-else
-if formatSet then return nil , "output format was specified more than once" end
-opts . format , formatSet = nextValue , true
-end
-index = index + 2
-elseif value == "--json" or value == "--text" then
-if formatSet then return nil , "output format was specified more than once" end
-opts . format = value == "--json" and "json" or "text"
-formatSet = true
-index = index + 1
-elseif value == "--include-declaration" then
-opts . includeDeclaration = true
-index = index + 1
-elseif value == "-w" or value == "--write" then
-opts . write = true
-index = index + 1
-elseif value == "--" then
-for rest = index + 1 , # args do
-opts . positional [ # opts . positional + 1 ] = args [ rest ]
-end
-break
-elseif value : sub ( 1 , 1 ) == "-" then
-return nil , "unknown option " .. value
-else
-opts . positional [ # opts . positional + 1 ] = value
-index = index + 1
-end
-end
-if opts . format ~= "text" and opts . format ~= "json" then
-return nil , "unknown output format " .. opts . format
-end
-if opts . includeDeclaration and operation ~= "references" then
-return nil , "--include-declaration is only valid for references"
-end
-if opts . file and operation ~= "symbols" then
-return nil , "--file is only valid for symbols"
-end
-if opts . only and operation ~= "actions" then
-return nil , "--only is only valid for actions"
-end
-if opts . only and opts . only ~= "quickfix" and opts . only ~= "refactor" then
-return nil , "--only must be quickfix or refactor"
-end
-if opts . write and operation ~= "rename" then
-return nil , "--write is only valid for rename"
-end
-return opts
-end
-
-local function target ( client , opts , expected )
-if # opts . positional ~= expected then
-return nil , nil , nil , "expected FILE LINE COLUMN"
-end
-local path = resolvePath ( opts . root , opts . positional [ 1 ] )
-local source , readErr = client . open ( path )
-if not source then return nil , nil , nil , readErr end
-local line , lineErr = parsePositive ( opts . positional [ 2 ] , "line" )
-if not line then return nil , nil , nil , lineErr end
-local column , columnErr = parsePositive ( opts . positional [ 3 ] , "column" )
-if not column then return nil , nil , nil , columnErr end
-local position , positionErr = toLspPosition ( source , line , column )
-if not position then return nil , nil , nil , positionErr end
-return path , source , position
-end
-
-local function runInspect ( client , opts )
-local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
-local result , requestErr = client . request ( "$/nupp/inspect" ,
-positionParams ( path , position ) )
-if requestErr then return nil , requestErr end
-if result == json . null then result = nil end
-local value = result and {
-name = result . name ,
-kind = result . kind ,
-type = result . type ,
-detail = result . detail ,
-documentation = result . documentation ,
-definition = locationValue ( client , result . definition ) ,
-range = result . range and rangeValue ( client , path , result . range ) or nil ,
-} or nil
-if opts . format == "json" then jsonOutput ( { symbol = value or json . null } )
-elseif value then
-io . write ( value . name .. " (" .. value . kind .. ")\n" )
-if value . type then io . write ( value . type .. "\n" ) end
-if value . detail then io . write ( value . detail .. "\n" ) end
-if value . documentation then io . write ( "\n" .. value . documentation .. "\n" ) end
-if value . definition then
-io . write ( "Defined at " .. locationText ( value . definition ) .. "\n" )
-end
-end
-return true
-end
-
-local function runDefinition ( client , opts )
-local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
-local result , requestErr = client . request ( "textDocument/definition" ,
-positionParams ( path , position ) )
-if requestErr then return nil , requestErr end
-local value = locationValue ( client , result )
-if opts . format == "json" then jsonOutput ( { definition = value or json . null } )
-elseif value then io . write ( locationText ( value ) .. "\n" ) end
-return true
-end
-
-local function runReferences ( client , opts )
-local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
-local params = positionParams ( path , position )
-params . context = { includeDeclaration = opts . includeDeclaration or false }
-local result , requestErr = client . request ( "textDocument/references" , params )
-if requestErr then return nil , requestErr end
-local values = jsonArray ( { } )
-local seen = { }
-if type ( result ) ~= "table" then result = { } end
-for _ , location in ipairs ( result ) do
-local value = locationValue ( client , location )
-local start , finish = value . range . start , value . range [ "end" ]
-local key = value . file .. ":" .. start . offset .. ":" .. finish . offset
-if not seen [ key ] then
-seen [ key ] = true
-values [ # values + 1 ] = value
-end
-end
-if opts . format == "json" then
-jsonOutput ( { declarationIncluded = opts . includeDeclaration or false ,
-references = values } )
-else
-for _ , value in ipairs ( values ) do io . write ( locationText ( value ) .. "\n" ) end
-end
-return true
-end
-
-local function documentSymbolValue ( client , path , symbol )
-local value = {
-name = symbol . name ,
-kind = SYMBOL_KINDS [ symbol . kind ] or "unknown" ,
-location = { file = displayPath ( client . root , path ) ,
-range = rangeValue ( client , path , symbol . selectionRange or symbol . range ) } ,
-}
-if symbol . children and # symbol . children > 0 then
-value . children = jsonArray ( { } )
-for _ , child in ipairs ( symbol . children ) do
-value . children [ # value . children + 1 ] = documentSymbolValue ( client , path , child )
-end
-end
-return value
-end
-
-local function printSymbol ( symbol , indent )
-io . write ( ( "  " ) : rep ( indent ) .. symbol . kind .. " " .. symbol . name .. " "
-.. locationText ( symbol . location ) .. "\n" )
-for _ , child in ipairs ( symbol . children or { } ) do printSymbol ( child , indent + 1 ) end
-end
-
-local function runSymbols ( client , opts )
-if # opts . positional > 1 then return nil , "symbols accepts at most one pattern" end
-local values = jsonArray ( { } )
-local seen = { }
-if opts . file then
-local path = resolvePath ( opts . root , opts . file )
-local _ , openErr = client . open ( path )
-if openErr then return nil , openErr end
-local result , requestErr = client . request ( "textDocument/documentSymbol" ,
-{ textDocument = { uri = pathToUri ( path ) } } )
-if requestErr then return nil , requestErr end
-local pattern = opts . positional [ 1 ] and opts . positional [ 1 ] : lower ( )
-if type ( result ) ~= "table" then result = { } end
-for _ , symbol in ipairs ( result ) do
-if not pattern or symbol . name : lower ( ) : find ( pattern , 1 , true ) then
-local value = documentSymbolValue ( client , path , symbol )
-local key = value . name .. ":" .. value . location . range . start . offset
-if not seen [ key ] then
-seen [ key ] = true
-values [ # values + 1 ] = value
-end
-end
-end
-else
-local result , requestErr = client . request ( "workspace/symbol" ,
-{ query = opts . positional [ 1 ] or "" } )
-if requestErr then return nil , requestErr end
-if type ( result ) ~= "table" then result = { } end
-for _ , symbol in ipairs ( result ) do
-local value = {
-name = symbol . name ,
-kind = SYMBOL_KINDS [ symbol . kind ] or "unknown" ,
-container = symbol . containerName ,
-location = locationValue ( client , symbol . location ) ,
-}
-local key = value . name .. ":" .. value . location . file .. ":"
-.. value . location . range . start . offset
-if not seen [ key ] then
-seen [ key ] = true
-values [ # values + 1 ] = value
-end
-end
-end
-if opts . format == "json" then jsonOutput ( { symbols = values } )
-else for _ , symbol in ipairs ( values ) do printSymbol ( symbol , 0 ) end end
-return true
-end
-
-
-local function latestFirst ( left , right )
-return left . from > right . from
-end
-
-local function rewrittenFiles ( client , rawChanges )
-local rewritten , previews , grouped , seen = { } , { } , { } , { }
-for uri , rawEdits in pairs ( rawChanges or { } ) do
-local path = uriToPath ( uri )
-grouped [ path ] = grouped [ path ] or { }
-seen [ path ] = seen [ path ] or { }
-for _ , edit in ipairs ( rawEdits ) do
-local start , finish = edit . range . start , edit . range [ "end" ]
-local key = start . line .. ":" .. start . character .. ":"
-.. finish . line .. ":" .. finish . character .. ":" .. edit . newText
-if not seen [ path ] [ key ] then
-seen [ path ] [ key ] = true
-grouped [ path ] [ # grouped [ path ] + 1 ] = edit
-end
-end
-end
-for path , rawEdits in pairs ( grouped ) do
-local source , readErr = client . source ( path )
-if not source then return nil , nil , readErr end
-local edits = { }
-for _ , edit in ipairs ( rawEdits ) do
-local from = fromLspPosition ( source , edit . range . start ) . offset
-local to = fromLspPosition ( source , edit . range [ "end" ] ) . offset
-edits [ # edits + 1 ] = { from = from , to = to , newText = edit . newText ,
-oldText = source : sub ( from , to - 1 ) ,
-range = rangeValue ( client , path , edit . range ) }
-end
-table . sort ( edits , latestFirst )
-local last = # source + 1
-local text = source
-for _ , edit in ipairs ( edits ) do
-if edit . to > last then return nil , nil , "rename edits overlap" end
-text = text : sub ( 1 , edit . from - 1 ) .. edit . newText .. text : sub ( edit . to )
-last = edit . from
-end
-rewritten [ path ] = text
-previews [ path ] = edits
-end
-return rewritten , previews
-end
-
-local function identifierAt ( source , line , column )
-local start = lineStart ( source , line )
-local offset = start and start + column - 1
-if not offset then return nil end
-local left , right = offset , offset
-while left > 1 and source : sub ( left - 1 , left - 1 ) : match ( "[A-Za-z0-9_]" ) do
-left = left - 1
-end
-while right <= # source and source : sub ( right , right ) : match ( "[A-Za-z0-9_]" ) do
-right = right + 1
-end
-local name = source : sub ( left , right - 1 )
-return name ~= "" and name or nil
-end
-
-local function runRename ( client , opts )
-if # opts . positional ~= 4 then return nil , "expected FILE LINE COLUMN NEW_NAME" end
-local newName = opts . positional [ 4 ]
-local targetOpts = { positional = { opts . positional [ 1 ] , opts . positional [ 2 ] ,
-opts . positional [ 3 ] } , root = opts . root }
-local path , source , position , err = target ( client , targetOpts , 3 )
-if not path then return nil , err end
-local params = positionParams ( path , position )
-params . newName = newName
-local result , requestErr = client . request ( "textDocument/rename" , params )
-if requestErr then return nil , requestErr end
-local changes = result and result . changes or { }
-local edits = editValues ( client , changes )
-local rewritten , previews , rewriteErr = rewrittenFiles ( client , changes )
-if not rewritten then return nil , rewriteErr end
-local changedFiles = { }
-for changedPath in pairs ( rewritten ) do changedFiles [ # changedFiles + 1 ] = changedPath end
-table . sort ( changedFiles )
-if opts . write then
-for _ , changedPath in ipairs ( changedFiles ) do
-local ok , writeErr = writeFile ( changedPath , rewritten [ changedPath ] )
-if not ok then return nil , writeErr end
-end
-end
-local oldName = identifierAt ( source , tonumber ( opts . positional [ 2 ] ) ,
-tonumber ( opts . positional [ 3 ] ) )
-if opts . format == "json" then
-jsonOutput ( { oldName = oldName , newName = newName , written = opts . write or false ,
-edits = edits } )
-elseif opts . write then
-io . write ( ( "Renamed %s to %s in %d location%s across %d file%s\n" ) : format (
-oldName or "symbol" , newName , # edits , # edits == 1 and "" or "s" ,
-# changedFiles , # changedFiles == 1 and "" or "s" ) )
-for _ , changedPath in ipairs ( changedFiles ) do
-io . write ( displayPath ( opts . root , changedPath ) .. "\n" )
-end
-else
-for _ , changedPath in ipairs ( changedFiles ) do
-io . write ( "--- " .. displayPath ( opts . root , changedPath ) .. "\n" )
-io . write ( "+++ " .. displayPath ( opts . root , changedPath ) .. "\n" )
-for index = # previews [ changedPath ] , 1 , - 1 do
-local edit = previews [ changedPath ] [ index ]
-io . write ( ( "@@ %d:%d @@\n" ) : format ( edit . range . start . line ,
-edit . range . start . column ) )
-io . write ( "-" .. edit . oldText .. "\n" )
-io . write ( "+" .. edit . newText .. "\n" )
-end
-end
-end
-return true
-end
-
-local function runActions ( client , opts )
-local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
-local params = positionParams ( path , position )
-params . range = { start = position , [ "end" ] = position }
-local context = { diagnostics = jsonArray ( { } ) }
-if opts . only then
-context . only = jsonArray ( { opts . only == "refactor"
-and "refactor.rewrite" or opts . only } )
-end
-params . context = context
-local result , requestErr = client . request ( "textDocument/codeAction" , params )
-if requestErr then return nil , requestErr end
-local actions = jsonArray ( { } )
-if type ( result ) ~= "table" then result = { } end
-for _ , action in ipairs ( result ) do
-local diagnostic = action . diagnostics and action . diagnostics [ 1 ]
-actions [ # actions + 1 ] = {
-kind = action . kind ,
-title = action . title ,
-diagnostic = diagnostic and {
-code = diagnostic . code , message = diagnostic . message ,
-} or nil ,
-edits = editValues ( client , action . edit and action . edit . changes or { } ) ,
-}
-end
-if opts . format == "json" then jsonOutput ( { actions = actions } )
-else
-for _ , action in ipairs ( actions ) do
-io . write ( action . kind .. ": " .. action . title .. "\n" )
-end
-end
-return true
-end
-
-local OPERATIONS = {
-inspect = runInspect ,
-definition = runDefinition ,
-references = runReferences ,
-symbols = runSymbols ,
-rename = runRename ,
-actions = runActions ,
-}
-
-function cli . run ( args )
-if # args == 0 then return lsp . run ( "." ) end
-local operation = args [ 1 ]
-if operation == "serve" or operation == "server" then
-if # args > 2 then return usageError ( "lsp serve accepts at most one root" ) end
-if args [ 2 ] and args [ 2 ] : sub ( 1 , 1 ) == "-" then
-return usageError ( "unknown option " .. args [ 2 ] )
-end
-return lsp . run ( args [ 2 ] or "." )
-end
-local run = OPERATIONS [ operation ]
-if not run then
-
-if # args == 1 and operation : sub ( 1 , 1 ) ~= "-" then return lsp . run ( operation ) end
-return usageError ( "unknown lsp operation " .. operation )
-end
-local rest = { }
-for index = 2 , # args do rest [ # rest + 1 ] = args [ index ] end
-local opts , optionErr = parseOptions ( operation , rest )
-if not opts then return usageError ( optionErr ) end
-local client , clientErr = newClient ( opts . root )
-if not client then io . stderr : write ( "nupp: " .. clientErr .. "\n" ) ; return 1 end
-local ok , runErr = run ( client , opts )
-if not ok then io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" ) ; return 1 end
-return 0
-end
-
-return cli
-
-end
 package.preload["nupp.lsp.complete"] = function(...)
 
 
@@ -21779,6 +26021,10 @@ local positionAtOffset = text . positionAtOffset
 local readFile = text . readFile
 
 local diagnostics = { }
+
+
+
+
 
 
 local EDITOR_ADVICE = {
@@ -25418,6 +29664,8 @@ end
 
 
 
+
+
 function query . Q : get ( name , key )
 local byInput = self . inputs [ name ]
 local inp = byInput and byInput [ key ]
@@ -25499,6 +29747,765 @@ return entry and entry . changedAt or self . revision
 end
 
 return query
+
+end
+package.preload["nupp.reference"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local lints = require ( "nupp.lints" )
+local explain = require ( "nupp.explain" )
+
+local reference = { }
+
+
+reference.Section = {} reference.Section.__index = reference.Section
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local SECTIONS = { setmetatable(
+
+{
+title = "What Nupp is" ,
+codes = { } ,
+body = [=[
+A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program is
+a valid Nupp program, and unannotated code checks silently — annotations are what
+turn checking on, one declaration at a time.
+
+Two things are not erased. A `struct` lowers to FFI cdata with a fixed layout,
+and C headers import as checked declarations. Everything else is ordinary Lua at
+run time.
+
+Generated code targets LuaJIT 2.1.1784535649 or newer.
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Declaring things" ,
+codes = { "NUPP2119" } ,
+body = [=[
+A typed declaration says where it lives, the way an ordinary Lua definition does:
+`local` keeps it to the file, a qualified name puts it on that table, and
+`global` publishes it project-wide. Saying none of the three is refused rather
+than defaulted, because plain Lua would have made the name a global and the same
+silence is not reused for a different meaning.
+
+Inside its own body a declaration answers to its simple name, so a recursive
+field reads `User?` rather than `models.User?`.
+]=] ,
+example = [=[
+local models = {}
+
+local type UserId = uint32
+global type AppId = uint64
+
+record models.User
+    id: UserId
+    name: string
+    email: string?
+end
+
+return models
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Types" ,
+codes = { "NUPP2101" , "NUPP2001" } ,
+body = [=[
+Primitives: `any`, `nil`, `boolean`, `string`, `number`, `integer`, `table`,
+`thread`, `userdata`. The C numeric tower: `float`, `int8`…`int64`,
+`uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and `voidptr`.
+
+Postfix suffixes apply left to right: `T?` optional, `T*` pointer, `T[?]` a
+variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
+unlike the one-based `{T}`. `|` builds a union, a string literal is the type
+containing just that value, and `const T` is a read-only view.
+
+Arithmetic on `integer` widens to `number`; annotate a result `number` unless you
+have narrowed it back.
+]=] ,
+example = [=[
+local m = {}
+local type Id = uint32
+local type Maybe = string?
+local type Either = string | integer
+local type Mode = "read" | "write"
+local type Counts = {[string]: integer}
+local type Row = {integer}
+local type Point = {x: integer, y: integer}
+local type Handler = function(event: string): boolean
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Functions" ,
+codes = { "NUPP2002" , "NUPP2106" } ,
+body = [=[
+Parameters and results are annotated in the usual place. Several results are
+listed comma-separated; inside a function *type* a multi-result needs parentheses.
+
+Under `--strict`, an exported function whose signature mentions `any` anywhere is
+treated as unannotated and reported: `any` is the absence of a type, not a type.
+A function that returns nothing still needs to say so, as `: nil`.
+]=] ,
+example = [=[
+local m = {}
+
+function m.add(a: integer, b: integer): integer
+    return a + b
+end
+
+function m.split(text: string): string, integer
+    return text, #text
+end
+
+function m.log(message: string): nil
+    print(message)
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Generics and bounds" ,
+codes = { "NUPP2101" } ,
+body = [=[
+Type parameters go in angle brackets after the name. `T is Bound` constrains one,
+and the bound is an ordinary type — usually an interface.
+]=] ,
+example = [=[
+local m = {}
+
+interface m.Named
+    name: string
+end
+
+function m.first<T>(xs: {T}): T?
+    return xs[1]
+end
+
+function m.labelOf<T is m.Named>(value: T): string
+    return value.name
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Records" ,
+codes = { "NUPP2004" , "NUPP2118" } ,
+body = [=[
+A record is a table with declared fields. It may carry inline methods, whose
+`self` is implicit, and it is constructed by calling it with a table.
+
+One explicit type per field: grouped names are rejected.
+]=] ,
+example = [=[
+local m = {}
+
+--- A point in the plane.
+record m.Point
+    x: integer
+    y: integer
+
+    --- Its distance from the origin, squared.
+    function lengthSquared(self): number
+        return self.x * self.x + self.y * self.y
+    end
+end
+
+local origin = m.Point{x = 0, y = 0}
+local d = origin:lengthSquared()
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Interfaces" ,
+codes = { "NUPP2001" } ,
+body = [=[
+An interface declares a shape without a body. `record X is Y` states that X
+includes Y, and the checker holds it to that.
+]=] ,
+example = [=[
+local m = {}
+
+interface m.Named
+    name: string
+end
+
+record m.User is m.Named
+    name: string
+    id: uint32
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Structs" ,
+codes = { "NUPP2203" } ,
+body = [=[
+A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
+hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
+the one place a type changes what the program does at run time rather than only
+what the checker accepts.
+]=] ,
+example = [=[
+local m = {}
+
+struct m.Vec3
+    x: float
+    y: float
+    z: float
+end
+
+local type Buffer = m.Vec3[?]
+local type Fixed = m.Vec3[16]
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Enums" ,
+codes = { "NUPP2107" } ,
+body = [=[
+An enum is a closed set of string literals. A dispatch over one that leaves
+members unhandled is reported, which is what makes adding a member a compile-time
+task list rather than a run-time surprise.
+]=] ,
+example = [=[
+local m = {}
+
+enum m.Color "red" "green" "blue" end
+
+local function describe(c: m.Color): string
+    if c == "red" then return "warm"
+    elseif c == "green" then return "cool"
+    else return "cool" end
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Narrowing" ,
+codes = { "NUPP2001" } ,
+body = [=[
+`e is T` tests a type and narrows in the branch it proves. A truthiness test
+narrows an optional, including through a field path copied into a local. `e as T`
+is an explicit cast where you know better than the checker.
+
+A function may return a predicate, `p is T`, meaning it answers whether that
+parameter holds the type — the value returned is a boolean, and the caller narrows
+on it.
+]=] ,
+example = [=[
+local m = {}
+
+local function isString(v: any): v is string
+    return type(v) == "string"
+end
+
+local function describe(value: string | integer): string
+    if value is string then
+        return "text of " .. #value .. " bytes"
+    end
+    return "number " .. value
+end
+
+function m.nameOf(user: {name: string?}): string
+    local name = user.name
+    if not name then return "anonymous" end
+    return name
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Owned resources" ,
+codes = { "NUPP2603" , "NUPP2615" } ,
+body = [=[
+`@owned(cleanup)` says a result carries a cleanup obligation. An owned value must
+be discharged before it leaves scope: disposed, passed to a `takes` parameter,
+returned as an owner, or converted with `intoRaw`. Forgetting is a compile error,
+not a leak.
+
+Parameter modes say what a call does with what it is given: `takes` consumes,
+`borrows` does not (and the borrow cannot escape), `inout` mutates in place, and
+`retains`/`releases` describe C holding a pointer across a call.
+]=] ,
+example = [=[
+local m = {}
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+--- Opens a file the caller must discharge.
+---
+--- @param path where to read from
+--- @return an owned handle
+--- @raises when the file cannot be opened
+@owned(closeFile)
+function m.open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+function m.slurp(path: string): string
+    with file = m.open(path) do
+        return file:read("*a")
+    end
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "with scopes" ,
+codes = { "NUPP2610" } ,
+body = [=[
+`with` is the only place Nupp closes something for you. The resource is released
+when the block ends — on fallthrough, on `return`, on loop control, on a `goto`
+leaving the body, and on an error raised anywhere inside.
+
+Each acquisition is a single-value context whose first result must be a
+non-optional owner with at least one known cleanup. An optional owner has to be
+narrowed first. Inside the body the binding is a borrow. Several resources may
+share one scope, separated by commas.
+]=] ,
+example = [=[
+local m = {}
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+@owned(closeFile)
+function m.open(path: string, mode: string): LuaFile
+    local file = io.open(path, mode)
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+function m.copy(from: string, to: string): nil
+    with
+        input = m.open(from, "rb"),
+        output = m.open(to, "wb")
+    do
+        output:write(input:read("*a"))
+    end
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "C interop" ,
+codes = { "NUPP2203" , "NUPP2101" } ,
+body = [=[
+`cdef function` and `cdef struct` declare C with checked signatures. `from "lib"`
+resolves through `ffi.load`; omitting it uses the default namespace.
+
+`cheader('path.h')` types a pinned header at compile time — the compiler hands it
+to its own `ffi.cdef` and reads the declarations back through `ffi.typeinfo`, so
+LuaJIT's C parser is the source of truth and the sizes are this platform's. No
+generated file, and no C compiler for a self-contained header. `nupp import-c`
+ejects a committed, hand-editable binding module instead.
+
+Reconstructing a raw pointer is confined to `unsafe do` blocks.
+]=] ,
+example = [=[
+local m = {}
+
+cdef struct Point
+    x: float
+    y: float
+end
+
+cdef function labs(n: int32): int32
+
+function m.magnitude(n: int32): int32
+    return labs(n)
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Annotations" ,
+codes = { "NUPP2119" } ,
+body = [=[
+An annotation is declared as a record or struct carrying `@annotation`, whose
+`targets` list says where it may be applied. Its fields are the annotation's
+members, and values are compile-time constants. Unknown annotations, wrong
+targets and wrong value types are errors — an annotation never becomes a silently
+erased comment.
+
+Applications spell an unqualified `@name`, so a definition is registered
+project-wide and is the one declaration exempt from the visibility rule. Both the
+definition and every application are erased from the generated Lua.
+]=] ,
+example = [=[
+local m = {}
+
+@annotation(targets = {"record", "struct"})
+record serializable
+    format: string
+    version: integer?
+end
+
+@serializable(format = "json")
+record m.User
+    id: uint32
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Docblocks" ,
+codes = { "NUPP2506" } ,
+body = [=[
+An adjacent `---` run documents the declaration under it. `@param`, `@return`,
+`@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
+renders them.
+
+`@raises` says what makes a function raise, one line per condition. It is the one
+docblock tag the checker reads as well as renders: a documented function that
+calls `error` without one is `undocumented-raise`. Raising is part of how a
+function is called, and Lua has no signature to find it out from.
+]=] ,
+example = [=[
+local m = {}
+
+--- Reads a configuration file.
+---
+--- @param path where to read from
+--- @return the file's contents
+--- @raises when the file cannot be read
+function m.load(path: string): string
+    local file = io.open(path, "r")
+    if not file then error("no such file: " .. path) end
+    return file:read("*a")
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Modules" ,
+codes = { "NUPP2120" , "NUPP2101" } ,
+body = [=[
+Modules are Lua's: a file returns a value and `require` gets it. A module's type
+is whatever the file returned, and a declaration with a runtime value puts itself
+on that table, so nothing is merged in behind your back. Another file reaches a
+member through the module it was attached to, and a module path also names a type
+directly, as in `models.user.User`.
+
+A `.d.nupp` declaration file is the exception: it describes an interface it does
+not own and returns no table, so a bare declaration there is that interface.
+]=] ,
+context = { [ "models.nupp" ] = [=[
+local models = {}
+
+record models.User
+    id: uint32
+    name: string
+end
+
+return models
+]=] } ,
+example = [=[
+local models = require("models")
+
+local user: models.User = models.User{id = 1, name = "ada"}
+
+return user
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "LuaJIT 3.0 syntax" ,
+codes = { "NUPP2504" } ,
+body = [=[
+Nupp implements every LuaJIT 3.0 syntax extension and adds to them. Most is
+written straight through to the output, because LuaJIT 2.1 backported it.
+
+Available: `continue`; compound assignment (`+= -= *= /= //= %= &= |=`); the
+ternary `c ? a : b`; `??` for nil-coalescing; safe navigation `?.`; short
+functions `|x| -> e`; `const` bindings including `const function`; and the
+customary spellings `!`, `&&`, `||`, `!=`.
+
+The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are the
+ones Lua already has, and two spellings of one thing drift apart across a
+codebase. Suppress per statement with `@allow("customary-operator")`.
+]=] ,
+example = [=[
+local m = {}
+
+function m.demo(n: integer, flag: boolean, label: string?): integer
+    local total = n
+    total += 1
+    local shown = flag ? "on" : "off"
+    local name = label ?? "anonymous"
+    for i = 1, 10 do
+        if i == 5 then continue end
+        total += i
+    end
+    local double = |x: integer| -> x * 2
+    return total + #shown + #name + double(2)
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Lints and suppression" ,
+codes = { "NUPP2108" } ,
+body = [=[
+A type error says the program does not mean what it says it means: nothing
+configures or silences it. A lint says the program means something you probably
+did not intend, so it has a name, a level a project can move, and a suppression a
+statement can apply.
+
+`@allow` takes lint names or codes, applies to the statement it decorates and
+nothing beyond it, and reaches any lint at any level. Bare `@allow` silences every
+lint on that statement. It does not reach a type error; naming one is NUPP2108.
+
+Levels are set in `nupp.lua` under `lints`, by name or by category, resolving
+registry default → category → name → `@allow`.
+]=] ,
+example = [=[
+local m = {}
+
+function m.toggle(flag: boolean): boolean
+    @allow("customary-operator")
+    local inverted = !flag
+    return inverted
+end
+
+return m
+]=] ,
+} , reference.Section) ,
+
+}
+
+
+reference . sections = SECTIONS
+
+
+
+
+reference . tooling = [=[
+Positions are 1-based byte line and column numbers everywhere, matching the
+compiler's own diagnostics. Colour is off whenever output is not a terminal, so
+piped output never carries escapes.
+
+- `nupp check --strict [FILE...]` type-checks. `--json` returns structured
+  diagnostics with `help`, `related`, `notes` and machine-applicable `fixes`.
+  Read `help` and `related` before editing, and apply a whole titled fix rather
+  than picking single edits out of one: a fix is all-or-nothing.
+- `nupp build --json [FILE...]` returns those diagnostics alongside what the
+  build wrote, so one call says both what failed and what landed.
+- `nupp explain CODE [--json]` gives the rule behind a code, a program that
+  reports it, and the same program corrected. Every diagnostic carries a `docs`
+  anchor pointing at the same reference.
+- `nupp lsp inspect|definition|references|symbols|rename|actions --json` answer
+  semantic questions without an editor. `inspect` on a call returns the callee's
+  docblock, which is where `@raises` is read at a call site.
+- `nupp fmt`, `nupp doc`, `nupp test`, `nupp fixpoint` format, document, test,
+  and verify the compiler rebuilds byte-identically.
+
+Every command taking `--json` also takes `--schema`, which prints the JSON Schema
+of that output, so a consumer can be written against a contract rather than
+against a sample.
+
+The loop that works: run `check --json --strict`, apply a complete fix whose
+title matches the intended repair, re-run, and run `nupp test` before committing.
+]=]
+
+
+
+
+
+local function heading ( level , text )
+return ( "#" ) : rep ( level ) .. " " .. text
+end
+
+
+local function lintRows ( )
+local out = { }
+out [ # out + 1 ] = "| Lint | Code | Category | Default |"
+out [ # out + 1 ] = "| --- | --- | --- | --- |"
+for _ , lint in ipairs ( lints . all ) do
+out [ # out + 1 ] = ( "| `%s` | %s | %s | %s |" )
+: format ( lint . name , lint . code , lint . category , lint . level )
+end
+return out
+end
+
+
+
+local function codeRows ( )
+local out = { }
+out [ # out + 1 ] = "| Code | Meaning |"
+out [ # out + 1 ] = "| --- | --- |"
+for _ , code in ipairs ( explain . codes ( ) ) do
+local entry = explain . lookup ( code )
+if entry then
+out [ # out + 1 ] = ( "| %s | %s |" ) : format ( entry . code , entry . summary )
+end
+end
+return out
+end
+
+
+
+
+
+function reference . markdown ( opts )
+local base = opts and opts . level or 1
+local out = { }
+out [ # out + 1 ] = heading ( base , "Nupp language reference" )
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "Every construct, the shortest program that uses it, and the"
+.. " diagnostic codes that report getting it wrong. Generated from the"
+.. " compiler: `nupp reference`."
+out [ # out + 1 ] = ""
+for _ , section in ipairs ( reference . sections ) do
+out [ # out + 1 ] = heading ( base + 1 , section . title )
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = ( section . body : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = ""
+
+
+local names = { }
+for name in pairs ( section . context or { } ) do names [ # names + 1 ] = name end
+table . sort ( names )
+for _ , name in ipairs ( names ) do
+local source = ( section . context ) [ name ]
+out [ # out + 1 ] = "`" .. name .. "`:"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "```nupp"
+out [ # out + 1 ] = ( source : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = "```"
+out [ # out + 1 ] = ""
+end
+if section . example then
+out [ # out + 1 ] = "```nupp"
+out [ # out + 1 ] = ( section . example : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = "```"
+out [ # out + 1 ] = ""
+end
+if # section . codes > 0 then
+local cited = { }
+for _ , code in ipairs ( section . codes ) do
+cited [ # cited + 1 ] = "`" .. code .. "`"
+end
+out [ # out + 1 ] = "Reports: " .. table . concat ( cited , ", " )
+.. ". `nupp explain <code>` says more."
+out [ # out + 1 ] = ""
+end
+end
+
+out [ # out + 1 ] = heading ( base + 1 , "Every lint" )
+out [ # out + 1 ] = ""
+for _ , row in ipairs ( lintRows ( ) ) do out [ # out + 1 ] = row end
+out [ # out + 1 ] = ""
+
+out [ # out + 1 ] = heading ( base + 1 , "Diagnostic codes with a worked example" )
+out [ # out + 1 ] = ""
+for _ , row in ipairs ( codeRows ( ) ) do out [ # out + 1 ] = row end
+out [ # out + 1 ] = ""
+
+out [ # out + 1 ] = heading ( base + 1 , "Working with the toolchain" )
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = ( reference . tooling : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
+out [ # out + 1 ] = ""
+return table . concat ( out , "\n" )
+end
+
+
+
+
+
+
+
+function reference . skill ( )
+local out = { }
+out [ # out + 1 ] = "---"
+out [ # out + 1 ] = "name: nupp"
+out [ # out + 1 ] = "description: >-"
+out [ # out + 1 ] = "  Write, check and repair Nupp, the gradually typed LuaJIT"
+out [ # out + 1 ] = "  superset. Load before editing any .nupp file, or when"
+out [ # out + 1 ] = "  reading a NUPP diagnostic code. Covers syntax, types,"
+out [ # out + 1 ] = "  records, structs, ownership, C interop, the lints, and the"
+out [ # out + 1 ] = "  check/explain/lsp commands and their JSON contracts."
+out [ # out + 1 ] = "---"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = reference . markdown ( )
+return table . concat ( out , "\n" )
+end
+
+return reference
 
 end
 package.preload["nupp.relations"] = function(...)
@@ -26464,6 +31471,7 @@ local sampling = false
 
 
 
+
 function profile . sample ( options )
 if sampling then
 error ( "profile.sample: a sample session is already running; stop it first" , 2 )
@@ -26551,6 +31559,8 @@ end
 
 
 
+
+
 function profile . SampleSession : pause ( )
 if self . stopped then
 error ( "SampleSession:pause: the session has already stopped" , 2 )
@@ -26559,12 +31569,15 @@ self . paused = true
 end
 
 
+
+
 function profile . SampleSession : resume ( )
 if self . stopped then
 error ( "SampleSession:resume: the session has already stopped" , 2 )
 end
 self . paused = false
 end
+
 
 
 
@@ -26810,6 +31823,8 @@ end
 
 
 
+
+
 function profile . TraceSession : pause ( )
 if self . stopped then
 error ( "TraceSession:pause: the session has already stopped" , 2 )
@@ -26818,12 +31833,15 @@ self . paused = true
 end
 
 
+
+
 function profile . TraceSession : resume ( )
 if self . stopped then
 error ( "TraceSession:resume: the session has already stopped" , 2 )
 end
 self . paused = false
 end
+
 
 
 
@@ -27838,7 +32856,7 @@ local record cjson
     decode_invalid_numbers: function(setting: boolean?): boolean
     encode_escape_forward_slash: function(setting: boolean?): boolean
 
-    --- Whether an empty table encodes as {} (true) or [] (false). Accepts a boolean or
+    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean or
     --- the strings "on"/"off".
     encode_empty_table_as_object: function(setting: any?): boolean
 
@@ -27896,7 +32914,7 @@ local record CJsonSafe
     decode_invalid_numbers: function(setting: boolean?): boolean
     encode_escape_forward_slash: function(setting: boolean?): boolean
 
-    --- Whether an empty table encodes as {} (true) or [] (false). Accepts a boolean or
+    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean or
     --- the strings "on"/"off".
     encode_empty_table_as_object: function(setting: any?): boolean
 
@@ -28941,6 +33959,9 @@ local package: {
     --- Search templates used by `require` for Lua modules.
     path: string,
 
+    --- Search templates used by `require` for C modules.
+    cpath: string,
+
     --- Modules made available without consulting the filesystem.
     preload: {[string]: function(...: any): any},
 
@@ -29530,1308 +34551,5 @@ end
 
 
 
-local parser = require ( "nupp.parser" )
-local cst = require ( "nupp.cst" )
-local fmt = require ( "nupp.fmt" )
-local check = require ( "nupp.check" )
-local lints = require ( "nupp.lints" )
-local envMod = require ( "nupp.env" )
-local runtime = require ( "nupp.runtime" )
-local project = require ( "nupp.build.project" )
-local process = require ( "nupp.build.process" )
-local fs = require ( "nupp.fs" )
-local diagnosticMod = require ( "nupp.diagnostics" )
 
-local HELP = { }
-
-HELP . main = [[Nupp compiler and project tool
-
-Usage:
-  nupp <command> [options]
-  nupp help [command]
-
-Commands:
-  ast         Dump a file's parsed syntax tree
-  check       Type-check files or the configured project
-  fmt         Format source files
-  build       Build files or a manifest target
-  clean       Remove configured build outputs
-  tasks       List or inspect manifest project tasks
-  lints       List the lints and the level each runs at
-  test        Build and run the configured test command
-  doc         Generate API documentation
-  fixpoint    Verify the self-hosting compiler rebuild
-  run         Compile and run a program
-  import-c    Generate typed bindings from a C header
-  lsp         Language-server and semantic source operations
-  help        Show help for a command
-
-Run 'nupp help <command>' for command-specific options.
-]]
-
-HELP . ast = [[Dump a Nupp file's parsed syntax tree
-
-Usage:
-  nupp ast [--format text|json] <file>
-
-Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  -h, --help       Show this help
-
-The parser produces a lossless concrete syntax tree. Text output is an indented
-outline with quoted tokens; JSON includes structural children, tokens, trivia,
-locations, and parse errors. A recovered tree is still printed when parsing
-fails.
-]]
-
-HELP . check = [[Type-check source without emitting Lua
-
-Usage:
-  nupp check [--strict] [--target NAME] [--format text|json] [file...]
-
-Options:
-  --strict    Treat strict checker rules as errors
-  --target NAME  Check a named manifest target
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  -h, --help  Show this help
-
-With no files, checks the default target from nupp.lua.
-]]
-
-HELP . fmt = [[Format Nupp source
-
-Usage:
-  nupp fmt [-w|--write] [--check] [file...]
-
-With files named, each is formatted to stdout, or rewritten with --write.
-
-With none, the project is the subject: every .nupp and .d.nupp under the
-manifest's include roots, minus the build output. The files that are not
-formatted are listed and the exit status is 1, so a build can gate on it;
---write formats them and lists what it changed.
-
---check asks that question of whatever it was given, so a build can gate on
-the files a change touched. Nothing is written and nothing goes to stdout but
-the list; the exit status is 1 if it is not empty.
-
-Options:
-  -w, --write  Rewrite files in place instead of writing to stdout
-      --check  Report which files are not formatted; write nothing
-  -h, --help   Show this help
-]]
-
-HELP . build = [[Build source files or a configured project target
-
-Usage:
-  nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]
-  nupp build [--strict] [-O<n>] [-o DIR] <file...>
-
-Options:
-  --target NAME  Build a named manifest target
-  --out-dir DIR  Override the manifest target's output directory
-  -o DIR         Output directory for explicit source-file builds
-  --strict       Treat strict checker rules as errors
-  -O0, -O1, -O2  Optimization level (default -O0, which rewrites nothing)
-  --remarks      Report what the optimizer did and what it declined to do
-  -Zno-opt=CODE  Turn off one pass, named by its stable code, to bisect a
-                 miscompile. Unstable: the spelling may change or go away
-  -h, --help     Show this help
-
-Manifest target options cannot be combined with explicit source files.
-Use 'nupp tasks' to discover target names and configuration.
-
-The level is part of the build key, so changing it rebuilds rather than
-mixing artifacts compiled at two different levels. See plans/optimizations.md.
-]]
-
-HELP . clean = [[Remove build outputs configured in nupp.lua
-
-Usage:
-  nupp clean [--target NAME] [--dry-run]
-
-Options:
-  --target NAME  Clean only the named build target
-  --dry-run      Print output paths without removing them
-  -h, --help     Show this help
-
-With no target, cleans every configured target output. Paths outside the
-project and paths that resolve to the project root are always rejected.
-]]
-
-HELP . lints = [[List the lints and the level each runs at
-
-Usage:
-  nupp lints
-
-Levels are off, note, warning and error; only an error stops a build. A
-project moves one in nupp.lua by name or by category:
-
-  lints = { ["missing-require"] = "warning", pedantic = "warning" }
-
-A statement waves one away with @allow("missing-require"). See docs/lints.md.
-
-Options:
-  -h, --help       Show this help
-]]
-
-HELP . tasks = [[List or inspect project tasks from nupp.lua
-
-Usage:
-  nupp tasks [--format text|json]
-  nupp tasks <name> [--format text|json]
-
-Options:
-  --format FORMAT  Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  -h, --help       Show this help
-
-With no name, lists build targets plus configured test and self-host actions.
-With a name, prints the task's effective configuration.
-]]
-
-HELP . test = [[Build and run the configured test command
-
-Usage:
-  nupp test [args...]
-
-Options:
-  -h, --help  Show this help
-
-Additional arguments are appended to test.argv from nupp.lua. Use '--' before
-a test argument named --help.
-]]
-
-HELP . doc = [[Generate API documentation from source comments
-
-Usage:
-  nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all] [path...]
-
-Options:
-  -o, --output PATH  Output file or directory
-  --title TITLE      Documentation title
-  --all              Include private declarations
-  -h, --help         Show this help
-]]
-
-HELP . fixpoint = [[Verify a byte-identical self-hosting rebuild
-
-Usage:
-  nupp fixpoint [--update-bootstrap]
-  nupp fixpoint --binary
-
-By default the compiler compiles itself twice and the two must agree.
-
---binary makes the same claim about packaging: the target named by
-selfHost.binary is stamped, and the binary that comes out stamps another
-identical to itself. It is what the payload format's determinism rests on.
-
-Options:
-  --update-bootstrap  Refresh the tracked stage-0 bundle after verification
-  --binary            Verify the packaged binary instead of the compiler
-  -h, --help          Show this help
-]]
-
-HELP . run = [=[Compile and run a Nupp or Lua program
-
-Usage:
-  nupp run [--strict] [-O<n>] [--profile[=MS]] [--profile-out PATH]
-           [--jit-aborts[=PATH]] <file> [args...]
-
-Options:
-  --strict            Treat strict checker rules as errors
-  -O0, -O1, -O2       Optimization level (default -O0, which rewrites nothing)
-  --remarks           Report what the optimizer did and what it declined to do
-  --profile[=MS]      Sample the program every MS milliseconds (default 10)
-  --profile-out PATH  Where the samples go (default profile.out)
-  --jit-aborts[=PATH] Record where the JIT gave up (default jit-aborts.csv)
-  -h, --help          Show this help
-
-Program arguments are passed to the loaded chunk. Use '--' before a file name
-that starts with a dash.
-
---profile writes collapsed-stack text: one line per stack, frames separated by
-semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
-all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.std.zone reports itself in its own terms, and the leaf
-carries the VM state most of its samples were in: N compiled, I interpreted,
-C in a C function, G collecting, J compiling.
-
---jit-aborts answers the question a sampler cannot: whether the hot code was
-compiled at all. It writes CSV, one row per place the compiler gave up, with a
-blacklisted trace — permanently demoted to the interpreter — ranked first.
-
-Both cover the program only: the session opens once the file has compiled and
-closes when it returns, so the compiler's own work stays out of the report. A
-program that fails still writes what was collected before it did. Each reports
-a summary line on stderr.
-]=]
-
-HELP [
-"import-c"
-] = [[Generate typed Nupp bindings from a C header
-
-Usage:
-  nupp import-c [-o FILE] [-l NAME|--lib NAME] <header.h>
-
-Options:
-  -o FILE      Write the generated module to FILE
-  -l NAME      Name the native library loaded by the bindings
-  --lib NAME   Same as -l
-  -h, --help   Show this help
-]]
-
-HELP . lsp = [[Language-server and semantic source operations
-
-Usage:
-  nupp lsp [root]
-  nupp lsp serve [root]
-  nupp lsp inspect [options] <file> <line> <column>
-  nupp lsp definition [options] <file> <line> <column>
-  nupp lsp references [options] [--include-declaration] <file> <line> <column>
-  nupp lsp symbols [options] [--file FILE] [pattern]
-  nupp lsp rename [options] [-w|--write] <file> <line> <column> <new-name>
-  nupp lsp actions [options] [--only quickfix|refactor] <file> <line> <column>
-
-Options:
-  --root DIR      Project root (default: current directory)
-  --format FORMAT Output format: text (default) or json
-  --json           Shorthand for --format json
-  --text           Shorthand for --format text
-  -h, --help       Show this help
-
-With no operation, or with only a root, runs the language server over stdio for
-compatibility. `serve` names that mode explicitly. Source positions are 1-based
-byte line and column numbers, matching compiler diagnostics. Rename previews by
-default and changes files only with --write.
-]]
-
-HELP . help = [[Show general or command-specific help
-
-Usage:
-  nupp help [command]
-
-With no command, prints the command list.
-]]
-
-local readFile = fs . readFile
-
-local function usageError ( command , message )
-io . stderr : write ( "nupp: " .. message .. "\n" )
-io . stderr : write ( "Try 'nupp help " .. command .. "' for more information.\n" )
-return 2
-end
-
-local function optionValue ( args , index , command )
-local value = args [ index + 1 ]
-if not value or value == "" or value : sub ( 1 , 1 ) == "-" then
-return nil , usageError ( command , "option " .. args [ index ] .. " requires a value" )
-end
-return value
-end
-
-local function isOption ( value )
-return value : sub ( 1 , 1 ) == "-" and value ~= "-"
-end
-
-
-
-
-
-local REPORTED = { note = "note" , warning = "warning" }
-
-local report = diagnosticMod . report
-
-local printErrors = report
-
-local function positionAtByte ( source , offset )
-if not source or not offset or offset < 1 then
-return { line = 0 , column = 0 , offset = offset or 0 }
-end
-local line , lineStart , cursor = 1 , 1 , 1
-while cursor < offset and cursor <= # source do
-if source : byte ( cursor ) == 10 then
-line , lineStart = line + 1 , cursor + 1
-end
-cursor = cursor + 1
-end
-return { line = line , column = offset - lineStart + 1 , offset = offset }
-end
-
-local function writeDiagnosticsJson ( diagnostics )
-local encoder = require ( "cjson" ) . new ( )
-encoder . encode_empty_table_as_object ( false )
-encoder . encode_invalid_numbers ( false )
-local values , sources = { } , { }
-for _ , e in ipairs ( diagnostics ) do
-local source = nil
-if e . filename then
-if sources [ e . filename ] == nil then
-sources [ e . filename ] = readFile ( e . filename ) or false
-end
-source = sources [ e . filename ] or nil
-end
-local start = source and positionAtByte ( source , e . offset or 1 )
-or { line = e . line or 0 , column = e . col or 0 , offset = e . offset or 0 }
-local finish = source and positionAtByte ( source ,
-math . min ( # source + 1 , ( e . offset or 1 ) + ( e . length or 0 ) ) )
-or { line = start . line , column = start . column + ( e . length or 1 ) ,
-offset = start . offset + ( e . length or 1 ) }
-local fixes = { }
-for _ , fix in ipairs ( e . fixes or { } ) do
-local edits = { }
-for _ , edit in ipairs ( fix . edits or { } ) do
-local from = positionAtByte ( source , edit . offset )
-local to = positionAtByte ( source , edit . offset + edit . length )
-edits [ # edits + 1 ] = {
-file = e . filename ,
-range = { start = from , [ "end" ] = to } ,
-newText = edit . newText ,
-}
-end
-fixes [ # fixes + 1 ] = { title = fix . title , edits = edits }
-end
-local related = { }
-for _ , item in ipairs ( e . related or { } ) do
-local relatedSource = nil
-local relatedFile = item . filename or e . filename
-if relatedFile then
-if sources [ relatedFile ] == nil then
-sources [ relatedFile ] = readFile ( relatedFile ) or false
-end
-relatedSource = sources [ relatedFile ] or nil
-end
-local relatedStart = relatedSource
-and positionAtByte ( relatedSource , item . offset or 1 )
-or { line = item . line or 0 , column = item . col or 0 ,
-offset = item . offset or 0 }
-local relatedEnd = relatedSource and positionAtByte ( relatedSource ,
-math . min ( # relatedSource + 1 ,
-( item . offset or 1 ) + ( item . length or 0 ) ) )
-or { line = relatedStart . line ,
-column = relatedStart . column + ( item . length or 1 ) ,
-offset = relatedStart . offset + ( item . length or 1 ) }
-related [ # related + 1 ] = { file = relatedFile ,
-message = item . message ,
-range = { start = relatedStart , [ "end" ] = relatedEnd } }
-end
-values [ # values + 1 ] = {
-file = e . filename ,
-severity = REPORTED [ e . severity ] or "error" ,
-code = e . code ,
-lint = e . lint ,
-message = e . msg ,
-range = { start = start , [ "end" ] = finish } ,
-fixes = fixes ,
-help = e . help ,
-notes = e . notes or { } ,
-related = related ,
-}
-end
-io . write ( encoder . encode ( { diagnostics = values } ) .. "\n" )
-end
-
-
-local strict = nil
-
-
-
-local optLevel = 0
-
-
-local showRemarks = false
-
-
-
-
-local disabledPasses = { }
-
-
-local function readDisable ( current )
-local code = current : match ( "^%-Zno%-opt=(.+)$" )
-if not code then return false end
-disabledPasses [ code ] = true
-return true
-end
-
-
-local function optionLevel ( current )
-local digits = current : match ( "^%-O(%d)$" )
-if not digits then return nil end
-local value = tonumber ( digits )
-if value > 2 then return nil end
-return value
-end
-
-local commands = { }
-
-local function syntaxTreeValue ( value )
-if cst . isToken ( value ) then
-local trivia = { }
-for _ , item in ipairs ( value . trivia ) do
-trivia [ # trivia + 1 ] = {
-kind = item . kind ,
-text = item . text ,
-offset = item . offset ,
-line = item . line ,
-col = item . col ,
-}
-end
-return {
-tag = "token" ,
-kind = value . kind ,
-text = value . text ,
-offset = value . offset ,
-line = value . line ,
-col = value . col ,
-missing = value . missing and true or nil ,
-trivia = trivia ,
-}
-end
-local children = { }
-for _ , child in ipairs ( value ) do
-children [ # children + 1 ] = syntaxTreeValue ( child )
-end
-return { tag = "node" , kind = value . kind , children = children }
-end
-
-function commands . ast ( args )
-local format = "text"
-local formatSet = false
-local paths = { }
-local literal = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-if literal then
-paths [ # paths + 1 ] = current
-j = j + 1
-elseif current == "--" then
-literal = true
-j = j + 1
-elseif current == "--format" then
-if formatSet then
-return usageError ( "ast" , "output format was specified more than once" )
-end
-local value , code = optionValue ( args , j , "ast" )
-if not value then return code end
-format , formatSet = value , true
-j = j + 2
-elseif current == "--json" or current == "--text" then
-if formatSet then
-return usageError ( "ast" , "output format was specified more than once" )
-end
-format = current == "--json" and "json" or "text"
-formatSet = true
-j = j + 1
-elseif isOption ( current ) then
-return usageError ( "ast" , "unknown option " .. current )
-else
-paths [ # paths + 1 ] = current
-j = j + 1
-end
-end
-if format ~= "text" and format ~= "json" then
-return usageError ( "ast" , "unknown output format " .. format )
-end
-if # paths ~= 1 then
-return usageError ( "ast" , "exactly one source file is required" )
-end
-local source , readErr = readFile ( paths [ 1 ] )
-if not source then io . stderr : write ( "nupp: " .. readErr .. "\n" ) ; return 1 end
-local result = parser . parse ( source , paths [ 1 ] )
-if format == "text" then
-io . write ( cst . pretty ( result . root ) .. "\n" )
-else
-local errors = { }
-for _ , err in ipairs ( result . errors ) do
-errors [ # errors + 1 ] = {
-code = err . code ,
-message = err . msg ,
-offset = err . offset ,
-length = err . length ,
-line = err . line ,
-col = err . col ,
-help = err . help ,
-}
-end
-local json = require ( "cjson" ) . new ( )
-json . encode_empty_table_as_object ( false )
-json . encode_invalid_numbers ( false )
-io . write ( json . encode ( { file = paths [ 1 ] , root = syntaxTreeValue ( result . root ) ,
-errors = errors } ) .. "\n" )
-end
-return report ( result . errors ) and 1 or 0
-end
-
-function commands . check ( args )
-local failed = false
-local paths = { }
-local target = nil
-local format , formatSet = "text" , false
-local literal = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-if literal then
-paths [ # paths + 1 ] = current
-j = j + 1
-elseif current == "--" then
-literal = true
-j = j + 1
-elseif current == "--strict" then
-strict = true
-j = j + 1
-elseif current == "--target" then
-if target then
-return usageError ( "check" , "option --target was specified more than once" )
-end
-local value , code = optionValue ( args , j , "check" )
-if not value then return code end
-target = value
-j = j + 2
-elseif current == "--format" then
-if formatSet then
-return usageError ( "check" , "output format was specified more than once" )
-end
-local value , code = optionValue ( args , j , "check" )
-if not value then return code end
-format , formatSet = value , true
-j = j + 2
-elseif current == "--json" or current == "--text" then
-if formatSet then
-return usageError ( "check" , "output format was specified more than once" )
-end
-format = current == "--json" and "json" or "text"
-formatSet = true
-j = j + 1
-elseif isOption ( current ) then
-return usageError ( "check" , "unknown option " .. current )
-else
-paths [ # paths + 1 ] = current
-j = j + 1
-end
-end
-if target and # paths > 0 then
-return usageError ( "check" , "--target cannot be combined with source files" )
-end
-if format ~= "text" and format ~= "json" then
-return usageError ( "check" , "unknown output format " .. format )
-end
-local diagnostics = { }
-if # paths == 0 then
-local code = project . check ( "." , { strict = strict , target = target ,
-diagnostics = format == "json" and diagnostics or nil } )
-if format == "json" then writeDiagnosticsJson ( diagnostics ) end
-return code
-end
-local env = envMod . new ( "." )
-for _ , path in ipairs ( paths ) do
-local src , err = readFile ( path )
-if not src then
-if format == "json" then
-diagnostics [ # diagnostics + 1 ] = { filename = path , line = 0 ,
-col = 0 , offset = 0 , length = 0 , code = "NUPP0001" ,
-msg = err , help = "check that the path exists and is readable" }
-else
-io . stderr : write ( "nupp: " .. err .. "\n" )
-end
-failed = true
-else
-local result = parser . parse ( src , path )
-if # result . errors > 0 then
-if format == "json" then
-for _ , diagnostic in ipairs ( result . errors ) do
-diagnostics [ # diagnostics + 1 ] = diagnostic
-end
-else
-printErrors ( result . errors )
-end
-failed = true
-else
-local diags = check . check ( result , path , env ,
-{ strict = strict } )
-if format == "json" then
-for _ , diagnostic in ipairs ( diags ) do
-diagnostics [ # diagnostics + 1 ] = diagnostic
-if not REPORTED [ diagnostic . severity ] then failed = true end
-end
-elseif report ( diags ) then failed = true end
-end
-end
-end
-if format == "json" then writeDiagnosticsJson ( diagnostics ) end
-return failed and 1 or 0
-end
-
-function commands . fmt ( args )
-local write , check = false , false
-local paths = { }
-local literal = false
-for _ , a in ipairs ( args ) do
-if literal then paths [ # paths + 1 ] = a
-elseif a == "--" then literal = true
-elseif a == "-w" or a == "--write" then write = true
-elseif a == "--check" then check = true
-elseif isOption ( a ) then return usageError ( "fmt" , "unknown option " .. a )
-else paths [ # paths + 1 ] = a end
-end
-if write and check then
-return usageError ( "fmt" ,
-"--write and --check ask for opposite things: one fixes the "
-.. "formatting, the other reports it" )
-end
-local failed = false
-local env = envMod . new ( "." )
-
-
-
-
-
-local wholeProject = # paths == 0
-
-
-
-local reporting = check or wholeProject
-if wholeProject then
-paths = envMod . listSourceFiles ( env )
-if # paths == 0 then
-io . stderr : write ( "nupp: no source files found under the project's "
-.. "include roots\n" )
-return 1
-end
-end
-local unformatted = { }
-for _ , path in ipairs ( paths ) do
-local src , err = readFile ( path )
-if not src then
-io . stderr : write ( "nupp: " .. err .. "\n" )
-failed = true
-else
-local formatted , errors = fmt . format ( src , path , {
-annotations = env . annotations ,
-resolveAnnotation = function ( name )
-return env . resolveProjectAnnotation ( env , path , name )
-end ,
-} )
-if # errors > 0 then
-printErrors ( errors )
-failed = true
-elseif write then
-if formatted ~= src then
-local f = assert ( io . open ( path , "wb" ) )
-f : write ( formatted )
-f : close ( )
-unformatted [ # unformatted + 1 ] = path
-end
-elseif reporting then
-if formatted ~= src then
-unformatted [ # unformatted + 1 ] = path
-end
-else
-
-
-
-io . write ( formatted )
-end
-end
-end
-if reporting then
-for _ , path in ipairs ( unformatted ) do io . write ( path , "\n" ) end
-
-
-if not write and # unformatted > 0 then failed = true end
-end
-return failed and 1 or 0
-end
-
-
-local function compile ( path , env )
-local src , err = readFile ( path )
-if not src then
-io . stderr : write ( "nupp: " .. err .. "\n" )
-return nil , err
-end
-local result = parser . parse ( src , path )
-if # result . errors > 0 then
-printErrors ( result . errors )
-return nil , "syntax errors"
-end
-local diags = check . check ( result , path , env , { strict = strict } )
-if report ( diags ) then return nil , "type errors" end
-local remarks = require ( "nupp.optimize" ) . run ( result ,
-{ level = optLevel , filename = path , disabled = disabledPasses } )
-if showRemarks then report ( remarks ) end
-local gen = require ( "nupp.gen" )
-local code , genDiags = gen . generate ( result , path )
-if # genDiags > 0 then
-printErrors ( genDiags )
-return nil , "code generation errors"
-end
-return code
-end
-
-function commands . build ( args )
-local env = envMod . new ( "." )
-local failed = false
-local outDir = nil
-local projectOutDir = nil
-local target = nil
-local paths = { }
-local literal = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-if literal then
-paths [ # paths + 1 ] = current
-j = j + 1
-elseif current == "--" then
-literal = true
-j = j + 1
-elseif current == "-o" then
-if outDir then return usageError ( "build" , "option -o was specified more than once" ) end
-local value , code = optionValue ( args , j , "build" )
-if not value then return code end
-outDir = value
-j = j + 2
-elseif current == "--out-dir" then
-if projectOutDir then
-return usageError ( "build" , "option --out-dir was specified more than once" )
-end
-local value , code = optionValue ( args , j , "build" )
-if not value then return code end
-projectOutDir = value
-j = j + 2
-elseif current == "--target" then
-if target then
-return usageError ( "build" , "option --target was specified more than once" )
-end
-local value , code = optionValue ( args , j , "build" )
-if not value then return code end
-target = value
-j = j + 2
-elseif current == "--strict" then
-strict = true
-j = j + 1
-elseif current == "--remarks" then
-showRemarks = true
-j = j + 1
-elseif optionLevel ( current ) then
-optLevel = optionLevel ( current )
-j = j + 1
-elseif readDisable ( current ) then
-j = j + 1
-elseif isOption ( current ) then
-return usageError ( "build" , "unknown option " .. current )
-else
-paths [ # paths + 1 ] = current
-j = j + 1
-end
-end
-if # paths > 0 and ( projectOutDir or target ) then
-return usageError ( "build" ,
-"--target and --out-dir cannot be used with explicit source files" )
-end
-if # paths == 0 and outDir then
-return usageError ( "build" , "-o requires at least one explicit source file" )
-end
-if # paths == 0 then
-return project . build ( "." , { outDir = projectOutDir , target = target ,
-strict = strict , optLevel = optLevel , remarks = showRemarks ,
-disabled = disabledPasses } )
-end
-if outDir and process . run ( process . mkdirCommand ( outDir ) ) ~= 0 then
-io . stderr : write ( "nupp: cannot create output directory " .. outDir .. "\n" )
-return 1
-end
-local written = { }
-local function emitModule ( path )
-if written [ path ] then return true end
-written [ path ] = true
-local code = compile ( path , env )
-if not code then return false end
-local outPath
-if outDir then
-local base = path : match ( "([^/\\]+)%.nupp$" ) or path
-outPath = outDir .. "/" .. base .. ".lua"
-else
-outPath = path : gsub ( "%.nupp$" , "" ) .. ".lua"
-end
-local f , err = io . open ( outPath , "wb" )
-if not f then
-io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
-return false
-end
-f : write ( code )
-f : close ( )
-return true
-end
-
-for _ , path in ipairs ( paths ) do
-if not emitModule ( path ) then failed = true end
-end
-
-
-
-
-
-local pending = true
-while pending do
-pending = false
-local paths2 = { }
-for _ , record in pairs ( env . loaded or { } ) do
-if record . path then paths2 [ # paths2 + 1 ] = record . path end
-end
-table . sort ( paths2 )
-for _ , path in ipairs ( paths2 ) do
-if path : match ( "%.nupp$" ) and not path : match ( "%.d%.nupp$" )
-and not written [ path ] then
-pending = true
-if not emitModule ( path ) then failed = true end
-end
-end
-end
-return failed and 1 or 0
-end
-
-function commands . clean ( args )
-local target = nil
-local dryRun = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-if current == "--target" then
-if target then
-return usageError ( "clean" , "option --target was specified more than once" )
-end
-local value , code = optionValue ( args , j , "clean" )
-if not value then return code end
-target = value
-j = j + 2
-elseif current == "--dry-run" then
-if dryRun then
-return usageError ( "clean" , "option --dry-run was specified more than once" )
-end
-dryRun = true
-j = j + 1
-elseif isOption ( current ) then
-return usageError ( "clean" , "unknown option " .. current )
-else
-return usageError ( "clean" , "unexpected argument " .. current )
-end
-end
-return project . clean ( "." , { target = target , dryRun = dryRun } )
-end
-
-local function writeItems ( label , items )
-io . write ( label .. ":\n" )
-if # items == 0 then io . write ( "  (none)\n" ) ; return end
-for _ , item in ipairs ( items ) do io . write ( "  - " .. item .. "\n" ) end
-end
-
-local function writeTask ( task )
-io . write ( "Name: " .. task . name .. "\n" )
-io . write ( "Default: " .. ( task . default and "yes" or "no" ) .. "\n" )
-if task . description then io . write ( "Description: " .. task . description .. "\n" ) end
-io . write ( "Kind: " .. task . kind .. "\n" )
-io . write ( "Category: " .. task . category .. "\n" )
-if task . command then io . write ( "Command: " .. table . concat ( task . command , " " ) .. "\n" ) end
-if task . outDir then io . write ( "Output directory: " .. task . outDir .. "\n" ) end
-if task . buildTarget then io . write ( "Build target: " .. task . buildTarget .. "\n" ) end
-if task . bootstrap then io . write ( "Bootstrap: " .. task . bootstrap .. "\n" ) end
-if task . title then io . write ( "Title: " .. task . title .. "\n" ) end
-if task . format then io . write ( "Format: " .. task . format .. "\n" ) end
-if task . all ~= nil then io . write ( "Include private: " .. tostring ( task . all ) .. "\n" ) end
-if task . argv then writeItems ( "Arguments" , task . argv ) end
-if task . env then
-local environment = { }
-for name , value in pairs ( task . env ) do
-environment [ # environment + 1 ] = name .. "=" .. value
-end
-table . sort ( environment )
-writeItems ( "Environment" , environment )
-end
-if task . entries then writeItems ( "Entries" , task . entries ) end
-if task . sources and # task . sources > 0 then writeItems ( "Sources" , task . sources ) end
-if task . resources then writeItems ( "Resources" , task . resources ) end
-if task . dependencies then writeItems ( "Dependencies" , task . dependencies ) end
-end
-
-function commands . lints ( args )
-for _ , arg in ipairs ( args ) do
-if arg == "-h" or arg == "--help" then
-io . write ( HELP . lints )
-return 0
-end
-return usageError ( "lints" , "unknown argument " .. arg )
-end
-
-
-local config , err = project . loadManifest ( "." )
-if not config and err then
-io . stderr : write ( err .. "\n" )
-return 1
-end
-local lintConfig = config and config . lints or nil
-local rows = { }
-local widths = { name = 4 , category = 8 }
-for _ , lint in ipairs ( lints . all ) do
-local level = lints . level ( lint , lintConfig )
-rows [ # rows + 1 ] = {
-name = lint . name , category = lint . category ,
-level = level , summary = lint . summary ,
-moved = level ~= lint . level and lint . level or nil ,
-}
-widths . name = math . max ( widths . name , # lint . name )
-widths . category = math . max ( widths . category , # lint . category )
-end
-table . sort ( rows , function ( a , b ) return a . name < b . name end )
-io . write ( ( "%-" .. widths . name .. "s  %-" .. widths . category
-.. "s  %-7s  %s\n" ) : format ( "lint" , "category" , "level" , "summary" ) )
-for _ , row in ipairs ( rows ) do
-local summary = row . summary
-if row . moved then
-summary = summary .. ( " (default %s)" ) : format ( row . moved )
-end
-io . write ( ( "%-" .. widths . name .. "s  %-" .. widths . category
-.. "s  %-7s  %s\n" ) : format ( row . name , row . category , row . level ,
-summary ) )
-end
-return 0
-end
-
-function commands . tasks ( args )
-local name , format = nil , "text"
-local formatSet = false
-local literal = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-if current == "--" and not literal then
-literal = true
-j = j + 1
-elseif not literal and current == "--format" then
-if formatSet then
-return usageError ( "tasks" , "output format was specified more than once" )
-end
-local value , code = optionValue ( args , j , "tasks" )
-if not value then return code end
-format , formatSet = value , true
-j = j + 2
-elseif not literal and ( current == "--json" or current == "--text" ) then
-if formatSet then
-return usageError ( "tasks" , "output format was specified more than once" )
-end
-format = current == "--json" and "json" or "text"
-formatSet = true
-j = j + 1
-elseif not literal and isOption ( current ) then
-return usageError ( "tasks" , "unknown option " .. current )
-else
-if name then return usageError ( "tasks" , "only one task name may be queried" ) end
-name = current
-j = j + 1
-end
-end
-if format ~= "text" and format ~= "json" then
-return usageError ( "tasks" , "unknown output format " .. format )
-end
-local info , err = project . describeTasks ( "." , name )
-if not info then io . stderr : write ( err .. "\n" ) ; return 1 end
-if format == "json" then
-io . write ( project . encodeJson ( info ) .. "\n" )
-elseif name then
-writeTask ( info )
-else
-for _ , task in ipairs ( info . tasks ) do
-local suffix = task . default and " (default)" or ""
-local description = task . description and ( " - " .. task . description ) or ""
-io . write ( task . name .. suffix .. description .. "\n" )
-end
-end
-return 0
-end
-
-function commands . test ( args )
-if args [ 1 ] == "--" then table . remove ( args , 1 ) end
-return project . test ( "." , args )
-end
-
-function commands . doc ( args )
-return require ( "nupp.doc" ) . command ( "." , args )
-end
-
-function commands . fixpoint ( args )
-local updateBootstrap = false
-local binary = false
-for _ , current in ipairs ( args ) do
-if current == "--update-bootstrap" then
-if updateBootstrap then
-return usageError ( "fixpoint" ,
-"option --update-bootstrap was specified more than once" )
-end
-updateBootstrap = true
-elseif current == "--binary" then
-if binary then
-return usageError ( "fixpoint" ,
-"option --binary was specified more than once" )
-end
-binary = true
-else
-return usageError ( "fixpoint" , "unknown option " .. current )
-end
-end
-if binary and updateBootstrap then
-return usageError ( "fixpoint" ,
-"--binary verifies the packaged binary and has no bootstrap to "
-.. "refresh" )
-end
-if binary then return project . binaryFixpoint ( "." ) end
-return project . fixpoint ( "." , { updateBootstrap = updateBootstrap } )
-end
-
-
-
-
-local function attachedValue ( argument , name )
-if argument == name then return true , nil end
-local prefix = name .. "="
-if argument : sub ( 1 , # prefix ) == prefix then
-return true , argument : sub ( # prefix + 1 )
-end
-return false , nil
-end
-
-function commands . run ( args )
-local profiling , profileOut , profileOutSet = false , "profile.out" , false
-local intervalMs = 10
-local tracingAborts , abortsOut = false , "jit-aborts.csv"
-local literal = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-local matched , value = false , nil
-if current == "--" then
-literal = true
-j = j + 1
-break
-elseif current == "--strict" then
-strict = true
-j = j + 1
-elseif current == "--remarks" then
-showRemarks = true
-j = j + 1
-elseif optionLevel ( current ) then
-optLevel = optionLevel ( current )
-j = j + 1
-elseif readDisable ( current ) then
-j = j + 1
-elseif current == "--profile-out" then
-if profileOutSet then
-return usageError ( "run" ,
-"option --profile-out was specified more than once" )
-end
-local given , code = optionValue ( args , j , "run" )
-if not given then return code end
-profileOut , profileOutSet = given , true
-j = j + 2
-else
-matched , value = attachedValue ( current , "--profile" )
-if matched then
-profiling = true
-if value then
-local given = tonumber ( value )
-if not given or given < 1 or given ~= math . floor ( given ) then
-return usageError ( "run" , "--profile takes a whole "
-.. "number of milliseconds, not " .. value )
-end
-intervalMs = math . floor ( given )
-end
-j = j + 1
-else
-matched , value = attachedValue ( current , "--jit-aborts" )
-if matched then
-tracingAborts = true
-if value == "" then
-return usageError ( "run" ,
-"--jit-aborts= requires a file name" )
-end
-abortsOut = value or abortsOut
-j = j + 1
-elseif isOption ( current ) then
-return usageError ( "run" , "unknown option " .. current )
-else
-break
-end
-end
-end
-end
-
-
-
-if profileOutSet and not profiling then
-return usageError ( "run" , "--profile-out names where --profile writes, "
-.. "which was not asked for" )
-end
-local path = args [ j ]
-if not path then return usageError ( "run" , "a program file is required" ) end
-if not literal and isOption ( path ) then
-return usageError ( "run" , "unknown option " .. path )
-end
-local programArgs = { }
-for index = j + 1 , # args do programArgs [ # programArgs + 1 ] = args [ index ] end
-local projectEnv = envMod . new ( "." )
-local chunk , err
-if path : find ( "%.nupp$" ) then
-local code = compile ( path , projectEnv )
-if not code then return 1 end
-chunk , err = loadstring ( code , "@" .. path )
-else
-chunk , err = loadfile ( path )
-end
-if not chunk then
-io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
-return 1
-end
-
-
-
-local sampling , tracing = nil , nil
-if profiling or tracingAborts then
-local profile = require ( "nupp.std.profile" )
-if profiling then
-
-
-sampling = profile . sample ( { intervalMs = intervalMs , root = path } )
-end
-if tracingAborts then tracing = profile . trace ( ) end
-end
-
-local removeLoader = runtime . install ( projectEnv , compile )
-local ok , runErr = pcall ( chunk , unpack ( programArgs ) )
-removeLoader ( )
-
-
-
-
-if sampling then
-local report = sampling : stop ( profileOut )
-io . stderr : write ( ( "nupp: %d samples on %d stacks every %dms, written "
-.. "to %s\n" ) : format ( report . samples , report . stacks ,
-report . intervalMs , profileOut ) )
-end
-if tracing then
-local report = tracing : stop ( abortsOut )
-io . stderr : write ( ( "nupp: %d trace aborts, %d blacklisted, written to "
-.. "%s\n" ) : format ( report . totalAborts , report . blacklisted ,
-abortsOut ) )
-end
-
-if not ok then
-io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" )
-return 1
-end
-return 0
-end
-
-commands [ "import-c" ] = function ( args )
-local out = nil
-local lib = nil
-local paths = { }
-local literal = false
-local j = 1
-while j <= # args do
-local current = args [ j ]
-if literal then
-paths [ # paths + 1 ] = current
-j = j + 1
-elseif current == "--" then
-literal = true
-j = j + 1
-elseif current == "-o" then
-if out then return usageError ( "import-c" , "option -o was specified more than once" ) end
-local value , code = optionValue ( args , j , "import-c" )
-if not value then return code end
-out = value
-j = j + 2
-elseif current == "-l" or current == "--lib" then
-if lib then return usageError ( "import-c" , "library was specified more than once" ) end
-local value , code = optionValue ( args , j , "import-c" )
-if not value then return code end
-lib = value
-j = j + 2
-elseif isOption ( current ) then
-return usageError ( "import-c" , "unknown option " .. current )
-else
-paths [ # paths + 1 ] = current
-j = j + 1
-end
-end
-if # paths ~= 1 then
-return usageError ( "import-c" , "exactly one C header is required" )
-end
-local importc = require ( "nupp.importc" )
-local text , warnings = importc . import ( paths [ 1 ] , { lib = lib } )
-if not text then
-for _ , warning in ipairs ( warnings ) do
-io . stderr : write ( "nupp: " .. warning .. "\n" )
-end
-return 1
-end
-for _ , warning in ipairs ( warnings ) do
-io . stderr : write ( "nupp: warning: " .. warning .. "\n" )
-end
-
-
-out = out or ( paths [ 1 ] : match ( "([^/\\]+)%.h$" ) or "out" ) .. ".nupp"
-local fh , writeErr = io . open ( out , "wb" )
-if not fh then io . stderr : write ( "nupp: " .. tostring ( writeErr ) .. "\n" ) ; return 1 end
-fh : write ( text )
-fh : close ( )
-io . write ( out .. "\n" )
-return 0
-end
-
-function commands . lsp ( args )
-return require ( "nupp.lsp.cli" ) . run ( args )
-end
-
-local cmd = arg [ 1 ]
-if not cmd or cmd == "-h" or cmd == "--help" then
-io . write ( HELP . main )
-os . exit ( 0 )
-end
-if cmd == "help" then
-local name = arg [ 2 ]
-if arg [ 3 ] then
-io . stderr : write ( "nupp: help accepts at most one command name\n" )
-os . exit ( 2 )
-end
-if not name then io . write ( HELP . main ) ; os . exit ( 0 ) end
-if name == "-h" or name == "--help" then
-io . write ( HELP . help )
-os . exit ( 0 )
-end
-if not HELP [ name ] or name == "main" then
-io . stderr : write ( "nupp: unknown command " .. name .. "\n" )
-os . exit ( 2 )
-end
-io . write ( HELP [ name ] )
-os . exit ( 0 )
-end
-if not commands [ cmd ] then
-io . stderr : write ( "nupp: unknown command " .. cmd .. "\n" )
-io . stderr : write ( "Try 'nupp help' for a list of commands.\n" )
-os . exit ( 2 )
-end
-local args = { }
-for j = 2 , # arg do args [ # args + 1 ] = arg [ j ] end
-if args [ 1 ] == "-h" or args [ 1 ] == "--help" then
-io . write ( HELP [ cmd ] )
-os . exit ( 0 )
-end
-os . exit ( commands [ cmd ] ( args ) )
+os . exit ( require ( "nupp.cli" ) . main ( arg ) )

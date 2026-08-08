@@ -22,7 +22,17 @@ it has none. Anything in first position that is not a format word is a path.
 
 `nupp doc` needs [lunamark](https://github.com/jgm/lunamark) and stops with a
 message if it is missing. Scintillua is optional: without it, a fence in a
-language it cannot load renders as escaped text.
+language it cannot load renders as escaped text. Both are ordinary
+[rock dependencies](build.md#rock-dependencies), so a docs target that declares
+them has them installed by the command that renders:
+
+```lua
+docs = {
+   kind = "docs",
+   dependencies = { "lunamark", "scintillua" },
+   sources = { "src" },
+}
+```
 
 ## Doc comments
 

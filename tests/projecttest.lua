@@ -1,4 +1,5 @@
 local project = require("nupp.build.project")
+local deps = require("nupp.build.deps")
 local hash = require("nupp.build.hash")
 local process = require("nupp.build.process")
 
@@ -414,6 +415,126 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
    assert(exists(dir .. "/out/lib/" .. libraryName("tiny_rust")),
       "Cargo cdylib copied into output")
    remove(dir)
+end
+
+-- A rock that is already in the source tree, so what is proved here is the
+-- provider rather than the network: `luarocks make` builds what is there.
+local TINY_ROCKSPEC = [[
+package = "tinyrock"
+version = "1.0-1"
+source = { url = "file://tinyrock.lua" }
+description = { summary = "A rock that ships with the project." }
+dependencies = { "lua >= 5.1" }
+build = { type = "builtin", modules = { tinyrock = "tinyrock.lua" } }
+]]
+
+local function tinyRockFiles()
+   return {
+      ["vendor/tinyrock/tinyrock.lua"] = "return {answer = 42}\n",
+      ["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC,
+      ["src/main.nupp"] = "return true\n",
+   }
+end
+
+function M.luarocksDependencyInstallsIntoTheProjectTree()
+   local files = tinyRockFiles()
+   files["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "luarocks", rock = "tinyrock", path = "vendor/tinyrock",
+         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec"},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]]
+   local dir = tempProject(files)
+   assertEq(project.build(dir), 0)
+   assert(exists(dir .. "/.rocks/share/lua/5.1/tinyrock.lua"),
+      "the rock is installed into a tree the project owns")
+   -- And into the running process's search path: a build that installs a
+   -- renderer is a build that may render with it a moment later.
+   assert(package.path:find(dir .. "/.rocks/share/lua/5.1/?.lua", 1, true),
+      "the tree is added to the search path this process is using")
+
+   -- A rock already in the tree at the version asked for is left alone, which
+   -- is what keeps a warm build from reaching for the network.
+   assertEq(project.build(dir), 0, "an installed rock rebuilds")
+   remove(dir)
+end
+
+function M.rockDependenciesAreRefusedUnlessTheyArePinned()
+   local loose = tempProject({
+      ["nupp.lua"] = [[
+return {
+   dependencies = {lunamark = {kind = "luarocks"}},
+   build = {entries = {"main"}},
+}
+]],
+   })
+   local config, err = project.loadManifest(loose)
+   assertEq(config, nil, "a rock naming no version is refused")
+   assert(err:find("must pin the rock", 1, true), err)
+   remove(loose)
+
+   local nested = tempProject({
+      ["nupp.lua"] = [[
+return {
+   dependencies = {
+      native = {kind = "c", sources = {"native.c"}},
+      lunamark = {kind = "luarocks", version = "0.6.0-1",
+         dependencies = {"native"}},
+   },
+   build = {entries = {"main"}},
+}
+]],
+   })
+   config, err = project.loadManifest(nested)
+   assertEq(config, nil, "a rock does not declare what LuaRocks resolves")
+   assert(err:find("LuaRocks resolves", 1, true), err)
+   remove(nested)
+end
+
+-- A version in the manifest and a version in the rockspec are two claims about
+-- one rock, and a build that installed whichever it read last would be pinned
+-- to neither.
+function M.rockVersionMustAgreeWithItsRockspec()
+   local files = tinyRockFiles()
+   files["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      tiny = {kind = "luarocks", rock = "tinyrock", version = "2.0-1",
+         path = "vendor/tinyrock",
+         rockspec = "vendor/tinyrock/tinyrock-1.0-1.rockspec"},
+   },
+   build = {outDir = "out", entries = {"main"}, dependencies = {"tiny"}},
+}
+]]
+   local dir = tempProject(files)
+   assertEq(project.build(dir), 1, "a disagreeing version fails the build")
+   assert(not exists(dir .. "/.rocks"), "and installs nothing")
+   remove(dir)
+end
+
+-- What a test command has to be told, since it is a fresh interpreter that has
+-- never heard of the tree the build installed into.
+function M.rockPathsNameTheTreesATargetDependsOn()
+   local config = {
+      dependencies = {
+         tiny = {kind = "luarocks", version = "1.0-1", tree = "vendor/rocks"},
+         native = {kind = "c", sources = {"native.c"}},
+      },
+   }
+   local paths = deps.rockPaths("/project", config,
+      {dependencies = {"tiny", "native"}})
+   assertEq(paths.path, "/project/vendor/rocks/share/lua/5.1/?.lua;"
+      .. "/project/vendor/rocks/share/lua/5.1/?/init.lua",
+      "the tree's Lua templates, in the order require reads them")
+   assertEq(paths.cpath, "/project/vendor/rocks/lib/lua/5.1/"
+      .. (jit.os == "Windows" and "?.dll" or "?.so"))
+   assertEq(deps.rockPaths("/project", config, {dependencies = {"native"}}), nil,
+      "a target with no rocks needs nothing added to its path")
 end
 
 function M.testCommandBuildsThenRunsArgv()

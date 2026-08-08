@@ -162,6 +162,10 @@ by how quickly a real user hits the gap. Milestone references are to
         the system toolchain; bind through generated cdef declarations
   - [x] Cargo step: build Rust `cdylib` crates, preserve Cargo's own
         dependency resolution, and optionally run cbindgen/import-c
+  - [x] LuaRocks step: install pinned rocks — by version, by rockspec, or
+        from a directory in the tree — into a project-local `.rocks`, put it
+        on the search path of the build and of the test command, and let
+        LuaRocks resolve what a rock itself depends on
   - [x] repo dogfood: tracked stage-0 bundle, bootstrap via `nupp build`,
         no Makefile, and a staged byte-identical fixpoint
   - [x] staleness tests: content-identical warm builds check and generate
