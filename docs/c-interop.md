@@ -118,6 +118,13 @@ translate: anonymous structs, unions, arrays, widths other than 8/16/32/64,
 function pointers in return or field position, function-like macros, and names
 that collide with Lua keywords.
 
+A declaration LuaJIT itself will not parse gets the same comment and does not
+take the header with it — commonly a struct laid out from a type whose
+definition belongs to a header this import left alone. Those are counted on
+stderr as `N of M declarations skipped`, and the count is the part to read: one
+of thirty is a corner in the header, and most of thirty means the vocabulary
+broke upstream and the module is not worth keeping.
+
 An enum's members come across as named `int32` constants:
 
 ```nupp

@@ -141,10 +141,12 @@
       typedefs were declared in sorted rather than source order, and one
       unusable link in that chain failed the whole import. What is left is
       visible now that headers parse:
-  - [ ] a target LuaJIT rejects wholesale still produces nothing. `fcntl.h`
-        fails on an incomplete type and loses the other declarations with it,
-        where a per-statement parse would eject that one as a comment and keep
-        the rest — the module's stated bargain everywhere else
+  - [x] a target LuaJIT rejects no longer produces nothing (landed: each
+        declaration is offered on its own, what the parser refuses gets the
+        skipped comment everything untranslatable already gets, and the drops
+        are counted on stderr. `fcntl.h` was losing 29 declarations to one
+        struct built from a type another header defines; `open` and `fcntl`
+        come across now. What `cheader` pins is still taken or left whole)
   - [ ] declarations reached only through a private sibling header are
         invisible: macOS puts `strlen` in `_string.h`, so importing `string.h`
         correctly yields nothing. Whether to follow a `_`-prefixed sibling is a
