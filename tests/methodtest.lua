@@ -714,6 +714,33 @@ function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
       "NUPP2118:3")
 end
 
+-- A `metatable<T>` annotation says whose metatable it is as readily as a
+-- parameter does, so the literal under one is held to the same rules wherever
+-- it is written.
+function M.anAnnotatedMetatableIsHeldToTheSameRules()
+   local i64 = table.concat({
+      "local record I64",
+      "   v: integer",
+      "   metamethod __tostring: function(self): string",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(i64 .. "\nlocal mt: metatable<I64> = {__tostring = 42}"
+      .. "\nreturn mt"), "NUPP2123:5")
+   assertEq(diagsOf(i64 .. table.concat({
+      "",
+      "local mt: metatable<I64> = {}",
+      "mt = {__tostirng = tostring}",
+      "return mt",
+   }, "\n")), "NUPP2118:6")
+   assertClean(i64 .. table.concat({
+      "",
+      "local mt: metatable<I64> = {__tostring = function(self: I64): string",
+      "   return tostring(self.v)",
+      "end}",
+      "return mt",
+   }, "\n"))
+end
+
 -- Nothing here can see what a function returns, so a computed metatable stays
 -- gradual, which is what the documentation has always promised.
 function M.aComputedMetatableStaysGradual()

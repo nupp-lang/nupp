@@ -7308,6 +7308,9 @@ if not ok then
 c . diag ( "NUPP2001" , initializers [ j ] or stat ,
 ( "cannot initialize %s: %s" ) : format ( nameTok . text , why ) )
 end
+
+
+c . checkMetatableLiteral ( initializers [ j ] , init , ann )
 if ownershipKind ( init ) and ownershipKind ( init )
 ~= ownershipKind ( ann ) then
 c . diag ( "NUPP2603" , initializers [ j ] or stat ,
@@ -7483,11 +7486,13 @@ c . diag ( "NUPP2613" , target ,
 ( "cannot assign to 'with' binding %q" )
 : format ( targetName ) )
 elseif entry and entry . ann and et then
-local ok , why = isA ( et , entry . decl or entry . t )
+local declared = entry . decl or entry . t
+local ok , why = isA ( et , declared )
 if not ok then
 c . diag ( "NUPP2001" , written or stat ,
 ( "cannot assign to %s: %s" ) : format ( targetName , why ) )
 end
+c . checkMetatableLiteral ( written , et , declared )
 end
 if entryState and ( entryState . activeBorrows or 0 ) > 0 then
 c . diag ( "NUPP2602" , target ,
@@ -7560,6 +7565,7 @@ if not ok then
 c . diag ( "NUPP2001" , written or stat ,
 ( "cannot assign: %s" ) : format ( why ) )
 end
+c . checkMetatableLiteral ( written , et , tt )
 end
 end
 end
