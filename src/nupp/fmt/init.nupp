@@ -1,14 +1,17 @@
 --[[
 The canonical formatter.
 
-Fixed, with nothing to configure:
+Fixed, with one knob:
 
 - four-space indentation;
 - 120 columns for code, 88 for docblock text;
 - existing line breaks are respected, so lines are never joined;
 - an over-long line is broken, one element per group;
 - an `if` is broken across lines, however short its arms;
-- docblocks are reflowed and set off from what they document.
+- docblocks are reflowed and set off from what they document;
+- a method call written as sugar, `obj:m{...}` or `obj:m"..."`, gets its `(`
+  and `)` back, so every method call reads the same. `opts.methodParens =
+  false` turns that off and leaves the sugar as written.
 
 A group is an argument list, a parameter list, or a table constructor, and
 breaking one puts each element on its own line. A docblock is a `---` run with
@@ -17,9 +20,11 @@ belongs to.
 
 The safety invariant is that the output must re-lex to the identical token
 sequence, in kind and in text, as the input; if it does not, `format` returns the
-input untouched along with a diagnostic. The one exception is annotation
-shorthand, where the checker has proved two spellings equivalent, and the
-formatter drops the redundant `member =` from a single-value annotation.
+input untouched along with a diagnostic. Two rewrites are exempted, each proven
+safe rather than merely whitespace: annotation shorthand drops a redundant
+`member =` once the checker has shown the two spellings equivalent, and method
+parenthesization inserts tokens that were not in the input, so instead of
+omitting them from the check it folds them into the sequence checked against.
 
 The shape of the work: annotate the CST with indent inputs, bracket groups and
 statement spans; flatten tokens and trivia into items; group items into lines;
@@ -819,20 +824,67 @@ local function canonicalizeSingleValueAnnotations(result, opts)
     end
 end
 
+-- Adds `(` and `)` around a method call's sugar-form arguments, `obj:m{...}`
+-- and `obj:m"..."`, so every method call reads the same whether or not the
+-- call left its parens out. `opts.methodParens = false` leaves the sugar as
+-- written. Plain calls, `f{...}` and `f"..."`, are untouched: they are how
+-- the language spells a record constructor, not a method left bare.
+--
+-- The new tokens are spliced into `result.tokens` too, folding them into the
+-- sequence the safety check below compares against, rather than omitting
+-- them from it: the check should still catch a misplaced paren.
+local function parenthesizeMethodCalls(result, opts)
+    if opts and opts.methodParens == false then return end
+    local before, after = {}, {}
+    local function walk(node)
+        if not node or cst.isToken(node) then return end
+        if node.kind == "methodCall" then
+            local args = node.args
+            if args and not args.exprs and (args.table or args.str) then
+                local sugar = args.table or args.str
+                local first, last = cst.firstToken(sugar), cst.lastToken(sugar)
+                if first and last then
+                    local open = {kind = "(", text = "(", offset = first.offset,
+                        line = first.line, col = first.col, trivia = first.trivia}
+                    local close = {kind = ")", text = ")", offset = last.offset,
+                        line = last.line, col = last.col, trivia = {}}
+                    first.trivia = {}
+                    args[1], args[2], args[3] = open, sugar, close
+                    before[first], after[last] = open, close
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then walk(child) end
+        end
+    end
+    walk(result.root)
+    if not next(before) then return end
+    local tokens = {}
+    for _, tok in ipairs(result.tokens) do
+        if before[tok] then tokens[#tokens + 1] = before[tok] end
+        tokens[#tokens + 1] = tok
+        if after[tok] then tokens[#tokens + 1] = after[tok] end
+    end
+    result.tokens = tokens
+end
+
 function fmt.format(source, filename, opts)
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return source, result.errors
     end
     canonicalizeSingleValueAnnotations(result, opts)
+    parenthesizeMethodCalls(result, opts)
     annotate(result.root)
     local items = collectItems(result.tokens)
     markDocumented(items)
     local lines = breakLines(buildLines(items))
     local text = render(lines)
 
-    -- Safety: formatting may only move whitespace, reflow comments, and remove
-    -- a schema-proven single-value member label.
+    -- Safety: formatting may only move whitespace, reflow comments, add or
+    -- remove a schema-proven single-value member label, and parenthesize a
+    -- method call's sugar-form arguments.
     local outputTokens = lexer.lex(text)
     if fingerprintTokens(outputTokens) ~= fingerprintTokens(result.tokens, true) then
         return source, {{

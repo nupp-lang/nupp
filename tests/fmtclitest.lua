@@ -234,6 +234,36 @@ function M.checkAndWriteTogetherAreRefused()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+-- A method call left in its sugar form gets its parens back by default, and
+-- keeps them however many times it is formatted again.
+function M.addsMethodCallParensByDefault()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" } }\n',
+      ["src/sugar.nupp"] = "obj:m{a = 1}\n",
+   })
+   local out, ok = run(dir, "fmt -w")
+   assert(ok, "formatting succeeds: " .. out)
+   assert(readFile(dir .. "/src/sugar.nupp") == "obj:m({a = 1})\n",
+      "the sugar-form call gains its parens")
+
+   local again, againOk = run(dir, "fmt --check")
+   assert(againOk and again == "",
+      "and formatting it again changes nothing: " .. again)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- --no-method-parens turns that off, leaving the sugar as written.
+function M.noMethodParensLeavesTheSugarAlone()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return { include = { "src" } }\n',
+      ["src/sugar.nupp"] = "obj:m{a = 1}\n",
+   })
+   local out, ok = run(dir, "fmt --check --no-method-parens")
+   assert(ok and out == "",
+      "already-formatted sugar passes the check: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A file that does not parse is reported and nothing is written, whether it was
 -- named or reached through the project.
 function M.refusesToFormatWhatItCannotParse()

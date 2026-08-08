@@ -38,6 +38,29 @@ function M.spacingBasics()
    assertEq(fmt1("f{1,2}"), "f{1, 2}\n")
 end
 
+function M.methodCallParensDefaultOn()
+   assertEq(fmt1("obj:m{a = 1}"), "obj:m({a = 1})\n")
+   assertEq(fmt1('obj:m"lit"'), 'obj:m("lit")\n')
+   assertEq(fmt1("obj?.:m{a = 1}"), "obj?.:m({a = 1})\n")
+   assertEq(fmt1("obj:m?.{a = 1}"), "obj:m?.({a = 1})\n")
+   -- already parenthesized, and a plain (non-method) call: untouched
+   assertEq(fmt1("obj:m({a = 1})"), "obj:m({a = 1})\n")
+   assertEq(fmt1("f{a = 1}"), "f{a = 1}\n")
+   assertEq(fmt1('f"lit"'), 'f"lit"\n')
+end
+
+function M.methodCallParensCanBeTurnedOff()
+   local off = {methodParens = false}
+   assertEq((fmt.format("obj:m{a = 1}", nil, off)), "obj:m{a = 1}\n")
+   assertEq((fmt.format('obj:m"lit"', nil, off)), 'obj:m"lit"\n')
+end
+
+function M.methodCallParensIdempotent()
+   local once = fmt1("obj:m{a = 1}")
+   assertEq(fmt1(once), once)
+   assertEq(kinds(once), "name : name ( { name = number } ) eof")
+end
+
 function M.unaryVsBinary()
    assertEq(fmt1("x = a - -b + #t"), "x = a - -b + #t\n")
    assertEq(fmt1("x = ~a ~ b"), "x = ~a ~ b\n")
