@@ -332,6 +332,44 @@ function M.aRefinementReachesThroughFieldsSafely()
    }, "\n")), 1)
 end
 
+-- A record is nominal, and an instance is a value that came from the
+-- declaration — not only one the declaration stamped itself. A constructor that
+-- links back rather than stamping directly, which is how tecs builds its event
+-- instances, produces instances too, and `is` has to say so.
+function M.instancesAreRecognisedThroughTheirPrototype()
+   assertEq(run(table.concat({
+      "local interface Event",
+      "   eventId: integer",
+      "   init: function(instance: self, ...: any)",
+      "end",
+      "local record OnSpawn is Event",
+      "   eventId: integer",
+      "   entity: integer",
+      "   metamethod __call: function(self, entity: integer): self",
+      "end",
+      "OnSpawn.init = function(instance: OnSpawn, entity: integer)",
+      "   instance.entity = entity",
+      "end",
+      "local function newEvent<E is Event>(event: E)",
+      "   local instanceMt = {__index = event}",
+      "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+      "      local instance = setmetatable({eventId = 7}, instanceMt) as E",
+      "      event.init(instance, ...)",
+      "      return instance",
+      "   end})",
+      "end",
+      "newEvent(OnSpawn)",
+      "local linked = OnSpawn(42)",
+      "local stamped = new OnSpawn {eventId = 1, entity = 2}",
+      "local foreign: any = {eventId = 1, entity = 2}",
+      -- linked and stamped are both instances; a lookalike and the declaration's
+      -- own table are not
+      "return (linked is OnSpawn and 1 or 0) + (stamped is OnSpawn and 2 or 0)",
+      "   + (foreign is OnSpawn and 100 or 0)",
+      "   + ((OnSpawn as any) is OnSpawn and 100 or 0)",
+   }, "\n")), 3)
+end
+
 -- A constructor is the whole reason `new` is worth having over a literal: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()

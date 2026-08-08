@@ -18634,6 +18634,12 @@ local cst = { }
 
 
 
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -26762,6 +26768,20 @@ if x . folded then
 e ( x . folded , sourceLine ( x ) )
 return
 end
+if x . callableBindings then
+for _ , binding in ipairs ( x . callableBindings ) do
+e ( "local " .. binding . name .. "=" , sourceLine ( x ) )
+emit ( binding . value )
+e ( ";" )
+end
+end
+if kind == "call" and x . staticCallee then
+e ( x . staticCallee , sourceLine ( x ) )
+if x . args then
+emit ( x . args )
+end
+return
+end
 if kind == "assignStmt" and x . isConst then
 for i , target in ipairs ( x . targets or { } ) do
 if i > 1 then
@@ -27009,9 +27029,19 @@ end
 elseif t . recordName then
 
 
+
+
+
+
+
+
+
+
+
+
 e ( "( getmetatable(" , firstTok and firstTok . line )
 emit ( x . expr )
-e ( ") == " .. t . recordName .. " )" )
+e ( ")?.__index == " .. t . recordName .. " )" )
 elseif t . reified then
 
 needsFfi = true
@@ -33269,6 +33299,11 @@ name = "constant-fold" ,
 level = 1 ,
 summary = "fold exact primitive expressions and propagate const bindings" ,
 } ,
+[ "OPT-4" ] = {
+name = "static-callable" ,
+level = 1 ,
+summary = "bind repeated immutable dotted callees at their first use" ,
+} ,
 }
 
 
@@ -33940,6 +33975,100 @@ end
 for _ , child in ipairs ( node ) do constantFoldWalk ( child ) end
 end
 
+local function hasJumpScope ( block )
+for _ , stat in ipairs ( block . stats or { } ) do
+if stat . kind == "gotoStmt" or stat . kind == "labelStmt" then
+return true
+end
+end
+return false
+end
+
+local function directImmutableCall ( stat )
+if stat . kind ~= "callStmt" then
+return nil
+end
+local call = stat . expr
+if not call or call . kind ~= "call" then
+return nil
+end
+if call . ffiOutContracts or call . ffiIntrinsic or call . carrayElem
+or call . cheaderCdef or call . recordConstruct or call . ownershipIntrinsic
+or call . cdefCall then
+return nil
+end
+local callee = call . obj
+local t = callee and callee . resolvedType
+if not callee or callee . kind ~= "dotIndex" or not callee . immutablePath
+or not t or t . tag ~= "func" then
+return nil
+end
+return textPath ( callee ) , call , callee
+end
+
+local function collectNames ( node , names )
+if not node then
+return
+end
+if isToken ( node ) then
+if node . kind == "name" then
+names [ node . text ] = true
+end
+return
+end
+for _ , child in ipairs ( node ) do
+collectNames ( child , names )
+end
+end
+
+local function staticCallableWalk ( root , remarks )
+local usedNames = { }
+collectNames ( root , usedNames )
+local nextAlias = 0
+local function aliasName ( )
+repeat
+nextAlias = nextAlias + 1
+until not usedNames [ "__nupp_call_" .. nextAlias ]
+local name = "__nupp_call_" .. nextAlias
+usedNames [ name ] = true
+return name
+end
+
+local visit
+visit = function ( node )
+if not node or isToken ( node ) then
+return
+end
+if node . kind == "block" and not hasJumpScope ( node ) then
+local counts = { }
+for _ , stat in ipairs ( node . stats or { } ) do
+local path = directImmutableCall ( stat )
+if path then
+counts [ path ] = ( counts [ path ] or 0 ) + 1
+end
+end
+local aliases = { }
+for _ , stat in ipairs ( node . stats or { } ) do
+local path , call , callee = directImmutableCall ( stat )
+if path and counts [ path ] and counts [ path ] >= 2 then
+local alias = aliases [ path ]
+if not alias then
+alias = aliasName ( )
+aliases [ path ] = alias
+stat . callableBindings = { { name = alias , value = callee } }
+remark ( remarks , callee , "OPT-4" ,
+( "static-callable: binds immutable callee %s once" )
+: format ( path ) )
+end
+call . staticCallee = alias
+end
+end
+end
+for _ , child in ipairs ( node ) do visit ( child ) end
+end
+visit ( root )
+end
+
 
 
 
@@ -33959,6 +34088,9 @@ numericIpairsWalk ( result . root , remarks )
 end
 if level >= optimize . passes [ "OPT-3" ] . level and not disabled [ "OPT-3" ] then
 constantFoldWalk ( result . root )
+end
+if level >= optimize . passes [ "OPT-4" ] . level and not disabled [ "OPT-4" ] then
+staticCallableWalk ( result . root , remarks )
 end
 for _ , entry in ipairs ( remarks ) do
 entry . filename = result . filename or opts . filename

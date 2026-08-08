@@ -18,7 +18,7 @@ layout. Choosing between them is choosing a representation.
  Nested declarations    Allowed                     Rejected
  Inline methods         Yes                         Yes, via ffi.metatype
  metamethod contracts   Yes                         Rejected
- `is` runtime test      getmetatable(v) == R        ffi.istype(S, v)
+ `is` runtime test      getmetatable(v)?.__index == R        ffi.istype(S, v)
 ```
 
 ## Records
@@ -46,6 +46,17 @@ local p = setmetatable({ x = 3, y = 4 }, Point)
 
 The declaration's runtime table is the type's identity, which is what lets
 `p is Point` compile to a `getmetatable` comparison.
+
+An instance is a value that came from the declaration, not only one the
+declaration stamped itself. A constructor may link back rather than stamping —
+giving instances their own metatable whose `__index` is the record, which is how
+a prototype-style registrar builds them — and those are instances too. The test
+reaches the record through `__index` so that both arrive at the same answer,
+which works because a record is its own prototype: `R.__index = R` is emitted
+with it.
+
+A value with no metatable, another record's instance, and the declaration's own
+table all answer `false`.
 
 Construction is by name. A record has no positional form, because field order
 in a table is not meaningful.

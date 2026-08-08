@@ -634,11 +634,21 @@ function gen.generate(result, filename)
                     e("))")
                 end
             elseif t.recordName then
-                -- a record stamps its runtime table as the metatable, so identity is
-                -- the test
+                -- A record is nominal: the question is whether the value came from
+                -- this declaration. `new R{...}` stamps the record itself, but a
+                -- constructor that links back rather than stamping directly is an
+                -- ordinary Lua shape — tecs builds its event instances that way,
+                -- with a per-instance metatable whose `__index` is the record — and
+                -- those are instances too.
+                --
+                -- Reaching the record through `__index` answers both, because the
+                -- record is its own prototype: `R.__index = R` is emitted with it,
+                -- so a directly stamped instance arrives at `R` by the same step a
+                -- linked one does. The subject is read once, and a value with no
+                -- metatable at all falls out as false rather than raising.
                 e("( getmetatable(", firstTok and firstTok.line)
                 emit(x.expr)
-                e(") == " .. t.recordName .. " )")
+                e(")?.__index == " .. t.recordName .. " )")
             elseif t.reified then
                 -- struct target: real runtime identity via ffi.istype
                 needsFfi = true

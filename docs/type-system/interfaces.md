@@ -85,11 +85,16 @@ if shape is Circle then
 end
 ```
 
-It compiles for `nil`, the primitives, function types, records (a
-`getmetatable` comparison), and structs (`ffi.istype`). It cannot compile
-against an interface or an alias, because neither has a runtime identity —
-that is NUPP3001 at code generation. Test against a concrete record instead, or
-check for a discriminant field.
+It compiles for `nil`, the primitives, function types, records (reaching the
+declaration through `__index`, so a value the declaration built answers yes
+whether it was stamped directly or linked back to), and structs
+(`ffi.istype`).
+
+An interface has no runtime table of its own, so it compiles only when the
+interface declares a `matches` block — which is what such a declaration's
+identity is. Without one, and against an alias, there is nothing to test and
+that is NUPP3001 at code generation. Give the interface a `matches` block, test
+against a concrete record, or compare a discriminant field.
 
 Note that `x is integer` compiles to `type(x) == "number"`. Integrality is not
 checked at runtime.
