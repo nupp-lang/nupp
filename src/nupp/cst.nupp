@@ -24,6 +24,9 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- Lua source replacing a primitive expression the optimizer proved constant.
+    folded: string?
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 

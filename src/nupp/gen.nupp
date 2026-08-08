@@ -319,6 +319,10 @@ function gen.generate(result, filename)
             x.passPinnedPointer = true
             return
         end
+        if x.folded then
+            e(x.folded, sourceLine(x))
+            return
+        end
         if kind == "recordDecl" and x.declKind == "record" then
             -- Records keep a runtime table: `function R:m()` attaches to it
             -- and `R{...}` stamps it as the instance metatable, which is

@@ -125,6 +125,10 @@ Each entry is tagged with where its win lands:
 
 ### Functions
 
+- `real` **Exact constant folding and propagation.** Fold primitive literal
+  expressions and propagate `const` bindings. Keep floating-point arithmetic,
+  cdata, allocation, calls, and mutable bindings at runtime unless the target
+  semantics are specified exactly.
 - `core` **Type-narrowing DCE.** Nil checks against non-nil types,
   branches made unreachable by narrowing, assertions the checker has
   already discharged.
@@ -449,7 +453,8 @@ being reified, and why.
 0. ~~Table presizing.~~ Landed as `OPT-1`, together with the harness
    everything below reuses: the pass registry, `-O` levels in the build
    key, `-Zno-opt`, remarks, and the differential check.
-1. Remarks for the optimizations that already exist. Reification has
+1. Exact constant folding and `const` propagation, plus remarks for the
+   optimizations that already exist. Reification has
    landed and nothing reports on it. The reporting path exists now, so
    this is a matter of deciding what reification should say.
 2. The FFI group. Real wins, small analyses, no new IR, and they target

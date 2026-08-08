@@ -205,6 +205,49 @@ function M.levelZeroRemarksNothing()
    assertEq(#remarks, 0, "a pass that did not run has nothing to report")
 end
 
+function M.foldsExactPrimitiveArithmetic()
+   local code = compile("return (2 + 3) * 4")
+   assertTrue(code:find("return 20", 1, true) ~= nil,
+      "the expression is emitted as its exact result: " .. code)
+   assertEq(run("return (2 + 3) * 4"), 20, "folded arithmetic result")
+end
+
+function M.propagatesConstBindings()
+   local code = compile("const size = 6\nreturn size * 7")
+   assertTrue(code:find("return 42", 1, true) ~= nil,
+      "a const use is replaced by its value: " .. code)
+   assertEq(run("const size = 6\nreturn size * 7"), 42,
+      "propagated arithmetic result")
+end
+
+function M.foldsPrimitiveStringsAndTruthiness()
+   local code = compile("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'")
+   assertTrue(code:find('return "nupp"', 1, true) ~= nil,
+      "primitive string and logical expressions fold: " .. code)
+   assertEq(run("const prefix = 'nu'\nreturn (false or prefix) .. 'pp'"), "nupp",
+      "folded string result")
+end
+
+function M.leavesFloatingPointArithmeticForTheTarget()
+   local code = compile("return 1.5 + 2")
+   assertTrue(code:find("1.5 + 2", 1, true) ~= nil,
+      "floating-point arithmetic remains a target operation: " .. code)
+end
+
+function M.doesNotPropagateMutableBindings()
+   local code = compile("local size = 6\nreturn size * 7")
+   assertTrue(code:find("size * 7", 1, true) ~= nil,
+      "only const bindings are propagated: " .. code)
+end
+
+function M.aDisabledConstantFoldPassDoesNothing()
+   local result = parser.parse("return 2 + 3", "test")
+   optimize.run(result, {level = 2, disabled = {["OPT-3"] = true}})
+   local code = gen.generate(result, "test")
+   assertTrue(code:find("2 + 3", 1, true) ~= nil,
+      "-Zno-opt=OPT-3 preserves the source expression")
+end
+
 function M.rewritesStableDeclaredArrayIteration()
    local code, remarks = compile(
       "local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"

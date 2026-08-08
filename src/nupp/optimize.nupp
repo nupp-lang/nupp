@@ -12,7 +12,7 @@ reused. Names change when a pass is split, merged, or renamed; the code in a
 bug report or a `-Zno-opt` does not.
 
 The constraint is line attribution, not line count: a rewrite may make a line as
-long as it needs to be, but may not move code to a line it was not on. Both
+long as it needs to be, but may not move code to a line it was not on. The
 passes here rewrite where they stand, so attribution is unchanged.
 
 See `plans/optimizations.md`.
@@ -37,6 +37,11 @@ optimize.passes = {
         name = "numeric-ipairs",
         level = 1,
         summary = "iterate a stable declared array with a numeric for loop",
+    },
+    ["OPT-3"] = {
+        name = "constant-fold",
+        level = 1,
+        summary = "fold exact primitive expressions and propagate const bindings",
     },
 }
 
@@ -236,6 +241,268 @@ local function numericIpairsWalk(node, remarks)
     for _, child in ipairs(node) do numericIpairsWalk(child, remarks) end
 end
 
+-- A folded value is deliberately smaller than Lua's constant vocabulary.  In
+-- particular, cdata literals, floats, and calls are left alone: their target
+-- representation, identity, rounding, or errors are not a source rewrite's
+-- business.  Integers in the exact double range and primitive values have the
+-- same result when emitted back as Lua source.
+local MAX_EXACT_INTEGER = 9007199254740991
+
+local function literal(kind, value, code)
+    return {kind = kind, value = value, code = code}
+end
+
+local function integerLiteral(node)
+    if not node.token then return nil end
+    local text = node.token.text
+    local lower = text:lower()
+    if lower:find("ll", 1, true) or lower:sub(-1) == "i" then return nil end
+    local value = tonumber((text:gsub("_", "")))
+    if not value or value ~= value or value == math.huge or value == -math.huge
+        or value ~= math.floor(value) or math.abs(value) > MAX_EXACT_INTEGER then
+        return nil
+    end
+    return literal("number", value, ("%.0f"):format(value))
+end
+
+local function stringLiteral(node)
+    if not node.token then return nil end
+    local chunk = loadstring("return " .. node.token.text)
+    if not chunk then return nil end
+    local ok, value = pcall(chunk)
+    if not ok or type(value) ~= "string" then return nil end
+    return literal("string", value, string.format("%q", value))
+end
+
+local function truthy(value)
+    return value.kind ~= "nil" and not (value.kind == "boolean" and not value.value)
+end
+
+local function scope(parent)
+    return {parent = parent, constants = {}}
+end
+
+local function lookupConstant(current, name)
+    while current do
+        local found = current.constants[name]
+        if found ~= nil then return found or nil end
+        current = current.parent
+    end
+    return nil
+end
+
+local foldBlock, foldFunction
+
+local function foldExpr(node, current)
+    if not node or isToken(node) then return nil end
+    local kind = node.kind
+    if kind == "number" then
+        local value = integerLiteral(node)
+        if value then node.folded = value.code end
+        return value
+    elseif kind == "string" then
+        local value = stringLiteral(node)
+        if value then node.folded = value.code end
+        return value
+    elseif kind == "nilExpr" then
+        node.folded = "nil"
+        return literal("nil", nil, "nil")
+    elseif kind == "trueExpr" or kind == "falseExpr" then
+        local value = kind == "trueExpr"
+        node.folded = tostring(value)
+        return literal("boolean", value, node.folded)
+    elseif kind == "name" and node.token then
+        local value = lookupConstant(current, node.token.text)
+        if value then node.folded = value.code end
+        return value
+    elseif kind == "paren" or kind == "castExpr" then
+        local value = foldExpr(node.expr, current)
+        if value then node.folded = value.code end
+        return value
+    elseif kind == "unop" then
+        local value = foldExpr(node.operand, current)
+        if not value or not node.op then return nil end
+        local op = node.op.kind
+        if op == "not" then
+            local answer = literal("boolean", not truthy(value),
+                tostring(not truthy(value)))
+            node.folded = answer.code
+            return answer
+        elseif op == "-" and value.kind == "number" and value.value ~= 0 then
+            local answer = -value.value
+            if math.abs(answer) <= MAX_EXACT_INTEGER then
+                local folded = literal("number", answer, ("%.0f"):format(answer))
+                node.folded = folded.code
+                return folded
+            end
+        elseif op == "#" and value.kind == "string" then
+            local folded = literal("number", #value.value, tostring(#value.value))
+            node.folded = folded.code
+            return folded
+        end
+        return nil
+    elseif kind == "binop" then
+        local left, right = foldExpr(node.lhs, current), foldExpr(node.rhs, current)
+        if not left or not right or not node.op then return nil end
+        local op = node.op.kind
+        if op == "and" then
+            local folded = truthy(left) and right or left
+            node.folded = folded.code
+            return folded
+        elseif op == "or" then
+            local folded = truthy(left) and left or right
+            node.folded = folded.code
+            return folded
+        elseif op == "??" then
+            local folded = left.kind == "nil" and right or left
+            node.folded = folded.code
+            return folded
+        elseif left.kind == "number" and right.kind == "number" then
+            local answer
+            if op == "+" then answer = left.value + right.value
+            elseif op == "-" then answer = left.value - right.value
+            elseif op == "*" then answer = left.value * right.value
+            elseif op == "%" and right.value ~= 0 then answer = left.value % right.value
+            end
+            if answer and math.abs(answer) <= MAX_EXACT_INTEGER then
+                local folded = literal("number", answer, ("%.0f"):format(answer))
+                node.folded = folded.code
+                return folded
+            end
+        elseif op == ".." and left.kind == "string" and right.kind == "string" then
+            local folded = literal("string", left.value .. right.value,
+                string.format("%q", left.value .. right.value))
+            node.folded = folded.code
+            return folded
+        end
+        local comparable = left.kind == right.kind
+            or (left.kind == "nil" or right.kind == "nil")
+        if comparable and (op == "==" or op == "~=") then
+            local equal = left.value == right.value
+            local folded = literal("boolean", op == "==" and equal or not equal,
+                tostring(op == "==" and equal or not equal))
+            node.folded = folded.code
+            return folded
+        end
+        return nil
+    elseif kind == "call" or kind == "safeCall" then
+        foldExpr(node.obj, current)
+        for _, arg in ipairs(node.args and node.args.exprs or {}) do foldExpr(arg, current) end
+    elseif kind == "methodCall" then
+        foldExpr(node.obj, current)
+        for _, arg in ipairs(node.args and node.args.exprs or {}) do foldExpr(arg, current) end
+    elseif kind == "dotIndex" or kind == "safeIndex" then
+        foldExpr(node.obj, current)
+    elseif kind == "bracketIndex" or kind == "safeBracket" then
+        foldExpr(node.obj, current)
+        foldExpr(node.expr, current)
+    elseif kind == "tableExpr" then
+        for _, field in ipairs(node.fields or {}) do
+            foldExpr(field.key, current)
+            foldExpr(field.value, current)
+        end
+    elseif kind == "istring" then
+        for _, part in ipairs(node.parts or {}) do foldExpr(part, current) end
+    elseif kind == "funcExpr" then
+        if node.body then foldFunction(node.body, current) end
+    elseif kind == "shortfn" then
+        local inner = scope(current)
+        for _, param in ipairs(node.params or {}) do
+            if param.name then inner.constants[param.name.text] = false end
+        end
+        if node.expr then foldExpr(node.expr, inner) end
+        if node.body then foldBlock(node.body, inner) end
+    end
+    return nil
+end
+
+foldFunction = function(body, current)
+    local inner = scope(current)
+    for _, param in ipairs(body.params or {}) do
+        if param.name then inner.constants[param.name.text] = false end
+    end
+    if body.body then foldBlock(body.body, inner) end
+end
+
+local function foldStatement(stat, current)
+    local kind = stat.kind
+    if kind == "localStmt" then
+        local values = {}
+        for i, expr in ipairs(stat.exprs or {}) do values[i] = foldExpr(expr, current) end
+        for i, name in ipairs(stat.names or {}) do
+            current.constants[name.text] = stat.isConst and values[i] or false
+        end
+    elseif kind == "assignStmt" then
+        for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
+        for _, target in ipairs(stat.targets or {}) do
+            if target.kind == "name" and target.token then
+                current.constants[target.token.text] = false
+            else
+                foldExpr(target, current)
+            end
+        end
+    elseif kind == "returnStmt" then
+        for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
+    elseif kind == "callStmt" then
+        foldExpr(stat.expr, current)
+    elseif kind == "compoundAssign" then
+        foldExpr(stat.target, current)
+        foldExpr(stat.value, current)
+        if stat.target and stat.target.kind == "name" and stat.target.token then
+            current.constants[stat.target.token.text] = false
+        end
+    elseif kind == "ifStmt" then
+        for _, clause in ipairs(stat.clauses or {}) do
+            foldExpr(clause.cond, current)
+            if clause.body then foldBlock(clause.body, scope(current)) end
+        end
+        if stat.elseClause and stat.elseClause.body then
+            foldBlock(stat.elseClause.body, scope(current))
+        end
+    elseif kind == "whileStmt" then
+        foldExpr(stat.cond, current)
+        if stat.body then foldBlock(stat.body, scope(current)) end
+    elseif kind == "repeatStmt" then
+        local inner = scope(current)
+        if stat.body then foldBlock(stat.body, inner) end
+        foldExpr(stat.cond, inner)
+    elseif kind == "doStmt" or kind == "unsafeStmt" then
+        if stat.body then foldBlock(stat.body, scope(current)) end
+    elseif kind == "fornumStmt" then
+        foldExpr(stat.start, current)
+        foldExpr(stat.stop, current)
+        foldExpr(stat.step, current)
+        local inner = scope(current)
+        if stat.var then inner.constants[stat.var.text] = false end
+        if stat.body then foldBlock(stat.body, inner) end
+    elseif kind == "forinStmt" then
+        for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
+        local inner = scope(current)
+        for _, name in ipairs(stat.names or {}) do inner.constants[name.text] = false end
+        if stat.body then foldBlock(stat.body, inner) end
+    elseif kind == "localFuncStmt" then
+        if stat.name then current.constants[stat.name.text] = false end
+        if stat.body then foldFunction(stat.body, current) end
+    elseif kind == "funcStmt" or kind == "inlineMethod" then
+        if stat.body then foldFunction(stat.body, current) end
+    elseif kind == "pragmaStmt" and stat.stat then
+        foldStatement(stat.stat, current)
+    end
+end
+
+foldBlock = function(block, current)
+    for _, stat in ipairs(block.stats or {}) do foldStatement(stat, current) end
+end
+
+local function constantFoldWalk(node)
+    if not node or isToken(node) then return end
+    if node.kind == "block" then
+        foldBlock(node, scope(nil))
+        return
+    end
+    for _, child in ipairs(node) do constantFoldWalk(child) end
+end
+
 --- Runs the passes a level asks for over a parsed and checked file, annotating
 --- it in place.
 ---
@@ -252,6 +519,9 @@ function optimize.run(result: any, opts: any): {any}
     end
     if level >= optimize.passes["OPT-2"].level and not disabled["OPT-2"] then
         numericIpairsWalk(result.root, remarks)
+    end
+    if level >= optimize.passes["OPT-3"].level and not disabled["OPT-3"] then
+        constantFoldWalk(result.root)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

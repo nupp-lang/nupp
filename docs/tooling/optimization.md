@@ -33,7 +33,16 @@ never produces a mixture.
 | Code | Name | Level | What it does |
 | --- | --- | --- | --- |
 | `OPT-1` | presize | `-O1` | Creates a table at the size it is about to reach |
-| `OPT-2` | numeric-ipairs | `-O1` | Lowers proven dense, stable array traversal to a numeric loop |
+| `OPT-2` | numeric-ipairs | `-O1` | Rewrites iteration over a proved stable declared array |
+| `OPT-3` | constant-fold | `-O1` | Folds exact primitive expressions and propagates `const` bindings |
+
+### `OPT-3`, constant folding
+
+The compiler evaluates exact primitive expressions such as integer arithmetic,
+string concatenation, comparisons, and boolean selection. A `const` binding to
+one of those values is propagated at each use. It deliberately leaves floating
+point arithmetic, cdata, calls, allocation, and mutable bindings to LuaJIT, so
+the target retains their rounding, identity, error, and lifetime semantics.
 
 ### `OPT-1`, presizing
 
