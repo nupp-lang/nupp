@@ -66,13 +66,23 @@ function calls.install(c: any): any
             return nil
         end
         if t.tag == "shape" then
-            return t.byname[name]
+            local named = t.byname[name]
+            if named then return named end
+            local indexKey, indexValue = t.indexReadKey, t.indexReadValue
+            if indexKey and indexValue and isA(T.string, indexKey) then
+                return T.optional(indexValue)
+            end
         elseif t.tag == "nominal" and t.byname then
             local ft = t.byname[name]
+            local indexKey, indexValue = t.indexReadKey, t.indexReadValue
+            if not ft and indexKey and indexValue
+                and isA(T.string, indexKey) then
+                return T.optional(indexValue)
+            end
             return ft and specializeSelf(t, ft, t) or nil,
                 t.fieldDefs and t.fieldDefs[name] or nil
         elseif t.tag == "map" then
-            if not isA(T.string, t.key) then return nil end
+            if not t.readable or not isA(T.string, t.key) then return nil end
             return T.optional(t.value)
         elseif t == T.string and c.env and c.env.stringLib
             and c.env.stringLib.tag == "shape" then
@@ -82,14 +92,61 @@ function calls.install(c: any): any
         return nil
     end
 
-    c.fieldNames = function(t)
+    c.fieldWriteType = function(t, name)
         t = rawType(t)
-        if t.tag == "ptr" then return c.fieldNames(t.elem) end
-        if t.tag == "typevar" and t.bound then return c.fieldNames(t.bound) end
+        if t.tag == "ptr" then return c.fieldWriteType(t.elem, name) end
+        if t.tag == "typevar" and t.bound then
+            local bound = t.bound as Type
+            local ft, fieldDef = c.fieldWriteType(bound, name)
+            if ft and bound.tag == "nominal" then
+                ft = specializeSelf(bound, ft, t)
+            end
+            return ft, fieldDef
+        end
+        if t.tag == "union" then
+            local accepted = nil
+            for _, m in ipairs(t.members) do
+                local ft = c.fieldWriteType(m, name)
+                if not ft then return nil end
+                if not accepted or isA(ft, accepted) then
+                    accepted = ft
+                elseif not isA(accepted, ft) then
+                    return T.never
+                end
+            end
+            return accepted
+        end
+        if t.tag == "shape" then
+            local named = t.writeByname[name]
+            if named then return named end
+            if t.indexWriteKey and isA(T.string, t.indexWriteKey) then
+                return t.indexWriteValue
+            end
+        elseif t.tag == "nominal" and t.writeByname then
+            local ft = t.writeByname[name]
+            if not ft and t.indexWriteKey
+                and isA(T.string, t.indexWriteKey) then
+                return t.indexWriteValue
+            end
+            return ft and specializeSelf(t, ft, t) or nil,
+                t.writeFieldDefs and t.writeFieldDefs[name] or nil
+        elseif t.tag == "map" then
+            if not t.writeKey or not isA(T.string, t.writeKey) then return nil end
+            return t.writeValue
+        end
+        return nil
+    end
+
+    c.fieldNames = function(t, writing)
+        t = rawType(t)
+        if t.tag == "ptr" then return c.fieldNames(t.elem, writing) end
+        if t.tag == "typevar" and t.bound then
+            return c.fieldNames(t.bound, writing)
+        end
         if t.tag == "union" then
             local shared = nil
             for _, member in ipairs(t.members) do
-                local names = c.fieldNames(member)
+                local names = c.fieldNames(member, writing)
                 if not shared then
                     shared = names
                 else
@@ -102,7 +159,8 @@ function calls.install(c: any): any
         end
         local names = {}
         if (t.tag == "shape" or t.tag == "nominal") and t.byname then
-            for name in pairs(t.byname) do names[name] = true end
+            local members = writing and t.writeByname or t.byname
+            for name in pairs(members or {}) do names[name] = true end
         elseif t == T.string and c.env and c.env.stringLib
             and c.env.stringLib.tag == "shape" then
             for name in pairs(c.env.stringLib.byname) do names[name] = true end
@@ -249,9 +307,12 @@ function calls.install(c: any): any
             if tbl then
                 for _, f in ipairs(tbl.fields) do
                     if f.kind == "fieldNamed" then
-                        local ft = calleeT.byname[f.name.text]
-                        local fieldDef = calleeT.fieldDefs
-                            and calleeT.fieldDefs[f.name.text] or nil
+                        local ft = calleeT.writeByname[f.name.text]
+                            or calleeT.byname[f.name.text]
+                        local fieldDef = calleeT.writeFieldDefs
+                            and calleeT.writeFieldDefs[f.name.text]
+                            or (calleeT.fieldDefs
+                            and calleeT.fieldDefs[f.name.text] or nil)
                         c.markToken(f.name, fieldDef, ft, "property")
                         if not ft then
                             c.diag("NUPP2202", f, ("no field %q in struct %s")
@@ -288,7 +349,8 @@ function calls.install(c: any): any
                     if not cst.isToken(arg) then
                         local at = c.infer(arg)
                         local fname = order[j]
-                        local ft = fname and calleeT.byname[fname]
+                        local ft = fname and (calleeT.writeByname[fname]
+                            or calleeT.byname[fname])
                         if fname and (c.ownershipKind(at) == "owned"
                             or c.ownershipKind(at) == "pinned") then
                             affineValues[fname] = at

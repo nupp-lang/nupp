@@ -277,6 +277,7 @@ local function sep(prev, tok)
         return prev.kind == "name" and "" or " "
     end
     if k == "(" or k == "[" then
+        if k == "[" and prev.propertyCapability then return " " end
         return CALLEE_KINDS[prev.kind] and "" or " "
     end
     if k == "{" or k == "string" then

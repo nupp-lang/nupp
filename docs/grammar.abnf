@@ -291,7 +291,7 @@ declname       = Name *("." Name)               ; a qualified name assigns the
                                                 ; declaration to that table,
                                                 ; the way "function M.f" does
 recordkw       = "record" / "interface" / "struct"
-recordbody     = *(arraypart / annotatedentry / typedecl)
+recordbody     = *(arraypart / annotatedentry / indexerdecl / typedecl)
                                                 ; nested decls allowed
 contracts      = "is" type *("," type)
 refinement     = "where" exp
@@ -300,9 +300,12 @@ arraypart      = "{" type "}"                  ; the record is also a
                                                 ; type; a struct has none
 annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod)
                                                 ; metadata attaches to one entry
-fielddecl      = Name ":" type                 ; one explicit type per field;
+fielddecl      = [propertycap] Name ":" type   ; one explicit type per field;
                                                 ; grouped names are rejected
                                                 ; with a targeted error
+indexerdecl    = [propertycap] "[" type "]" ":" type
+propertycap    = %s"read" / %s"write"          ; contextual before a member;
+                                                ; absent grants both capabilities
 metamethoddecl = "metamethod" Name ":" functype
 inlinemethod   = "function" Name funcbody       ; implicit self receiver
 
@@ -368,10 +371,13 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
                / "(" type ")"
 typename       = Name *("." Name) ["<" type *("," type) ">"]
 tabletype      = "{" tablebody "}"
-tablebody      = "[" type "]" ":" type          ; map (Luau-style indexer) [CS-8]
-               / shapefield *("," shapefield)   ; inline shape [CS-8]
+tablebody      = indexer *("," (indexer / shapefield))
+                                                ; indexer or mixed shape [CS-8]
+               / shapefield *("," (shapefield / indexer))
+                                                ; inline shape [CS-8]
                / type *("," type)               ; one = array, several = tuple
-shapefield     = Name ":" type
+shapefield     = [propertycap] Name ":" type
+indexer        = [propertycap] "[" type "]" ":" type
 functype       = "function" [generics] "(" [ftparams] ")" [":" ftret]
 ftparams       = ftparam *("," ftparam)
 ftparam        = [ownershipmode] Name ":" type  ; named [CS-8 lookahead]

@@ -313,23 +313,84 @@ function resolve.install(c: any)
         elseif kind == "tarray" then
             return T.array(c.resolveType(node.element))
         elseif kind == "tmap" then
-            return T.map(c.resolveType(node.key), c.resolveType(node.value))
+            local key = c.resolveType(node.key)
+            local value = c.resolveType(node.value)
+            local capability = node.capability and node.capability.text or nil
+            if capability == "read" then
+                return T.indexer(key, value, nil, nil)
+            elseif capability == "write" then
+                return T.indexer(nil, nil, key, value)
+            end
+            return T.map(key, value)
         elseif kind == "ttuple" then
             local elems = {}
             for j, e in ipairs(node.types) do elems[j] = c.resolveType(e) end
             return T.tuple(elems)
         elseif kind == "tshape" then
-            local fields = {}
+            local fields, order, byname = {}, {}, {}
+            local indexer = {}
             for _, f in ipairs(node.fields) do
                 if f.kind == "tshapeField" then
                     local fieldName = f.name
                     if fieldName then
-                        fields[#fields + 1] = {name = fieldName.text,
-                            type = c.resolveType(f.type)}
+                        local name = fieldName.text
+                        local entry = byname[name]
+                        if not entry then
+                            entry = {name = name}
+                            byname[name] = entry
+                            order[#order + 1] = name
+                        end
+                        local ft = c.resolveType(f.type)
+                        local capability = f.capability
+                            and f.capability.text or nil
+                        if capability == "read" then
+                            if entry.read then
+                                c.diag("NUPP2118", fieldName,
+                                    ("duplicate read capability for property %q")
+                                    :format(name))
+                            else entry.read = ft end
+                        elseif capability == "write" then
+                            if entry.write then
+                                c.diag("NUPP2118", fieldName,
+                                    ("duplicate write capability for property %q")
+                                    :format(name))
+                            else entry.write = ft end
+                        else
+                            if entry.read or entry.write then
+                                c.diag("NUPP2118", fieldName,
+                                    ("ordinary property %q already has a capability")
+                                    :format(name))
+                            else entry.read, entry.write = ft, ft end
+                        end
+                    end
+                elseif f.kind == "tmap" then
+                    local key, value = c.resolveType(f.key), c.resolveType(f.value)
+                    local capability = f.capability
+                        and f.capability.text or nil
+                    local function setIndexer(which)
+                        local keyName = which .. "Key"
+                        local valueName = which .. "Value"
+                        if indexer[valueName] then
+                            c.diag("NUPP2118", f,
+                                "duplicate " .. which .. " indexer capability")
+                        else
+                            indexer[keyName], indexer[valueName] = key, value
+                        end
+                    end
+                    if capability == "read" then setIndexer("read")
+                    elseif capability == "write" then setIndexer("write")
+                    else
+                        setIndexer("read")
+                        setIndexer("write")
                     end
                 end
             end
-            return T.shape(fields)
+            for _, name in ipairs(order) do fields[#fields + 1] = byname[name] end
+            if #fields == 0 and (indexer.readValue or indexer.writeValue) then
+                return T.indexer(indexer.readKey, indexer.readValue,
+                    indexer.writeKey, indexer.writeValue)
+            end
+            return T.shape(fields, indexer)
         elseif kind == "tfunc" then
             local params, rets, paramModes = {}, {}, {}
             local vararg = false

@@ -89,6 +89,9 @@ type lexer.Token = {
     --- it look like.
     contextualOp: boolean?,
 
+    --- A contextual `read` or `write` introducing a property or indexer.
+    propertyCapability: boolean?,
+
     --- Where the name this token spells was declared, attached by the checker so the
     --- editor can jump to it. Its shape belongs to the checker, not the lexer.
     definition: any,

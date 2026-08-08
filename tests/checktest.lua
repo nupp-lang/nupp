@@ -66,6 +66,11 @@ function M.typeTostring()
       "{[string]: {integer}}")
    assertEq(T.tostring(T.func({ T.number }, { T.boolean }, false)),
       "function(number): boolean")
+   assertEq(T.tostring(T.indexer(T.string, T.string, T.string, T.number)),
+      "{read [string]: string, write [string]: number}")
+   assertEq(T.tostring(T.shape({{name = "value", read = T.string,
+      write = T.number}})),
+      "{read value: string, write value: number}")
 end
 
 ---------------------------------------------------------------------------
@@ -91,6 +96,7 @@ function M.subtypingRules()
    -- nominal-to-shape erosion, never the reverse
    local rec = T.nominal("P", "record")
    rec.byname = { x = T.number, y = T.number }
+   rec.writeByname = { x = T.number, y = T.number }
    assert(isA(rec, narrow))
    assert(not isA(narrow, rec))
    -- functions: contravariant params, covariant returns
@@ -98,6 +104,81 @@ function M.subtypingRules()
    local takesInt = T.func({ T.integer }, { T.number }, false)
    assert(isA(takesNum, takesInt))
    assert(not isA(takesInt, takesNum))
+end
+
+function M.propertyCapabilities()
+   assertClean(table.concat({
+      "local type Animal = string | integer",
+      "local record Cell",
+      "   read value: string",
+      "   write value: Animal",
+      "   read [string]: string",
+      "   write [string]: Animal",
+      "end",
+      "local cell = Cell{value = 'ready'}",
+      "cell.value = 1",
+      "local value: string = cell.value",
+      "cell['answer'] = 42",
+      "local indexed: string? = cell['answer']",
+      "local readView: {read value: Animal} = cell",
+      "local writeView: {write value: string} = cell",
+      "return {value, indexed, readView, writeView}",
+   }, "\n"))
+
+   local denied, details = diagsOf(table.concat({
+      "local readView: {read value: string} = {value = 'x'}",
+      "local writeView: {write value: string} = {}",
+      "readView.value = 'y'",
+      "local value = writeView.value",
+      "readView.value ..= 'z'",
+   }, "\n"))
+   assertEq(denied, "NUPP2009:3 NUPP2009:4 NUPP2009:5")
+   assert(details[1].help and details[1].help:match("write access"))
+
+   local variance = diagsOf(table.concat({
+      "local type Animal = string | integer",
+      "local readString: {read value: string} = {value = 'x'}",
+      "local readAnimal: {read value: Animal} = {value = 'x'}",
+      "local writeString: {write value: string} = {}",
+      "local writeAnimal: {write value: Animal} = {}",
+      "local ordinaryString: {value: string} = {value = 'x'}",
+      "local okRead: {read value: Animal} = readString",
+      "local okWrite: {write value: string} = writeAnimal",
+      "local badRead: {read value: string} = readAnimal",
+      "local badWrite: {write value: Animal} = writeString",
+      "local badOrdinary: {value: Animal} = ordinaryString",
+   }, "\n"))
+   assertEq(variance, "NUPP2001:9 NUPP2001:10 NUPP2001:11")
+
+   assertClean(table.concat({
+      "local type Animal = string | integer",
+      "local readIndex: {read [string]: string} = {}",
+      "local writeIndex: {write [string]: Animal} = {}",
+      "local widerRead: {read [string]: Animal} = readIndex",
+      "local narrowerWrite: {write [string]: string} = writeIndex",
+      "return {widerRead, narrowerWrite}",
+   }, "\n"))
+
+   assertEq(diagsOf(table.concat({
+      "local record Bad",
+      "   read value: string",
+      "   read value: integer",
+      "end",
+   }, "\n")), "NUPP2118:3")
+   assertEq(diagsOf(table.concat({
+      "local struct Bad",
+      "   read value: int32",
+      "end",
+   }, "\n")), "NUPP2118:2")
+
+   assertClean(table.concat({
+      "local out: {write value: string} | {write value: string | integer}",
+      "out.value = 'ready'",
+   }, "\n"))
+   assertEq(diagsOf(table.concat({
+      "local out: {write value: string} | {write value: string | integer}",
+      "out.value = 42",
+   }, "\n")), "NUPP2001:2")
 end
 
 -- `unknown` is the top type: everything fits into it, but -- unlike `any` --

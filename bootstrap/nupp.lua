@@ -1553,7 +1553,7 @@ end
 local DOCS_KEYS = {
 
 "sources" , "format" , "outDir" , "title" , "name" , "description" , "github" ,
-"logo" , "public" , "customCss" , "lexers" , "includePrivate" , "all" , "pages" ,
+"logo" , "favicon" , "public" , "customCss" , "lexers" , "includePrivate" , "all" , "pages" ,
 
 "kind" , "dependencies" , "entries" , "resources" , "output" , "stub" ,
 }
@@ -1977,8 +1977,15 @@ value = "nominal(" .. tostring ( t . declKind ) .. ":" .. tostring ( t . name )
 elseif tag == "shape" then
 local fields = { }
 for _ , field in ipairs ( t . fields or { } ) do
-fields [ # fields + 1 ] = field . name .. ":" .. typeFingerprint ( field . type , active )
+fields [ # fields + 1 ] = field . name .. ":r="
+.. typeFingerprint ( field . read , active ) .. ":w="
+.. typeFingerprint ( field . write , active )
 end
+fields [ # fields + 1 ] = "index:r="
+.. typeFingerprint ( t . indexReadKey , active ) .. ":"
+.. typeFingerprint ( t . indexReadValue , active ) .. ":w="
+.. typeFingerprint ( t . indexWriteKey , active ) .. ":"
+.. typeFingerprint ( t . indexWriteValue , active )
 value = "shape(" .. table . concat ( fields , "," ) .. ")"
 elseif tag == "func" then
 local params , returns = { } , { }
@@ -1999,8 +2006,11 @@ value = tag .. "(" .. table . concat ( t . cleanups or { } , "," ) .. ","
 .. typeFingerprint ( t . inner , active ) .. ")"
 elseif tag == "borrowed" or tag == "pinned" then
 value = tag .. "(" .. typeFingerprint ( t . inner , active ) .. ")"
-elseif tag == "map" then value = "map(" .. typeFingerprint ( t . key , active )
-.. "," .. typeFingerprint ( t . value , active ) .. ")"
+elseif tag == "map" then value = "map(r="
+.. ( t . readable and typeFingerprint ( t . key , active ) or "nil" )
+.. ":" .. ( t . readable and typeFingerprint ( t . value , active ) or "nil" )
+.. ",w=" .. typeFingerprint ( t . writeKey , active ) .. ":"
+.. typeFingerprint ( t . writeValue , active ) .. ")"
 elseif tag == "tuple" then
 local items = { }
 for _ , item in ipairs ( t . elems or { } ) do
@@ -4125,8 +4135,10 @@ nominal . cdefName = tag
 nominal . fieldOrder = { }
 adopted [ tag ] = nominal
 for _ , field in ipairs ( declaration . fields ) do
-nominal . byname [ field . name ] =
+local fieldType =
 nuppType ( field . type , nil , adoptingResolver ( nil ) ) or T . any
+nominal . byname [ field . name ] = fieldType
+nominal . writeByname [ field . name ] = fieldType
 nominal . fieldOrder [ # nominal . fieldOrder + 1 ] = field . name
 end
 return nominal
@@ -4196,8 +4208,9 @@ end
 for _ , declaration in ipairs ( parsed . structs ) do
 local nominal = structs [ declaration . id ]
 for _ , field in ipairs ( declaration . fields ) do
-nominal . byname [ field . name ] =
-nuppType ( field . type , structs ) or T . any
+local fieldType = nuppType ( field . type , structs ) or T . any
+nominal . byname [ field . name ] = fieldType
+nominal . writeByname [ field . name ] = fieldType
 nominal . fieldOrder [ # nominal . fieldOrder + 1 ] = field . name
 end
 end
@@ -4306,6 +4319,9 @@ local checkMod = { }
 
 
 checkMod.Checker = {} checkMod.Checker.__index = checkMod.Checker
+
+
+
 
 
 
@@ -5318,6 +5334,7 @@ if k == "recordDecl" and decl . name then
 local n , entry = c . declaredNominal ( decl , decl . declKind )
 decl . hoistedType , decl . hoistedEntry = n , entry
 n . byname = n . byname or { }
+n . writeByname = n . writeByname or { }
 local key = c . declKey ( decl )
 if c . qualifierOf ( decl ) then n . runtimePath = key end
 c . bindType ( key , n , nil )
@@ -5342,8 +5359,10 @@ local owner = c . lookupType ( ownerKey )
 local member = memberTok and memberTok . text
 if owner and owner . tag == "nominal" and owner . byname
 and member and not owner . byname [ member ] then
-owner . byname [ member ] = c . signatureOf ( decl . body ,
+local signature = c . signatureOf ( decl . body ,
 fname . method and owner or nil )
+owner . byname [ member ] = signature
+owner . writeByname [ member ] = signature
 end
 end
 end
@@ -6051,7 +6070,9 @@ or "NUPP2603" , written ,
 "borrowed value cannot escape through assignment" )
 end
 else
+target . writeContext = true
 local tt = c . infer ( target )
+target . writeContext = nil
 local contractWrite = false
 if target . usesIndexContract and et then
 local receiver = target . indexObjectType
@@ -6100,6 +6121,11 @@ end
 for j , target in ipairs ( stat . targets ) do
 local key = pathKey ( target )
 local et = inferred [ j ]
+if target . postWriteType == false then
+et = nil
+elseif target . postWriteType then
+et = target . postWriteType
+end
 if key and et and et ~= T . any then
 applyFacts ( { [ key ] = et } )
 end
@@ -6110,6 +6136,9 @@ handlers . compoundAssign = function ( stat )
 local assignTarget , value , opTok = stat . target , stat . value , stat . op
 if not assignTarget or not value or not opTok then return end
 local targetT = c . infer ( assignTarget )
+assignTarget . writeContext = true
+c . infer ( assignTarget )
+assignTarget . writeContext = nil
 local valueT = c . infer ( value )
 local targetTok = assignTarget . kind == "name"
 and assignTarget . token or nil
@@ -6394,6 +6423,7 @@ and entry . definition . cdef or false
 end
 
 
+
 if calleeName == "require"
 and c . env and c . env . resolveModule then
 local tok = nil
@@ -6411,7 +6441,7 @@ local mt = c . env . resolveModule ( c . env , modname )
 if mt then return mt end
 end
 end
-return T . any
+return c . opts and c . opts . strict and T . unknown or T . any
 end
 
 
@@ -6588,13 +6618,23 @@ if # parts > 0 then return T . union ( parts ) end
 return nil
 end
 if t . tag == "shape" then
-return t . byname [ name ]
+local named = t . byname [ name ]
+if named then return named end
+local indexKey , indexValue = t . indexReadKey , t . indexReadValue
+if indexKey and indexValue and isA ( T . string , indexKey ) then
+return T . optional ( indexValue )
+end
 elseif t . tag == "nominal" and t . byname then
 local ft = t . byname [ name ]
+local indexKey , indexValue = t . indexReadKey , t . indexReadValue
+if not ft and indexKey and indexValue
+and isA ( T . string , indexKey ) then
+return T . optional ( indexValue )
+end
 return ft and specializeSelf ( t , ft , t ) or nil ,
 t . fieldDefs and t . fieldDefs [ name ] or nil
 elseif t . tag == "map" then
-if not isA ( T . string , t . key ) then return nil end
+if not t . readable or not isA ( T . string , t . key ) then return nil end
 return T . optional ( t . value )
 elseif t == T . string and c . env and c . env . stringLib
 and c . env . stringLib . tag == "shape" then
@@ -6604,14 +6644,61 @@ end
 return nil
 end
 
-c . fieldNames = function ( t )
+c . fieldWriteType = function ( t , name )
 t = rawType ( t )
-if t . tag == "ptr" then return c . fieldNames ( t . elem ) end
-if t . tag == "typevar" and t . bound then return c . fieldNames ( t . bound ) end
+if t . tag == "ptr" then return c . fieldWriteType ( t . elem , name ) end
+if t . tag == "typevar" and t . bound then
+local bound = t . bound
+local ft , fieldDef = c . fieldWriteType ( bound , name )
+if ft and bound . tag == "nominal" then
+ft = specializeSelf ( bound , ft , t )
+end
+return ft , fieldDef
+end
+if t . tag == "union" then
+local accepted = nil
+for _ , m in ipairs ( t . members ) do
+local ft = c . fieldWriteType ( m , name )
+if not ft then return nil end
+if not accepted or isA ( ft , accepted ) then
+accepted = ft
+elseif not isA ( accepted , ft ) then
+return T . never
+end
+end
+return accepted
+end
+if t . tag == "shape" then
+local named = t . writeByname [ name ]
+if named then return named end
+if t . indexWriteKey and isA ( T . string , t . indexWriteKey ) then
+return t . indexWriteValue
+end
+elseif t . tag == "nominal" and t . writeByname then
+local ft = t . writeByname [ name ]
+if not ft and t . indexWriteKey
+and isA ( T . string , t . indexWriteKey ) then
+return t . indexWriteValue
+end
+return ft and specializeSelf ( t , ft , t ) or nil ,
+t . writeFieldDefs and t . writeFieldDefs [ name ] or nil
+elseif t . tag == "map" then
+if not t . writeKey or not isA ( T . string , t . writeKey ) then return nil end
+return t . writeValue
+end
+return nil
+end
+
+c . fieldNames = function ( t , writing )
+t = rawType ( t )
+if t . tag == "ptr" then return c . fieldNames ( t . elem , writing ) end
+if t . tag == "typevar" and t . bound then
+return c . fieldNames ( t . bound , writing )
+end
 if t . tag == "union" then
 local shared = nil
 for _ , member in ipairs ( t . members ) do
-local names = c . fieldNames ( member )
+local names = c . fieldNames ( member , writing )
 if not shared then
 shared = names
 else
@@ -6624,7 +6711,8 @@ return shared or { }
 end
 local names = { }
 if ( t . tag == "shape" or t . tag == "nominal" ) and t . byname then
-for name in pairs ( t . byname ) do names [ name ] = true end
+local members = writing and t . writeByname or t . byname
+for name in pairs ( members or { } ) do names [ name ] = true end
 elseif t == T . string and c . env and c . env . stringLib
 and c . env . stringLib . tag == "shape" then
 for name in pairs ( c . env . stringLib . byname ) do names [ name ] = true end
@@ -6771,9 +6859,12 @@ end
 if tbl then
 for _ , f in ipairs ( tbl . fields ) do
 if f . kind == "fieldNamed" then
-local ft = calleeT . byname [ f . name . text ]
-local fieldDef = calleeT . fieldDefs
-and calleeT . fieldDefs [ f . name . text ] or nil
+local ft = calleeT . writeByname [ f . name . text ]
+or calleeT . byname [ f . name . text ]
+local fieldDef = calleeT . writeFieldDefs
+and calleeT . writeFieldDefs [ f . name . text ]
+or ( calleeT . fieldDefs
+and calleeT . fieldDefs [ f . name . text ] or nil )
 c . markToken ( f . name , fieldDef , ft , "property" )
 if not ft then
 c . diag ( "NUPP2202" , f , ( "no field %q in struct %s" )
@@ -6810,7 +6901,8 @@ for j , arg in ipairs ( args ) do
 if not cst . isToken ( arg ) then
 local at = c . infer ( arg )
 local fname = order [ j ]
-local ft = fname and calleeT . byname [ fname ]
+local ft = fname and ( calleeT . writeByname [ fname ]
+or calleeT . byname [ fname ] )
 if fname and ( c . ownershipKind ( at ) == "owned"
 or c . ownershipKind ( at ) == "pinned" ) then
 affineValues [ fname ] = at
@@ -7131,6 +7223,7 @@ c . bindType ( structName . text , n , structName )
 if structName . definition then structName . definition . cdef = true end
 n . fieldOrder = { }
 n . fieldDefs = { }
+n . writeFieldDefs = { }
 for _ , e in ipairs ( stat . entries ) do
 local fieldName , declaredType = nil , nil
 if e . kind == "fieldDecl" then
@@ -7140,8 +7233,10 @@ if fieldName then
 local ft = c . resolveType ( declaredType )
 local text = fieldName . text
 n . byname [ text ] = ft
+n . writeByname [ text ] = ft
 local fieldDef = c . definition ( fieldName , "property" )
 n . fieldDefs [ text ] = fieldDef
+n . writeFieldDefs [ text ] = fieldDef
 fieldDef . type = ft
 fieldDef . cdef = true
 c . markToken ( fieldName , fieldDef , ft , "property" )
@@ -7877,6 +7972,7 @@ end
 
 
 n . byname = n . byname or { }
+n . writeByname = n . writeByname or { }
 n . metamethods = n . metamethods or { }
 n . nestedTypes = n . nestedTypes or { }
 
@@ -7908,6 +8004,7 @@ n . typeParams , n . typeBounds = c . bindGenerics ( stat . generics ,
 end
 n . fieldOrder = { }
 n . fieldDefs = { }
+n . writeFieldDefs = { }
 stat . resolvedType = n
 
 
@@ -7925,6 +8022,7 @@ c . bindType ( e . name . text , nested , e . name )
 n . nestedTypes [ e . name . text ] = nested
 if nestedKind == "record" or nestedKind == "struct" then
 n . byname [ e . name . text ] = nested
+n . writeByname [ e . name . text ] = nested
 end
 end
 end
@@ -7956,6 +8054,19 @@ if not n . byname [ name ] then
 n . byname [ name ] = substType ( inherited , selfMap )
 end
 end
+for name , inherited in pairs ( super . writeByname or { } ) do
+if not n . writeByname [ name ] then
+n . writeByname [ name ] = substType ( inherited , selfMap )
+end
+end
+if not n . indexReadValue and super . indexReadValue then
+n . indexReadKey = substType ( super . indexReadKey , selfMap )
+n . indexReadValue = substType ( super . indexReadValue , selfMap )
+end
+if not n . indexWriteValue and super . indexWriteValue then
+n . indexWriteKey = substType ( super . indexWriteKey , selfMap )
+n . indexWriteValue = substType ( super . indexWriteValue , selfMap )
+end
 for name , inherited in pairs ( super . metamethods or { } ) do
 if not n . metamethods [ name ] then
 n . metamethods [ name ] = substType ( inherited , selfMap )
@@ -7968,7 +8079,9 @@ end
 
 for _ , e in ipairs ( stat . entries ) do
 if e . kind == "inlineMethod" and not n . byname [ e . name . text ] then
-n . byname [ e . name . text ] = c . signatureOf ( e . body , n )
+local signature = c . signatureOf ( e . body , n )
+n . byname [ e . name . text ] = signature
+n . writeByname [ e . name . text ] = signature
 end
 end
 local localMembers , localMetamethods = { } , { }
@@ -7984,6 +8097,16 @@ isDisposer = true
 end
 end
 local ft = c . resolveType ( e . type )
+local capability = e . capability and e . capability . text or nil
+if capability and ( stat . declKind == "struct"
+or stat . isAnnotationDefinition ) then
+c . diag ( "NUPP2118" , e . capability ,
+capability .. " properties are available on records, "
+.. "interfaces, and shapes, not "
+.. ( stat . isAnnotationDefinition
+and "annotation schemas" or "structs" ) )
+capability = nil
+end
 if c . ownershipKind ( ft ) == "owned"
 or c . ownershipKind ( ft ) == "pinned" then
 n . affineFields = n . affineFields or { }
@@ -8001,21 +8124,63 @@ n . defaultDisposers [ # n . defaultDisposers + 1 ] =
 "@method:" .. e . name . text
 end
 end
-if localMembers [ e . name . text ] then
-c . diag ( "NUPP2118" , e . name ,
-( "duplicate record member %q" ) : format ( e . name . text ) )
+local name = e . name . text
+local state = localMembers [ name ]
+if not state then
+state = { }
+localMembers [ name ] = state
+n . fieldOrder [ # n . fieldOrder + 1 ] = name
 end
-localMembers [ e . name . text ] = true
-n . byname [ e . name . text ] = ft
-n . fieldDefs [ e . name . text ] = c . definition ( e . name , "property" )
-n . fieldDefs [ e . name . text ] . type = ft
-c . markToken ( e . name , n . fieldDefs [ e . name . text ] , ft , "property" )
-n . fieldOrder [ # n . fieldOrder + 1 ] = e . name . text
+local grantsRead = capability ~= "write"
+local grantsWrite = capability ~= "read"
+if ( grantsRead and state . read )
+or ( grantsWrite and state . write ) then
+c . diag ( "NUPP2118" , e . name ,
+( "duplicate property capability for %q" ) : format ( name ) )
+end
+local definition = c . definition ( e . name , "property" )
+definition . type = ft
+if grantsRead then
+state . read = true
+n . byname [ name ] = ft
+n . fieldDefs [ name ] = definition
+end
+if grantsWrite then
+state . write = true
+n . writeByname [ name ] = ft
+n . writeFieldDefs [ name ] = definition
+end
+c . markToken ( e . name , definition , ft , "property" )
 if stat . declKind == "struct" and not stat . isAnnotationDefinition
 and not reifiableField ( ft ) then
 c . diag ( "NUPP2201" , e , ( "struct field %q: %s is not reifiable "
 .. "(use a record for GC types, or a pointer)" )
 : format ( e . name . text , T . tostring ( ft ) ) )
+end
+elseif e . kind == "indexerDecl" then
+local key = c . resolveType ( e . key )
+local value = c . resolveType ( e . value )
+local capability = e . capability and e . capability . text or nil
+if stat . declKind == "struct" or stat . isAnnotationDefinition then
+c . diag ( "NUPP2118" , e ,
+"indexers are available on records and interfaces, not "
+.. ( stat . isAnnotationDefinition
+and "annotation schemas" or "structs" ) )
+else
+local grantsRead = capability ~= "write"
+local grantsWrite = capability ~= "read"
+if grantsRead and n . indexReadValue then
+c . diag ( "NUPP2118" , e ,
+"duplicate read indexer capability" )
+elseif grantsRead then
+n . indexReadKey , n . indexReadValue = key , value
+end
+if grantsWrite and n . indexWriteValue then
+c . diag ( "NUPP2118" , e ,
+"duplicate write indexer capability" )
+elseif grantsWrite then
+n . indexWriteKey , n . indexWriteValue = key , value
+end
 end
 elseif e . kind == "arrayPart" then
 
@@ -8079,7 +8244,7 @@ if localMembers [ e . name . text ] then
 c . diag ( "NUPP2118" , e . name ,
 ( "duplicate record member %q" ) : format ( e . name . text ) )
 end
-localMembers [ e . name . text ] = true
+localMembers [ e . name . text ] = { read = true , write = true }
 if isDisposer then
 e . body . disposeContract = true
 e . body . disposeMethod = true
@@ -8092,8 +8257,10 @@ n . defaultDisposers [ # n . defaultDisposers + 1 ] =
 "@method:" .. e . name . text
 end
 n . byname [ e . name . text ] = ft
+n . writeByname [ e . name . text ] = ft
 n . fieldDefs [ e . name . text ] = c . definition ( e . name , "method" )
 n . fieldDefs [ e . name . text ] . type = ft
+n . writeFieldDefs [ e . name . text ] = n . fieldDefs [ e . name . text ]
 c . markToken ( e . name , n . fieldDefs [ e . name . text ] , ft , "method" )
 elseif e . kind == "recordDecl" or e . kind == "typeAlias" then
 if stat . declKind == "struct" then
@@ -8112,8 +8279,11 @@ if nested . tag == "nominal"
 and ( nested . declKind == "record"
 or nested . declKind == "struct" ) then
 n . byname [ e . name . text ] = nested
+n . writeByname [ e . name . text ] = nested
 n . fieldDefs [ e . name . text ] = c . definition ( e . name ,
 "property" )
+n . writeFieldDefs [ e . name . text ] =
+n . fieldDefs [ e . name . text ]
 end
 end
 end
@@ -8522,7 +8692,7 @@ return T . table_
 end
 end
 if # named > 0 and # positional == 0 then
-return T . shape ( named )
+return T . shape ( named , nil , true )
 elseif # positional > 0 and # named == 0 then
 return T . array ( T . union ( positional ) )
 elseif # positional == 0 and # named == 0 then
@@ -9575,8 +9745,10 @@ owner . byname [ member ] = T . func ( params , ft . rets , ft . vararg ,
 modes , ft . predicate , ft . typeParams , ft . typeBounds ,
 ft . borrowsParam , ft . borrowsSelf , ft . borrowsParams ,
 ft . ffiOut , ft . varargType , ft . noreturn )
+owner . writeByname [ member ] = owner . byname [ member ]
 else
 owner . byname [ member ] = ft
+owner . writeByname [ member ] = ft
 end
 if body . disposeMethod then
 owner . defaultDisposers [ # owner . defaultDisposers + 1 ] =
@@ -9646,7 +9818,7 @@ end
 if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
 return c . cNamespaceType ( )
 end
-if kind == "dotIndex" then
+if kind == "dotIndex" and not node . writeContext then
 local key = c . pathKey ( node )
 local narrowed = key and c . lookupNarrowed ( key )
 if narrowed then
@@ -9709,21 +9881,42 @@ if m ~= T . nil_ then nonnil [ # nonnil + 1 ] = m end
 end
 base = T . union ( nonnil )
 end
-local ft , fieldDef = c . fieldType ( base , memberName )
+local writing = node . writeContext == true
+local ft , fieldDef
+if writing then
+ft , fieldDef = c . fieldWriteType ( base , memberName )
+local after = c . fieldType ( base , memberName )
+if not after then node . postWriteType = false
+elseif after ~= ft then node . postWriteType = after end
+else
+ft , fieldDef = c . fieldType ( base , memberName )
+end
 if not ft then
-local mm = c . metamethodOf ( base , "__index" )
+local opposite = writing and c . fieldType ( base , memberName )
+or c . fieldWriteType ( base , memberName )
+if opposite then
+c . diag ( "NUPP2009" , member ,
+( "property %q is %s-only" )
+: format ( memberName , writing and "read" or "write" ) , nil ,
+{ help = writing and "assign through a view that grants write access"
+or "read through a view that grants read access" } )
+return T . any
+end
+local contractName = writing and "__newindex" or "__index"
+local mm = c . metamethodOf ( base , contractName )
 if mm then
 local keyType = T . literal ( memberName , T . string )
 node . indexObjectType , node . indexKeyType = base , keyType
 node . usesIndexContract = true
+if writing then return T . any end
 local out = c . applyContract ( mm , { base , keyType } ,
-{ target , node } , node , "__index" )
+{ target , node } , node , contractName )
 return kind == "safeIndex" and T . optional ( out ) or out
 end
 local exported = exportedValue ( )
 if exported then return exported end
 local fixes = c . edits . nameSpellingFix ( member ,
-c . fieldNames ( base ) )
+c . fieldNames ( base , writing ) )
 c . diag ( "NUPP2004" , member , ( "no field %q in %s" )
 : format ( memberName , T . tostring ( base ) ) , fixes ,
 { help = fixes and "use the suggested field spelling"
@@ -9741,6 +9934,7 @@ local target , key = node . obj , node . expr
 if not target or not key then return T . any end
 local trackedObject = c . infer ( target )
 local ot = rawType ( trackedObject )
+local writing = node . writeContext == true
 if ot . tag == "ptr" and not c . ownershipKind ( trackedObject )
 and c . unsafeDepth == 0 then
 c . diag ( "NUPP2604" , node ,
@@ -9766,17 +9960,43 @@ outs [ # outs + 1 ] = T . any
 elseif mt . tag == "array" or mt . tag == "carray" then
 outs [ # outs + 1 ] = mt . elem
 elseif mt . tag == "map" then
+if writing and mt . writeValue then
+outs [ # outs + 1 ] = mt . writeValue
+elseif not writing and mt . readable then
 outs [ # outs + 1 ] = T . optional ( mt . value )
+else
+outs = nil
+break
+end
 elseif mt . tag == "tuple" then
 outs [ # outs + 1 ] = T . union ( mt . elems )
 elseif mt . tag == "nominal" and mt . arrayOf then
 outs [ # outs + 1 ] = mt . arrayOf
+elseif ( mt . tag == "shape" or mt . tag == "nominal" )
+and writing and mt . indexWriteValue then
+outs [ # outs + 1 ] = mt . indexWriteValue
+elseif ( mt . tag == "shape" or mt . tag == "nominal" )
+and not writing and mt . indexReadValue then
+outs [ # outs + 1 ] = T . optional ( mt . indexReadValue )
 else
 outs = nil
 break
 end
 end
-if outs then return T . union ( outs ) end
+if outs and writing then
+node . postWriteType = false
+local accepted = nil
+for _ , candidate in ipairs ( outs ) do
+if not accepted or isA ( candidate , accepted ) then
+accepted = candidate
+elseif not isA ( accepted , candidate ) then
+accepted = T . never
+end
+end
+return accepted or T . never
+elseif outs then
+return T . union ( outs )
+end
 end
 if ot . tag == "carray" then
 
@@ -9805,20 +10025,64 @@ end
 
 return ot . elem
 elseif ot . tag == "map" then
-local ok , why = isA ( it , ot . key )
+if writing and not ot . writeValue then
+c . diag ( "NUPP2009" , node , "indexer is read-only" , nil ,
+{ help = "assign through a view that grants write access" } )
+return T . any
+elseif not writing and not ot . readable then
+c . diag ( "NUPP2009" , node , "indexer is write-only" , nil ,
+{ help = "read through a view that grants read access" } )
+return T . any
+end
+local keyType = writing and ot . writeKey or ot . key
+local valueType = writing and ot . writeValue or ot . value
+local ok , why = isA ( it , keyType )
 if not ok then
 c . diag ( "NUPP2004" , key , ( "map key: %s" ) : format ( why ) )
 end
-return T . optional ( ot . value )
+if writing then
+if not ot . readable then node . postWriteType = false
+elseif ot . value ~= valueType then
+node . postWriteType = T . optional ( ot . value )
+end
+return valueType
+end
+return T . optional ( valueType )
 elseif ot . tag == "tuple" then
 return T . union ( ot . elems )
 end
-local mm = c . metamethodOf ( ot , "__index" )
+if ot . tag == "shape" or ot . tag == "nominal" then
+local keyType = writing and ot . indexWriteKey or ot . indexReadKey
+local valueType = writing and ot . indexWriteValue or ot . indexReadValue
+if keyType and valueType then
+local ok , why = isA ( it , keyType )
+if not ok then
+c . diag ( "NUPP2004" , key , ( "indexer key: %s" ) : format ( why ) )
+end
+if writing then
+if not ot . indexReadValue then node . postWriteType = false
+elseif ot . indexReadValue ~= valueType then
+node . postWriteType = T . optional ( ot . indexReadValue )
+end
+return valueType
+end
+return T . optional ( valueType )
+end
+local opposite = writing and ot . indexReadValue or ot . indexWriteValue
+if opposite then
+c . diag ( "NUPP2009" , node ,
+writing and "indexer is read-only" or "indexer is write-only" )
+return T . any
+end
+end
+local contractName = writing and "__newindex" or "__index"
+local mm = c . metamethodOf ( ot , contractName )
 if mm then
 node . indexObjectType , node . indexKeyType = ot , it
 node . usesIndexContract = true
+if writing then return T . any end
 local out = c . applyContract ( mm , { ot , it } , { target , key } ,
-node , "__index" )
+node , contractName )
 return kind == "safeBracket" and T . optional ( out ) or out
 end
 c . diag ( "NUPP2004" , node , ( "cannot index %s" ) : format ( T . tostring ( ot ) ) )
@@ -11695,23 +11959,84 @@ return T . union ( members )
 elseif kind == "tarray" then
 return T . array ( c . resolveType ( node . element ) )
 elseif kind == "tmap" then
-return T . map ( c . resolveType ( node . key ) , c . resolveType ( node . value ) )
+local key = c . resolveType ( node . key )
+local value = c . resolveType ( node . value )
+local capability = node . capability and node . capability . text or nil
+if capability == "read" then
+return T . indexer ( key , value , nil , nil )
+elseif capability == "write" then
+return T . indexer ( nil , nil , key , value )
+end
+return T . map ( key , value )
 elseif kind == "ttuple" then
 local elems = { }
 for j , e in ipairs ( node . types ) do elems [ j ] = c . resolveType ( e ) end
 return T . tuple ( elems )
 elseif kind == "tshape" then
-local fields = { }
+local fields , order , byname = { } , { } , { }
+local indexer = { }
 for _ , f in ipairs ( node . fields ) do
 if f . kind == "tshapeField" then
 local fieldName = f . name
 if fieldName then
-fields [ # fields + 1 ] = { name = fieldName . text ,
-type = c . resolveType ( f . type ) }
+local name = fieldName . text
+local entry = byname [ name ]
+if not entry then
+entry = { name = name }
+byname [ name ] = entry
+order [ # order + 1 ] = name
+end
+local ft = c . resolveType ( f . type )
+local capability = f . capability
+and f . capability . text or nil
+if capability == "read" then
+if entry . read then
+c . diag ( "NUPP2118" , fieldName ,
+( "duplicate read capability for property %q" )
+: format ( name ) )
+else entry . read = ft end
+elseif capability == "write" then
+if entry . write then
+c . diag ( "NUPP2118" , fieldName ,
+( "duplicate write capability for property %q" )
+: format ( name ) )
+else entry . write = ft end
+else
+if entry . read or entry . write then
+c . diag ( "NUPP2118" , fieldName ,
+( "ordinary property %q already has a capability" )
+: format ( name ) )
+else entry . read , entry . write = ft , ft end
+end
+end
+elseif f . kind == "tmap" then
+local key , value = c . resolveType ( f . key ) , c . resolveType ( f . value )
+local capability = f . capability
+and f . capability . text or nil
+local function setIndexer ( which )
+local keyName = which .. "Key"
+local valueName = which .. "Value"
+if indexer [ valueName ] then
+c . diag ( "NUPP2118" , f ,
+"duplicate " .. which .. " indexer capability" )
+else
+indexer [ keyName ] , indexer [ valueName ] = key , value
+end
+end
+if capability == "read" then setIndexer ( "read" )
+elseif capability == "write" then setIndexer ( "write" )
+else
+setIndexer ( "read" )
+setIndexer ( "write" )
 end
 end
 end
-return T . shape ( fields )
+for _ , name in ipairs ( order ) do fields [ # fields + 1 ] = byname [ name ] end
+if # fields == 0 and ( indexer . readValue or indexer . writeValue ) then
+return T . indexer ( indexer . readKey , indexer . readValue ,
+indexer . writeKey , indexer . writeValue )
+end
+return T . shape ( fields , indexer )
 elseif kind == "tfunc" then
 local params , rets , paramModes = { } , { } , { }
 local vararg = false
@@ -15780,6 +16105,12 @@ local cst = { }
 
 
 
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -16317,6 +16648,24 @@ cst.WhereClause = {} cst.WhereClause.__index = cst.WhereClause
 cst.FieldDecl = {} cst.FieldDecl.__index = cst.FieldDecl
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+cst.IndexerDecl = {} cst.IndexerDecl.__index = cst.IndexerDecl
 
 
 
@@ -16928,6 +17277,9 @@ cst.Tmap = {} cst.Tmap.__index = cst.Tmap
 
 
 
+
+
+
 cst.Tshape = {} cst.Tshape.__index = cst.Tshape
 
 
@@ -16940,6 +17292,9 @@ cst.Tshape = {} cst.Tshape.__index = cst.Tshape
 
 
 cst.TshapeField = {} cst.TshapeField.__index = cst.TshapeField
+
+
+
 
 
 
@@ -19621,6 +19976,15 @@ local markdownHtml = htmlMod . markdownHtml
 local ICONS = assetsMod . ICONS
 
 local page = { }
+
+
+
+local function assetHref ( prefix , source )
+source = tostring ( source )
+if source : match ( "^[%w+.-]+:" ) or source : sub ( 1 , 1 ) == "/" then return source end
+return prefix .. source
+end
+
 local function moduleTree ( modules )
 local root = { children = { } , order = { } }
 for _ , module in ipairs ( modules ) do
@@ -19858,12 +20222,8 @@ end
 local function brand ( settings , siteTitle , prefix )
 local out = { '<a class="nuppdoc-brand" href="' .. prefix .. 'index.html">' }
 if settings . logo and settings . logo ~= "" then
-local source = tostring ( settings . logo )
-if not source : match ( "^[%w+.-]+:" ) and source : sub ( 1 , 1 ) ~= "/" then
-source = prefix .. source
-end
 out [ # out + 1 ] = '<img class="nuppdoc-logo" src="'
-.. htmlEscape ( source ) .. '" alt="">'
+.. htmlEscape ( assetHref ( prefix , settings . logo ) ) .. '" alt="">'
 else
 out [ # out + 1 ] = '<span class="nuppdoc-mark">++</span>'
 end
@@ -19913,11 +20273,17 @@ local right = home and "" or outline ( items )
 local search = '<button class="nuppdoc-search-button" type="button"'
 .. ' data-nuppdoc-search aria-label="Search documentation">'
 .. '<span aria-hidden="true">⌕</span><span>Search</span><kbd>⌘ K</kbd></button>'
+local favicon = ""
+if settings . favicon and settings . favicon ~= "" then
+favicon = '<link rel="icon" href="'
+.. htmlEscape ( assetHref ( prefix , settings . favicon ) ) .. '">'
+end
 return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
 .. '<meta name="viewport" content="width=device-width,initial-scale=1">'
 .. '<meta name="description" content="' .. htmlEscape ( settings . description ) .. '">'
 .. "<title>" .. htmlEscape ( title ) .. " | " .. htmlEscape ( siteTitle )
-.. '</title><link rel="stylesheet" href="' .. prefix .. 'assets/style.css">'
+.. '</title>' .. favicon
+.. '<link rel="stylesheet" href="' .. prefix .. 'assets/style.css">'
 .. '</head><body><div class="nuppdoc-site"><header class="nuppdoc-header"><nav class="nuppdoc-nav">'
 .. brand ( settings , siteTitle , prefix ) .. '<div class="nuppdoc-top-nav"><a href="'
 .. prefix .. 'index.html">Overview</a><a href="'
@@ -21380,6 +21746,19 @@ related = { "NUPP2005" , "NUPP2119" } ,
 docs = "docs/modules.md#diagnostics" ,
 } ,
 {
+code = "NUPP2009" ,
+summary = "A property view does not grant the requested access" ,
+rule = "A read-only property may be read but not assigned, and a "
+.. "write-only property may be assigned but not read. Use a view "
+.. "that declares the needed capability." ,
+wrong = "local out: {write value: string} = {}\n"
+.. "local value = out.value\nreturn value\n" ,
+right = "local out: {write value: string} = {}\n"
+.. "out.value = \"ready\"\nreturn out\n" ,
+related = { "NUPP2004" , "NUPP2008" } ,
+docs = "docs/type-system/properties.md#access-diagnostics" ,
+} ,
+{
 code = "NUPP2106" ,
 summary = "An exported declaration needs a type annotation" ,
 strict = true ,
@@ -21805,6 +22184,7 @@ if k == "::" then
 return prev . kind == "name" and "" or " "
 end
 if k == "(" or k == "[" then
+if k == "[" and prev . propertyCapability then return " " end
 return CALLEE_KINDS [ prev . kind ] and "" or " "
 end
 if k == "{" or k == "string" then
@@ -24060,7 +24440,10 @@ return map [ t ] or T . any
 elseif tag == "array" then
 return T . array ( generics . subst ( t . elem , map ) )
 elseif tag == "map" then
-return T . map ( generics . subst ( t . key , map ) , generics . subst ( t . value , map ) )
+return T . indexer ( t . readable and generics . subst ( t . key , map ) or nil ,
+t . readable and generics . subst ( t . value , map ) or nil ,
+t . writeKey and generics . subst ( t . writeKey , map ) or nil ,
+t . writeValue and generics . subst ( t . writeValue , map ) or nil )
 elseif tag == "tuple" then
 local elems = { }
 for j , e in ipairs ( t . elems ) do elems [ j ] = generics . subst ( e , map ) end
@@ -24068,9 +24451,20 @@ return T . tuple ( elems )
 elseif tag == "shape" then
 local fields = { }
 for j , f in ipairs ( t . fields ) do
-fields [ j ] = { name = f . name , type = generics . subst ( f . type , map ) }
+fields [ j ] = { name = f . name ,
+read = f . read and generics . subst ( f . read , map ) or nil ,
+write = f . write and generics . subst ( f . write , map ) or nil }
 end
-return T . shape ( fields )
+return T . shape ( fields , {
+readKey = t . indexReadKey
+and generics . subst ( t . indexReadKey , map ) or nil ,
+readValue = t . indexReadValue
+and generics . subst ( t . indexReadValue , map ) or nil ,
+writeKey = t . indexWriteKey
+and generics . subst ( t . indexWriteKey , map ) or nil ,
+writeValue = t . indexWriteValue
+and generics . subst ( t . indexWriteValue , map ) or nil ,
+} , t . fresh )
 elseif tag == "union" then
 local members = { }
 for j , m in ipairs ( t . members ) do members [ j ] = generics . subst ( m , map ) end
@@ -24132,6 +24526,7 @@ end
 inst . fieldOrder = n . fieldOrder
 inst . arrayOf = n . arrayOf and generics . subst ( n . arrayOf , map ) or nil
 inst . fieldDefs = n . fieldDefs
+inst . writeFieldDefs = n . writeFieldDefs
 inst . selfType = n . selfType
 inst . supertypes = { }
 for j , parent in ipairs ( n . supertypes or { } ) do
@@ -24143,6 +24538,17 @@ instantiations [ key ] = inst
 for name , ft in pairs ( n . byname ) do
 inst . byname [ name ] = generics . subst ( ft , map )
 end
+for name , ft in pairs ( n . writeByname or { } ) do
+inst . writeByname [ name ] = generics . subst ( ft , map )
+end
+inst . indexReadKey = n . indexReadKey
+and generics . subst ( n . indexReadKey , map ) or nil
+inst . indexReadValue = n . indexReadValue
+and generics . subst ( n . indexReadValue , map ) or nil
+inst . indexWriteKey = n . indexWriteKey
+and generics . subst ( n . indexWriteKey , map ) or nil
+inst . indexWriteValue = n . indexWriteValue
+and generics . subst ( n . indexWriteValue , map ) or nil
 for name , ft in pairs ( n . metamethods or { } ) do
 inst . metamethods [ name ] = generics . subst ( ft , map )
 end
@@ -24178,8 +24584,14 @@ end
 end
 elseif tag == "map" then
 if arg . tag == "map" then
+if param . readable and arg . readable then
 generics . unify ( param . key , arg . key , map )
 generics . unify ( param . value , arg . value , map )
+end
+if param . writeKey and arg . writeKey then
+generics . unify ( param . writeKey , arg . writeKey , map )
+generics . unify ( param . writeValue , arg . writeValue , map )
+end
 end
 elseif tag == "union" then
 
@@ -24203,12 +24615,16 @@ generics . unify ( tv , residue , map )
 end
 for _ , r in ipairs ( rest ) do generics . unify ( r , arg , map ) end
 elseif tag == "shape" then
-local lookup = arg . tag == "shape" and arg . byname
+local reads = arg . tag == "shape" and arg . byname
 or ( arg . tag == "nominal" and arg . byname )
-if lookup then
+local writes = arg . tag == "shape" and arg . writeByname
+or ( arg . tag == "nominal" and arg . writeByname )
+if reads or writes then
 for _ , f in ipairs ( param . fields ) do
-local at = lookup [ f . name ]
-if at then generics . unify ( f . type , at , map ) end
+local read = reads and reads [ f . name ]
+local write = writes and writes [ f . name ]
+if f . read and read then generics . unify ( f . read , read , map ) end
+if f . write and write then generics . unify ( f . write , write , map ) end
 end
 end
 elseif tag == "func" then
@@ -25152,6 +25568,9 @@ package.preload["nupp.lexer"] = function(...)
 
 
 local lexer = { }
+
+
+
 
 
 
@@ -27889,8 +28308,13 @@ mark ( node . name , "label" )
 elseif kind == "param" or kind == "tfuncParam" then
 if node . modeTok then mark ( node . modeTok , "keyword" ) end
 mark ( node . name , "parameter" )
-elseif kind == "fieldDecl" or kind == "fieldNamed" then
+elseif kind == "fieldDecl" or kind == "tshapeField" then
+if node . capability then mark ( node . capability , "keyword" ) end
 mark ( node . name , "property" )
+elseif kind == "fieldNamed" then
+mark ( node . name , "property" )
+elseif kind == "indexerDecl" or kind == "tmap" then
+if node . capability then mark ( node . capability , "keyword" ) end
 elseif kind == "generics" then
 for _ , tok in ipairs ( node . names or { } ) do mark ( tok , "typeParameter" ) end
 end
@@ -28820,9 +29244,7 @@ if kept ~= m then changed = true end
 if kept then out [ # out + 1 ] = kept end
 end
 
-
-
-if # out == 0 then return t end
+if # out == 0 then return T . never end
 if not changed then return t end
 return T . union ( out )
 end
@@ -29508,25 +29930,62 @@ return n
 elseif kind == "{" then
 local n
 local addOpen = advance ( )
+local function shapeMember ( )
+local capability = nil
+if cur ( ) . kind == "name"
+and ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+and tokens [ i + 1 ]
+and ( tokens [ i + 1 ] . kind == "name"
+or tokens [ i + 1 ] . kind == "[" ) then
+capability = advance ( )
+capability . propertyCapability = true
+end
+local member
+if cur ( ) . kind == "[" then
+member = setmetatable( { kind = "tmap" , capability = capability } , cst.Tmap)
+if capability then add ( member , capability ) end
+add ( member , advance ( ) )
+member . key = add ( member , parseType ( ) )
+add ( member , expect ( "]" , "to close indexer key type" ) )
+annotationColon ( member , "in indexer type" )
+member . value = add ( member , parseType ( ) )
+else
+member = setmetatable( { kind = "tshapeField" ,
+capability = capability } , cst.TshapeField)
+if capability then add ( member , capability ) end
+member . name = add ( member , expectName ( "in shape field" ) )
+annotationColon ( member , "in shape field" )
+member . type = add ( member , parseType ( ) )
+end
+return member
+end
 if cur ( ) . kind == "[" then
 
-n = setmetatable( { kind = "tmap" } , cst.Tmap)
+local first = shapeMember ( )
+if cur ( ) . kind == "," then
+n = setmetatable( { kind = "tshape" , fields = { } } , cst.Tshape)
 add ( n , addOpen )
+n . fields [ 1 ] = add ( n , first )
+while cur ( ) . kind == "," do
 add ( n , advance ( ) )
-n . key = add ( n , parseType ( ) )
-add ( n , expect ( "]" , "to close map key type" ) )
-annotationColon ( n , "in map type" )
-n . value = add ( n , parseType ( ) )
-elseif cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == ":" then
+n . fields [ # n . fields + 1 ] = add ( n , shapeMember ( ) )
+end
+else
+n = first
+table . insert ( n , 1 , addOpen )
+end
+elseif cur ( ) . kind == "name" and tokens [ i + 1 ]
+and ( tokens [ i + 1 ] . kind == ":"
+or ( ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+and ( tokens [ i + 1 ] . kind == "name"
+or tokens [ i + 1 ] . kind == "[" ) ) ) then
+
 
 n = setmetatable( { kind = "tshape" } , cst.Tshape)
 add ( n , addOpen )
 n . fields = { }
 repeat
-local f = setmetatable( { kind = "tshapeField" } , cst.TshapeField)
-f . name = add ( f , expectName ( "in shape field" ) )
-annotationColon ( f , "in shape field" )
-f . type = add ( f , parseType ( ) )
+local f = shapeMember ( )
 n . fields [ # n . fields + 1 ] = add ( n , f )
 if cur ( ) . kind ~= "," then break end
 add ( n , advance ( ) )
@@ -30263,8 +30722,28 @@ elseif cur ( ) . kind == "{" then
 
 e = setmetatable( { kind = "arrayPart" } , cst.ArrayPart)
 e . type = add ( e , parseType ( ) )
+elseif cur ( ) . kind == "["
+or ( cur ( ) . kind == "name"
+and ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "[" ) then
+e = setmetatable( { kind = "indexerDecl" } , cst.IndexerDecl)
+if cur ( ) . kind == "name" then
+e . capability = add ( e , advance ( ) )
+e . capability . propertyCapability = true
+end
+add ( e , expect ( "[" , "to open indexer key type" ) )
+e . key = add ( e , parseType ( ) )
+add ( e , expect ( "]" , "to close indexer key type" ) )
+annotationColon ( e , "in indexer declaration" )
+e . value = add ( e , parseType ( ) )
 elseif cur ( ) . kind == "name" then
 e = setmetatable( { kind = "fieldDecl" } , cst.FieldDecl)
+if ( cur ( ) . text == "read" or cur ( ) . text == "write" )
+and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name"
+and tokens [ i + 2 ] and tokens [ i + 2 ] . kind == ":" then
+e . capability = add ( e , advance ( ) )
+e . capability . propertyCapability = true
+end
 e . name = add ( e , advance ( ) )
 if cur ( ) . kind == "," then
 
@@ -30721,9 +31200,20 @@ end
 parseBlock = function ( )
 local n = setmetatable( { kind = "block" } , cst.Block)
 n . stats = { }
+local returned = false
 while not BLOCK_FOLLOW [ cur ( ) . kind ] do
+
+
+
+if returned then
+errAt ( cur ( ) , "'return' must be the last statement in a block" ,
+nil , "move the 'return' below the statements that follow "
+.. "it, or delete them" )
+returned = false
+end
 local start = i
 local s = parseStatement ( )
+if s . kind == "returnStmt" then returned = true end
 n . stats [ # n . stats + 1 ] = add ( n , s )
 
 
@@ -31189,6 +31679,43 @@ end
 
 function m.labelOf<T is m.Named>(value: T): string
     return value.name
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Property capabilities" ,
+codes = { "NUPP2001" , "NUPP2009" } ,
+body = [=[
+`read` and `write` grant member access independently on shapes, interfaces,
+records, and indexers. A read property is covariant; a write property is
+contravariant. Declaring both separately permits different types, while an
+unmodified property grants both capabilities at one invariant type.
+
+These are views of members. `const T` makes a whole value read-only, and
+`borrows`/`exclusive` describe lifetime and aliasing instead.
+]=] ,
+example = [=[
+local m = {}
+
+local type Input = {read value: string | integer}
+local type Output = {write value: string}
+
+record m.Cell
+    read value: string
+    write value: string | integer
+    read [string]: string
+    write [string]: string | integer
+end
+
+function m.fill(out: Output): nil
+    out.value = "ready"
+end
+
+function m.show(input: Input): string
+    return tostring(input.value)
 end
 
 return m
@@ -31857,6 +32384,71 @@ local function fail ( a , b )
 return false , ( "%s is not a %s" ) : format ( T . tostring ( a ) , T . tostring ( b ) )
 end
 
+
+
+local function memberIsA ( have , want )
+if have . tag == "func" and want . tag == "func"
+and # have . params >= 1 and # want . params >= 1 then
+local hp , wp = { } , { }
+for j = 2 , # have . params do hp [ # hp + 1 ] = have . params [ j ] end
+for j = 2 , # want . params do wp [ # wp + 1 ] = want . params [ j ] end
+local hm , wm = { } , { }
+for j = 2 , # have . params do
+hm [ # hm + 1 ] = have . paramModes and have . paramModes [ j ] or "plain"
+end
+for j = 2 , # want . params do
+wm [ # wm + 1 ] = want . paramModes and want . paramModes [ j ] or "plain"
+end
+return isA ( T . func ( hp , have . rets , have . vararg , hm , nil , nil ,
+nil , nil , nil , nil , nil , have . varargType ) ,
+T . func ( wp , want . rets , want . vararg , wm , nil , nil ,
+nil , nil , nil , nil , nil , want . varargType ) )
+end
+return isA ( have , want )
+end
+
+local function optionalIsA ( a , b )
+if not a or not b then return false end
+return isA ( a , b )
+end
+
+
+
+
+
+local function propertiesFit ( a , b )
+local aReads = a . byname or { }
+local aWrites = a . writeByname or { }
+local fresh = a . tag == "shape" and a . fresh == true
+for name , want in pairs ( b . byname or { } ) do
+local have = aReads [ name ]
+if not have then
+if admitsNil ( want ) then goto nextRead end
+return false , ( "%s is not a %s (no readable member %q)" )
+: format ( T . tostring ( a ) , T . tostring ( b ) , name )
+end
+if not memberIsA ( have , want ) then
+return false , ( "%s is not a %s (read member %q does not match)" )
+: format ( T . tostring ( a ) , T . tostring ( b ) , name )
+end
+:: nextRead ::
+end
+for name , want in pairs ( b . writeByname or { } ) do
+if fresh then goto nextWrite end
+local have = aWrites [ name ]
+if not have then
+return false , ( "%s is not a %s (no writable member %q)" )
+: format ( T . tostring ( a ) , T . tostring ( b ) , name )
+end
+if not memberIsA ( want , have ) then
+return false , ( "%s is not a %s (write member %q does not match)" )
+: format ( T . tostring ( a ) , T . tostring ( b ) , name )
+end
+:: nextWrite ::
+end
+return true
+end
+
 local function sameCleanups ( a , b )
 local left = a or { }
 local right = b or { }
@@ -31989,6 +32581,22 @@ end
 
 if atag == "nominal" and btag == "nominal" and a . origin
 and a . origin == b . origin then
+if next ( a . byname or { } ) or next ( a . writeByname or { } )
+or a . indexReadValue or a . indexWriteValue then
+local ok , why = propertiesFit ( a , b )
+if not ok then return false , why end
+if b . indexReadValue and ( not a . indexReadValue
+or not optionalIsA ( b . indexReadKey , a . indexReadKey )
+or not optionalIsA ( a . indexReadValue , b . indexReadValue ) ) then
+return fail ( a , b )
+end
+if b . indexWriteValue and ( not a . indexWriteValue
+or not optionalIsA ( b . indexWriteKey , a . indexWriteKey )
+or not optionalIsA ( b . indexWriteValue , a . indexWriteValue ) ) then
+return fail ( a , b )
+end
+return true
+end
 local aArgs = a . typeArgs or { }
 local bArgs = b . typeArgs or { }
 for j , at in ipairs ( aArgs ) do
@@ -32030,44 +32638,23 @@ end
 
 
 if btag == "nominal" and b . declKind == "interface" and b . byname then
-local lookup
-if atag == "nominal" and a . byname then
-lookup = a . byname
-elseif atag == "shape" then
-lookup = a . byname
+if ( atag == "nominal" or atag == "shape" ) and a . byname then
+local ok , why = propertiesFit ( a , b )
+if not ok then return false , why end
+if b . indexReadValue then
+if not a . indexReadValue
+or not optionalIsA ( b . indexReadKey , a . indexReadKey )
+or not optionalIsA ( a . indexReadValue , b . indexReadValue ) then
+return false , ( "%s is not a %s (read indexer does not match)" )
+: format ( T . tostring ( a ) , T . tostring ( b ) )
 end
-if lookup then
-for name , want in pairs ( b . byname ) do
-local have = lookup [ name ]
-if not have then
-return false , ( "%s is not a %s (no member %q)" )
-: format ( T . tostring ( a ) , T . tostring ( b ) , name )
 end
-local ok = true
-if have . tag == "func" and want . tag == "func"
-and # have . params >= 1 and # want . params >= 1 then
-local hp , wp = { } , { }
-for j = 2 , # have . params do hp [ # hp + 1 ] = have . params [ j ] end
-for j = 2 , # want . params do wp [ # wp + 1 ] = want . params [ j ] end
-local hm , wm = { } , { }
-for j = 2 , # have . params do
-hm [ # hm + 1 ] = have . paramModes
-and have . paramModes [ j ] or "plain"
-end
-for j = 2 , # want . params do
-wm [ # wm + 1 ] = want . paramModes
-and want . paramModes [ j ] or "plain"
-end
-ok = isA ( T . func ( hp , have . rets , have . vararg , hm , nil , nil ,
-nil , nil , nil , nil , nil , have . varargType ) ,
-T . func ( wp , want . rets , want . vararg , wm , nil , nil ,
-nil , nil , nil , nil , nil , want . varargType ) )
-else
-ok = isA ( have , want )
-end
-if not ok then
-return false , ( "%s is not a %s (member %q does not match)" )
-: format ( T . tostring ( a ) , T . tostring ( b ) , name )
+if b . indexWriteValue then
+if not a . indexWriteValue
+or not optionalIsA ( b . indexWriteKey , a . indexWriteKey )
+or not optionalIsA ( b . indexWriteValue , a . indexWriteValue ) then
+return false , ( "%s is not a %s (write indexer does not match)" )
+: format ( T . tostring ( a ) , T . tostring ( b ) )
 end
 end
 for name , want in pairs ( b . metamethods or { } ) do
@@ -32142,31 +32729,53 @@ end
 
 
 if b . tag == "map" and a . tag == "shape" then
+if b . readable then
 if not isA ( T . string , b . key ) then return fail ( a , b ) end
+if a . indexReadValue then
+if not optionalIsA ( b . key , a . indexReadKey )
+or not optionalIsA ( a . indexReadValue , b . value ) then
+return fail ( a , b )
+end
+else
 for _ , f in ipairs ( a . fields ) do
-if not isA ( f . type , b . value ) then
+if f . read and not isA ( f . read , b . value ) then
 return false , ( "%s is not a %s (field %q: %s is not a %s)" )
 : format ( T . tostring ( a ) , T . tostring ( b ) , f . name ,
-T . tostring ( f . type ) , T . tostring ( b . value ) )
+T . tostring ( f . read ) , T . tostring ( b . value ) )
 end
+end
+end
+end
+if b . writeValue and a . indexWriteValue
+and ( not optionalIsA ( b . writeKey , a . indexWriteKey )
+or not optionalIsA ( b . writeValue , a . indexWriteValue ) ) then
+return fail ( a , b )
+elseif b . writeValue and not a . indexWriteValue
+and not optionalIsA ( T . string , b . writeKey ) then
+return fail ( a , b )
 end
 return true
 end
 
 if atag == "map" and btag == "map" then
-
-if isA ( a . key , b . key ) and isA ( b . key , a . key )
-and isA ( a . value , b . value ) then
-return true
-end
+if b . readable and ( not a . readable
+or not isA ( b . key , a . key )
+or not isA ( a . value , b . value ) ) then
 return fail ( a , b )
+end
+if b . writeValue and ( not a . writeValue
+or not optionalIsA ( b . writeKey , a . writeKey )
+or not optionalIsA ( b . writeValue , a . writeValue ) ) then
+return fail ( a , b )
+end
+return true
 end
 
 
 
 local arrayPart = a . tag == "nominal" and a . arrayOf or nil
 if b . tag == "array" and arrayPart then
-if isA ( arrayPart , b . elem ) then return true end
+if isA ( arrayPart , b . elem ) and isA ( b . elem , arrayPart ) then return true end
 return fail ( a , b )
 end
 
@@ -32174,34 +32783,18 @@ end
 
 
 if btag == "shape" then
-local lookup
-if atag == "shape" then
-lookup = a . byname
-elseif atag == "nominal" and a . byname then
-lookup = a . byname
+if ( atag == "shape" or atag == "nominal" ) and a . byname then
+local ok , why = propertiesFit ( a , b )
+if not ok then return false , why end
+if b . indexReadValue and ( not a . indexReadValue
+or not optionalIsA ( b . indexReadKey , a . indexReadKey )
+or not optionalIsA ( a . indexReadValue , b . indexReadValue ) ) then
+return fail ( a , b )
 end
-if lookup then
-for _ , f in ipairs ( b . fields ) do
-local at = lookup [ f . name ]
-if not at then
-
-
-
-if admitsNil ( f . type ) then
-at = nil
-else
-return false , ( "%s is not a %s (missing field %q)" )
-: format ( T . tostring ( a ) , T . tostring ( b ) , f . name )
-end
-end
-if at == nil then goto nextField end
-local ok = isA ( at , f . type )
-if not ok then
-return false , ( "%s is not a %s (field %q: %s is not a %s)" )
-: format ( T . tostring ( a ) , T . tostring ( b ) , f . name ,
-T . tostring ( at ) , T . tostring ( f . type ) )
-end
-:: nextField ::
+if b . indexWriteValue and ( not a . indexWriteValue
+or not optionalIsA ( b . indexWriteKey , a . indexWriteKey )
+or not optionalIsA ( b . indexWriteValue , a . indexWriteValue ) ) then
+return fail ( a , b )
 end
 return true
 end
@@ -33421,6 +34014,14 @@ types.Map = {} types.Map.__index = types.Map
 
 
 
+
+
+
+
+
+
+
+
 types.Tuple = {} types.Tuple.__index = types.Tuple
 
 
@@ -33429,6 +34030,17 @@ types.Tuple = {} types.Tuple.__index = types.Tuple
 
 
 types.Shape = {} types.Shape.__index = types.Shape
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -33657,6 +34269,22 @@ types.Nominal = {} types.Nominal.__index = types.Nominal
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 local arena = { }
 
 
@@ -33746,8 +34374,23 @@ end
 
 
 function types . map ( key , value )
-return intern ( "{[" .. key . id .. "]:" .. value . id .. "}" ,
-function ( ) return setmetatable( { tag = "map" , key = key , value = value } , types.Map) end )
+return types . indexer ( key , value , key , value )
+end
+
+
+function types . indexer ( readKey , readValue ,
+writeKey , writeValue )
+local key = readKey or writeKey or types . never
+local value = readValue or writeValue or types . never
+local id = "index(" .. ( readKey and readKey . id or "-" ) .. ":"
+.. ( readValue and readValue . id or "-" ) .. ","
+.. ( writeKey and writeKey . id or "-" ) .. ":"
+.. ( writeValue and writeValue . id or "-" ) .. ")"
+return intern ( id , function ( )
+return setmetatable( { tag = "map" , key = key , value = value ,
+readable = readValue ~= nil , writeKey = writeKey ,
+writeValue = writeValue } , types.Map)
+end )
 end
 
 
@@ -33763,18 +34406,44 @@ end
 
 
 
-function types . shape ( fields )
+function types . shape ( fields , indexer ,
+fresh )
 local sorted = { }
 for j , f in ipairs ( fields ) do sorted [ j ] = f end
 table . sort ( sorted , function ( a , b ) return a . name < b . name end )
 local parts = { }
 local byname = { }
+local writeByname = { }
 for _ , f in ipairs ( sorted ) do
-parts [ # parts + 1 ] = f . name .. ":" .. f . type . id
-byname [ f . name ] = f . type
+local read = f . read
+local write = f . write
+if f . type then
+if f . capability == "read" then read = f . type
+elseif f . capability == "write" then write = f . type
+else read , write = f . type , f . type end
 end
-return intern ( "shape(" .. table . concat ( parts , "," ) .. ")" , function ( )
-return setmetatable( { tag = "shape" , fields = sorted , byname = byname } , types.Shape)
+f . read , f . write = read , write
+parts [ # parts + 1 ] = f . name .. ":r="
+.. ( read and read . id or "-" ) .. ":w="
+.. ( write and write . id or "-" )
+if read then byname [ f . name ] = read end
+if write then writeByname [ f . name ] = write end
+end
+local irk = indexer and indexer . readKey or nil
+local irv = indexer and indexer . readValue or nil
+local iwk = indexer and indexer . writeKey or nil
+local iwv = indexer and indexer . writeValue or nil
+parts [ # parts + 1 ] = "[r=" .. ( irk and irk . id or "-" ) .. ":"
+.. ( irv and irv . id or "-" ) .. ":w="
+.. ( iwk and iwk . id or "-" ) .. ":"
+.. ( iwv and iwv . id or "-" ) .. "]"
+local key = "shape(" .. table . concat ( parts , "," ) .. ")"
+.. ( fresh and "!fresh" or "" )
+return intern ( key , function ( )
+return setmetatable( { tag = "shape" , fields = sorted , byname = byname ,
+writeByname = writeByname , indexReadKey = irk ,
+indexReadValue = irv , indexWriteKey = iwk ,
+indexWriteValue = iwv , fresh = fresh or nil } , types.Shape)
 end )
 end
 
@@ -33999,6 +34668,7 @@ tag = "nominal" ,
 declKind = declKind ,
 name = name ,
 byname = { } ,
+writeByname = { } ,
 metamethods = { } ,
 nestedTypes = { } ,
 defaultDisposers = { } ,
@@ -34026,7 +34696,20 @@ return t . name
 elseif tag == "array" then
 return "{" .. types . tostring ( t . elem ) .. "}"
 elseif tag == "map" then
-return "{[" .. types . tostring ( t . key ) .. "]: " .. types . tostring ( t . value ) .. "}"
+if t . readable and t . writeKey == t . key and t . writeValue == t . value then
+return "{[" .. types . tostring ( t . key ) .. "]: "
+.. types . tostring ( t . value ) .. "}"
+end
+local parts = { }
+if t . readable then
+parts [ # parts + 1 ] = "read [" .. types . tostring ( t . key ) .. "]: "
+.. types . tostring ( t . value )
+end
+if t . writeKey and t . writeValue then
+parts [ # parts + 1 ] = "write [" .. types . tostring ( t . writeKey )
+.. "]: " .. types . tostring ( t . writeValue )
+end
+return "{" .. table . concat ( parts , ", " ) .. "}"
 elseif tag == "tuple" then
 local parts = { }
 for j , e in ipairs ( t . elems ) do parts [ j ] = types . tostring ( e ) end
@@ -34034,7 +34717,26 @@ return "{" .. table . concat ( parts , ", " ) .. "}"
 elseif tag == "shape" then
 local parts = { }
 for j , f in ipairs ( t . fields ) do
-parts [ j ] = f . name .. ": " .. types . tostring ( f . type )
+if f . read and f . write and f . read == f . write then
+parts [ # parts + 1 ] = f . name .. ": " .. types . tostring ( f . read )
+else
+if f . read then
+parts [ # parts + 1 ] = "read " .. f . name .. ": "
+.. types . tostring ( f . read )
+end
+if f . write then
+parts [ # parts + 1 ] = "write " .. f . name .. ": "
+.. types . tostring ( f . write )
+end
+end
+end
+if t . indexReadKey and t . indexReadValue then
+parts [ # parts + 1 ] = "read [" .. types . tostring ( t . indexReadKey )
+.. "]: " .. types . tostring ( t . indexReadValue )
+end
+if t . indexWriteKey and t . indexWriteValue then
+parts [ # parts + 1 ] = "write [" .. types . tostring ( t . indexWriteKey )
+.. "]: " .. types . tostring ( t . indexWriteValue )
 end
 return "{" .. table . concat ( parts , ", " ) .. "}"
 elseif tag == "union" then

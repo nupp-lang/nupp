@@ -9,6 +9,9 @@ local interface Named
 end
 ```
 
+Members and indexers may grant `read` and `write` independently. This controls
+both access and variance; see [property capabilities](properties.md).
+
 ## Satisfaction is structural
 
 A type satisfies an interface by carrying its members. No declaration is

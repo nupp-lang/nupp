@@ -54,6 +54,14 @@ record types.Map
     tag: 'map'
     key: types.Type
     value: types.Type
+
+    --- Whether indexing may read `value`; a write-only indexer keeps its accepted
+    --- pair in `key`/`value` for identity and rendering.
+    readable: boolean
+
+    --- The key and value accepted by writes. Absent together for a read-only indexer.
+    writeKey: types.Type?
+    writeValue: types.Type?
 end
 
 --- A fixed sequence, one type per position.
@@ -69,9 +77,20 @@ record types.Shape
     tag: 'shape'
 
     --- In canonical (name) order, so one shape has one identity.
-    fields: {{name: string, type: types.Type}}
+    fields: {types.Field}
 
     byname: {[string]: types.Type}
+
+    writeByname: {[string]: types.Type}
+
+    indexReadKey: types.Type?
+    indexReadValue: types.Type?
+    indexWriteKey: types.Type?
+    indexWriteValue: types.Type?
+
+    --- A table literal being contextually checked. Once bound without an annotation it
+    --- widens to `table`, so this marker cannot grant writes through a stored view.
+    fresh: boolean?
 end
 
 --- Any one of several types.
@@ -225,6 +244,15 @@ record types.Nominal
     --- Name to type, populated while the declaration is checked.
     byname: {[string]: types.Type}
 
+    --- Member types accepted by assignment. A missing entry is read-only; a member
+    --- present only here is write-only.
+    writeByname: {[string]: types.Type}
+
+    indexReadKey: types.Type?
+    indexReadValue: types.Type?
+    indexWriteKey: types.Type?
+    indexWriteValue: types.Type?
+
     --- Metamethod protocol contracts, deliberately separate from value members.
     metamethods: {[string]: types.Type}
 
@@ -256,6 +284,8 @@ record types.Nominal
     --- Declaration sites of the fields, for go-to-definition.
     fieldDefs: any
 
+    writeFieldDefs: any
+
     --- The fields in declaration order, which is the order a struct's positional
     --- construction fills them.
     fieldOrder: {string}?
@@ -285,8 +315,13 @@ type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Sha
     | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar
     | types.Metatable | types.Nominal
 
---- One field of a structural shape: a name and the type it holds.
-type types.Field = {name: string, type: types.Type}
+--- One field of a structural shape. `type` is accepted as the legacy spelling passed
+--- by compiler internals and means an ordinary read-write property.
+type types.Field = {name: string, type: types.Type?, read: types.Type?,
+    write: types.Type?, capability: string?}
+
+type types.Indexer = {readKey: types.Type?, readValue: types.Type?,
+    writeKey: types.Type?, writeValue: types.Type?}
 
 --- What a predicate function asserts: that its parameter at 1-based index `param` holds
 --- `type`. Carried on a function type and part of its interning key.
@@ -382,8 +417,23 @@ end
 --- A table from `key` to `value`. Reading one yields an optional, since an absent key
 --- is the normal case for a map.
 function types.map(key: types.Type, value: types.Type): types.Type
-    return intern("{[" .. key.id .. "]:" .. value.id .. "}",
-        function() return types.Map{tag = "map", key = key, value = value} end)
+    return types.indexer(key, value, key, value)
+end
+
+--- An indexer with independently granted read and write capabilities.
+function types.indexer(readKey: types.Type?, readValue: types.Type?,
+    writeKey: types.Type?, writeValue: types.Type?): types.Type
+    local key = readKey or writeKey or types.never
+    local value = readValue or writeValue or types.never
+    local id = "index(" .. (readKey and readKey.id or "-") .. ":"
+        .. (readValue and readValue.id or "-") .. ","
+        .. (writeKey and writeKey.id or "-") .. ":"
+        .. (writeValue and writeValue.id or "-") .. ")"
+    return intern(id, function()
+        return types.Map{tag = "map", key = key, value = value,
+            readable = readValue ~= nil, writeKey = writeKey,
+            writeValue = writeValue}
+    end)
 end
 
 --- A fixed sequence of types, one per position.
@@ -399,18 +449,44 @@ end
 --- Fields are sorted by name, so the same shape written two ways interns to one type.
 ---
 --- @param fields the fields, in any order
-function types.shape(fields: {types.Field}): types.Type
+function types.shape(fields: {types.Field}, indexer: types.Indexer?,
+    fresh: boolean?): types.Type
     local sorted: {types.Field} = {}
     for j, f in ipairs(fields) do sorted[j] = f end
     table.sort(sorted, function(a, b) return a.name < b.name end)
     local parts: {string} = {}
     local byname: {[string]: types.Type} = {}
+    local writeByname: {[string]: types.Type} = {}
     for _, f in ipairs(sorted) do
-        parts[#parts + 1] = f.name .. ":" .. f.type.id
-        byname[f.name] = f.type
+        local read = f.read
+        local write = f.write
+        if f.type then
+            if f.capability == "read" then read = f.type
+            elseif f.capability == "write" then write = f.type
+            else read, write = f.type, f.type end
+        end
+        f.read, f.write = read, write
+        parts[#parts + 1] = f.name .. ":r="
+            .. (read and read.id or "-") .. ":w="
+            .. (write and write.id or "-")
+        if read then byname[f.name] = read end
+        if write then writeByname[f.name] = write end
     end
-    return intern("shape(" .. table.concat(parts, ",") .. ")", function()
-        return types.Shape{tag = "shape", fields = sorted, byname = byname}
+    local irk = indexer and indexer.readKey or nil
+    local irv = indexer and indexer.readValue or nil
+    local iwk = indexer and indexer.writeKey or nil
+    local iwv = indexer and indexer.writeValue or nil
+    parts[#parts + 1] = "[r=" .. (irk and irk.id or "-") .. ":"
+        .. (irv and irv.id or "-") .. ":w="
+        .. (iwk and iwk.id or "-") .. ":"
+        .. (iwv and iwv.id or "-") .. "]"
+    local key = "shape(" .. table.concat(parts, ",") .. ")"
+        .. (fresh and "!fresh" or "")
+    return intern(key, function()
+        return types.Shape{tag = "shape", fields = sorted, byname = byname,
+            writeByname = writeByname, indexReadKey = irk,
+            indexReadValue = irv, indexWriteKey = iwk,
+            indexWriteValue = iwv, fresh = fresh or nil}
     end)
 end
 
@@ -635,6 +711,7 @@ function types.nominal(name: string, declKind: string): types.Nominal
         declKind = declKind,
         name = name,
         byname = {}, -- populated while the declaration is checked
+        writeByname = {},
         metamethods = {},
         nestedTypes = {},
         defaultDisposers = {},
@@ -662,7 +739,20 @@ function types.tostring(t: types.Type): string
     elseif tag == "array" then
         return "{" .. types.tostring(t.elem) .. "}"
     elseif tag == "map" then
-        return "{[" .. types.tostring(t.key) .. "]: " .. types.tostring(t.value) .. "}"
+        if t.readable and t.writeKey == t.key and t.writeValue == t.value then
+            return "{[" .. types.tostring(t.key) .. "]: "
+                .. types.tostring(t.value) .. "}"
+        end
+        local parts = {}
+        if t.readable then
+            parts[#parts + 1] = "read [" .. types.tostring(t.key) .. "]: "
+                .. types.tostring(t.value)
+        end
+        if t.writeKey and t.writeValue then
+            parts[#parts + 1] = "write [" .. types.tostring(t.writeKey)
+                .. "]: " .. types.tostring(t.writeValue)
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
     elseif tag == "tuple" then
         local parts = {}
         for j, e in ipairs(t.elems) do parts[j] = types.tostring(e) end
@@ -670,7 +760,26 @@ function types.tostring(t: types.Type): string
     elseif tag == "shape" then
         local parts = {}
         for j, f in ipairs(t.fields) do
-            parts[j] = f.name .. ": " .. types.tostring(f.type)
+            if f.read and f.write and f.read == f.write then
+                parts[#parts + 1] = f.name .. ": " .. types.tostring(f.read)
+            else
+                if f.read then
+                    parts[#parts + 1] = "read " .. f.name .. ": "
+                        .. types.tostring(f.read)
+                end
+                if f.write then
+                    parts[#parts + 1] = "write " .. f.name .. ": "
+                        .. types.tostring(f.write)
+                end
+            end
+        end
+        if t.indexReadKey and t.indexReadValue then
+            parts[#parts + 1] = "read [" .. types.tostring(t.indexReadKey)
+                .. "]: " .. types.tostring(t.indexReadValue)
+        end
+        if t.indexWriteKey and t.indexWriteValue then
+            parts[#parts + 1] = "write [" .. types.tostring(t.indexWriteKey)
+                .. "]: " .. types.tostring(t.indexWriteValue)
         end
         return "{" .. table.concat(parts, ", ") .. "}"
     elseif tag == "union" then

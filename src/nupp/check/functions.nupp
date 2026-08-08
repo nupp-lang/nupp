@@ -499,8 +499,10 @@ function functions.install(c: any): any
                     modes, ft.predicate, ft.typeParams, ft.typeBounds,
                     ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams,
                     ft.ffiOut, ft.varargType, ft.noreturn)
+                owner.writeByname[member] = owner.byname[member]
             else
                 owner.byname[member] = ft
+                owner.writeByname[member] = ft
             end
             if body.disposeMethod then
                 owner.defaultDisposers[#owner.defaultDisposers + 1] =

@@ -57,8 +57,15 @@ local function typeFingerprint(t, active)
     elseif tag == "shape" then
         local fields = {}
         for _, field in ipairs(t.fields or {}) do
-            fields[#fields + 1] = field.name .. ":" .. typeFingerprint(field.type, active)
+            fields[#fields + 1] = field.name .. ":r="
+                .. typeFingerprint(field.read, active) .. ":w="
+                .. typeFingerprint(field.write, active)
         end
+        fields[#fields + 1] = "index:r="
+            .. typeFingerprint(t.indexReadKey, active) .. ":"
+            .. typeFingerprint(t.indexReadValue, active) .. ":w="
+            .. typeFingerprint(t.indexWriteKey, active) .. ":"
+            .. typeFingerprint(t.indexWriteValue, active)
         value = "shape(" .. table.concat(fields, ",") .. ")"
     elseif tag == "func" then
         local params, returns = {}, {}
@@ -79,8 +86,11 @@ local function typeFingerprint(t, active)
             .. typeFingerprint(t.inner, active) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
         value = tag .. "(" .. typeFingerprint(t.inner, active) .. ")"
-    elseif tag == "map" then value = "map(" .. typeFingerprint(t.key, active)
-            .. "," .. typeFingerprint(t.value, active) .. ")"
+    elseif tag == "map" then value = "map(r="
+            .. (t.readable and typeFingerprint(t.key, active) or "nil")
+            .. ":" .. (t.readable and typeFingerprint(t.value, active) or "nil")
+            .. ",w=" .. typeFingerprint(t.writeKey, active) .. ":"
+            .. typeFingerprint(t.writeValue, active) .. ")"
     elseif tag == "tuple" then
         local items = {}
         for _, item in ipairs(t.elems or {}) do

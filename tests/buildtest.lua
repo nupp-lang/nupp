@@ -133,6 +133,34 @@ function M.declarationFilesEmitNoArtifact()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.declarationFilesPreservePropertyCapabilities()
+   local dir = tempProject({
+      ["nupp.lua"] = 'return {include = {"."}}\n',
+      ["cell.d.nupp"] = table.concat({
+         "local cell: {",
+         "    read value: string,",
+         "    write value: string | integer,",
+         "    read [string]: string,",
+         "    write [string]: string | integer",
+         "}",
+         "return cell",
+      }, "\n"),
+      ["main.nupp"] = table.concat({
+         "local cell = require('cell')",
+         "cell.value = 42",
+         "local value: string = cell.value",
+         "cell['answer'] = 42",
+         "local indexed: string? = cell['answer']",
+         "local input: {read value: string | integer} = cell",
+         "local output: {write value: string} = cell",
+         "return {value, indexed, input, output}",
+      }, "\n"),
+   })
+   local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
+   assertEq(out, "", "property capabilities survive declaration files: " .. out)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.importCWritesAModule()
    -- import-c output carries cdef statements, which generate bindings at
    -- runtime, so it is a module and must be built like one

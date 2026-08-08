@@ -377,7 +377,7 @@ function expr.install(c: any)
                 end
             end
             if #named > 0 and #positional == 0 then
-                return T.shape(named)
+                return T.shape(named, nil, true)
             elseif #positional > 0 and #named == 0 then
                 return T.array(T.union(positional))
             elseif #positional == 0 and #named == 0 then

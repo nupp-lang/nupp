@@ -36,7 +36,10 @@ function generics.subst(t: Type, map: Bindings): Type
     elseif tag == "array" then
         return T.array(generics.subst(t.elem, map))
     elseif tag == "map" then
-        return T.map(generics.subst(t.key, map), generics.subst(t.value, map))
+        return T.indexer(t.readable and generics.subst(t.key, map) or nil,
+            t.readable and generics.subst(t.value, map) or nil,
+            t.writeKey and generics.subst(t.writeKey, map) or nil,
+            t.writeValue and generics.subst(t.writeValue, map) or nil)
     elseif tag == "tuple" then
         local elems: {Type} = {}
         for j, e in ipairs(t.elems) do elems[j] = generics.subst(e, map) end
@@ -44,9 +47,20 @@ function generics.subst(t: Type, map: Bindings): Type
     elseif tag == "shape" then
         local fields = {}
         for j, f in ipairs(t.fields) do
-            fields[j] = {name = f.name, type = generics.subst(f.type, map)}
+            fields[j] = {name = f.name,
+                read = f.read and generics.subst(f.read, map) or nil,
+                write = f.write and generics.subst(f.write, map) or nil}
         end
-        return T.shape(fields)
+        return T.shape(fields, {
+            readKey = t.indexReadKey
+                and generics.subst(t.indexReadKey, map) or nil,
+            readValue = t.indexReadValue
+                and generics.subst(t.indexReadValue, map) or nil,
+            writeKey = t.indexWriteKey
+                and generics.subst(t.indexWriteKey, map) or nil,
+            writeValue = t.indexWriteValue
+                and generics.subst(t.indexWriteValue, map) or nil,
+        }, t.fresh)
     elseif tag == "union" then
         local members: {Type} = {}
         for j, m in ipairs(t.members) do members[j] = generics.subst(m, map) end
@@ -108,6 +122,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.fieldOrder = n.fieldOrder
     inst.arrayOf = n.arrayOf and generics.subst(n.arrayOf, map) or nil
     inst.fieldDefs = n.fieldDefs
+    inst.writeFieldDefs = n.writeFieldDefs
     inst.selfType = n.selfType
     inst.supertypes = {}
     for j, parent in ipairs(n.supertypes or {}) do
@@ -119,6 +134,17 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, ft in pairs(n.byname) do
         inst.byname[name] = generics.subst(ft, map)
     end
+    for name, ft in pairs(n.writeByname or {}) do
+        inst.writeByname[name] = generics.subst(ft, map)
+    end
+    inst.indexReadKey = n.indexReadKey
+        and generics.subst(n.indexReadKey, map) or nil
+    inst.indexReadValue = n.indexReadValue
+        and generics.subst(n.indexReadValue, map) or nil
+    inst.indexWriteKey = n.indexWriteKey
+        and generics.subst(n.indexWriteKey, map) or nil
+    inst.indexWriteValue = n.indexWriteValue
+        and generics.subst(n.indexWriteValue, map) or nil
     for name, ft in pairs(n.metamethods or {}) do
         inst.metamethods[name] = generics.subst(ft, map)
     end
@@ -154,8 +180,14 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
         end
     elseif tag == "map" then
         if arg.tag == "map" then
-            generics.unify(param.key, arg.key, map)
-            generics.unify(param.value, arg.value, map)
+            if param.readable and arg.readable then
+                generics.unify(param.key, arg.key, map)
+                generics.unify(param.value, arg.value, map)
+            end
+            if param.writeKey and arg.writeKey then
+                generics.unify(param.writeKey, arg.writeKey, map)
+                generics.unify(param.writeValue, arg.writeValue, map)
+            end
         end
     elseif tag == "union" then
         -- "T?"-style params: subtract the concrete members from the argument, the
@@ -179,12 +211,16 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
         end
         for _, r in ipairs(rest) do generics.unify(r, arg, map) end
     elseif tag == "shape" then
-        local lookup = arg.tag == "shape" and arg.byname
+        local reads = arg.tag == "shape" and arg.byname
             or (arg.tag == "nominal" and arg.byname)
-        if lookup then
+        local writes = arg.tag == "shape" and arg.writeByname
+            or (arg.tag == "nominal" and arg.writeByname)
+        if reads or writes then
             for _, f in ipairs(param.fields) do
-                local at = lookup[f.name]
-                if at then generics.unify(f.type, at, map) end
+                local read = reads and reads[f.name]
+                local write = writes and writes[f.name]
+                if f.read and read then generics.unify(f.read, read, map) end
+                if f.write and write then generics.unify(f.write, write, map) end
             end
         end
     elseif tag == "func" then

@@ -117,8 +117,13 @@ function semantic.syntaxKinds(result)
         elseif kind == "param" or kind == "tfuncParam" then
             if node.modeTok then mark(node.modeTok, "keyword") end
             mark(node.name, "parameter")
-        elseif kind == "fieldDecl" or kind == "fieldNamed" then
+        elseif kind == "fieldDecl" or kind == "tshapeField" then
+            if node.capability then mark(node.capability, "keyword") end
             mark(node.name, "property")
+        elseif kind == "fieldNamed" then
+            mark(node.name, "property")
+        elseif kind == "indexerDecl" or kind == "tmap" then
+            if node.capability then mark(node.capability, "keyword") end
         elseif kind == "generics" then
             for _, tok in ipairs(node.names or {}) do mark(tok, "typeParameter") end
         end

@@ -140,6 +140,42 @@ return m
 
 Reports: `NUPP2101`. `nupp explain <code>` says more.
 
+## Property capabilities
+
+`read` and `write` grant member access independently on shapes, interfaces,
+records, and indexers. A read property is covariant; a write property is
+contravariant. Declaring both separately permits different types, while an
+unmodified property grants both capabilities at one invariant type.
+
+These are views of members. `const T` makes a whole value read-only, and
+`borrows`/`exclusive` describe lifetime and aliasing instead.
+
+```nupp
+local m = {}
+
+local type Input = {read value: string | integer}
+local type Output = {write value: string}
+
+record m.Cell
+    read value: string
+    write value: string | integer
+    read [string]: string
+    write [string]: string | integer
+end
+
+function m.fill(out: Output): nil
+    out.value = "ready"
+end
+
+function m.show(input: Input): string
+    return tostring(input.value)
+end
+
+return m
+```
+
+Reports: `NUPP2001`, `NUPP2009`. `nupp explain <code>` says more.
+
 ## Records
 
 A record is a table with declared fields. It may carry inline methods, whose
@@ -590,6 +626,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP1002 | A required token is missing |
 | NUPP2001 | A value does not fit the type it is bound to |
 | NUPP2004 | The field does not exist on that type |
+| NUPP2009 | A property view does not grant the requested access |
 | NUPP2106 | An exported declaration needs a type annotation |
 | NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |

@@ -21,17 +21,6 @@ work makes sense in.
       contracts, then model the contents through a bounded generic receiver so
       a registrar such as `newEvent<E is Event>` checks its own metatable body
       instead of relying on checked concrete call sites.
-- [ ] **Read and write property capabilities.** Add member-level `read` and
-      `write` views to shapes, interfaces, records, and their indexers. A
-      read-only property is covariant and cannot be assigned through that view;
-      a write-only property is contravariant and cannot be read. Permit the
-      same property to declare distinct read and write types, with an ordinary
-      read-write property remaining invariant. Keep this separate from
-      `const T`, which makes a whole value read-only, and from
-      `borrows`/`exclusive`, which govern lifetime and aliasing rather than
-      member access. The first validation cases are declaration-file APIs,
-      immutable snapshots, output-style interfaces, and the tecs `ByteView`
-      surface.
 - [ ] **Intersection types, including overloads as function intersections.**
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,
       and member composition. An intersection of callable types is the overload

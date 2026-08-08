@@ -239,8 +239,11 @@ record checkMod.Checker
     --- The type of a member, reached through whatever the receiver is.
     fieldType: function(t: Type?, name: string): (Type?, any)
 
+    --- The type a member accepts when assigned, and its write declaration.
+    fieldWriteType: function(t: Type?, name: string): (Type?, any)
+
     --- Member names safely available on a type, for spelling fixes.
-    fieldNames: function(t: Type?): {[string]: boolean}
+    fieldNames: function(t: Type?, writing: boolean?): {[string]: boolean}
 
     --- Splits `function a.b:m` into the key naming its owner and the member token.
     funcOwner: function(fname: any): (string?, any)
@@ -1102,6 +1105,7 @@ function checkMod.check(result, filename, env, opts)
                 local n, entry = c.declaredNominal(decl, decl.declKind)
                 decl.hoistedType, decl.hoistedEntry = n, entry
                 n.byname = n.byname or {}
+                n.writeByname = n.writeByname or {}
                 local key = c.declKey(decl)
                 if c.qualifierOf(decl) then n.runtimePath = key end
                 c.bindType(key, n, nil)
@@ -1126,8 +1130,10 @@ function checkMod.check(result, filename, env, opts)
                 local member = memberTok and memberTok.text
                 if owner and owner.tag == "nominal" and owner.byname
                     and member and not owner.byname[member] then
-                    owner.byname[member] = c.signatureOf(decl.body,
+                    local signature = c.signatureOf(decl.body,
                         fname.method and owner or nil)
+                    owner.byname[member] = signature
+                    owner.writeByname[member] = signature
                 end
             end
         end

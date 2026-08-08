@@ -40,6 +40,7 @@ function cdef.install(c: any, reifiableField: any): any
         if structName.definition then structName.definition.cdef = true end
         n.fieldOrder = {}
         n.fieldDefs = {}
+        n.writeFieldDefs = {}
         for _, e in ipairs(stat.entries) do
             local fieldName, declaredType = nil, nil
             if e.kind == "fieldDecl" then
@@ -49,8 +50,10 @@ function cdef.install(c: any, reifiableField: any): any
                 local ft = c.resolveType(declaredType)
                 local text = fieldName.text
                 n.byname[text] = ft
+                n.writeByname[text] = ft
                 local fieldDef = c.definition(fieldName, "property")
                 n.fieldDefs[text] = fieldDef
+                n.writeFieldDefs[text] = fieldDef
                 fieldDef.type = ft
                 fieldDef.cdef = true
                 c.markToken(fieldName, fieldDef, ft, "property")

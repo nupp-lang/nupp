@@ -262,7 +262,9 @@ function bindings.install(c: any): any
                         "borrowed value cannot escape through assignment")
                 end
             else
+                target.writeContext = true
                 local tt = c.infer(target)
+                target.writeContext = nil
                 local contractWrite = false
                 if target.usesIndexContract and et then
                     local receiver = target.indexObjectType
@@ -311,6 +313,11 @@ function bindings.install(c: any): any
         for j, target in ipairs(stat.targets) do
             local key = pathKey(target)
             local et = inferred[j]
+            if target.postWriteType == false then
+                et = nil
+            elseif target.postWriteType then
+                et = target.postWriteType
+            end
             if key and et and et ~= T.any then
                 applyFacts({[key] = et})
             end
@@ -321,6 +328,9 @@ function bindings.install(c: any): any
         local assignTarget, value, opTok = stat.target, stat.value, stat.op
         if not assignTarget or not value or not opTok then return end
         local targetT = c.infer(assignTarget)
+        assignTarget.writeContext = true
+        c.infer(assignTarget) -- compound assignment needs both capabilities
+        assignTarget.writeContext = nil
         local valueT = c.infer(value)
         local targetTok = assignTarget.kind == "name"
             and assignTarget.token or nil

@@ -181,8 +181,10 @@ adoptStruct = function(tag)
     nominal.fieldOrder = {}
     adopted[tag] = nominal -- before decoding, so a self-reference terminates
     for _, field in ipairs(declaration.fields) do
-        nominal.byname[field.name] =
+        local fieldType =
             nuppType(field.type, nil, adoptingResolver(nil)) or T.any
+        nominal.byname[field.name] = fieldType
+        nominal.writeByname[field.name] = fieldType
         nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
     end
     return nominal
@@ -252,8 +254,9 @@ function cheader.load(path, opts)
     for _, declaration in ipairs(parsed.structs) do
         local nominal = structs[declaration.id]
         for _, field in ipairs(declaration.fields) do
-            nominal.byname[field.name] =
-                nuppType(field.type, structs) or T.any
+            local fieldType = nuppType(field.type, structs) or T.any
+            nominal.byname[field.name] = fieldType
+            nominal.writeByname[field.name] = fieldType
             nominal.fieldOrder[#nominal.fieldOrder + 1] = field.name
         end
     end

@@ -131,6 +131,19 @@ local ENTRIES: {any} = {
         docs = "docs/modules.md#diagnostics",
     },
     {
+        code = "NUPP2009",
+        summary = "A property view does not grant the requested access",
+        rule = "A read-only property may be read but not assigned, and a "
+            .. "write-only property may be assigned but not read. Use a view "
+            .. "that declares the needed capability.",
+        wrong = "local out: {write value: string} = {}\n"
+            .. "local value = out.value\nreturn value\n",
+        right = "local out: {write value: string} = {}\n"
+            .. "out.value = \"ready\"\nreturn out\n",
+        related = {"NUPP2004", "NUPP2008"},
+        docs = "docs/type-system/properties.md#access-diagnostics",
+    },
+    {
         code = "NUPP2106",
         summary = "An exported declaration needs a type annotation",
         strict = true,

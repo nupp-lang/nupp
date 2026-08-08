@@ -14,6 +14,7 @@ layout. Choosing between them is choosing a representation.
  Uninitialized          Not nil-able; needs a value Zero-initialized
  Garbage collected      Yes                         Managed by the FFI
  Array part {T}         Allowed                     Rejected
+ Property capabilities  `read` / `write`            Ordinary fields only
  Nested declarations    Allowed                     Rejected
  Inline methods         Yes                         Yes, via ffi.metatype
  metamethod contracts   Yes                         Rejected
@@ -48,6 +49,9 @@ The declaration's runtime table is the type's identity, which is what lets
 
 Construction is by name. A record has no positional form, because field order
 in a table is not meaningful.
+
+Record fields may expose independent read and write views, including distinct
+types for the two operations. See [property capabilities](properties.md).
 
 ### Inline methods
 

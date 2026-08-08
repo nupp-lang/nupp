@@ -113,6 +113,7 @@ are is more useful than pretending they do not exist.
   collections, and aliases.
 - [Records and structs](records.md) — nominal tables and FFI cdata.
 - [Interfaces](interfaces.md) — structural satisfaction, `is`, and metamethods.
+- [Property capabilities](properties.md) — independent read and write views.
 - [Unions](unions.md) — literal sets, tagged unions, and exhaustiveness.
 - [Generics](generics.md) — type parameters, inference, and bounds.
 - [Narrowing](narrowing.md) — what proves what, and what does not.

@@ -46,7 +46,7 @@ function index.install(c: any): any
         if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
             return c.cNamespaceType()
         end
-        if kind == "dotIndex" then
+        if kind == "dotIndex" and not node.writeContext then
             local key = c.pathKey(node)
             local narrowed = key and c.lookupNarrowed(key)
             if narrowed then
@@ -109,21 +109,42 @@ function index.install(c: any): any
             end
             base = T.union(nonnil)
         end
-        local ft, fieldDef = c.fieldType(base, memberName)
+        local writing = node.writeContext == true
+        local ft, fieldDef
+        if writing then
+            ft, fieldDef = c.fieldWriteType(base, memberName)
+            local after = c.fieldType(base, memberName)
+            if not after then node.postWriteType = false
+            elseif after ~= ft then node.postWriteType = after end
+        else
+            ft, fieldDef = c.fieldType(base, memberName)
+        end
         if not ft then
-            local mm = c.metamethodOf(base, "__index")
+            local opposite = writing and c.fieldType(base, memberName)
+                or c.fieldWriteType(base, memberName)
+            if opposite then
+                c.diag("NUPP2009", member,
+                    ("property %q is %s-only")
+                    :format(memberName, writing and "read" or "write"), nil,
+                    {help = writing and "assign through a view that grants write access"
+                    or "read through a view that grants read access"})
+                return T.any
+            end
+            local contractName = writing and "__newindex" or "__index"
+            local mm = c.metamethodOf(base, contractName)
             if mm then
                 local keyType = T.literal(memberName, T.string)
                 node.indexObjectType, node.indexKeyType = base, keyType
                 node.usesIndexContract = true
+                if writing then return T.any end
                 local out = c.applyContract(mm, {base, keyType},
-                    {target, node}, node, "__index")
+                    {target, node}, node, contractName)
                 return kind == "safeIndex" and T.optional(out) or out
             end
             local exported = exportedValue()
             if exported then return exported end
             local fixes = c.edits.nameSpellingFix(member,
-                c.fieldNames(base))
+                c.fieldNames(base, writing))
             c.diag("NUPP2004", member, ("no field %q in %s")
                 :format(memberName, T.tostring(base)), fixes,
                 {help = fixes and "use the suggested field spelling"
@@ -141,6 +162,7 @@ function index.install(c: any): any
         if not target or not key then return T.any end
         local trackedObject = c.infer(target)
         local ot = rawType(trackedObject)
+        local writing = node.writeContext == true
         if ot.tag == "ptr" and not c.ownershipKind(trackedObject)
             and c.unsafeDepth == 0 then
             c.diag("NUPP2604", node,
@@ -166,17 +188,43 @@ function index.install(c: any): any
                 elseif mt.tag == "array" or mt.tag == "carray" then
                     outs[#outs + 1] = mt.elem
                 elseif mt.tag == "map" then
-                    outs[#outs + 1] = T.optional(mt.value)
+                    if writing and mt.writeValue then
+                        outs[#outs + 1] = mt.writeValue
+                    elseif not writing and mt.readable then
+                        outs[#outs + 1] = T.optional(mt.value)
+                    else
+                        outs = nil
+                        break
+                    end
                 elseif mt.tag == "tuple" then
                     outs[#outs + 1] = T.union(mt.elems)
                 elseif mt.tag == "nominal" and mt.arrayOf then
                     outs[#outs + 1] = mt.arrayOf
+                elseif (mt.tag == "shape" or mt.tag == "nominal")
+                    and writing and mt.indexWriteValue then
+                    outs[#outs + 1] = mt.indexWriteValue
+                elseif (mt.tag == "shape" or mt.tag == "nominal")
+                    and not writing and mt.indexReadValue then
+                    outs[#outs + 1] = T.optional(mt.indexReadValue)
                 else
                     outs = nil
                     break
                 end
             end
-            if outs then return T.union(outs) end
+            if outs and writing then
+                node.postWriteType = false -- re-read the union instead of narrowing
+                local accepted = nil
+                for _, candidate in ipairs(outs) do
+                    if not accepted or isA(candidate, accepted) then
+                        accepted = candidate
+                    elseif not isA(accepted, candidate) then
+                        accepted = T.never
+                    end
+                end
+                return accepted or T.never
+            elseif outs then
+                return T.union(outs)
+            end
         end
         if ot.tag == "carray" then
             -- numeric, not strictly integer: `integer` here is advisory, and
@@ -205,20 +253,64 @@ function index.install(c: any): any
             -- optional, where absent keys are expected
             return ot.elem
         elseif ot.tag == "map" then
-            local ok, why = isA(it, ot.key)
+            if writing and not ot.writeValue then
+                c.diag("NUPP2009", node, "indexer is read-only", nil,
+                    {help = "assign through a view that grants write access"})
+                return T.any
+            elseif not writing and not ot.readable then
+                c.diag("NUPP2009", node, "indexer is write-only", nil,
+                    {help = "read through a view that grants read access"})
+                return T.any
+            end
+            local keyType = writing and ot.writeKey or ot.key
+            local valueType = writing and ot.writeValue or ot.value
+            local ok, why = isA(it, keyType)
             if not ok then
                 c.diag("NUPP2004", key, ("map key: %s"):format(why))
             end
-            return T.optional(ot.value)
+            if writing then
+                if not ot.readable then node.postWriteType = false
+                elseif ot.value ~= valueType then
+                    node.postWriteType = T.optional(ot.value)
+                end
+                return valueType
+            end
+            return T.optional(valueType)
         elseif ot.tag == "tuple" then
             return T.union(ot.elems)
         end
-        local mm = c.metamethodOf(ot, "__index")
+        if ot.tag == "shape" or ot.tag == "nominal" then
+            local keyType = writing and ot.indexWriteKey or ot.indexReadKey
+            local valueType = writing and ot.indexWriteValue or ot.indexReadValue
+            if keyType and valueType then
+                local ok, why = isA(it, keyType)
+                if not ok then
+                    c.diag("NUPP2004", key, ("indexer key: %s"):format(why))
+                end
+                if writing then
+                    if not ot.indexReadValue then node.postWriteType = false
+                    elseif ot.indexReadValue ~= valueType then
+                        node.postWriteType = T.optional(ot.indexReadValue)
+                    end
+                    return valueType
+                end
+                return T.optional(valueType)
+            end
+            local opposite = writing and ot.indexReadValue or ot.indexWriteValue
+            if opposite then
+                c.diag("NUPP2009", node,
+                    writing and "indexer is read-only" or "indexer is write-only")
+                return T.any
+            end
+        end
+        local contractName = writing and "__newindex" or "__index"
+        local mm = c.metamethodOf(ot, contractName)
         if mm then
             node.indexObjectType, node.indexKeyType = ot, it
             node.usesIndexContract = true
+            if writing then return T.any end
             local out = c.applyContract(mm, {ot, it}, {target, key},
-                node, "__index")
+                node, contractName)
             return kind == "safeBracket" and T.optional(out) or out
         end
         c.diag("NUPP2004", node, ("cannot index %s"):format(T.tostring(ot)))

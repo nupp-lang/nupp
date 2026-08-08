@@ -157,7 +157,7 @@ end
 
 local BOX = table.concat({
    "local record Box<T>",
-   "    value: T",
+   "    read value: T",
    "end",
 }, "\n")
 
@@ -192,8 +192,8 @@ function M.constructionInfersTheArgument()
       "NUPP2001:4")
 end
 
-function M.typeArgumentsVaryCovariantly()
-   -- an integer box is a number box, as integer is a number
+function M.readTypeArgumentsVaryCovariantly()
+   -- A read-only integer property is usable as a number property.
    assertClean(BOX .. "\nlocal b: Box<number> = Box{value = 1}")
 end
 

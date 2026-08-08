@@ -38,6 +38,15 @@ function M.spacingBasics()
    assertEq(fmt1("f{1,2}"), "f{1, 2}\n")
 end
 
+function M.propertyCapabilities()
+   assertEq(fmt1("local x:{read value:string,write value:string|integer}"),
+      "local x: {read value: string, write value: string | integer}\n")
+   assertEq(fmt1("local x:{read [string]:string,write [string]:integer}"),
+      "local x: {read [string]: string, write [string]: integer}\n")
+   assertEq(fmt1("local interface Cell\nread value:string\nwrite value:integer\nend"),
+      "local interface Cell\n    read value: string\n    write value: integer\nend\n")
+end
+
 function M.methodCallParensDefaultOn()
    assertEq(fmt1("obj:m{a = 1}"), "obj:m({a = 1})\n")
    assertEq(fmt1('obj:m"lit"'), 'obj:m("lit")\n')

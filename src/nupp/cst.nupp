@@ -76,6 +76,12 @@ interface cst.Hints
     --- Whether the access went through a declared contract.
     usesIndexContract: boolean?
 
+    --- Set while an assignment asks an index expression for its accepted write type.
+    writeContext: boolean?
+
+    --- Read type after a write through a distinct setter, or false for write-only.
+    postWriteType: any
+
     --- Which ffi operation a call is.
     ffiIntrinsic: string?
 
@@ -723,10 +729,28 @@ record cst.FieldDecl is cst.Hints
     --- The field's name.
     name: lexer.Token?
 
+    --- `read` or `write` when this declaration grants only that capability.
+    capability: lexer.Token?
+
     --- Its type.
     type: cst.Node?
 
     --- Annotations attached to it.
+    annotations: {cst.Node}?
+end
+
+--- `[K]: V`, optionally prefixed by `read` or `write`, inside a declaration.
+record cst.IndexerDecl is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'indexerDecl'
+
+    capability: lexer.Token?
+
+    key: cst.Node?
+
+    value: cst.Node?
+
     annotations: {cst.Node}?
 end
 
@@ -1325,6 +1349,9 @@ record cst.Tmap is cst.Hints
 
     --- The value type.
     value: cst.Node?
+
+    --- `read` or `write` for a capability-only indexer.
+    capability: lexer.Token?
 end
 
 --- `{x: T, y: U}`, a table known by its fields.
@@ -1347,6 +1374,9 @@ record cst.TshapeField is cst.Hints
 
     --- The field's name.
     name: lexer.Token?
+
+    --- `read` or `write` when only that capability is exposed.
+    capability: lexer.Token?
 
     --- Its type.
     type: cst.Node?
@@ -1506,7 +1536,7 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt
     | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias
     | cst.RecordDecl | cst.WhereClause | cst.FieldDecl
-    | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
+    | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
     | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr
     | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
     | cst.Vararg | cst.Paren | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex

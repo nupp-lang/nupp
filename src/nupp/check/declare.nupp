@@ -165,6 +165,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
             -- keep what hoisting already published: the methods declared further down
             -- the block are on it
             n.byname = n.byname or {}
+            n.writeByname = n.writeByname or {}
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
             -- The grammar carries a `where` refinement and nothing checks it, so a
@@ -196,6 +197,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
             end
             n.fieldOrder = {}
             n.fieldDefs = {}
+            n.writeFieldDefs = {}
             stat.resolvedType = n
 
             -- Hoist nested declarations within the nominal namespace so sibling fields
@@ -213,6 +215,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     n.nestedTypes[e.name.text] = nested
                     if nestedKind == "record" or nestedKind == "struct" then
                         n.byname[e.name.text] = nested
+                        n.writeByname[e.name.text] = nested
                     end
                 end
             end
@@ -244,6 +247,19 @@ function declare.install(c: any, reifiableField: any, fix: any,
                             n.byname[name] = substType(inherited, selfMap)
                         end
                     end
+                    for name, inherited in pairs(super.writeByname or {}) do
+                        if not n.writeByname[name] then
+                            n.writeByname[name] = substType(inherited, selfMap)
+                        end
+                    end
+                    if not n.indexReadValue and super.indexReadValue then
+                        n.indexReadKey = substType(super.indexReadKey, selfMap)
+                        n.indexReadValue = substType(super.indexReadValue, selfMap)
+                    end
+                    if not n.indexWriteValue and super.indexWriteValue then
+                        n.indexWriteKey = substType(super.indexWriteKey, selfMap)
+                        n.indexWriteValue = substType(super.indexWriteValue, selfMap)
+                    end
                     for name, inherited in pairs(super.metamethods or {}) do
                         if not n.metamethods[name] then
                             n.metamethods[name] = substType(inherited, selfMap)
@@ -256,7 +272,9 @@ function declare.install(c: any, reifiableField: any, fix: any,
             -- recursive inline methods.
             for _, e in ipairs(stat.entries) do
                 if e.kind == "inlineMethod" and not n.byname[e.name.text] then
-                    n.byname[e.name.text] = c.signatureOf(e.body, n)
+                    local signature = c.signatureOf(e.body, n)
+                    n.byname[e.name.text] = signature
+                    n.writeByname[e.name.text] = signature
                 end
             end
             local localMembers, localMetamethods = {}, {}
@@ -272,6 +290,16 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         end
                     end
                     local ft = c.resolveType(e.type)
+                    local capability = e.capability and e.capability.text or nil
+                    if capability and (stat.declKind == "struct"
+                        or stat.isAnnotationDefinition) then
+                        c.diag("NUPP2118", e.capability,
+                            capability .. " properties are available on records, "
+                            .. "interfaces, and shapes, not "
+                            .. (stat.isAnnotationDefinition
+                            and "annotation schemas" or "structs"))
+                        capability = nil
+                    end
                     if c.ownershipKind(ft) == "owned"
                         or c.ownershipKind(ft) == "pinned" then
                         n.affineFields = n.affineFields or {}
@@ -289,21 +317,63 @@ function declare.install(c: any, reifiableField: any, fix: any,
                                 "@method:" .. e.name.text
                         end
                     end
-                    if localMembers[e.name.text] then
-                        c.diag("NUPP2118", e.name,
-                            ("duplicate record member %q"):format(e.name.text))
+                    local name = e.name.text
+                    local state = localMembers[name]
+                    if not state then
+                        state = {}
+                        localMembers[name] = state
+                        n.fieldOrder[#n.fieldOrder + 1] = name
                     end
-                    localMembers[e.name.text] = true
-                    n.byname[e.name.text] = ft
-                    n.fieldDefs[e.name.text] = c.definition(e.name, "property")
-                    n.fieldDefs[e.name.text].type = ft
-                    c.markToken(e.name, n.fieldDefs[e.name.text], ft, "property")
-                    n.fieldOrder[#n.fieldOrder + 1] = e.name.text
+                    local grantsRead = capability ~= "write"
+                    local grantsWrite = capability ~= "read"
+                    if (grantsRead and state.read)
+                        or (grantsWrite and state.write) then
+                        c.diag("NUPP2118", e.name,
+                            ("duplicate property capability for %q"):format(name))
+                    end
+                    local definition = c.definition(e.name, "property")
+                    definition.type = ft
+                    if grantsRead then
+                        state.read = true
+                        n.byname[name] = ft
+                        n.fieldDefs[name] = definition
+                    end
+                    if grantsWrite then
+                        state.write = true
+                        n.writeByname[name] = ft
+                        n.writeFieldDefs[name] = definition
+                    end
+                    c.markToken(e.name, definition, ft, "property")
                     if stat.declKind == "struct" and not stat.isAnnotationDefinition
                         and not reifiableField(ft) then
                         c.diag("NUPP2201", e, ("struct field %q: %s is not reifiable "
                             .. "(use a record for GC types, or a pointer)")
                             :format(e.name.text, T.tostring(ft)))
+                    end
+                elseif e.kind == "indexerDecl" then
+                    local key = c.resolveType(e.key)
+                    local value = c.resolveType(e.value)
+                    local capability = e.capability and e.capability.text or nil
+                    if stat.declKind == "struct" or stat.isAnnotationDefinition then
+                        c.diag("NUPP2118", e,
+                            "indexers are available on records and interfaces, not "
+                            .. (stat.isAnnotationDefinition
+                            and "annotation schemas" or "structs"))
+                    else
+                        local grantsRead = capability ~= "write"
+                        local grantsWrite = capability ~= "read"
+                        if grantsRead and n.indexReadValue then
+                            c.diag("NUPP2118", e,
+                                "duplicate read indexer capability")
+                        elseif grantsRead then
+                            n.indexReadKey, n.indexReadValue = key, value
+                        end
+                        if grantsWrite and n.indexWriteValue then
+                            c.diag("NUPP2118", e,
+                                "duplicate write indexer capability")
+                        elseif grantsWrite then
+                            n.indexWriteKey, n.indexWriteValue = key, value
+                        end
                     end
                 elseif e.kind == "arrayPart" then
                     -- a record that is also a sequence; the entry is written as the
@@ -367,7 +437,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         c.diag("NUPP2118", e.name,
                             ("duplicate record member %q"):format(e.name.text))
                     end
-                    localMembers[e.name.text] = true
+                    localMembers[e.name.text] = {read = true, write = true}
                     if isDisposer then
                         e.body.disposeContract = true
                         e.body.disposeMethod = true
@@ -380,8 +450,10 @@ function declare.install(c: any, reifiableField: any, fix: any,
                             "@method:" .. e.name.text
                     end
                     n.byname[e.name.text] = ft
+                    n.writeByname[e.name.text] = ft
                     n.fieldDefs[e.name.text] = c.definition(e.name, "method")
                     n.fieldDefs[e.name.text].type = ft
+                    n.writeFieldDefs[e.name.text] = n.fieldDefs[e.name.text]
                     c.markToken(e.name, n.fieldDefs[e.name.text], ft, "method")
                 elseif e.kind == "recordDecl" or e.kind == "typeAlias" then
                     if stat.declKind == "struct" then
@@ -400,8 +472,11 @@ function declare.install(c: any, reifiableField: any, fix: any,
                                 and (nested.declKind == "record"
                                 or nested.declKind == "struct") then
                                 n.byname[e.name.text] = nested
+                                n.writeByname[e.name.text] = nested
                                 n.fieldDefs[e.name.text] = c.definition(e.name,
                                     "property")
+                                n.writeFieldDefs[e.name.text] =
+                                    n.fieldDefs[e.name.text]
                             end
                         end
                     end
