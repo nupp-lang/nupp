@@ -983,6 +983,13 @@ function gen.generate(result, filename)
                 :format(x.cheaderCdef, ns), line)
             return
 
+        elseif kind == "newExpr" then
+            -- `new` is a compile-time word: it decides which lowering the call
+            -- underneath gets and then leaves, so a construction emits exactly the
+            -- stamp or the ctype call it always did.
+            if x.call then emit(x.call) end
+            return
+
         elseif (kind == "call" or kind == "safeCall") and x.recordConstruct then
             -- R{...} builds an ordinary table carrying R as its metatable
             local first = x[1]

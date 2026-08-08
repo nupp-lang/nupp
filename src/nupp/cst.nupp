@@ -141,6 +141,14 @@ interface cst.Hints
     --- Set on a call that constructs a record.
     recordConstruct: string?
 
+    --- Set on the call under a `new`, which is what makes it a construction
+    --- rather than an ordinary call reaching `__call` or a ctype.
+    isNew: boolean?
+
+    --- Set once a `new` operand has been answered as a type, so the call does not
+    --- answer for it a second time as a value.
+    newReported: boolean?
+
     --- Set on a call that crosses into C.
     cdefCall: boolean?
 
@@ -1025,6 +1033,23 @@ record cst.Paren is cst.Hints
     expr: cst.Node?
 end
 
+--- `new T(...)`, `new T{...}`: the only way to construct a record or a struct.
+---
+--- The construction is written as a call so that Lua's existing call sugar covers
+--- every form, and so that a qualified name reaches its declaration through the
+--- same suffix parsing everything else uses. `new` installs nothing at run time:
+--- it lowers to the stamp or the ctype call directly, which is what leaves
+--- `__call` and `__new` to the program.
+record cst.NewExpr is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'newExpr'
+
+    --- The call this constructs from, whose `obj` names the type.
+    call: cst.Node?
+end
+
 --- An expression the parser could not make sense of.
 record cst.ErrorExpr is cst.Hints
     {cst.Node | lexer.Token}
@@ -1583,7 +1608,8 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
     | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr
     | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
-    | cst.Vararg | cst.Paren | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex
+    | cst.Vararg | cst.Paren | cst.NewExpr | cst.ErrorExpr | cst.DotIndex
+    | cst.BracketIndex
     | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call
     | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem
     | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr

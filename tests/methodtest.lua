@@ -173,6 +173,64 @@ function M.onlyACallExpandsAcrossTargets()
    }, "\n"))
 end
 
+-- `new` is the construction, for both kinds of declaration. It lowers to the
+-- stamp and the ctype call themselves, so what it costs at run time is nothing.
+function M.newConstructsRecordsAndStructs()
+   assertEq(run(table.concat({
+      "local record Account",
+      "    name: string",
+      "    balance: number",
+      "    function deposit(credit: number)",
+      "        self.balance = self.balance + credit",
+      "    end",
+      "end",
+      "local struct V2",
+      "    x: float",
+      "    y: float",
+      "end",
+      "local a = new Account{name = 'Hina', balance = 500}",
+      "local named = new V2{x = 3.0, y = 4.0}",
+      "local positional = new V2(1.0, 2.0)",
+      "a:deposit(20)",
+      "return a.balance + named.x + named.y + positional.x + positional.y",
+   }, "\n")), 530)
+end
+
+-- The keyword is contextual: `new` is a name everywhere a name can stand, and
+-- only a name following it on the same line makes it a construction.
+function M.newStaysAnOrdinaryNameElsewhere()
+   assertEq(run(table.concat({
+      "local record R",
+      "    n: integer",
+      "end",
+      "local function id(x: any): any return x end",
+      "local new = id",
+      "local held = new",
+      "id(R)",
+      "local built = new R{n = 5}",
+      "return built.n + (held == id and 1 or 0)",
+   }, "\n")), 6)
+end
+
+-- What `new` names is a type, so an operand that is not one is answered as a
+-- type rather than through whatever value stands under the name. An interface
+-- binds no value at all, so going through the value would say `any`.
+function M.newRefusesWhatCannotBeConstructed()
+   assertEq(diagsOf(table.concat({
+      "local interface I",
+      "    n: integer",
+      "end",
+      "local iface = new I()",
+   }, "\n")), "NUPP2206:4")
+   assertEq(diagsOf("local prim = new string()"), "NUPP2206:1")
+   assertEq(diagsOf(table.concat({
+      "local enum Color",
+      "    'red'",
+      "end",
+      "local c = new Color()",
+   }, "\n")), "NUPP2206:4")
+end
+
 function M.multiValueReturnsInAssignments()
    local two = table.concat({
       "local function two(): number, string",

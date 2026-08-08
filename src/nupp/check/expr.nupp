@@ -276,6 +276,40 @@ function expr.install(c: any)
             local out = inner and c.infer(inner) or T.any
             node.immutablePath = inner and inner.immutablePath or false
             return out
+        elseif kind == "newExpr" then
+            -- The construction is the call underneath. Marking it is most of what
+            -- this does: what a record or a struct construction means is one piece
+            -- of code in `calls`, and `new` decides that it runs rather than
+            -- repeating it.
+            local call = node.call as cst.Call
+            if not call then
+                return T.any
+            end
+            call.isNew = true
+            -- `new` names a type, so an operand that names a declared one is
+            -- answered as a type. Going through the value would answer for an
+            -- interface -- which binds none -- with `any`, and say nothing.
+            local named = call.obj and c.pathKey(call.obj) or nil
+            local declared = named and c.lookupType(named) or nil
+            if declared and declared.tag == "nominal"
+                and declared.declKind ~= "record"
+                and declared.declKind ~= "struct" then
+                local why = "`new` builds a record or a struct"
+                if declared.declKind == "interface" then
+                    why = "an interface declares a contract and has no runtime "
+                        .. "table to stamp; construct a record that declares it "
+                        .. "with `is`"
+                elseif declared.declKind == "enum" then
+                    why = "an enum value is one of its declared strings, "
+                        .. "written directly"
+                end
+                c.diag("NUPP2206", call.obj or node,
+                    ("%s cannot be constructed"):format(named), nil,
+                    {help = why})
+                call.newReported = true
+            end
+            return c.infer(call)
+>>>>>>> 010b800 (Introduce new as a construction expression)
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
             if not cond or not ifTrue or not ifFalse then

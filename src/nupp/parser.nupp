@@ -931,6 +931,40 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
     end
 
+    -- "new" is contextual [CS-12]: it introduces a construction only when a name
+    -- follows it on the same line. That is what keeps `local new = 1`, `f(new)`
+    -- and a `new` left at the end of a line meaning what they always did — a name
+    -- is a name everywhere the next token does not make it an operator.
+
+    --- Whether a construction begins at the cursor.
+    local function atNewexp(): boolean
+        local tok = cur()
+        if tok.kind ~= "name" or tok.text ~= "new" then return false end
+        local after = tokens[i + 1]
+        return after ~= nil and after.kind == "name" and after.line == tok.line
+    end
+
+    --- `new T(...)`, `new T{...}`: a construction.
+    ---
+    --- The operand is parsed as an ordinary suffixed expression, so a qualified
+    --- name and every call-argument spelling come from the machinery that already
+    --- reads them. What `new` adds is the requirement that it end in a call:
+    --- a bare `new T` would be a second way to write `new T()`, and one spelling
+    --- per meaning is the whole reason the keyword exists.
+    local function parseNewexp(): Node
+        local n = cst.NewExpr{kind = "newExpr"}
+        local kw = advance()
+        add(n, kw)
+        local call = parseSuffixedexp()
+        n.call = add(n, call)
+        if call.kind ~= "call" and call.kind ~= "safeCall" then
+            errAt(kw, "'new' needs a construction; write new T(...) or new T{...}",
+                "NUPP1004",
+                "add the constructor arguments, or `()` when there are none")
+        end
+        return n
+    end
+
     --- A literal, constructor, function, or suffixed expression.
     local function parseSimpleexp(): Node
         local kind = cur().kind
@@ -968,6 +1002,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return n
         elseif kind == "{" then
             return parseTableconstructor()
+        elseif atNewexp() then
+            return parseNewexp()
         else
             return parseSuffixedexp()
         end

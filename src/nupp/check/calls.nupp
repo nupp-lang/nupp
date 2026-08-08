@@ -305,8 +305,20 @@ function calls.install(c: any): any
             args = {argsNode.str}
         end
         -- struct construction: S{...} named or S(...) positional
-        if calleeT.tag == "nominal"
-            and (calleeT.declKind == "struct" or calleeT.declKind == "record") then
+        local constructible = calleeT.tag == "nominal"
+            and (calleeT.declKind == "struct" or calleeT.declKind == "record")
+        -- An operand naming a declared type was already answered as one. What is
+        -- left is a value that is not a type at all, and `any` -- an unknown name
+        -- under gradual typing -- is deliberately not one of them.
+        if node.isNew and not constructible and not node.newReported
+            and calleeT ~= T.any then
+            local named = node.obj and c.pathKey(node.obj)
+            c.diag("NUPP2206", node.obj or node,
+                ("%s cannot be constructed"):format(named or T.tostring(calleeT)),
+                nil, {help = "`new` builds a record or a struct"})
+            node.newReported = true
+        end
+        if constructible then
             local affineValues = {}
             local tbl = nil
             if argsNode and argsNode.table then
@@ -442,7 +454,10 @@ function calls.install(c: any): any
         end
 
         if calleeT == T.any or calleeT.tag ~= "func" then
-            if calleeT ~= T.any then
+            -- A `new` whose operand was already refused is not also a bad call:
+            -- the program said what it meant, and one diagnostic says why it
+            -- cannot be met.
+            if calleeT ~= T.any and not node.newReported then
                 c.diag("NUPP2005", node,
                     ("%s is not callable"):format(T.tostring(calleeT)))
             end

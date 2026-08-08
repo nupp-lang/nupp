@@ -52,6 +52,36 @@ function M.ownershipWordsStayContextual()
    assertEq(result.root.blocks[1].stats[4].kind, "callStmt")
 end
 
+-- `new` joins the contextual words: a name follows it on the same line or it is
+-- an ordinary identifier. The last two lines are the pair that decides it — a
+-- `new` ending a line cannot reach across to the next statement's callee.
+function M.newStaysContextual()
+   local src = table.concat({
+      "local new = 1",
+      "print(new)",
+      "local built = new Point{x = 1}",
+      "local qualified = new m.Point(1, 2)",
+      "local held = new",
+      "print(held)",
+   }, "\n")
+   local result = assertRoundtrip(src)
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local stats = result.root.blocks[1].stats
+   assertEq(stats[3].exprs[1].kind, "newExpr")
+   assertEq(stats[4].exprs[1].kind, "newExpr")
+   assertEq(stats[5].exprs[1].kind, "name")
+end
+
+-- A bare `new T` would be a second spelling of `new T()`, and one spelling per
+-- meaning is the reason the keyword exists at all.
+function M.newNeedsAConstruction()
+   local result = parser.parse("local bare = new Point")
+   assertEq(#result.errors, 1, "one error")
+   assertEq(result.errors[1].code, "NUPP1004")
+   assert(result.errors[1].msg:find("needs a construction", 1, true),
+      result.errors[1].msg)
+end
+
 function M.borrowedReturnsAcceptMultipleSources()
    local result = parser.parse(
       "local function pair(borrows a: any, borrows b: any): any borrows(a, b) return {a, b} end",
