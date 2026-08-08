@@ -47,7 +47,7 @@ operators.metamethod = {
     ["+"] = "__add", ["-"] = "__sub", ["*"] = "__mul",
     ["/"] = "__div", ["%"] = "__mod", ["^"] = "__pow",
     [".."] = "__concat",
-} as{[string]: string}
+} as {[string]: string}
 
 --- The metamethods a declaration may contract for.
 operators.contractMetamethod = {
@@ -87,20 +87,21 @@ local type Node = cst.Node
 --- A token, as the lexer produced it.
 local type Token = lexer.Token
 
---- Reports `customary-operator` when an operator was written in its C
---- spelling. The two forms mean exactly the same thing, so this is a house
---- style question and nothing more: a project that prefers `&&` turns the
---- lint off, and a file that wants it once writes
---- `@allow("customary-operator")`.
+--- Reports `customary-operator` when an operator was written in its C spelling. The two
+--- forms mean exactly the same thing, so this is a house style question and nothing
+--- more: a project that prefers `&&` turns the lint off, and a file that wants it once
+--- writes `@allow("customary-operator")`.
 local function customaryOperator(c: any, opTok: Token)
-    -- The lexer folds both spellings into one token kind, so the text is all
-    -- that is left to say which one the author chose.
+    -- The lexer folds both spellings into one token kind, so the text is all that is
+    -- left to say which one the author chose.
     local classic = lexer.CUSTOMARY[opTok.text]
-    if not classic then return end
+    if not classic then
+        return
+    end
     c.diag("NUPP2504", opTok,
         ("%s is the customary spelling of %s"):format(opTok.text, classic),
         {c.edits.fix(("change to `%s`"):format(classic),
-            c.edits.replaceToken(opTok, classic))},
+        c.edits.replaceToken(opTok, classic))},
         {help = ("write %s"):format(classic)})
 end
 
@@ -110,16 +111,26 @@ end
 function operators.install(c: any): any
 
     local function orderingFamily(t)
-        if t == T.any then return "any" end
-        if isA(t, T.number) then return "number" end
-        if isA(t, T.string) then return "string" end
+        if t == T.any then
+            return "any"
+        end
+        if isA(t, T.number) then
+            return "number"
+        end
+        if isA(t, T.string) then
+            return "string"
+        end
         if t.tag == "union" then
             local family = nil
             for _, member in ipairs(t.members) do
                 if member ~= T.nil_ then
                     local found = orderingFamily(member)
-                    if not found or found == "any" then return found end
-                    if family and family ~= found then return nil end
+                    if not found or found == "any" then
+                        return found
+                    end
+                    if family and family ~= found then
+                        return nil
+                    end
                     family = found
                 end
             end
@@ -132,29 +143,35 @@ function operators.install(c: any): any
 
     --- `t` without nil, which is what a truthiness test leaves. Defined once here
     --- rather than each time a logical operator is inferred.
-        c.minusNil = function(t)
-            if t.tag == "union" and t.hasNil then
-                local m = {}
-                for _, x in ipairs(t.members) do
-                    if x ~= T.nil_ then m[#m + 1] = x end
+    c.minusNil = function(t)
+        if t.tag == "union" and t.hasNil then
+            local m = {}
+            for _, x in ipairs(t.members) do
+                if x ~= T.nil_ then
+                    m[#m + 1] = x
                 end
-                return T.union(m)
             end
-            return t
+            return T.union(m)
         end
+        return t
+    end
 
     local handlers = {}
 
     handlers.unop = function(node: cst.Unop): Type
         local operand = node.operand
         local opTok = node.op
-        if not operand or not opTok then return T.any end
+        if not operand or not opTok then
+            return T.any
+        end
         customaryOperator(c, opTok)
         local t = c.infer(operand)
         local op = opTok.kind
         if op == "-" then
             local mm = c.metamethodOf(t, "__unm")
-            if mm then return c.applyContract(mm, {t}, {operand}, node, "__unm") end
+            if mm then
+                return c.applyContract(mm, {t}, {operand}, node, "__unm")
+            end
             c.numericOperand(t, node, op)
             return t == T.any and T.number or t
         elseif op == "~" then
@@ -162,7 +179,9 @@ function operators.install(c: any): any
             return T.integer
         elseif op == "#" then
             local mm = c.metamethodOf(t, "__len")
-            if mm then return c.applyContract(mm, {t}, {operand}, node, "__len") end
+            if mm then
+                return c.applyContract(mm, {t}, {operand}, node, "__len")
+            end
             if not (t == T.any or isA(t, T.string) or isA(t, T.table_)) then
                 c.diag("NUPP2003", node,
                     ("cannot apply '#' to %s"):format(T.tostring(t)))
@@ -176,7 +195,9 @@ function operators.install(c: any): any
 
     handlers.binop = function(node: cst.Binop): Type
         local opTok, lhs, rhs = node.op, node.lhs, node.rhs
-        if not opTok or not lhs or not rhs then return T.any end
+        if not opTok or not lhs or not rhs then
+            return T.any
+        end
         customaryOperator(c, opTok)
         local op = opTok.kind
         local lt, rt
@@ -201,7 +222,9 @@ function operators.install(c: any): any
             end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
-            if op == "/" or op == "^" then return T.number end
+            if op == "/" or op == "^" then
+                return T.number
+            end
             if isA(lt, T.integer) and isA(rt, T.integer)
                 and lt ~= T.any and rt ~= T.any then
                 return T.integer
@@ -264,9 +287,9 @@ function operators.install(c: any): any
             return T.union({subtract(lt, T.nil_), rt})
         elseif operators.logical[op] then
             -- Value-selection semantics. Until literal true/false types land with
-            -- narrowing, a boolean lhs of 'and' approximates as contributing
-            -- nothing (its false outcome), which types the pervasive 'cond and a or
-            -- b' idiom correctly.
+            -- narrowing, a boolean lhs of 'and' approximates as contributing nothing
+            -- (its false outcome), which types the pervasive 'cond and a or b' idiom
+            -- correctly.
             if op == "and" then
                 local parts = {rt}
                 if lt == T.nil_ or (lt.tag == "union" and lt.hasNil) then
@@ -274,7 +297,9 @@ function operators.install(c: any): any
                 end
                 return T.union(parts)
             else -- or
-                if lt == T.nil_ then return rt end
+                if lt == T.nil_ then
+                    return rt
+                end
                 return T.union({c.minusNil(lt), rt})
             end
         end

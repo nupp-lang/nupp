@@ -29,6 +29,7 @@ interface cst.Hints
 
     --- A branch whose preceding conditions the optimizer proved false.
     constantBranch: cst.Node?
+
     constantBranchNone: boolean?
 
     --- A complete `@effects` contract, normalized by the checker.
@@ -45,6 +46,7 @@ interface cst.Hints
 
     --- The optimizer's proof and selected lowering for a numeric array loop.
     numericIpairs: any
+
     numericIpairsProof: any
     numericIpairsDeclined: any
 
@@ -1584,8 +1586,8 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
 
---- The two declaration forms, which share a visibility, a name and the tables the
---- name attaches to.
+--- The two declaration forms, which share a visibility, a name and the tables the name
+--- attaches to.
 type cst.Declaration = cst.TypeAlias | cst.RecordDecl
 
 --- What may take a generic parameter clause.
@@ -1688,12 +1690,16 @@ function cst.returnedLocal(root: cst.Chunk): string?
             end
         end
     end
-    if not returned then return nil end
-    -- `setmetatable(M, mt)` returns its first argument, so the table it is
-    -- wrapping is still the module.
+    if not returned then
+        return nil
+    end
+    -- `setmetatable(M, mt)` returns its first argument, so the table it is wrapping is
+    -- still the module.
     if returned.kind == "call" then
         local callee = returned.obj
-        if not callee or callee.kind ~= "name" then return nil end
+        if not callee or callee.kind ~= "name" then
+            return nil
+        end
         local calleeName = callee.token
         if not calleeName or calleeName.text ~= "setmetatable" then
             return nil
@@ -1702,11 +1708,17 @@ function cst.returnedLocal(root: cst.Chunk): string?
         local args = argsNode and argsNode.kind == "args"
             and argsNode.exprs or {}
         returned = args[1]
-        if not returned then return nil end
+        if not returned then
+            return nil
+        end
     end
-    if returned.kind ~= "name" then return nil end
+    if returned.kind ~= "name" then
+        return nil
+    end
     local token = returned.token
-    if not token then return nil end
+    if not token then
+        return nil
+    end
     return token.text
 end
 

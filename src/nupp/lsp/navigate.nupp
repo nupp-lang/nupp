@@ -38,7 +38,9 @@ function navigate.install(s: any): any
 
     local function fileTokens(filename, source)
         local entry = s.lexed[filename]
-        if entry and entry.source == source then return entry.tokens end
+        if entry and entry.source == source then
+            return entry.tokens
+        end
         local tokens = lexer.lex(source)
         s.lexed[filename] = {source = source, tokens = tokens}
         return tokens
@@ -48,7 +50,9 @@ function navigate.install(s: any): any
     -- otherwise the disk, never both.
     local function sourceForPath(path)
         for uri, doc in pairs(s.documents) do
-            if uriToPath(uri) == path then return doc.text end
+            if uriToPath(uri) == path then
+                return doc.text
+            end
         end
         return readFile(path)
     end
@@ -66,28 +70,40 @@ function navigate.install(s: any): any
             found = tok.offset
         else
             local relocated = findDeclaration(tokens, tok.text, tok.offset)
-            if not relocated then return nil end
+            if not relocated then
+                return nil
+            end
             found = relocated.offset
         end
         for index, candidate in ipairs(tokens) do
-            if candidate.offset == found then return index end
+            if candidate.offset == found then
+                return index
+            end
         end
         return nil
     end
 
     local function resolveDefinition(def)
-        if not def or not def.token or not def.filename then return nil end
+        if not def or not def.token or not def.filename then
+            return nil
+        end
         local source = definitionSource(def)
-        if not source then return nil end
+        if not source then
+            return nil
+        end
         local tokens = fileTokens(def.filename, source)
         local index = declarationIndex(def, source, tokens)
-        if not index then return nil end
+        if not index then
+            return nil
+        end
         return source, tokens, index
     end
 
     local function definitionLocation(def)
         local source, tokens, index = resolveDefinition(def)
-        if not source then return json.null end
+        if not source then
+            return json.null
+        end
         local tok = tokens[index]
         return {
             uri = pathToUri(def.filename),
@@ -100,7 +116,9 @@ function navigate.install(s: any): any
 
     local function documentationFor(def)
         local _, tokens, index = resolveDefinition(def)
-        if not tokens then return def and def.token and fromTrivia(def.token.trivia) end
+        if not tokens then
+            return def and def.token and fromTrivia(def.token.trivia)
+        end
         return documentationAt(tokens, index)
     end
 
@@ -119,9 +137,13 @@ function navigate.install(s: any): any
     end
 
     local function isOpenDefinition(def)
-        if not def or not def.filename then return false end
+        if not def or not def.filename then
+            return false
+        end
         for uri in pairs(s.documents) do
-            if uriToPath(uri) == def.filename then return true end
+            if uriToPath(uri) == def.filename then
+                return true
+            end
         end
         return false
     end
@@ -131,10 +153,16 @@ function navigate.install(s: any): any
     -- prelude is declared somewhere the user is not editing, and a rename that could
     -- only reach the uses would be a rename that breaks them.
     local function isProjectDefinition(def)
-        if not def or not def.filename then return false end
-        if isOpenDefinition(def) then return true end
+        if not def or not def.filename then
+            return false
+        end
+        if isOpenDefinition(def) then
+            return true
+        end
         for _, path in ipairs(s.inc.projectFiles()) do
-            if path == def.filename then return true end
+            if path == def.filename then
+                return true
+            end
         end
         return false
     end
@@ -173,7 +201,9 @@ function navigate.install(s: any): any
     local function referencesFor(def, includeDeclaration)
         local wanted = symbolKey(def)
         local locations = wire.array({})
-        if not wanted or not def.token then return locations end
+        if not wanted or not def.token then
+            return locations
+        end
         local seen = {}
         for _, entry in ipairs(documentsMentioning(def.token.text)) do
             local declaring = uriToPath(entry.uri) == def.filename
@@ -199,11 +229,15 @@ function navigate.install(s: any): any
             local location = definitionLocation(def)
             if location ~= json.null then
                 local key = location.uri .. ":" .. tostring(def.token.offset)
-                if not seen[key] then locations[#locations + 1] = location end
+                if not seen[key] then
+                    locations[#locations + 1] = location
+                end
             end
         end
         table.sort(locations, function(a, b)
-            if a.uri ~= b.uri then return a.uri < b.uri end
+            if a.uri ~= b.uri then
+                return a.uri < b.uri
+            end
             local ap, bp = a.range.start, b.range.start
             return ap.line < bp.line
                 or (ap.line == bp.line and ap.character < bp.character)
@@ -223,12 +257,18 @@ function navigate.install(s: any): any
     --- The `function m.f` statement declaring a member, with the file it is in.
     local function memberDeclaration(moduleName, memberName)
         local path = s.inc.modulePath(moduleName)
-        if not path then return nil end
+        if not path then
+            return nil
+        end
         local checked = s.inc.checkFile(path)
         local result = checked and checked.result
-        if not result then return nil end
+        if not result then
+            return nil
+        end
         for _, hit in ipairs(memberOccurrences(result, moduleName, memberName)) do
-            if hit.stat then return path, hit.token, hit.stat end
+            if hit.stat then
+                return path, hit.token, hit.stat
+            end
         end
         return nil
     end
@@ -237,9 +277,13 @@ function navigate.install(s: any): any
     --- the checker bound has a definition, and that definition is the better answer
     --- wherever it exists.
     local function memberAt(doc, offset)
-        if not doc or not doc.result or not offset then return nil end
+        if not doc or not doc.result or not offset then
+            return nil
+        end
         local member = moduleMemberAt(doc.result, offset)
-        if not member then return nil end
+        if not member then
+            return nil
+        end
         if not memberDeclaration(member.moduleName, member.name) then
             return nil
         end
@@ -248,9 +292,13 @@ function navigate.install(s: any): any
 
     local function memberLocation(member)
         local path, tok = memberDeclaration(member.moduleName, member.name)
-        if not path then return json.null end
+        if not path then
+            return json.null
+        end
         local source = sourceForPath(path)
-        if not source then return json.null end
+        if not source then
+            return json.null
+        end
         return {
             uri = pathToUri(path),
             range = {
@@ -278,7 +326,9 @@ function navigate.install(s: any): any
             end
         end
         table.sort(locations, function(a, b)
-            if a.uri ~= b.uri then return a.uri < b.uri end
+            if a.uri ~= b.uri then
+                return a.uri < b.uri
+            end
             local ap, bp = a.range.start, b.range.start
             return ap.line < bp.line
                 or (ap.line == bp.line and ap.character < bp.character)
@@ -291,7 +341,9 @@ function navigate.install(s: any): any
     --- author wrote says more than `any` would.
     local function memberHover(member)
         local path, tok, stat = memberDeclaration(member.moduleName, member.name)
-        if not path then return nil end
+        if not path then
+            return nil
+        end
         local value = "```nupp\n" .. functionSignature(stat) .. "\n```"
         local source = sourceForPath(path)
         if source then
@@ -299,7 +351,9 @@ function navigate.install(s: any): any
             for index, candidate in ipairs(tokens) do
                 if candidate.offset == tok.offset then
                     local docs = documentationAt(tokens, index)
-                    if docs then value = value .. "\n\n" .. docs end
+                    if docs then
+                        value = value .. "\n\n" .. docs
+                    end
                     break
                 end
             end
@@ -312,7 +366,9 @@ function navigate.install(s: any): any
     --- from is a keystroke behind the one the cursor is in, so every offset in it may
     --- have moved.
     local function resolveReceiver(checked, path)
-        if not checked then return nil end
+        if not checked then
+            return nil
+        end
         local base = nil
         for _, def in ipairs(checked.symbols or {}) do
             if def.name == path[1] and (def.type or def.requiredModule) then
@@ -320,7 +376,9 @@ function navigate.install(s: any): any
                 break
             end
         end
-        if not base then return nil end
+        if not base then
+            return nil
+        end
         local moduleName = base.requiredModule
         if not moduleName and checked.moduleLocal == path[1] then
             moduleName = checked.moduleName
@@ -329,12 +387,18 @@ function navigate.install(s: any): any
         for index = 2, #path do
             -- A module's declarations are reached through the index, not through the
             -- module table's type: that table is inferred open.
-            if moduleName and index == 2 then return nil, nil end
+            if moduleName and index == 2 then
+                return nil, nil
+            end
             local member = t and membersOf(t)[path[index]]
             t = member and member.type or nil
-            if not t then return nil, nil end
+            if not t then
+                return nil, nil
+            end
         end
-        if #path > 1 then moduleName = nil end
+        if #path > 1 then
+            moduleName = nil
+        end
         return t, moduleName
     end
 

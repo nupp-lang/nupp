@@ -89,12 +89,16 @@ function narrow.install(c: any): any
         if fname.method then
             -- the method token is in the array part too, and is not the owner
             table.remove(names)
-            if #names == 0 then return nil, nil end
+            if #names == 0 then
+                return nil, nil
+            end
             local parts = {}
             for j, tok in ipairs(names) do parts[j] = tok.text end
             return table.concat(parts, "."), fname.method
         end
-        if #names < 2 then return nil, nil end
+        if #names < 2 then
+            return nil, nil
+        end
         local member = table.remove(names)
         local parts = {}
         for j, tok in ipairs(names) do parts[j] = tok.text end
@@ -109,7 +113,9 @@ function narrow.install(c: any): any
         local sc = c.scope
         while sc do
             local t = sc.narrowed and sc.narrowed[key]
-            if t then return t end
+            if t then
+                return t
+            end
             sc = sc.parent
         end
         return nil
@@ -134,16 +140,24 @@ function narrow.install(c: any): any
     end
 
     c.refType = function(node)
-        if not node then return nil end
+        if not node then
+            return nil
+        end
         local key = facts.pathKey(node)
         if key then
             local narrowed = facts.lookupNarrowed(key)
-            if narrowed then return narrowed end
+            if narrowed then
+                return narrowed
+            end
         end
-        if node.kind == "name" then return c.lookupVar(node.token.text) end
+        if node.kind == "name" then
+            return c.lookupVar(node.token.text)
+        end
         if node.kind == "dotIndex" then
             local baseT = c.refType(node.obj)
-            if baseT then return c.fieldType(baseT, node.name.text) end
+            if baseT then
+                return c.fieldType(baseT, node.name.text)
+            end
         end
         return nil
     end
@@ -188,8 +202,12 @@ function narrow.install(c: any): any
             if vt then
                 local out = {t = {}, f = {}}
                 local truthy, falsy = truthiness(vt)
-                if truthy then out.t[name] = truthy end
-                if falsy then out.f[name] = falsy end
+                if truthy then
+                    out.t[name] = truthy
+                end
+                if falsy then
+                    out.f[name] = falsy
+                end
                 return out
             end
             return none
@@ -201,8 +219,12 @@ function narrow.install(c: any): any
             if key and vt then
                 local out = {t = {}, f = {}}
                 local truthy, falsy = truthiness(vt)
-                if truthy then out.t[key] = truthy end
-                if falsy then out.f[key] = falsy end
+                if truthy then
+                    out.t[key] = truthy
+                end
+                if falsy then
+                    out.f[key] = falsy
+                end
                 return out
             end
             return none
@@ -223,7 +245,9 @@ function narrow.install(c: any): any
                         local vt = c.refType(first)
                         local out = {t = {}, f = {}}
                         out.t[key] = target
-                        if vt then out.f[key] = subtract(vt, target) end
+                        if vt then
+                            out.f[key] = subtract(vt, target)
+                        end
                         return out
                     end
                     return none
@@ -241,7 +265,9 @@ function narrow.install(c: any): any
                     local vt = c.refType(arg)
                     local out = {t = {}, f = {}}
                     out.t[key] = predicate.type
-                    if vt then out.f[key] = subtract(vt, predicate.type) end
+                    if vt then
+                        out.f[key] = subtract(vt, predicate.type)
+                    end
                     return out
                 end
             end
@@ -253,7 +279,9 @@ function narrow.install(c: any): any
                 local target = c.resolveType(cond.type)
                 local out = {t = {}, f = {}}
                 out.t[key] = target
-                if vt then out.f[key] = subtract(vt, target) end
+                if vt then
+                    out.f[key] = subtract(vt, target)
+                end
                 return out
             end
             return none
@@ -263,7 +291,9 @@ function narrow.install(c: any): any
             return {t = inner.f, f = inner.t}
         elseif kind == "binop" then
             local opTok, lhs, rhs = cond.op, cond.lhs, cond.rhs
-            if not opTok or not lhs or not rhs then return none end
+            if not opTok or not lhs or not rhs then
+                return none
+            end
             local op = opTok.kind
             if op == "==" or op == "~=" then
                 -- x == nil / x ~= nil (either operand order)
@@ -315,7 +345,9 @@ function narrow.install(c: any): any
                             local aliasT = c.refType(aliasNode)
                             local rest = aliasT
                                 and withoutMember(aliasT, litT) or nil
-                            if rest then out.f[aliasKey] = rest end
+                            if rest then
+                                out.f[aliasKey] = rest
+                            end
                         end
                     end
                     out.t[key] = litT
@@ -380,7 +412,9 @@ function narrow.install(c: any): any
                 local t = {}
                 for key, lt in pairs(l.t) do
                     local rt = r.t[key]
-                    if rt then t[key] = T.union({lt, rt}) end
+                    if rt then
+                        t[key] = T.union({lt, rt})
+                    end
                 end
                 -- Both are falsy in the else-branch, so what is left there is what both
                 -- sides left: the members they have in common.
@@ -395,9 +429,13 @@ function narrow.install(c: any): any
                         end
                         for _, m in ipairs(rf.tag == "union"
                             and rf.members or {rf}) do
-                            if seen[m] then keep[#keep + 1] = m end
+                            if seen[m] then
+                                keep[#keep + 1] = m
+                            end
                         end
-                        if #keep > 0 then fal[key] = T.union(keep) end
+                        if #keep > 0 then
+                            fal[key] = T.union(keep)
+                        end
                     end
                 end
                 return {t = t, f = fal}
@@ -415,7 +453,9 @@ function narrow.install(c: any): any
         while sc do
             if sc.narrowed then
                 for k, v in pairs(sc.narrowed) do
-                    if out[k] == nil and not blocked[k] then out[k] = v end
+                    if out[k] == nil and not blocked[k] then
+                        out[k] = v
+                    end
                 end
             end
             for k, entry in pairs(sc.vars) do
@@ -467,8 +507,8 @@ function narrow.install(c: any): any
         end
     end
 
-    -- Also on the checker, so a pass in another module reaches them the same way
-    -- the walk does.
+    -- Also on the checker, so a pass in another module reaches them the same way the
+    -- walk does.
     c.pathKey = facts.pathKey
     c.applyFacts = facts.applyFacts
     c.analyzeCond = facts.analyzeCond

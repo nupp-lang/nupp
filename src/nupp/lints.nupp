@@ -75,17 +75,17 @@ lints.all = {
     },
 }
 
--- Both spellings reach the same lint: a name is what a person writes, a code is
--- what survives the name being reconsidered.
+-- Both spellings reach the same lint: a name is what a person writes, a code is what
+-- survives the name being reconsidered.
 local byKey: {[string]: lints.Lint} = {}
 for _, lint in ipairs(lints.all) do
     byKey[lint.name] = lint
     byKey[lint.code] = lint
 end
 
--- The taxonomy, declared rather than gathered from whichever lints happen to
--- exist: a category a project can configure should not appear and disappear as
--- its membership changes.
+-- The taxonomy, declared rather than gathered from whichever lints happen to exist: a
+-- category a project can configure should not appear and disappear as its membership
+-- changes.
 local CATEGORIES: {[string]: string} = {
     correctness = "the program is very likely wrong",
     suspicious = "legal, and probably not meant",
@@ -93,8 +93,8 @@ local CATEGORIES: {[string]: string} = {
     pedantic = "opinions a project may not share",
 }
 
--- The levels a lint may be configured to. `off` is a lint's alone: a type error
--- is not a judgement to disagree with.
+-- The levels a lint may be configured to. `off` is a lint's alone: a type error is not
+-- a judgement to disagree with.
 local LEVELS: {[string]: boolean} = {
     off = true, note = true, warning = true, error = true,
 }
@@ -122,9 +122,13 @@ function lints.level(lint: lints.Lint, config: {[string]: string}?): string
     local level = lint.level
     if config then
         local byCategory = config[lint.category]
-        if byCategory and LEVELS[byCategory] then level = byCategory end
+        if byCategory and LEVELS[byCategory] then
+            level = byCategory
+        end
         local byName = config[lint.name] or config[lint.code]
-        if byName and LEVELS[byName] then level = byName end
+        if byName and LEVELS[byName] then
+            level = byName
+        end
     end
     return level
 end

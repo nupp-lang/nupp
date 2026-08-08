@@ -59,9 +59,9 @@ local record ffi
     --- Reads, and optionally sets, the C errno.
     errno: function(newerr: integer?): integer
 
-    --- Reads LuaJIT's own record of a declared C type. Internal to the
-    --- implementation rather than part of the documented FFI, but it is
-    --- how a program can learn what a cdef declared.
+    --- Reads LuaJIT's own record of a declared C type. Internal to the implementation
+    --- rather than part of the documented FFI, but it is how a program can learn what a
+    --- cdef declared.
     typeinfo: function(id: integer): any
 
     --- The default C namespace: symbols in the running process.

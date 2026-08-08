@@ -78,13 +78,27 @@ local function tokenStyle(tokens, index)
     local previous = tokens[index - 1]
     local following = tokens[index + 1]
     if token.kind == "name" then
-        if CONTEXTUAL_KEYWORDS[token.text] then return "keyword" end
-        if TYPE_NAMES[token.text] or token.text:match("^%u") then return "type" end
-        if previous and previous.text == "@" then return "meta" end
-        if previous and previous.kind == "function" then return "function" end
-        if previous and previous.text == "metamethod" then return "function" end
-        if previous and TYPE_DECLARATIONS[previous.text] then return "type" end
-        if following and following.text == "(" then return "function" end
+        if CONTEXTUAL_KEYWORDS[token.text] then
+            return "keyword"
+        end
+        if TYPE_NAMES[token.text] or token.text:match("^%u") then
+            return "type"
+        end
+        if previous and previous.text == "@" then
+            return "meta"
+        end
+        if previous and previous.kind == "function" then
+            return "function"
+        end
+        if previous and previous.text == "metamethod" then
+            return "function"
+        end
+        if previous and TYPE_DECLARATIONS[previous.text] then
+            return "type"
+        end
+        if following and following.text == "(" then
+            return "function"
+        end
         if previous and (previous.text == "." or previous.text == ":") then
             return "property"
         end
@@ -103,8 +117,12 @@ local function tokenStyle(tokens, index)
 end
 
 local function tokenClasses(style, text)
-    if style == "type" then return "token class-name nuppdoc-token-type" end
-    if style == "meta" then return "token directive nuppdoc-token-meta" end
+    if style == "type" then
+        return "token class-name nuppdoc-token-type"
+    end
+    if style == "meta" then
+        return "token directive nuppdoc-token-meta"
+    end
     if style == "keyword" then
         return "token keyword keyword-" .. text:gsub("[^%w%-]", "-")
             .. " nuppdoc-token-keyword"
@@ -157,66 +175,79 @@ local scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary = nil, nil, n
 local scintilluaBundled = false
 local scintilluaLexers = {}
 
--- What a bundle carries a lexer as, and the directory that stands for "not on
--- any disk". The path is deliberately one no filesystem can answer, so a lexer
--- the binary was not built with fails the way an uninstalled one does rather
--- than reaching whatever happens to sit at a real path of that name.
+-- What a bundle carries a lexer as, and the directory that stands for "not on any
+-- disk". The path is deliberately one no filesystem can answer, so a lexer the binary
+-- was not built with fails the way an uninstalled one does rather than reaching
+-- whatever happens to sit at a real path of that name.
 local BUNDLED_MODULE = "scintillua.lexers."
 local BUNDLED_DIRECTORY = "@bundled/scintillua/lexers"
 
 local function bundledName(path)
-    if type(path) ~= "string" then return nil end
+    if type(path) ~= "string" then
+        return nil
+    end
     local prefix = BUNDLED_DIRECTORY .. "/"
-    if path:sub(1, #prefix) ~= prefix then return nil end
+    if path:sub(1, #prefix) ~= prefix then
+        return nil
+    end
     return path:sub(#prefix + 1):match("^([%w_+-]+)%.lua$")
 end
 
--- Scintillua looks a lexer up by handing `loadfile` a path built from the
--- property above and reading what comes back, so a binary answers those paths
--- here and hands every other one to the real `loadfile` -- which is what keeps
--- a project's own lexers directory working beside the carried ones.
--- `mode` is accepted and ignored: Scintillua asks for "t" and everything on
--- either side of this is text, so there is nothing for it to rule out.
+-- Scintillua looks a lexer up by handing `loadfile` a path built from the property
+-- above and reading what comes back, so a binary answers those paths here and hands
+-- every other one to the real `loadfile` -- which is what keeps a project's own lexers
+-- directory working beside the carried ones. `mode` is accepted and ignored: Scintillua
+-- asks for "t" and everything on either side of this is text, so there is nothing for
+-- it to rule out.
 local function bundledLoadfile(path, mode, env)
     local chunk, err
     local name = bundledName(path)
     if name then
         chunk = package.preload[BUNDLED_MODULE .. name]
-        -- The words `searchpath` looks for: a lexer that is not carried is one
-        -- it keeps searching for, not one it reports as broken.
-        if not chunk then return nil, "cannot open " .. path end
+        -- The words `searchpath` looks for: a lexer that is not carried is one it keeps
+        -- searching for, not one it reports as broken.
+        if not chunk then
+            return nil, "cannot open " .. path
+        end
     else
         chunk, err = loadfile(path)
-        if not chunk then return nil, err end
+        if not chunk then
+            return nil, err
+        end
     end
-    -- Applied here for both, since a preloaded chunk is already compiled and
-    -- cannot be handed an environment the way a compiler would take one.
-    if env then setfenv(chunk, env) end
+    -- Applied here for both, since a preloaded chunk is already compiled and cannot be
+    -- handed an environment the way a compiler would take one.
+    if env then
+        setfenv(chunk, env)
+    end
     return chunk
 end
 
--- Where `require("scintillua.lexers.lexer")` would find its file, asked of the
--- search path directly rather than through `package.searchpath`: what is wanted
--- is the directory, and walking the templates is the same walk with the last
--- step left off. The module's path carries no `%`, so it stands in for the `?`
--- as a plain replacement.
+-- Where `require("scintillua.lexers.lexer")` would find its file, asked of the search
+-- path directly rather than through `package.searchpath`: what is wanted is the
+-- directory, and walking the templates is the same walk with the last step left off.
+-- The module's path carries no `%`, so it stands in for the `?` as a plain replacement.
 local LEXER_MODULE = "scintillua/lexers/lexer"
 
 local function installedLexers()
     for template in package.path:gmatch("[^;]+") do
         local candidate = template:gsub("%?", LEXER_MODULE)
-        if exists(candidate) then return dirname(candidate) end
+        if exists(candidate) then
+            return dirname(candidate)
+        end
     end
     return nil
 end
 
 local function configureScintillua(root, settings)
-    -- `lexer.lua` itself always loads from the installed rock, found the way
-    -- `require` would find it, or from the bundle when there is no rock; a
-    -- project's `settings.lexers` only extends the path a loaded lexer searches
-    -- for another, ahead of whichever of those is answering.
+    -- `lexer.lua` itself always loads from the installed rock, found the way `require`
+    -- would find it, or from the bundle when there is no rock; a project's
+    -- `settings.lexers` only extends the path a loaded lexer searches for another,
+    -- ahead of whichever of those is answering.
     local installed = installedLexers()
-    if installed and not exists(join(installed, "lexer.lua")) then installed = nil end
+    if installed and not exists(join(installed, "lexer.lua")) then
+        installed = nil
+    end
     local bundled = not installed
         and package.preload[BUNDLED_MODULE .. "lexer"] ~= nil
     if not installed and not bundled then
@@ -229,7 +260,9 @@ local function configureScintillua(root, settings)
     local searchPath = base
     if settings.lexers then
         local custom = join(root, settings.lexers)
-        if exists(custom) then searchPath = custom .. ";" .. base end
+        if exists(custom) then
+            searchPath = custom .. ";" .. base
+        end
     end
     if scintilluaSearchPath ~= searchPath then
         scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
@@ -239,10 +272,14 @@ local function configureScintillua(root, settings)
 end
 
 local function loadScintillua(language)
-    if not scintilluaDirectory then return nil end
+    if not scintilluaDirectory then
+        return nil
+    end
     language = tostring(language or ""):lower()
     language = SCINTILLUA_ALIASES[language] or language
-    if not language:match("^[%w_+-]+$") then return nil end
+    if not language:match("^[%w_+-]+$") then
+        return nil
+    end
     if scintilluaLexers[language] ~= nil then
         return scintilluaLexers[language] or nil
     end
@@ -250,10 +287,10 @@ local function loadScintillua(language)
         local chunk
         if scintilluaBundled then
             chunk = package.preload[BUNDLED_MODULE .. "lexer"]
-            -- Every other lexer is found through the `loadfile` this one sees,
-            -- so it is given one that knows where a bundle keeps them. Reads
-            -- fall through to the real globals; what `lexer.lua` assigns --
-            -- `lpeg`, which it requires on first use -- stays in here.
+            -- Every other lexer is found through the `loadfile` this one sees, so it is
+            -- given one that knows where a bundle keeps them. Reads fall through to the
+            -- real globals; what `lexer.lua` assigns -- `lpeg`, which it requires on
+            -- first use -- stays in here.
             if chunk then
                 setfenv(chunk, setmetatable({loadfile = bundledLoadfile},
                     {__index = _G}))
@@ -261,9 +298,13 @@ local function loadScintillua(language)
         else
             chunk = loadfile(join(scintilluaDirectory, "lexer.lua"))
         end
-        if not chunk then return nil end
+        if not chunk then
+            return nil
+        end
         local ok, library = pcall(chunk)
-        if not ok or type(library) ~= "table" then return nil end
+        if not ok or type(library) ~= "table" then
+            return nil
+        end
         library.property = setmetatable({
             ["scintillua.lexers"] = scintilluaSearchPath,
         }, {
@@ -281,30 +322,60 @@ end
 
 local function scintilluaStyle(tag)
     local base = tostring(tag or "default"):match("^[^%.]+")
-    if base == "whitespace" or base == "default" then return nil end
-    if base == "comment" then return "comment" end
-    if base == "keyword" then return "keyword" end
-    if base == "string" or base == "regex" then return "string" end
-    if base == "number" then return "number" end
-    if base == "function" or base == "label" then return "function" end
-    if base == "type" or base == "class" then return "type" end
-    if base == "preprocessor" or base == "annotation" then return "meta" end
-    if base == "operator" then return "operator" end
-    if base == "constant" then return "boolean" end
-    if base == "property" then return "property" end
-    if base == "identifier" or base == "variable" then return "variable" end
+    if base == "whitespace" or base == "default" then
+        return nil
+    end
+    if base == "comment" then
+        return "comment"
+    end
+    if base == "keyword" then
+        return "keyword"
+    end
+    if base == "string" or base == "regex" then
+        return "string"
+    end
+    if base == "number" then
+        return "number"
+    end
+    if base == "function" or base == "label" then
+        return "function"
+    end
+    if base == "type" or base == "class" then
+        return "type"
+    end
+    if base == "preprocessor" or base == "annotation" then
+        return "meta"
+    end
+    if base == "operator" then
+        return "operator"
+    end
+    if base == "constant" then
+        return "boolean"
+    end
+    if base == "property" then
+        return "property"
+    end
+    if base == "identifier" or base == "variable" then
+        return "variable"
+    end
     return nil
 end
 
 local function highlightScintillua(source, language)
     local loaded = loadScintillua(language)
-    if not loaded then return nil end
+    if not loaded then
+        return nil
+    end
     local ok, tags = pcall(loaded.lex, loaded, source)
-    if not ok or type(tags) ~= "table" then return nil end
+    if not ok or type(tags) ~= "table" then
+        return nil
+    end
     local out, start = {}, 1
     for index = 1, #tags, 2 do
         local finish = tonumber(tags[index + 1])
-        if not finish then return nil end
+        if not finish then
+            return nil
+        end
         local text = source:sub(start, finish - 1)
         local style = scintilluaStyle(tags[index])
         if style then
@@ -315,12 +386,16 @@ local function highlightScintillua(source, language)
         end
         start = finish
     end
-    if start <= #source then out[#out + 1] = htmlEscape(source:sub(start)) end
+    if start <= #source then
+        out[#out + 1] = htmlEscape(source:sub(start))
+    end
     return table.concat(out)
 end
 
 local function codeHtml(source, language, links)
-    if language == "nupp" then return highlightNupp(source, links) end
+    if language == "nupp" then
+        return highlightNupp(source, links)
+    end
     return highlightScintillua(source, language) or htmlEscape(source)
 end
 

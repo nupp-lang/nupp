@@ -12,21 +12,27 @@ local cst = require("nupp.cst")
 local tree = {}
 
 function tree.tokenAt(result, offset)
-    if not result then return nil end
+    if not result then
+        return nil
+    end
     local previous = nil
     for _, tok in ipairs(result.tokens or {}) do
         if tok.kind ~= "eof" then
             if offset >= tok.offset and offset < tok.offset + #tok.text then
                 return tok
             end
-            if tok.offset + #tok.text == offset then previous = tok end
+            if tok.offset + #tok.text == offset then
+                previous = tok
+            end
         end
     end
     return previous
 end
 
 function tree.symbolKey(def)
-    if not def or not def.filename or not def.token then return nil end
+    if not def or not def.filename or not def.token then
+        return nil
+    end
     return def.filename .. ":" .. tostring(def.token.offset)
 end
 
@@ -54,14 +60,22 @@ end
 -- document being edited.
 function tree.documentationAt(tokens, index)
     local tok = tokens[index]
-    if not tok then return nil end
+    if not tok then
+        return nil
+    end
     local docs = tree.fromTrivia(tok.trivia)
-    if docs then return docs end
+    if docs then
+        return docs
+    end
     for cursor = index - 1, 1, -1 do
         local candidate = tokens[cursor]
-        if candidate.line ~= tok.line then break end
+        if candidate.line ~= tok.line then
+            break
+        end
         docs = tree.fromTrivia(candidate.trivia)
-        if docs then return docs end
+        if docs then
+            return docs
+        end
     end
     return nil
 end
@@ -120,10 +134,14 @@ end
 -- as it was or did not.
 
 function tree.walkNodes(node, visit)
-    if not node or cst.isToken(node) then return end
+    if not node or cst.isToken(node) then
+        return
+    end
     visit(node)
     for _, child in ipairs(node) do
-        if not cst.isToken(child) then tree.walkNodes(child, visit) end
+        if not cst.isToken(child) then
+            tree.walkNodes(child, visit)
+        end
     end
 end
 
@@ -167,12 +185,16 @@ function tree.memberHolder(node)
     if node.kind == "dotIndex" or node.kind == "methodCall"
         or node.kind == "safeIndex" then
         local obj = node.obj
-        if obj and obj.kind == "name" then return obj.token, node.name end
+        if obj and obj.kind == "name" then
+            return obj.token, node.name
+        end
         return nil
     end
     if node.kind == "funcStmt" then
         local fname = node.name
-        if not fname or fname.kind ~= "funcname" then return nil end
+        if not fname or fname.kind ~= "funcname" then
+            return nil
+        end
         local names = {}
         for _, child in ipairs(fname) do
             if cst.isToken(child) and child.kind == "name" then
@@ -181,7 +203,9 @@ function tree.memberHolder(node)
         end
         -- One table deep, the depth a qualified declaration is held to. `function
         -- m.a.b` attaches to a table the module happens to hold.
-        if #names ~= 2 then return nil end
+        if #names ~= 2 then
+            return nil
+        end
         return names[1], names[2]
     end
     return nil
@@ -195,8 +219,12 @@ function tree.functionSignature(stat)
     local block = stat.body and stat.body.body
     local parts, first, done = {}, true, false
     local function walk(node)
-        if done then return end
-        if node == block then done = true return end
+        if done then
+            return
+        end
+        if node == block then
+            done = true return
+        end
         if cst.isToken(node) then
             if not first then
                 for _, trivia in ipairs(node.trivia) do
@@ -216,9 +244,13 @@ end
 --- The module a name in `result` holds, or nil. A name bound to `require("m")` holds m;
 --- the local a file returns holds the file's own module.
 function tree.moduleHeld(result, tok)
-    if not tok then return nil end
+    if not tok then
+        return nil
+    end
     local def = tok.definition
-    if def and def.requiredModule then return def.requiredModule end
+    if def and def.requiredModule then
+        return def.requiredModule
+    end
     if result.moduleName and result.moduleLocal == tok.text then
         return result.moduleName
     end
@@ -232,8 +264,12 @@ function tree.memberOccurrences(result, moduleName, memberName)
     local found = {}
     tree.walkNodes(result.root, function(node)
         local holder, member = tree.memberHolder(node)
-        if not member or member.text ~= memberName then return end
-        if tree.moduleHeld(result, holder) ~= moduleName then return end
+        if not member or member.text ~= memberName then
+            return
+        end
+        if tree.moduleHeld(result, holder) ~= moduleName then
+            return
+        end
         found[#found + 1] = {
             token = member,
             stat = node.kind == "funcStmt" and node or nil,
@@ -247,9 +283,13 @@ end
 function tree.moduleMemberDeclarations(result, moduleName)
     local found = {}
     tree.walkNodes(result.root, function(node)
-        if node.kind ~= "funcStmt" then return end
+        if node.kind ~= "funcStmt" then
+            return
+        end
         local holder, member = tree.memberHolder(node)
-        if not member or tree.moduleHeld(result, holder) ~= moduleName then return end
+        if not member or tree.moduleHeld(result, holder) ~= moduleName then
+            return
+        end
         found[#found + 1] = {name = member.text, token = member, stat = node}
     end)
     table.sort(found, function(a, b) return a.token.offset < b.token.offset end)
@@ -261,7 +301,9 @@ function tree.moduleMemberAt(result, offset)
     local best = nil
     tree.walkNodes(result.root, function(node)
         local holder, member = tree.memberHolder(node)
-        if not member or not holder then return end
+        if not member or not holder then
+            return
+        end
         if offset < member.offset
             or offset >= member.offset + #member.text then
             return
@@ -285,9 +327,13 @@ end
 function tree.enclosingChain(result, offset)
     local chain = {}
     local function walk(node)
-        if cst.isToken(node) then return end
+        if cst.isToken(node) then
+            return
+        end
         local from, to = tree.nodeBounds(node)
-        if not from or offset < from or offset > to then return end
+        if not from or offset < from or offset > to then
+            return
+        end
         chain[#chain + 1] = {from = from, to = to}
         for _, child in ipairs(node) do walk(child) end
     end
@@ -311,7 +357,9 @@ function tree.enclosingBlock(root, stat)
     tree.walkNodes(root, function(node)
         if node.kind == "block" then
             for i, s in ipairs(node.stats or {}) do
-                if s == stat then block, index = node, i end
+                if s == stat then
+                    block, index = node, i
+                end
             end
         end
     end)
@@ -326,7 +374,9 @@ function tree.innermostAt(root, kinds, from, to)
             local first, last = tree.nodeBounds(node)
             if first and from >= first and to <= last then
                 local size = last - first
-                if not bestSize or size < bestSize then best, bestSize = node, size end
+                if not bestSize or size < bestSize then
+                    best, bestSize = node, size
+                end
             end
         end
     end)
@@ -337,9 +387,13 @@ end
 function tree.mentions(node, def)
     local found = false
     local function walk(value)
-        if found then return end
+        if found then
+            return
+        end
         if cst.isToken(value) then
-            if value.definition and value.definition == def then found = true end
+            if value.definition and value.definition == def then
+                found = true
+            end
         else
             for _, child in ipairs(value) do walk(child) end
         end

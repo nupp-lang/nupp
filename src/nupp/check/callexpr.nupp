@@ -43,10 +43,10 @@ function callexpr.install(c: any): any
     local handlers = {}
 
     handlers.call = function(node: cst.Call | cst.SafeCall): Type
-        -- The intrinsic dispatch below asks the same three questions of every call
-        -- — what is being called, what it is dotted off, and what was passed — so
-        -- they are answered once here. An empty name matches nothing, which is what
-        -- a callee of another shape is.
+        -- The intrinsic dispatch below asks the same three questions of every call —
+        -- what is being called, what it is dotted off, and what was passed — so they
+        -- are answered once here. An empty name matches nothing, which is what a callee
+        -- of another shape is.
         local callee = node.obj
         local calleeName, baseName, memberName = "", "", ""
         local typeArg: Node? = nil
@@ -107,7 +107,9 @@ function callexpr.install(c: any): any
                 return T.borrowed(rawType(valueT))
             elseif intrinsic == "borrowFrom" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
-                if args[2] then c.infer(args[2]) end
+                if args[2] then
+                    c.infer(args[2])
+                end
                 local source = args[2] and c.ownershipEntry(args[2]) or nil
                 if #args ~= 2 or c.ownershipKind(valueT)
                     or not c.pointerShaped(valueT) or not source then
@@ -123,7 +125,9 @@ function callexpr.install(c: any): any
                 return T.borrowed(rawType(valueT))
             elseif intrinsic == "pin" then
                 local pointerT = args[1] and c.infer(args[1]) or T.any
-                if args[2] then c.infer(args[2]) end
+                if args[2] then
+                    c.infer(args[2])
+                end
                 if #args ~= 2 or not c.pointerShaped(pointerT) then
                     c.diag("NUPP2602", node,
                         "pin expects a pointer and its managed anchor")
@@ -191,10 +195,10 @@ function callexpr.install(c: any): any
                         "dispose needs @owned cleanup functions; transfer this owner "
                         .. "to a declared takes parameter")
                 end
-                -- The contract was validated where it was written, so an
-                -- unresolvable name is not re-reported as a declaration error
-                -- here. What a dispose does have to establish is that the cleanup
-                -- can be called from this module, since that is what it emits.
+                -- The contract was validated where it was written, so an unresolvable
+                -- name is not re-reported as a declaration error here. What a dispose
+                -- does have to establish is that the cleanup can be called from this
+                -- module, since that is what it emits.
                 c.validateCleanups(valueT, valueT.cleanups,
                     args[1] or node, nil, true)
                 c.own.requireReachableCleanups(valueT, valueT.cleanups,
@@ -209,16 +213,20 @@ function callexpr.install(c: any): any
             node.cdefCall = entry and entry.definition
                 and entry.definition.cdef or false
         end
-        -- require("mod") resolves to the module's type when the module can be found.
-        -- An undeclared Lua module stays gradual by default, but strict checking
-        -- exposes that untyped boundary as unknown so it must be narrowed or cast.
+        -- require("mod") resolves to the module's type when the module can be found. An
+        -- undeclared Lua module stays gradual by default, but strict checking exposes
+        -- that untyped boundary as unknown so it must be narrowed or cast.
         if calleeName == "require"
             and c.env and c.env.resolveModule then
             local tok = nil
             if argsNode then
                 local e1 = argExprs[1]
-                if e1 and e1.kind == "string" then tok = e1.token end
-                if argStr then tok = argStr end
+                if e1 and e1.kind == "string" then
+                    tok = e1.token
+                end
+                if argStr then
+                    tok = argStr
+                end
             end
             if tok then
                 local text = tok.text
@@ -226,18 +234,22 @@ function callexpr.install(c: any): any
                 if modname then
                     node.requiredModule = modname
                     local mt = c.env.resolveModule(c.env, modname)
-                    if mt then return mt end
+                    if mt then
+                        return mt
+                    end
                 end
             end
             return c.opts and c.opts.strict and T.unknown or T.any
         end
         -- The same operations written the way LuaJIT has always been written: a
-        -- constant type string is read by the compiler, so existing FFI code gets
-        -- types without being rewritten. A string built at run time yields cdata
-        -- rather than any, which keeps leaving the typed path visible.
+        -- constant type string is read by the compiler, so existing FFI code gets types
+        -- without being rewritten. A string built at run time yields cdata rather than
+        -- any, which keeps leaving the typed path visible.
         local intrinsic = inferFfiIntrinsic(node, calleeName, baseName,
             memberName, typeArg, argExprs, argStr)
-        if intrinsic then return intrinsic end
+        if intrinsic then
+            return intrinsic
+        end
         local calleeT = callee and c.infer(callee) or T.any
         node.calleeType = rawType(calleeT)
         local knownAts = nil
@@ -264,8 +276,8 @@ function callexpr.install(c: any): any
             end
         end
         -- A direct metatable literal is an ordinary runtime value, but a misspelled
-        -- double-underscore key is almost certainly a broken contract.
-        -- Computed/generic metatables stay unchecked.
+        -- double-underscore key is almost certainly a broken contract. Computed/generic
+        -- metatables stay unchecked.
         if calleeName == "setmetatable" then
             local args = argExprs
             local mt = args[2]
@@ -278,7 +290,7 @@ function callexpr.install(c: any): any
                             c.diag("NUPP2118", field.name,
                                 ("unknown metatable key %q"):format(name),
                                 c.edits.spellingFix(field.name,
-                                    operators.runtimeMetamethod))
+                                operators.runtimeMetamethod))
                         end
                     end
                 end
@@ -292,23 +304,33 @@ function callexpr.install(c: any): any
 
     handlers.methodCall = function(node: cst.MethodCall): Type
         local receiver, member = node.obj, node.name
-        if not receiver or not member then return T.any end
+        if not receiver or not member then
+            return T.any
+        end
         local ot = c.infer(receiver)
-        -- `o?.:m()` tolerates a nil receiver and `o:m?.()` a nil method;
-        -- either check makes the whole call optional, and both drop the nil
-        -- they check for before the lookup that follows.
+        -- `o?.:m()` tolerates a nil receiver and `o:m?.()` a nil method; either check
+        -- makes the whole call optional, and both drop the nil they check for before
+        -- the lookup that follows.
         local optional = node.safeObj ~= nil or node.safeMethod ~= nil
         local function withoutNil(t: Type): Type
-            if t.tag ~= "union" then return t end
+            if t.tag ~= "union" then
+                return t
+            end
             local nonnil = {}
             for _, m in ipairs(t.members) do
-                if m ~= T.nil_ then nonnil[#nonnil + 1] = m end
+                if m ~= T.nil_ then
+                    nonnil[#nonnil + 1] = m
+                end
             end
             return T.union(nonnil)
         end
-        if node.safeObj then ot = withoutNil(ot) end
+        if node.safeObj then
+            ot = withoutNil(ot)
+        end
         local mt, fieldDef = c.fieldType(ot, member.text)
-        if mt and node.safeMethod then mt = withoutNil(mt) end
+        if mt and node.safeMethod then
+            mt = withoutNil(mt)
+        end
         if mt then
             c.markToken(member, fieldDef, mt,
                 mt.tag == "func" and "method" or "property")
@@ -328,7 +350,9 @@ function callexpr.install(c: any): any
                     or "check the receiver type and available methods"})
             end
         end
-        if node.args then c.inferCall(node, T.any, node.args) end
+        if node.args then
+            c.inferCall(node, T.any, node.args)
+        end
         return T.any
     end
     return handlers

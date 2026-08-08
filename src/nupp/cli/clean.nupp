@@ -14,15 +14,15 @@ local command = spec.command{
     usage = {"nupp clean [--target NAME] [--dry-run] [--format text|json]"},
     options = require("nupp.cli.options").join(
         {name = "--target", value = "NAME",
-            help = "Clean only the named build target"},
+        help = "Clean only the named build target"},
         {name = "--dry-run", help = "Print output paths without removing them"},
         require("nupp.cli.options").format()),
     schema = {
         type = "object",
         properties = {
             removed = {type = "array", items = {type = "string"},
-                description = "The output paths, removed unless dryRun is set, "
-                    .. "in which case these are the paths that would be."},
+            description = "The output paths, removed unless dryRun is set, "
+            .. "in which case these are the paths that would be."},
             dryRun = {type = "boolean"},
             ok = {type = "boolean"},
         },

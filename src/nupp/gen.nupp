@@ -47,8 +47,8 @@ local TYPE_KINDS = {
     generics = true,
 }
 
--- Erased declarations. recordDecl is conditional: declKind == "struct"
--- reifies to ffi.typeof instead (M3).
+-- Erased declarations. recordDecl is conditional: declKind == "struct" reifies to
+-- ffi.typeof instead (M3).
 local DECL_KINDS = {
     recordDecl = true, typeAlias = true,
 }
@@ -56,38 +56,50 @@ local DECL_KINDS = {
 -- C type names for reifiable primitive fields.
 local CP -- assigned to C_PRIM below (cdefCType is defined first)
 
--- Maps a syntactic type node to a C type string for cdef emission.
--- Uses checker hints (cdefName) for named C structs. Returns nil when the
--- type has no C spelling.
+-- Maps a syntactic type node to a C type string for cdef emission. Uses checker hints
+-- (cdefName) for named C structs. Returns nil when the type has no C spelling.
 local function cdefCType(t)
-    if t.kind == "topt" then t = t.inner end
+    if t.kind == "topt" then
+        t = t.inner
+    end
     if t.kind == "tname" then
         local name = t.base.text
-        if name == "cstring" then return "const char *" end
-        if name == "voidptr" then return "void *" end
-        if t.cdefName then return "struct " .. t.cdefName end
+        if name == "cstring" then
+            return "const char *"
+        end
+        if name == "voidptr" then
+            return "void *"
+        end
+        if t.cdefName then
+            return "struct " .. t.cdefName
+        end
         return CP[name]
     elseif t.kind == "tconst" then
         local inner = cdefCType(t.inner)
-        if inner then return "const " .. inner end
+        if inner then
+            return "const " .. inner
+        end
     elseif t.kind == "tcarray" then
-        -- `T[?]` and `T[N]` spell as C writes them. A cast is the exception,
-        -- and the caller below handles it: LuaJIT has no cast to a
-        -- variable-length array, and a pointer is what viewing memory as one
-        -- means anyway.
+        -- `T[?]` and `T[N]` spell as C writes them. A cast is the exception, and the
+        -- caller below handles it: LuaJIT has no cast to a variable-length array, and a
+        -- pointer is what viewing memory as one means anyway.
         local element = cdefCType(t.element)
         if element then
             return element .. "[" .. (t.count and t.count.text or "?") .. "]"
         end
     elseif t.kind == "tptr" then
         local inner = cdefCType(t.inner)
-        if inner then return inner .. " *" end
+        if inner then
+            return inner .. " *"
+        end
     elseif t.kind == "tfunc" then
         local params = {}
         for _, param in ipairs(t.params or {}) do
             if param.type then
                 local rendered = cdefCType(param.type)
-                if not rendered then return nil end
+                if not rendered then
+                    return nil
+                end
                 params[#params + 1] = rendered
             elseif param[1] and cst.isToken(param[1])
                 and param[1].kind == "..." then
@@ -96,9 +108,13 @@ local function cdefCType(t)
         end
         local ret = "void"
         if t.rets and #t.rets > 0 then
-            if #t.rets > 1 then return nil end
+            if #t.rets > 1 then
+                return nil
+            end
             ret = cdefCType(t.rets[1])
-            if not ret then return nil end
+            if not ret then
+                return nil
+            end
         end
         return ("%s (*)(%s)"):format(ret,
             #params > 0 and table.concat(params, ", ") or "void")
@@ -115,8 +131,8 @@ local C_PRIM = {
 }
 CP = C_PRIM
 
--- The two compound assignments this runtime does not have. Every other one is
--- written out as it was read.
+-- The two compound assignments this runtime does not have. Every other one is written
+-- out as it was read.
 local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
 
 -- `is` targets checkable with type(); sized numerics approximate to number.
@@ -129,9 +145,9 @@ local IS_TYPE = {
     ["function"] = "function", -- spelled via tfunc, handled separately
 }
 
--- Converts an interpolated-string literal chunk to a quoted Lua string.
--- Source escapes (\n, \t, ...) pass through; \` and \$ lose their
--- backslash (Lua doesn't know them); bare " and raw newlines get escaped.
+-- Converts an interpolated-string literal chunk to a quoted Lua string. Source escapes
+-- (\n, \t, ...) pass through; \` and \$ lose their backslash (Lua doesn't know them);
+-- bare " and raw newlines get escaped.
 local function quoteChunk(s)
     s = s:gsub("\\([`$])", "%1")
     s = s:gsub('"', '\\"')
@@ -139,11 +155,13 @@ local function quoteChunk(s)
     return '"' .. s .. '"'
 end
 
--- The runtime name of a declaration written with a qualified name, which is an
--- ordinary field assignment: `record M.Point` lands on `M.Point`. Unqualified
--- declarations have no path and keep their storage decided by visibility.
+-- The runtime name of a declaration written with a qualified name, which is an ordinary
+-- field assignment: `record M.Point` lands on `M.Point`. Unqualified declarations have
+-- no path and keep their storage decided by visibility.
 local function declPath(x)
-    if not x.qualifiers then return nil end
+    if not x.qualifiers then
+        return nil
+    end
     local parts = {}
     for _, token in ipairs(x.qualifiers) do
         parts[#parts + 1] = token.text
@@ -160,7 +178,9 @@ function gen.generate(result, filename)
     local tempCounter = 0
     local usedNames = {}
     for _, tok in ipairs(result.tokens or {}) do
-        if tok.kind == "name" then usedNames[tok.text] = true end
+        if tok.kind == "name" then
+            usedNames[tok.text] = true
+        end
     end
     local function nextTemp()
         local name
@@ -177,13 +197,12 @@ function gen.generate(result, filename)
     local needsNewTab = false
     local needsWith = false
     local withPackName, withIdName, withFailureName
-    -- Generated `with` code calls library functions by name, so those names
-    -- are bound as locals on the hoisted first line: a user local called
-    -- `unpack` or `error` would otherwise shadow them at the point of use.
+    -- Generated `with` code calls library functions by name, so those names are bound
+    -- as locals on the hoisted first line: a user local called `unpack` or `error`
+    -- would otherwise shadow them at the point of use.
     local withGlobals
-    -- One table holds every shareable region, each site owning an index, so
-    -- the count of `with` statements in a file cannot exhaust Lua's limit on
-    -- locals per function.
+    -- One table holds every shareable region, each site owning an index, so the count
+    -- of `with` statements in a file cannot exhaust Lua's limit on locals per function.
     local withCacheName
     local withCacheSites = 0
     local withStack = {}
@@ -219,18 +238,26 @@ function gen.generate(result, filename)
     -- Emit one piece of code attributed to a source line.
     local function e(text, line)
         sync(line)
-        if not atLineStart then raw(" ") end
+        if not atLineStart then
+            raw(" ")
+        end
         raw(text)
     end
 
     local emit
 
     local function sourceLine(node)
-        if not node then return nil end
-        if cst.isToken(node) then return node.line end
+        if not node then
+            return nil
+        end
+        if cst.isToken(node) then
+            return node.line
+        end
         for _, child in ipairs(node) do
             local line = sourceLine(child)
-            if line then return line end
+            if line then
+                return line
+            end
         end
         return nil
     end
@@ -244,9 +271,15 @@ function gen.generate(result, filename)
     local function labelsIn(block)
         local labels = {}
         local function walk(n)
-            if not n or cst.isToken(n) then return end
-            if n.kind == "funcbody" then return end
-            if n.kind == "withStmt" then return end
+            if not n or cst.isToken(n) then
+                return
+            end
+            if n.kind == "funcbody" then
+                return
+            end
+            if n.kind == "withStmt" then
+                return
+            end
             if n.kind == "labelStmt" and n.name then
                 labels[n.name.text] = true
             end
@@ -256,16 +289,20 @@ function gen.generate(result, filename)
         return labels
     end
 
-    -- `...` cannot cross the protected region's function boundary, so a body
-    -- that reads it makes the region variadic and the varargs are forwarded
-    -- through xpcall. Nested `with` bodies are searched too, so an inner
-    -- region's varargs are forwarded down through every enclosing region;
-    -- nested functions are not, because they bind their own `...`.
+    -- `...` cannot cross the protected region's function boundary, so a body that reads
+    -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
+    -- `with` bodies are searched too, so an inner region's varargs are forwarded down
+    -- through every enclosing region; nested functions are not, because they bind their
+    -- own `...`.
     local function usesVararg(block)
         local found = false
         local function walk(n)
-            if found or not n or cst.isToken(n) then return end
-            if n.kind == "funcbody" or n.kind == "shortfn" then return end
+            if found or not n or cst.isToken(n) then
+                return
+            end
+            if n.kind == "funcbody" or n.kind == "shortfn" then
+                return
+            end
             if n.kind == "vararg" then
                 found = true
                 return
@@ -278,14 +315,18 @@ function gen.generate(result, filename)
 
     local function activeWith()
         local ctx = withStack[#withStack]
-        if ctx and ctx.functionDepth == emitFunctionDepth then return ctx end
+        if ctx and ctx.functionDepth == emitFunctionDepth then
+            return ctx
+        end
         return nil
     end
 
     local function emitPackedReturn(ctx, x)
         e(("return \"return\",%s("):format(withPackName), sourceLine(x))
         for j, expr in ipairs(x.exprs or {}) do
-            if j > 1 then e(",") end
+            if j > 1 then
+                e(",")
+            end
             emit(expr)
         end
         e(")")
@@ -293,8 +334,12 @@ function gen.generate(result, filename)
 
     emit = function(x)
         if cst.isToken(x) then
-            if x.missing or x.kind == "eof" then return end
-            if x.typeColon or x.typeSeparator then return end
+            if x.missing or x.kind == "eof" then
+                return
+            end
+            if x.typeColon or x.typeSeparator then
+                return
+            end
             local text = x.text
             if x.kind == "string" and text:sub(1, 1) == "`" then
                 -- backtick string without interpolation -> quoted string
@@ -306,9 +351,9 @@ function gen.generate(result, filename)
 
         local kind = x.kind
         if kind == "recordDecl" and x.isAnnotationDefinition then
-            -- Annotation schemas are compile-time model metadata, even when
-            -- written with `record` or `struct`; they have no runtime value or
-            -- FFI layout of their own.
+            -- Annotation schemas are compile-time model metadata, even when written
+            -- with `record` or `struct`; they have no runtime value or FFI layout of
+            -- their own.
             return
         end
         if x.passPinnedPointer then
@@ -325,28 +370,38 @@ function gen.generate(result, filename)
         end
         if kind == "assignStmt" and x.isConst then
             for i, target in ipairs(x.targets or {}) do
-                if i > 1 then e(",") end
+                if i > 1 then
+                    e(",")
+                end
                 emit(target)
             end
             e("=")
             for i, value in ipairs(x.exprs or {}) do
-                if i > 1 then e(",") end
+                if i > 1 then
+                    e(",")
+                end
                 emit(value)
             end
             return
         end
         if kind == "fieldNamed" and x.isConst then
-            if x.name then emit(x.name) end
+            if x.name then
+                emit(x.name)
+            end
             e("=")
-            if x.value then emit(x.value) end
+            if x.value then
+                emit(x.value)
+            end
             return
         end
         if kind == "ifStmt" and (x.constantBranch or x.constantBranchNone) then
-            -- OPT-3: every condition was a primitive constant. A `do` block
-            -- preserves the selected arm's local scope while the source lines
-            -- of the omitted arms remain blank.
+            -- OPT-3: every condition was a primitive constant. A `do` block preserves
+            -- the selected arm's local scope while the source lines of the omitted arms
+            -- remain blank.
             e("do", sourceLine(x))
-            if x.constantBranch then emit(x.constantBranch) end
+            if x.constantBranch then
+                emit(x.constantBranch)
+            end
             local endTok
             for i = #x, 1, -1 do
                 local child = x[i]
@@ -359,9 +414,9 @@ function gen.generate(result, filename)
             return
         end
         if kind == "recordDecl" and x.declKind == "record" then
-            -- Records keep a runtime table: `function R:m()` attaches to it
-            -- and `R{...}` stamps it as the instance metatable, which is
-            -- what gives a record its identity at run time.
+            -- Records keep a runtime table: `function R:m()` attaches to it and
+            -- `R{...}` stamps it as the instance metatable, which is what gives a
+            -- record its identity at run time.
             local line = sourceLine(x)
             local path = declPath(x)
             local runtimeName = x.recordRuntimeName or path or x.name.text
@@ -384,9 +439,9 @@ function gen.generate(result, filename)
         end
 
         if kind == "recordDecl" and x.declKind == "struct" then
-            -- struct S { a: float, b: OtherStruct, p: S* } lowers to
-            --   local S = __nuppFfi.typeof("struct { float a; $ b; $ *p; }",
-            --                               OtherStruct, S_is_forward_error)
+            -- struct S { a: float, b: OtherStruct, p: S* } lowers to local S =
+            -- __nuppFfi.typeof("struct { float a; $ b; $ *p; }", OtherStruct,
+            -- S_is_forward_error)
             needsFfi = true
             local cdecl, params = {}, {}
             for _, entry in ipairs(x.entries) do
@@ -394,7 +449,9 @@ function gen.generate(result, filename)
                     local fname = entry.name.text
                     local t = entry.type
                     -- unwrap optional wrapper (S*? has the same representation)
-                    if t.kind == "topt" then t = t.inner end
+                    if t.kind == "topt" then
+                        t = t.inner
+                    end
                     if t.kind == "tname" and C_PRIM[t.base.text] then
                         cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. ";"
                     elseif t.kind == "tname" then
@@ -423,9 +480,9 @@ function gen.generate(result, filename)
             local path = declPath(x)
             local storage = path and ""
                 or x.visibility == "global" and "" or "local "
-            -- The metatable is created up front so members declared later
-            -- (function S:m()) have somewhere to attach; ffi.metatype hands
-            -- back the ctype, which stays callable as the constructor.
+            -- The metatable is created up front so members declared later (function
+            -- S:m()) have somewhere to attach; ffi.metatype hands back the ctype, which
+            -- stays callable as the constructor.
             local mt = "__nuppMt_" .. x.name.text
             local expr = "local " .. mt .. " = {__index = {}} " .. storage
                 .. (path or x.name.text)
@@ -496,8 +553,8 @@ function gen.generate(result, filename)
                 #params > 0 and table.concat(params, ", ") or "void")
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
-            -- symbols come from the default namespace unless a library is
-            -- named, in which case they resolve through a cached ffi.load
+            -- symbols come from the default namespace unless a library is named, in
+            -- which case they resolve through a cached ffi.load
             local ns = "__nuppFfi.C"
             if x.fromLib then
                 needsLibs = true
@@ -530,8 +587,8 @@ function gen.generate(result, filename)
                 emit(x.expr)
                 e(') == "function" )')
             elseif t.recordName then
-                -- a record stamps its runtime table as the metatable, so
-                -- identity is the test
+                -- a record stamps its runtime table as the metatable, so identity is
+                -- the test
                 e("( getmetatable(", firstTok and firstTok.line)
                 emit(x.expr)
                 e(") == " .. t.recordName .. " )")
@@ -549,10 +606,10 @@ function gen.generate(result, filename)
             end
 
         elseif kind == "shortfn" then
-            -- The pipes and the arrow survive; only the parameter annotations
-            -- go. A named vararg does not: the runtime has no `...name`, so
-            -- that one form still becomes an ordinary function expression
-            -- around the table it stands for.
+            -- The pipes and the arrow survive; only the parameter annotations go. A
+            -- named vararg does not: the runtime has no `...name`, so that one form
+            -- still becomes an ordinary function expression around the table it stands
+            -- for.
             local first = x[1]
             local line = first and (cst.isToken(first) and first.line
                 or (first[1] and first[1].line))
@@ -564,9 +621,9 @@ function gen.generate(result, filename)
                 e("|" .. table.concat(names, ", ") .. "| ->", line)
                 emitFunctionDepth = emitFunctionDepth + 1
                 if x.expr then
-                    -- Parentheses force the expression form to return exactly
-                    -- one result, as LuaJIT 3.0 specifies it; the 2.1
-                    -- backport passes a multi-return body through.
+                    -- Parentheses force the expression form to return exactly one
+                    -- result, as LuaJIT 3.0 specifies it; the 2.1 backport passes a
+                    -- multi-return body through.
                     e("(")
                     emit(x.expr)
                     e(")")
@@ -587,8 +644,8 @@ function gen.generate(result, filename)
             e(("const %s = { n = select(\"#\", ...), ... }")
                 :format(x.varargParam.name.text))
             if x.expr then
-                -- Parentheses force the expression form to return exactly one
-                -- result, even when its body is a multi-return call.
+                -- Parentheses force the expression form to return exactly one result,
+                -- even when its body is a multi-return call.
                 e("return (")
                 emit(x.expr)
                 e(")")
@@ -625,19 +682,25 @@ function gen.generate(result, filename)
                         chunk = text:sub(2, -2)
                     end
                     if chunk and #chunk > 0 then
-                        if piecesOpen then e("..") end
+                        if piecesOpen then
+                            e("..")
+                        end
                         e(quoteChunk(chunk), child.line)
                         piecesOpen = true
                     end
                 else
-                    if piecesOpen then e("..") end
+                    if piecesOpen then
+                        e("..")
+                    end
                     e("tostring(")
                     emit(child)
                     e(")")
                     piecesOpen = true
                 end
             end
-            if not piecesOpen then e('""') end
+            if not piecesOpen then
+                e('""')
+            end
             e(")")
 
         elseif kind == "binop" and x.op.kind == "//" then
@@ -648,19 +711,18 @@ function gen.generate(result, filename)
             e("))")
 
         elseif kind == "compoundAssign" and LOWERED_COMPOUND[x.op.kind] then
-            -- Only the two the runtime lacks are lowered. Both read the target
-            -- and then write it, so an indexed target's prefix and key are
-            -- bound to temporaries first: `obj.f //= v` must not re-run
-            -- whatever produced obj.
+            -- Only the two the runtime lacks are lowered. Both read the target and then
+            -- write it, so an indexed target's prefix and key are bound to temporaries
+            -- first: `obj.f //= v` must not re-run whatever produced obj.
             local base = x.op.kind:sub(1, -2)
             local target = x.target
             local first = target[1]
             local line = first and cst.isToken(first) and first.line
                 or (cst.isToken(target) and target.line or nil)
-            -- Writes the assignment for a target already reduced to a slot
-            -- expression that is cheap and safe to name twice. A `?.` slot
-            -- suppresses both the read and the write on a nil receiver, which
-            -- is what the operator promises.
+            -- Writes the assignment for a target already reduced to a slot expression
+            -- that is cheap and safe to name twice. A `?.` slot suppresses both the
+            -- read and the write on a nil receiver, which is what the operator
+            -- promises.
             local function assignTo(slot, at)
                 if base == "??" then
                     e(("if %s == nil then %s = "):format(slot, slot), at)
@@ -717,7 +779,9 @@ function gen.generate(result, filename)
             end
             local hasStatus = x.ffiOutContracts[1].hasStatus
             local status = hasStatus and nextTemp() or nil
-            if status then e("local " .. status .. "=") end
+            if status then
+                e("local " .. status .. "=")
+            end
             emit(x.obj)
             e("(")
             local args = x.args and x.args.exprs or {}
@@ -727,7 +791,9 @@ function gen.generate(result, filename)
             end
             local argumentIndex = 1
             for cIndex = 1, #args + #holders do
-                if cIndex > 1 then e(",") end
+                if cIndex > 1 then
+                    e(",")
+                end
                 if outputAt[cIndex] then
                     e(outputAt[cIndex])
                 else
@@ -736,9 +802,13 @@ function gen.generate(result, filename)
                 end
             end
             e("); return ")
-            if status then e(status) end
+            if status then
+                e(status)
+            end
             for j, output in ipairs(x.ffiOutContracts) do
-                if status or j > 1 then e(",") end
+                if status or j > 1 then
+                    e(",")
+                end
                 if output.success == "zero" then
                     e(("(%s==0 and %s[0] or nil)"):format(status, holders[j]))
                 elseif output.success == "nonzero" then
@@ -758,19 +828,43 @@ function gen.generate(result, filename)
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
             if x.ownershipIntrinsic == "borrow" then
-                if args[1] then emit(args[1]) else e("nil", line) end
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil", line)
+                end
             elseif x.ownershipIntrinsic == "borrowFrom" then
-                if args[1] then emit(args[1]) else e("nil", line) end
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil", line)
+                end
             elseif x.ownershipIntrinsic == "pin" then
                 e("{pointer=", line)
-                if args[1] then emit(args[1]) else e("nil") end
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
                 e(",anchor=")
-                if args[2] then emit(args[2]) else e("nil") end
+                if args[2] then
+                    emit(args[2])
+                else
+                    e("nil")
+                end
                 e("}")
             elseif x.ownershipIntrinsic == "intoRaw" then
-                if args[1] then emit(args[1]) else e("nil") end
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
             elseif x.ownershipIntrinsic == "fromRaw" then
-                if args[1] then emit(args[1]) else e("nil") end
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
             else -- dispose
                 e("(function(__p) if __p == nil then return end ", line)
                 for _, cleanup in ipairs(x.ownerCleanups or {}) do
@@ -792,7 +886,11 @@ function gen.generate(result, filename)
                     end
                 end
                 e("end)(")
-                if args[1] then emit(args[1]) else e("nil") end
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
                 e(")")
             end
             return
@@ -802,15 +900,15 @@ function gen.generate(result, filename)
             needsFfi = true
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
-            -- a declared struct is already a ctype value; anything else is
-            -- named by its C spelling
+            -- a declared struct is already a ctype value; anything else is named by its
+            -- C spelling
             local ctypeExpr = x.ffiTypeName
             if not ctypeExpr then
                 local typeNode = x.ffiTypeNode
-                -- Viewing memory as a C array is a pointer cast. LuaJIT
-                -- refuses a cast to `T[?]` outright, and for `T[N]` it would
-                -- mean a pointer to the whole array rather than to its first
-                -- element, which is not what indexing the result expects.
+                -- Viewing memory as a C array is a pointer cast. LuaJIT refuses a cast
+                -- to `T[?]` outright, and for `T[N]` it would mean a pointer to the
+                -- whole array rather than to its first element, which is not what
+                -- indexing the result expects.
                 if x.ffiIntrinsic == "cast" and typeNode
                     and typeNode.kind == "tcarray" then
                     typeNode = typeNode.element
@@ -850,21 +948,23 @@ function gen.generate(result, filename)
             local line = first and cst.isToken(first) and first.line or nil
             e(("__nuppArray(%s)("):format(x.carrayElem), line)
             local args = x.args and x.args.exprs or {}
-            if args[2] then emit(args[2]) end
+            if args[2] then
+                emit(args[2])
+            end
             e(")")
             return
 
         elseif kind == "call" and x.cheaderCdef then
-            -- the declarations go in, and the library namespace comes out;
-            -- indexing it resolves each symbol
+            -- the declarations go in, and the library namespace comes out; indexing it
+            -- resolves each symbol
             needsFfi = true
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
             local ns = x.cheaderLib
                 and ("__nuppFfi.load(%q)"):format(x.cheaderLib)
                 or "__nuppFfi.C"
-            -- pcall: a header may be declared twice in one process, and
-            -- redeclaring a type is an error rather than a no-op
+            -- pcall: a header may be declared twice in one process, and redeclaring a
+            -- type is an error rather than a no-op
             e(("(function() pcall(__nuppFfi.cdef, %q) return %s end)()")
                 :format(x.cheaderCdef, ns), line)
             return
@@ -875,7 +975,9 @@ function gen.generate(result, filename)
             local line = first and cst.isToken(first) and first.line or nil
             e("setmetatable(", line)
             local tbl = x.args and (x.args.table or (x.args.exprs or {})[1])
-            if tbl then emit(tbl) end
+            if tbl then
+                emit(tbl)
+            end
             e(", " .. x.recordConstruct .. ")")
             return
 
@@ -900,7 +1002,9 @@ function gen.generate(result, filename)
                     :format(body.varargParam.name.text))
             end
             emitFunctionDepth = emitFunctionDepth + 1
-            if body.body then emit(body.body) end
+            if body.body then
+                emit(body.body)
+            end
             emitFunctionDepth = emitFunctionDepth - 1
             local endTok
             for j = #body, 1, -1 do
@@ -918,7 +1022,9 @@ function gen.generate(result, filename)
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
             local names = {}
-            if x.name.method then names[1] = "self" end
+            if x.name.method then
+                names[1] = "self"
+            end
             for _, p in ipairs(x.body.params or {}) do
                 if p.namedVararg then
                     names[#names + 1] = "..."
@@ -936,7 +1042,9 @@ function gen.generate(result, filename)
                     :format(x.body.varargParam.name.text))
             end
             emitFunctionDepth = emitFunctionDepth + 1
-            if x.body.body then emit(x.body.body) end
+            if x.body.body then
+                emit(x.body.body)
+            end
             emitFunctionDepth = emitFunctionDepth - 1
             -- close on the source's own `end` so the line count is unchanged
             local endTok
@@ -979,13 +1087,12 @@ function gen.generate(result, filename)
                 labels = labelsIn(x.body),
                 gotos = {},
             }
-            -- A body that resolves nothing from an enclosing scope produces a
-            -- region with no upvalues, so one region can serve every
-            -- execution. That is what lets a loop around a `with` compile at
-            -- all: building a closure per execution is `NYI: bytecode FNEW`
-            -- and aborts the enclosing trace whether or not it captures.
-            -- Acquisition moves out of the protected region because a lone
-            -- binding that fails to acquire leaves nothing to clean up.
+            -- A body that resolves nothing from an enclosing scope produces a region
+            -- with no upvalues, so one region can serve every execution. That is what
+            -- lets a loop around a `with` compile at all: building a closure per
+            -- execution is `NYI: bytecode FNEW` and aborts the enclosing trace whether
+            -- or not it captures. Acquisition moves out of the protected region because
+            -- a lone binding that fails to acquire leaves nothing to clean up.
             local shared = not x.capturesEnclosing
                 and #(x.bindings or {}) == 1
             if shared then
@@ -1001,7 +1108,9 @@ function gen.generate(result, filename)
                     binding.name.text, variadic and ",..." or ""))
                 withStack[#withStack + 1] = ctx
                 e("do")
-                if x.body then emit(x.body) end
+                if x.body then
+                    emit(x.body)
+                end
                 e(("end; return \"normal\" end; %s[%d]=%s end;")
                     :format(withCacheName, slot, region))
                 e(("local %s,%s,%s=%s(%s,%s,%s%s);"):format(
@@ -1024,7 +1133,9 @@ function gen.generate(result, filename)
                         count, j, binding.name.text, owners[j]))
                 end
                 e("do")
-                if x.body then emit(x.body) end
+                if x.body then
+                    emit(x.body)
+                end
                 e(("end; return \"normal\" end,%s%s);"):format(withIdName,
                     variadic and ",..." or ""))
                 withStack[#withStack] = nil
@@ -1143,13 +1254,17 @@ function gen.generate(result, filename)
             emit(operand)
             e((";for %s=1,%d do"):format(index, x.numericIpairs.length))
             local names = x.names or {}
-            if names[1] then e(("local %s=%s;"):format(names[1].text, index)) end
+            if names[1] then
+                e(("local %s=%s;"):format(names[1].text, index))
+            end
             if names[2] then
                 e(("local %s=%s[%s];"):format(names[2].text, holder, index))
             end
             for j = 3, #names do e(("local %s=nil;"):format(names[j].text)) end
             emitLoopDepth = emitLoopDepth + 1
-            if x.body then emit(x.body) end
+            if x.body then
+                emit(x.body)
+            end
             emitLoopDepth = emitLoopDepth - 1
             local endTok
             for j = #x, 1, -1 do
@@ -1189,17 +1304,21 @@ function gen.generate(result, filename)
             emitFunctionDepth = emitFunctionDepth - 1
 
         elseif kind == "pragmaStmt" then
-            if x.stat then emit(x.stat) end
+            if x.stat then
+                emit(x.stat)
+            end
 
         elseif kind == "unsafeStmt" then
             e("do", x.unsafeTok and x.unsafeTok.line or nil)
-            if x.body then emit(x.body) end
+            if x.body then
+                emit(x.body)
+            end
             e("end", x.endTok and x.endTok.line or nil)
 
         elseif kind == "localStmt" then
             emitChildren(x)
-            -- implicit zero-init: "local v: Vec2" (no initializer) constructs
-            -- the struct — never a nil struct binding
+            -- implicit zero-init: "local v: Vec2" (no initializer) constructs the
+            -- struct — never a nil struct binding
             if not x.exprs or #x.exprs == 0 then
                 local inits, lastStruct = {}, 0
                 for j = 1, #x.names do
@@ -1219,9 +1338,9 @@ function gen.generate(result, filename)
             end
 
         elseif kind == "tableExpr" and x.presize then
-            -- OPT-1: `{}` sized for the fields the optimizer counted. The call
-            -- replaces the constructor where it stands, so the line it is
-            -- attributed to does not move.
+            -- OPT-1: `{}` sized for the fields the optimizer counted. The call replaces
+            -- the constructor where it stands, so the line it is attributed to does not
+            -- move.
             needsNewTab = true
             e(("__nuppNew(%d,%d)"):format(x.presize.narr, x.presize.nhash),
                 sourceLine(x))
@@ -1273,9 +1392,9 @@ function gen.generate(result, filename)
             :format(withGlobals.tostring)
             .. "end return text end}) end; " .. code
     end
-    -- A project global is created by the module that declares it, so naming one
-    -- means that module has to have been loaded. Nothing is bound: the
-    -- declaration assigned the global itself.
+    -- A project global is created by the module that declares it, so naming one means
+    -- that module has to have been loaded. Nothing is bound: the declaration assigned
+    -- the global itself.
     if result.implicitSideEffects and next(result.implicitSideEffects) then
         local effects = {}
         for moduleName in pairs(result.implicitSideEffects) do

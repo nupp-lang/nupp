@@ -42,7 +42,9 @@ function narrowing.subtract(t: Type, rem: Type): Type
         return inner == t.inner and t or T.pinned(inner)
     end
     local function without(m: Type): Type?
-        if m.tag == "typevar" then return m end
+        if m.tag == "typevar" then
+            return m
+        end
         if m == T.boolean then
             if isA(T.literal(false, T.boolean), rem) then
                 return T.literal(true, T.boolean)
@@ -51,36 +53,54 @@ function narrowing.subtract(t: Type, rem: Type): Type
                 return T.literal(false, T.boolean)
             end
         end
-        if isA(m, rem) then return nil end
+        if isA(m, rem) then
+            return nil
+        end
         return m
     end
-    if t.tag ~= "union" then return without(t) or t end
+    if t.tag ~= "union" then
+        return without(t) or t
+    end
     local out: {Type} = {}
     local changed = false
     for _, m in ipairs(t.members) do
         local kept = without(m)
-        if kept ~= m then changed = true end
-        if kept then out[#out + 1] = kept end
+        if kept ~= m then
+            changed = true
+        end
+        if kept then
+            out[#out + 1] = kept
+        end
     end
     -- Subtracting every member proves this path has no value.
-    if #out == 0 then return T.never end
-    if not changed then return t end
+    if #out == 0 then
+        return T.never
+    end
+    if not changed then
+        return t
+    end
     return T.union(out)
 end
 
---- The values a type admits, when they can be counted: a single literal, or a union
---- of literals. Anything else has no finite set to speak of and yields nil, which is
---- what keeps exhaustiveness from guessing.
+--- The values a type admits, when they can be counted: a single literal, or a union of
+--- literals. Anything else has no finite set to speak of and yields nil, which is what
+--- keeps exhaustiveness from guessing.
 ---
 --- @param t the type to enumerate
 --- @return its members, or nil when they cannot be enumerated
 function narrowing.memberSet(t: Type?): {Type}?
-    if not t then return nil end
-    if t.tag == "literal" then return {t} end
+    if not t then
+        return nil
+    end
+    if t.tag == "literal" then
+        return {t}
+    end
     if t.tag == "union" then
         local out: {Type} = {}
         for _, m in ipairs(t.members) do
-            if m.tag ~= "literal" then return nil end
+            if m.tag ~= "literal" then
+                return nil
+            end
             out[#out + 1] = m
         end
         return out
@@ -98,12 +118,18 @@ end
 --- @return whether it was the counting that emptied it
 function narrowing.withoutMember(t: Type?, litT: Type): Type?, boolean?
     local members = narrowing.memberSet(t)
-    if not members then return nil end
+    if not members then
+        return nil
+    end
     local rest: {Type} = {}
     for _, m in ipairs(members) do
-        if m ~= litT then rest[#rest + 1] = m end
+        if m ~= litT then
+            rest[#rest + 1] = m
+        end
     end
-    if #rest == 0 then return nil, true end -- nothing left to hold
+    if #rest == 0 then
+        return nil, true
+    end -- nothing left to hold
     return T.union(rest), false
 end
 
@@ -116,15 +142,21 @@ end
 --- @return what it holds where the test passed, when that is narrower
 --- @return what it holds where the test failed, when that is narrower
 function narrowing.truthiness(vt: Type): Type?, Type?
-    if vt == T.any then return nil, nil end
+    if vt == T.any then
+        return nil, nil
+    end
     local FALSE_T = T.literal(false, T.boolean)
     local truthy = narrowing.subtract(narrowing.subtract(vt, T.nil_), FALSE_T)
     local falsy: {Type} = {}
     if vt == T.nil_ or (vt.tag == "union" and vt.hasNil) then
         falsy[#falsy + 1] = T.nil_
     end
-    if isA(FALSE_T, vt) then falsy[#falsy + 1] = FALSE_T end
-    if #falsy == 0 then return truthy, nil end
+    if isA(FALSE_T, vt) then
+        falsy[#falsy + 1] = FALSE_T
+    end
+    if #falsy == 0 then
+        return truthy, nil
+    end
     return truthy, T.union(falsy)
 end
 

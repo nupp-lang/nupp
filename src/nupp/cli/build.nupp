@@ -15,7 +15,7 @@ local command = spec.command{
     summary = "Build source files or a configured project target",
     usage = {
         "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]"
-            .. " [--format text|json]",
+        .. " [--format text|json]",
         "nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>",
     },
     options = optionsMod.join(
@@ -24,9 +24,9 @@ local command = spec.command{
         -- target's output, -o says where a named file's Lua goes. Distinct keys, so
         -- giving both is a contradiction the command can see.
         {name = "--out-dir", value = "DIR", key = "projectOutDir",
-            help = "Override the manifest target's output directory"},
+        help = "Override the manifest target's output directory"},
         {name = "-o", value = "DIR", key = "outDir",
-            help = "Output directory for explicit source-file builds"},
+        help = "Output directory for explicit source-file builds"},
         optionsMod.strict,
         optionsMod.optimize(),
         optionsMod.format()),
@@ -36,13 +36,13 @@ local command = spec.command{
         properties = {
             diagnostics = require("nupp.cli.report").DIAGNOSTICS,
             target = {type = "string",
-                description = "The manifest target that was built. Absent for a "
-                    .. "build of explicitly named source files."},
+            description = "The manifest target that was built. Absent for a "
+            .. "build of explicitly named source files."},
             written = {type = "array", items = {type = "string"},
-                description = "Every output path the build produced, sorted."},
+            description = "Every output path the build produced, sorted."},
             ok = {type = "boolean",
-                description = "Whether the build completed. False when a "
-                    .. "diagnostic stopped it."},
+            description = "Whether the build completed. False when a "
+            .. "diagnostic stopped it."},
         },
         required = {"ok", "diagnostics", "written"},
     },
@@ -72,8 +72,8 @@ local function run(parsed: any): integer
     end
     local reportMod = require("nupp.cli.report")
     local asJson = values.format == "json"
-    -- Under --json the diagnostics belong in the document rather than on stderr as
-    -- they are found, so both build shapes are handed somewhere to put them.
+    -- Under --json the diagnostics belong in the document rather than on stderr as they
+    -- are found, so both build shapes are handed somewhere to put them.
     local diagnostics: {any} = {}
     local compile = require("nupp.cli.compile")
     local settings = compile.settings(values, asJson and diagnostics or nil)

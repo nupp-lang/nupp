@@ -51,7 +51,9 @@ local function reindentEdits(source, from, to, remove)
             end
         end
         local newline = source:find("\n", at, true)
-        if not newline then break end
+        if not newline then
+            break
+        end
         at = newline + 1
     end
     return edits
@@ -70,9 +72,15 @@ local ESCAPING_STATS: {[string]: boolean} = {
 local function escapesScope(node)
     local found = false
     local function walk(value)
-        if found or cst.isToken(value) then return end
-        if value.kind == "funcbody" then return end
-        if ESCAPING_STATS[value.kind] then found = true; return end
+        if found or cst.isToken(value) then
+            return
+        end
+        if value.kind == "funcbody" then
+            return
+        end
+        if ESCAPING_STATS[value.kind] then
+            found = true; return
+        end
         for _, child in ipairs(value) do walk(child) end
     end
     walk(node)
@@ -84,12 +92,18 @@ end
 --- (`@owned()` with no cleanup names) is transfer-only: `with` has nothing to call at
 --- scope exit, so it is not offered one.
 local function ownedLocal(stat)
-    if stat.kind ~= "localStmt" or stat.isConst then return nil end
-    if #(stat.names or {}) ~= 1 or #(stat.exprs or {}) ~= 1 then return nil end
+    if stat.kind ~= "localStmt" or stat.isConst then
+        return nil
+    end
+    if #(stat.names or {}) ~= 1 or #(stat.exprs or {}) ~= 1 then
+        return nil
+    end
     local nameTok = stat.names[1]
     local def = nameTok.definition
     local t = def and def.type
-    if not t or t.tag ~= "owned" or #(t.cleanups or {}) == 0 then return nil end
+    if not t or t.tag ~= "owned" or #(t.cleanups or {}) == 0 then
+        return nil
+    end
     return def
 end
 
@@ -120,9 +134,13 @@ end
 --- is the same place the owner's obligation currently comes due.
 function actions.wrapInWith(source, root, stat)
     local def = ownedLocal(stat)
-    if not def then return nil end
+    if not def then
+        return nil
+    end
     local block, index = tree.enclosingBlock(root, stat)
-    if not block then return nil end
+    if not block then
+        return nil
+    end
     local localTok = stat[1]
     if not localTok or not cst.isToken(localTok) or localTok.text ~= "local" then
         return nil
@@ -134,7 +152,9 @@ function actions.wrapInWith(source, root, stat)
     -- close it on the way out and hand back a dead value.
     for i = index + 1, lastBody do
         local s = block.stats[i]
-        if s.kind == "returnStmt" and tree.mentions(s, def) then return nil end
+        if s.kind == "returnStmt" and tree.mentions(s, def) then
+            return nil
+        end
     end
     local indent = indentAt(source, localTok.offset)
     local edits = {}
@@ -185,17 +205,23 @@ function actions.unwrapWith(source, stat)
         or not stat.endTok then
         return nil
     end
-    if stat.body and escapesScope(stat.body) then return nil end
+    if stat.body and escapesScope(stat.body) then
+        return nil
+    end
     local indent = indentAt(source, stat.withTok.offset)
     local declarations, disposals = {}, {}
     for i, binding in ipairs(stat.bindings or {}) do
-        if not binding.name or not binding.expr then return nil end
+        if not binding.name or not binding.expr then
+            return nil
+        end
         local from = binding.name.offset
         local _, to = tree.nodeBounds(binding.expr)
         declarations[i] = "local " .. source:sub(from, to - 1)
         table.insert(disposals, 1, ("dispose(%s)"):format(binding.name.text))
     end
-    if #declarations == 0 then return nil end
+    if #declarations == 0 then
+        return nil
+    end
     local separator = "\n" .. indent
     local edits = {}
     edits[1] = {

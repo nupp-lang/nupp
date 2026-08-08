@@ -55,7 +55,9 @@ function expr.install(c: any)
     end
 
     c.numericOperand = function(t, node, op)
-        if t == T.any or isA(t, T.number) then return true end
+        if t == T.any or isA(t, T.number) then
+            return true
+        end
         c.diag("NUPP2003", node,
             ("cannot apply '%s' to %s"):format(op, T.tostring(t)))
         return false
@@ -63,19 +65,29 @@ function expr.install(c: any)
 
     -- Ordering follows LuaJIT's primitive families. The gradual checker also accepts
     -- one optional numeric/string family: unannotated Lua routinely compares a tonumber
-    -- result after a lexical guard the facts engine cannot yet express. Unrelated
-    -- union members remain rejected.
+    -- result after a lexical guard the facts engine cannot yet express. Unrelated union
+    -- members remain rejected.
     local function orderingFamily(t)
-        if t == T.any then return "any" end
-        if isA(t, T.number) then return "number" end
-        if isA(t, T.string) then return "string" end
+        if t == T.any then
+            return "any"
+        end
+        if isA(t, T.number) then
+            return "number"
+        end
+        if isA(t, T.string) then
+            return "string"
+        end
         if t.tag == "union" then
             local family = nil
             for _, member in ipairs(t.members) do
                 if member ~= T.nil_ then
                     local found = orderingFamily(member)
-                    if not found or found == "any" then return found end
-                    if family and family ~= found then return nil end
+                    if not found or found == "any" then
+                        return found
+                    end
+                    if family and family ~= found then
+                        return nil
+                    end
                     family = found
                 end
             end
@@ -87,14 +99,24 @@ function expr.install(c: any)
     --- The type a numeric literal has, suffixes and radix included.
     local function numberLiteralType(text: string): Type
         local lower = text:gsub("_", ""):lower()
-        if lower:find("ull", 1, true) then return T.uint64 end
-        if lower:find("ll", 1, true) then return T.int64 end
-        if lower:sub(-1) == "i" then return T.number end -- imaginary: complex later
+        if lower:find("ull", 1, true) then
+            return T.uint64
+        end
+        if lower:find("ll", 1, true) then
+            return T.int64
+        end
+        if lower:sub(-1) == "i" then
+            return T.number
+        end -- imaginary: complex later
         if lower:find("x", 1, true) then
-            if lower:find("%.") or lower:find("p") then return T.number end
+            if lower:find("%.") or lower:find("p") then
+                return T.number
+            end
             return T.integer
         end
-        if lower:find("%.") or lower:find("e") then return T.number end
+        if lower:find("%.") or lower:find("e") then
+            return T.number
+        end
         return T.integer
     end
 
@@ -117,11 +139,15 @@ function expr.install(c: any)
     --- @param node the expression
     c.infer = function(node: Node): Type
         local handle = handlers[node.kind]
-        if handle then return handle(node) end
+        if handle then
+            return handle(node)
+        end
         local kind = node.kind
         if kind == "number" then
             local literal = node.token
-            if not literal then return T.number end
+            if not literal then
+                return T.number
+            end
             local base = numberLiteralType(literal.text)
             local value = tonumber((literal.text:gsub("_", "")))
             if value and (base == T.integer or base == T.number) then
@@ -130,10 +156,14 @@ function expr.install(c: any)
             return base
         elseif kind == "string" then
             local literal = node.token
-            if not literal then return T.string end
+            if not literal then
+                return T.string
+            end
             local text = literal.text
             local body = text:match("^[\"']") and text:sub(2, -2) or nil
-            if body then return T.literal(body, T.string) end
+            if body then
+                return T.literal(body, T.string)
+            end
             return T.string
         elseif kind == "nilExpr" then
             return T.nil_
@@ -145,7 +175,9 @@ function expr.install(c: any)
             return T.any
         elseif kind == "name" then
             local nameTok = node.token
-            if not nameTok then return T.any end
+            if not nameTok then
+                return T.any
+            end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
             if entry and entry.withBinding then
@@ -204,7 +236,9 @@ function expr.install(c: any)
                             seen[key] = true
                             local item = c.related(definition,
                                 "conflicting global value declared here")
-                            if item then related[#related + 1] = item end
+                            if item then
+                                related[#related + 1] = item
+                            end
                         end
                     end
                     c.diag("NUPP2104", node,
@@ -241,7 +275,9 @@ function expr.install(c: any)
             return inner and c.infer(inner) or T.any
         elseif kind == "ternary" then
             local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
-            if not cond or not ifTrue or not ifFalse then return T.any end
+            if not cond or not ifTrue or not ifFalse then
+                return T.any
+            end
             c.infer(cond)
             local facts = c.analyzeCond(cond)
             c.pushScope()
@@ -255,7 +291,9 @@ function expr.install(c: any)
             return T.union({tt, ft})
         elseif kind == "castExpr" then
             local cast = node.expr
-            if not cast then return c.resolveType(node.type) end
+            if not cast then
+                return c.resolveType(node.type)
+            end
             local source = c.infer(cast)
             local target = c.resolveType(node.type)
             if c.ownershipKind(target) then
@@ -276,7 +314,9 @@ function expr.install(c: any)
             return target
         elseif kind == "isExpr" then
             local subject = node.expr
-            if subject then c.infer(subject) end
+            if subject then
+                c.infer(subject)
+            end
             c.resolveType(node.type)
             return T.boolean
         elseif kind == "funcExpr" then
@@ -306,8 +346,8 @@ function expr.install(c: any)
                 end
             end
             local rets
-            -- A short function does not count itself into functionDepth, so the loop
-            -- it might sit in was seen at the depth still current here.
+            -- A short function does not count itself into functionDepth, so the loop it
+            -- might sit in was seen at the depth still current here.
             local loopClosure = c.loops.begin(c.functionDepth)
             local wasReturning = c.loops.setReturning(false)
             if node.expr then
@@ -335,13 +375,17 @@ function expr.install(c: any)
             -- table literal becomes plain `table` below, so nothing is pinned to a
             -- literal by accident.
             local function widened(t)
-                if t.tag == "literal" then return t.base or T.string end
+                if t.tag == "literal" then
+                    return t.base or T.string
+                end
                 return t
             end
             -- An owner stored in a table escapes the checking that tracks it, whichever
             -- way the entry was written.
             local function refuseOwner(value: Node, valueT: Type)
-                if not c.ownershipKind(valueT) then return end
+                if not c.ownershipKind(valueT) then
+                    return
+                end
                 c.diag(value.withBinding and "NUPP2612" or "NUPP2603", value,
                     c.ownershipKind(valueT) .. " value cannot be stored in a table")
             end
@@ -366,13 +410,19 @@ function expr.install(c: any)
                             and (f.isConst or valueT.base == T.string)
                         local fieldT = keep and valueT or widened(valueT)
                         local field = {name = fieldName.text, read = fieldT}
-                        if not f.isConst then field.write = fieldT end
+                        if not f.isConst then
+                            field.write = fieldT
+                        end
                         named[#named + 1] = field
                     end
                 elseif f.kind == "fieldBracket" then
                     local value = f.value
-                    if f.key then c.infer(f.key) end
-                    if value then refuseOwner(value, c.infer(value)) end
+                    if f.key then
+                        c.infer(f.key)
+                    end
+                    if value then
+                        refuseOwner(value, c.infer(value))
+                    end
                     return T.table_ -- computed keys: generic table in v0
                 end
             end

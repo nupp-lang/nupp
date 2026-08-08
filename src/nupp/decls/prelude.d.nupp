@@ -21,14 +21,14 @@ This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
 declaration file.
 ]]
 
---- Writes every argument to standard output, converted with `tostring`,
---- separated by tabs and followed by a newline.
+--- Writes every argument to standard output, converted with `tostring`, separated by
+--- tabs and followed by a newline.
 ---
 --- @param ... the values to write
 local print: function(...: any)
 
---- Returns the type name of a value: "nil", "boolean", "number", "string",
---- "table", "function", "thread" or "userdata", plus "cdata" for FFI values.
+--- Returns the type name of a value: "nil", "boolean", "number", "string", "table",
+--- "function", "thread" or "userdata", plus "cdata" for FFI values.
 ---
 --- @param v the value to classify
 --- @return the type name
@@ -40,16 +40,16 @@ local type: function(v: any): string
 --- @return the string form of `v`
 local tostring: function(v: any): string
 
---- Converts a value to a number, or nil when it has no numeric meaning. With
---- `base`, `v` is read as an unsigned integer numeral in that base.
+--- Converts a value to a number, or nil when it has no numeric meaning. With `base`,
+--- `v` is read as an unsigned integer numeral in that base.
 ---
 --- @param v the value to convert
 --- @param base the numeral base, 2 through 36; decimal when omitted
 --- @return the number, or nil when `v` does not denote one
 local tonumber: function(v: any, base: number?): number?
 
---- Returns an iterator over every key/value pair of `t`, in unspecified
---- order. New keys must not be added to `t` during the traversal.
+--- Returns an iterator over every key/value pair of `t`, in unspecified order. New keys
+--- must not be added to `t` during the traversal.
 ---
 --- @typearg K the key type
 --- @typearg V the value type
@@ -57,16 +57,16 @@ local tonumber: function(v: any, base: number?): number?
 --- @return an iterator yielding each key and its value, and nil when done
 local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
 
---- Returns an iterator over the array part of `t`, from index 1 up to the
---- first missing element.
+--- Returns an iterator over the array part of `t`, from index 1 up to the first missing
+--- element.
 ---
 --- @typearg V the element type
 --- @param t the array to traverse
 --- @return an iterator yielding each index and the element stored there
 const ipairs: function<V>(t: {V}): function(): (integer, V)
 
---- Returns the pair that follows key `k` in `t`. Passing nil, or omitting
---- `k`, returns the first pair; the traversal order is unspecified.
+--- Returns the pair that follows key `k` in `t`. Passing nil, or omitting `k`, returns
+--- the first pair; the traversal order is unspecified.
 ---
 --- @param t the table to step through
 --- @param k the key to step past, or nil to start the traversal
@@ -74,9 +74,9 @@ const ipairs: function<V>(t: {V}): function(): (integer, V)
 --- @return the value stored at that key
 local next: function(t: table, k: any?): (any, any)
 
---- Selects from a vararg list. With a number, returns every argument from the
---- nth onwards, counting from the end when `n` is negative; with "#", returns
---- how many arguments follow.
+--- Selects from a vararg list. With a number, returns every argument from the nth
+--- onwards, counting from the end when `n` is negative; with "#", returns how many
+--- arguments follow.
 ---
 --- @param n the 1-based index to select from, or the string "#"
 --- @param ... the arguments to select from
@@ -105,15 +105,14 @@ local rawset: function(t: table, k: any, v: any): table
 --- @return whether the values are primitively equal
 local rawequal: function(a: any, b: any): boolean
 
---- Returns the length of a table or string without consulting a `__len`
---- metamethod.
+--- Returns the length of a table or string without consulting a `__len` metamethod.
 ---
 --- @param v the table or string to measure
 --- @return the length
 local rawlen: function(v: any): integer
 
---- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the
---- current metatable has a `__metatable` field.
+--- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the current
+--- metatable has a `__metatable` field.
 ---
 --- @typearg T the table type
 --- @param t the table to change
@@ -121,8 +120,8 @@ local rawlen: function(v: any): integer
 --- @return `t`
 local setmetatable: function<T>(t: T, mt: metatable<T>?): T
 
---- Returns the metatable of `v`, or the value of its `__metatable` field when
---- it has one, or nil when there is no metatable.
+--- Returns the metatable of `v`, or the value of its `__metatable` field when it has
+--- one, or nil when there is no metatable.
 ---
 --- @param v the value to inspect
 --- @return the metatable, its `__metatable` stand-in, or nil
@@ -136,10 +135,9 @@ local getmetatable: function<T>(v: T): metatable<T>?
 --- @return `v`, now known not to be nil or false
 local assert: function<T>(v: T?, msg: any?): T
 
---- Raises `msg` as an error, unwinding to the nearest `pcall`. A string
---- message is prefixed with a source position chosen by `level`: 1, the
---- default, blames the caller of `error`, 2 blames its caller in turn, and 0
---- adds no position at all.
+--- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
+--- prefixed with a source position chosen by `level`: 1, the default, blames the caller
+--- of `error`, 2 blames its caller in turn, and 0 adds no position at all.
 ---
 --- @param msg the error value to raise
 --- @param level whose position to blame, or 0 for none
@@ -153,8 +151,8 @@ local error: function(msg: any, level: number?): never
 --- @return the call's results, or the error value
 local pcall: function(f: any, ...: any): (boolean, any)
 
---- Like `pcall`, but runs `handler` on the error before the stack unwinds, so
---- it can still collect a traceback.
+--- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
+--- still collect a traceback.
 ---
 --- @param f the function to call
 --- @param handler called with the error value at the point of the failure
@@ -171,23 +169,23 @@ local xpcall: function(f: any, handler: any, ...: any): (boolean, any)
 --- @return the selected elements
 local unpack: function(t: table, i: number?, j: number?): any
 
---- Loads module `name` the first time it is asked for and returns its value.
---- Later calls hand back the value cached in `package.loaded`.
+--- Loads module `name` the first time it is asked for and returns its value. Later
+--- calls hand back the value cached in `package.loaded`.
 ---
 --- @param name the module name, with `.` separating path components
 --- @return the value the module returned
 local require: function(name: string): any
 
---- Controls the garbage collector. `opt` is "collect" for a full cycle, the
---- default, or "stop", "restart", "count", "step", "setpause" or "setstepmul".
+--- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
+--- "stop", "restart", "count", "step", "setpause" or "setstepmul".
 ---
 --- @param opt the operation to perform
 --- @param arg the step size or parameter that the operation takes
 --- @return what the operation reports: "count" gives the kilobytes in use
 local collectgarbage: function(opt: string?, arg: number?): number
 
---- Compiles a chunk read piecewise from `chunk`, a function returning
---- successive pieces of source, without running it.
+--- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
+--- of source, without running it.
 ---
 --- @param chunk the reader function, or the source string
 --- @param name the chunk name to use in error messages
@@ -205,8 +203,8 @@ local load: function(chunk: any, name: string?, mode: string?, env: table?): (an
 --- @return the compile error, when there was one
 local loadstring: function(s: string, name: string?): (any, string?)
 
---- Compiles the file at `path`, or standard input when it is omitted, without
---- running it.
+--- Compiles the file at `path`, or standard input when it is omitted, without running
+--- it.
 ---
 --- @param path the file to compile, or nil for standard input
 --- @param mode "b", "t" or "bt", limiting binary or text sources
@@ -215,23 +213,23 @@ local loadstring: function(s: string, name: string?): (any, string?)
 --- @return the load error, when there was one
 local loadfile: function(path: string?, mode: string?, env: table?): (any, string?)
 
---- Sets the environment a function sees as its globals. `f` is the function
---- itself, or a stack level: 1 is the caller, 0 the running thread.
+--- Sets the environment a function sees as its globals. `f` is the function itself, or
+--- a stack level: 1 is the caller, 0 the running thread.
 ---
 --- @param f the function whose globals are being replaced, or a stack level
 --- @param env the table to use as that function's globals
 --- @return `f`, when it was a function
 local setfenv: function(f: any, env: table): any
 
---- Returns the environment a function sees as its globals, addressed the way
---- `setfenv` addresses one.
+--- Returns the environment a function sees as its globals, addressed the way `setfenv`
+--- addresses one.
 ---
 --- @param f the function to ask about, or a stack level
 --- @return that function's globals
 local getfenv: function(f: any?): table
 
---- Loads and runs the file at `path`, or standard input when it is omitted.
---- Errors from the chunk propagate to the caller.
+--- Loads and runs the file at `path`, or standard input when it is omitted. Errors from
+--- the chunk propagate to the caller.
 ---
 --- @param path the file to run, or nil for standard input
 --- @return whatever the chunk returns
@@ -243,8 +241,8 @@ local dofile: function(path: string?): any
 --- @return the kilobytes currently allocated
 local gcinfo: function(): integer
 
---- Creates a userdata with a fresh empty metatable, with no metatable, or
---- sharing the metatable of an existing proxy.
+--- Creates a userdata with a fresh empty metatable, with no metatable, or sharing the
+--- metatable of an existing proxy.
 ---
 --- @param mt true for a new metatable, false or nil for none, or a proxy to
 ---     share a metatable with
@@ -257,9 +255,8 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
---- String manipulation and pattern matching. Every function here is also
---- reachable as a method on a string value, so `s:upper()` means
---- `string.upper(s)`.
+--- String manipulation and pattern matching. Every function here is also reachable as a
+--- method on a string value, so `s:upper()` means `string.upper(s)`.
 local string: {
     --- Returns the numeric codes of the characters of `s` from `i` to `j`.
     ---
@@ -275,16 +272,16 @@ local string: {
     --- @return the assembled string
     char: function(...: number): string,
 
-    --- Returns a binary representation of a Lua function that has no
-    --- upvalues, in a form `loadstring` accepts.
+    --- Returns a binary representation of a Lua function that has no upvalues, in a
+    --- form `loadstring` accepts.
     ---
     --- @param f the function to dump
     --- @param strip whether to discard debug information
     --- @return the bytecode string
     dump: function(f: any, strip: boolean?): string,
 
-    --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any
-    --- captures the pattern has follow the two returned indices.
+    --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any captures
+    --- the pattern has follow the two returned indices.
     ---
     --- @param s the string to search
     --- @param pat the pattern to look for
@@ -294,27 +291,25 @@ local string: {
     --- @return the index where the match ends
     find: function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
 
-    --- Formats the arguments into `fmt`, which takes the C `printf`
-    --- directives plus `%q` for a string quoted so Lua can read it back.
+    --- Formats the arguments into `fmt`, which takes the C `printf` directives plus
+    --- `%q` for a string quoted so Lua can read it back.
     ---
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
     format: function(fmt: string, ...: any): string,
 
-    --- Returns an iterator over each successive match of `pat` in `s`, or
-    --- over that match's captures when the pattern has any. Anchors have no
-    --- special meaning here.
+    --- Returns an iterator over each successive match of `pat` in `s`, or over that
+    --- match's captures when the pattern has any. Anchors have no special meaning here.
     ---
     --- @param s the string to scan
     --- @param pat the pattern to repeat across `s`
     --- @return an iterator yielding one match at a time
     gmatch: function(s: string, pat: string): function(): string,
 
-    --- Replaces matches of `pat` in `s`. `repl` may be a string, in which
-    --- `%1` through `%9` stand for captures and `%0` for the whole match, a
-    --- table looked up by the first capture, or a function called with the
-    --- captures.
+    --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
+    --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
+    --- first capture, or a function called with the captures.
     ---
     --- @param s the subject string
     --- @param pat the pattern to replace
@@ -336,8 +331,8 @@ local string: {
     --- @return the lowercased string
     lower: function(s: string): string,
 
-    --- Returns the captures of the first match of `pat` in `s`, or the whole
-    --- match when the pattern has no captures.
+    --- Returns the captures of the first match of `pat` in `s`, or the whole match when
+    --- the pattern has no captures.
     ---
     --- @param s the string to search
     --- @param pat the pattern to look for
@@ -374,11 +369,11 @@ local string: {
     upper: function(s: string): string,
 }
 
---- Table manipulation. These functions work on the array part of a table:
---- the integer keys 1 through `#t`.
+--- Table manipulation. These functions work on the array part of a table: the integer
+--- keys 1 through `#t`.
 local table: {
-    --- Joins the elements `t[i]` through `t[j]`, each of which must be a
-    --- string or a number, into a single string.
+    --- Joins the elements `t[i]` through `t[j]`, each of which must be a string or a
+    --- number, into a single string.
     ---
     --- @param t the array to join
     --- @param sep what to place between elements, nothing by default
@@ -387,8 +382,8 @@ local table: {
     --- @return the joined string
     concat: function(t: table, sep: string?, i: number?, j: number?): string,
 
-    --- Inserts `v` at position `pos`, shifting later elements up. Called with
-    --- two arguments, appends that value to the end instead.
+    --- Inserts `v` at position `pos`, shifting later elements up. Called with two
+    --- arguments, appends that value to the end instead.
     ---
     --- @param t the array to insert into
     --- @param pos the position to insert at, or the value to append
@@ -402,8 +397,8 @@ local table: {
     --- @return the element that was removed
     remove: function(t: table, pos: number?): any,
 
-    --- Sorts `t` in place, between indices 1 and `#t`. The sort is not
-    --- stable, and `cmp` must be a strict order or it may raise.
+    --- Sorts `t` in place, between indices 1 and `#t`. The sort is not stable, and
+    --- `cmp` must be a strict order or it may raise.
     ---
     --- @typearg V the element type
     --- @param t the array to sort
@@ -411,8 +406,8 @@ local table: {
     ---     is used when it is omitted
     sort: function<V>(t: {V}, cmp: function(V, V): boolean?),
 
-    --- Returns the largest positive numeric key of `t`, or 0 when it has
-    --- none. Deprecated, and unlike `#t` it also sees keys past a hole.
+    --- Returns the largest positive numeric key of `t`, or 0 when it has none.
+    --- Deprecated, and unlike `#t` it also sees keys past a hole.
     ---
     --- @param t the table to scan
     --- @return the largest positive numeric key
@@ -420,23 +415,23 @@ local table: {
 
     -- LuaJIT extensions
 
-    --- Creates a table preallocated for `narray` array slots and `nhash` hash
-    --- slots, so filling it in does not have to rehash.
+    --- Creates a table preallocated for `narray` array slots and `nhash` hash slots, so
+    --- filling it in does not have to rehash.
     ---
     --- @param narray how many array slots to reserve
     --- @param nhash how many hash slots to reserve
     --- @return the new table
     new: function(narray: number, nhash: number): table,
 
-    --- Removes every key from `t` while keeping the space it has already
-    --- allocated, so it can be refilled without reallocating.
+    --- Removes every key from `t` while keeping the space it has already allocated, so
+    --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
     clear: function(t: table),
 }
 
---- Mathematical functions and constants, operating on the doubles that plain
---- Lua numbers are.
+--- Mathematical functions and constants, operating on the doubles that plain Lua
+--- numbers are.
 local math: {
     --- Returns the absolute value of `x`.
     ---
@@ -489,8 +484,7 @@ local math: {
     --- @return the remainder
     fmod: function(x: number, y: number): number,
 
-    --- Splits `x` into its integral and fractional parts, both keeping the
-    --- sign of `x`.
+    --- Splits `x` into its integral and fractional parts, both keeping the sign of `x`.
     ---
     --- @param x the number to split
     --- @return the integral part
@@ -533,8 +527,8 @@ local math: {
     --- @return the angle in radians
     atan: function(x: number): number,
 
-    --- Returns the arc tangent of `y / x`, using the sign of both arguments
-    --- to place the result in the right quadrant.
+    --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
+    --- the result in the right quadrant.
     ---
     --- @param y the numerator
     --- @param x the denominator
@@ -571,22 +565,22 @@ local math: {
     --- @return the angle in radians
     rad: function(d: number): number,
 
-    --- Returns the smallest of its arguments. Comparing integers gives an integer
-    --- back, so a bound taken this way stays usable as an index.
+    --- Returns the smallest of its arguments. Comparing integers gives an integer back,
+    --- so a bound taken this way stays usable as an index.
     ---
     --- @param ... the numbers to compare, at least one
     --- @return the smallest of them
     min: function<N is number>(...: N): N,
 
-    --- Returns the largest of its arguments. Comparing integers gives an integer
-    --- back, so a bound taken this way stays usable as an index.
+    --- Returns the largest of its arguments. Comparing integers gives an integer back,
+    --- so a bound taken this way stays usable as an index.
     ---
     --- @param ... the numbers to compare, at least one
     --- @return the largest of them
     max: function<N is number>(...: N): N,
 
-    --- Returns a pseudo-random number: a float in [0,1) with no arguments, an
-    --- integer in [1,`m`] with one, or an integer in [`m`,`n`] with two.
+    --- Returns a pseudo-random number: a float in [0,1) with no arguments, an integer
+    --- in [1,`m`] with one, or an integer in [`m`,`n`] with two.
     ---
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
@@ -598,8 +592,8 @@ local math: {
     --- @param seed the seed to start from
     randomseed: function(seed: number),
 
-    --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x`
-    --- equals the fraction times 2 raised to the exponent.
+    --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x` equals the
+    --- fraction times 2 raised to the exponent.
     ---
     --- @param x the number to split
     --- @return the fraction
@@ -620,18 +614,18 @@ local math: {
     huge: number,
 }
 
---- Operating-system facilities: clocks and calendars, the environment,
---- processes and file names.
+--- Operating-system facilities: clocks and calendars, the environment, processes and
+--- file names.
 local os: {
-    --- Returns the CPU time the program has used, in seconds. It measures
-    --- intervals of work, not wall-clock time.
+    --- Returns the CPU time the program has used, in seconds. It measures intervals of
+    --- work, not wall-clock time.
     ---
     --- @return the CPU seconds consumed so far
     clock: function(): number,
 
-    --- Formats the time `t` as text according to `fmt`. A leading "!" formats
-    --- in UTC rather than local time, and a `fmt` of "*t" returns a table of
-    --- date fields instead of a string.
+    --- Formats the time `t` as text according to `fmt`. A leading "!" formats in UTC
+    --- rather than local time, and a `fmt` of "*t" returns a table of date fields
+    --- instead of a string.
     ---
     --- @param fmt the `strftime` format, "%c" by default
     --- @param t the time to format, the current time by default
@@ -645,8 +639,8 @@ local os: {
     --- @return the difference in seconds
     difftime: function(t2: number, t1: number): number,
 
-    --- Runs `cmd` with the system shell and waits for it. With no argument it
-    --- instead reports whether a shell is available at all.
+    --- Runs `cmd` with the system shell and waits for it. With no argument it instead
+    --- reports whether a shell is available at all.
     ---
     --- @param cmd the command line to run
     --- @return the command's exit status, or whether a shell exists
@@ -686,8 +680,8 @@ local os: {
     --- @return the time, in the system's own epoch-based encoding
     time: function(spec: table?): number,
 
-    --- Returns a file name usable for a temporary file. The file itself is
-    --- neither created nor removed for you.
+    --- Returns a file name usable for a temporary file. The file itself is neither
+    --- created nor removed for you.
     ---
     --- @return the temporary file name
     tmpname: function(): string,
@@ -712,8 +706,8 @@ local package: {
     searchers: {function(string): any}?,
 }
 
---- A Lua file handle. Ownership is attached by producers rather than this
---- interface, so standard streams and borrowed handles use the same type.
+--- A Lua file handle. Ownership is attached by producers rather than this interface, so
+--- standard streams and borrowed handles use the same type.
 local interface LuaFile
     close: function(self: LuaFile): (boolean?, string?)
     flush: function(self: LuaFile): (boolean?, string?)
@@ -726,11 +720,11 @@ local interface LuaFile
     write: function(self: LuaFile, ...: any): (LuaFile?, string?)
 end
 
---- File input and output. Producers return borrowed handles here; annotated
---- wrappers in `nupp.std.resources` establish ownership obligations.
+--- File input and output. Producers return borrowed handles here; annotated wrappers in
+--- `nupp.std.resources` establish ownership obligations.
 local io: {
-    --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added
-    --- for update and a trailing "b" for binary.
+    --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
+    --- and a trailing "b" for binary.
     ---
     --- @param path the file to open
     --- @param mode the mode to open it in, "r" by default
@@ -738,23 +732,22 @@ local io: {
     --- @return the reason it could not be opened
     open: function(path: string, mode: string?): (LuaFile?, string?),
 
-    --- Returns an iterator over the lines of the file at `path`, closing it
-    --- once the iterator runs out, or over the default input file when
-    --- `path` is omitted.
+    --- Returns an iterator over the lines of the file at `path`, closing it once the
+    --- iterator runs out, or over the default input file when `path` is omitted.
     ---
     --- @param path the file to read, or nil for the default input file
     --- @return an iterator yielding one line at a time
     lines: function(path: string?): function(): string,
 
-    --- Reads the default input file according to the given formats: "*l" for
-    --- a line, "*n" for a number, "*a" for the rest, or a byte count.
+    --- Reads the default input file according to the given formats: "*l" for a line,
+    --- "*n" for a number, "*a" for the rest, or a byte count.
     ---
     --- @param ... the formats to read, "*l" by default
     --- @return one value per format, or nil where the read came up short
     read: function(...: any): any,
 
-    --- Writes each argument, which must be a string or a number, to the
-    --- default output file.
+    --- Writes each argument, which must be a string or a number, to the default output
+    --- file.
     ---
     --- @param ... the values to write
     --- @return the file that was written to
@@ -766,22 +759,22 @@ local io: {
     --- @return whether the file closed cleanly
     close: function(f: LuaFile?): boolean?,
 
-    --- Sets the default input file, opening `f` first when it is a name.
-    --- With no argument it returns the current one instead.
+    --- Sets the default input file, opening `f` first when it is a name. With no
+    --- argument it returns the current one instead.
     ---
     --- @param f the file handle or name to switch to
     --- @return the default input file
     input: function(f: (LuaFile | string)?): LuaFile,
 
-    --- Sets the default output file, opening `f` first when it is a name.
-    --- With no argument it returns the current one instead.
+    --- Sets the default output file, opening `f` first when it is a name. With no
+    --- argument it returns the current one instead.
     ---
     --- @param f the file handle or name to switch to
     --- @return the default output file
     output: function(f: (LuaFile | string)?): LuaFile,
 
-    --- Runs `cmd` in a separate process and returns a handle on one of its
-    --- streams: its standard output for "r", its standard input for "w".
+    --- Runs `cmd` in a separate process and returns a handle on one of its streams: its
+    --- standard output for "r", its standard input for "w".
     ---
     --- @param cmd the command line to run
     --- @param mode which stream to connect, "r" by default
@@ -804,19 +797,18 @@ local io: {
     stdin: LuaFile,
 }
 
---- Cooperative multitasking. Coroutines are typed as `thread`; the values
---- they carry across a resume or a yield are not tracked.
+--- Cooperative multitasking. Coroutines are typed as `thread`; the values they carry
+--- across a resume or a yield are not tracked.
 local coroutine: {
-    --- Creates a coroutine with `f` as its body. The body does not start
-    --- running until the first `resume`.
+    --- Creates a coroutine with `f` as its body. The body does not start running until
+    --- the first `resume`.
     ---
     --- @param f the function to run inside the coroutine
     --- @return the new coroutine
     create: function(f: any): thread,
 
-    --- Starts or continues `co`. The extra arguments go to its body on the
-    --- first call, and become the results of the `yield` that suspended it
-    --- on later ones.
+    --- Starts or continues `co`. The extra arguments go to its body on the first call,
+    --- and become the results of the `yield` that suspended it on later ones.
     ---
     --- @param co the coroutine to run
     --- @param ... the values to pass into it
@@ -824,23 +816,23 @@ local coroutine: {
     --- @return the values it yielded or returned, or the error it raised
     resume: function(co: thread, ...: any): (boolean, any),
 
-    --- Suspends the running coroutine. The arguments become the results of
-    --- the `resume` that started it.
+    --- Suspends the running coroutine. The arguments become the results of the `resume`
+    --- that started it.
     ---
     --- @param ... the values to hand back to the resumer
     --- @return the values passed to the next `resume`
     yield: function(...: any): any,
 
-    --- Returns the state of `co`: "running", "suspended", "normal" for one
-    --- that resumed another coroutine, or "dead".
+    --- Returns the state of `co`: "running", "suspended", "normal" for one that resumed
+    --- another coroutine, or "dead".
     ---
     --- @param co the coroutine to inspect
     --- @return the state name
     status: function(co: thread): string,
 
-    --- Creates a coroutine and returns a function that resumes it, passing
-    --- along its own arguments. Errors propagate to the caller instead of
-    --- being returned as a status.
+    --- Creates a coroutine and returns a function that resumes it, passing along its
+    --- own arguments. Errors propagate to the caller instead of being returned as a
+    --- status.
     ---
     --- @param f the function to run inside the coroutine
     --- @return a function that resumes the coroutine
@@ -852,16 +844,16 @@ local coroutine: {
     --- @return whether that is the main coroutine
     running: function(): (thread?, boolean),
 
-    --- Whether the running coroutine is allowed to yield, which is false on
-    --- the main coroutine.
+    --- Whether the running coroutine is allowed to yield, which is false on the main
+    --- coroutine.
     ---
     --- @return whether a `yield` would succeed here
     isyieldable: function(): boolean,
 }
 
---- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`,
---- `~`, `<<`, `>>` and `~>>` operators: arguments are normalized to 32-bit
---- integers and results come back signed.
+--- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
+--- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
+--- come back signed.
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---
@@ -969,68 +961,68 @@ local jit: {
     --- @param recursive whether to apply the change to nested functions too
     on: function(f: any?, recursive: boolean?),
 
-    --- Turns compilation off for `f`, or for the whole VM when it is
-    --- omitted, leaving already compiled code in place.
+    --- Turns compilation off for `f`, or for the whole VM when it is omitted, leaving
+    --- already compiled code in place.
     ---
     --- @param f the function to disable, or nil for the whole VM
     --- @param recursive whether to apply the change to nested functions too
     off: function(f: any?, recursive: boolean?),
 
-    --- Flushes compiled code, for `f` or for the whole cache when it is
-    --- omitted, so the affected code is traced again from scratch. A trace
-    --- number flushes that one trace.
+    --- Flushes compiled code, for `f` or for the whole cache when it is omitted, so the
+    --- affected code is traced again from scratch. A trace number flushes that one
+    --- trace.
     ---
     --- @param f the function to flush, a trace number, or nil for the whole
     ---     cache
     --- @param recursive whether to flush nested functions too
     flush: function(f: any?, recursive: boolean?),
 
-    --- Adds or removes a handler for a compiler event, so a program can watch
-    --- the JIT as it works. Omitting `event` removes the handler.
+    --- Adds or removes a handler for a compiler event, so a program can watch the JIT
+    --- as it works. Omitting `event` removes the handler.
     ---
-    --- The handler's own signature is decided by the event, which is why this
-    --- one is variadic:
+    --- The handler's own signature is decided by the event, which is why this one is
+    --- variadic:
     ---
-    ---   * `"bc"` — `(func)`, once per function the VM records bytecode for.
-    ---   * `"trace"` — `(what, tr, func, pc, otr, oex)`, where `what` is
+    --- * `"bc"` — `(func)`, once per function the VM records bytecode for. * `"trace"`
+    --- — `(what, tr, func, pc, otr, oex)`, where `what` is
     ---     `"start"`, `"stop"`, `"abort"`, `"flush"` or `"free"`. On
     ---     `"abort"`, `otr` is an error code to look up in
     ---     `require("jit.vmdef").traceerr` and `oex` is its argument; on
     ---     `"start"` for a side trace they are the parent trace and its exit.
-    ---   * `"record"` — `(tr, func, pc, depth)`, per bytecode recorded.
-    ---   * `"texit"` — `(tr, ex, ngpr, nfpr)`, per trace exit.
+    --- * `"record"` — `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"` —
+    --- `(tr, ex, ngpr, nfpr)`, per trace exit.
     ---
-    --- A handler runs inside the compiler, so it must not allocate heavily,
-    --- raise, or re-enter the VM in ways that would trigger further
-    --- compilation. Dropping the last reference to a handler does not detach
-    --- it: hold onto it and pass it back with no `event` to remove it.
+    --- A handler runs inside the compiler, so it must not allocate heavily, raise, or
+    --- re-enter the VM in ways that would trigger further compilation. Dropping the
+    --- last reference to a handler does not detach it: hold onto it and pass it back
+    --- with no `event` to remove it.
     ---
     --- @param callback the handler to add, or the one to remove
     --- @param event which event to attach to, or nil to detach
     attach: function(callback: function(...: any), event: string?),
 
-    --- The optimization submodule. `jit.opt.start` takes flags such as
-    --- `"hotloop=10"` or `"-fold"`, each as its own argument.
+    --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
+    --- or `"-fold"`, each as its own argument.
     opt: {
         start: function(...: any),
     },
 
-    --- Reports how the VM was built for a security-relevant parameter, such
-    --- as `"prng"` or `"strhash"`.
+    --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
+    --- or `"strhash"`.
     ---
     --- @param param the parameter to report on
     --- @return the setting in force
     security: function(param: string): any,
 }
 
--- `jit.util` is deliberately absent: LuaJIT registers it under
--- package.loaded only, so `jit.util` is nil at runtime and reaching through
--- it is a nil index rather than introspection. It is declared as the bundled
--- `jit.util` module instead, alongside `jit.profile`, `jit.zone` and
--- `jit.vmdef`, which are require()-only for the same reason.
+-- `jit.util` is deliberately absent: LuaJIT registers it under package.loaded only, so
+-- `jit.util` is nil at runtime and reaching through it is a nil index rather than
+-- introspection. It is declared as the bundled `jit.util` module instead, alongside
+-- `jit.profile`, `jit.zone` and `jit.vmdef`, which are require()-only for the same
+-- reason.
 
---- The debug interface: stack inspection, hooks, locals and upvalues. Using
---- it costs performance and voids assumptions the compiler would rather make.
+--- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
+--- performance and voids assumptions the compiler would rather make.
 local debug: {
     --- Describes a function, or the activation record at a stack level.
     ---
@@ -1046,8 +1038,8 @@ local debug: {
     --- @return the traceback text
     traceback: function(msg: any?, level: number?): string,
 
-    --- Installs a debug hook: a function, a mask built from "c", "r" and "l",
-    --- and an optional instruction count.
+    --- Installs a debug hook: a function, a mask built from "c", "r" and "l", and an
+    --- optional instruction count.
     ---
     --- @param ... the hook function, its mask, and the count
     sethook: function(...: any),
@@ -1108,7 +1100,7 @@ local debug: {
     getregistry: function(): table,
 }
 
---- The command-line arguments of the running script, where `arg[1]` is the
---- first one. Index 0 holds the script name, and negative indices hold the
---- interpreter and the options it was given.
+--- The command-line arguments of the running script, where `arg[1]` is the first one.
+--- Index 0 holds the script name, and negative indices hold the interpreter and the
+--- options it was given.
 local arg: {string}

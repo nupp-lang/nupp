@@ -17,11 +17,17 @@ local normalize, join = filesMod.normalize, filesMod.join
 
 local extract = {}
 local function firstToken(node)
-    if not node then return nil end
-    if cst.isToken(node) then return node end
+    if not node then
+        return nil
+    end
+    if cst.isToken(node) then
+        return node
+    end
     for _, child in ipairs(node) do
         local token = firstToken(child)
-        if token then return token end
+        if token then
+            return token
+        end
     end
     return nil
 end
@@ -38,7 +44,9 @@ local docLines, parseDoc = docblock.linesOf, docblock.parse
 -- `cst.Node`, so that is what the signature has to show.
 local function declaredName(stat)
     local name = stat.name.text
-    if not stat.qualifiers then return name end
+    if not stat.qualifiers then
+        return name
+    end
     local parts = {}
     for j, token in ipairs(stat.qualifiers) do parts[j] = token.text end
     parts[#parts + 1] = name
@@ -60,7 +68,9 @@ local function functionSignature(stat, name)
             piece = (param.modeTok and (param.modeTok.text .. " ") or "")
                 .. (param.name and param.name.text or "?")
         end
-        if param.type then piece = piece .. ": " .. syntax(param.type) end
+        if param.type then
+            piece = piece .. ": " .. syntax(param.type)
+        end
         params[#params + 1] = piece
     end
     local returns = {}
@@ -69,7 +79,9 @@ local function functionSignature(stat, name)
     end
     local prefix = stat.kind == "localFuncStmt" and "local function " or "function "
     local result = prefix .. name .. genericText(body) .. "(" .. table.concat(params, ", ") .. ")"
-    if #returns > 0 then result = result .. ": " .. table.concat(returns, ", ") end
+    if #returns > 0 then
+        result = result .. ": " .. table.concat(returns, ", ")
+    end
     return result
 end
 
@@ -90,7 +102,9 @@ local function cdefSignature(stat)
     if stat.ret then
         result = result .. ": " .. (stat.ownTok and "own " or "") .. syntax(stat.ret)
     end
-    if stat.fromLib then result = result .. " from " .. stat.fromLib.text end
+    if stat.fromLib then
+        result = result .. " from " .. stat.fromLib.text
+    end
     return result
 end
 
@@ -195,19 +209,29 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
         name, kind, public = stat.name.text, "struct", true
         signature = "cdef struct " .. name
     elseif stat.kind == "localStmt" then
-        if #(stat.names or {}) ~= 1 then return nil end
+        if #(stat.names or {}) ~= 1 then
+            return nil
+        end
         name, kind = stat.names[1].text, "variable"
         signature = (stat.isConst and "const " or "local ") .. name
-        if stat.types[1] then signature = signature .. ": " .. syntax(stat.types[1]) end
-        if typeFunction(stat.types[1]) then kind = "function" end
+        if stat.types[1] then
+            signature = signature .. ": " .. syntax(stat.types[1])
+        end
+        if typeFunction(stat.types[1]) then
+            kind = "function"
+        end
     else
         return nil
     end
-    if info.tags["local"] then public = includeAll end
+    if info.tags["local"] then
+        public = includeAll
+    end
     if kind == "method" and privateName(name) and not includePrivate then
         public = false
     end
-    if not public then return nil end
+    if not public then
+        return nil
+    end
     local itemPath = moduleName .. "." .. name
     local moduleTail = moduleName:match("([^.]+)$") or moduleName
     if name:sub(1, #moduleTail + 1) == moduleTail .. "." then
@@ -295,7 +319,9 @@ local function moduleName(path, root, includes)
         local prefix = normalize(join(root, include))
         if path:sub(1, #prefix + 1) == prefix .. "/" then
             local candidate = path:sub(#prefix + 2)
-            if #candidate < #best then best = candidate end
+            if #candidate < #best then
+                best = candidate
+            end
         end
     end
     best = best:gsub("%.d%.nupp$", ""):gsub("%.nupp$", "")
@@ -325,7 +351,9 @@ end
 function extract.extract(source, path, name, opts)
     opts = opts or {}
     local parsed = parser.parse(source, path)
-    if #parsed.errors > 0 then return nil, parsed.errors end
+    if #parsed.errors > 0 then
+        return nil, parsed.errors
+    end
     local result = {name = name, path = path, text = "", items = {}}
     result.text = headerDoc(parsed.root) or ""
     local declarationFile = path ~= nil and path:match("%.d%.nupp$") ~= nil
@@ -333,7 +361,9 @@ function extract.extract(source, path, name, opts)
         for _, stat in ipairs(block.stats or {}) do
             local item = declarationItem(stat, name, opts.includeAll,
                 declarationFile, opts.includePrivate)
-            if item then result.items[#result.items + 1] = item end
+            if item then
+                result.items[#result.items + 1] = item
+            end
             local info = parseDoc(docLines(stat))
             if info.tags.module then
                 result.text = type(info.tags.module) == "string"
@@ -342,7 +372,9 @@ function extract.extract(source, path, name, opts)
         end
     end
     table.sort(result.items, function(left, right)
-        if left.kind == right.kind then return left.name < right.name end
+        if left.kind == right.kind then
+            return left.name < right.name
+        end
         return left.kind < right.kind
     end)
     return result, {}

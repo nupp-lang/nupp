@@ -13,15 +13,17 @@ local files = {}
 local normalize, join, dirname = fs.normalize, fs.join, fs.dirname
 local readFile, exists = fs.readFile, fs.exists
 
--- `nupp doc --json` reports the paths a run wrote, and a site is written from a
--- dozen places — pages, assets, redirects, the copied public tree. Recording at
--- the one function all of them already call beats returning a list from each and
--- threading it back out through every renderer.
+-- `nupp doc --json` reports the paths a run wrote, and a site is written from a dozen
+-- places — pages, assets, redirects, the copied public tree. Recording at the one
+-- function all of them already call beats returning a list from each and threading it
+-- back out through every renderer.
 local collector: {string}? = nil
 
 local function writeFile(path: string, contents: string): boolean?, any
     local ok, err = fs.writeFileIfChanged(path, contents)
-    if ok and collector then collector[#collector + 1] = normalize(path) end
+    if ok and collector then
+        collector[#collector + 1] = normalize(path)
+    end
     return ok, err
 end
 
@@ -29,6 +31,7 @@ end
 function files.collect(into: {string}?)
     collector = into
 end
+
 -- The parentheses matter: `gsub` also returns how many replacements it made, and a path
 -- that arrives somewhere expecting varargs — `loadfile(path)` — would silently pick
 -- that count up as a second argument.
@@ -61,11 +64,15 @@ local function listDirectoryFiles(path)
     else
         code, output = process.capture({"find", path, "-type", "f"})
     end
-    if code ~= 0 then return {} end
+    if code ~= 0 then
+        return {}
+    end
     local paths = {}
     for candidate in output:gmatch("[^\r\n]+") do
         candidate = normalize(candidate)
-        if not hiddenBelow(path, candidate) then paths[#paths + 1] = candidate end
+        if not hiddenBelow(path, candidate) then
+            paths[#paths + 1] = candidate
+        end
     end
     table.sort(paths)
     return paths
@@ -74,21 +81,29 @@ end
 local function listFiles(path)
     local paths = {}
     for _, candidate in ipairs(listDirectoryFiles(path)) do
-        if candidate:match("%.nupp$") then paths[#paths + 1] = candidate end
+        if candidate:match("%.nupp$") then
+            paths[#paths + 1] = candidate
+        end
     end
     return paths
 end
 
 local function copyPublicFiles(root, outDir, public)
-    if not public or public == "" then return true end
+    if not public or public == "" then
+        return true
+    end
     local directory = join(root, public)
     for _, source in ipairs(listDirectoryFiles(directory)) do
         local relative = source:sub(#directory + 2)
         local contents, err = readFile(source)
-        if not contents then return nil, err end
+        if not contents then
+            return nil, err
+        end
         local ok
         ok, err = writeFile(join(outDir, relative), contents)
-        if not ok then return nil, err end
+        if not ok then
+            return nil, err
+        end
     end
     return true
 end

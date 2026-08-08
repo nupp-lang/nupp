@@ -30,28 +30,29 @@ local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
 local modules = {}
 
 local function typeFingerprint(t, active)
-    if not t then return "nil" end
+    if not t then
+        return "nil"
+    end
     active = active or {}
-    if active[t] then return "@" .. (t.name or t.tag) end
+    if active[t] then
+        return "@" .. (t.name or t.tag)
+    end
     active[t] = true
     local tag, value = t.tag, nil
     if tag == "nominal" then
-        -- A nominal is its declaration: one identity per declaration, never
-        -- shared with another of the same shape. So naming the declaration
-        -- identifies it completely, and its members are deliberately not
-        -- expanded here.
+        -- A nominal is its declaration: one identity per declaration, never shared with
+        -- another of the same shape. So naming the declaration identifies it
+        -- completely, and its members are deliberately not expanded here.
         --
-        -- Expanding them is not merely redundant, it does not terminate
-        -- usefully: a member's type reaches other nominals, whose members
-        -- reach further, and fingerprinting this compiler that way runs out
-        -- of memory. What catches a changed record is the project index
-        -- digest, which covers every exported declaration's source text and
-        -- disables reuse wholesale when any of it moves.
+        -- Expanding them is not merely redundant, it does not terminate usefully: a
+        -- member's type reaches other nominals, whose members reach further, and
+        -- fingerprinting this compiler that way runs out of memory. What catches a
+        -- changed record is the project index digest, which covers every exported
+        -- declaration's source text and disables reuse wholesale when any of it moves.
         --
-        -- This loop used to read `t.fields`, which nominals stopped having
-        -- when the member map was renamed to `byname`, so it had been
-        -- contributing nothing for some time. Saying so is the fix; putting
-        -- the members back in is not.
+        -- This loop used to read `t.fields`, which nominals stopped having when the
+        -- member map was renamed to `byname`, so it had been contributing nothing for
+        -- some time. Saying so is the fix; putting the members back in is not.
         value = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.name)
             .. ")"
     elseif tag == "shape" then
@@ -86,7 +87,8 @@ local function typeFingerprint(t, active)
             .. typeFingerprint(t.inner, active) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
         value = tag .. "(" .. typeFingerprint(t.inner, active) .. ")"
-    elseif tag == "map" then value = "map(r="
+    elseif tag == "map" then
+        value = "map(r="
             .. (t.readable and typeFingerprint(t.key, active) or "nil")
             .. ":" .. (t.readable and typeFingerprint(t.value, active) or "nil")
             .. ",w=" .. typeFingerprint(t.writeKey, active) .. ":"
@@ -103,9 +105,13 @@ local function typeFingerprint(t, active)
             items[#items + 1] = typeFingerprint(item, active)
         end
         table.sort(items); value = "union(" .. table.concat(items, "|") .. ")"
-    elseif tag == "literal" then value = "literal(" .. stable(t.value) .. ")"
-    elseif tag == "typevar" then value = "typevar(" .. t.name .. ")"
-    else value = tag or tostring(t) end
+    elseif tag == "literal" then
+        value = "literal(" .. stable(t.value) .. ")"
+    elseif tag == "typevar" then
+        value = "typevar(" .. t.name .. ")"
+    else
+        value = tag or tostring(t)
+    end
     active[t] = nil
     return value
 end
@@ -121,7 +127,9 @@ local function resourceRelative(config, path, root)
         include = normalize(include)
         if normalized:sub(1, #include + 1) == include .. "/" then
             local relative = normalized:sub(#include + 2)
-            if #relative < #best then best = relative end
+            if #relative < #best then
+                best = relative
+            end
         end
     end
     return best
@@ -176,36 +184,35 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
     local inc = incremental.new(root, {config = envConfig, strict = strict})
     newState.projectIndexHash = projectIndexFingerprint(inc)
-    -- A check reuses on the same terms a build does. It used to be excluded,
-    -- and had to be: reuse produced no diagnostics, so the second `nupp check`
-    -- over a project with an error would have said nothing was wrong. Now a
-    -- record carries what the file had to say, so replaying it says the same
-    -- thing the check would have.
+    -- A check reuses on the same terms a build does. It used to be excluded, and had to
+    -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
+    -- an error would have said nothing was wrong. Now a record carries what the file
+    -- had to say, so replaying it says the same thing the check would have.
     local cacheCompatible = oldState.compilerHash == newState.compilerHash
         and oldState.configHash == newState.configHash
         and oldState.projectIndexHash == newState.projectIndexHash
     -- Everything the project is written in, not the closure of its entries.
     --
-    -- A compiler compiles its source set. Deciding what to compile by walking
-    -- require edges out from an entry answers three questions with one walk —
-    -- what to compile, what to check, and what a bundle carries — and gets two
-    -- of them wrong. A module nothing requires goes unchecked, so `nupp check`
-    -- stops meaning "this project is well typed" and starts meaning "the part I
-    -- could reach is". And a module reached only by `require(name)`, where the
-    -- name is computed, is absent from the build and therefore from the binary,
-    -- which fails at run time in front of a user with a filesystem search path
-    -- that means nothing inside one file.
+    -- A compiler compiles its source set. Deciding what to compile by walking require
+    -- edges out from an entry answers three questions with one walk — what to compile,
+    -- what to check, and what a bundle carries — and gets two of them wrong. A module
+    -- nothing requires goes unchecked, so `nupp check` stops meaning "this project is
+    -- well typed" and starts meaning "the part I could reach is". And a module reached
+    -- only by `require(name)`, where the name is computed, is absent from the build and
+    -- therefore from the binary, which fails at run time in front of a user with a
+    -- filesystem search path that means nothing inside one file.
     --
-    -- Eliminating dead code is a linker's job and should be invisible when it
-    -- happens. Measured on this compiler, the walk was removing one module out
-    -- of seventy-one.
+    -- Eliminating dead code is a linker's job and should be invisible when it happens.
+    -- Measured on this compiler, the walk was removing one module out of seventy-one.
     --
-    -- Entries still say where execution starts, and for a bundle which chunk
-    -- becomes the body. They no longer say what exists.
+    -- Entries still say where execution starts, and for a bundle which chunk becomes
+    -- the body. They no longer say what exists.
     local queue, queuedPaths = {}, {}
     local function seed(name, path)
         path = normalize(path)
-        if queuedPaths[path] then return end
+        if queuedPaths[path] then
+            return
+        end
         queuedPaths[path] = true
         queue[#queue + 1] = {name = name, path = path}
     end
@@ -219,17 +226,25 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             name = entry
             path = inc.modulePath(entry)
         end
-        if not path then return nil, "entry not found: " .. entry end
-        if not name then return nil, "cannot determine module name for " .. path end
+        if not path then
+            return nil, "entry not found: " .. entry
+        end
+        if not name then
+            return nil, "cannot determine module name for " .. path
+        end
         seed(name, path)
     end
-    if #queue == 0 then return nil, "build.entries must contain at least one entry" end
+    if #queue == 0 then
+        return nil, "build.entries must contain at least one entry"
+    end
 
-    -- An entry may live outside the include roots — a file named on the command
-    -- line does — so it is seeded first and the source set is added around it.
+    -- An entry may live outside the include roots — a file named on the command line
+    -- does — so it is seeded first and the source set is added around it.
     for _, path in ipairs(envMod.listSourceFiles(inc.env, false)) do
         local name = envMod.moduleNameForPath(inc.env, path)
-        if name then seed(name, path) end
+        if name then
+            seed(name, path)
+        end
     end
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
@@ -237,14 +252,16 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     stats = stats or {}
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
 
-    -- Everything one module had to say, by module name, rather than one list
-    -- everything is appended to. A module reused early can be invalidated and
-    -- recompiled later, and what it says the second time replaces what it said
-    -- the first rather than joining it.
+    -- Everything one module had to say, by module name, rather than one list everything
+    -- is appended to. A module reused early can be invalidated and recompiled later,
+    -- and what it says the second time replaces what it said the first rather than
+    -- joining it.
     local said = {}
 
     local function enqueue(name, path)
-        if queued[name] or records[name] then return end
+        if queued[name] or records[name] then
+            return
+        end
         path = path or inc.modulePath(name)
         if path then
             queued[name] = true
@@ -252,12 +269,14 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         end
     end
 
-    -- A note or a warning is said and stepped over. Only an error stops the
-    -- build, and only an error withholds the file's generated Lua: advice
-    -- about a program is not a reason to refuse to compile it.
+    -- A note or a warning is said and stepped over. Only an error stops the build, and
+    -- only an error withholds the file's generated Lua: advice about a program is not a
+    -- reason to refuse to compile it.
     local function isFatalIn(diags)
         for _, diag in ipairs(diags or {}) do
-            if isFatal(diag) then return true end
+            if isFatal(diag) then
+                return true
+            end
         end
         return false
     end
@@ -287,7 +306,9 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             for _, diag in ipairs(genDiags or {}) do
                 mine[#mine + 1] = diag
             end
-            if #genDiags == 0 then artifactHash = hash.digest(code) end
+            if #genDiags == 0 then
+                artifactHash = hash.digest(code)
+            end
         end
         said[name] = mine
         records[name] = {
@@ -296,9 +317,9 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
             output = output,
-            -- Only what checking found. Generation runs once per artifact and
-            -- a reused module does not run it again, so its remarks belong to
-            -- the run that produced them and not to the record.
+            -- Only what checking found. Generation runs once per artifact and a reused
+            -- module does not run it again, so its remarks belong to the run that
+            -- produced them and not to the record.
             diags = jsonArray(result.diags or {}),
         }
         codeFor[name] = code
@@ -319,9 +340,9 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                 local previous = oldState.modules[item.name]
                 local output = join(root, join(outDir,
                     item.name:gsub("%.", "/") .. ".lua"))
-                -- A build has to find the artifact it would have written still
-                -- sitting there and still what it wrote; a check writes no
-                -- artifact and so has nothing to confirm but the record.
+                -- A build has to find the artifact it would have written still sitting
+                -- there and still what it wrote; a check writes no artifact and so has
+                -- nothing to confirm but the record.
                 local usable = cacheCompatible and previous
                     and previous.sourceHash == sourceHash
                     and previous.interfaceHash
@@ -335,11 +356,10 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                     records[item.name] = copyModuleRecord(previous)
                     records[item.name].output = output
                     reused[item.name] = true
-                    -- A file that is still exactly as it was still has
-                    -- whatever it had to say about itself. Silent reuse would
-                    -- make `nupp check` mean "nothing changed" rather than
-                    -- "nothing is wrong", and the second run over a project
-                    -- with an error in it would pass.
+                    -- A file that is still exactly as it was still has whatever it had
+                    -- to say about itself. Silent reuse would make `nupp check` mean
+                    -- "nothing changed" rather than "nothing is wrong", and the second
+                    -- run over a project with an error in it would pass.
                     said[item.name] = previous.diags
                     for _, depName in ipairs(previous.dependencies) do
                         enqueue(depName)
@@ -380,23 +400,21 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         processQueue()
     end
 
-    -- Counted here rather than where reuse is decided, because a module
-    -- reused early can be invalidated by a dependency later and recompiled;
-    -- only once the loop above settles is `reused` the answer. A check counts
-    -- the same way a build does, which is what lets a test say "this edit
-    -- rechecked one module" instead of timing it.
+    -- Counted here rather than where reuse is decided, because a module reused early
+    -- can be invalidated by a dependency later and recompiled; only once the loop above
+    -- settles is `reused` the answer. A check counts the same way a build does, which
+    -- is what lets a test say "this edit rechecked one module" instead of timing it.
     for _, name in ipairs(order) do
         if reused[name] then
             stats.reusedModules = stats.reusedModules + 1
         end
     end
 
-    -- Everything this run learned is written here, which is before the
-    -- diagnostics are judged rather than after. A run that ends in errors
-    -- learned exactly as much as one that did not -- what every file
-    -- declares, what each module's interface is, and what each had to say --
-    -- and a project with an error in it is precisely the one somebody is
-    -- about to check again.
+    -- Everything this run learned is written here, which is before the diagnostics are
+    -- judged rather than after. A run that ends in errors learned exactly as much as
+    -- one that did not -- what every file declares, what each module's interface is,
+    -- and what each had to say -- and a project with an error in it is precisely the
+    -- one somebody is about to check again.
     inc.persist()
     if checkOnly and checkState then
         local checked = {}
@@ -406,9 +424,9 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         checkState.save()
     end
 
-    -- Everything gathered is said, in the order the modules were reached, so
-    -- the report reads the same whether a module was checked this run or read
-    -- back from the last one.
+    -- Everything gathered is said, in the order the modules were reached, so the report
+    -- reads the same whether a module was checked this run or read back from the last
+    -- one.
     local errors = {}
     for _, name in ipairs(order) do
         for _, diag in ipairs(said[name] or {}) do
@@ -419,9 +437,11 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     for _, e in ipairs(errors) do
         if isFatal(e) then
             fatal = true
-            -- A generation failure is not the project being wrong about
-            -- itself, and says so differently.
-            if not e.code or e.code:sub(1, 5) ~= "NUPP3" then checkFailed = true end
+            -- A generation failure is not the project being wrong about itself, and
+            -- says so differently.
+            if not e.code or e.code:sub(1, 5) ~= "NUPP3" then
+                checkFailed = true
+            end
         end
     end
     if diagnostics then
@@ -434,12 +454,14 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     if fatal then
         return nil, checkFailed and "project has errors" or "code generation failed"
     end
-    if checkOnly then return {outputs = {}} end
+    if checkOnly then
+        return {outputs = {}}
+    end
 
-    -- Every module compiled, with no closure to prune it back to. A stale
-    -- dependency list can still enqueue a name, but a name that is not a source
-    -- file has no path and never entered the queue, and one that is a source
-    -- file belongs in the build regardless of who does or does not require it.
+    -- Every module compiled, with no closure to prune it back to. A stale dependency
+    -- list can still enqueue a name, but a name that is not a source file has no path
+    -- and never entered the queue, and one that is a source file belongs in the build
+    -- regardless of who does or does not require it.
     local pending, outputs = {}, {}
     newState.modules = {}
     for _, name in ipairs(order) do
@@ -464,7 +486,9 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         for _, source in ipairs(expandGlob(root, pattern)) do
             local output = join(root, join(outDir, resourceRelative(config, source, root)))
             local text, err = readFile(source)
-            if not text then return nil, err end
+            if not text then
+                return nil, err
+            end
             outputs[output] = true
             if hashFile(output) ~= hash.digest(text) then
                 pending[#pending + 1] = {path = output, text = text}
@@ -473,11 +497,12 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     end
     for _, item in ipairs(pending) do
         local ok, err = writeFile(item.path, item.text)
-        if not ok then return nil, err end
+        if not ok then
+            return nil, err
+        end
     end
     return {outputs = outputs}
 end
-
 
 modules.typeFingerprint = typeFingerprint
 modules.resourceRelative = resourceRelative

@@ -29,7 +29,9 @@ local type Bindings = {[Type]: Type}
 --- @param t the type to substitute into
 --- @param map what each binder stands for
 function generics.subst(t: Type, map: Bindings): Type
-    if not T.hasTypevar(t) then return t end
+    if not T.hasTypevar(t) then
+        return t
+    end
     local tag = t.tag
     if tag == "typevar" then
         return map[t] or T.any
@@ -53,13 +55,13 @@ function generics.subst(t: Type, map: Bindings): Type
         end
         return T.shape(fields, {
             readKey = t.indexReadKey
-                and generics.subst(t.indexReadKey, map) or nil,
+            and generics.subst(t.indexReadKey, map) or nil,
             readValue = t.indexReadValue
-                and generics.subst(t.indexReadValue, map) or nil,
+            and generics.subst(t.indexReadValue, map) or nil,
             writeKey = t.indexWriteKey
-                and generics.subst(t.indexWriteKey, map) or nil,
+            and generics.subst(t.indexWriteKey, map) or nil,
             writeValue = t.indexWriteValue
-                and generics.subst(t.indexWriteValue, map) or nil,
+            and generics.subst(t.indexWriteValue, map) or nil,
         }, t.fresh)
     elseif tag == "union" then
         local members: {Type} = {}
@@ -112,7 +114,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
     local key = table.concat(parts, "|")
     local cached = instantiations[key]
-    if cached then return cached end
+    if cached then
+        return cached
+    end
     local inst = T.nominal(n.name, n.declKind)
     inst.origin = n
     inst.typeArgs = {}
@@ -160,7 +164,9 @@ end
 --- @param map accumulates the bindings
 function generics.unify(param: Type, arg: Type, map: Bindings)
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
-    if not T.hasTypevar(param) then return end
+    if not T.hasTypevar(param) then
+        return
+    end
     local tag = param.tag
     if tag == "typevar" then
         if arg ~= T.any and arg ~= T.nil_ then
@@ -219,8 +225,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
             for _, f in ipairs(param.fields) do
                 local read = reads and reads[f.name]
                 local write = writes and writes[f.name]
-                if f.read and read then generics.unify(f.read, read, map) end
-                if f.write and write then generics.unify(f.write, write, map) end
+                if f.read and read then
+                    generics.unify(f.read, read, map)
+                end
+                if f.write and write then
+                    generics.unify(f.write, write, map)
+                end
             end
         end
     elseif tag == "func" then
@@ -231,7 +241,9 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
                 end
             end
             for j, r in ipairs(param.rets) do
-                if arg.rets[j] then generics.unify(r, arg.rets[j], map) end
+                if arg.rets[j] then
+                    generics.unify(r, arg.rets[j], map)
+                end
             end
         end
     elseif tag == "nominal" then
@@ -241,12 +253,16 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
             if po == ao then
                 for j, p in ipairs(param.typeArgs or {}) do
                     local a = arg.typeArgs and arg.typeArgs[j]
-                    if a then generics.unify(p, a, map) end
+                    if a then
+                        generics.unify(p, a, map)
+                    end
                 end
             end
         end
     elseif tag == "ptr" then
-        if arg.tag == "ptr" then generics.unify(param.elem, arg.elem, map) end
+        if arg.tag == "ptr" then
+            generics.unify(param.elem, arg.elem, map)
+        end
     end
 end
 
@@ -292,7 +308,9 @@ end
 --- @param selfType what the receiver is
 --- @param selfMode the receiver's ownership mode, "plain" by default
 function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
-    if ft.tag ~= "func" then return ft end
+    if ft.tag ~= "func" then
+        return ft
+    end
     local params: {Type} = {selfType}
     local modes: {string} = {selfMode or "plain"}
     for _, p in ipairs(ft.params) do params[#params + 1] = p end

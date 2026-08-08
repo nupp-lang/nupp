@@ -23,9 +23,13 @@ symbols.SYMBOL_KINDS = {
 local function declarationChildren(stat, source)
     local children = {}
     local function child(nameTok, kind, node)
-        if not nameTok then return end
+        if not nameTok then
+            return
+        end
         local from, to = tree.nodeBounds(node or nameTok)
-        if not from then return end
+        if not from then
+            return
+        end
         children[#children + 1] = {
             name = nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.field,
@@ -55,9 +59,13 @@ end
 function symbols.documentSymbols(result, source)
     local found = wire.array({})
     local function emit(stat, nameTok, kind, path)
-        if not nameTok then return end
+        if not nameTok then
+            return
+        end
         local from, to = tree.nodeBounds(stat)
-        if not from then return end
+        if not from then
+            return
+        end
         found[#found + 1] = {
             name = path or nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.variable,
@@ -115,9 +123,13 @@ end
 function symbols.foldableSpans(result)
     local spans = {}
     tree.walkNodes(result.root, function(node)
-        if node.kind == "block" or node.kind == "chunk" then return end
+        if node.kind == "block" or node.kind == "chunk" then
+            return
+        end
         local from, to = tree.nodeBounds(node)
-        if from and to and to > from then spans[#spans + 1] = {from, to} end
+        if from and to and to > from then
+            spans[#spans + 1] = {from, to}
+        end
     end)
     return spans
 end

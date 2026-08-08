@@ -60,10 +60,10 @@ local function rangeAt(source: string?, offset: number?, length: number?): any
         offset = start.offset + (length or 1)}}
 end
 
---- Encodes a value the way every `--json` command encodes one. An empty table
---- becomes an empty array rather than an empty object, because every field here
---- that can be empty is a list, and a reader handed `{}` where it was promised
---- `[]` has to special-case what was only ever an encoding accident.
+--- Encodes a value the way every `--json` command encodes one. An empty table becomes
+--- an empty array rather than an empty object, because every field here that can be
+--- empty is a list, and a reader handed `{}` where it was promised `[]` has to
+--- special-case what was only ever an encoding accident.
 function report.encode(value: any): string
     local encoder = require("cjson").new()
     encoder.encode_empty_table_as_object(false)
@@ -71,14 +71,14 @@ function report.encode(value: any): string
     return encoder.encode(value)
 end
 
---- Writes one line of JSON to stdout. Never coloured: the reader is a program,
---- and an escape code in a JSON string is a bug in whatever printed it.
+--- Writes one line of JSON to stdout. Never coloured: the reader is a program, and an
+--- escape code in a JSON string is a bug in whatever printed it.
 function report.write(value: any)
     io.write(report.encode(value) .. "\n")
 end
 
---- The diagnostics as `--json` promises them: every range resolved to line,
---- column and offset, including the ranges inside fixes and related locations.
+--- The diagnostics as `--json` promises them: every range resolved to line, column and
+--- offset, including the ranges inside fixes and related locations.
 function report.diagnosticValues(diagnostics: {any}): {any}
     local read = sourceReader()
     local values: {any} = {}
@@ -109,10 +109,9 @@ function report.diagnosticValues(diagnostics: {any}): {any}
             severity = REPORTED[e.severity] or "error",
             code = e.code,
             lint = e.lint,
-            -- Derived from the code rather than carried on every diagnostic:
-            -- one code always means one section, so storing it at each of the
-            -- hundreds of places a diagnostic is raised would only be a way for
-            -- them to disagree.
+            -- Derived from the code rather than carried on every diagnostic: one code
+            -- always means one section, so storing it at each of the hundreds of places
+            -- a diagnostic is raised would only be a way for them to disagree.
             docs = explain.anchor(e.code),
             message = e.msg,
             range = rangeAt(source, e.offset, e.length),
@@ -125,8 +124,8 @@ function report.diagnosticValues(diagnostics: {any}): {any}
     return values
 end
 
---- Writes `{"diagnostics": [...]}`, which is what `check --json` promises and
---- what every other command that carries diagnostics embeds under the same key.
+--- Writes `{"diagnostics": [...]}`, which is what `check --json` promises and what
+--- every other command that carries diagnostics embeds under the same key.
 function report.json(diagnostics: {any})
     report.write({diagnostics = report.diagnosticValues(diagnostics)})
 end
@@ -136,10 +135,10 @@ function report.fatal(diagnostic: any): boolean
     return REPORTED[diagnostic.severity] == nil
 end
 
--- The schema of what the writers above produce, kept beside them for the same
--- reason help is kept beside the option grammar: two descriptions of one thing,
--- in two places, is how they come to disagree. `--schema` prints this, and a
--- test parses real output back against it.
+-- The schema of what the writers above produce, kept beside them for the same reason
+-- help is kept beside the option grammar: two descriptions of one thing, in two places,
+-- is how they come to disagree. `--schema` prints this, and a test parses real output
+-- back against it.
 local POSITION = {
     type = "object",
     description = "A 1-based byte position.",
@@ -157,9 +156,10 @@ local RANGE = {
     required = {"start", "end"},
 }
 
---- A 1-based byte position, and a span of them. Shared so that everything which
---- reports a source location reports it in the same shape.
+--- A 1-based byte position, and a span of them. Shared so that everything which reports
+--- a source location reports it in the same shape.
 report.POSITION = POSITION
+
 report.RANGE = RANGE
 
 --- A range in a named file, which is what the semantic operations return.
@@ -186,14 +186,14 @@ report.DIAGNOSTIC = {
         file = {type = "string"},
         severity = {type = "string", enum = {"error", "warning", "note"}},
         code = {type = "string",
-            description = "A stable code such as NUPP2004, or OPT-n for an "
-                .. "optimizer remark."},
+        description = "A stable code such as NUPP2004, or OPT-n for an "
+        .. "optimizer remark."},
         lint = {type = "string",
-            description = "The lint name, when the diagnostic came from one. "
-                .. "This is what an @allow suppression writes."},
+        description = "The lint name, when the diagnostic came from one. "
+        .. "This is what an @allow suppression writes."},
         docs = {type = "string",
-            description = "The reference section covering this code, as a path "
-                .. "and anchor. 'nupp explain <code>' says more."},
+        description = "The reference section covering this code, as a path "
+        .. "and anchor. 'nupp explain <code>' says more."},
         message = {type = "string"},
         range = RANGE,
         help = {type = "string", description = "A concrete repair direction."},
@@ -203,18 +203,18 @@ report.DIAGNOSTIC = {
             items = {
                 type = "object",
                 properties = {file = {type = "string"},
-                    message = {type = "string"}, range = RANGE},
+                message = {type = "string"}, range = RANGE},
                 required = {"range"},
             },
         },
         fixes = {
             type = "array",
             description = "Machine-applicable repairs. A fix is all-or-nothing: "
-                .. "apply every edit in it or none.",
+            .. "apply every edit in it or none.",
             items = {
                 type = "object",
                 properties = {title = {type = "string"},
-                    edits = {type = "array", items = EDIT}},
+                edits = {type = "array", items = EDIT}},
                 required = {"title", "edits"},
             },
         },
@@ -222,8 +222,8 @@ report.DIAGNOSTIC = {
     required = {"severity", "message", "range", "fixes", "notes", "related"},
 }
 
---- The array-of-diagnostics property every command that reports them carries,
---- under that name, so one reader handles all of them.
+--- The array-of-diagnostics property every command that reports them carries, under
+--- that name, so one reader handles all of them.
 report.DIAGNOSTICS = {type = "array", items = report.DIAGNOSTIC}
 
 return report

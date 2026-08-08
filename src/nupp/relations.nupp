@@ -21,7 +21,9 @@ local type Type = T.Type
 --- shape field of such a type need not be present at all. `never` admits nothing, nil
 --- included: there is no value of that type to leave out.
 local function admitsNil(t: Type): boolean
-    if t == T.nil_ or t == T.any or t == T.unknown then return true end
+    if t == T.nil_ or t == T.any or t == T.unknown then
+        return true
+    end
     return t.tag == "union" and t.hasNil or false
 end
 
@@ -82,14 +84,16 @@ local function memberIsA(have: Type, want: Type): boolean
 end
 
 local function optionalIsA(a: Type?, b: Type?): boolean
-    if not a or not b then return false end
+    if not a or not b then
+        return false
+    end
     return isA(a, b)
 end
 
 local type PropertyType = T.Shape | T.Nominal
 
---- Read capabilities compare covariantly; write capabilities compare
---- contravariantly. Requiring both therefore makes an ordinary property invariant.
+--- Read capabilities compare covariantly; write capabilities compare contravariantly.
+--- Requiring both therefore makes an ordinary property invariant.
 local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     local aReads = a.byname or {}
     local aWrites = a.writeByname or {}
@@ -97,7 +101,9 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     for name, want in pairs(b.byname or {}) do
         local have = aReads[name]
         if not have then
-            if admitsNil(want) then goto nextRead end
+            if admitsNil(want) then
+                goto nextRead
+            end
             return false, ("%s is not a %s (no readable member %q)")
                 :format(T.tostring(a), T.tostring(b), name)
         end
@@ -108,7 +114,9 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
         ::nextRead::
     end
     for name, want in pairs(b.writeByname or {}) do
-        if fresh then goto nextWrite end
+        if fresh then
+            goto nextWrite
+        end
         local have = aWrites[name]
         if not have then
             return false, ("%s is not a %s (no writable member %q)")
@@ -126,9 +134,13 @@ end
 local function sameCleanups(a: {string}?, b: {string}?): boolean
     local left: {string} = a or {}
     local right: {string} = b or {}
-    if #left ~= #right then return false end
+    if #left ~= #right then
+        return false
+    end
     for j, name in ipairs(left) do
-        if name ~= right[j] then return false end
+        if name ~= right[j] then
+            return false
+        end
     end
     return true
 end
@@ -138,22 +150,34 @@ end
 --- The order of the rules is the doctrine: ownership first, then unions, then the
 --- numeric and C-boundary conversions, then structure.
 local function check(a: Type, b: Type): boolean, string?
-    if a == b then return true end
+    if a == b then
+        return true
+    end
     local atag, btag = a.tag, b.tag
-    if atag == "any" or btag == "any" then return true end
+    if atag == "any" or btag == "any" then
+        return true
+    end
     -- `never` is uninhabited, so a value of it (there being none) fits anywhere.
     -- `unknown` is the reverse: everything fits into it, but it fits nowhere else on
     -- its own — narrow it or write `as` first. Neither is gradual like `any`: only one
     -- direction is free.
-    if atag == "never" then return true end
-    if btag == "unknown" then return true end
+    if atag == "never" then
+        return true
+    end
+    if btag == "unknown" then
+        return true
+    end
     -- Unsubstituted type parameters behave gradually (call-site instantiation replaces
     -- them before real checking).
     if atag == "typevar" then
-        if a.bound then return isA(a.bound, b) end
+        if a.bound then
+            return isA(a.bound, b)
+        end
         return true
     end
-    if btag == "typevar" then return true end
+    if btag == "typevar" then
+        return true
+    end
 
     -- Ownership is affine metadata over pointer values. Owners and borrows erase to
     -- cdata. Pinned handles deliberately do not: their runtime table must cross C only
@@ -175,12 +199,18 @@ local function check(a: Type, b: Type): boolean, string?
         return isA(a.inner, b)
     end
     if atag == "borrowed" then
-        if btag == "borrowed" then return isA(a.inner, b.inner) end
-        if btag == "owned" then return fail(a, b) end
+        if btag == "borrowed" then
+            return isA(a.inner, b.inner)
+        end
+        if btag == "owned" then
+            return fail(a, b)
+        end
         return isA(a.inner, b)
     end
     if atag == "pinned" then
-        if btag == "pinned" then return isA(a.inner, b.inner) end
+        if btag == "pinned" then
+            return isA(a.inner, b.inner)
+        end
         return fail(a, b)
     end
     if btag == "owned" or btag == "borrowed" or btag == "pinned" then
@@ -200,7 +230,9 @@ local function check(a: Type, b: Type): boolean, string?
     end
     if btag == "union" then
         for _, m in ipairs(b.members) do
-            if isA(a, m) then return true end
+            if isA(a, m) then
+                return true
+            end
         end
         return fail(a, b)
     end
@@ -210,13 +242,17 @@ local function check(a: Type, b: Type): boolean, string?
     -- tables), so it is not re-proved structurally.
     if atag == "nominal" then
         for _, parent in ipairs(a.supertypes or {}) do
-            if parent == b or isA(parent, b) then return true end
+            if parent == b or isA(parent, b) then
+                return true
+            end
         end
     end
 
     -- numeric widening
     local widensFrom = WIDENS[atag]
-    if widensFrom and widensFrom[btag] then return true end
+    if widensFrom and widensFrom[btag] then
+        return true
+    end
 
     -- cdata numeric slots (float, sized ints) accept any numeric value — storing a Lua
     -- number into them converts, as in C. `integer` and `number` remain strict against
@@ -258,7 +294,9 @@ local function check(a: Type, b: Type): boolean, string?
         if next(a.byname or {}) or next(a.writeByname or {})
             or a.indexReadValue or a.indexWriteValue then
             local ok, why = propertiesFit(a, b)
-            if not ok then return false, why end
+            if not ok then
+                return false, why
+            end
             if b.indexReadValue and (not a.indexReadValue
                 or not optionalIsA(b.indexReadKey, a.indexReadKey)
                 or not optionalIsA(a.indexReadValue, b.indexReadValue)) then
@@ -304,7 +342,9 @@ local function check(a: Type, b: Type): boolean, string?
 
     -- a string literal is a string; otherwise it behaves exactly as its base type does
     if atag == "literal" then
-        if b == (a.base or T.string) then return true end
+        if b == (a.base or T.string) then
+            return true
+        end
         return isA(a.base or T.string, b)
     end
 
@@ -314,7 +354,9 @@ local function check(a: Type, b: Type): boolean, string?
     if btag == "nominal" and b.declKind == "interface" and b.byname then
         if (atag == "nominal" or atag == "shape") and a.byname then
             local ok, why = propertiesFit(a, b)
-            if not ok then return false, why end
+            if not ok then
+                return false, why
+            end
             if b.indexReadValue then
                 if not a.indexReadValue
                     or not optionalIsA(b.indexReadKey, a.indexReadKey)
@@ -380,14 +422,20 @@ local function check(a: Type, b: Type): boolean, string?
 
     if atag == "array" and btag == "array" then
         local ok = isA(a.elem, b.elem)
-        if ok then return true end
+        if ok then
+            return true
+        end
         return fail(a, b)
     end
 
     if atag == "tuple" and btag == "tuple" then
-        if #a.elems ~= #b.elems then return fail(a, b) end
+        if #a.elems ~= #b.elems then
+            return fail(a, b)
+        end
         for j, e in ipairs(a.elems) do
-            if not isA(e, b.elems[j]) then return fail(a, b) end
+            if not isA(e, b.elems[j]) then
+                return fail(a, b)
+            end
         end
         return true
     end
@@ -395,7 +443,9 @@ local function check(a: Type, b: Type): boolean, string?
     -- a homogeneous-enough tuple fits an array
     if atag == "tuple" and btag == "array" then
         for _, e in ipairs(a.elems) do
-            if not isA(e, b.elem) then return fail(a, b) end
+            if not isA(e, b.elem) then
+                return fail(a, b)
+            end
         end
         return true
     end
@@ -404,7 +454,9 @@ local function check(a: Type, b: Type): boolean, string?
     -- true, int8 = true} fits {[string]: boolean}.
     if b.tag == "map" and a.tag == "shape" then
         if b.readable then
-            if not isA(T.string, b.key) then return fail(a, b) end
+            if not isA(T.string, b.key) then
+                return fail(a, b)
+            end
             if a.indexReadValue then
                 if not optionalIsA(b.key, a.indexReadKey)
                     or not optionalIsA(a.indexReadValue, b.value) then
@@ -449,7 +501,9 @@ local function check(a: Type, b: Type): boolean, string?
     -- {T} is wanted (ipairs, #, and the rest of the array world)
     local arrayPart = a.tag == "nominal" and a.arrayOf or nil
     if b.tag == "array" and arrayPart then
-        if isA(arrayPart, b.elem) and isA(b.elem, arrayPart) then return true end
+        if isA(arrayPart, b.elem) and isA(b.elem, arrayPart) then
+            return true
+        end
         return fail(a, b)
     end
 
@@ -459,7 +513,9 @@ local function check(a: Type, b: Type): boolean, string?
     if btag == "shape" then
         if (atag == "shape" or atag == "nominal") and a.byname then
             local ok, why = propertiesFit(a, b)
-            if not ok then return false, why end
+            if not ok then
+                return false, why
+            end
             if b.indexReadValue and (not a.indexReadValue
                 or not optionalIsA(b.indexReadKey, a.indexReadKey)
                 or not optionalIsA(a.indexReadValue, b.indexReadValue)) then
@@ -484,14 +540,18 @@ local function check(a: Type, b: Type): boolean, string?
         end
         return fail(a, b)
     end
-    if atag == "carray" and btag == "voidptr" then return true end
+    if atag == "carray" and btag == "voidptr" then
+        return true
+    end
     if atag == "carray" and btag == "ptr" and b.elem == a.elem then
         return true
     end
 
     if atag == "ptr" and btag == "ptr" then
         -- invariant pointee
-        if isA(a.elem, b.elem) and isA(b.elem, a.elem) then return true end
+        if isA(a.elem, b.elem) and isA(b.elem, a.elem) then
+            return true
+        end
         return fail(a, b)
     end
 
@@ -505,7 +565,9 @@ local function check(a: Type, b: Type): boolean, string?
         end
         -- math.min would widen the count to number, and an index has to stay an integer
         local n = #a.params
-        if #b.params < n then n = #b.params end
+        if #b.params < n then
+            n = #b.params
+        end
         for j = 1, n do
             local am = a.paramModes and a.paramModes[j] or "plain"
             local bm = b.paramModes and b.paramModes[j] or "plain"
@@ -534,7 +596,9 @@ local function check(a: Type, b: Type): boolean, string?
                 :format(T.tostring(a), T.tostring(b))
         end
         local rn = #a.rets
-        if #b.rets < rn then rn = #b.rets end
+        if #b.rets < rn then
+            rn = #b.rets
+        end
         for j = 1, rn do
             -- covariant returns
             if not isA(a.rets[j], b.rets[j]) then
@@ -562,7 +626,9 @@ isA = function(a: Type, b: Type): boolean, string?
     cache[a] = perA
     local hit = perA[b]
     if hit ~= nil then
-        if hit == true then return true end
+        if hit == true then
+            return true
+        end
         return false, tostring(hit)
     end
     local ok, why = check(a, b)

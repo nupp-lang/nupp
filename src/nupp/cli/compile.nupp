@@ -63,14 +63,18 @@ end
 function compile.module(path: string, env: any,
     settings: compile.Settings): string?, string?
     local collected = settings.diagnostics
-    -- Says each diagnostic, or puts it by for the caller to say later, and either
-    -- way answers whether an error was among them.
+    -- Says each diagnostic, or puts it by for the caller to say later, and either way
+    -- answers whether an error was among them.
     local function say(values: {any}): boolean
-        if not collected then return diagnosticMod.report(values) end
+        if not collected then
+            return diagnosticMod.report(values)
+        end
         local fatal = false
         for _, diagnostic in ipairs(values) do
             collected[#collected + 1] = diagnostic
-            if diagnosticMod.isFatal(diagnostic) then fatal = true end
+            if diagnosticMod.isFatal(diagnostic) then
+                fatal = true
+            end
         end
         return fatal
     end

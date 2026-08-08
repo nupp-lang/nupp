@@ -169,9 +169,9 @@ function declare.install(c: any, reifiableField: any, fix: any,
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
             -- The grammar carries a `where` refinement and nothing checks it, so a
-            -- declaration that states a constraint gets no constraint. Saying so is
-            -- the honest reading: a silently ignored predicate is worse than one
-            -- the compiler admits it cannot evaluate.
+            -- declaration that states a constraint gets no constraint. Saying so is the
+            -- honest reading: a silently ignored predicate is worse than one the
+            -- compiler admits it cannot evaluate.
             if stat.whereClause then
                 c.diag("NUPP2122", stat.whereClause,
                     "a 'where' refinement is not implemented, so this "
@@ -189,7 +189,9 @@ function declare.install(c: any, reifiableField: any, fix: any,
             -- Inside its own body a declaration answers to its simple name, so a
             -- recursive field reads `Node?` rather than repeating the table it is
             -- attached to. The binding dies with the scope.
-            if c.qualifierOf(stat) then c.bindType(stat.name.text, n, nil) end
+            if c.qualifierOf(stat) then
+                c.bindType(stat.name.text, n, nil)
+            end
             n.typeParams, n.typeBounds = nil, nil
             if stat.generics then
                 n.typeParams, n.typeBounds = c.bindGenerics(stat.generics,
@@ -234,7 +236,9 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     for _, disposer in ipairs(super.defaultDisposers or {}) do
                         local seen = false
                         for _, current in ipairs(n.defaultDisposers or {}) do
-                            if current == disposer then seen = true end
+                            if current == disposer then
+                                seen = true
+                            end
                         end
                         if not seen then
                             n.defaultDisposers[#n.defaultDisposers + 1] = disposer
@@ -404,11 +408,11 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         c.diag("NUPP2118", e.name,
                             "a metamethod name must begin with '__'",
                             c.edits.spellingFix(e.name,
-                                operators.contractMetamethod))
+                            operators.contractMetamethod))
                     elseif not operators.contractMetamethod[e.name.text] then
                         local fixes = not operators.runtimeMetamethod[e.name.text]
                             and c.edits.spellingFix(e.name,
-                                operators.contractMetamethod) or nil
+                            operators.contractMetamethod) or nil
                         c.diag("NUPP2118", e.name,
                             ("metamethod %s is not dispatched by this LuaJIT "
                             .. "target"):format(e.name.text), fixes)

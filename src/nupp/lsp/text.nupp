@@ -27,7 +27,9 @@ end
 
 function text.readFile(path)
     local f = io.open(path, "rb")
-    if not f then return nil end
+    if not f then
+        return nil
+    end
     local source = f:read("*a")
     f:close()
     return source
@@ -36,7 +38,9 @@ end
 -- LSP positions count UTF-16 code units; lexer offsets count UTF-8 bytes.
 function text.utf8Char(source, offset)
     local first = source:byte(offset)
-    if not first or first < 0x80 then return 1, 1 end
+    if not first or first < 0x80 then
+        return 1, 1
+    end
     local len = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
     return len, len == 4 and 2 or 1
 end
@@ -57,10 +61,14 @@ end
 function text.offsetAtPosition(source, target)
     local line, character, pos = 0, 0, 1
     while pos <= #source and line < target.line do
-        if source:byte(pos) == 10 then line = line + 1 end
+        if source:byte(pos) == 10 then
+            line = line + 1
+        end
         pos = pos + 1
     end
-    if line ~= target.line then return nil end
+    if line ~= target.line then
+        return nil
+    end
     while pos <= #source and source:byte(pos) ~= 10
         and character < target.character do
         local bytes, units = text.utf8Char(source, pos)
@@ -99,7 +107,9 @@ end
 function text.lineStarts(source)
     local starts = {1}
     for pos = 1, #source do
-        if source:byte(pos) == 10 then starts[#starts + 1] = pos + 1 end
+        if source:byte(pos) == 10 then
+            starts[#starts + 1] = pos + 1
+        end
     end
     return starts
 end
@@ -127,7 +137,9 @@ function text.lineHunks(before, after)
                         break
                     end
                 end
-                if skipBefore then break end
+                if skipBefore then
+                    break
+                end
             end
             if not skipBefore then
                 skipBefore, skipAfter = #before - i + 1, #after - j + 1

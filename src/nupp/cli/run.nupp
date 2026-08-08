@@ -28,11 +28,11 @@ local command = spec.command{
         optionsMod.strict,
         optionsMod.optimize(),
         {name = "--profile", value = "MS", form = "optional",
-            help = "Sample the program every MS milliseconds (default 10)"},
+        help = "Sample the program every MS milliseconds (default 10)"},
         {name = "--profile-out", value = "PATH",
-            help = "Where the samples go (default profile.out)"},
+        help = "Where the samples go (default profile.out)"},
         {name = "--jit-aborts", value = "PATH", form = "optional",
-            help = "Record where the JIT gave up (default jit-aborts.csv)"}),
+        help = "Record where the JIT gave up (default jit-aborts.csv)"}),
     detail = [[Program arguments are passed to the loaded chunk. Use '--' before a file name
 that starts with a dash.
 

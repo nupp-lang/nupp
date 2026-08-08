@@ -16,8 +16,8 @@ local cst = require("nupp.cst")
 local fixits = {}
 
 --- Damerau-Levenshtein distance for short language names. Treating an adjacent
---- transposition as one edit catches `__idnex` without making the spelling
---- threshold broad enough to guess at unrelated metamethods.
+--- transposition as one edit catches `__idnex` without making the spelling threshold
+--- broad enough to guess at unrelated metamethods.
 local function editDistance(left: string, right: string): integer
     local beforePrevious = nil
     local previous = {}
@@ -60,11 +60,13 @@ function fixits.new(result: any, env: any): any
         return {offset = tok.offset, length = #tok.text, newText = text}
     end
 
-    --- A fix for a misspelled name when exactly one candidate is close enough.
-    --- Short metamethod stems permit one edit; longer ones permit two, which
-    --- still refuses unrelated or merely unsupported runtime protocols.
+    --- A fix for a misspelled name when exactly one candidate is close enough. Short
+    --- metamethod stems permit one edit; longer ones permit two, which still refuses
+    --- unrelated or merely unsupported runtime protocols.
     function self.spellingFix(tok: any, candidates: any): {any}?
-        if not tok or type(tok.text) ~= "string" then return nil end
+        if not tok or type(tok.text) ~= "string" then
+            return nil
+        end
         local compared = tok.text
         if not compared:match("^__") then
             compared = compared:sub(1, 1) == "_" and "_" .. compared
@@ -81,14 +83,18 @@ function fixits.new(result: any, env: any): any
         end
         local stemLength = math.max(0, #compared - 2)
         local threshold = stemLength >= 5 and 2 or 1
-        if not best or tied or distance > threshold then return nil end
+        if not best or tied or distance > threshold then
+            return nil
+        end
         return {self.fix(("change to `%s`"):format(best),
             self.replaceToken(tok, best))}
     end
 
     --- A fix for an ordinary identifier when one visible name is uniquely close.
     function self.nameSpellingFix(tok: any, candidates: any): {any}?
-        if not tok or type(tok.text) ~= "string" then return nil end
+        if not tok or type(tok.text) ~= "string" then
+            return nil
+        end
         local best, distance, tied = nil, nil, false
         for key, value in pairs(candidates or {}) do
             local candidate = type(key) == "number" and value or key
@@ -102,23 +108,27 @@ function fixits.new(result: any, env: any): any
             end
         end
         local threshold = #tok.text >= 5 and 2 or 1
-        if not best or tied or distance > threshold then return nil end
+        if not best or tied or distance > threshold then
+            return nil
+        end
         return {self.fix(("change to `%s`"):format(best),
             self.replaceToken(tok, best))}
     end
 
-    --- Makes a narrowing explicit around the complete initializer. Restrict the
-    --- copied spelling to a plain or qualified type name: unusual trivia and
-    --- compound spellings are better left to the author than rearranged.
+    --- Makes a narrowing explicit around the complete initializer. Restrict the copied
+    --- spelling to a plain or qualified type name: unusual trivia and compound
+    --- spellings are better left to the author than rearranged.
     function self.castFix(expr: any, target: any): {any}?
         local first, last = cst.firstToken(expr), cst.lastToken(expr)
         local rendered = target and cst.textOf(target) or ""
         local name = rendered:match("^%s*([%a_][%w_%.]*)%s*$")
-        if not first or not last or not name then return nil end
+        if not first or not last or not name then
+            return nil
+        end
         return {self.fix(("cast to `%s`"):format(name),
             self.insertBefore(first, "("),
             {offset = last.offset + #last.text, length = 0,
-                newText = ") as " .. name})}
+            newText = ") as " .. name})}
     end
 
     --- The top-level `local <name> = require("<module>")` statements, in source order,
@@ -155,14 +165,18 @@ function fixits.new(result: any, env: any): any
         local after = requires[#requires]
         if after then
             local tok = cst.lastToken(after.stat)
-            if not tok then return nil end
+            if not tok then
+                return nil
+            end
             return {offset = tok.offset + #tok.text, length = 0,
                 newText = "\n" .. line}
         end
         local firstBlock = (result.root.blocks or {})[1]
         local firstStat = firstBlock and (firstBlock.stats or {})[1]
         local tok = firstStat and cst.firstToken(firstStat)
-        if not tok then return nil end
+        if not tok then
+            return nil
+        end
         return {offset = tok.offset - (tok.col - 1), length = 0,
             newText = line .. "\n\n"}
     end
@@ -170,7 +184,9 @@ function fixits.new(result: any, env: any): any
     --- The local this file already binds `moduleName` to, if it binds one.
     function self.requiredAs(moduleName: string): string?
         for _, entry in ipairs(topLevelRequires()) do
-            if entry.module == moduleName then return entry.name end
+            if entry.module == moduleName then
+                return entry.name
+            end
         end
         return nil
     end
@@ -179,7 +195,9 @@ function fixits.new(result: any, env: any): any
     --- a fix proposed while hoisting, before those locals exist, still sees them.
     function self.requireBindsName(name: string): boolean
         for _, entry in ipairs(topLevelRequires()) do
-            if entry.name == name then return true end
+            if entry.name == name then
+                return true
+            end
         end
         return false
     end
@@ -194,7 +212,9 @@ function fixits.new(result: any, env: any): any
     --- Several candidates are several fixes rather than one, because which module was
     --- meant is exactly what the message says it cannot tell.
     function self.missingRequire(name: string): string?, boolean, {any}?
-        if not env or not env.modulesNamed then return nil, false, nil end
+        if not env or not env.modulesNamed then
+            return nil, false, nil
+        end
         local candidates = {}
         for _, moduleName in ipairs(env.modulesNamed(env, name) or {}) do
             -- a file does not require itself
@@ -202,8 +222,12 @@ function fixits.new(result: any, env: any): any
                 candidates[#candidates + 1] = moduleName
             end
         end
-        if #candidates == 0 then return nil, false, nil end
-        if requireAdviceGiven[name] then return nil, true, nil end
+        if #candidates == 0 then
+            return nil, false, nil
+        end
+        if requireAdviceGiven[name] then
+            return nil, true, nil
+        end
         requireAdviceGiven[name] = true
         local fixes = {}
         for _, moduleName in ipairs(candidates) do
@@ -227,19 +251,19 @@ function fixits.new(result: any, env: any): any
     return self
 end
 
---- How many single-character edits separate two short names, counting an
---- adjacent transposition as one. Exported because a misspelling is not only a
---- source-code problem: the manifest validator suggests keys with it too, and
---- one threshold beats two that drift.
+--- How many single-character edits separate two short names, counting an adjacent
+--- transposition as one. Exported because a misspelling is not only a source-code
+--- problem: the manifest validator suggests keys with it too, and one threshold beats
+--- two that drift.
 ---
 --- @param left one name
 --- @param right the other
 --- @return the number of edits
 fixits.editDistance = editDistance
 
---- The nearest of `candidates` to `name`, or nil when nothing is near enough or
---- two are equally near. The threshold widens with the name, since a long word
---- survives two typos and a short one is a different word by then.
+--- The nearest of `candidates` to `name`, or nil when nothing is near enough or two are
+--- equally near. The threshold widens with the name, since a long word survives two
+--- typos and a short one is a different word by then.
 ---
 --- @param name what was written
 --- @param candidates the names it might have meant
@@ -255,7 +279,9 @@ function fixits.nearest(name: string, candidates: {string}): string?
             tied = true
         end
     end
-    if tied or not distance or distance > limit then return nil end
+    if tied or not distance or distance > limit then
+        return nil
+    end
     return best
 end
 

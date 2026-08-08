@@ -55,14 +55,14 @@ local NO_SPACE_AFTER = {
     ["::"] = true, ["?."] = true, ["#"] = true, ["@"] = true,
     ["istringOpen"] = true, ["istringMid"] = true,
 }
--- Prev kinds that hug a following "(" or "[". Most make a call/index;
--- `function` introduces a parameter list or function type.
+-- Prev kinds that hug a following "(" or "[". Most make a call/index; `function`
+-- introduces a parameter list or function type.
 local CALLEE_KINDS = {
     ["name"] = true, [")"] = true, ["]"] = true, ["string"] = true,
     ["function"] = true,
 }
--- Line-leading tokens that close a construct sit at the construct's depth
--- rather than taking a continuation indent.
+-- Line-leading tokens that close a construct sit at the construct's depth rather than
+-- taking a continuation indent.
 local CLOSERS = {
     ["end"] = true, ["until"] = true, ["else"] = true, ["elseif"] = true,
     ["}"] = true, [")"] = true, ["]"] = true,
@@ -84,7 +84,9 @@ local function firstToken(n)
     end
     for _, child in ipairs(n) do
         local t = firstToken(child)
-        if t then return t end
+        if t then
+            return t
+        end
     end
     return nil
 end
@@ -95,13 +97,15 @@ local function lastToken(n)
     end
     for j = #n, 1, -1 do
         local t = lastToken(n[j])
-        if t then return t end
+        if t then
+            return t
+        end
     end
     return nil
 end
 
--- Finds a bracketed group among a node's direct token children: the first
--- opener and its matching closer, with at least one child between them.
+-- Finds a bracketed group among a node's direct token children: the first opener and
+-- its matching closer, with at least one child between them.
 local function groupBounds(n)
     local openIdx, closer
     for idx, child in ipairs(n) do
@@ -112,7 +116,9 @@ local function groupBounds(n)
                     openIdx, closer = idx, pair
                 end
             elseif child.kind == closer then
-                if idx > openIdx + 1 then return openIdx, idx end
+                if idx > openIdx + 1 then
+                    return openIdx, idx
+                end
                 return nil
             end
         end
@@ -120,16 +126,20 @@ local function groupBounds(n)
     return nil
 end
 
--- `if` is always a block. Existing line breaks are otherwise respected, but
--- these breaks are added: every arm's body opens a line, and `elseif`, `else`
--- and `end` each start theirs, so there is no inline form to write.
+-- `if` is always a block. Existing line breaks are otherwise respected, but these
+-- breaks are added: every arm's body opens a line, and `elseif`, `else` and `end` each
+-- start theirs, so there is no inline form to write.
 local function breakIfArms(n)
     local function breakBefore(node)
         local tok = node and firstToken(node)
-        if tok then tok.forceBreak = true end
+        if tok then
+            tok.forceBreak = true
+        end
     end
     for idx, clause in ipairs(n.clauses or {}) do
-        if idx > 1 then breakBefore(clause) end
+        if idx > 1 then
+            breakBefore(clause)
+        end
         breakBefore(clause.body)
     end
     if n.elseClause then
@@ -137,11 +147,13 @@ local function breakIfArms(n)
         breakBefore(n.elseClause.body)
     end
     local close = lastToken(n)
-    if close and close.kind == "end" then close.forceBreak = true end
+    if close and close.kind == "end" then
+        close.forceBreak = true
+    end
 end
 
--- Walks the tree assigning block depth, bracket-group membership, spacing
--- hints, and statement spans.
+-- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
+-- statement spans.
 local function annotate(root)
     local markStart = false
     local walk
@@ -156,14 +168,16 @@ local function annotate(root)
                 end
             end
         elseif kind == "unop" then
-            -- `not x` needs its space; the symbol spellings, `!` included,
-            -- hug their operand.
+            -- `not x` needs its space; the symbol spellings, `!` included, hug their
+            -- operand.
             local op = n.op
             if op and (op.kind ~= "not" or op.text == "!") then
                 op.unaryTok = true
             end
         elseif kind == "binop" then
-            if n.op and BREAK_OPS[n.op.kind] then n.op.breakOp = true end
+            if n.op and BREAK_OPS[n.op.kind] then
+                n.op.breakOp = true
+            end
         elseif kind == "ifStmt" then
             breakIfArms(n)
         end
@@ -171,7 +185,9 @@ local function annotate(root)
         local openIdx, closeIdx
         if kind == "withStmt" then
             for idx, child in ipairs(n) do
-                if child == n.withTok then openIdx = idx end
+                if child == n.withTok then
+                    openIdx = idx
+                end
                 if child == n.doTok then
                     closeIdx = idx
                     child.withHeaderClose = true
@@ -212,17 +228,21 @@ local function annotate(root)
                     walk(stat, block + 1, childGroup)
                     markStart = false
                     local first, last = firstToken(stat), lastToken(stat)
-                    if first then first.stmtLastTok = last end
+                    if first then
+                        first.stmtLastTok = last
+                    end
                 end
             elseif declish and child ~= n.generics then
                 markStart = true
                 walk(child, block + 1, childGroup)
                 markStart = false
                 local first, last = firstToken(child), lastToken(child)
-                if first then first.stmtLastTok = last end
+                if first then
+                    first.stmtLastTok = last
+                end
             elseif kind == "pragmaStmt" and child == n.stat then
-                -- The decorated statement is a statement: on its own line it
-                -- sits at the annotation's depth, not a continuation of it.
+                -- The decorated statement is a statement: on its own line it sits at
+                -- the annotation's depth, not a continuation of it.
                 markStart = true
                 walk(child, block, childGroup)
                 markStart = false
@@ -241,7 +261,9 @@ local function annotate(root)
                 walk(stat, 0, nil)
                 markStart = false
                 local first, last = firstToken(stat), lastToken(stat)
-                if first then first.stmtLastTok = last end
+                if first then
+                    first.stmtLastTok = last
+                end
             end
         else
             walk(child, 0, nil)
@@ -256,34 +278,60 @@ end
 
 -- Space (or "") between two adjacent tokens on the same line.
 local function sep(prev, tok)
-    if prev.spacedTok or tok.spacedTok then return " " end
-    if prev.unaryTok then return "" end
-    -- short-function pipes hug their parameters: |a, b| -> expr
-    if prev._shortfnOpen or tok._shortfnClose then return "" end
-    if prev.kind == "..." and tok.namedVararg then return "" end
-    -- Typed-layer refinements: annotation colons read "x: T"; postfix type
-    -- markers and generic brackets are tight (T?, S*, List<T>).
-    if prev.typeColon then return " " end
-    if tok.typePostfix then return "" end
-    if tok.generic then return "" end
-    if prev.generic then
-        if prev.kind == "<" then return "" end
-        if tok.kind == "(" then return "" end -- f<T>(x)
+    if prev.spacedTok or tok.spacedTok then
+        return " "
     end
-    if NO_SPACE_AFTER[prev.kind] then return "" end
+    if prev.unaryTok then
+        return ""
+    end
+    -- short-function pipes hug their parameters: |a, b| -> expr
+    if prev._shortfnOpen or tok._shortfnClose then
+        return ""
+    end
+    if prev.kind == "..." and tok.namedVararg then
+        return ""
+    end
+    -- Typed-layer refinements: annotation colons read "x: T"; postfix type markers and
+    -- generic brackets are tight (T?, S*, List<T>).
+    if prev.typeColon then
+        return " "
+    end
+    if tok.typePostfix then
+        return ""
+    end
+    if tok.generic then
+        return ""
+    end
+    if prev.generic then
+        if prev.kind == "<" then
+            return ""
+        end
+        if tok.kind == "(" then
+            return ""
+        end -- f<T>(x)
+    end
+    if NO_SPACE_AFTER[prev.kind] then
+        return ""
+    end
     local k = tok.kind
-    if NO_SPACE_BEFORE[k] then return "" end
+    if NO_SPACE_BEFORE[k] then
+        return ""
+    end
     if k == "::" then
         return prev.kind == "name" and "" or " "
     end
     if k == "(" or k == "[" then
-        if k == "[" and prev.propertyCapability then return " " end
+        if k == "[" and prev.propertyCapability then
+            return " "
+        end
         return CALLEE_KINDS[prev.kind] and "" or " "
     end
     if k == "{" or k == "string" then
-        -- call sugar: f{...} / f"lit". A contextual operator is spelled as a
-        -- name but takes a type, so `x as {T}` is not a call.
-        if prev.contextualOp then return " " end
+        -- call sugar: f{...} / f"lit". A contextual operator is spelled as a name but
+        -- takes a type, so `x as {T}` is not a call.
+        if prev.contextualOp then
+            return " "
+        end
         return prev.kind == "name" and "" or " "
     end
     return " "
@@ -297,8 +345,8 @@ local function isDocComment(text)
     return text:sub(1, 3) == "---" and text:sub(1, 4) ~= "----"
 end
 
--- Greedy word wrap. Returns a list of lines; the first may use a different
--- width than the rest (annotation continuations hang under their tag).
+-- Greedy word wrap. Returns a list of lines; the first may use a different width than
+-- the rest (annotation continuations hang under their tag).
 local function wrapWords(text, firstWidth, restWidth)
     local lines, line = {}, ""
     local width = firstWidth
@@ -313,13 +361,17 @@ local function wrapWords(text, firstWidth, restWidth)
             width = restWidth
         end
     end
-    if line ~= "" then lines[#lines + 1] = line end
-    if #lines == 0 then lines[1] = "" end
+    if line ~= "" then
+        lines[#lines + 1] = line
+    end
+    if #lines == 0 then
+        lines[1] = ""
+    end
     return lines
 end
 
--- Parses the raw comment lines of a docblock into blocks:
---   { kind = "text"|"annot"|"blank"|"verbatim", tag = ?, text = ? }
+-- Parses the raw comment lines of a docblock into blocks: { kind =
+-- "text"|"annot"|"blank"|"verbatim", tag = ?, text = ? }
 local function parseDoc(rawLines)
     local blocks = {}
     local current = nil
@@ -328,7 +380,9 @@ local function parseDoc(rawLines)
         local body = raw:gsub("^%-%-+", "")
         body = body:gsub("^ ", "")
         local fence = body:match("^%s*```")
-        if fence then fenced = not fenced end
+        if fence then
+            fenced = not fenced
+        end
         if fenced or fence or (not fenced and body:match("^    %S")) then
             current = nil
             blocks[#blocks + 1] = {kind = "verbatim", text = body}
@@ -359,7 +413,9 @@ end
 local function renderComment(rawLines, indentStr, marker)
     local prefix = indentStr .. marker
     local width = DOC_WIDTH - displayWidth(prefix) - 1
-    if width < 24 then width = 24 end
+    if width < 24 then
+        width = 24
+    end
     local out = {}
     for _, block in ipairs(parseDoc(rawLines)) do
         if block.kind == "blank" then
@@ -385,7 +441,9 @@ local function renderComment(rawLines, indentStr, marker)
             end
         end
     end
-    if #out == 0 then out[1] = prefix end
+    if #out == 0 then
+        out[1] = prefix
+    end
     return out
 end
 
@@ -402,8 +460,8 @@ end
 -- Items and lines
 ---------------------------------------------------------------------------
 
--- Flattens the token stream into items carrying their preceding newline
--- count; consecutive `---` comment lines merge into one docblock item.
+-- Flattens the token stream into items carrying their preceding newline count;
+-- consecutive `---` comment lines merge into one docblock item.
 local function collectItems(tokens)
     local items = {}
     local pending = 0
@@ -448,8 +506,8 @@ local function collectItems(tokens)
     return items
 end
 
--- A docblock immediately followed by a statement documents it: remember to
--- put a blank line after that statement's last line.
+-- A docblock immediately followed by a statement documents it: remember to put a blank
+-- line after that statement's last line.
 local function markDocumented(items)
     for idx, item in ipairs(items) do
         if item.kind == "doc" then
@@ -477,7 +535,9 @@ end
 
 local function lineFirstToken(line)
     for _, item in ipairs(line.items) do
-        if item.kind == "token" then return item.token end
+        if item.kind == "token" then
+            return item.token
+        end
     end
     return nil
 end
@@ -494,7 +554,9 @@ local function renderItems(items)
             parts[#parts + 1] = item.token.text
             prevTok = item.token
         elseif item.kind == "comment" or item.kind == "raw" then
-            if #parts > 0 then parts[#parts + 1] = " " end
+            if #parts > 0 then
+                parts[#parts + 1] = " "
+            end
             parts[#parts + 1] = item.text
             prevTok = nil
         end
@@ -502,13 +564,15 @@ local function renderItems(items)
     return table.concat(parts)
 end
 
--- Indent is recomputed from the current line structure every pass, which is
--- what makes breaking converge and reformatting idempotent: a bracket group
--- adds a level only when its first element sits below its opener.
+-- Indent is recomputed from the current line structure every pass, which is what makes
+-- breaking converge and reformatting idempotent: a bracket group adds a level only when
+-- its first element sits below its opener.
 local function computeIndents(lines)
     for idx, line in ipairs(lines) do
         for _, item in ipairs(line.items) do
-            if item.kind == "token" then item.token.lineIdx = idx end
+            if item.kind == "token" then
+                item.token.lineIdx = idx
+            end
         end
     end
     for _, line in ipairs(lines) do
@@ -516,8 +580,8 @@ local function computeIndents(lines)
             if item.kind == "token" and item.token.opensGroup then
                 local g = item.token.opensGroup
                 local firstInner = nil
-                -- the group's first element token is the one right after the
-                -- opener in line order
+                -- the group's first element token is the one right after the opener in
+                -- line order
                 for _, other in ipairs(lines) do
                     for _, it2 in ipairs(other.items) do
                         if it2.kind == "token" and it2.token.groupRef == g then
@@ -525,7 +589,9 @@ local function computeIndents(lines)
                             break
                         end
                     end
-                    if firstInner then break end
+                    if firstInner then
+                        break
+                    end
                 end
                 g.broken = firstInner ~= nil and firstInner.lineIdx > item.token.lineIdx
             end
@@ -538,7 +604,9 @@ local function computeIndents(lines)
             local hang = 0
             local g = tok.groupRef
             while g do
-                if g.broken then hang = hang + 1 end
+                if g.broken then
+                    hang = hang + 1
+                end
                 g = g.parent
             end
             depth = depth + hang
@@ -568,14 +636,16 @@ end
 
 local function indexOfToken(items, tok)
     for idx, item in ipairs(items) do
-        if item.kind == "token" and item.token == tok then return idx end
+        if item.kind == "token" and item.token == tok then
+            return idx
+        end
     end
     return nil
 end
 
--- Splits one over-long line. Prefers the leftmost (outermost) bracket group
--- fully present on the line; falls back to breaking before low-precedence
--- operators. Returns a list of lines, or nil when nothing can be split.
+-- Splits one over-long line. Prefers the leftmost (outermost) bracket group fully
+-- present on the line; falls back to breaking before low-precedence operators. Returns
+-- a list of lines, or nil when nothing can be split.
 local function splitLine(line)
     local openIdx, closeIdx, group
     for idx, item in ipairs(line.items) do
@@ -623,7 +693,9 @@ local function splitLine(line)
             emit(slice(start, closeIdx - 1), line.indent + 1)
         end
         emit(slice(closeIdx, #line.items), line.indent)
-        if #out > 1 then return out end
+        if #out > 1 then
+            return out
+        end
         return nil
     end
 
@@ -641,14 +713,18 @@ local function splitLine(line)
             end
         end
     end
-    if #breaks == 0 then return nil end
+    if #breaks == 0 then
+        return nil
+    end
     local start = 1
     for _, at in ipairs(breaks) do
         emit(slice(start, at - 1), start == 1 and line.indent or line.indent + 1)
         start = at
     end
     emit(slice(start, #line.items), line.indent + 1)
-    if #out > 1 then return out end
+    if #out > 1 then
+        return out
+    end
     return nil
 end
 
@@ -674,7 +750,9 @@ local function breakLines(lines)
             end
         end
         lines = next_
-        if not changed then break end
+        if not changed then
+            break
+        end
     end
     computeIndents(lines)
     return lines
@@ -694,12 +772,14 @@ local function render(lines)
         local doc = flowed and flowed.kind == "doc" and flowed or nil
         local plain = flowed and flowed.kind == "plain" and flowed or nil
         local wantBlank = line.blankBefore
-        -- a docblock is set off by a blank line, except where it opens a
-        -- scope that just began (right after `record X`, `do`, `then`, ...)
+        -- a docblock is set off by a blank line, except where it opens a scope that
+        -- just began (right after `record X`, `do`, `then`, ...)
         if doc and #out > 0 and out[#out] ~= "" and line.indent <= prevIndent then
             wantBlank = true
         end
-        if wantBlank and #out > 0 then push("") end
+        if wantBlank and #out > 0 then
+            push("")
+        end
         if doc or plain then
             local commentLines = doc and renderDoc(doc.rawLines, indentStr)
                 or renderComment(plain.rawLines, indentStr, "--")
@@ -717,8 +797,8 @@ local function render(lines)
                 push((indentStr .. body):gsub("%s+$", ""))
             end
         end
-        -- blank line after a documented declaration, unless the scope
-        -- closes right after it (no blank line before `end`)
+        -- blank line after a documented declaration, unless the scope closes right
+        -- after it (no blank line before `end`)
         local last = line.items[#line.items]
         local next_ = lines[idx + 1]
         if last and last.kind == "token" and last.token.blankAfter and next_
@@ -731,7 +811,9 @@ local function render(lines)
     local text = table.concat(out, "\n")
     text = text:gsub("\n\n\n+", "\n\n")
     text = text:gsub("^\n+", ""):gsub("%s+$", "")
-    if #text > 0 then text = text .. "\n" end
+    if #text > 0 then
+        text = text .. "\n"
+    end
     return text
 end
 
@@ -763,18 +845,22 @@ local function canonicalizeSingleValueAnnotations(result, opts)
 
     local applications = {}
     local function walk(node)
-        if not node or cst.isToken(node) then return end
+        if not node or cst.isToken(node) then
+            return
+        end
         if node.kind == "pragmaStmt" or node.kind == "annotationApply" then
             applications[#applications + 1] = node
         end
         for _, child in ipairs(node) do
-            if not cst.isToken(child) then walk(child) end
+            if not cst.isToken(child) then
+                walk(child)
+            end
         end
     end
     walk(result.root)
 
-    -- Annotation declarations in the file are order-independent for
-    -- formatting: collect all schemas before considering their applications.
+    -- Annotation declarations in the file are order-independent for formatting: collect
+    -- all schemas before considering their applications.
     for _, application in ipairs(applications) do
         if application.kind == "pragmaStmt"
             and application.name.text == "annotation" then
@@ -786,7 +872,11 @@ local function canonicalizeSingleValueAnnotations(result, opts)
                 for _, entry in ipairs(target.entries or {}) do
                     for _, attached in ipairs(entry.annotations or {}) do
                         if attached.name.text == "annotationValue" then
-                            if marked then duplicate = true else marked = entry.name.text end
+                            if marked then
+                                duplicate = true
+                            else
+                                marked = entry.name.text
+                            end
                         end
                     end
                 end
@@ -800,7 +890,9 @@ local function canonicalizeSingleValueAnnotations(result, opts)
 
     local function triviaIsWhitespace(tok)
         for _, trivia in ipairs(tok and tok.trivia or {}) do
-            if trivia.kind ~= "whitespace" then return false end
+            if trivia.kind ~= "whitespace" then
+                return false
+            end
         end
         return true
     end
@@ -809,7 +901,9 @@ local function canonicalizeSingleValueAnnotations(result, opts)
         local member = singleValues[name]
         if opts and opts.resolveAnnotation and not localDefinitions[name] then
             local definition = opts.resolveAnnotation(name)
-            if definition then member = definition.singleValue end
+            if definition then
+                member = definition.singleValue
+            end
         end
         local args = application.annotationArgs or {}
         local arg = #args == 1 and args[1] or nil
@@ -821,20 +915,24 @@ local function canonicalizeSingleValueAnnotations(result, opts)
     end
 end
 
--- Adds `(` and `)` around a method call's sugar-form arguments, `obj:m{...}`
--- and `obj:m"..."`, so every method call reads the same whether or not the
--- call left its parens out. `opts.methodParens = false` leaves the sugar as
--- written. Plain calls, `f{...}` and `f"..."`, are untouched: they are how
--- the language spells a record constructor, not a method left bare.
+-- Adds `(` and `)` around a method call's sugar-form arguments, `obj:m{...}` and
+-- `obj:m"..."`, so every method call reads the same whether or not the call left its
+-- parens out. `opts.methodParens = false` leaves the sugar as written. Plain calls,
+-- `f{...}` and `f"..."`, are untouched: they are how the language spells a record
+-- constructor, not a method left bare.
 --
--- The new tokens are spliced into `result.tokens` too, folding them into the
--- sequence the safety check below compares against, rather than omitting
--- them from it: the check should still catch a misplaced paren.
+-- The new tokens are spliced into `result.tokens` too, folding them into the sequence
+-- the safety check below compares against, rather than omitting them from it: the check
+-- should still catch a misplaced paren.
 local function parenthesizeMethodCalls(result, opts)
-    if opts and opts.methodParens == false then return end
+    if opts and opts.methodParens == false then
+        return
+    end
     local before, after = {}, {}
     local function walk(node)
-        if not node or cst.isToken(node) then return end
+        if not node or cst.isToken(node) then
+            return
+        end
         if node.kind == "methodCall" then
             local args = node.args
             if args and not args.exprs and (args.table or args.str) then
@@ -852,16 +950,24 @@ local function parenthesizeMethodCalls(result, opts)
             end
         end
         for _, child in ipairs(node) do
-            if not cst.isToken(child) then walk(child) end
+            if not cst.isToken(child) then
+                walk(child)
+            end
         end
     end
     walk(result.root)
-    if not next(before) then return end
+    if not next(before) then
+        return
+    end
     local tokens = {}
     for _, tok in ipairs(result.tokens) do
-        if before[tok] then tokens[#tokens + 1] = before[tok] end
+        if before[tok] then
+            tokens[#tokens + 1] = before[tok]
+        end
         tokens[#tokens + 1] = tok
-        if after[tok] then tokens[#tokens + 1] = after[tok] end
+        if after[tok] then
+            tokens[#tokens + 1] = after[tok]
+        end
     end
     result.tokens = tokens
 end
@@ -879,9 +985,9 @@ function fmt.format(source, filename, opts)
     local lines = breakLines(buildLines(items))
     local text = render(lines)
 
-    -- Safety: formatting may only move whitespace, reflow comments, add or
-    -- remove a schema-proven single-value member label, and parenthesize a
-    -- method call's sugar-form arguments.
+    -- Safety: formatting may only move whitespace, reflow comments, add or remove a
+    -- schema-proven single-value member label, and parenthesize a method call's
+    -- sugar-form arguments.
     local outputTokens = lexer.lex(text)
     if fingerprintTokens(outputTokens) ~= fingerprintTokens(result.tokens, true) then
         return source, {{

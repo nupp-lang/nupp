@@ -33,11 +33,15 @@ function cdef.install(c: any, reifiableField: any): any
 
     handlers.cdefStruct = function(stat: cst.CdefStruct)
         local structName = stat.name
-        if not structName then return end
+        if not structName then
+            return
+        end
         local n = T.nominal(structName.text, "struct")
         n.cdefName = structName.text
         c.bindType(structName.text, n, structName)
-        if structName.definition then structName.definition.cdef = true end
+        if structName.definition then
+            structName.definition.cdef = true
+        end
         n.fieldOrder = {}
         n.fieldDefs = {}
         n.writeFieldDefs = {}
@@ -91,7 +95,9 @@ function cdef.install(c: any, reifiableField: any): any
                 local pt = c.resolveType(declared)
                 local mode = modeTok and modeTok.text or "plain"
                 local pdef = c.definition(pname, "parameter")
-                if pdef then pdef.type = pt end
+                if pdef then
+                    pdef.type = pt
+                end
                 c.markToken(pname, pdef, pt, "parameter")
                 if not (reifiableField(pt, true) or pt == T.number
                     or pt == T.string or pt.tag == "func") then
@@ -191,13 +197,17 @@ function cdef.install(c: any, reifiableField: any): any
         local cdefType = T.func(params, rets, stat.varargs or false,
             paramModes, nil, nil, nil, nil, nil, nil, ffiOut, nil, false)
         local cdefName = stat.name
-        if not cdefName then return end
+        if not cdefName then
+            return
+        end
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
         if stat.disposeContract then
             registerDefaultDisposer(cdefType, cdefName.text,
                 stat.disposeTok or stat)
         end
-        if cdefName.definition then cdefName.definition.cdef = true end
+        if cdefName.definition then
+            cdefName.definition.cdef = true
+        end
     end
 
     return handlers

@@ -21,10 +21,14 @@ function complete.completionContext(result, offset)
     local tokens = result and result.tokens or {}
     local index = nil
     for cursor, tok in ipairs(tokens) do
-        if tok.kind == "eof" or tok.offset >= offset then break end
+        if tok.kind == "eof" or tok.offset >= offset then
+            break
+        end
         index = cursor
     end
-    if not index then return nil end
+    if not index then
+        return nil
+    end
     local context = {prefix = "", typePosition = false}
     local tok = tokens[index]
     if tok.kind == "name" and offset <= tok.offset + #tok.text then
@@ -32,7 +36,9 @@ function complete.completionContext(result, offset)
         index = index - 1
         tok = tokens[index]
     end
-    if not tok then return context end
+    if not tok then
+        return context
+    end
     -- An annotation colon introduces a type, not a member: `p: ` is asking what `p`
     -- could be declared as, while `p:` in an expression is asking what `p` can be sent.
     -- They are the same character and only the parse tells them apart, which is why
@@ -41,7 +47,9 @@ function complete.completionContext(result, offset)
         context.typePosition = true
         return context
     end
-    if tok.kind ~= "." and tok.kind ~= ":" then return context end
+    if tok.kind ~= "." and tok.kind ~= ":" then
+        return context
+    end
     context.method = tok.kind == ":"
     context.path = {}
     index = index - 1
@@ -66,7 +74,9 @@ end
 --- anybody spells.
 function complete.membersOf(t)
     local members = {}
-    if type(t) ~= "table" then return members end
+    if type(t) ~= "table" then
+        return members
+    end
     for name, member in pairs(t.byname or {}) do
         members[name] = {
             type = member,
@@ -114,8 +124,8 @@ complete.completionWords = {
     "until", "while",
 }
 
-    -- Kinds that can stand where a type is expected. A value's name there completes to
-    -- something the checker will refuse, so it is not offered.
+-- Kinds that can stand where a type is expected. A value's name there completes to
+-- something the checker will refuse, so it is not offered.
 local TYPE_KINDS = {
     type = true, struct = true, interface = true,
     typeParameter = true,
@@ -149,7 +159,9 @@ function complete.install(s: any, nav: any): any
         local path = s.inc.modulePath(moduleName)
         local checked = path and s.inc.checkFile(path)
         local result = checked and checked.result
-        if not result then return end
+        if not result then
+            return
+        end
         for _, member in ipairs(moduleMemberDeclarations(result, moduleName)) do
             add(member.name, "function", nil, {
                 filename = path, token = member.token, name = member.name,
@@ -163,7 +175,9 @@ function complete.install(s: any, nav: any): any
         local seen = {}
         local context = completionContext(doc.result, offset) or {}
         local function add(label, kind, t, def, priority)
-            if not label or seen[label] then return end
+            if not label or seen[label] then
+                return
+            end
             -- A name whose kind nothing settled is not a type: in a position only a
             -- type can stand, "unknown" has to mean no.
             if context.typePosition and not TYPE_KINDS[kind or "variable"] then
@@ -175,9 +189,13 @@ function complete.install(s: any, nav: any): any
                 kind = completionKinds[kind] or completionKinds.variable,
                 sortText = tostring(priority or 5) .. label,
             }
-            if t then item.detail = T.tostring(t) end
+            if t then
+                item.detail = T.tostring(t)
+            end
             local docs = documentationFor(def)
-            if docs then item.documentation = docs end
+            if docs then
+                item.documentation = docs
+            end
             items[#items + 1] = item
         end
 

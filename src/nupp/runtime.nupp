@@ -13,10 +13,10 @@ local envMod = require("nupp.env")
 
 local runtime = {}
 
--- Installs a loader backed by the project's checker environment. `compile`
--- receives (path, env) and returns generated Lua source or nil plus an error.
--- The returned function removes this exact loader, even if other loaders were
--- added while the program was running.
+-- Installs a loader backed by the project's checker environment. `compile` receives
+-- (path, env) and returns generated Lua source or nil plus an error. The returned
+-- function removes this exact loader, even if other loaders were added while the
+-- program was running.
 function runtime.install(env, compile)
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
@@ -51,7 +51,9 @@ function runtime.install(env, compile)
 
     local installed = true
     return function()
-        if not installed then return end
+        if not installed then
+            return
+        end
         installed = false
         for j, loader in ipairs(loaders) do
             if loader == loadLjppModule then

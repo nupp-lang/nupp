@@ -42,7 +42,9 @@ function resolve.install(c: any)
     --- segment — and only when that name is free, since binding over something already
     --- in scope would fix a type name by breaking a value one.
     local function exportingModuleFixes(name: string, base: any): {any}
-        if not c.env or not c.env.modulesExporting or not base then return {} end
+        if not c.env or not c.env.modulesExporting or not base then
+            return {}
+        end
         local fixes = {}
         for _, moduleName in ipairs(c.env.modulesExporting(c.env, name) or {}) do
             if moduleName ~= c.result.moduleName then
@@ -97,12 +99,18 @@ function resolve.install(c: any)
     ---
     --- @param node the type node, when there is one
     c.resolveType = function(node: Node?): Type
-        if not node then return T.any end
+        if not node then
+            return T.any
+        end
         local kind = node.kind
         if kind == "tname" then
             local base = node.base
-            if not base then return T.any end
-            if base.kind == "nil" then return T.nil_ end
+            if not base then
+                return T.any
+            end
+            if base.kind == "nil" then
+                return T.nil_
+            end
             if #node > 1 and node[2] and node[2].kind == "." then
                 local names, lastTok = {}, nil
                 for _, child in ipairs(node) do
@@ -140,7 +148,9 @@ function resolve.install(c: any)
                 local lexical, walkFrom = nil, 2
                 if #names >= 2 then
                     lexical = c.lookupType(names[1] .. "." .. names[2])
-                    if lexical then walkFrom = 3 end
+                    if lexical then
+                        walkFrom = 3
+                    end
                 end
                 if not lexical then
                     lexical = names[1] and c.lookupType(names[1]) or nil
@@ -149,7 +159,9 @@ function resolve.install(c: any)
                     for j = walkFrom, #names do
                         lexical = lexical.tag == "nominal" and lexical.nestedTypes
                             and lexical.nestedTypes[names[j]] or nil
-                        if not lexical then break end
+                        if not lexical then
+                            break
+                        end
                     end
                     lexical = lexical and lexical.tag == "nominal"
                         and lexical.nestedTypes and lexical.nestedTypes[typeName] or nil
@@ -210,8 +222,12 @@ function resolve.install(c: any)
                     c.diag("NUPP2602", node,
                         "pinned<T> requires a pointer-shaped T")
                 end
-                if name == "owned" then return T.owned(inner) end
-                if name == "borrowed" then return T.borrowed(inner) end
+                if name == "owned" then
+                    return T.owned(inner)
+                end
+                if name == "borrowed" then
+                    return T.borrowed(inner)
+                end
                 return T.pinned(inner)
             end
 
@@ -232,7 +248,9 @@ function resolve.install(c: any)
                     else
                         node.reified = name
                     end
-                    if t.cdefName then node.cdefName = t.cdefName end
+                    if t.cdefName then
+                        node.cdefName = t.cdefName
+                    end
                 elseif t.tag == "nominal" and t.declKind == "record" then
                     -- a record's runtime table is its identity, which is what `is`
                     -- compares against. An interface has none: it is conformance, not
@@ -256,7 +274,9 @@ function resolve.install(c: any)
                         seen[key] = true
                         local item = c.related(definition,
                             "conflicting global type declared here")
-                        if item then related[#related + 1] = item end
+                        if item then
+                            related[#related + 1] = item
+                        end
                     end
                 end
                 c.diag("NUPP2102", node,
@@ -277,17 +297,25 @@ function resolve.install(c: any)
             return T.any
         elseif kind == "tliteral" then
             local literal = node.token
-            if not literal then return T.any end
+            if not literal then
+                return T.any
+            end
             local text = literal.text
-            if text == "true" then return T.literal(true, T.boolean) end
-            if text == "false" then return T.literal(false, T.boolean) end
+            if text == "true" then
+                return T.literal(true, T.boolean)
+            end
+            if text == "false" then
+                return T.literal(false, T.boolean)
+            end
             return T.literal(text:sub(2, -2), T.string)
         elseif kind == "tconst" then
             return T.constOf(c.resolveType(node.inner))
         elseif kind == "tcarray" then
             local elem = c.resolveType(node.element)
             local count = node.count
-            if not count then return T.carray(elem, nil) end
+            if not count then
+                return T.carray(elem, nil)
+            end
             -- A C array's length is a count of elements. The literal is whatever was
             -- written, so it is made one here rather than assumed to be.
             local written = tonumber(count.text)
@@ -349,19 +377,25 @@ function resolve.install(c: any)
                                 c.diag("NUPP2118", fieldName,
                                     ("duplicate readonly capability for property %q")
                                     :format(name))
-                            else entry.read = ft end
+                            else
+                                entry.read = ft
+                            end
                         elseif capability == "write" then
                             if entry.write then
                                 c.diag("NUPP2118", fieldName,
                                     ("duplicate writeonly capability for property %q")
                                     :format(name))
-                            else entry.write = ft end
+                            else
+                                entry.write = ft
+                            end
                         else
                             if entry.read or entry.write then
                                 c.diag("NUPP2118", fieldName,
                                     ("ordinary property %q already has a capability")
                                     :format(name))
-                            else entry.read, entry.write = ft, ft end
+                            else
+                                entry.read, entry.write = ft, ft
+                            end
                         end
                     end
                 elseif f.kind == "tmap" then
@@ -380,8 +414,10 @@ function resolve.install(c: any)
                             indexer[keyName], indexer[valueName] = key, value
                         end
                     end
-                    if capability == "read" then setIndexer("read")
-                    elseif capability == "write" then setIndexer("write")
+                    if capability == "read" then
+                        setIndexer("read")
+                    elseif capability == "write" then
+                        setIndexer("write")
                     else
                         setIndexer("read")
                         setIndexer("write")
@@ -408,7 +444,9 @@ function resolve.install(c: any)
                     local first = p[1]
                     if first and cst.isToken(first) and first.kind == "..." then
                         vararg = true
-                        if p.type then varargType = c.resolveType(p.type) end
+                        if p.type then
+                            varargType = c.resolveType(p.type)
+                        end
                     else
                         params[#params + 1] = p.type and c.resolveType(p.type)
                             or T.any
@@ -418,7 +456,9 @@ function resolve.install(c: any)
                 end
             end
             for j, r in ipairs(node.rets or {}) do rets[j] = c.resolveType(r) end
-            if node.generics then c.popScope() end
+            if node.generics then
+                c.popScope()
+            end
             return T.func(params, rets, vararg, paramModes, nil,
                 typeParams, typeBounds, nil, nil, nil, nil, varargType)
         elseif kind == "tparen" then

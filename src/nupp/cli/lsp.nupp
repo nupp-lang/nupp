@@ -33,7 +33,9 @@ end
 
 local function readFile(path)
     local file, err = io.open(path, "rb")
-    if not file then return nil, err end
+    if not file then
+        return nil, err
+    end
     local source = file:read("*a")
     file:close()
     return source
@@ -41,11 +43,17 @@ end
 
 local function writeFile(path, source)
     local file, err = io.open(path, "wb")
-    if not file then return nil, err end
+    if not file then
+        return nil, err
+    end
     local ok, writeErr = file:write(source)
     local closeOk, closeErr = file:close()
-    if not ok then return nil, writeErr end
-    if not closeOk then return nil, closeErr end
+    if not ok then
+        return nil, writeErr
+    end
+    if not closeOk then
+        return nil, closeErr
+    end
     return true
 end
 
@@ -89,7 +97,9 @@ end
 
 local function utf8Char(source, offset)
     local first = source:byte(offset)
-    if not first or first < 0x80 then return 1, 1 end
+    if not first or first < 0x80 then
+        return 1, 1
+    end
     local bytes = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
     return bytes, bytes == 4 and 2 or 1
 end
@@ -98,7 +108,9 @@ local function lineStart(source, wanted)
     local line, offset = 1, 1
     while line < wanted do
         local newline = source:find("\n", offset, true)
-        if not newline then return nil end
+        if not newline then
+            return nil
+        end
         offset, line = newline + 1, line + 1
     end
     return offset
@@ -107,7 +119,9 @@ end
 --- Converts the CLI's 1-based byte position to LSP's zero-based UTF-16 position.
 local function toLspPosition(source, line, column)
     local start = lineStart(source, line)
-    if not start then return nil, "line is past the end of the file" end
+    if not start then
+        return nil, "line is past the end of the file"
+    end
     local finish = source:find("\n", start, true) or (#source + 1)
     local target = start + column - 1
     if target < start or target > finish then
@@ -147,7 +161,7 @@ local function operationSpec(name: string, summary: string, usage: string,
     extra: {any}, schema: any): spec.Command
     local declared: {any} = {
         {name = "--root", value = "DIR",
-            help = "Project root (default: current directory)"},
+        help = "Project root (default: current directory)"},
     }
     for _, option in ipairs(extra) do declared[#declared + 1] = option end
     for _, option in ipairs(optionsMod.format()) do
@@ -155,8 +169,8 @@ local function operationSpec(name: string, summary: string, usage: string,
     end
     return spec.command{
         name = "lsp " .. name,
-        -- An operation is reached through its group, so a wrong option here
-        -- points at `nupp help lsp`, which is a thing somebody can type.
+        -- An operation is reached through its group, so a wrong option here points at
+        -- `nupp help lsp`, which is a thing somebody can type.
         helpName = "lsp",
         summary = summary,
         usage = {usage},
@@ -171,7 +185,7 @@ local SYMBOL = {
     properties = {
         name = {type = "string"},
         kind = {type = "string",
-            description = "The LSP symbol kind, spelled as a word."},
+        description = "The LSP symbol kind, spelled as a word."},
         type = {type = "string"},
         detail = {type = "string"},
         documentation = {type = "string"},
@@ -186,91 +200,91 @@ local SYMBOL = {
 local EDIT = {
     type = "object",
     properties = {file = {type = "string"}, range = reportMod.RANGE,
-        newText = {type = "string"}},
+    newText = {type = "string"}},
     required = {"file", "range", "newText"},
 }
 
 local OPERATION_SPECS: {[string]: spec.Command} = {
     inspect = operationSpec("inspect", "Describe the symbol at a position",
-        "nupp lsp inspect [options] <file> <line> <column>", {}, {
-            type = "object",
-            description = "The symbol at the position, or null where there is "
-                .. "nothing to describe.",
-            properties = {symbol = {["$ref"] = "#/definitions/symbol"}},
-            definitions = {symbol = SYMBOL},
-        }),
+    "nupp lsp inspect [options] <file> <line> <column>", {}, {
+        type = "object",
+        description = "The symbol at the position, or null where there is "
+        .. "nothing to describe.",
+        properties = {symbol = {["$ref"] = "#/definitions/symbol"}},
+        definitions = {symbol = SYMBOL},
+    }),
     definition = operationSpec("definition",
-        "Find where the symbol at a position is defined",
-        "nupp lsp definition [options] <file> <line> <column>", {}, {
-            type = "object",
-            properties = {definition = reportMod.LOCATION},
-        }),
+    "Find where the symbol at a position is defined",
+    "nupp lsp definition [options] <file> <line> <column>", {}, {
+        type = "object",
+        properties = {definition = reportMod.LOCATION},
+    }),
     references = operationSpec("references",
-        "Find the semantic references to the symbol at a position",
-        "nupp lsp references [options] <file> <line> <column>", {
-            {name = "--include-declaration",
-                help = "Include the declaration among the references"},
-        }, {
-            type = "object",
-            properties = {
-                declarationIncluded = {type = "boolean"},
-                references = {type = "array", items = reportMod.LOCATION},
-            },
-            required = {"declarationIncluded", "references"},
-        }),
+    "Find the semantic references to the symbol at a position",
+    "nupp lsp references [options] <file> <line> <column>", {
+        {name = "--include-declaration",
+        help = "Include the declaration among the references"},
+    }, {
+        type = "object",
+        properties = {
+            declarationIncluded = {type = "boolean"},
+            references = {type = "array", items = reportMod.LOCATION},
+        },
+        required = {"declarationIncluded", "references"},
+    }),
     symbols = operationSpec("symbols", "Search workspace or document symbols",
-        "nupp lsp symbols [options] [--file FILE] [pattern]", {
-            {name = "--file", value = "FILE",
-                help = "Search one document instead of the workspace"},
-        }, {
-            type = "object",
-            properties = {symbols = {type = "array",
-                items = {["$ref"] = "#/definitions/symbol"}}},
-            required = {"symbols"},
-            definitions = {symbol = SYMBOL},
-        }),
+    "nupp lsp symbols [options] [--file FILE] [pattern]", {
+        {name = "--file", value = "FILE",
+        help = "Search one document instead of the workspace"},
+    }, {
+        type = "object",
+        properties = {symbols = {type = "array",
+        items = {["$ref"] = "#/definitions/symbol"}}},
+        required = {"symbols"},
+        definitions = {symbol = SYMBOL},
+    }),
     rename = operationSpec("rename",
-        "Rename a symbol and every semantic reference to it",
-        "nupp lsp rename [options] <file> <line> <column> <new-name>", {
-            {names = {"-w", "--write"},
-                help = "Apply the rename instead of previewing it"},
-        }, {
-            type = "object",
-            properties = {
-                oldName = {type = "string"},
-                newName = {type = "string"},
-                written = {type = "boolean",
-                    description = "False for a preview, which is the default."},
-                edits = {type = "array", items = EDIT},
-            },
-            required = {"newName", "written", "edits"},
-        }),
+    "Rename a symbol and every semantic reference to it",
+    "nupp lsp rename [options] <file> <line> <column> <new-name>", {
+        {names = {"-w", "--write"},
+        help = "Apply the rename instead of previewing it"},
+    }, {
+        type = "object",
+        properties = {
+            oldName = {type = "string"},
+            newName = {type = "string"},
+            written = {type = "boolean",
+            description = "False for a preview, which is the default."},
+            edits = {type = "array", items = EDIT},
+        },
+        required = {"newName", "written", "edits"},
+    }),
     actions = operationSpec("actions",
-        "List the code actions available at a position",
-        "nupp lsp actions [options] <file> <line> <column>", {
-            {name = "--only", value = "KIND", choices = {"quickfix", "refactor"},
-                help = "Narrow the results to quickfix or refactor"},
-        }, {
-            type = "object",
-            properties = {
-                actions = {
-                    type = "array",
-                    items = {
-                        type = "object",
-                        properties = {
-                            kind = {type = "string"},
-                            title = {type = "string"},
-                            diagnostic = {type = "object", properties = {
-                                code = {type = "string"},
-                                message = {type = "string"}}},
-                            edits = {type = "array", items = EDIT},
-                        },
-                        required = {"title", "edits"},
+    "List the code actions available at a position",
+    "nupp lsp actions [options] <file> <line> <column>", {
+        {name = "--only", value = "KIND", choices = {"quickfix", "refactor"},
+        help = "Narrow the results to quickfix or refactor"},
+    }, {
+        type = "object",
+        properties = {
+            actions = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        kind = {type = "string"},
+                        title = {type = "string"},
+                        diagnostic = {type = "object", properties = {
+                            code = {type = "string"},
+                            message = {type = "string"}}},
+                        edits = {type = "array", items = EDIT},
                     },
+                    required = {"title", "edits"},
                 },
             },
-            required = {"actions"},
-        }),
+        },
+        required = {"actions"},
+    }),
 }
 
 local command = spec.command{
@@ -289,22 +303,22 @@ local command = spec.command{
     universal = false,
     options = {
         {name = "--root", value = "DIR",
-            help = "Project root (default: current directory)"},
+        help = "Project root (default: current directory)"},
         {name = "--format", value = "FORMAT",
-            help = "Output format: text (default) or json"},
+        help = "Output format: text (default) or json"},
         {name = "--json", help = "Shorthand for --format json"},
         {name = "--text", help = "Shorthand for --format text"},
         {name = "--include-declaration",
-            help = "references only: include the declaration"},
+        help = "references only: include the declaration"},
         {name = "--file", value = "FILE",
-            help = "symbols only: search one document instead of the workspace"},
+        help = "symbols only: search one document instead of the workspace"},
         {name = "--only", value = "KIND",
-            help = "actions only: narrow to quickfix or refactor"},
+        help = "actions only: narrow to quickfix or refactor"},
         {names = {"-w", "--write"},
-            help = "rename only: apply the rename instead of previewing it"},
+        help = "rename only: apply the rename instead of previewing it"},
         {name = "--schema",
-            help = "Print the JSON Schema of an operation's --json output; each "
-                .. "operation answers with its own"},
+        help = "Print the JSON Schema of an operation's --json output; each "
+        .. "operation answers with its own"},
         spec.helpOption,
     },
     detail = [[With no operation, or with only a root, runs the language server over stdio for
@@ -333,7 +347,9 @@ local function newClient(root)
         for index = #emitted, 1, -1 do
             local message = emitted[index]
             if message.id == id then
-                if message.error then return nil, message.error.message end
+                if message.error then
+                    return nil, message.error.message
+                end
                 return message.result
             end
         end
@@ -345,14 +361,20 @@ local function newClient(root)
     end
 
     local _, initErr = request("initialize", {})
-    if initErr then return nil, initErr end
+    if initErr then
+        return nil, initErr
+    end
     notify("initialized", {})
 
     local function source(path)
         path = normalizePath(path)
-        if sources[path] then return sources[path] end
+        if sources[path] then
+            return sources[path]
+        end
         local text, err = readFile(path)
-        if not text then return nil, err end
+        if not text then
+            return nil, err
+        end
         sources[path] = text
         return text
     end
@@ -360,7 +382,9 @@ local function newClient(root)
     local function open(path)
         path = normalizePath(path)
         local text, err = source(path)
-        if not text then return nil, err end
+        if not text then
+            return nil, err
+        end
         notify("textDocument/didOpen", {textDocument = {
             uri = pathToUri(path), languageId = "nupp", version = 1, text = text,
         }})
@@ -380,7 +404,9 @@ local function rangeValue(client, path, range)
 end
 
 local function locationValue(client, location)
-    if not location or location == json.null then return nil end
+    if not location or location == json.null then
+        return nil
+    end
     local path = uriToPath(location.uri)
     return {file = displayPath(client.root, path),
         range = rangeValue(client, path, location.range)}
@@ -391,7 +417,9 @@ local function positionParams(path, position)
 end
 
 local function locationText(location)
-    if not location then return "" end
+    if not location then
+        return ""
+    end
     local start = location.range.start
     return ("%s:%d:%d"):format(location.file, start.line, start.column)
 end
@@ -430,7 +458,9 @@ local function editValues(client, changes)
         end
     end
     table.sort(edits, function(left, right)
-        if left.file ~= right.file then return left.file < right.file end
+        if left.file ~= right.file then
+            return left.file < right.file
+        end
         return left.range.start.offset < right.range.start.offset
     end)
     return edits
@@ -449,11 +479,13 @@ local function parsePositive(value, label)
 end
 
 --- Parses one operation's arguments against its own grammar, and fills in the two
---- defaults every operation shares. What comes back is the shape the operations
---- already expected: values by name, with the leftovers under `positional`.
+--- defaults every operation shares. What comes back is the shape the operations already
+--- expected: values by name, with the leftovers under `positional`.
 local function parseOptions(operation, args)
     local parsed, err = OPERATION_SPECS[operation]:parse(args)
-    if not parsed then return nil, err end
+    if not parsed then
+        return nil, err
+    end
     local opts = parsed.values
     opts.root = opts.root or "."
     opts.format = opts.format or "text"
@@ -467,23 +499,37 @@ local function target(client, opts, expected)
     end
     local path = resolvePath(opts.root, opts.positional[1])
     local source, readErr = client.open(path)
-    if not source then return nil, nil, nil, readErr end
+    if not source then
+        return nil, nil, nil, readErr
+    end
     local line, lineErr = parsePositive(opts.positional[2], "line")
-    if not line then return nil, nil, nil, lineErr end
+    if not line then
+        return nil, nil, nil, lineErr
+    end
     local column, columnErr = parsePositive(opts.positional[3], "column")
-    if not column then return nil, nil, nil, columnErr end
+    if not column then
+        return nil, nil, nil, columnErr
+    end
     local position, positionErr = toLspPosition(source, line, column)
-    if not position then return nil, nil, nil, positionErr end
+    if not position then
+        return nil, nil, nil, positionErr
+    end
     return path, source, position
 end
 
 local function runInspect(client, opts)
     local path, _, position, err = target(client, opts, 3)
-    if not path then return nil, err end
+    if not path then
+        return nil, err
+    end
     local result, requestErr = client.request("$/nupp/inspect",
         positionParams(path, position))
-    if requestErr then return nil, requestErr end
-    if result == json.null then result = nil end
+    if requestErr then
+        return nil, requestErr
+    end
+    if result == json.null then
+        result = nil
+    end
     local value = result and {
         name = result.name,
         kind = result.kind,
@@ -493,12 +539,19 @@ local function runInspect(client, opts)
         definition = locationValue(client, result.definition),
         range = result.range and rangeValue(client, path, result.range) or nil,
     } or nil
-    if opts.format == "json" then jsonOutput({symbol = value or json.null})
+    if opts.format == "json" then
+        jsonOutput({symbol = value or json.null})
     elseif value then
         io.write(value.name .. " (" .. value.kind .. ")\n")
-        if value.type then io.write(value.type .. "\n") end
-        if value.detail then io.write(value.detail .. "\n") end
-        if value.documentation then io.write("\n" .. value.documentation .. "\n") end
+        if value.type then
+            io.write(value.type .. "\n")
+        end
+        if value.detail then
+            io.write(value.detail .. "\n")
+        end
+        if value.documentation then
+            io.write("\n" .. value.documentation .. "\n")
+        end
         if value.definition then
             io.write("Defined at " .. locationText(value.definition) .. "\n")
         end
@@ -508,26 +561,39 @@ end
 
 local function runDefinition(client, opts)
     local path, _, position, err = target(client, opts, 3)
-    if not path then return nil, err end
+    if not path then
+        return nil, err
+    end
     local result, requestErr = client.request("textDocument/definition",
         positionParams(path, position))
-    if requestErr then return nil, requestErr end
+    if requestErr then
+        return nil, requestErr
+    end
     local value = locationValue(client, result)
-    if opts.format == "json" then jsonOutput({definition = value or json.null})
-    elseif value then io.write(locationText(value) .. "\n") end
+    if opts.format == "json" then
+        jsonOutput({definition = value or json.null})
+    elseif value then
+        io.write(locationText(value) .. "\n")
+    end
     return true
 end
 
 local function runReferences(client, opts)
     local path, _, position, err = target(client, opts, 3)
-    if not path then return nil, err end
+    if not path then
+        return nil, err
+    end
     local params = positionParams(path, position)
     params.context = {includeDeclaration = opts.includeDeclaration or false}
     local result, requestErr = client.request("textDocument/references", params)
-    if requestErr then return nil, requestErr end
+    if requestErr then
+        return nil, requestErr
+    end
     local values = jsonArray({})
     local seen = {}
-    if type(result) ~= "table" then result = {} end
+    if type(result) ~= "table" then
+        result = {}
+    end
     for _, location in ipairs(result) do
         local value = locationValue(client, location)
         local start, finish = value.range.start, value.range["end"]
@@ -569,18 +635,26 @@ local function printSymbol(symbol, indent)
 end
 
 local function runSymbols(client, opts)
-    if #opts.positional > 1 then return nil, "symbols accepts at most one pattern" end
+    if #opts.positional > 1 then
+        return nil, "symbols accepts at most one pattern"
+    end
     local values = jsonArray({})
     local seen = {}
     if opts.file then
         local path = resolvePath(opts.root, opts.file)
         local _, openErr = client.open(path)
-        if openErr then return nil, openErr end
+        if openErr then
+            return nil, openErr
+        end
         local result, requestErr = client.request("textDocument/documentSymbol",
             {textDocument = {uri = pathToUri(path)}})
-        if requestErr then return nil, requestErr end
+        if requestErr then
+            return nil, requestErr
+        end
         local pattern = opts.positional[1] and opts.positional[1]:lower()
-        if type(result) ~= "table" then result = {} end
+        if type(result) ~= "table" then
+            result = {}
+        end
         for _, symbol in ipairs(result) do
             if not pattern or symbol.name:lower():find(pattern, 1, true) then
                 local value = documentSymbolValue(client, path, symbol)
@@ -594,8 +668,12 @@ local function runSymbols(client, opts)
     else
         local result, requestErr = client.request("workspace/symbol",
             {query = opts.positional[1] or ""})
-        if requestErr then return nil, requestErr end
-        if type(result) ~= "table" then result = {} end
+        if requestErr then
+            return nil, requestErr
+        end
+        if type(result) ~= "table" then
+            result = {}
+        end
         for _, symbol in ipairs(result) do
             local value = {
                 name = symbol.name,
@@ -611,8 +689,11 @@ local function runSymbols(client, opts)
             end
         end
     end
-    if opts.format == "json" then jsonOutput({symbols = values})
-    else for _, symbol in ipairs(values) do printSymbol(symbol, 0) end end
+    if opts.format == "json" then
+        jsonOutput({symbols = values})
+    else
+        for _, symbol in ipairs(values) do printSymbol(symbol, 0) end
+    end
     return true
 end
 
@@ -639,7 +720,9 @@ local function rewrittenFiles(client, rawChanges)
     end
     for path, rawEdits in pairs(grouped) do
         local source, readErr = client.source(path)
-        if not source then return nil, nil, readErr end
+        if not source then
+            return nil, nil, readErr
+        end
         local edits = {}
         for _, edit in ipairs(rawEdits) do
             local from = fromLspPosition(source, edit.range.start).offset
@@ -652,7 +735,9 @@ local function rewrittenFiles(client, rawChanges)
         local last = #source + 1
         local text = source
         for _, edit in ipairs(edits) do
-            if edit.to > last then return nil, nil, "rename edits overlap" end
+            if edit.to > last then
+                return nil, nil, "rename edits overlap"
+            end
             text = text:sub(1, edit.from - 1) .. edit.newText .. text:sub(edit.to)
             last = edit.from
         end
@@ -665,7 +750,9 @@ end
 local function identifierAt(source, line, column)
     local start = lineStart(source, line)
     local offset = start and start + column - 1
-    if not offset then return nil end
+    if not offset then
+        return nil
+    end
     local left, right = offset, offset
     while left > 1 and source:sub(left - 1, left - 1):match("[A-Za-z0-9_]") do
         left = left - 1
@@ -678,27 +765,37 @@ local function identifierAt(source, line, column)
 end
 
 local function runRename(client, opts)
-    if #opts.positional ~= 4 then return nil, "expected FILE LINE COLUMN NEW_NAME" end
+    if #opts.positional ~= 4 then
+        return nil, "expected FILE LINE COLUMN NEW_NAME"
+    end
     local newName = opts.positional[4]
     local targetOpts = {positional = {opts.positional[1], opts.positional[2],
         opts.positional[3]}, root = opts.root}
     local path, source, position, err = target(client, targetOpts, 3)
-    if not path then return nil, err end
+    if not path then
+        return nil, err
+    end
     local params = positionParams(path, position)
     params.newName = newName
     local result, requestErr = client.request("textDocument/rename", params)
-    if requestErr then return nil, requestErr end
+    if requestErr then
+        return nil, requestErr
+    end
     local changes = result and result.changes or {}
     local edits = editValues(client, changes)
     local rewritten, previews, rewriteErr = rewrittenFiles(client, changes)
-    if not rewritten then return nil, rewriteErr end
+    if not rewritten then
+        return nil, rewriteErr
+    end
     local changedFiles = {}
     for changedPath in pairs(rewritten) do changedFiles[#changedFiles + 1] = changedPath end
     table.sort(changedFiles)
     if opts.write then
         for _, changedPath in ipairs(changedFiles) do
             local ok, writeErr = writeFile(changedPath, rewritten[changedPath])
-            if not ok then return nil, writeErr end
+            if not ok then
+                return nil, writeErr
+            end
         end
     end
     local oldName = identifierAt(source, tonumber(opts.positional[2]),
@@ -731,7 +828,9 @@ end
 
 local function runActions(client, opts)
     local path, _, position, err = target(client, opts, 3)
-    if not path then return nil, err end
+    if not path then
+        return nil, err
+    end
     local params = positionParams(path, position)
     params.range = {start = position, ["end"] = position}
     local context: CodeActionContext = {diagnostics = jsonArray({})}
@@ -741,9 +840,13 @@ local function runActions(client, opts)
     end
     params.context = context
     local result, requestErr = client.request("textDocument/codeAction", params)
-    if requestErr then return nil, requestErr end
+    if requestErr then
+        return nil, requestErr
+    end
     local actions = jsonArray({})
-    if type(result) ~= "table" then result = {} end
+    if type(result) ~= "table" then
+        result = {}
+    end
     for _, action in ipairs(result) do
         local diagnostic = action.diagnostics and action.diagnostics[1]
         actions[#actions + 1] = {
@@ -755,7 +858,8 @@ local function runActions(client, opts)
             edits = editValues(client, action.edit and action.edit.changes or {}),
         }
     end
-    if opts.format == "json" then jsonOutput({actions = actions})
+    if opts.format == "json" then
+        jsonOutput({actions = actions})
     else
         for _, action in ipairs(actions) do
             io.write(action.kind .. ": " .. action.title .. "\n")
@@ -774,10 +878,14 @@ local OPERATIONS = {
 }
 
 local function dispatch(args: any): integer
-    if #args == 0 then return lsp.run(".") end
+    if #args == 0 then
+        return lsp.run(".")
+    end
     local operation = args[1]
     if operation == "serve" or operation == "server" then
-        if #args > 2 then return usageError("lsp serve accepts at most one root") end
+        if #args > 2 then
+            return usageError("lsp serve accepts at most one root")
+        end
         if args[2] and args[2]:sub(1, 1) == "-" then
             return usageError("unknown option " .. args[2])
         end
@@ -786,7 +894,9 @@ local function dispatch(args: any): integer
     local run = OPERATIONS[operation]
     if not run then
         -- Preserve `nupp lsp ROOT` for existing editor clients.
-        if #args == 1 and operation:sub(1, 1) ~= "-" then return lsp.run(operation) end
+        if #args == 1 and operation:sub(1, 1) ~= "-" then
+            return lsp.run(operation)
+        end
         return usageError("unknown lsp operation " .. operation)
     end
     local rest = {}
@@ -794,7 +904,9 @@ local function dispatch(args: any): integer
     -- The operation was found above, so its grammar was too.
     local grammar = assert(OPERATION_SPECS[operation])
     local opts, optionErr = parseOptions(operation, rest)
-    if not opts then return grammar:usageError(optionErr) end
+    if not opts then
+        return grammar:usageError(optionErr)
+    end
     if opts.help then
         io.write(grammar:help())
         return 0
@@ -804,11 +916,17 @@ local function dispatch(args: any): integer
         return 0
     end
     local ansi = require("nupp.ansi")
-    if type(opts.color) == "string" then ansi.setMode(opts.color) end
+    if type(opts.color) == "string" then
+        ansi.setMode(opts.color)
+    end
     local client, clientErr = newClient(opts.root)
-    if not client then io.stderr:write("nupp: " .. clientErr .. "\n"); return 1 end
+    if not client then
+        io.stderr:write("nupp: " .. clientErr .. "\n"); return 1
+    end
     local ok, runErr = run(client, opts)
-    if not ok then io.stderr:write("nupp: " .. tostring(runErr) .. "\n"); return 1 end
+    if not ok then
+        io.stderr:write("nupp: " .. tostring(runErr) .. "\n"); return 1
+    end
     return 0
 end
 

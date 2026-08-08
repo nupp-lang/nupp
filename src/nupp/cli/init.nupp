@@ -185,9 +185,8 @@ function cli.main(argv: {string}): integer
         return 0
     end
     if parsed.values.schema then
-        -- Answered here rather than in the command, so what is printed is the
-        -- schema the grammar carries and not something the command composed
-        -- on its way past.
+        -- Answered here rather than in the command, so what is printed is the schema
+        -- the grammar carries and not something the command composed on its way past.
         require("nupp.cli.report").write(command.spec.schema)
         return 0
     end

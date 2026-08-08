@@ -107,7 +107,9 @@ function hash.sha256(input)
     end
     local out = {}
     for _, value in ipairs(h) do
-        if value < 0 then value = value + 0x100000000 end
+        if value < 0 then
+            value = value + 0x100000000
+        end
         out[#out + 1] = ("%08x"):format(value)
     end
     return table.concat(out)
@@ -133,18 +135,17 @@ end
 
 --- XXH64 of `input` under `seed`, as a `uint64`.
 ---
---- The published algorithm, so `tests/projecttest.lua` can hold its published
---- answers rather than whatever this happens to compute. It reads
---- little-endian, which is what every machine LuaJIT is built for reads; on a
---- big-endian one the number would differ, and for a key nobody ships that
---- costs one rebuild and nothing else.
+--- The published algorithm, so `tests/projecttest.lua` can hold its published answers
+--- rather than whatever this happens to compute. It reads little-endian, which is what
+--- every machine LuaJIT is built for reads; on a big-endian one the number would
+--- differ, and for a key nobody ships that costs one rebuild and nothing else.
 local function xxh64(input, seed)
     local size = #input
     local words = ffi.cast<const uint64[?]>(input)
     local h
-    -- Positions are byte offsets, and the reads index the view whose element
-    -- size divides the offset. Everything up to the four-byte tail sits on an
-    -- eight-byte boundary, so no read here is unaligned.
+    -- Positions are byte offsets, and the reads index the view whose element size
+    -- divides the offset. Everything up to the four-byte tail sits on an eight-byte
+    -- boundary, so no read here is unaligned.
     local at = 0
     if size >= 32 then
         local v1, v2 = seed + P1 + P2, seed + P2
@@ -196,34 +197,33 @@ end
 
 --- Sixteen hex digits of a `uint64`, high half first.
 ---
---- Written as two 32-bit halves because `%x` takes a Lua number, and a whole
---- word has lost bits by the time `format` sees it as one.
+--- Written as two 32-bit halves because `%x` takes a Lua number, and a whole word has
+--- lost bits by the time `format` sees it as one.
 local function hex64(value)
     return ("%08x%08x"):format(
         tonumber(band(rshift(value, 32), 0xFFFFFFFFULL)),
         tonumber(band(value, 0xFFFFFFFFULL)))
 end
 
--- Two seeds, so the answer is 128 bits rather than 64. Two different files
--- agreeing means the build keeps a stale artifact and says nothing about it,
--- which is the one failure a cache must not have; at 128 bits it will not
--- happen, and the second pass costs about a millisecond over a whole compiler.
+-- Two seeds, so the answer is 128 bits rather than 64. Two different files agreeing
+-- means the build keeps a stale artifact and says nothing about it, which is the one
+-- failure a cache must not have; at 128 bits it will not happen, and the second pass
+-- costs about a millisecond over a whole compiler.
 local SEED_A = 0ULL
 local SEED_B = 0x9E3779B97F4A7C15ULL
 
 --- A 128-bit content digest of `input`, as 32 hex digits.
 ---
---- For cache keys. Read the note at the top of the file before reaching for it
---- where the answer gets written down somewhere durable.
+--- For cache keys. Read the note at the top of the file before reaching for it where
+--- the answer gets written down somewhere durable.
 function hash.digest(input)
     return hex64(xxh64(input, SEED_A)) .. hex64(xxh64(input, SEED_B))
 end
 
 --- Which digest the cache keys were computed with.
 ---
---- Recorded in the build state, so that changing the algorithm discards what
---- the last version wrote instead of comparing hex against hex that meant
---- something else.
+--- Recorded in the build state, so that changing the algorithm discards what the last
+--- version wrote instead of comparing hex against hex that meant something else.
 hash.DIGEST = "xxh64x2"
 
 hash.xxh64 = xxh64

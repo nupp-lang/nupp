@@ -93,9 +93,9 @@ end
 record spec.Command
     name: string
 
-    --- What `nupp help ...` to suggest when the arguments were wrong. Defaults to
-    --- the name, and differs only for a command that is really one operation of a
-    --- group: `nupp help lsp` is a thing to type, `nupp help lsp inspect` is not.
+    --- What `nupp help ...` to suggest when the arguments were wrong. Defaults to the
+    --- name, and differs only for a command that is really one operation of a group:
+    --- `nupp help lsp` is a thing to type, `nupp help lsp inspect` is not.
     helpName: string
 
     --- The first line of its help, and its line in the command list.
@@ -240,11 +240,11 @@ end
 -- came last.
 local UNIVERSAL: {any} = {
     {name = "--color", value = "WHEN", form = "optional", constant = "always",
-        choices = {"always", "never", "auto"},
+    choices = {"always", "never", "auto"},
     help = "When to colour output: always, never, or auto (default)"},
     {name = "--no-color", key = "color", constant = "never",
-        duplicate = "colour was both asked for and refused",
-        help = "Never colour output; the same as --color=never"},
+    duplicate = "colour was both asked for and refused",
+    help = "Never colour output; the same as --color=never"},
     {names = {"-h", "--help"}, help = "Show this help"},
 }
 
@@ -252,8 +252,8 @@ local UNIVERSAL: {any} = {
 --- honestly claim to accept the rest.
 spec.helpOption = UNIVERSAL[3]
 
--- Added only to a command that declared a schema, so `--schema` never appears on
--- one with no JSON to describe.
+-- Added only to a command that declared a schema, so `--schema` never appears on one
+-- with no JSON to describe.
 local SCHEMA_OPTION = {
     name = "--schema",
     help = "Print the JSON Schema of --json output and exit",
@@ -269,7 +269,9 @@ function spec.command(raw: any): spec.Command
     local patterned: {spec.Option} = {}
     local declared: {any} = {}
     for _, entry in ipairs(raw.options or {}) do declared[#declared + 1] = entry end
-    if raw.schema then declared[#declared + 1] = SCHEMA_OPTION end
+    if raw.schema then
+        declared[#declared + 1] = SCHEMA_OPTION
+    end
     if raw.universal ~= false then
         for _, entry in ipairs(UNIVERSAL) do declared[#declared + 1] = entry end
     end

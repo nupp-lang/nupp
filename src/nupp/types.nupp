@@ -55,12 +55,13 @@ record types.Map
     key: types.Type
     value: types.Type
 
-    --- Whether indexing may read `value`; a write-only indexer keeps its accepted
-    --- pair in `key`/`value` for identity and rendering.
+    --- Whether indexing may read `value`; a write-only indexer keeps its accepted pair
+    --- in `key`/`value` for identity and rendering.
     readable: boolean
 
     --- The key and value accepted by writes. Absent together for a read-only indexer.
     writeKey: types.Type?
+
     writeValue: types.Type?
 end
 
@@ -233,8 +234,8 @@ record types.Metatable
     of: types.Type
 end
 
---- A declared type: record, interface or struct. One identity per declaration,
---- never shared with another declaration of the same shape.
+--- A declared type: record, interface or struct. One identity per declaration, never
+--- shared with another declaration of the same shape.
 record types.Nominal
     id: string
     tag: 'nominal'
@@ -315,8 +316,8 @@ type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Sha
     | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar
     | types.Metatable | types.Nominal
 
---- One field of a structural shape. `type` is accepted as the legacy spelling passed
---- by compiler internals and means an ordinary read-write property.
+--- One field of a structural shape. `type` is accepted as the legacy spelling passed by
+--- compiler internals and means an ordinary read-write property.
 type types.Field = {name: string, type: types.Type?, read: types.Type?,
     write: types.Type?, capability: string?}
 
@@ -336,7 +337,9 @@ local arena: {[string]: types.Type} = {}
 --- @param build makes the type when it is not there yet
 local function intern(key: string, build: function(): types.Type): types.Type
     local found = arena[key]
-    if found then return found end
+    if found then
+        return found
+    end
     local made = build()
     made.id = key
     arena[key] = made
@@ -349,14 +352,12 @@ local function prim(tag: types.PrimTag): types.Type
 end
 
 types.any = prim("any")
--- The top type: every value fits it, but (unlike `any`) it does not fit
--- anywhere else without narrowing or an explicit `as`. `any` is the gradual
--- opt-out; `unknown` is the sound one, for genuinely untyped input such as a
--- JSON decode.
+-- The top type: every value fits it, but (unlike `any`) it does not fit anywhere else
+-- without narrowing or an explicit `as`. `any` is the gradual opt-out; `unknown` is the
+-- sound one, for genuinely untyped input such as a JSON decode.
 types.unknown = prim("unknown")
--- The bottom type: uninhabited, so it fits anywhere any type is wanted, and
--- nothing but itself fits it. It is what a function that never returns
--- returns.
+-- The bottom type: uninhabited, so it fits anywhere any type is wanted, and nothing but
+-- itself fits it. It is what a function that never returns returns.
 types.never = prim("never")
 types.nil_ = prim("nil")
 types.boolean = prim("boolean")
@@ -461,16 +462,24 @@ function types.shape(fields: {types.Field}, indexer: types.Indexer?,
         local read = f.read
         local write = f.write
         if f.type then
-            if f.capability == "read" then read = f.type
-            elseif f.capability == "write" then write = f.type
-            else read, write = f.type, f.type end
+            if f.capability == "read" then
+                read = f.type
+            elseif f.capability == "write" then
+                write = f.type
+            else
+                read, write = f.type, f.type
+            end
         end
         f.read, f.write = read, write
         parts[#parts + 1] = f.name .. ":r="
             .. (read and read.id or "-") .. ":w="
             .. (write and write.id or "-")
-        if read then byname[f.name] = read end
-        if write then writeByname[f.name] = write end
+        if read then
+            byname[f.name] = read
+        end
+        if write then
+            writeByname[f.name] = write
+        end
     end
     local irk = indexer and indexer.readKey or nil
     local irv = indexer and indexer.readValue or nil
@@ -507,10 +516,14 @@ function types.union(members: {types.Type}): types.Type
         end
     end
     for _, m in ipairs(members) do push(m) end
-    if #flat == 1 then return flat[1] end
+    if #flat == 1 then
+        return flat[1]
+    end
     -- any swallows the union entirely
     for _, m in ipairs(flat) do
-        if m == types.any then return types.any end
+        if m == types.any then
+            return types.any
+        end
     end
     table.sort(flat, function(a, b) return a.id < b.id end)
     local ids: {string} = {}
@@ -518,7 +531,9 @@ function types.union(members: {types.Type}): types.Type
     return intern("union(" .. table.concat(ids, "|") .. ")", function()
         local hasNil = false
         for _, m in ipairs(flat) do
-            if m == types.nil_ then hasNil = true end
+            if m == types.nil_ then
+                hasNil = true
+            end
         end
         return types.Union{tag = "union", members = flat, hasNil = hasNil}
     end)
@@ -582,11 +597,12 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
     typeBounds: {types.Type}?, borrowsParam: integer?,
     borrowsSelf: boolean?, borrowsParams: {integer}?, ffiOut: any,
     varargType: types.Type?, noreturn: boolean?): types.Type
-    -- A single declared result of `never` is a promise the call never comes
-    -- back, the same promise `noreturn` records; deriving it here means a
-    -- signature only has to say `never` once; it does not also carry a
-    -- parallel boolean.
-    if #rets == 1 and rets[1] == types.never then noreturn = true end
+    -- A single declared result of `never` is a promise the call never comes back, the
+    -- same promise `noreturn` records; deriving it here means a signature only has to
+    -- say `never` once; it does not also carry a parallel boolean.
+    if #rets == 1 and rets[1] == types.never then
+        noreturn = true
+    end
     local pids: {string} = {}
     local rids: {string} = {}
     local modes: {string} = {}
@@ -614,7 +630,9 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
         end
         key = key .. "|<" .. table.concat(genericParts, ",") .. ">"
     end
-    if borrowsParam then key = key .. "|borrows" .. borrowsParam end
+    if borrowsParam then
+        key = key .. "|borrows" .. borrowsParam
+    end
     if borrowsParams and #borrowsParams > 0 then
         key = key .. "|borrows(" .. table.concat(borrowsParams, ",") .. ")"
     end
@@ -625,8 +643,12 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
             .. (output.success or "always") .. ":"
             .. tostring(output.sourceParam or "")
     end
-    if borrowsSelf then key = key .. "|borrowsself" end
-    if noreturn then key = key .. "|noreturn" end
+    if borrowsSelf then
+        key = key .. "|borrowsself"
+    end
+    if noreturn then
+        key = key .. "|noreturn"
+    end
     return intern(key, function()
         return types.Func{tag = "func", params = params, rets = rets,
             vararg = vararg or false,
@@ -640,8 +662,8 @@ end
 
 -- A string literal's own type: a subtype of string, and the bridge that lets a bare
 -- 'red' land in a union that lists it. `base` is the type the literal behaves as
--- everywhere except where its exact value matters: a member of a union of literals,
--- or a discriminant comparison.
+-- everywhere except where its exact value matters: a member of a union of literals, or
+-- a discriminant comparison.
 function types.literal(value: any, base: types.Type?): types.Type
     local of = base or types.string
     return intern("lit(" .. of.tag .. ":" .. tostring(value) .. ")",
@@ -664,7 +686,9 @@ end
 -- A read-only view of T. Const is carried so an imported signature keeps what the
 -- header said; it does not change the representation.
 function types.constOf(t: types.Type): types.Type
-    if t.tag == "const" then return t end
+    if t.tag == "const" then
+        return t
+    end
     return intern("const(" .. t.id .. ")",
         function() return types.Const{tag = "const", inner = t} end)
 end
@@ -810,7 +834,9 @@ function types.tostring(t: types.Type): string
     elseif tag == "metatable" then
         return "metatable<" .. types.tostring(t.of) .. ">"
     elseif tag == "literal" then
-        if t.base == types.string then return ("%q"):format(t.constant) end
+        if t.base == types.string then
+            return ("%q"):format(t.constant)
+        end
         return tostring(t.constant)
     elseif tag == "func" then
         local ps: {string} = {}

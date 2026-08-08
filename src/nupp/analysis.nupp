@@ -361,14 +361,18 @@ local function inferFunction(info, byDefinition)
 
     local function returnedRoots(expr)
         local direct = rootOf(expr)
-        if direct then return {[1] = direct} end
+        if direct then
+            return {[1] = direct}
+        end
         if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
             return {}
         end
         local callee = expr.obj
         local token = callee and (callee.token or callee.name)
         local known = token and byDefinition[token.definition] or nil
-        if not known or known.summary.top then return {} end
+        if not known or known.summary.top then
+            return {}
+        end
         local args, roots = callArgs(expr), {}
         for value in pairs(known.summary.returns or {}) do
             local resultIndex, root = value:match("^(%d+)=([%a_][%w_]*)$")
@@ -376,7 +380,9 @@ local function inferFunction(info, byDefinition)
                 for j, name in ipairs(known.paramNames or {}) do
                     if name == root then
                         local actual = rootOf(args[j])
-                        if actual then roots[tonumber(resultIndex)] = actual end
+                        if actual then
+                            roots[tonumber(resultIndex)] = actual
+                        end
                     end
                 end
             end
@@ -635,7 +641,9 @@ local function proveLoops(body, byDefinition)
     end
     collectLiteralLengths(body)
     local function definitionReferences(node, definition)
-        if not node then return 0 end
+        if not node then
+            return 0
+        end
         if cst.isToken(node) then
             return node.kind == "name" and node.definition == definition and 1 or 0
         end

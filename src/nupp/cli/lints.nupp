@@ -29,25 +29,25 @@ A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
                     type = "object",
                     properties = {
                         name = {type = "string",
-                            description = "What an @allow suppression writes."},
+                        description = "What an @allow suppression writes."},
                         code = {type = "string",
-                            description = "The diagnostic code it reports under, "
-                                .. "which survives the name being reconsidered."},
+                        description = "The diagnostic code it reports under, "
+                        .. "which survives the name being reconsidered."},
                         category = {type = "string"},
                         level = {type = "string",
-                            enum = {"off", "note", "warning", "error"},
-                            description = "The level this project runs it at."},
+                        enum = {"off", "note", "warning", "error"},
+                        description = "The level this project runs it at."},
                         default = {type = "string",
-                            enum = {"off", "note", "warning", "error"},
-                            description = "The level it runs at when a project "
-                                .. "says nothing."},
+                        enum = {"off", "note", "warning", "error"},
+                        description = "The level it runs at when a project "
+                        .. "says nothing."},
                         moved = {type = "boolean",
-                            description = "Whether this project moved it off "
-                                .. "its default."},
+                        description = "Whether this project moved it off "
+                        .. "its default."},
                         summary = {type = "string"},
                     },
                     required = {"name", "code", "category", "level", "default",
-                        "moved", "summary"},
+                    "moved", "summary"},
                 },
             },
         },

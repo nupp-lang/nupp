@@ -88,9 +88,9 @@ local function run(parsed: any): integer
             end
         end
     end
-    -- Checking one named file still needs the project's declaration index,
-    -- which is a header for every file in the project. Whatever this run had
-    -- to work out for itself, the next one should not.
+    -- Checking one named file still needs the project's declaration index, which is a
+    -- header for every file in the project. Whatever this run had to work out for
+    -- itself, the next one should not.
     require("nupp.env").persist(env)
     if asJson then
         reportMod.json(diagnostics)

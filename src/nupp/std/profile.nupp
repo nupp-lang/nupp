@@ -40,63 +40,60 @@ local profile = {}
 
 --- What `profile.sample` collects, and how much of it. Every field is optional.
 type profile.SampleOptions = {
-    --- Milliseconds between samples; 10 by default, which is 100 a second.
-    --- Below about 10 the timer starts taking real time away from the thread it
-    --- is measuring, so lower it for a short window and read the result knowing
-    --- that it was paid for.
+    --- Milliseconds between samples; 10 by default, which is 100 a second. Below about
+    --- 10 the timer starts taking real time away from the thread it is measuring, so
+    --- lower it for a short window and read the result knowing that it was paid for.
     intervalMs: integer?,
 
-    --- How many frames to walk per sample; 16 by default. The walk is linear in
-    --- this and it happens on the interrupted thread, so raise it only when a
-    --- specific question needs the depth.
+    --- How many frames to walk per sample; 16 by default. The walk is linear in this
+    --- and it happens on the interrupted thread, so raise it only when a specific
+    --- question needs the depth.
     stackDepth: integer?,
 
     --- Keep only the samples taken under a zone path starting with this, so
     --- "frame/render" reads as that subtree alone.
     ---
-    --- Applied at `stop` rather than while sampling: narrowing it costs nothing
-    --- at runtime, and widening it afterwards is not possible, because the
-    --- prefix is fixed when the session starts.
+    --- Applied at `stop` rather than while sampling: narrowing it costs nothing at
+    --- runtime, and widening it afterwards is not possible, because the prefix is fixed
+    --- when the session starts.
     zone: string?,
 
-    --- The module the program starts at, as a stack frame names it. Everything
-    --- below the outermost frame from it is dropped.
+    --- The module the program starts at, as a stack frame names it. Everything below
+    --- the outermost frame from it is dropped.
     ---
-    --- A profiler samples the whole stack it is embedded in, and what is under
-    --- the program — the loader that read it, the pcall that guards it — is
-    --- not the program. Naming its module cuts the report back to it.
+    --- A profiler samples the whole stack it is embedded in, and what is under the
+    --- program — the loader that read it, the pcall that guards it — is not the
+    --- program. Naming its module cuts the report back to it.
     ---
-    --- Frames read "<module>:<name>", so the module is the part to give. A
-    --- stack with no frame from it is kept whole rather than emptied, and two
-    --- stacks that differ only below the root become one, their counts summed.
+    --- Frames read "<module>:<name>", so the module is the part to give. A stack with
+    --- no frame from it is kept whole rather than emptied, and two stacks that differ
+    --- only below the root become one, their counts summed.
     root: string?,
 }
 
 --- What `profile.trace` counts. Every field is optional.
 type profile.TraceOptions = {
-    --- Include the aborts that are ordinary trace formation rather than a
-    --- refusal — leaving a loop, recursion, an inner loop. False by default;
-    --- turn it on when the question is why a particular trace never formed.
+    --- Include the aborts that are ordinary trace formation rather than a refusal —
+    --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
+    --- question is why a particular trace never formed.
     includeBenign: boolean?,
 }
 
 --- How much an abort is worth reading.
 ---
---- `blacklist` is always actionable: the code is demoted to the interpreter for
---- the rest of the process. `warn` is a refusal that may or may not sit on a
---- hot path. `info` is trace formation working as designed.
+--- `blacklist` is always actionable: the code is demoted to the interpreter for the
+--- rest of the process. `warn` is a refusal that may or may not sit on a hot path.
+--- `info` is trace formation working as designed.
 type profile.Severity = "blacklist" | "warn" | "info"
 
 --- One distinct stack, and what landed on it.
 ---
---- A row of a `SampleReport`, built at `stop`. The five state counts sum to
---- `count`.
+--- A row of a `SampleReport`, built at `stop`. The five state counts sum to `count`.
 record profile.Sample
     --- The zone path the samples were taken under, "" when none was open.
     zonePath: string
 
-    --- The stack as `dumpstack` rendered it, ";" between frames, outermost
-    --- first.
+    --- The stack as `dumpstack` rendered it, ";" between frames, outermost first.
     stack: string
 
     --- Samples on this stack, in every VM state.
@@ -120,11 +117,9 @@ end
 
 --- What a sample session saw, as `SampleSession:stop` returns it.
 ---
---- `tostring` on it is the collapsed-stack text, so it prints and pipes
---- directly.
+--- `tostring` on it is the collapsed-stack text, so it prints and pipes directly.
 record profile.SampleReport
-    --- The interval the session ran at, so the sample counts can be read as
-    --- time.
+    --- The interval the session ran at, so the sample counts can be read as time.
     intervalMs: integer
 
     --- Samples recorded, after the zone filter.
@@ -133,10 +128,9 @@ record profile.SampleReport
     --- Distinct stacks they fell on.
     stacks: integer
 
-    --- One line per stack: semicolon-separated frames, a space, then the sample
-    --- count. Ordered by count descending. Empty when nothing was sampled,
-    --- which a short session and a zone prefix that matched nothing both
-    --- produce.
+    --- One line per stack: semicolon-separated frames, a space, then the sample count.
+    --- Ordered by count descending. Empty when nothing was sampled, which a short
+    --- session and a zone prefix that matched nothing both produce.
     text: string
 
     metamethod __tostring: function(self): string
@@ -144,8 +138,8 @@ end
 
 --- A running sampler, as `profile.sample` returns it.
 ---
---- Live until `stop`, and there is at most one at a time. Dropping the handle
---- without stopping leaves the timer running for the rest of the process.
+--- Live until `stop`, and there is at most one at a time. Dropping the handle without
+--- stopping leaves the timer running for the rest of the process.
 record profile.SampleSession
     --- The interval it was started at.
     intervalMs: integer
@@ -153,8 +147,7 @@ record profile.SampleSession
     --- The zone prefix `stop` will filter by, or nil for all of them.
     zoneFilter: string?
 
-    --- The module `stop` will cut the stacks back to, or nil to keep them
-    --- whole.
+    --- The module `stop` will cut the stacks back to, or nil to keep them whole.
     root: string?
 
     --- Whether recording is suspended. The timer keeps firing.
@@ -163,9 +156,9 @@ record profile.SampleSession
     --- Whether `stop` has run.
     stopped: boolean
 
-    --- Samples so far, by zone path and then by stack. Two levels rather than
-    --- one joined key, so a sample taken in a zone that has not changed since
-    --- the last one costs a single table lookup.
+    --- Samples so far, by zone path and then by stack. Two levels rather than one
+    --- joined key, so a sample taken in a zone that has not changed since the last one
+    --- costs a single table lookup.
     aggregate: {[string]: {[string]: profile.Sample}}
 end
 
@@ -179,8 +172,8 @@ record profile.AbortSite
     --- Times this exact severity, reason, location and zone fired.
     count: integer
 
-    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is
-    --- rendered with the opcode's name.
+    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is rendered with
+    --- the opcode's name.
     reason: string
 
     --- "<file>:<line>" of the function being recorded when it aborted.
@@ -192,23 +185,22 @@ end
 
 --- What a trace session saw, as `TraceSession:stop` returns it.
 ---
---- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and
---- diffs directly.
+--- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and diffs
+--- directly.
 record profile.TraceReport
-    --- Wallclock seconds the session was active, in whole seconds: it comes
-    --- from `os.time`, so a session shorter than one reads as zero and dividing
-    --- by it is the caller's problem.
+    --- Wallclock seconds the session was active, in whole seconds: it comes from
+    --- `os.time`, so a session shorter than one reads as zero and dividing by it is the
+    --- caller's problem.
     durationSec: integer
 
-    --- Abort events recorded. Excludes the benign ones unless `includeBenign`
-    --- was set.
+    --- Abort events recorded. Excludes the benign ones unless `includeBenign` was set.
     totalAborts: integer
 
     --- Blacklist events among them. Always actionable.
     blacklisted: integer
 
-    --- One row per distinct severity, reason, location and zone. Ordered by
-    --- severity, then by count descending.
+    --- One row per distinct severity, reason, location and zone. Ordered by severity,
+    --- then by count descending.
     sites: {profile.AbortSite}
 
     metamethod __tostring: function(self): string
@@ -216,8 +208,8 @@ end
 
 --- A running trace-abort collector, as `profile.trace` returns it.
 ---
---- Live until `stop`, and there is at most one at a time. Dropping the handle
---- without stopping leaves the event hook attached for the rest of the process.
+--- Live until `stop`, and there is at most one at a time. Dropping the handle without
+--- stopping leaves the event hook attached for the rest of the process.
 record profile.TraceSession
     --- Whether the benign trace-formation events are being counted.
     includeBenign: boolean
@@ -249,9 +241,9 @@ end
 -- Shared
 -------------------------------------------------------------------------------
 
--- Writes `text` to `path`, replacing whatever was there. Raised errors carry
--- the path, since the caller passed a name and a failure that does not repeat
--- it says nothing about which name was wrong.
+-- Writes `text` to `path`, replacing whatever was there. Raised errors carry the path,
+-- since the caller passed a name and a failure that does not repeat it says nothing
+-- about which name was wrong.
 local function writeFile(path: string, text: string)
     local file, openReason = io.open(path, "w")
     if not file then
@@ -276,30 +268,40 @@ end
 -------------------------------------------------------------------------------
 
 -- The zone path and the stack are joined with ";" and "/" respectively, and a
--- collapsed-stack line ends at its first newline, so a frame carrying either
--- would be read as two frames or as two lines. Nothing legitimately names a
--- function this way; what does is a chunk loaded from a string.
+-- collapsed-stack line ends at its first newline, so a frame carrying either would be
+-- read as two frames or as two lines. Nothing legitimately names a function this way;
+-- what does is a chunk loaded from a string.
 local function sanitize(frame: string): string
     return (frame:gsub("[;/\n\r]", "_"))
 end
 
--- The VM state the most samples on a stack were in, as the one character
--- `jit.profile` reports it with. Ties go to the earlier test, which puts
--- "compiled" ahead of the states that are all forms of not running the program.
+-- The VM state the most samples on a stack were in, as the one character `jit.profile`
+-- reports it with. Ties go to the earlier test, which puts "compiled" ahead of the
+-- states that are all forms of not running the program.
 local function dominantState(sample: profile.Sample): string
     local state, best = "N", sample.compiled
-    if sample.interpreted > best then state, best = "I", sample.interpreted end
-    if sample.cCode > best then state, best = "C", sample.cCode end
-    if sample.collecting > best then state, best = "G", sample.collecting end
-    if sample.compiling > best then state, best = "J", sample.compiling end
+    if sample.interpreted > best then
+        state, best = "I", sample.interpreted
+    end
+    if sample.cCode > best then
+        state, best = "C", sample.cCode
+    end
+    if sample.collecting > best then
+        state, best = "G", sample.collecting
+    end
+    if sample.compiling > best then
+        state, best = "J", sample.compiling
+    end
     return state
 end
 
--- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces
--- are dropped: a zone path is "" when no zone is open, and dumpstack can render
--- a frame it has no name for as nothing at all.
+-- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces are
+-- dropped: a zone path is "" when no zone is open, and dumpstack can render a frame it
+-- has no name for as nothing at all.
 local function appendFrames(frames: {string}, text: string, separator: string)
-    if text == "" then return end
+    if text == "" then
+        return
+    end
 
     local pattern = "[^" .. separator .. "]+"
     for piece in text:gmatch(pattern) do
@@ -307,19 +309,25 @@ local function appendFrames(frames: {string}, text: string, separator: string)
     end
 end
 
--- Collapsed-stack text: one line per stack, frames separated by ";", then a
--- space and the sample count. The zone path leads, so a flame graph opens on
--- the zones and drills into the code beneath each.
+-- Collapsed-stack text: one line per stack, frames separated by ";", then a space and
+-- the sample count. The zone path leads, so a flame graph opens on the zones and drills
+-- into the code beneath each.
 --
--- The leaf carries the dominant VM state as a "_[N]" suffix, the convention
--- FlameGraph and speedscope already colour on. The letters are LuaJIT's own:
--- N compiled, I interpreted, C in a C function, G collecting, J compiling.
+-- The leaf carries the dominant VM state as a "_[N]" suffix, the convention FlameGraph
+-- and speedscope already colour on. The letters are LuaJIT's own: N compiled, I
+-- interpreted, C in a C function, G collecting, J compiling.
 local function collapse(samples: {profile.Sample}): string
-    if #samples == 0 then return "" end
+    if #samples == 0 then
+        return ""
+    end
 
     table.sort(samples, function(a: profile.Sample, b: profile.Sample): boolean
-        if a.count ~= b.count then return a.count > b.count end
-        if a.zonePath ~= b.zonePath then return a.zonePath < b.zonePath end
+        if a.count ~= b.count then
+            return a.count > b.count
+        end
+        if a.zonePath ~= b.zonePath then
+            return a.zonePath < b.zonePath
+        end
         return a.stack < b.stack
     end)
 
@@ -329,7 +337,9 @@ local function collapse(samples: {profile.Sample}): string
         local frames: {string} = {}
         appendFrames(frames, sample.zonePath, "/")
         appendFrames(frames, sample.stack, ";")
-        if #frames == 0 then frames[1] = "<root>" end
+        if #frames == 0 then
+            frames[1] = "<root>"
+        end
         frames[#frames] = frames[#frames] .. "_[" .. dominantState(sample) .. "]"
         lines[index] = table.concat(frames, ";") .. " "
             .. string.format("%d", sample.count)
@@ -337,13 +347,13 @@ local function collapse(samples: {profile.Sample}): string
     return table.concat(lines, "\n")
 end
 
--- Everything below the outermost frame belonging to `root` is what started the
--- program rather than the program. Frames read "<module>:<name>", so the module
--- is matched at a frame boundary; a substring match anywhere would cut a stack
--- at a function that merely mentions the name.
+-- Everything below the outermost frame belonging to `root` is what started the program
+-- rather than the program. Frames read "<module>:<name>", so the module is matched at a
+-- frame boundary; a substring match anywhere would cut a stack at a function that
+-- merely mentions the name.
 --
--- A stack with no frame from `root` is left whole. That is the honest answer
--- for a sample taken before the program was entered, or after it returned.
+-- A stack with no frame from `root` is left whole. That is the honest answer for a
+-- sample taken before the program was entered, or after it returned.
 local function trimToRoot(stack: string, root: string): string
     local prefix = root .. ":"
     local from = 1
@@ -352,15 +362,17 @@ local function trimToRoot(stack: string, root: string): string
             return stack:sub(from)
         end
         local nextFrame = stack:find(";", from, true)
-        if not nextFrame then return stack end
+        if not nextFrame then
+            return stack
+        end
         from = nextFrame + 1
     end
     return stack
 end
 
--- One session at a time: the profiler is a process-wide singleton, and starting
--- a second would silently replace the first's callback while its handle still
--- looked live.
+-- One session at a time: the profiler is a process-wide singleton, and starting a
+-- second would silently replace the first's callback while its handle still looked
+-- live.
 local sampling = false
 
 --- Starts sampling.
@@ -392,20 +404,22 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         aggregate = {},
     }
 
-    -- Negative, so the walk runs outermost frame first: that is the order a
-    -- collapsed stack is written in, and reversing it here would mean building
-    -- a list per sample on the interrupted thread.
+    -- Negative, so the walk runs outermost frame first: that is the order a collapsed
+    -- stack is written in, and reversing it here would mean building a list per sample
+    -- on the interrupted thread.
     local walk = -stackDepth
     local aggregate = session.aggregate
-    -- The zone path is a string the zone module holds onto until the stack
-    -- changes, so consecutive samples in one zone hit the same table entry
-    -- without hashing a fresh key.
+    -- The zone path is a string the zone module holds onto until the stack changes, so
+    -- consecutive samples in one zone hit the same table entry without hashing a fresh
+    -- key.
     local cachedPath = ""
     local cachedStacks: {[string]: profile.Sample} = {}
     aggregate[cachedPath] = cachedStacks
 
     local function record(thread: any, samples: integer, vmstate: string)
-        if session.paused then return end
+        if session.paused then
+            return
+        end
 
         local path = zone.path()
         if path ~= cachedPath then
@@ -417,8 +431,8 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
             cachedPath, cachedStacks = path, stacks
         end
 
-        -- Only meaningful for the thread this callback was handed, and only
-        -- while it is running.
+        -- Only meaningful for the thread this callback was handed, and only while it is
+        -- running.
         local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
         local sample = cachedStacks[stack]
         if not sample then
@@ -431,28 +445,33 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         end
 
         sample.count = sample.count + samples
-        if vmstate == "N" then sample.compiled = sample.compiled + samples
-        elseif vmstate == "I" then sample.interpreted = sample.interpreted + samples
-        elseif vmstate == "C" then sample.cCode = sample.cCode + samples
-        elseif vmstate == "G" then sample.collecting = sample.collecting + samples
-        elseif vmstate == "J" then sample.compiling = sample.compiling + samples
+        if vmstate == "N" then
+            sample.compiled = sample.compiled + samples
+        elseif vmstate == "I" then
+            sample.interpreted = sample.interpreted + samples
+        elseif vmstate == "C" then
+            sample.cCode = sample.cCode + samples
+        elseif vmstate == "G" then
+            sample.collecting = sample.collecting + samples
+        elseif vmstate == "J" then
+            sample.compiling = sample.compiling + samples
         end
     end
 
     zone.acquire()
-    -- "l" keys the sampler on the source line, which is the finest thing it
-    -- coalesces on: consecutive samples sharing a key arrive as one call
-    -- carrying their count, so anything coarser would attribute a run of
-    -- samples to whichever stack the last of them was on. "i<n>" is the
-    -- interval. The stack and the VM state arrive either way.
+    -- "l" keys the sampler on the source line, which is the finest thing it coalesces
+    -- on: consecutive samples sharing a key arrive as one call carrying their count, so
+    -- anything coarser would attribute a run of samples to whichever stack the last of
+    -- them was on. "i<n>" is the interval. The stack and the VM state arrive either
+    -- way.
     jitProfile.start("li" .. string.format("%d", intervalMs), record)
     sampling = true
     return session
 end
 
---- Stops recording without ending the session. The timer keeps firing, at the
---- cost of one test per sample, and what was recorded on either side of the
---- pause is kept — which is how a benchmark leaves its setup out.
+--- Stops recording without ending the session. The timer keeps firing, at the cost of
+--- one test per sample, and what was recorded on either side of the pause is kept —
+--- which is how a benchmark leaves its setup out.
 ---
 --- Idempotent.
 ---
@@ -493,10 +512,9 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     local root = self.root
     local kept: {profile.Sample} = {}
     local samples: integer = 0
-    -- Trimming can bring two stacks together, when what they differed in was
-    -- only what started them, so the rows are merged rather than the first one
-    -- standing for both. The key holds a NUL because a zone name and a frame
-    -- can hold anything else.
+    -- Trimming can bring two stacks together, when what they differed in was only what
+    -- started them, so the rows are merged rather than the first one standing for both.
+    -- The key holds a NUL because a zone name and a frame can hold anything else.
     local merged: {[string]: profile.Sample} = {}
     for path, stacks in pairs(self.aggregate) do
         if not prefix or path:sub(1, #prefix) == prefix then
@@ -530,7 +548,9 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         stacks = #kept,
         text = collapse(kept),
     }
-    if filename then writeFile(filename, report.text) end
+    if filename then
+        writeFile(filename, report.text)
+    end
     return report
 end
 
@@ -541,18 +561,20 @@ end
 local traceerr = vmdef.traceerr
 local bcnames = vmdef.bcnames
 
--- Opcode names come packed six characters each and space-padded, so the name is
--- the slice with its padding trimmed.
+-- Opcode names come packed six characters each and space-padded, so the name is the
+-- slice with its padding trimmed.
 local function opcodeName(opcode: integer): string
     local start = opcode * 6 + 1
     return (bcnames:sub(start, start + 5):gsub("%s+$", ""))
 end
 
 -- The reason a trace aborted, as text. `traceerr` holds format strings, and the
--- argument that fills one in is the abort's own second operand — an opcode for
--- the unrecordable-bytecode errors, a number or a string for the rest.
+-- argument that fills one in is the abort's own second operand — an opcode for the
+-- unrecordable-bytecode errors, a number or a string for the rest.
 local function abortReason(errorCode: any, errorArg: any): string
-    if not errorCode then return "abort" end
+    if not errorCode then
+        return "abort"
+    end
 
     local format = traceerr[errorCode as integer]
     if not format then
@@ -561,21 +583,33 @@ local function abortReason(errorCode: any, errorArg: any): string
     if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
         return "NYI: bytecode " .. opcodeName(errorArg as integer)
     end
-    if errorArg == nil then return format end
+    if errorArg == nil then
+        return format
+    end
 
     local ok, filled = pcall(string.format, format, errorArg)
     return ok and filled as string or format
 end
 
--- Trace formation reports the ordinary as an abort too: a loop that was left,
--- recursion in either direction, an inner loop found. None of those is the
--- compiler refusing anything, so they are separated out rather than counted.
+-- Trace formation reports the ordinary as an abort too: a loop that was left, recursion
+-- in either direction, an inner loop found. None of those is the compiler refusing
+-- anything, so they are separated out rather than counted.
 local function classify(reason: string): profile.Severity
-    if reason:find("blacklist", 1, true) then return "blacklist" end
-    if reason:find("leaving loop", 1, true) then return "info" end
-    if reason:find("inner loop", 1, true) then return "info" end
-    if reason:find("down-recursion", 1, true) then return "info" end
-    if reason:find("up-recursion", 1, true) then return "info" end
+    if reason:find("blacklist", 1, true) then
+        return "blacklist"
+    end
+    if reason:find("leaving loop", 1, true) then
+        return "info"
+    end
+    if reason:find("inner loop", 1, true) then
+        return "info"
+    end
+    if reason:find("down-recursion", 1, true) then
+        return "info"
+    end
+    if reason:find("up-recursion", 1, true) then
+        return "info"
+    end
     return "warn"
 end
 
@@ -589,18 +623,19 @@ local function severityRank(severity: profile.Severity): integer
     end
 end
 
--- Lua prefixes a file source with "@", and the function descriptions inherit
--- it. Strip it so a row reads "path:line". A source that is not a file — "[C]",
--- a loaded string — does not carry the prefix and is left as it is.
+-- Lua prefixes a file source with "@", and the function descriptions inherit it. Strip
+-- it so a row reads "path:line". A source that is not a file — "[C]", a loaded string —
+-- does not carry the prefix and is left as it is.
 local function trimSource(source: string): string
-    if source:sub(1, 1) == "@" then return source:sub(2) end
+    if source:sub(1, 1) == "@" then
+        return source:sub(2)
+    end
     return source
 end
 
--- Where the compiler was when it gave up. `funcinfo` knows the bytecode
--- position, so it can name the line inside the function rather than the line
--- the function started on; `debug.getinfo` is the fallback for the case where
--- it answers nothing useful.
+-- Where the compiler was when it gave up. `funcinfo` knows the bytecode position, so it
+-- can name the line inside the function rather than the line the function started on;
+-- `debug.getinfo` is the fallback for the case where it answers nothing useful.
 local function describeLocation(func: any, pc: any): string
     if func then
         local ok, info = pcall(jitUtil.funcinfo, func, pc as integer)
@@ -620,8 +655,8 @@ local function describeLocation(func: any, pc: any): string
     return "?:0"
 end
 
--- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an
--- embedded quote is doubled. In practice only `reason` ever needs it.
+-- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an embedded
+-- quote is doubled. In practice only `reason` ever needs it.
 local function csvField(text: string): string
     if text:find("[,\"\n\r]") then
         return "\"" .. text:gsub("\"", "\"\"") .. "\""
@@ -644,9 +679,9 @@ local function serializeTraceReport(report: profile.TraceReport): string
     return table.concat(lines, "\n")
 end
 
--- A record's namespace table is the metatable its instances are stamped with,
--- so installing a declared contract is an ordinary assignment to it. The cast
--- is because the contract is not a field: see docs/metamethods.md.
+-- A record's namespace table is the metatable its instances are stamped with, so
+-- installing a declared contract is an ordinary assignment to it. The cast is because
+-- the contract is not a field: see docs/metamethods.md.
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring =
@@ -676,17 +711,20 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         callback = function() end,
     }
 
-    -- Variadic because `jit.attach` hands each event its own arguments; a
-    -- "trace" event's are what this unpacks. The trace number is the one this
-    -- does not need: what identifies a site is where the compiler was, not
-    -- which attempt it was on.
+    -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
+    -- event's are what this unpacks. The trace number is the one this does not need:
+    -- what identifies a site is where the compiler was, not which attempt it was on.
     local function onTraceEvent(...: any)
         local what, _, func, pc, errorCode, errorArg = ...
-        if what ~= "abort" or session.paused then return end
+        if what ~= "abort" or session.paused then
+            return
+        end
 
         local reason = abortReason(errorCode, errorArg)
         local severity = classify(reason)
-        if severity == "info" and not session.includeBenign then return end
+        if severity == "info" and not session.includeBenign then
+            return
+        end
 
         session.totalAborts = session.totalAborts + 1
         if severity == "blacklist" then
@@ -714,9 +752,8 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     return session
 end
 
---- Stops counting without ending the session. The hook stays attached, at the
---- cost of one test per abort, and what was counted on either side of the pause
---- is kept.
+--- Stops counting without ending the session. The hook stays attached, at the cost of
+--- one test per abort, and what was counted on either side of the pause is kept.
 ---
 --- Idempotent.
 ---
@@ -757,9 +794,15 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
     for _, site in pairs(self.sites) do sites[#sites + 1] = site end
     table.sort(sites, function(a: profile.AbortSite, b: profile.AbortSite): boolean
         local left, right = severityRank(a.severity), severityRank(b.severity)
-        if left ~= right then return left < right end
-        if a.count ~= b.count then return a.count > b.count end
-        if a.reason ~= b.reason then return a.reason < b.reason end
+        if left ~= right then
+            return left < right
+        end
+        if a.count ~= b.count then
+            return a.count > b.count
+        end
+        if a.reason ~= b.reason then
+            return a.reason < b.reason
+        end
         return a.location < b.location
     end)
 
@@ -769,7 +812,9 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         blacklisted = self.blacklisted,
         sites = sites,
     }
-    if filename then writeFile(filename, tostring(report)) end
+    if filename then
+        writeFile(filename, tostring(report))
+    end
     return report
 end
 

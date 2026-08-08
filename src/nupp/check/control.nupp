@@ -48,15 +48,21 @@ function control.install(c: any): any
                 for _, sourceToken in ipairs(borrowContract.params
                     or {borrowContract.param}) do
                     local source = ownershipState(c.lookupEntry(sourceToken.text))
-                    if source then expected[#expected + 1] = borrowRoot(source) end
+                    if source then
+                        expected[#expected + 1] = borrowRoot(source)
+                    end
                 end
                 local actual = provenanceOwners(stat.exprs[j])
                 for _, source in ipairs(expected) do
                     local found = false
                     for _, candidate in ipairs(actual) do
-                        if candidate == source then found = true end
+                        if candidate == source then
+                            found = true
+                        end
                     end
-                    if not found then missing = true end
+                    if not found then
+                        missing = true
+                    end
                 end
                 if missing then
                     c.diag("NUPP2619", stat.exprs[j] or stat,
@@ -94,8 +100,8 @@ function control.install(c: any): any
             c.moduleType = ts[1] -- top-level return: the module's type
             -- The table widened to `table` when it was built, a literal constructor
             -- being open so that fields may be added to it. They were, and what was
-            -- added is what a caller reaches, so the surface replaces it. An
-            -- annotated table said its own surface and is left alone.
+            -- added is what a caller reaches, so the surface replaces it. An annotated
+            -- table said its own surface and is left alone.
             local returned = stat.exprs and stat.exprs[1]
             local returnedName = returned and returned.kind == "name"
                 and returned.token or nil
@@ -109,19 +115,27 @@ function control.install(c: any): any
                         fields[#fields + 1] = {name = name, type = ft}
                     end
                 end
-                if #fields > 0 then c.moduleType = T.shape(fields) end
+                if #fields > 0 then
+                    c.moduleType = T.shape(fields)
+                end
             end
             if c.opts and c.opts.strict and c.moduleType then
-                -- A module's boundary is its contract: under --strict nothing
-                -- crosses it untyped.
+                -- A module's boundary is its contract: under --strict nothing crosses
+                -- it untyped.
                 local function untyped(t)
-                    if t == T.any then return true end
+                    if t == T.any then
+                        return true
+                    end
                     if t.tag == "func" then
                         for _, p in ipairs(t.params) do
-                            if p == T.any then return true end
+                            if p == T.any then
+                                return true
+                            end
                         end
                         for _, r in ipairs(t.rets) do
-                            if r == T.any then return true end
+                            if r == T.any then
+                                return true
+                            end
                         end
                     end
                     return false
@@ -189,11 +203,11 @@ function control.install(c: any): any
                         :format(binding.name.text, why))
                 end
             end
-            -- The contract itself was validated where it was written, which is the
-            -- only place a misspelled or wrong-typed cleanup can be repaired, so an
-            -- unresolvable name is not re-reported as a declaration error here.
-            -- What this scope does have to establish is that the cleanup can be
-            -- called from it, because a call to it by name is what gets emitted.
+            -- The contract itself was validated where it was written, which is the only
+            -- place a misspelled or wrong-typed cleanup can be repaired, so an
+            -- unresolvable name is not re-reported as a declaration error here. What
+            -- this scope does have to establish is that the cleanup can be called from
+            -- it, because a call to it by name is what gets emitted.
             validateCleanups(acquired, cleanups, binding.expr, "NUPP2615", true)
             c.own.requireReachableCleanups(acquired, cleanups, binding.expr)
             if ownershipKind(acquired) == "owned" then
@@ -204,11 +218,12 @@ function control.install(c: any): any
             c.bindVar(binding.name.text, visible, binding.type ~= nil,
                 binding.name)
             local entry = c.scope.vars[binding.name.text]
-            if entry then entry.withBinding = binding end
+            if entry then
+                entry.withBinding = binding
+            end
         end
-        -- The bindings live in this scope, so a body reference to one of them
-        -- resolves at this depth and is not a capture: the generator passes them as
-        -- parameters.
+        -- The bindings live in this scope, so a body reference to one of them resolves
+        -- at this depth and is not a capture: the generator passes them as parameters.
         c.captureWatches[#c.captureWatches + 1] =
             {depth = c.scope.depth, captured = false}
         c.checkBlock(stat.body, true)
@@ -227,14 +242,13 @@ function control.install(c: any): any
         -- partial handling and is left alone.
         local dispatchKey, dispatchStart, dispatchTotal = nil, nil, false
         local allBranchesLeave = true
-        -- What each path that reaches the end of the statement knows. Joining them
-        -- is what lets a variable assigned in one branch and tested in another be
-        -- known afterwards.
+        -- What each path that reaches the end of the statement knows. Joining them is
+        -- what lets a variable assigned in one branch and tested in another be known
+        -- afterwards.
         local paths = {}
         for _, clause in ipairs(stat.clauses) do
             -- analyze under the accumulated else-facts so that subtraction chains
-            -- compose ("elseif v is number" sees v already minus the earlier
-            -- branches)
+            -- compose ("elseif v is number" sees v already minus the earlier branches)
             c.pushScope()
             applyFacts(accumulatedElse)
             local facts = {t = {}, f = {}}
@@ -266,7 +280,9 @@ function control.install(c: any): any
                                 or (test.rhs and c.refType(test.rhs))
                         end
                     end
-                    if facts.exhausted == key then dispatchTotal = true end
+                    if facts.exhausted == key then
+                        dispatchTotal = true
+                    end
                 else
                     dispatchKey = false -- not a single-subject chain
                 end
@@ -313,10 +329,9 @@ function control.install(c: any): any
             paths[#paths + 1] = snapshotNarrowed()
             c.popScope()
         end
-        -- Join: a key is known afterwards only if every surviving path says
-        -- something about it, and then it holds the union of what they say. A key
-        -- one path is silent about could be anything there, so it stays at its
-        -- declared type.
+        -- Join: a key is known afterwards only if every surviving path says something
+        -- about it, and then it holds the union of what they say. A key one path is
+        -- silent about could be anything there, so it stays at its declared type.
         if #paths > 0 then
             local joined = {}
             for key, t in pairs(paths[1]) do
@@ -330,7 +345,9 @@ function control.install(c: any): any
                     end
                     members[#members + 1] = other
                 end
-                if everywhere then joined[key] = T.union(members) end
+                if everywhere then
+                    joined[key] = T.union(members)
+                end
             end
             applyFacts(joined)
         end
@@ -356,7 +373,9 @@ function control.install(c: any): any
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
         c.loops.pop()
-        if stat.cond then c.infer(stat.cond) end
+        if stat.cond then
+            c.infer(stat.cond)
+        end
         c.popScope()
     end
 
@@ -372,10 +391,14 @@ function control.install(c: any): any
 
     handlers.fornumStmt = function(stat: cst.FornumStmt)
         local from, to, var = stat.start, stat.stop, stat.var
-        if not from or not to or not var then return end
+        if not from or not to or not var then
+            return
+        end
         local st = c.infer(from)
         local et = c.infer(to)
-        if stat.step then c.infer(stat.step) end
+        if stat.step then
+            c.infer(stat.step)
+        end
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
         c.pushScope()
@@ -389,19 +412,23 @@ function control.install(c: any): any
     end
 
     handlers.forinStmt = function(stat: cst.ForinStmt)
-        -- the iterator's return types type the loop variables (e.g. pairs(m: {[K]:
-        -- V}) instantiates to function(): (K, V))
+        -- the iterator's return types type the loop variables (e.g. pairs(m: {[K]: V})
+        -- instantiates to function(): (K, V))
         local iterT = nil
         for j, e in ipairs(stat.exprs or {}) do
             local t = c.infer(e)
-            if j == 1 then iterT = t end
+            if j == 1 then
+                iterT = t
+            end
         end
         local iterator = stat.exprs and stat.exprs[1]
         local callee = iterator and iterator.kind == "call" and iterator.obj or nil
         local calleeTok = callee and callee.kind == "name" and callee.token or nil
         local global = c.env and c.env.globals and c.env.globals.ipairs or nil
         local args = nil
-        if iterator and iterator.kind == "call" then args = iterator.args end
+        if iterator and iterator.kind == "call" then
+            args = iterator.args
+        end
         local operands = args and args.kind == "args" and args.exprs or {}
         local operand = #operands == 1 and operands[1] or nil
         local operandType = operand and c.refType(operand) or nil

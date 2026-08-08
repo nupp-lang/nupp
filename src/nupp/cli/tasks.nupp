@@ -17,7 +17,7 @@ local command = spec.command{
     options = optionsMod.format(),
     schema = {
         description = "The task list, or one task's effective configuration when "
-            .. "a name was given.",
+        .. "a name was given.",
         type = "object",
         properties = {
             tasks = {
@@ -37,16 +37,16 @@ local command = spec.command{
                     category = {type = "string"},
                     command = {type = "array", items = {type = "string"}},
                     outDir = {type = "string",
-                        description = "Where the target writes, including the "
-                            .. "default a docs target takes from the generator "
-                            .. "rather than from the manifest."},
+                    description = "Where the target writes, including the "
+                    .. "default a docs target takes from the generator "
+                    .. "rather than from the manifest."},
                     buildTarget = {type = "string"},
                     all = {type = "boolean",
-                        description = "Documentation: include declarations "
-                            .. "that are undocumented or local."},
+                    description = "Documentation: include declarations "
+                    .. "that are undocumented or local."},
                     includePrivate = {type = "boolean",
-                        description = "Documentation: include `_` members and "
-                            .. "files below internal/."},
+                    description = "Documentation: include `_` members and "
+                    .. "files below internal/."},
                     entries = {type = "array", items = {type = "string"}},
                     sources = {type = "array", items = {type = "string"}},
                     resources = {type = "array", items = {type = "string"}},

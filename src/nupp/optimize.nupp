@@ -25,8 +25,8 @@ local optimize = {}
 local isToken = cst.isToken
 local firstToken = cst.firstToken
 
---- The passes, by stable code: the name a person uses, the lowest `-O` level
---- that runs the pass, and one line saying what it is for.
+--- The passes, by stable code: the name a person uses, the lowest `-O` level that runs
+--- the pass, and one line saying what it is for.
 optimize.passes = {
     ["OPT-1"] = {
         name = "presize",
@@ -45,24 +45,30 @@ optimize.passes = {
     },
 }
 
--- Presizing pays from two fields up. An empty table grows its hash part by
--- rehashing, so a single field costs one rehash, and replacing the constructor
--- with a call to buy that back is not a trade worth making.
+-- Presizing pays from two fields up. An empty table grows its hash part by rehashing,
+-- so a single field costs one rehash, and replacing the constructor with a call to buy
+-- that back is not a trade worth making.
 local PRESIZE_MIN = 2
 
 -- The identifier a bare-name expression names.
 local function nameText(node)
-    if not node or isToken(node) then return nil end
-    if node.kind ~= "name" then return nil end
+    if not node or isToken(node) then
+        return nil
+    end
+    if node.kind ~= "name" then
+        return nil
+    end
     return node.token and node.token.text or nil
 end
 
--- How many times `name` is mentioned anywhere in the subtree. Counting rather
--- than testing is what lets a statement be judged: a write to a field mentions
--- the local exactly once, so a statement whose only mentions are the ones being
--- counted as writes has not let the table go anywhere else.
+-- How many times `name` is mentioned anywhere in the subtree. Counting rather than
+-- testing is what lets a statement be judged: a write to a field mentions the local
+-- exactly once, so a statement whose only mentions are the ones being counted as writes
+-- has not let the table go anywhere else.
 local function occurrences(node, name)
-    if not node then return 0 end
+    if not node then
+        return 0
+    end
     if isToken(node) then
         return (node.kind == "name" and node.text == name) and 1 or 0
     end
@@ -73,21 +79,22 @@ local function occurrences(node, name)
     return total
 end
 
--- The local whose field an assignment target writes. `t.x` and `t[k]` answer
--- "t"; a bare `t`, a deeper path like `t.a.b`, and anything else answer nil,
--- because only a one-level write leaves the table binding itself alone.
+-- The local whose field an assignment target writes. `t.x` and `t[k]` answer "t"; a
+-- bare `t`, a deeper path like `t.a.b`, and anything else answer nil, because only a
+-- one-level write leaves the table binding itself alone.
 local function fieldTargetBase(target)
-    if not target or isToken(target) then return nil end
+    if not target or isToken(target) then
+        return nil
+    end
     if target.kind ~= "dotIndex" and target.kind ~= "bracketIndex" then
         return nil
     end
     return nameText(target.obj)
 end
 
--- The key a write adds, as a kind and a value: a name or a string literal is a
--- hash key that can be told apart from other hash keys, a positive integer
--- literal claims an array slot, and anything else is one hash slot of unknown
--- identity.
+-- The key a write adds, as a kind and a value: a name or a string literal is a hash key
+-- that can be told apart from other hash keys, a positive integer literal claims an
+-- array slot, and anything else is one hash slot of unknown identity.
 local function writtenKey(target)
     if target.kind == "dotIndex" then
         return "hash", target.name and target.name.text or nil
@@ -111,7 +118,9 @@ end
 
 -- The writes to `name` a statement makes as one-level field assignments.
 local function fieldWrites(stat, name)
-    if stat.kind ~= "assignStmt" then return {} end
+    if stat.kind ~= "assignStmt" then
+        return {}
+    end
     local writes = {}
     for _, target in ipairs(stat.targets or {}) do
         if fieldTargetBase(target) == name then
@@ -121,19 +130,19 @@ local function fieldWrites(stat, name)
     return writes
 end
 
--- Reads the run of statements that follow a `local t = {}` and decides how big
--- the table wants to be.
+-- Reads the run of statements that follow a `local t = {}` and decides how big the
+-- table wants to be.
 --
--- The scan walks forward until the local is mentioned by something other than a
--- write to one of its fields, which is where the count stops being a count and
--- starts being a guess. A statement that does not mention the local at all is
--- stepped over: until the table escapes, nothing else can reach it.
+-- The scan walks forward until the local is mentioned by something other than a write
+-- to one of its fields, which is where the count stops being a count and starts being a
+-- guess. A statement that does not mention the local at all is stepped over: until the
+-- table escapes, nothing else can reach it.
 --
--- Over-counting is safe — a table sized for more than it receives wastes a
--- little memory and nothing else — so a conditional write is counted, an opaque
--- key is counted as one slot, and a run that is cut short simply keeps what it
--- had. Under-counting is safe too. Capacity is not observable, which is what
--- makes this pass free of any promise about behaviour.
+-- Over-counting is safe — a table sized for more than it receives wastes a little
+-- memory and nothing else — so a conditional write is counted, an opaque key is counted
+-- as one slot, and a run that is cut short simply keeps what it had. Under-counting is
+-- safe too. Capacity is not observable, which is what makes this pass free of any
+-- promise about behaviour.
 local function planPresize(stats, at, name)
     local hashKeys, opaque, array = {}, 0, 0
     local hashCount = 0
@@ -148,7 +157,9 @@ local function planPresize(stats, at, name)
         for _, target in ipairs(writes) do
             local kind, value = writtenKey(target)
             if kind == "array" then
-                if value > array then array = value end
+                if value > array then
+                    array = value
+                end
             elseif kind == "hash" and value then
                 if not hashKeys[value] then
                     hashKeys[value] = true
@@ -162,9 +173,9 @@ local function planPresize(stats, at, name)
     return array, hashCount + opaque, stoppedAt
 end
 
--- Whether an expression is `{}` written with no entries at all. A constructor
--- with entries is already sized by LuaJIT from the constructor itself, so only
--- the empty one is left needing help.
+-- Whether an expression is `{}` written with no entries at all. A constructor with
+-- entries is already sized by LuaJIT from the constructor itself, so only the empty one
+-- is left needing help.
 local function isEmptyTable(node)
     return node and not isToken(node) and node.kind == "tableExpr"
         and #(node.fields or {}) == 0
@@ -205,23 +216,29 @@ local function presizeBlock(stats, remarks)
                     .. "something other than a field assignment before its "
                     .. "fields are known"):format(name),
                     token and {{
-                        line = token.line, col = token.col,
-                        offset = token.offset, length = #token.text,
-                        message = "used here",
-                    }} or nil)
+                    line = token.line, col = token.col,
+                    offset = token.offset, length = #token.text,
+                    message = "used here",
+                }} or nil)
             end
         end
     end
 end
 
 local function walk(node, remarks)
-    if not node or isToken(node) then return end
-    if node.stats then presizeBlock(node.stats, remarks) end
+    if not node or isToken(node) then
+        return
+    end
+    if node.stats then
+        presizeBlock(node.stats, remarks)
+    end
     for _, child in ipairs(node) do walk(child, remarks) end
 end
 
 local function numericIpairsWalk(node, remarks)
-    if not node or isToken(node) then return end
+    if not node or isToken(node) then
+        return
+    end
     if node.kind == "forinStmt" and node.builtinIpairs then
         if node.numericIpairsProof then
             node.numericIpairs = node.numericIpairsProof
@@ -233,19 +250,19 @@ local function numericIpairsWalk(node, remarks)
             remark(remarks, node, "OPT-2",
                 "numeric-ipairs: not rewritten because " .. declined.message,
                 token and {{
-                    line = token.line, col = token.col, offset = token.offset,
-                    length = #token.text, message = "proof stopped here",
-                }} or nil)
+                line = token.line, col = token.col, offset = token.offset,
+                length = #token.text, message = "proof stopped here",
+            }} or nil)
         end
     end
     for _, child in ipairs(node) do numericIpairsWalk(child, remarks) end
 end
 
--- A folded value is deliberately smaller than Lua's constant vocabulary.  In
--- particular, cdata literals, floats, and calls are left alone: their target
--- representation, identity, rounding, or errors are not a source rewrite's
--- business.  Integers in the exact double range and primitive values have the
--- same result when emitted back as Lua source.
+-- A folded value is deliberately smaller than Lua's constant vocabulary. In particular,
+-- cdata literals, floats, and calls are left alone: their target representation,
+-- identity, rounding, or errors are not a source rewrite's business. Integers in the
+-- exact double range and primitive values have the same result when emitted back as Lua
+-- source.
 local MAX_EXACT_INTEGER = 9007199254740991
 
 local function literal(kind, value, code)
@@ -253,10 +270,14 @@ local function literal(kind, value, code)
 end
 
 local function integerLiteral(node)
-    if not node.token then return nil end
+    if not node.token then
+        return nil
+    end
     local text = node.token.text
     local lower = text:lower()
-    if lower:find("ll", 1, true) or lower:sub(-1) == "i" then return nil end
+    if lower:find("ll", 1, true) or lower:sub(-1) == "i" then
+        return nil
+    end
     local value = tonumber((text:gsub("_", "")))
     if not value or value ~= value or value == math.huge or value == -math.huge
         or value ~= math.floor(value) or math.abs(value) > MAX_EXACT_INTEGER then
@@ -266,11 +287,17 @@ local function integerLiteral(node)
 end
 
 local function stringLiteral(node)
-    if not node.token then return nil end
+    if not node.token then
+        return nil
+    end
     local chunk = loadstring("return " .. node.token.text)
-    if not chunk then return nil end
+    if not chunk then
+        return nil
+    end
     local ok, value = pcall(chunk)
-    if not ok or type(value) ~= "string" then return nil end
+    if not ok or type(value) ~= "string" then
+        return nil
+    end
     return literal("string", value, string.format("%q", value))
 end
 
@@ -285,15 +312,21 @@ end
 local function lookupConstant(current, name)
     while current do
         local found = current.constants[name]
-        if found ~= nil then return found or nil end
+        if found ~= nil then
+            return found or nil
+        end
         current = current.parent
     end
     return nil
 end
 
 local function textPath(node)
-    if not node or isToken(node) then return nil end
-    if node.kind == "name" and node.token then return node.token.text end
+    if not node or isToken(node) then
+        return nil
+    end
+    if node.kind == "name" and node.token then
+        return node.token.text
+    end
     if node.kind == "dotIndex" and node.name then
         local base = textPath(node.obj)
         return base and (base .. "." .. node.name.text) or nil
@@ -304,22 +337,28 @@ end
 local function lookupPath(current, path)
     local root = path:match("^[^.]+")
     while current do
-        -- A declaration in an inner scope can shadow the root of an outer
-        -- constant path even if it does not itself have the same suffix.
-        -- `local M = {}` must therefore hide an outer `M.bar`, not let that
-        -- unrelated value leak into the proof.
+        -- A declaration in an inner scope can shadow the root of an outer constant path
+        -- even if it does not itself have the same suffix. `local M = {}` must
+        -- therefore hide an outer `M.bar`, not let that unrelated value leak into the
+        -- proof.
         local found = current.paths[path]
-        if found ~= nil then return found or nil end
-        if root and current.paths[root] == false then return nil end
+        if found ~= nil then
+            return found or nil
+        end
+        if root and current.paths[root] == false then
+            return nil
+        end
         current = current.parent
     end
     return nil
 end
 
 local function bindPath(current, path, value)
-    if not path then return end
-    -- Replacing `M` also replaces every path below it; keeping an old
-    -- `M.bar.BAZ` fact would make a later read fold through a new table.
+    if not path then
+        return
+    end
+    -- Replacing `M` also replaces every path below it; keeping an old `M.bar.BAZ` fact
+    -- would make a later read fold through a new table.
     local prefix = path .. "."
     for known in pairs(current.paths) do
         if known == path or known:sub(1, #prefix) == prefix then
@@ -331,7 +370,9 @@ end
 
 local function bindObjectFields(current, path, value)
     bindPath(current, path, value)
-    if not value or value.kind ~= "table" then return end
+    if not value or value.kind ~= "table" then
+        return
+    end
     for name, field in pairs(value.fields) do
         bindObjectFields(current, path .. "." .. name, field)
     end
@@ -339,7 +380,9 @@ end
 
 local function resolvedLiteral(node)
     local t = node and node.resolvedType
-    if not t or t.tag ~= "literal" then return nil end
+    if not t or t.tag ~= "literal" then
+        return nil
+    end
     if t.base and (t.base.tag == "number" or t.base.tag == "integer")
         and type(t.constant) == "number"
         and t.constant == math.floor(t.constant)
@@ -356,15 +399,21 @@ end
 local foldBlock, foldFunction
 
 local function foldExpr(node, current)
-    if not node or isToken(node) then return nil end
+    if not node or isToken(node) then
+        return nil
+    end
     local kind = node.kind
     if kind == "number" then
         local value = integerLiteral(node)
-        if value then node.folded = value.code end
+        if value then
+            node.folded = value.code
+        end
         return value
     elseif kind == "string" then
         local value = stringLiteral(node)
-        if value then node.folded = value.code end
+        if value then
+            node.folded = value.code
+        end
         return value
     elseif kind == "nilExpr" then
         node.folded = "nil"
@@ -375,15 +424,21 @@ local function foldExpr(node, current)
         return literal("boolean", value, node.folded)
     elseif kind == "name" and node.token then
         local value = lookupConstant(current, node.token.text)
-        if value then node.folded = value.code end
+        if value then
+            node.folded = value.code
+        end
         return value or lookupPath(current, node.token.text)
     elseif kind == "paren" or kind == "castExpr" then
         local value = foldExpr(node.expr, current)
-        if value then node.folded = value.code end
+        if value then
+            node.folded = value.code
+        end
         return value
     elseif kind == "unop" then
         local value = foldExpr(node.operand, current)
-        if not value or not node.op then return nil end
+        if not value or not node.op then
+            return nil
+        end
         local op = node.op.kind
         if op == "not" then
             local answer = literal("boolean", not truthy(value),
@@ -405,7 +460,9 @@ local function foldExpr(node, current)
         return nil
     elseif kind == "binop" then
         local left, right = foldExpr(node.lhs, current), foldExpr(node.rhs, current)
-        if not left or not right or not node.op then return nil end
+        if not left or not right or not node.op then
+            return nil
+        end
         local op = node.op.kind
         if op == "and" then
             local folded = truthy(left) and right or left
@@ -421,10 +478,14 @@ local function foldExpr(node, current)
             return folded
         elseif left.kind == "number" and right.kind == "number" then
             local answer
-            if op == "+" then answer = left.value + right.value
-            elseif op == "-" then answer = left.value - right.value
-            elseif op == "*" then answer = left.value * right.value
-            elseif op == "%" and right.value ~= 0 then answer = left.value % right.value
+            if op == "+" then
+                answer = left.value + right.value
+            elseif op == "-" then
+                answer = left.value - right.value
+            elseif op == "*" then
+                answer = left.value * right.value
+            elseif op == "%" and right.value ~= 0 then
+                answer = left.value % right.value
             end
             if answer and math.abs(answer) <= MAX_EXACT_INTEGER then
                 local folded = literal("number", answer, ("%.0f"):format(answer))
@@ -449,10 +510,15 @@ local function foldExpr(node, current)
         if left.kind == right.kind and (left.kind == "number" or left.kind == "string")
             and (op == "<" or op == ">" or op == "<=" or op == ">=") then
             local answer
-            if op == "<" then answer = left.value < right.value
-            elseif op == ">" then answer = left.value > right.value
-            elseif op == "<=" then answer = left.value <= right.value
-            else answer = left.value >= right.value end
+            if op == "<" then
+                answer = left.value < right.value
+            elseif op == ">" then
+                answer = left.value > right.value
+            elseif op == "<=" then
+                answer = left.value <= right.value
+            else
+                answer = left.value >= right.value
+            end
             local folded = literal("boolean", answer, tostring(answer))
             node.folded = folded.code
             return folded
@@ -467,7 +533,9 @@ local function foldExpr(node, current)
     elseif kind == "dotIndex" or kind == "safeIndex" then
         foldExpr(node.obj, current)
         local value = resolvedLiteral(node) or lookupPath(current, textPath(node))
-        if value and value.kind ~= "table" then node.folded = value.code end
+        if value and value.kind ~= "table" then
+            node.folded = value.code
+        end
         return value
     elseif kind == "bracketIndex" or kind == "safeBracket" then
         foldExpr(node.obj, current)
@@ -482,18 +550,28 @@ local function foldExpr(node, current)
                 fields[field.name.text] = value
             end
         end
-        if next(fields) then return {kind = "table", fields = fields} end
+        if next(fields) then
+            return {kind = "table", fields = fields}
+        end
     elseif kind == "istring" then
         for _, part in ipairs(node.parts or {}) do foldExpr(part, current) end
     elseif kind == "funcExpr" then
-        if node.body then foldFunction(node.body, current) end
+        if node.body then
+            foldFunction(node.body, current)
+        end
     elseif kind == "shortfn" then
         local inner = scope(current)
         for _, param in ipairs(node.params or {}) do
-            if param.name then inner.constants[param.name.text] = false end
+            if param.name then
+                inner.constants[param.name.text] = false
+            end
         end
-        if node.expr then foldExpr(node.expr, inner) end
-        if node.body then foldBlock(node.body, inner) end
+        if node.expr then
+            foldExpr(node.expr, inner)
+        end
+        if node.body then
+            foldBlock(node.body, inner)
+        end
     end
     return nil
 end
@@ -501,9 +579,13 @@ end
 foldFunction = function(body, current)
     local inner = scope(current)
     for _, param in ipairs(body.params or {}) do
-        if param.name then inner.constants[param.name.text] = false end
+        if param.name then
+            inner.constants[param.name.text] = false
+        end
     end
-    if body.body then foldBlock(body.body, inner) end
+    if body.body then
+        foldBlock(body.body, inner)
+    end
 end
 
 local function foldStatement(stat, current)
@@ -552,9 +634,14 @@ local function foldStatement(stat, current)
         local selected, allConstant = nil, true
         for _, clause in ipairs(stat.clauses or {}) do
             local condition = foldExpr(clause.cond, current)
-            if not condition then allConstant = false
-            elseif not selected and truthy(condition) then selected = clause.body end
-            if clause.body then foldBlock(clause.body, scope(current)) end
+            if not condition then
+                allConstant = false
+            elseif not selected and truthy(condition) then
+                selected = clause.body
+            end
+            if clause.body then
+                foldBlock(clause.body, scope(current))
+            end
         end
         if stat.elseClause and stat.elseClause.body then
             foldBlock(stat.elseClause.body, scope(current))
@@ -565,30 +652,48 @@ local function foldStatement(stat, current)
         end
     elseif kind == "whileStmt" then
         foldExpr(stat.cond, current)
-        if stat.body then foldBlock(stat.body, scope(current)) end
+        if stat.body then
+            foldBlock(stat.body, scope(current))
+        end
     elseif kind == "repeatStmt" then
         local inner = scope(current)
-        if stat.body then foldBlock(stat.body, inner) end
+        if stat.body then
+            foldBlock(stat.body, inner)
+        end
         foldExpr(stat.cond, inner)
     elseif kind == "doStmt" or kind == "unsafeStmt" then
-        if stat.body then foldBlock(stat.body, scope(current)) end
+        if stat.body then
+            foldBlock(stat.body, scope(current))
+        end
     elseif kind == "fornumStmt" then
         foldExpr(stat.start, current)
         foldExpr(stat.stop, current)
         foldExpr(stat.step, current)
         local inner = scope(current)
-        if stat.var then inner.constants[stat.var.text] = false end
-        if stat.body then foldBlock(stat.body, inner) end
+        if stat.var then
+            inner.constants[stat.var.text] = false
+        end
+        if stat.body then
+            foldBlock(stat.body, inner)
+        end
     elseif kind == "forinStmt" then
         for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
         local inner = scope(current)
         for _, name in ipairs(stat.names or {}) do inner.constants[name.text] = false end
-        if stat.body then foldBlock(stat.body, inner) end
+        if stat.body then
+            foldBlock(stat.body, inner)
+        end
     elseif kind == "localFuncStmt" then
-        if stat.name then current.constants[stat.name.text] = false end
-        if stat.body then foldFunction(stat.body, current) end
+        if stat.name then
+            current.constants[stat.name.text] = false
+        end
+        if stat.body then
+            foldFunction(stat.body, current)
+        end
     elseif kind == "funcStmt" or kind == "inlineMethod" then
-        if stat.body then foldFunction(stat.body, current) end
+        if stat.body then
+            foldFunction(stat.body, current)
+        end
     elseif kind == "pragmaStmt" and stat.stat then
         foldStatement(stat.stat, current)
     end
@@ -599,7 +704,9 @@ foldBlock = function(block, current)
 end
 
 local function constantFoldWalk(node)
-    if not node or isToken(node) then return end
+    if not node or isToken(node) then
+        return
+    end
     if node.kind == "block" then
         foldBlock(node, scope(nil))
         return
@@ -607,8 +714,8 @@ local function constantFoldWalk(node)
     for _, child in ipairs(node) do constantFoldWalk(child) end
 end
 
---- Runs the passes a level asks for over a parsed and checked file, annotating
---- it in place.
+--- Runs the passes a level asks for over a parsed and checked file, annotating it in
+--- place.
 ---
 --- @param result the parse result, whose `root` is rewritten
 --- @param opts `level` is the `-O` level; `disabled` is a set of codes to skip

@@ -135,7 +135,9 @@ end
 
 function Registry:removeSource(source)
     for name, definition in pairs(self.byname) do
-        if definition.source == source then self.byname[name] = nil end
+        if definition.source == source then
+            self.byname[name] = nil
+        end
     end
 end
 
@@ -145,7 +147,9 @@ end
 
 local function categories(node)
     local out = {}
-    if node and node.kind ~= "fieldDecl" then out.statement = true end
+    if node and node.kind ~= "fieldDecl" then
+        out.statement = true
+    end
     local fixed = node and CATEGORIES[node.kind]
     for name in pairs(fixed or {}) do out[name] = true end
     if node and node.kind == "recordDecl" then
@@ -159,7 +163,9 @@ end
 function Registry:accepts(definition, node)
     local actual = categories(node)
     for target in pairs(definition.targetSet) do
-        if actual[target] then return true end
+        if actual[target] then
+            return true
+        end
     end
     return false
 end
@@ -229,9 +235,9 @@ local BUILTINS = {
 }
 
 function annotations.new(withBuiltins)
-    -- Keep the methods as explicit fields as well as on __index. That makes
-    -- the public shape visible to nupp's gradual checker; it deliberately does
-    -- not infer structural fields through arbitrary metatables.
+    -- Keep the methods as explicit fields as well as on __index. That makes the public
+    -- shape visible to nupp's gradual checker; it deliberately does not infer
+    -- structural fields through arbitrary metatables.
     local registry = setmetatable({
         byname = {},
         define = Registry.define,

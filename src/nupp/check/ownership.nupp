@@ -52,10 +52,14 @@ function ownership.install(c: any): any
     --- Whether values of this type are pointers at run time.
     function own.pointerShaped(t: Type): boolean
         t = rawType(t)
-        if t.tag == "ptr" or t == T.cstring or t == T.voidptr then return true end
+        if t.tag == "ptr" or t == T.cstring or t == T.voidptr then
+            return true
+        end
         if t.tag == "union" and t.hasNil then
             for _, member in ipairs(t.members) do
-                if member ~= T.nil_ and not own.pointerShaped(member) then return false end
+                if member ~= T.nil_ and not own.pointerShaped(member) then
+                    return false
+                end
             end
             return true
         end
@@ -68,23 +72,23 @@ function ownership.install(c: any): any
             and inner.hasNil
     end
 
-    --- Whether every cleanup this owner carries can be called from where it is
-    --- being discharged.
+    --- Whether every cleanup this owner carries can be called from where it is being
+    --- discharged.
     ---
     --- A cleanup named by a bare name reaches the generated code as that name, so
-    --- `with` and `dispose` emit a call to it in whatever module they stand in.
-    --- When the owner came from elsewhere and its cleanup is private there, the
-    --- name resolves to nothing and the program fails at run time having type-
-    --- checked clean. Refusing it keeps the checker's side of the bargain: what it
-    --- accepts, the generator can emit.
+    --- `with` and `dispose` emit a call to it in whatever module they stand in. When
+    --- the owner came from elsewhere and its cleanup is private there, the name
+    --- resolves to nothing and the program fails at run time having type- checked
+    --- clean. Refusing it keeps the checker's side of the bargain: what it accepts, the
+    --- generator can emit.
     ---
-    --- The forms that travel with the value — a `@dispose` method, a cleanup
-    --- reached through a field — need no name and are never refused. That is also
-    --- the repair, and why the help says so.
+    --- The forms that travel with the value — a `@dispose` method, a cleanup reached
+    --- through a field — need no name and are never refused. That is also the repair,
+    --- and why the help says so.
     ---
     --- This is a restriction rather than a rule: a cleanup is currently a spelling
-    --- rather than a resolved reference, which is what makes reachability depend on
-    --- who is reading. See plans/todo.md.
+    --- rather than a resolved reference, which is what makes reachability depend on who
+    --- is reading. See plans/todo.md.
     ---
     --- @param valueT the owner being discharged
     --- @param cleanups its cleanup list
@@ -99,10 +103,10 @@ function ownership.install(c: any): any
                     .. "this value cannot be discharged here"):format(cleanup),
                     nil,
                     {help = "give the type a @dispose method, so its cleanup "
-                        .. "travels with the value rather than being named",
-                     notes = {"the cleanup is private to the module that "
-                        .. "declared the owner, and a discharge emits a call "
-                        .. "to it by name"}})
+                    .. "travels with the value rather than being named",
+                    notes = {"the cleanup is private to the module that "
+                    .. "declared the owner, and a discharge emits a call "
+                    .. "to it by name"}})
             end
         end
     end
@@ -116,7 +120,9 @@ function ownership.install(c: any): any
                 .. (cleanupT and cleanupT.id or "?")
         end
         local contractKey = table.concat(signature, "|")
-        if c.validatedCleanupContracts[contractKey] then return end
+        if c.validatedCleanupContracts[contractKey] then
+            return
+        end
         c.validatedCleanupContracts[contractKey] = true
         for j, cleanup in ipairs(cleanups or {}) do
             if cleanup:match("^@method:") or cleanup:match("^@field|")
@@ -129,13 +135,13 @@ function ownership.install(c: any): any
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
             if not cleanupT and not allowUnknown then
                 -- Only a declaration reaches this now: every consuming site passes
-                -- allowUnknown, because a cleanup belongs to the module that
-                -- declared the owner. So the reader is looking at the one place
-                -- the name has to resolve, which is the thing worth telling them.
+                -- allowUnknown, because a cleanup belongs to the module that declared
+                -- the owner. So the reader is looking at the one place the name has to
+                -- resolve, which is the thing worth telling them.
                 c.diag(code, at, ("@owned cleanup %q is not declared"):format(cleanup),
                     nil, {notes = {"a cleanup is resolved here, where the owner "
-                        .. "is declared, so it has to name a function this file "
-                        .. "can see"}})
+                    .. "is declared, so it has to name a function this file "
+                    .. "can see"}})
             elseif cleanupT and cleanupT ~= T.any and (not firstParam
                 or not isA(rawType(valueT), firstParam)) then
                 c.diag(code, at, ("@owned cleanup %q must accept %s"):format(
@@ -154,11 +160,17 @@ function ownership.install(c: any): any
         local resource = rawType(valueT)
         if resource.tag == "union" then
             for _, member in ipairs(resource.members) do
-                if member ~= T.nil_ then resource = member; break end
+                if member ~= T.nil_ then
+                    resource = member; break
+                end
             end
         end
-        if resource.tag == "nominal" then resource.affineResource = true end
-        if #(cleanups or {}) > 0 or opaque then return cleanups or {} end
+        if resource.tag == "nominal" then
+            resource.affineResource = true
+        end
+        if #(cleanups or {}) > 0 or opaque then
+            return cleanups or {}
+        end
         local base = resource
         local defaults = base.tag == "nominal" and base.defaultDisposers or nil
         if not defaults or #defaults == 0 then
@@ -184,11 +196,15 @@ function ownership.install(c: any): any
             return
         end
         local base = rawType(ft.params[1])
-        if base.tag ~= "nominal" then return end
+        if base.tag ~= "nominal" then
+            return
+        end
         local defaults = base.defaultDisposers or {}
         base.defaultDisposers = defaults
         for _, current in ipairs(defaults) do
-            if current == path then return end
+            if current == path then
+                return
+            end
         end
         defaults[#defaults + 1] = path
     end
@@ -207,8 +223,12 @@ function ownership.install(c: any): any
         while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
             expr = expr.expr
         end
-        if not expr then return nil end
-        if expr.borrowOwner then return own.borrowRoot(expr.borrowOwner) end
+        if not expr then
+            return nil
+        end
+        if expr.borrowOwner then
+            return own.borrowRoot(expr.borrowOwner)
+        end
         if expr.kind == "name" then
             local entry = own.ownershipState(c.lookupEntry(expr.token.text))
             return own.borrowRoot(entry and (entry.borrowOwner or entry))
@@ -218,14 +238,20 @@ function ownership.install(c: any): any
         elseif expr.kind == "tableExpr" then
             for _, field in ipairs(expr.fields or {}) do
                 local owner = own.provenanceOwner(field.value)
-                if owner then return owner end
+                if owner then
+                    return owner
+                end
             end
         elseif expr.kind == "call" and expr.recordConstruct then
             local arguments = expr.args and expr.args.exprs or {}
-            if expr.args and expr.args.table then arguments = {expr.args.table} end
+            if expr.args and expr.args.table then
+                arguments = {expr.args.table}
+            end
             for _, argument in ipairs(arguments) do
                 local owner = own.provenanceOwner(argument)
-                if owner then return owner end
+                if owner then
+                    return owner
+                end
             end
         end
         return nil
@@ -233,7 +259,9 @@ function ownership.install(c: any): any
 
     function own.provenanceOwners(expr, out, seen)
         out, seen = out or {}, seen or {}
-        if not expr or cst.isToken(expr) then return out end
+        if not expr or cst.isToken(expr) then
+            return out
+        end
         if expr.borrowOwners then
             for _, owner in ipairs(expr.borrowOwners) do
                 owner = own.borrowRoot(owner)
@@ -244,14 +272,18 @@ function ownership.install(c: any): any
             return out
         end
         local one = own.provenanceOwner(expr)
-        if one and not seen[one] then seen[one], out[#out + 1] = true, one end
+        if one and not seen[one] then
+            seen[one], out[#out + 1] = true, one
+        end
         if expr.kind == "tableExpr" then
             for _, field in ipairs(expr.fields or {}) do
                 own.provenanceOwners(field.value, out, seen)
             end
         elseif expr.kind == "call" and expr.recordConstruct then
             local arguments = expr.args and expr.args.exprs or {}
-            if expr.args and expr.args.table then arguments = {expr.args.table} end
+            if expr.args and expr.args.table then
+                arguments = {expr.args.table}
+            end
             for _, argument in ipairs(arguments) do
                 own.provenanceOwners(argument, out, seen)
             end

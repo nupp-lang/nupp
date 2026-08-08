@@ -61,7 +61,9 @@ function ffi.install(c: any): any
             if spec then
                 local resolver = function(tag)
                     local found = c.lookupType(tag)
-                    if found and found.tag == "nominal" then return found end
+                    if found and found.tag == "nominal" then
+                        return found
+                    end
                     return nil
                 end
                 local t, err = require("nupp.cheader").typeFromString(
@@ -74,7 +76,9 @@ function ffi.install(c: any): any
                     return T.any
                 end
             end
-            if name == "istype" then return T.boolean end
+            if name == "istype" then
+                return T.boolean
+            end
             if name == "sizeof" or name == "alignof" then
                 return T.integer
             end
@@ -82,7 +86,9 @@ function ffi.install(c: any): any
                 -- built at run time: a cdata, deliberately not `any`
                 return name == "typeof" and T.ctype(T.cdata) or T.cdata
             end
-            if name == "typeof" then return T.ctype(resolved) end
+            if name == "typeof" then
+                return T.ctype(resolved)
+            end
             if name == "cast" then
                 -- a cast is the programmer asserting a type, so the result is the
                 -- non-null form
@@ -91,8 +97,8 @@ function ffi.install(c: any): any
             return resolved
         end
 
-        -- ffi.new<T>() and friends: the return type follows the type argument
-        -- rather than collapsing to any.
+        -- ffi.new<T>() and friends: the return type follows the type argument rather
+        -- than collapsing to any.
         if typeArg then
             local name = memberName
             local argT = c.resolveType(typeArg)
@@ -118,10 +124,10 @@ function ffi.install(c: any): any
                             "creating an FFI callback requires unsafe do and "
                             .. "an explicit retained owner")
                     else
-                        -- Inside `unsafe` the callback is permitted, and what is
-                        -- left to say is what it costs: LuaJIT registers the Lua
-                        -- function as a C callback for the life of the process,
-                        -- and a trace cannot compile through the boundary.
+                        -- Inside `unsafe` the callback is permitted, and what is left
+                        -- to say is what it costs: LuaJIT registers the Lua function as
+                        -- a C callback for the life of the process, and a trace cannot
+                        -- compile through the boundary.
                         c.diag("jit-callback", node,
                             "a Lua function cast to a C callback stays "
                             .. "registered and cannot be compiled through",
@@ -166,10 +172,9 @@ function ffi.install(c: any): any
             return T.carray(elemT, nil)
         end
 
-        -- cheader("path.h" [, "lib"]) types a pinned C header at compile time:
-        -- LuaJIT parses it and reports back what it declares, so there is no
-        -- generated file to keep in step and the sizes are the ones this platform
-        -- actually uses.
+        -- cheader("path.h" [, "lib"]) types a pinned C header at compile time: LuaJIT
+        -- parses it and reports back what it declares, so there is no generated file to
+        -- keep in step and the sizes are the ones this platform actually uses.
         if calleeName == "cheader" then
             local args = argExprs
             local function literal(e)
@@ -213,9 +218,8 @@ function ffi.install(c: any): any
             end
             return T.shape(fields)
         end
-        -- A literal ffi.cdef block declares to the compiler as well as to the
-        -- runtime, which is what lets the type strings that follow mean something
-        -- at check time.
+        -- A literal ffi.cdef block declares to the compiler as well as to the runtime,
+        -- which is what lets the type strings that follow mean something at check time.
         if baseName == "ffi" and memberName == "cdef" then
             local args = argExprs
             local strTok = argStr
@@ -242,9 +246,9 @@ function ffi.install(c: any): any
             return T.nil_
         end
 
-        -- ffi.load names a library, and what it holds is whatever has been
-        -- declared: the same namespace ffi.C is, so both are typed from the
-        -- declarations rather than handed back as any.
+        -- ffi.load names a library, and what it holds is whatever has been declared:
+        -- the same namespace ffi.C is, so both are typed from the declarations rather
+        -- than handed back as any.
         if baseName == "ffi" and memberName == "load" then
             for _, e in ipairs(argExprs) do
                 c.infer(e)

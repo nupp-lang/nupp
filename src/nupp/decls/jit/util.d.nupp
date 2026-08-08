@@ -14,12 +14,12 @@ local record JitUtil
 
     --- Describes a function, or the bytecode position `pc` inside it.
     ---
-    --- The two kinds of function answer with different keys, so read the one
-    --- you want only after checking it is there. A Lua function reports
-    --- `source`, `loc`, `linedefined`, `lastlinedefined`, `params`,
-    --- `stackslots`, `upvalues`, `bytecodes`, `gcconsts`, `nconsts`,
-    --- `children`, `isvararg`, `proto`, and `currentline` when `pc` is given.
-    --- A builtin reports `ffid`, `addr` and `upvalues`, and nothing else.
+    --- The two kinds of function answer with different keys, so read the one you want
+    --- only after checking it is there. A Lua function reports `source`, `loc`,
+    --- `linedefined`, `lastlinedefined`, `params`, `stackslots`, `upvalues`,
+    --- `bytecodes`, `gcconsts`, `nconsts`, `children`, `isvararg`, `proto`, and
+    --- `currentline` when `pc` is given. A builtin reports `ffid`, `addr` and
+    --- `upvalues`, and nothing else.
     ---
     --- @param func the function to describe
     --- @param pc the bytecode index to resolve `currentline` from
@@ -50,8 +50,8 @@ local record JitUtil
     --- @return the name, or nil when the index is out of range
     funcuvname: function(func: any, idx: integer): string?
 
-    --- Describes a compiled trace: its link, extent, exit count, and the
-    --- machine code it occupies.
+    --- Describes a compiled trace: its link, extent, exit count, and the machine code
+    --- it occupies.
     ---
     --- @param tr the trace number
     --- @return the description table, or nil when no such trace exists

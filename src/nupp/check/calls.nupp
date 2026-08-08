@@ -46,7 +46,9 @@ function calls.install(c: any): any
 
     c.fieldType = function(t, name)
         t = rawType(t)
-        if t.tag == "ptr" then return c.fieldType(t.elem, name) end
+        if t.tag == "ptr" then
+            return c.fieldType(t.elem, name)
+        end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
             local ft, fieldDef = c.fieldType(bound, name)
@@ -59,15 +61,21 @@ function calls.install(c: any): any
             local parts = {}
             for _, m in ipairs(t.members) do
                 local ft = c.fieldType(m, name)
-                if not ft then return nil end
+                if not ft then
+                    return nil
+                end
                 parts[#parts + 1] = ft
             end
-            if #parts > 0 then return T.union(parts) end
+            if #parts > 0 then
+                return T.union(parts)
+            end
             return nil
         end
         if t.tag == "shape" then
             local named = t.byname[name]
-            if named then return named end
+            if named then
+                return named
+            end
             local indexKey, indexValue = t.indexReadKey, t.indexReadValue
             if indexKey and indexValue and isA(T.string, indexKey) then
                 return T.optional(indexValue)
@@ -82,7 +90,9 @@ function calls.install(c: any): any
             return ft and specializeSelf(t, ft, t) or nil,
                 t.fieldDefs and t.fieldDefs[name] or nil
         elseif t.tag == "map" then
-            if not t.readable or not isA(T.string, t.key) then return nil end
+            if not t.readable or not isA(T.string, t.key) then
+                return nil
+            end
             return T.optional(t.value)
         elseif t == T.string and c.env and c.env.stringLib
             and c.env.stringLib.tag == "shape" then
@@ -94,7 +104,9 @@ function calls.install(c: any): any
 
     c.fieldWriteType = function(t, name)
         t = rawType(t)
-        if t.tag == "ptr" then return c.fieldWriteType(t.elem, name) end
+        if t.tag == "ptr" then
+            return c.fieldWriteType(t.elem, name)
+        end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
             local ft, fieldDef = c.fieldWriteType(bound, name)
@@ -107,7 +119,9 @@ function calls.install(c: any): any
             local accepted = nil
             for _, m in ipairs(t.members) do
                 local ft = c.fieldWriteType(m, name)
-                if not ft then return nil end
+                if not ft then
+                    return nil
+                end
                 if not accepted or isA(ft, accepted) then
                     accepted = ft
                 elseif not isA(accepted, ft) then
@@ -118,7 +132,9 @@ function calls.install(c: any): any
         end
         if t.tag == "shape" then
             local named = t.writeByname[name]
-            if named then return named end
+            if named then
+                return named
+            end
             if t.indexWriteKey and isA(T.string, t.indexWriteKey) then
                 return t.indexWriteValue
             end
@@ -131,7 +147,9 @@ function calls.install(c: any): any
             return ft and specializeSelf(t, ft, t) or nil,
                 t.writeFieldDefs and t.writeFieldDefs[name] or nil
         elseif t.tag == "map" then
-            if not t.writeKey or not isA(T.string, t.writeKey) then return nil end
+            if not t.writeKey or not isA(T.string, t.writeKey) then
+                return nil
+            end
             return t.writeValue
         end
         return nil
@@ -139,7 +157,9 @@ function calls.install(c: any): any
 
     c.fieldNames = function(t, writing)
         t = rawType(t)
-        if t.tag == "ptr" then return c.fieldNames(t.elem, writing) end
+        if t.tag == "ptr" then
+            return c.fieldNames(t.elem, writing)
+        end
         if t.tag == "typevar" and t.bound then
             return c.fieldNames(t.bound, writing)
         end
@@ -151,7 +171,9 @@ function calls.install(c: any): any
                     shared = names
                 else
                     for name in pairs(shared) do
-                        if not names[name] then shared[name] = nil end
+                        if not names[name] then
+                            shared[name] = nil
+                        end
                     end
                 end
             end
@@ -242,7 +264,9 @@ function calls.install(c: any): any
             for j, p in ipairs(params) do p2[j] = substType(p, map) end
             for j, r in ipairs(rets) do r2[j] = substType(r, map) end
             params, rets = p2, r2
-            if varargType then varargType = substType(varargType, map) end
+            if varargType then
+                varargType = substType(varargType, map)
+            end
         end
         if varargType then
             for j = #params + 1, #ats do
@@ -325,7 +349,9 @@ function calls.install(c: any): any
                                 c.moveExpression(f.value, vt,
                                     "affine record construction", c.ownershipKind(vt))
                             end
-                            if genericMap then unify(ft, vt, genericMap) end
+                            if genericMap then
+                                unify(ft, vt, genericMap)
+                            end
                             local ok, why = isA(vt, ft)
                             if not ok then
                                 c.diag("NUPP2202", f, ("field %q: %s")
@@ -335,7 +361,9 @@ function calls.install(c: any): any
                     else
                         c.diag("NUPP2202", f,
                             "struct construction takes named fields only")
-                        if f.value then c.infer(f.value) end
+                        if f.value then
+                            c.infer(f.value)
+                        end
                     end
                 end
             else
@@ -397,7 +425,9 @@ function calls.install(c: any): any
                         end
                     end
                 end
-                if opaque then cleanups = {} end
+                if opaque then
+                    cleanups = {}
+                end
                 local owned = T.owned(calleeT, cleanups)
                 return owned, {owned}
             end
@@ -473,7 +503,9 @@ function calls.install(c: any): any
             for j, p in ipairs(params) do p2[j] = substType(p, map) end
             for j, r in ipairs(rets) do r2[j] = substType(r, map) end
             params, rets = p2, r2
-            if varargType then varargType = substType(varargType, map) end
+            if varargType then
+                varargType = substType(varargType, map)
+            end
         end
 
         local nparams = #params
@@ -575,7 +607,9 @@ function calls.install(c: any): any
             and (calleeT.borrowsParam or calleeT.borrowsSelf
             or calleeT.borrowsParams) then
             local sources = {}
-            if calleeT.borrowsSelf then sources[#sources + 1] = node.obj end
+            if calleeT.borrowsSelf then
+                sources[#sources + 1] = node.obj
+            end
             if calleeT.borrowsParam then
                 sources[#sources + 1] = args[calleeT.borrowsParam]
             end

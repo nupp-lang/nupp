@@ -10,26 +10,26 @@ Length with `#buf`, concatenation with `..`, and `tostring` are metamethods, so
 they are not members of the record below; use `buf:tostring()`.
 ]]
 
---- A mutable, binary-transparent byte sequence. Methods with nothing else to
---- return hand back the buffer itself, so calls chain.
+--- A mutable, binary-transparent byte sequence. Methods with nothing else to return
+--- hand back the buffer itself, so calls chain.
 ---
---- Exported, so code that passes buffers around can name the type:
---- `function render(out: buffer.Buffer): buffer.Buffer`.
+--- Exported, so code that passes buffers around can name the type: `function
+--- render(out: buffer.Buffer): buffer.Buffer`.
 record Buffer
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string
     metamethod __tostring: function(self): string
 
-    --- Appends each argument: a string, a number, another buffer, or any
-    --- object with a `__tostring` metamethod.
+    --- Appends each argument: a string, a number, another buffer, or any object with a
+    --- `__tostring` metamethod.
     ---
     --- @param b the buffer to append to
     --- @param ... the values to append, in order
     --- @return `b`
     put: function(b: Buffer, ...: any): Buffer
 
-    --- Appends the arguments formatted by `fmt`, which takes the same
-    --- directives as `string.format`.
+    --- Appends the arguments formatted by `fmt`, which takes the same directives as
+    --- `string.format`.
     ---
     --- @param b the buffer to append to
     --- @param fmt the format string
@@ -37,8 +37,8 @@ record Buffer
     --- @return `b`
     putf: function(b: Buffer, fmt: string, ...: any): Buffer
 
-    --- Appends `len` bytes read from the memory that `data` points to. The
-    --- cdata object has to be convertible to a pointer.
+    --- Appends `len` bytes read from the memory that `data` points to. The cdata object
+    --- has to be convertible to a pointer.
     ---
     --- @param b the buffer to append to
     --- @param data the memory to copy from
@@ -46,9 +46,9 @@ record Buffer
     --- @return `b`
     putcdata: function(b: Buffer, data: voidptr, len: uint64): Buffer
 
-    --- Replaces the buffer contents with a reference to `data`, freeing any
-    --- space already allocated. Nothing is copied until the buffer is
-    --- written to again, and the reference keeps `data` alive meanwhile.
+    --- Replaces the buffer contents with a reference to `data`, freeing any space
+    --- already allocated. Nothing is copied until the buffer is written to again, and
+    --- the reference keeps `data` alive meanwhile.
     ---
     --- @param b the buffer to reset onto `data`
     --- @param data the string, or cdata pointer, to reference
@@ -56,9 +56,9 @@ record Buffer
     --- @return `b`
     set: function(b: Buffer, data: any, len: uint64?): Buffer
 
-    --- Consumes bytes from the front of the buffer and returns them. With no
-    --- argument the whole buffer is consumed; each further argument takes
-    --- one more string, and a nil argument takes whatever remains.
+    --- Consumes bytes from the front of the buffer and returns them. With no argument
+    --- the whole buffer is consumed; each further argument takes one more string, and a
+    --- nil argument takes whatever remains.
     ---
     --- @param b the buffer to read from
     --- @param ... how many bytes each returned string takes
@@ -71,32 +71,31 @@ record Buffer
     --- @return the buffer contents
     tostring: function(b: Buffer): string
 
-    --- Empties the buffer, keeping the space it has already allocated so it
-    --- can be refilled without reallocating.
+    --- Empties the buffer, keeping the space it has already allocated so it can be
+    --- refilled without reallocating.
     ---
     --- @param b the buffer to empty
     --- @return `b`
     reset: function(b: Buffer): Buffer
 
-    --- Frees the buffer space at once, leaving the object itself intact and
-    --- empty. The collector does this on its own, so it is only worth
-    --- calling when the memory has to go back immediately.
+    --- Frees the buffer space at once, leaving the object itself intact and empty. The
+    --- collector does this on its own, so it is only worth calling when the memory has
+    --- to go back immediately.
     ---
     --- @param b the buffer to free
     --- @return `b`
     free: function(b: Buffer): Buffer
 
-    --- Consumes `n` bytes from the front of the buffer and discards them,
-    --- stopping at the end of the data.
+    --- Consumes `n` bytes from the front of the buffer and discards them, stopping at
+    --- the end of the data.
     ---
     --- @param b the buffer to skip in
     --- @param n how many bytes to discard
     --- @return `b`
     skip: function(b: Buffer, n: integer): Buffer
 
-    --- Returns a pointer to the buffer data, for zero-copy reads and
-    --- in-place writes. The data is not zero-terminated, so the length has
-    --- to travel with the pointer.
+    --- Returns a pointer to the buffer data, for zero-copy reads and in-place writes.
+    --- The data is not zero-terminated, so the length has to travel with the pointer.
     ---
     --- @param b the buffer to point into
     --- @return the unconsumed data, as the zero-based `uint8_t *` view that
@@ -104,9 +103,9 @@ record Buffer
     --- @return how many bytes are readable there
     ref: function(b: Buffer): (uint8[?], uint64)
 
-    --- Reserves at least `size` bytes of write space and returns a pointer
-    --- to it. The space is uninitialized, and joins the buffer data only
-    --- once `commit` says how much of it was written.
+    --- Reserves at least `size` bytes of write space and returns a pointer to it. The
+    --- space is uninitialized, and joins the buffer data only once `commit` says how
+    --- much of it was written.
     ---
     --- @param b the buffer to reserve space in
     --- @param size how many bytes are needed at least
@@ -115,34 +114,34 @@ record Buffer
     --- @return how many bytes are actually available, at least `size`
     reserve: function(b: Buffer, size: integer): (uint8[?], uint64)
 
-    --- Appends the first `used` bytes of the space handed out by the last
-    --- `reserve` to the buffer data.
+    --- Appends the first `used` bytes of the space handed out by the last `reserve` to
+    --- the buffer data.
     ---
     --- @param b the buffer that space was reserved in
     --- @param used how many bytes were written
     --- @return `b`
     commit: function(b: Buffer, used: integer): Buffer
 
-    --- Serializes `obj` and appends the encoding to the buffer. Encodings
-    --- concatenate, so several objects can be streamed into one buffer.
+    --- Serializes `obj` and appends the encoding to the buffer. Encodings concatenate,
+    --- so several objects can be streamed into one buffer.
     ---
     --- @param b the buffer to append to
     --- @param obj the value to serialize
     --- @return `b`
     encode: function(b: Buffer, obj: any): Buffer
 
-    --- Deserializes one object from the front of the buffer, leaving any
-    --- data after it in place. Raises on malformed or truncated input.
+    --- Deserializes one object from the front of the buffer, leaving any data after it
+    --- in place. Raises on malformed or truncated input.
     ---
     --- @param b the buffer to read from
     --- @return the decoded value, of any supported type
     decode: function(b: Buffer): any
 end
 
---- Creates a buffer. The options table may carry a `dict` array of string
---- keys that occur often and a `metatable` array of metatables, which the
---- serializer encodes as indexes; an encoder and its decoder must share
---- them, and neither table may be modified afterwards.
+--- Creates a buffer. The options table may carry a `dict` array of string keys that
+--- occur often and a `metatable` array of metatables, which the serializer encodes as
+--- indexes; an encoder and its decoder must share them, and neither table may be
+--- modified afterwards.
 ---
 --- @param size a minimum initial buffer size, or the options table when it
 ---     is the only argument
@@ -150,15 +149,15 @@ end
 --- @return the new buffer
 local new: function(size: (integer | table)?, options: table?): Buffer
 
---- Serializes `v` to a string. Raises on unsupported types, circular
---- references, and nesting too deep to encode.
+--- Serializes `v` to a string. Raises on unsupported types, circular references, and
+--- nesting too deep to encode.
 ---
 --- @param v the value to serialize
 --- @return the encoded bytes
 local encode: function(v: any): string
 
---- Deserializes a whole encoded string. Raises on malformed input, and also
---- when anything is left over after one top-level object.
+--- Deserializes a whole encoded string. Raises on malformed input, and also when
+--- anything is left over after one top-level object.
 ---
 --- @param s the encoded bytes
 --- @return the decoded value, of any supported type

@@ -16,48 +16,48 @@ local command = spec.command{
     universal = false,
     options = {
         {name = "--json",
-            help = "Ask the test command for one JSON document instead of "
-                .. "progress text"},
+        help = "Ask the test command for one JSON document instead of "
+        .. "progress text"},
         spec.helpOption,
     },
     schema = {
         type = "object",
         description = "One run: the totals, and a record per test. This is what "
-            .. "the runner in tests/run.lua writes; a project that configures a "
-            .. "different test command is the one answering for its --json.",
+        .. "the runner in tests/run.lua writes; a project that configures a "
+        .. "different test command is the one answering for its --json.",
         properties = {
             ok = {type = "boolean"},
             total = {type = "integer"},
             passed = {type = "integer"},
             failed = {type = "integer"},
             durationMs = {type = "number",
-                description = "Wall-clock milliseconds for the whole run."},
+            description = "Wall-clock milliseconds for the whole run."},
             tests = {
                 type = "array",
                 items = {
                     type = "object",
                     properties = {
                         suite = {type = "string",
-                            description = "The test file, without its extension."},
+                        description = "The test file, without its extension."},
                         name = {type = "string"},
                         status = {type = "string", enum = {"passed", "failed"}},
                         durationMs = {type = "number"},
                         file = {type = "string",
-                            description = "Where the test is defined."},
+                        description = "Where the test is defined."},
                         line = {type = "integer",
-                            description = "1-based, as everywhere else."},
+                        description = "1-based, as everywhere else."},
                         failure = {
                             type = "object",
                             description = "Absent when the test passed.",
                             properties = {
                                 message = {type = "string"},
                                 file = {type = "string",
-                                    description = "Where the error came from, "
-                                        .. "which is often not where the test "
-                                        .. "is defined."},
+                                description = "Where the error came from, "
+                                .. "which is often not where the test "
+                                .. "is defined."},
                                 line = {type = "integer",
-                                    description = "1-based. A Lua error carries "
-                                        .. "no column, so none is reported."},
+                                description = "1-based. A Lua error carries "
+                                .. "no column, so none is reported."},
                             },
                             required = {"message"},
                         },

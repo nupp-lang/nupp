@@ -15,13 +15,13 @@ measured with. `nupp.std.zone` wraps this and gates it; prefer that over calling
 this module directly.
 ]]
 
---- The profiler zone stack. Callable: with a name it pushes, with no argument
---- it pops and returns the name it removed.
+--- The profiler zone stack. Callable: with a name it pushes, with no argument it pops
+--- and returns the name it removed.
 ---
 --- Exported, so code that holds the stack can name what it is holding.
 record Zone
-    --- Pushes `name`, or pops and returns the innermost zone when `name` is
-    --- omitted. Popping an empty stack raises "empty zone stack".
+    --- Pushes `name`, or pops and returns the innermost zone when `name` is omitted.
+    --- Popping an empty stack raises "empty zone stack".
     ---
     --- @param z the zone stack
     --- @param name the zone to push, or nil to pop

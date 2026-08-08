@@ -33,15 +33,21 @@ function functions.install(c: any): any
             if p.name and not p.namedVararg then
                 modes[j] = p.modeTok and p.modeTok.text or "borrows"
                 declared[j] = p.modeTok ~= nil
-                if not p.modeTok then byname[p.name.text] = j end
+                if not p.modeTok then
+                    byname[p.name.text] = j
+                end
             end
         end
 
         local function raise(name, effect)
             local at = byname[name]
-            if not at then return end
+            if not at then
+                return
+            end
             local current = modes[at]
-            if current == "takes" or current == "plain" then return end
+            if current == "takes" or current == "plain" then
+                return
+            end
             if effect == "takes" or effect == "plain"
                 or effect == "exclusive" and current == "borrows" then
                 modes[at] = effect
@@ -57,16 +63,22 @@ function functions.install(c: any): any
 
         local function returnBorrows(name)
             local first = body.rets and body.rets[1]
-            if not first or first.kind ~= "tborrows" then return false end
+            if not first or first.kind ~= "tborrows" then
+                return false
+            end
             for _, source in ipairs(first.params or {first.param}) do
-                if source and source.text == name then return true end
+                if source and source.text == name then
+                    return true
+                end
             end
             return false
         end
 
         local walk
         walk = function(node, nested)
-            if not node or cst.isToken(node) then return end
+            if not node or cst.isToken(node) then
+                return
+            end
             local kind = node.kind
             if nested and kind == "name" then
                 raise(node.token.text, "plain")
@@ -104,10 +116,16 @@ function functions.install(c: any): any
                 return
             elseif kind == "methodCall" then
                 local receiver = directName(node.obj)
-                if receiver then raise(receiver, "plain") end
+                if receiver then
+                    raise(receiver, "plain")
+                end
                 for _, arg in ipairs(node.args and node.args.exprs or {}) do
                     local name = directName(arg)
-                    if name then raise(name, "plain") else walk(arg, nested) end
+                    if name then
+                        raise(name, "plain")
+                    else
+                        walk(arg, nested)
+                    end
                 end
                 return
             elseif kind == "assignStmt" then
@@ -141,13 +159,19 @@ function functions.install(c: any): any
                 for _, child in ipairs(node) do
                     if not cst.isToken(child) then
                         local name = directName(child.value or child)
-                        if name then raise(name, "plain") else walk(child, nested) end
+                        if name then
+                            raise(name, "plain")
+                        else
+                            walk(child, nested)
+                        end
                     end
                 end
                 return
             end
             for _, child in ipairs(node) do
-                if not cst.isToken(child) then walk(child, nested) end
+                if not cst.isToken(child) then
+                    walk(child, nested)
+                end
             end
         end
         walk(body.body, false)
@@ -167,11 +191,15 @@ function functions.install(c: any): any
         if body.generics then
             typeParams, typeBounds = c.bindGenerics(body.generics, "function")
         end
-        if selfType then c.bindVar("self", selfType) end
+        if selfType then
+            c.bindVar("self", selfType)
+        end
         for _, p in ipairs(body.params) do
             if p.namedVararg then
                 vararg = true
-                if p.type then varargType = c.resolveType(p.type) end
+                if p.type then
+                    varargType = c.resolveType(p.type)
+                end
                 c.bindVar(p.name.text, T.table_, false, p.name,
                     "parameter", true)
             elseif p.name then
@@ -199,7 +227,9 @@ function functions.install(c: any): any
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
             else
                 vararg = true
-                if p.type then varargType = c.resolveType(p.type) end
+                if p.type then
+                    varargType = c.resolveType(p.type)
+                end
             end
         end
         local annotated = nil
@@ -279,7 +309,9 @@ function functions.install(c: any): any
         c.loops.finish(loopClosure, body)
         if body.disposeContract and disposeRoot and disposeRoot ~= "self" then
             local terminal = ownershipState(c.lookupEntry(disposeRoot))
-            if terminal then terminal.moved = true end
+            if terminal then
+                terminal.moved = true
+            end
         end
         c.disposerFieldStack[#c.disposerFieldStack] = nil
         if disposerContext then
@@ -295,12 +327,12 @@ function functions.install(c: any): any
         c.retStack[#c.retStack] = nil
         c.popScope()
         c.functionDepth = c.functionDepth - 1
-        -- A body that only ever raises never comes back, whether or not its return
-        -- type says so; inferring it is what lets a guard clause written as a helper
-        -- narrow at the call site the way an inline `error` does. A declared `never`
-        -- return additionally forces the claim where the checker cannot see through a
-        -- loop that never ends or a call it has no type for; a `return` the checker
-        -- can see is caught the ordinary way, as a value that does not fit `never`.
+        -- A body that only ever raises never comes back, whether or not its return type
+        -- says so; inferring it is what lets a guard clause written as a helper narrow
+        -- at the call site the way an inline `error` does. A declared `never` return
+        -- additionally forces the claim where the checker cannot see through a loop
+        -- that never ends or a call it has no type for; a `return` the checker can see
+        -- is caught the ordinary way, as a value that does not fit `never`.
         local noreturn = c.alwaysRaises(body.body)
             and not c.returnsSomewhere(body.body)
         local predicate
@@ -309,7 +341,9 @@ function functions.install(c: any): any
             local want = first.param.text
             local at
             for j, p in ipairs(body.params or {}) do
-                if p.name and p.name.text == want then at = j end
+                if p.name and p.name.text == want then
+                    at = j
+                end
             end
             if not at then
                 c.diag("NUPP2109", first, ("%s names no parameter of this "
@@ -326,7 +360,9 @@ function functions.install(c: any): any
             end
         end
         local borrowsParam, borrowsSelf, borrowsParams
-        if elidedSelfBorrow then borrowsSelf = true end
+        if elidedSelfBorrow then
+            borrowsSelf = true
+        end
         if first and first.kind == "tborrows" then
             borrowsParams = {}
             for _, sourceToken in ipairs(first.params or {first.param}) do
@@ -339,7 +375,9 @@ function functions.install(c: any): any
                     found = true
                 else
                     for j, p in ipairs(body.params or {}) do
-                        if p.name and p.name.text == want then found = j end
+                        if p.name and p.name.text == want then
+                            found = j
+                        end
                     end
                 end
                 if not found then
@@ -402,14 +440,18 @@ function functions.install(c: any): any
             else
                 -- `...` and `...rest`, with or without an element annotation
                 vararg = true
-                if p.type then varargType = c.resolveType(p.type) end
+                if p.type then
+                    varargType = c.resolveType(p.type)
+                end
             end
         end
         local rets = {}
         for j, r in ipairs(body and body.rets or {}) do
             rets[j] = c.resolveType(r)
         end
-        if #rets == 0 then rets[1] = T.any end
+        if #rets == 0 then
+            rets[1] = T.any
+        end
         c.popScope()
         return T.func(params, rets, vararg, modes,
             nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, false)
@@ -421,7 +463,9 @@ function functions.install(c: any): any
 
     handlers.localFuncStmt = function(stat: cst.LocalFuncStmt)
         local nameTok, body = stat.name, stat.body
-        if not nameTok or not body then return end
+        if not nameTok or not body then
+            return
+        end
         -- bind the name before checking for recursion; refine after
         c.bindVar(nameTok.text, T.any, false, nameTok, "function",
             stat.isConst)
@@ -436,10 +480,12 @@ function functions.install(c: any): any
 
     handlers.funcStmt = function(stat: cst.FuncStmt)
         local fname, body = stat.name, stat.body
-        if not fname or fname.kind ~= "funcname" or not body then return end
+        if not fname or fname.kind ~= "funcname" or not body then
+            return
+        end
         local selfType = nil
-        -- `function R:m()` / `function R.m()` attach a member to the record (or
-        -- struct) named R, when R names one in scope.
+        -- `function R:m()` / `function R.m()` attach a member to the record (or struct)
+        -- named R, when R names one in scope.
         local owner, member = nil, nil
         local ownerKey, memberTok = c.funcOwner(fname)
         if ownerKey then
@@ -457,19 +503,19 @@ function functions.install(c: any): any
         end
         local ft = c.checkFuncbody(body, selfType)
         c.raises.check(stat, body)
-        -- `function M.f()` puts f on the module table exactly as `M.f = ...` does,
-        -- so what it exports records it the same way.
+        -- `function M.f()` puts f on the module table exactly as `M.f = ...` does, so
+        -- what it exports records it the same way.
         if not fname.method and ownerKey == c.moduleLocal and memberTok then
             c.moduleFields[memberTok.text] = ft
             c.moduleFieldTokens[memberTok.text] = memberTok
         end
         -- ...and a later reference has to find it the same way too. An assignment
         -- records the path it wrote, which is how `m.f = function() end` gives a
-        -- following `m.f()` a type at all; a declaration that skipped this left
-        -- `m.f` reading through an open table as `any`, so every annotation on it
-        -- was accepted and then meant nothing — `@owned` included, which is how
-        -- this was found. A nominal owner already has its member on `byname`,
-        -- where the type namespace rather than the value path answers for it.
+        -- following `m.f()` a type at all; a declaration that skipped this left `m.f`
+        -- reading through an open table as `any`, so every annotation on it was
+        -- accepted and then meant nothing — `@owned` included, which is how this was
+        -- found. A nominal owner already has its member on `byname`, where the type
+        -- namespace rather than the value path answers for it.
         if not fname.method and not owner and ownerKey and memberTok then
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
         end

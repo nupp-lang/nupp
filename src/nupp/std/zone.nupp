@@ -18,19 +18,18 @@ This is process-wide, not per-coroutine.
 
 local zone = {}
 
--- The array part is what the profiler reads, so writing it directly is what
--- it sees.
+-- The array part is what the profiler reads, so writing it directly is what it sees.
 local stack = require("jit.zone") as {string}
 
--- Annotated: an unannotated integer binding widens to number, and these index
--- the stack.
+-- Annotated: an unannotated integer binding widens to number, and these index the
+-- stack.
 local references: integer = 0
 local active = false
 local generation: integer = 0
 local depth: integer = 0
 
--- Bumped by every change to the stack, so `path` can tell whether the string it
--- built last time still describes it.
+-- Bumped by every change to the stack, so `path` can tell whether the string it built
+-- last time still describes it.
 local version: integer = 0
 local pathVersion: integer = -1
 local pathText = ""
@@ -46,12 +45,14 @@ function zone.depth(): integer
     return depth
 end
 
---- Starts recording, or joins a recording in progress. Needs a matching
---- `release`. The first caller clears the stack and opens a new generation,
---- so tokens from an earlier session cannot pop into this one.
+--- Starts recording, or joins a recording in progress. Needs a matching `release`. The
+--- first caller clears the stack and opens a new generation, so tokens from an earlier
+--- session cannot pop into this one.
 function zone.acquire()
     references = references + 1
-    if references > 1 then return end
+    if references > 1 then
+        return
+    end
 
     for index = #stack, 1, -1 do stack[index] = nil end
     depth = 0
@@ -60,13 +61,17 @@ function zone.acquire()
     active = true
 end
 
---- Releases one `acquire`; the last empties the stack. Releasing nothing is
---- ignored, so a teardown that runs twice is harmless.
+--- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
+--- a teardown that runs twice is harmless.
 function zone.release()
-    if references == 0 then return end
+    if references == 0 then
+        return
+    end
 
     references = references - 1
-    if references > 0 then return end
+    if references > 0 then
+        return
+    end
 
     for index = #stack, 1, -1 do stack[index] = nil end
     depth = 0
@@ -76,18 +81,22 @@ end
 
 --- Pushes a zone. A no-op while inactive.
 function zone.push(name: string)
-    if not active then return end
+    if not active then
+        return
+    end
 
     depth = depth + 1
     stack[depth] = name
     version = version + 1
 end
 
---- Pops the innermost zone, or nil when inactive or empty. Empty is not an
---- error: a profile can start or stop part-way through a frame, leaving half
---- a pair outside the session.
+--- Pops the innermost zone, or nil when inactive or empty. Empty is not an error: a
+--- profile can start or stop part-way through a frame, leaving half a pair outside the
+--- session.
 function zone.pop(): string?
-    if not active or depth == 0 then return nil end
+    if not active or depth == 0 then
+        return nil
+    end
 
     local name = stack[depth]
     stack[depth] = nil
@@ -98,20 +107,23 @@ end
 
 --- The innermost zone, without popping it.
 function zone.current(): string?
-    if depth == 0 then return nil end
+    if depth == 0 then
+        return nil
+    end
     return stack[depth]
 end
 
 --- The pushed zones joined with "/", outermost first, or "" when none are.
 ---
---- Cached until the stack next changes, so reading it repeatedly between two
---- pushes costs a comparison. That is worth the two words it takes: a profiler
---- reads this from the sampling callback, on the thread it interrupted, and a
---- string built fresh there is an allocation charged to whatever the program
---- happened to be doing — which the same profiler then reports as collector
---- time the program did not spend.
+--- Cached until the stack next changes, so reading it repeatedly between two pushes
+--- costs a comparison. That is worth the two words it takes: a profiler reads this from
+--- the sampling callback, on the thread it interrupted, and a string built fresh there
+--- is an allocation charged to whatever the program happened to be doing — which the
+--- same profiler then reports as collector time the program did not spend.
 function zone.path(): string
-    if version == pathVersion then return pathText end
+    if version == pathVersion then
+        return pathText
+    end
 
     if depth == 0 then
         pathText = ""
@@ -125,12 +137,13 @@ end
 
 --- Pushes a zone and returns a token for `leave`, or 0 when inactive.
 ---
---- The paired form, for a `leave` that may run after its session ended —
---- usually a coroutine resumed after a profile stopped. The token carries the
---- generation, so a late `leave` is discarded rather than popping someone
---- else's zone.
+--- The paired form, for a `leave` that may run after its session ended — usually a
+--- coroutine resumed after a profile stopped. The token carries the generation, so a
+--- late `leave` is discarded rather than popping someone else's zone.
 function zone.enter(name: string): integer
-    if not active then return 0 end
+    if not active then
+        return 0
+    end
 
     depth = depth + 1
     stack[depth] = name
@@ -138,11 +151,15 @@ function zone.enter(name: string): integer
     return generation
 end
 
---- Closes a zone opened by `enter`. A zero token, a stale generation, or an
---- empty stack are all ignored.
+--- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
+--- are all ignored.
 function zone.leave(token: integer)
-    if token == 0 or not active or token ~= generation then return end
-    if depth == 0 then return end
+    if token == 0 or not active or token ~= generation then
+        return
+    end
+    if depth == 0 then
+        return
+    end
 
     stack[depth] = nil
     depth = depth - 1

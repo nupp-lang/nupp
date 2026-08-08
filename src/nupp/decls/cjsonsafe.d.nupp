@@ -42,8 +42,8 @@ local record CJsonSafe
     decode_invalid_numbers: function(setting: boolean?): boolean
     encode_escape_forward_slash: function(setting: boolean?): boolean
 
-    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean or
-    --- the strings "on"/"off".
+    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean
+    --- or the strings "on"/"off".
     encode_empty_table_as_object: function(setting: any?): boolean
 
     --- Whether decoded JSON arrays carry array_mt.

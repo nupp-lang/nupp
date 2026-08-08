@@ -12,24 +12,24 @@ local command = spec.command{
     name = "import-c",
     summary = "Generate typed Nupp bindings from a C header",
     usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]"
-        .. " <header.h>"},
+    .. " <header.h>"},
     options = require("nupp.cli.options").join(
         {name = "-o", value = "FILE", key = "out",
-            help = "Write the generated module to FILE"},
+        help = "Write the generated module to FILE"},
         {names = {"-l", "--lib"}, value = "NAME", key = "lib",
-            help = "Name the native library loaded by the bindings"},
+        help = "Name the native library loaded by the bindings"},
         require("nupp.cli.options").format()),
     schema = {
         type = "object",
         properties = {
             ok = {type = "boolean"},
             output = {type = "string",
-                description = "Where the generated module was written. Absent "
-                    .. "when nothing was generated."},
+            description = "Where the generated module was written. Absent "
+            .. "when nothing was generated."},
             warnings = {type = "array", items = {type = "string"},
-                description = "What the header contained that the bindings "
-                    .. "could not represent. Present whether or not it "
-                    .. "succeeded; a warning is not a failure."},
+            description = "What the header contained that the bindings "
+            .. "could not represent. Present whether or not it "
+            .. "succeeded; a warning is not a failure."},
         },
         required = {"ok", "warnings"},
     },
@@ -55,7 +55,9 @@ local function run(parsed: any): integer
         end
         return 1
     end
-    if not text then return fail() end
+    if not text then
+        return fail()
+    end
     if not asJson then
         for _, warning in ipairs(warnings) do
             io.stderr:write("nupp: warning: " .. warning .. "\n")

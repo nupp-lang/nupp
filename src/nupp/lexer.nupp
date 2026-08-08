@@ -183,22 +183,22 @@ for op in ("+ - * / % ^ # & ~ | < > = ( ) { } [ ] ; : , . ? @ !"):gmatch("%S+") 
     OPS1[op] = true
 end
 
--- LuaJIT 3.0's "customary operators" are alternate spellings, not new
--- operators, so they are folded into the classic token kind here and the rest
--- of the compiler never learns they exist. `text` keeps the bytes that were
--- written, which is what the round trip and the formatter run on.
+-- LuaJIT 3.0's "customary operators" are alternate spellings, not new operators, so
+-- they are folded into the classic token kind here and the rest of the compiler never
+-- learns they exist. `text` keeps the bytes that were written, which is what the round
+-- trip and the formatter run on.
 --
--- `||` doubles as the empty parameter list of a short function. That is a
--- position, not a spelling: at the start of an operand `||` can only be
--- `|| -> e`, and in binary-operator position it can only be `or`. The parser
--- decides, so the lexer hands it the one token either way.
+-- `||` doubles as the empty parameter list of a short function. That is a position, not
+-- a spelling: at the start of an operand `||` can only be `|| -> e`, and in
+-- binary-operator position it can only be `or`. The parser decides, so the lexer hands
+-- it the one token either way.
 local CUSTOMARY: {[string]: string} = {
     ["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",
 }
 
---- The classic spelling of each customary operator, keyed by the customary
---- one. Reading a token's text through this is how anything downstream tells
---- which form was written, since the kind no longer says.
+--- The classic spelling of each customary operator, keyed by the customary one. Reading
+--- a token's text through this is how anything downstream tells which form was written,
+--- since the kind no longer says.
 lexer.CUSTOMARY = CUSTOMARY
 
 local byte, sub, find = string.byte, string.sub, string.find
@@ -225,14 +225,20 @@ end
 --- @param src the whole source text
 --- @param pos offset of the opening '['
 local function scanLongBracket(src: string, pos: integer): integer?, boolean
-    if byte(src, pos) ~= 91 then return nil, false end -- '['
+    if byte(src, pos) ~= 91 then
+        return nil, false
+    end -- '['
     local level: integer = 0
     local p = pos + 1
     while byte(src, p) == 61 do level = level + 1; p = p + 1 end -- '='
-    if byte(src, p) ~= 91 then return nil, false end
+    if byte(src, p) ~= 91 then
+        return nil, false
+    end
     local close = "]" .. ("="):rep(level) .. "]"
     local s = find(src, close, p + 1, true)
-    if not s then return #src + 1, false end
+    if not s then
+        return #src + 1, false
+    end
     return s + #close, true
 end
 
@@ -258,7 +264,9 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         local search: integer = 1
         while true do
             local nl = find(text, "\n", search, true)
-            if not nl then break end
+            if not nl then
+                break
+            end
             line = line + 1
             lineStart = startpos + nl
             search = nl + 1
@@ -348,7 +356,9 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 pos = pos + 2
             elseif ch == 96 then -- closing '`'
                 pos = pos + 1
-                if opening then return "string" end
+                if opening then
+                    return "string"
+                end
                 interp[#interp] = nil
                 return "istringClose"
             elseif ch == 36 and byte(source, pos + 1) == 123 then -- '${'
@@ -363,7 +373,9 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 pos = pos + 1
             end
         end
-        if not opening then interp[#interp] = nil end
+        if not opening then
+            interp[#interp] = nil
+        end
         addError(start, l, c, "unterminated interpolated string")
         return "error"
     end
@@ -402,13 +414,19 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 p, more = scanDigits(p, isHex)
                 digits = digits + more
             end
-            if digits == 0 then wellformed = false end
+            if digits == 0 then
+                wellformed = false
+            end
             local e = byte(source, p)
             if e == 112 or e == 80 then -- p P
                 p = skipUnderscores(p + 1)
                 local s = byte(source, p)
-                if s == 43 or s == 45 then p = skipUnderscores(p + 1) end
-                if not isDigit(byte(source, p)) then wellformed = false end
+                if s == 43 or s == 45 then
+                    p = skipUnderscores(p + 1)
+                end
+                if not isDigit(byte(source, p)) then
+                    wellformed = false
+                end
                 p = scanDigits(p, isDigit)
             end
         else
@@ -425,8 +443,12 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             if e == 101 or e == 69 then -- e E
                 p = skipUnderscores(p + 1)
                 local s = byte(source, p)
-                if s == 43 or s == 45 then p = skipUnderscores(p + 1) end
-                if not isDigit(byte(source, p)) then wellformed = false end
+                if s == 43 or s == 45 then
+                    p = skipUnderscores(p + 1)
+                end
+                if not isDigit(byte(source, p)) then
+                    wellformed = false
+                end
                 p = scanDigits(p, isDigit)
             end
         end
@@ -435,8 +457,12 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             local at = p
             for j = 1, #word do
                 local ch = byte(source, at)
-                if ch and ch >= 65 and ch <= 90 then ch = ch + 32 end
-                if ch ~= byte(word, j) then return nil end
+                if ch and ch >= 65 and ch <= 90 then
+                    ch = ch + 32
+                end
+                if ch ~= byte(word, j) then
+                    return nil
+                end
                 at = skipUnderscores(at + 1)
             end
             return at

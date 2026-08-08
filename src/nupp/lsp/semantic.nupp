@@ -46,7 +46,9 @@ semantic.TYPE_WORDS = {
 function semantic.syntaxKinds(result)
     local kinds = {}
     local function mark(tok, kind)
-        if tok and cst.isToken(tok) then kinds[tok] = kind end
+        if tok and cst.isToken(tok) then
+            kinds[tok] = kind
+        end
     end
     tree.walkNodes(result.root, function(node)
         local kind = node.kind
@@ -115,15 +117,21 @@ function semantic.syntaxKinds(result)
         elseif kind == "labelStmt" or kind == "gotoStmt" then
             mark(node.name, "label")
         elseif kind == "param" or kind == "tfuncParam" then
-            if node.modeTok then mark(node.modeTok, "keyword") end
+            if node.modeTok then
+                mark(node.modeTok, "keyword")
+            end
             mark(node.name, "parameter")
         elseif kind == "fieldDecl" or kind == "tshapeField" then
-            if node.capability then mark(node.capability, "keyword") end
+            if node.capability then
+                mark(node.capability, "keyword")
+            end
             mark(node.name, "property")
         elseif kind == "fieldNamed" then
             mark(node.name, "property")
         elseif kind == "indexerDecl" or kind == "tmap" then
-            if node.capability then mark(node.capability, "keyword") end
+            if node.capability then
+                mark(node.capability, "keyword")
+            end
         elseif kind == "generics" then
             for _, tok in ipairs(node.names or {}) do mark(tok, "typeParameter") end
         end
@@ -132,7 +140,9 @@ function semantic.syntaxKinds(result)
 end
 
 function semantic.addSemanticSpan(entries, source, offset, spanText, kind, modifiers)
-    if not spanText or spanText == "" then return end
+    if not spanText or spanText == "" then
+        return
+    end
     local pos = 1
     while pos <= #spanText do
         local newline = spanText:find("\n", pos, true)
@@ -150,7 +160,9 @@ function semantic.addSemanticSpan(entries, source, offset, spanText, kind, modif
                 }
             end
         end
-        if not newline then break end
+        if not newline then
+            break
+        end
         pos = newline + 1
     end
 end
@@ -167,8 +179,8 @@ end
 -- over the original document — so a whole action converts to LSP TextEdits in one
 -- place, and the offsets never have to account for each other.
 
---- Installs the semantic-token questions on one session. They need no session
---- state; the session is taken so the shape matches the other installs.
+--- Installs the semantic-token questions on one session. They need no session state;
+--- the session is taken so the shape matches the other installs.
 ---
 --- @param s the session's state
 function semantic.install(s: any): any
@@ -214,13 +226,12 @@ function semantic.install(s: any): any
                 kind = "operator"
             end
             if kind then
-                -- Where the name was declared, compared by position rather
-                -- than by identity. A definition reached through the project
-                -- index holds a copy of the token, not the token, because a
-                -- header outlives the parse it came from -- so the two are
-                -- equal in every way the editor cares about and never the same
-                -- table. Within one file an offset names one token, which is
-                -- what identity was standing in for.
+                -- Where the name was declared, compared by position rather than by
+                -- identity. A definition reached through the project index holds a copy
+                -- of the token, not the token, because a header outlives the parse it
+                -- came from -- so the two are equal in every way the editor cares about
+                -- and never the same table. Within one file an offset names one token,
+                -- which is what identity was standing in for.
                 local def = tok.definition
                 local declaration = def ~= nil and def.token ~= nil
                     and def.token.offset == tok.offset
@@ -287,7 +298,9 @@ function semantic.install(s: any): any
                     break
                 end
             end
-            if not same then break end
+            if not same then
+                break
+            end
             prefix = prefix + 5
         end
         local suffix = 0
@@ -300,7 +313,9 @@ function semantic.install(s: any): any
                     break
                 end
             end
-            if not same then break end
+            if not same then
+                break
+            end
             suffix = suffix + 5
         end
         local deleteCount = #before - prefix - suffix
@@ -308,7 +323,9 @@ function semantic.install(s: any): any
         for index = prefix + 1, #after - suffix do
             inserted[#inserted + 1] = after[index]
         end
-        if deleteCount == 0 and #inserted == 0 then return wire.array({}) end
+        if deleteCount == 0 and #inserted == 0 then
+            return wire.array({})
+        end
         return wire.array({{
             start = prefix, deleteCount = deleteCount, data = inserted,
         }})
@@ -318,6 +335,7 @@ function semantic.install(s: any): any
         semanticEntries = semanticEntries,
         encodeSemanticEntries = encodeSemanticEntries,
         rememberTokens = rememberTokens, tokenEdits = tokenEdits,
+
         --- The answer last given for `uri`, which a delta is computed against.
         lastSent = function(uri) return sentTokens[uri] end,
     }

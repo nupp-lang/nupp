@@ -121,10 +121,14 @@ end
 function query.Q:clearInput(name: string, key: any)
     self.revision = self.revision + 1
     local byName = self.inputs[name]
-    if byName then byName[key] = nil end
+    if byName then
+        byName[key] = nil
+    end
     -- invalidate any memoized fallback so it recomputes fresh
     local m = self.memo[name]
-    if m then m[key] = nil end
+    if m then
+        m[key] = nil
+    end
 end
 
 --- The revision at which a dependency last changed. Defined after Q:get, which it
@@ -197,7 +201,9 @@ function query.Q:get(name: string, key: any): any
     local frame = self.stack[#self.stack]
     self.stack[#self.stack] = nil
     self.active[activeKey] = nil
-    if not ok then error(value, 0) end
+    if not ok then
+        error(value, 0)
+    end
 
     local changedAt = self.revision
     if entry then
@@ -223,7 +229,9 @@ end
 depChangedAt = function(self: query.Q, name: string, key: any): integer
     local byName = self.inputs[name]
     local inp = byName and byName[key]
-    if inp then return inp.changedAt end
+    if inp then
+        return inp.changedAt
+    end
     self:get(name, key)
     local m = self.memo[name]
     local entry = m and m[key]

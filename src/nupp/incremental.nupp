@@ -121,12 +121,12 @@ record incremental.Inc
 
     --- Writes back what this run worked out that the next one can reuse.
     ---
-    --- Nothing depends on it being called: skipping it costs the next command
-    --- the work this one did, and costs correctness nothing.
+    --- Nothing depends on it being called: skipping it costs the next command the work
+    --- this one did, and costs correctness nothing.
     persist: function()
 
-    --- The header store, for tests that need to see hits and misses rather
-    --- than infer them from a stopwatch.
+    --- The header store, for tests that need to see hits and misses rather than infer
+    --- them from a stopwatch.
     headerStore: any
 end
 
@@ -138,14 +138,16 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
     opts = opts or {}
     local env = envMod.new(rootDir, opts)
     local strict = opts.strict
-    if strict == nil then strict = env.config.strict == true end
+    if strict == nil then
+        strict = env.config.strict == true
+    end
     local q = query.new()
     local inc = incremental.Inc{env = env, q = q}
 
-    -- One store per environment, shared with whatever else reaches the same
-    -- env: a check of one named file builds the project index through
-    -- `envMod.ensureProjectIndex` rather than through this graph, and both
-    -- want the same answers out of the same file.
+    -- One store per environment, shared with whatever else reaches the same env: a
+    -- check of one named file builds the project index through
+    -- `envMod.ensureProjectIndex` rather than through this graph, and both want the
+    -- same answers out of the same file.
     local headerStore = envMod.headerStore(env) or storeMod.open(nil, "")
     inc.headerStore = headerStore
 
@@ -162,7 +164,9 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
             files[#files + 1] = path
         end
         for path in pairs(openPaths) do
-            if not seen[path] then files[#files + 1] = path end
+            if not seen[path] then
+                files[#files + 1] = path
+            end
         end
         table.sort(files)
         q:setInput("projectFiles", "root", files)
@@ -172,7 +176,9 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
 
     q:define("fileText", function(_, path)
         local f = io.open(path, "rb")
-        if not f then return nil end
+        if not f then
+            return nil
+        end
         local s = f:read("*a")
         f:close()
         return s
@@ -180,14 +186,18 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
 
     q:define("parse", function(self, path)
         local text = self:get("fileText", path)
-        if not text then return nil end
+        if not text then
+            return nil
+        end
         return parser.parse(text, path)
     end)
 
     --- Whether two headers say the same thing, which is what decides that a reparse
     --- changed nothing a dependent could see.
     local function sameHeader(a: incremental.Header?, b: incremental.Header?): boolean
-        if not a or not b then return false end
+        if not a or not b then
+            return false
+        end
         if a.path ~= b.path or a.moduleName ~= b.moduleName
             or a.moduleLocal ~= b.moduleLocal
             or #a.declarations ~= #b.declarations then
@@ -207,24 +217,27 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         return true
     end
 
-    -- Building the project index means having a header for every file in the
-    -- project, and a header comes from a parse. Almost every command needs the
-    -- index and almost no command needs most of those parses for anything
-    -- else, so a command that touched one file was parsing a hundred to find
-    -- out that the other ninety-nine still say what they said.
+    -- Building the project index means having a header for every file in the project,
+    -- and a header comes from a parse. Almost every command needs the index and almost
+    -- no command needs most of those parses for anything else, so a command that
+    -- touched one file was parsing a hundred to find out that the other ninety-nine
+    -- still say what they said.
     --
-    -- A header is a pure function of the file's bytes, so it can be looked up
-    -- by them. The key is the path and the text; the store's stamp covers the
-    -- compiler and the configuration. A key that matches is not a guess.
+    -- A header is a pure function of the file's bytes, so it can be looked up by them.
+    -- The key is the path and the text; the store's stamp covers the compiler and the
+    -- configuration. A key that matches is not a guess.
     q:define("projectHeader", function(self, path)
         local text = self:get("fileText", path)
-        if text == nil then return envMod.projectHeader(env, path, nil) end
+        if text == nil then
+            return envMod.projectHeader(env, path, nil)
+        end
         local key = envMod.headerKey(env, path, text)
         local cached = headerStore.get(key)
-        if cached then return cached end
-        -- Depending on the parse only on a miss is the point: on a hit the
-        -- header depends on the text alone, which is all it was ever computed
-        -- from.
+        if cached then
+            return cached
+        end
+        -- Depending on the parse only on a miss is the point: on a hit the header
+        -- depends on the text alone, which is all it was ever computed from.
         local header = envMod.projectHeader(env, path, self:get("parse", path))
         headerStore.put(key, header)
         return header
@@ -240,8 +253,8 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         return envMod.buildProjectIndex(headers, projectNominals)
     end)
 
-    -- Environment lookup helpers call this function, including from inside a
-    -- check query. q:get records the project-index dependency in that case.
+    -- Environment lookup helpers call this function, including from inside a check
+    -- query. q:get records the project-index dependency in that case.
     env.ensureProjectIndex = function()
         return q:get("projectIndex", "root")
     end
@@ -261,8 +274,8 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
             return {diags = result.errors, moduleType = nil, syntax = true,
                 result = result}
         end
-        -- Every checked project file observes declaration additions/removals,
-        -- including globals that may already exist in the shared prelude map.
+        -- Every checked project file observes declaration additions/removals, including
+        -- globals that may already exist in the shared prelude map.
         self:get("projectIndex", "root")
         -- route require() through the query graph so dependencies record
         local qenv = setmetatable({
@@ -288,15 +301,17 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
             local bundled = env.bundled and env.bundled[name]
             return bundled and bundled.type or nil
         end
-        -- nil on the re-entrant edge of a require cycle: the module is
-        -- mid-check, so nothing is known about it yet
+        -- nil on the re-entrant edge of a require cycle: the module is mid-check, so
+        -- nothing is known about it yet
         local r = self:get("checkModule", path)
         return r and r.moduleType or nil
     end) -- default eq: interned identity IS the interface hash
 
     q:define("moduleExports", function(self, name)
         local path = modulePath(self, name)
-        if not path then return nil end
+        if not path then
+            return nil
+        end
         local r = self:get("checkModule", path)
         return r and r.exports or nil
     end)
@@ -304,7 +319,9 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
     -- Editor overlay management.
     function inc.openDocument(path: string, text: string)
         local wasOpen = openPaths[path]
-        if envMod.moduleNameForPath(env, path) then openPaths[path] = true end
+        if envMod.moduleNameForPath(env, path) then
+            openPaths[path] = true
+        end
         if not wasOpen and openPaths[path] and not diskPaths[path] then
             updateProjectFiles()
         end
@@ -315,13 +332,15 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         q:clearInput("fileText", path)
         if openPaths[path] then
             openPaths[path] = nil
-            if not diskPaths[path] then updateProjectFiles() end
+            if not diskPaths[path] then
+                updateProjectFiles()
+            end
         end
     end
 
-    -- Invalidate the disk fallback after an editor/file-watcher event. Open
-    -- document overlays remain authoritative until didClose, but creates and
-    -- deletes still update project membership underneath the overlay.
+    -- Invalidate the disk fallback after an editor/file-watcher event. Open document
+    -- overlays remain authoritative until didClose, but creates and deletes still
+    -- update project membership underneath the overlay.
     function inc.diskChanged(path: string, changeType: integer)
         local existed = diskPaths[path] and true or false
         if changeType == 3 then
@@ -329,7 +348,9 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         elseif envMod.moduleNameForPath(env, path) then
             diskPaths[path] = true
         end
-        if not openPaths[path] then q:clearInput("fileText", path) end
+        if not openPaths[path] then
+            q:clearInput("fileText", path)
+        end
         if existed ~= (diskPaths[path] and true or false) then
             updateProjectFiles()
         end
@@ -348,10 +369,10 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         return q:get("projectFiles", "root")
     end
 
-    -- The text a file's parse actually saw: the open overlay when there is
-    -- one, and otherwise disk. A caller mapping token offsets back to
-    -- positions has to measure against this text and not re-read the file,
-    -- or a change since the check would shift every offset it computes.
+    -- The text a file's parse actually saw: the open overlay when there is one, and
+    -- otherwise disk. A caller mapping token offsets back to positions has to measure
+    -- against this text and not re-read the file, or a change since the check would
+    -- shift every offset it computes.
     function inc.fileText(path: string): string?
         return q:get("fileText", path)
     end
@@ -360,9 +381,9 @@ function incremental.new(rootDir: string, opts: any?): incremental.Inc
         return q:get("projectHeader", path)
     end
 
-    -- Build-system graph access. Checking a module records direct
-    -- moduleInterface queries in its memo entry; expose those edges without
-    -- making the build planner depend on query's internal table layout.
+    -- Build-system graph access. Checking a module records direct moduleInterface
+    -- queries in its memo entry; expose those edges without making the build planner
+    -- depend on query's internal table layout.
     function inc.modulePath(name: string): string?
         return modulePath(q, name)
     end

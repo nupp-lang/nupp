@@ -34,7 +34,9 @@ local function splitMembers(members)
 end
 
 local function markdownArguments(out, params, heading)
-    if #params == 0 then return end
+    if #params == 0 then
+        return
+    end
     out[#out + 1] = heading .. " Arguments"
     out[#out + 1] = ""
     out[#out + 1] = "| Name | Type | Description |"
@@ -48,7 +50,9 @@ local function markdownArguments(out, params, heading)
 end
 
 local function markdownReturns(out, returns, heading)
-    if #returns == 0 then return end
+    if #returns == 0 then
+        return
+    end
     out[#out + 1] = heading .. " Returns"
     out[#out + 1] = ""
     out[#out + 1] = "| Type | Description |"
@@ -63,7 +67,9 @@ end
 -- A raise is a condition and nothing else. There is no type to put beside it, so this
 -- lists where an argument or a result tabulates.
 local function markdownRaises(out, raises, heading)
-    if #raises == 0 then return end
+    if #raises == 0 then
+        return
+    end
     out[#out + 1] = heading .. " Raises"
     out[#out + 1] = ""
     for _, condition in ipairs(raises) do
@@ -79,7 +85,9 @@ local function renderMarkdownItem(out, item)
     -- What it is, then how it is spelled: the prose says whether this is the
     -- declaration you are looking for, and the signature answers how to call it once
     -- you know that it is.
-    if item.doc.text ~= "" then out[#out + 1] = item.doc.text; out[#out + 1] = "" end
+    if item.doc.text ~= "" then
+        out[#out + 1] = item.doc.text; out[#out + 1] = ""
+    end
     out[#out + 1] = "```nupp"
     out[#out + 1] = item.signature
     out[#out + 1] = "```"
@@ -135,11 +143,15 @@ end
 
 function markdown.render(modules, title)
     local out = {}
-    if title and title ~= "" then out[#out + 1] = "# " .. title; out[#out + 1] = "" end
+    if title and title ~= "" then
+        out[#out + 1] = "# " .. title; out[#out + 1] = ""
+    end
     for moduleIndex, module in ipairs(modules) do
         out[#out + 1] = "# Module: `" .. module.name .. "`"
         out[#out + 1] = ""
-        if module.text ~= "" then out[#out + 1] = module.text; out[#out + 1] = "" end
+        if module.text ~= "" then
+            out[#out + 1] = module.text; out[#out + 1] = ""
+        end
         local currentKind = nil
         for _, item in ipairs(module.items) do
             if item.kind ~= currentKind then
@@ -149,7 +161,9 @@ function markdown.render(modules, title)
             end
             renderMarkdownItem(out, item)
         end
-        if moduleIndex < #modules then out[#out + 1] = "---"; out[#out + 1] = "" end
+        if moduleIndex < #modules then
+            out[#out + 1] = "---"; out[#out + 1] = ""
+        end
     end
     return table.concat(out, "\n") .. "\n"
 end

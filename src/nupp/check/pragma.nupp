@@ -89,15 +89,17 @@ function pragma.install(c: any): any
 
     handlers.pragmaStmt = function(stat: cst.PragmaStmt)
         local annotationName = stat.name
-        if not annotationName then return end
+        if not annotationName then
+            return
+        end
         local written = annotationName.text
         local target = stat.stat
         while target and target.kind == "pragmaStmt" do
             target = target.stat
         end
         -- What the annotation decorates, and the body it carries when the decorated
-        -- statement is a function: the contracts below attach to one or the other,
-        -- and a stray annotation decorates nothing.
+        -- statement is a function: the contracts below attach to one or the other, and
+        -- a stray annotation decorates nothing.
         local targetKind = target and target.kind or ""
         local targetBody: Node? = nil
         if target then
@@ -113,11 +115,15 @@ function pragma.install(c: any): any
         local annotation, valid = validateAnnotation(stat, target)
 
         if not annotation then
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             return
         end
         if written == "annotation" then
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             if valid and target and targetKind == "recordDecl" then
                 defineAnnotation(stat, target)
             end
@@ -128,9 +134,13 @@ function pragma.install(c: any): any
             if valid and target then
                 local contract = effectContract(stat)
                 target.effectContract = contract
-                if targetBody then targetBody.effectContract = contract end
+                if targetBody then
+                    targetBody.effectContract = contract
+                end
             end
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             if valid and target and target.kind == "localStmt"
                 and target.effectContract then
                 for _, name in ipairs(target.names or {}) do
@@ -158,9 +168,13 @@ function pragma.install(c: any): any
             end
             if valid and target then
                 target.relaxedGuarantees = relaxed
-                if targetBody then targetBody.relaxedGuarantees = relaxed end
+                if targetBody then
+                    targetBody.relaxedGuarantees = relaxed
+                end
             end
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             return
         end
 
@@ -247,7 +261,9 @@ function pragma.install(c: any): any
                 targetBody.ownOpaque = opaque
                 targetBody.ownTok = annotationName
             end
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             return
         end
 
@@ -288,7 +304,9 @@ function pragma.install(c: any): any
                     success = success, at = stat.name,
                 }
             end
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             return
         end
 
@@ -311,12 +329,16 @@ function pragma.install(c: any): any
                 target.disposeContract = true
                 target.disposeTok = stat.name
             end
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             return
         end
 
         if written ~= "allow" then
-            if stat.stat then c.checkStat(stat.stat) end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
             return
         end
 
@@ -347,11 +369,15 @@ function pragma.install(c: any): any
                         ("%s is not a lint, so it cannot be allowed")
                         :format(name))
                 end
-                if name then set[name] = true end
+                if name then
+                    set[name] = true
+                end
             end
         end
         c.allowed[#c.allowed + 1] = set
-        if stat.stat then c.checkStat(stat.stat) end
+        if stat.stat then
+            c.checkStat(stat.stat)
+        end
         c.allowed[#c.allowed] = nil
     end
 

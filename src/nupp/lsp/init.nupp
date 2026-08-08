@@ -92,10 +92,10 @@ local json = wire.json
 --- so there is only one implementation of semantic behavior.
 function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     rootDir = rootDir or "."
-    -- One session's whole state, so the handlers below reach it through `s` rather
-    -- than by being lexically inside this function. `inc` and `folders` are rebound
-    -- when a client adds or drops a workspace folder, which is why they are fields:
-    -- a module that captured the old value would go on answering from it.
+    -- One session's whole state, so the handlers below reach it through `s` rather than
+    -- by being lexically inside this function. `inc` and `folders` are rebound when a
+    -- client adds or drops a workspace folder, which is why they are fields: a module
+    -- that captured the old value would go on answering from it.
     local s = {
         root = rootDir,
         -- The folders this session searches beyond its root. A client that opened more
@@ -104,7 +104,8 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         -- root it was launched against.
         folders = {},
         documents = {},
-        -- The last lex of each file, so a handler that only needs tokens does not reparse.
+        -- The last lex of each file, so a handler that only needs tokens does not
+        -- reparse.
         lexed = {},
     }
     s.inc = incremental.new(rootDir, {folders = s.folders})
@@ -128,8 +129,8 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     s.notify, s.respond, s.respondError = notify, respond, respondError
 
-    -- The questions a handler asks, each answered by its own module and reached
-    -- through the session it was installed on.
+    -- The questions a handler asks, each answered by its own module and reached through
+    -- the session it was installed on.
     local diags = lspDiagnostics.install(s)
     local toLspDiagnostics = diags.toLspDiagnostics
     local checkAndPublish = diags.checkAndPublish
@@ -156,14 +157,13 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     local rememberTokens, tokenEdits = tokens.rememberTokens, tokens.tokenEdits
     local lastSentTokens = tokens.lastSent
 
-
-    -- Which s.folders the session searches decides what a module name resolves to, which
-    -- file list a rename runs over, and which declarations a name can mean — everything
-    -- the query graph was built around. So a folder change rebuilds the graph rather
-    -- than patching it, and the open buffers are handed back as overlays so the
-    -- editor's unsaved text is still what the new graph reads. Diagnostics are then
-    -- republished unconditionally: a file can be clean under one set of s.folders and not
-    -- under another, and the editor has no way to know the ground moved.
+    -- Which s.folders the session searches decides what a module name resolves to,
+    -- which file list a rename runs over, and which declarations a name can mean —
+    -- everything the query graph was built around. So a folder change rebuilds the
+    -- graph rather than patching it, and the open buffers are handed back as overlays
+    -- so the editor's unsaved text is still what the new graph reads. Diagnostics are
+    -- then republished unconditionally: a file can be clean under one set of s.folders
+    -- and not under another, and the editor has no way to know the ground moved.
     local function reroot(nextFolders)
         s.folders = nextFolders
         s.inc = incremental.new(rootDir, {folders = s.folders})
@@ -195,22 +195,20 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     -- the file as it currently reads, and confirms the token is still where it was
     -- recorded instead of trusting an offset that may now point into the middle of
     -- something else.
-    
-
-
-
 
     local handlers = {}
 
     handlers["initialize"] = function(id, params)
-        -- The s.folders the client opened, which are what it will send changes against. A
-        -- client that names none has one workspace and it is the root the server was
+        -- The s.folders the client opened, which are what it will send changes against.
+        -- A client that names none has one workspace and it is the root the server was
         -- launched with, so nothing is added.
         local opened = folderPaths(params and params.workspaceFolders)
         if #opened == 0 and params and params.rootUri then
             opened = folderPaths({params.rootUri})
         end
-        if #opened > 0 then reroot(opened) end
+        if #opened > 0 then
+            reroot(opened)
+        end
         respond(id, {
             capabilities = {
                 textDocumentSync = 1, -- full-document sync
@@ -263,7 +261,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         end
         local next_, seen = {}, {}
         local function keep(path)
-            if removed[path] or seen[path] then return end
+            if removed[path] or seen[path] then
+                return
+            end
             seen[path] = true
             next_[#next_ + 1] = path
         end
@@ -308,14 +308,18 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             return
         end
         local offset = offsetAtPosition(doc.text, params.position)
-        if not offset then respond(id, json.null); return end
+        if not offset then
+            respond(id, json.null); return
+        end
         for _, tok in ipairs(doc.result.tokens) do
             if tok.kind ~= "eof" and offset >= tok.offset
                 and offset < tok.offset + #tok.text then
                 local location = definitionLocation(tok.definition)
                 if location == json.null then
                     local member = memberAt(doc, offset)
-                    if member then location = memberLocation(member) end
+                    if member then
+                        location = memberLocation(member)
+                    end
                 end
                 respond(id, location)
                 return
@@ -343,14 +347,18 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
                 return
             end
         end
-        if not tok or not t then respond(id, json.null); return end
+        if not tok or not t then
+            respond(id, json.null); return
+        end
         local name = def and def.name or tok.text
         local prefix = def and def.cdef and "cdef "
             or def and def.constant and "const " or ""
         local value = "```nupp\n" .. prefix .. name .. ": "
             .. T.tostring(t) .. "\n```"
         local docs = documentationFor(def)
-        if docs then value = value .. "\n\n" .. docs end
+        if docs then
+            value = value .. "\n\n" .. docs
+        end
         respond(id, {
             contents = {kind = "markdown", value = value},
             range = tokenRange(doc.text, tok),
@@ -362,7 +370,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     -- underlying facts structured without changing the public LSP surface.
     handlers["$/nupp/inspect"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
-        if not tok then respond(id, json.null); return end
+        if not tok then
+            respond(id, json.null); return
+        end
         local member = memberAt(doc, offset)
         if member then
             local path, memberTok, stat = memberDeclaration(member.moduleName,
@@ -390,7 +400,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         end
         local def = tok.definition
         local t = tok.inferredType or def and def.type
-        if not t then respond(id, json.null); return end
+        if not t then
+            respond(id, json.null); return
+        end
         respond(id, {
             name = def and def.name or tok.text,
             kind = def and def.kind or "variable",
@@ -419,7 +431,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         end
         local offset = offsetAtPosition(doc.text, params.position)
         local call = offset and signatureAt(doc.result, offset)
-        if not call then respond(id, json.null); return end
+        if not call then
+            respond(id, json.null); return
+        end
         local ft = call.signatureType
         local name = "call"
         if call.kind == "methodCall" and call.name then
@@ -434,7 +448,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
                 (mode and mode ~= "plain" and mode .. " " or "")
                 .. T.tostring(param)}
         end
-        if ft.vararg then parameters[#parameters + 1] = {label = "..."} end
+        if ft.vararg then
+            parameters[#parameters + 1] = {label = "..."}
+        end
         local activeParameter = 0
         for _, child in ipairs(call.args or {}) do
             if cst.isToken(child) and child.kind == ","
@@ -459,7 +475,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     handlers["textDocument/references"] = function(id, params)
         local _, doc, tok, offset = symbolAt(params)
-        if not tok then respond(id, json.empty_array); return end
+        if not tok then
+            respond(id, json.empty_array); return
+        end
         local includeDeclaration = params.context
             and params.context.includeDeclaration or false
         if not tok.definition then
@@ -476,7 +494,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     -- file the declaration lives in.
     local function renameSubject(params)
         local _, doc, tok, offset = symbolAt(params)
-        if not tok then return doc, nil, nil end
+        if not tok then
+            return doc, nil, nil
+        end
         if tok.definition then
             if isProjectDefinition(tok.definition) then
                 return doc, tok, function(includeDeclaration)
@@ -487,7 +507,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         end
         local member = memberAt(doc, offset)
         local path = member and s.inc.modulePath(member.moduleName)
-        if not path then return doc, nil, nil end
+        if not path then
+            return doc, nil, nil
+        end
         for _, projectPath in ipairs(s.inc.projectFiles()) do
             if projectPath == path then
                 return doc, tok, function(includeDeclaration)
@@ -500,7 +522,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     handlers["textDocument/prepareRename"] = function(id, params)
         local doc, tok = renameSubject(params)
-        if not tok then respond(id, json.null); return end
+        if not tok then
+            respond(id, json.null); return
+        end
         respond(id, {
             range = tokenRange(doc.text, tok),
             placeholder = tok.text,
@@ -568,8 +592,12 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         end
         local offers = wire.array({})
         local function offer(kind, title, edits, diagnostic)
-            if wanted and not wanted[kind] then return end
-            if not edits or #edits == 0 then return end
+            if wanted and not wanted[kind] then
+                return
+            end
+            if not edits or #edits == 0 then
+                return
+            end
             offers[#offers + 1] = {
                 title = title,
                 kind = kind,
@@ -680,7 +708,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             end,
             methodParens = envMod.fmtMethodParensDefault(s.inc.env),
         })
-        if #errors > 0 or formatted == doc.text then return nil end
+        if #errors > 0 or formatted == doc.text then
+            return nil
+        end
         return formatted
     end
 
@@ -693,7 +723,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     --- not.
     local function formattingEdits(uri, doc)
         local formatted = formattedText(uri, doc)
-        if not formatted then return nil end
+        if not formatted then
+            return nil
+        end
         local before, after = splitLines(doc.text), splitLines(formatted)
         local starts = lineStarts(doc.text)
         local edits = {}
@@ -713,7 +745,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     end
 
     local function respondWithEdits(id, edits, keep)
-        if not edits then respond(id, json.empty_array); return end
+        if not edits then
+            respond(id, json.empty_array); return
+        end
         local out = wire.array({})
         for _, edit in ipairs(edits) do
             if not keep or keep(edit) then
@@ -725,14 +759,18 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     handlers["textDocument/formatting"] = function(id, params)
         local uri, doc = documentAt(params)
-        if not doc then respond(id, json.empty_array); return end
+        if not doc then
+            respond(id, json.empty_array); return
+        end
         respondWithEdits(id, formattingEdits(uri, doc))
     end
 
     handlers["textDocument/rangeFormatting"] = function(id, params)
         local uri, doc = documentAt(params)
         local range = params and params.range
-        if not doc or not range then respond(id, json.empty_array); return end
+        if not doc or not range then
+            respond(id, json.empty_array); return
+        end
         -- The formatter is a whole-document formatter — that is what makes its output
         -- canonical — so a range is served by keeping the edits that fall inside it. A
         -- run of changed lines reaching past the selection is a change the request did
@@ -775,7 +813,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             end
         end
         table.sort(found, function(a, b)
-            if a.name ~= b.name then return a.name < b.name end
+            if a.name ~= b.name then
+                return a.name < b.name
+            end
             return a.location.uri < b.location.uri
         end)
         respond(id, found)
@@ -783,7 +823,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     handlers["textDocument/documentHighlight"] = function(id, params)
         local uri, doc, tok, offset = symbolAt(params)
-        if not tok then respond(id, json.empty_array); return end
+        if not tok then
+            respond(id, json.empty_array); return
+        end
         local highlights = wire.array({})
         local wanted = symbolKey(tok.definition)
         if wanted then
@@ -825,7 +867,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             end
         end
         table.sort(ranges, function(a, b)
-            if a.startLine ~= b.startLine then return a.startLine < b.startLine end
+            if a.startLine ~= b.startLine then
+                return a.startLine < b.startLine
+            end
             return a.endLine > b.endLine
         end)
         respond(id, ranges)
@@ -879,13 +923,13 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         })
     end
 
-    -- An editor session works out the same project index every command-line
-    -- run does, and then used to throw it away. Written on shutdown rather
-    -- than as it goes, because a session lasts hours and what a store is for
-    -- is what the next process finds, not this one.
+    -- An editor session works out the same project index every command-line run does,
+    -- and then used to throw it away. Written on shutdown rather than as it goes,
+    -- because a session lasts hours and what a store is for is what the next process
+    -- finds, not this one.
     --
-    -- A session that is killed rather than shut down leaves nothing behind,
-    -- which costs the next command the index and costs correctness nothing.
+    -- A session that is killed rather than shut down leaves nothing behind, which costs
+    -- the next command the index and costs correctness nothing.
     handlers["shutdown"] = function(id)
         pcall(function() s.inc.persist() end)
         respond(id, json.null)
@@ -934,18 +978,30 @@ function lsp.run(rootDir: string?): integer
         local contentLength = nil
         while true do
             local line = io.stdin:read("*l")
-            if line == nil then return 0 end -- client hung up
+            if line == nil then
+                return 0
+            end -- client hung up
             line = line:gsub("\r$", "")
-            if line == "" then break end
+            if line == "" then
+                break
+            end
             local len = line:match("^[Cc]ontent%-[Ll]ength:%s*(%d+)")
-            if len then contentLength = tonumber(len) end
+            if len then
+                contentLength = tonumber(len)
+            end
         end
-        if not contentLength then return 1 end
+        if not contentLength then
+            return 1
+        end
         local body = io.stdin:read(contentLength)
-        if body == nil then return 0 end
+        if body == nil then
+            return 0
+        end
 
         local ok, msg = pcall(json.decode, body)
-        if ok then session.dispatch(msg) end
+        if ok then
+            session.dispatch(msg)
+        end
     end
     return 0
 end

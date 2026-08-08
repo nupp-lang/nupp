@@ -18,11 +18,13 @@ local ICONS = assetsMod.ICONS
 
 local page = {}
 
--- A `public`-relative asset path is served from the site root, so it needs the
--- page's depth-dependent prefix; an absolute URL or an already-rooted path does not.
+-- A `public`-relative asset path is served from the site root, so it needs the page's
+-- depth-dependent prefix; an absolute URL or an already-rooted path does not.
 local function assetHref(prefix, source)
     source = tostring(source)
-    if source:match("^[%w+.-]+:") or source:sub(1, 1) == "/" then return source end
+    if source:match("^[%w+.-]+:") or source:sub(1, 1) == "/" then
+        return source
+    end
     return prefix .. source
 end
 
@@ -48,9 +50,13 @@ local function moduleTree(modules)
 end
 
 local function moduleBranchContains(node, current)
-    if node.module and node.module.name == current then return true end
+    if node.module and node.module.name == current then
+        return true
+    end
     for _, name in ipairs(node.order) do
-        if moduleBranchContains(node.children[name], current) then return true end
+        if moduleBranchContains(node.children[name], current) then
+            return true
+        end
     end
     return false
 end
@@ -155,7 +161,9 @@ local function searchDialog(searchIndexUrl)
 end
 
 local function breadcrumbs(route, title, pages, prefix)
-    if route == "" then return "" end
+    if route == "" then
+        return ""
+    end
     local byPath = {}
     for _, candidate in ipairs(pages or {}) do byPath[candidate.path] = candidate end
     local out = {'<nav class="nuppdoc-breadcrumbs" aria-label="Breadcrumb"><ol>',
@@ -184,11 +192,17 @@ end
 local function pageNavigation(route, pages, prefix)
     local current
     for index, candidate in ipairs(pages or {}) do
-        if candidate.path == route then current = index; break end
+        if candidate.path == route then
+            current = index; break
+        end
     end
-    if not current then return "" end
+    if not current then
+        return ""
+    end
     local previous, following = pages[current - 1], pages[current + 1]
-    if not previous and not following then return "" end
+    if not previous and not following then
+        return ""
+    end
     local out = {'<nav class="nuppdoc-page-nav" aria-label="Documentation pages">'}
     if previous then
         out[#out + 1] = '<a class="nuppdoc-page-nav-previous" href="'
@@ -207,7 +221,9 @@ local function pageNavigation(route, pages, prefix)
 end
 
 local function homeHero(config, links)
-    if config.layout ~= "home" then return "" end
+    if config.layout ~= "home" then
+        return ""
+    end
     local class = config.heroImage and "nuppdoc-hero-main has-image"
         or "nuppdoc-hero-main"
     local out = {'<section class="nuppdoc-home-hero"><div class="' .. class
@@ -269,7 +285,9 @@ local function brand(settings, siteTitle, prefix)
         out[#out + 1] = '<span class="nuppdoc-mark">++</span>'
     end
     local name = settings.name
-    if name == nil then name = siteTitle end
+    if name == nil then
+        name = siteTitle
+    end
     if name ~= "" then
         out[#out + 1] = '<span class="nuppdoc-brand-name">'
             .. htmlEscape(name) .. '</span>'

@@ -145,7 +145,9 @@ end
 
 local function nextCodepoint(text, pos)
     local b1 = text:byte(pos)
-    if not b1 or b1 < 0x80 then return b1, pos + 1 end
+    if not b1 or b1 < 0x80 then
+        return b1, pos + 1
+    end
     local count, cp
     if b1 >= 0xc2 and b1 <= 0xdf then
         count, cp = 2, b1 - 0xc0
@@ -158,7 +160,9 @@ local function nextCodepoint(text, pos)
     end
     for j = 2, count do
         local byte = text:byte(pos + j - 1)
-        if not byte or byte < 0x80 or byte > 0xbf then return b1, pos + 1 end
+        if not byte or byte < 0x80 or byte > 0xbf then
+            return b1, pos + 1
+        end
         cp = cp * 0x40 + byte - 0x80
     end
     if (count == 3 and cp < 0x800) or (count == 4 and cp < 0x10000)

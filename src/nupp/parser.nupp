@@ -39,8 +39,8 @@ type parser.ParseResult = {
 
 local add = cst.add
 
--- Binary operator priorities {left, right}; right < left means right-assoc.
--- Layering follows docs/grammar.abnf (Lua 5.3-style placement of bit ops).
+-- Binary operator priorities {left, right}; right < left means right-assoc. Layering
+-- follows docs/grammar.abnf (Lua 5.3-style placement of bit ops).
 local BINPRI = {
     ["or"] = {1, 1},
     ["??"] = {1, 1}, -- nil-coalescing, alongside `or`
@@ -81,13 +81,13 @@ local EXPR_START = {
 function parser.parse(source: string, filename: string?): parser.ParseResult
     local tokens, errors = lexer.lex(source, filename)
     local i: integer = 1
-    -- Depth counter for the ternary second arm: while > 0, a ":" method-call
-    -- suffix is not consumed (grammar note [CS-2]). Reset inside any
-    -- parenthesized/bracketed context.
+    -- Depth counter for the ternary second arm: while > 0, a ":" method-call suffix is
+    -- not consumed (grammar note [CS-2]). Reset inside any parenthesized/bracketed
+    -- context.
     local noMethod = 0
-    -- `continue` is a soft keyword, but once recognized it must belong to the
-    -- innermost loop. Function bodies reset this depth because a loop outside
-    -- a closure cannot be continued from inside it.
+    -- `continue` is a soft keyword, but once recognized it must belong to the innermost
+    -- loop. Function bodies reset this depth because a loop outside a closure cannot be
+    -- continued from inside it.
     local loopDepth = 0
 
     --- The token about to be consumed.
@@ -95,10 +95,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return tokens[i]
     end
 
-    --- True when the cursor is the `||` written for a short function's empty
-    --- parameter list. The lexer folds `||` into an `or` token because that is
-    --- what it means everywhere else; only operand position gives it the other
-    --- reading, and only the parser knows which position it is in.
+    --- True when the cursor is the `||` written for a short function's empty parameter
+    --- list. The lexer folds `||` into an `or` token because that is what it means
+    --- everywhere else; only operand position gives it the other reading, and only the
+    --- parser knows which position it is in.
     local function atEmptyPipes(): boolean
         local tok = tokens[i]
         return tok.kind == "or" and tok.text == "||"
@@ -114,22 +114,27 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- Consumes the current token and returns it.
     local function advance(): Token
         local tok = tokens[i]
-        if tok.kind ~= "eof" then i = i + 1 end
+        if tok.kind ~= "eof" then
+            i = i + 1
+        end
         return tok
     end
 
-    --- How to name a token in a message. The kind, which for an operator is
-    --- its own spelling — except for a customary one, where the kind is the
-    --- classic form and quoting it back would name something the file does
-    --- not contain.
+    --- How to name a token in a message. The kind, which for an operator is its own
+    --- spelling — except for a customary one, where the kind is the classic form and
+    --- quoting it back would name something the file does not contain.
     local function spelling(tok: Token): string
         return lexer.CUSTOMARY[tok.text] and tok.text or tok.kind
     end
 
     --- Reports a syntax error at a token, and keeps going.
     local function found(tok: Token): string
-        if tok.kind == "eof" then return "end of file" end
-        if tok.text == "" then return tok.kind end
+        if tok.kind == "eof" then
+            return "end of file"
+        end
+        if tok.text == "" then
+            return tok.kind
+        end
         return ("%q"):format(tok.text)
     end
 
@@ -155,7 +160,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- Consumes the expected token, or reports and inserts a missing one.
     local function expect(kind: string, what: string): Token
-        if cur().kind == kind then return advance() end
+        if cur().kind == kind then
+            return advance()
+        end
         errAt(cur(), ("'%s' expected%s; found %s"):format(kind,
             what and (" " .. what) or "", found(cur())), "NUPP1002")
         return missing(kind)
@@ -163,7 +170,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- The same, for a name.
     local function expectName(what: string): Token
-        if cur().kind == "name" then return advance() end
+        if cur().kind == "name" then
+            return advance()
+        end
         errAt(cur(), ("name expected%s; found %s"):format(
             what and (" " .. what) or "", found(cur())), "NUPP1003")
         return missing("name")
@@ -191,35 +200,36 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         ["string"] = true, ["true"] = true, ["false"] = true,
     }
 
-    -- FFI operations that take a type rather than a value, so the checker
-    -- can give them a return type that depends on it.
+    -- FFI operations that take a type rather than a value, so the checker can give them
+    -- a return type that depends on it.
     local FFI_INTRINSIC = {
         ["new"] = true, ["cast"] = true, ["istype"] = true,
         ["typeof"] = true, ["sizeof"] = true, ["alignof"] = true,
     }
 
-    -- Compound assignment: statement-only, so there is no ambiguity with
-    -- the expression operators they are built from. That is also what lets
-    -- `~=` mean xor-assign here while it stays inequality in an expression:
-    -- Lua has no assignment expression, so the two never meet.
+    -- Compound assignment: statement-only, so there is no ambiguity with the expression
+    -- operators they are built from. That is also what lets `~=` mean xor-assign here
+    -- while it stays inequality in an expression: Lua has no assignment expression, so
+    -- the two never meet.
     local COMPOUND_ASSIGN = {
         ["+="] = "+", ["-="] = "-", ["*="] = "*", ["/="] = "/",
         ["//="] = "//", ["%="] = "%", ["&="] = "&", ["|="] = "|",
         ["<<="] = "<<", [">>="] = ">>", ["~>>="] = "~>>", ["..="] = "..",
         ["~="] = "~",
-        -- `??=` is a Nupp extension: LuaJIT lists it among the extensions it
-        -- has not taken, so it is lowered rather than passed through.
+        -- `??=` is a Nupp extension: LuaJIT lists it among the extensions it has not
+        -- taken, so it is lowered rather than passed through.
         ["??="] = "??",
     }
 
-    --- The binary operator a compound assignment at the cursor is built from,
-    --- or nil when there is no compound assignment there. Only `~=` needs the
-    --- second look: `!=` is the same token kind, but it spells inequality and
-    --- nothing else, so `a != b` stays what it was — a statement that is not
-    --- one.
+    --- The binary operator a compound assignment at the cursor is built from, or nil
+    --- when there is no compound assignment there. Only `~=` needs the second look:
+    --- `!=` is the same token kind, but it spells inequality and nothing else, so `a !=
+    --- b` stays what it was — a statement that is not one.
     local function compoundOp(): string?
         local tok = tokens[i]
-        if tok.kind == "~=" and tok.text ~= "~=" then return nil end
+        if tok.kind == "~=" and tok.text ~= "~=" then
+            return nil
+        end
         return COMPOUND_ASSIGN[tok.kind]
     end
 
@@ -231,18 +241,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- `type` names a type alias and takes `= <type>`; the others open a body.
     local ALIAS_KW = {["type"] = true}
 
-    -- True when the tokens at `at` begin a declaration rather than an
-    -- ordinary use of the name. Two tokens are not enough to tell: in
+    -- True when the tokens at `at` begin a declaration rather than an ordinary use of
+    -- the name. Two tokens are not enough to tell: in
     --     local record
     --     i, typeargs = f()
-    -- the introducer is followed by a name and still is not a declaration.
-    -- An alias form must continue with '='; a body form must not continue
-    -- with '=' or ',', either of which makes the name an assignment target.
+    -- the introducer is followed by a name and still is not a declaration. An alias
+    -- form must continue with '='; a body form must not continue with '=' or ',',
+    -- either of which makes the name an assignment target.
 
-    -- Skips a possibly-qualified declaration name at `at`, returning the index
-    -- just past it. A trailing dot with no name after it is not one.
+    -- Skips a possibly-qualified declaration name at `at`, returning the index just
+    -- past it. A trailing dot with no name after it is not one.
     local function afterDeclName(at: integer): integer?
-        if not tokens[at] or tokens[at].kind ~= "name" then return nil end
+        if not tokens[at] or tokens[at].kind ~= "name" then
+            return nil
+        end
         local j = at + 1
         while tokens[j] and tokens[j].kind == "." do
             if not tokens[j + 1] or tokens[j + 1].kind ~= "name" then
@@ -261,16 +273,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return false
         end
         local name = tokens[at + 1]
-        if not name or name.kind ~= "name" then return false end
-        -- The declared name must sit on the introducer's own line. Without
-        -- this, `local type` followed by `i = i + 2` on the next line reads
-        -- as an alias declaration; the same-line rule is the one already
-        -- used to keep `as` and `is` contextual [CS-6].
-        if name.line ~= kw.line then return false end
+        if not name or name.kind ~= "name" then
+            return false
+        end
+        -- The declared name must sit on the introducer's own line. Without this, `local
+        -- type` followed by `i = i + 2` on the next line reads as an alias declaration;
+        -- the same-line rule is the one already used to keep `as` and `is` contextual
+        -- [CS-6].
+        if name.line ~= kw.line then
+            return false
+        end
         local past = afterDeclName(at + 1)
-        if not past then return false end
+        if not past then
+            return false
+        end
         local after = tokens[past]
-        if not after then return false end
+        if not after then
+            return false
+        end
         if ALIAS_KW[kw.text] then
             return after.kind == "=" or after.kind == "<"
         end
@@ -295,12 +315,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return colon
     end
 
-    -- Optional generics clause: '<' Name ['is' Type] {',' ...} '>'. Tokens
-    -- are marked for tight formatting (List<T>).
+    -- Optional generics clause: '<' Name ['is' Type] {',' ...} '>'. Tokens are marked
+    -- for tight formatting (List<T>).
 
     --- An optional generics clause.
     local function parseGenerics(n: cst.Generic): cst.Generics?
-        if cur().kind ~= "<" then return nil end
+        if cur().kind ~= "<" then
+            return nil
+        end
         local g = cst.Generics{kind = "generics"}
         add(g, advance()).generic = true
         g.names, g.bounds = {}, {}
@@ -311,7 +333,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(g, advance())
                 g.bounds[at] = add(g, parseType())
             end
-            if cur().kind ~= "," then break end
+            if cur().kind ~= "," then
+                break
+            end
             add(g, advance())
         until false
         add(g, expect(">", "to close generic parameter list")).generic = true
@@ -319,12 +343,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return g
     end
 
-    -- Tokens that can begin a type, used to tell the `const` modifier from
-    -- an ordinary type that happens to be named `const` [CS-12].
+    -- Tokens that can begin a type, used to tell the `const` modifier from an ordinary
+    -- type that happens to be named `const` [CS-12].
 
     --- Whether a type could begin at this token.
     local function startsType(tok: Token?): boolean
-        if not tok then return false end
+        if not tok then
+            return false
+        end
         local k = tok.kind
         return k == "name" or k == "nil" or k == "{" or k == "function"
             or k == "(" or k == "string"
@@ -333,9 +359,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A type without its postfixes.
     local function parseTypePrimary(): Node
         local kind = cur().kind
-        -- `const T` is a read-only view of T. `const` is only a modifier
-        -- when a type follows it; on its own it is a type name like any
-        -- other, which is what keeps `local x: const` meaning what it did.
+        -- `const T` is a read-only view of T. `const` is only a modifier when a type
+        -- follows it; on its own it is a type name like any other, which is what keeps
+        -- `local x: const` meaning what it did.
         if kind == "name" and cur().text == "const"
             and startsType(tokens[i + 1]) then
             local n = cst.Tconst{kind = "tconst"}
@@ -344,11 +370,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return n
         end
         if kind == "string" or kind == "true" or kind == "false" then
-            -- a literal type: the set containing exactly this value, which
-            -- is what makes a discriminated union declarable. `false` earns
-            -- its place here because a function that returns a result or
-            -- false is a Lua idiom, and truth-testing it should leave the
-            -- result behind.
+            -- a literal type: the set containing exactly this value, which is what
+            -- makes a discriminated union declarable. `false` earns its place here
+            -- because a function that returns a result or false is a Lua idiom, and
+            -- truth-testing it should leave the result behind.
             local n = cst.Tliteral{kind = "tliteral"}
             n.token = add(n, advance())
             return n
@@ -393,7 +418,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 local member
                 if cur().kind == "[" then
                     member = cst.Tmap{kind = "tmap", capability = capability}
-                    if capability then add(member, capability) end
+                    if capability then
+                        add(member, capability)
+                    end
                     add(member, advance())
                     member.key = add(member, parseType())
                     add(member, expect("]", "to close indexer key type"))
@@ -402,7 +429,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 else
                     member = cst.TshapeField{kind = "tshapeField",
                         capability = capability}
-                    if capability then add(member, capability) end
+                    if capability then
+                        add(member, capability)
+                    end
                     member.name = add(member, expectName("in shape field"))
                     annotationColon(member, "in shape field")
                     member.type = add(member, parseType())
@@ -410,7 +439,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 return member
             end
             if cur().kind == "[" then
-                -- map: { [K]: V }  [CS-8]
+                -- map: { [K]: V } [CS-8]
                 local first = shapeMember()
                 if cur().kind == "," then
                     n = cst.Tshape{kind = "tshape", fields = {}}
@@ -437,7 +466,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 repeat
                     local f = shapeMember()
                     n.fields[#n.fields + 1] = add(n, f)
-                    if cur().kind ~= "," then break end
+                    if cur().kind ~= "," then
+                        break
+                    end
                     add(n, advance())
                 until cur().kind == "}" or cur().kind == "eof"
             else
@@ -495,7 +526,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         p.type = add(p, parseType())
                     end
                     n.params[#n.params + 1] = add(n, p)
-                    if cur().kind ~= "," then break end
+                    if cur().kind ~= "," then
+                        break
+                    end
                     add(n, advance())
                 until false
             end
@@ -541,8 +574,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance()).typePostfix = true
                 t = n
             elseif k == "[" then
-                -- C array types: T[?] is variable-length, T[N] fixed. Both
-                -- are zero-based cdata, unlike the one-based Lua {T}.
+                -- C array types: T[?] is variable-length, T[N] fixed. Both are
+                -- zero-based cdata, unlike the one-based Lua {T}.
                 local n = cst.Tcarray{kind = "tcarray"}
                 n.element = add(n, t)
                 add(n, advance()).typePostfix = true
@@ -562,13 +595,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
     end
 
-    -- noUnion: inside short-function pipes a top-level '|' would be
-    -- ambiguous with the closing pipe; unions there need parentheses.
+    -- noUnion: inside short-function pipes a top-level '|' would be ambiguous with the
+    -- closing pipe; unions there need parentheses.
 
     --- A type, including a union unless the caller is parsing one.
     parseType = function(noUnion: boolean?): Node
         local t = parsePosttype()
-        if noUnion or cur().kind ~= "|" then return t end
+        if noUnion or cur().kind ~= "|" then
+            return t
+        end
         local n = cst.Tunion{kind = "tunion"}
         n.types = {add(n, t)}
         while cur().kind == "|" do
@@ -614,10 +649,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return nil
     end
 
-    --- A method call, `obj:m(...)`, with either of its two safe-navigation
-    --- checks. `safeObj` is the `?.` token of `obj?.:m(...)`, which checks the
-    --- receiver; a `?.` between the name and the arguments checks the method
-    --- itself. Both may be present, as in `obj?.:m?.(...)`.
+    --- A method call, `obj:m(...)`, with either of its two safe-navigation checks.
+    --- `safeObj` is the `?.` token of `obj?.:m(...)`, which checks the receiver; a `?.`
+    --- between the name and the arguments checks the method itself. Both may be
+    --- present, as in `obj?.:m?.(...)`.
     local function parseMethodCall(obj: Node, safeObj: Token?): Node
         local n = cst.MethodCall{kind = "methodCall"}
         n.obj = add(n, obj)
@@ -675,9 +710,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance())
                 n.name = add(n, expectName("after '.'"))
                 e = n
-                -- ffi.new<T>() and friends take an explicit type argument.
-                -- Only these names accept one: `a < b > (c)` is ordinary Lua
-                -- everywhere else, so the ambiguity never arises. [CS-11]
+                -- ffi.new<T>() and friends take an explicit type argument. Only these
+                -- names accept one: `a < b > (c)` is ordinary Lua everywhere else, so
+                -- the ambiguity never arises. [CS-11]
                 local member = n.name
                 local base = n.obj
                 local baseTok = base and base.kind == "name" and base.token
@@ -704,8 +739,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 local qtok = advance()
                 local nk = cur().kind
                 if nk == ":" then
-                    -- `obj?.:m(...)`: the check is on the receiver, so the
-                    -- method is never looked up when it is nil.
+                    -- `obj?.:m(...)`: the check is on the receiver, so the method is
+                    -- never looked up when it is nil.
                     if noMethod > 0 then
                         -- [CS-2]: this ':' belongs to an enclosing ternary.
                         errAt(qtok, "a safe method call cannot appear in the "
@@ -803,18 +838,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
-    -- Short function expression (LuaJIT 3.0): |a, b| -> expr, x -> expr,
-    -- || -> expr (one token, shared with `or`), and -> do ... end.
-    -- Nupp extends the params with optional type annotations.
+    -- Short function expression (LuaJIT 3.0): |a, b| -> expr, x -> expr, || -> expr
+    -- (one token, shared with `or`), and -> do ... end. Nupp extends the params with
+    -- optional type annotations.
 
     --- A short function, `|a, b| -> e`.
     local function parseShortfn(): Node
         local n = cst.Shortfn{kind = "shortfn"}
         n.params = {}
         if atEmptyPipes() then
-            -- `||` is one token, so it opens and closes the list at once.
-            -- Neither hugging flag applies: there are no parameters between
-            -- the pipes for them to hug.
+            -- `||` is one token, so it opens and closes the list at once. Neither
+            -- hugging flag applies: there are no parameters between the pipes for them
+            -- to hug.
             add(n, advance())
         elseif cur().kind == "|" then
             local open = add(n, advance())
@@ -846,7 +881,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     if p.namedVararg and cur().kind == "," then
                         errAt(cur(), "named vararg must be the last parameter")
                     end
-                    if cur().kind ~= "," then break end
+                    if cur().kind ~= "," then
+                        break
+                    end
                     add(n, advance())
                 until false
             end
@@ -936,9 +973,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
     end
 
-    -- "as"/"is" are contextual operators [CS-6]: recognized only in binary-
-    -- operator position AND on the same line as the preceding token, so that
-    -- level-0 statement sequences like "x = a\nis(b)" keep their meaning.
+    -- "as"/"is" are contextual operators [CS-6]: recognized only in binary- operator
+    -- position AND on the same line as the preceding token, so that level-0 statement
+    -- sequences like "x = a\nis(b)" keep their meaning.
 
     --- Which contextual operator (`as`, `is`) is at the cursor, if any.
     local function contextualOp(prevLine: integer): string?
@@ -978,7 +1015,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 left = n
             else
                 local pri = BINPRI[cur().kind]
-                if not (pri and pri[1] > limit) then break end
+                if not (pri and pri[1] > limit) then
+                    break
+                end
                 local n = cst.Binop{kind = "binop"}
                 n.lhs = add(n, left)
                 n.op = add(n, advance())
@@ -1048,7 +1087,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     p.type = add(p, parseType())
                 end
                 n.params[#n.params + 1] = add(n, p)
-                if cur().kind ~= "," then break end
+                if cur().kind ~= "," then
+                    break
+                end
                 add(n, advance())
             until false
         end
@@ -1059,8 +1100,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.rets = {add(n, parseReturnType())}
             while cur().kind == "," and tokens[i + 1]
                 and TYPE_START[tokens[i + 1].kind] do
-                -- the comma belongs to the annotation, not to the code, so
-                -- it erases with the types it separates
+                -- the comma belongs to the annotation, not to the code, so it erases
+                -- with the types it separates
                 add(n, advance()).typeSeparator = true
                 n.rets[#n.rets + 1] = add(n, parseType())
             end
@@ -1073,14 +1114,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
-    -- Typed declarations are contextual [CS-5]. `modifierTok` is an already-
-    -- consumed `local` or `global`; bare declarations have no modifier.
+    -- Typed declarations are contextual [CS-5]. `modifierTok` is an already- consumed
+    -- `local` or `global`; bare declarations have no modifier.
     local parseTypedecl
 
-    -- A predicate return type: `x is T` says the function answers whether
-    -- its parameter `x` is a T. At a call site used as a condition that
-    -- narrows the argument, which is what keeps casts out of code that
-    -- dispatches on a union. [CS-13]
+    -- A predicate return type: `x is T` says the function answers whether its parameter
+    -- `x` is a T. At a call site used as a condition that narrows the argument, which
+    -- is what keeps casts out of code that dispatches on a union. [CS-13]
     parseReturnType = function(): Node
         local after = tokens[i + 1]
         if cur().kind == "name" and after and after.kind == "name"
@@ -1092,10 +1132,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return n
         end
         local result = parseType()
-        -- `T borrows p`: the result is a borrow of parameter `p` and cannot
-        -- outlive it. `borrows` stays contextual — it opens this form only
-        -- directly after a return type and directly before a name, and no
-        -- statement can begin that way. [CS-18]
+        -- `T borrows p`: the result is a borrow of parameter `p` and cannot outlive it.
+        -- `borrows` stays contextual — it opens this form only directly after a return
+        -- type and directly before a name, and no statement can begin that way. [CS-18]
         if cur().kind == "name" and cur().text == "borrows"
             and tokens[i + 1]
             and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "(") then
@@ -1108,7 +1147,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 repeat
                     local param = add(n, expectName("as borrowed-result source"))
                     n.params[#n.params + 1] = param
-                    if cur().kind ~= "," then break end
+                    if cur().kind ~= "," then
+                        break
+                    end
                     add(n, advance())
                 until false
                 add(n, expect(")", "to close borrowed-result sources"))
@@ -1121,16 +1162,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return result
     end
 
-    -- Parses the `@name(...)` part shared by statement and record-member
-    -- annotations. Arguments are ordinary expressions required to be
-    -- compile-time constants by the checker, except that an @ref definition
-    -- member accepts a type name; `name = value` records a structured
-    -- annotation member while a positional value is the annotation's
-    -- designated single-value member.
+    -- Parses the `@name(...)` part shared by statement and record-member annotations.
+    -- Arguments are ordinary expressions required to be compile-time constants by the
+    -- checker, except that an @ref definition member accepts a type name; `name =
+    -- value` records a structured annotation member while a positional value is the
+    -- annotation's designated single-value member.
     local function parseAnnotationApplication(n)
         add(n, expect("@"))
         n.name = add(n, expectName("after '@'"))
-        if cur().kind ~= "(" then return n end
+        if cur().kind ~= "(" then
+            return n
+        end
 
         n.open = add(n, advance())
         n.annotationArgs = {}
@@ -1144,7 +1186,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 arg.expr = add(arg, resetNoMethod(parseExp))
                 n.annotationArgs[#n.annotationArgs + 1] = add(n, arg)
-                if cur().kind ~= "," then break end
+                if cur().kind ~= "," then
+                    break
+                end
                 add(n, advance())
             until false
         end
@@ -1177,8 +1221,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 annotationColon(e, "in metamethod declaration")
                 e.type = add(e, parseType())
             elseif cur().kind == "{" then
-                -- the array part, written as the array type it is: a record
-                -- that is also a sequence declares `{T}` among its fields
+                -- the array part, written as the array type it is: a record that is
+                -- also a sequence declares `{T}` among its fields
                 e = cst.ArrayPart{kind = "arrayPart"}
                 e.type = add(e, parseType())
             elseif cur().kind == "["
@@ -1207,8 +1251,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
                 e.name = add(e, advance())
                 if cur().kind == "," then
-                    -- grouped fields ("x, y: float") are deliberately not part
-                    -- of the grammar: every field states its own type
+                    -- grouped fields ("x, y: float") are deliberately not part of the
+                    -- grammar: every field states its own type
                     errAt(cur(), "each field needs its own explicit type "
                         .. "annotation (grouped fields are not supported)")
                 end
@@ -1243,14 +1287,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
         local kw = advance() -- the contextual keyword (a name token)
         local which = kw.text
-        -- Records where the declaration begins in source. A visibility fix
-        -- writes `local`/`global` before the introducer or deletes a modifier
-        -- that is already there, and neither is findable from the name alone.
+        -- Records where the declaration begins in source. A visibility fix writes
+        -- `local`/`global` before the introducer or deletes a modifier that is already
+        -- there, and neither is findable from the name alone.
         local function introduce<D is cst.Declaration>(n: D): D
             n.visibility = visibility
             n.keyword = kw
             n.modifier = modifierTok
-            if modifierTok then add(n, modifierTok) end
+            if modifierTok then
+                add(n, modifierTok)
+            end
             add(n, kw)
             return n
         end
@@ -1271,7 +1317,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance())
                 repeat
                     n.supertypes[#n.supertypes + 1] = add(n, parseType())
-                    if cur().kind ~= "," then break end
+                    if cur().kind ~= "," then
+                        break
+                    end
                     add(n, advance())
                 until false
             end
@@ -1286,11 +1334,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
     end
 
-    -- cdef declarations [CS-10]: "cdef" is contextual; the forms
-    --   cdef struct Name <fields> end
-    --   @owned(cleanup, ...) cdef function name(params): ret
-    -- declare C ABI entities: a named C struct, or a C function bound from
-    -- the default namespace. C varargs are written "...".
+    -- cdef declarations [CS-10]: "cdef" is contextual; the forms cdef struct Name
+    -- <fields> end @owned(cleanup, ...) cdef function name(params): ret declare C ABI
+    -- entities: a named C struct, or a C function bound from the default namespace. C
+    -- varargs are written "...".
 
     --- A `cdef` declaration.
     local function parseCdef(): Node
@@ -1323,7 +1370,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     annotationColon(p, "in cdef parameter")
                     p.type = add(p, parseType())
                     n.params[#n.params + 1] = add(n, p)
-                    if cur().kind ~= "," then break end
+                    if cur().kind ~= "," then
+                        break
+                    end
                     add(n, advance())
                 until false
             end
@@ -1527,10 +1576,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             and tokens[i + 1] and (tokens[i + 1].kind == "..."
             or tokens[i + 1].kind == "name")
             and ((tokens[i + 1].kind == "name" and tokens[i + 2]
-                and tokens[i + 2].kind == ".")
-                or (tokens[i + 1].kind == "..." and tokens[i + 2]
-                    and tokens[i + 2].kind == "name" and tokens[i + 3]
-                    and tokens[i + 3].kind == ".")) then
+            and tokens[i + 2].kind == ".")
+            or (tokens[i + 1].kind == "..." and tokens[i + 2]
+            and tokens[i + 2].kind == "name" and tokens[i + 3]
+            and tokens[i + 3].kind == ".")) then
             local n = cst.AssignStmt{kind = "assignStmt"}
             n.isConst = true
             add(n, advance())
@@ -1540,7 +1589,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             n.targets = {add(n, parseSuffixedexp())}
             local function plainFieldPath(target)
-                if target.kind ~= "dotIndex" then return false end
+                if target.kind ~= "dotIndex" then
+                    return false
+                end
                 local base = target.obj
                 return base and (base.kind == "name" or plainFieldPath(base))
             end
@@ -1552,7 +1603,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.exprs = parseExplist(n)
             if n.deepConst then
                 local function markDeep(value)
-                    if not value or value.kind ~= "tableExpr" then return end
+                    if not value or value.kind ~= "tableExpr" then
+                        return
+                    end
                     for _, field in ipairs(value.fields or {}) do
                         if field.kind == "fieldNamed" then
                             field.isConst = true
@@ -1560,7 +1613,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                             errAt(cst.firstToken(field) or cur(),
                                 "const... table requires named fields")
                         end
-                        if field.value then markDeep(field.value) end
+                        if field.value then
+                            markDeep(field.value)
+                        end
                     end
                 end
                 for _, value in ipairs(n.exprs) do markDeep(value) end
@@ -1570,9 +1625,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif kind == "local" or (kind == "name" and cur().text == "const"
             and tokens[i + 1] and (tokens[i + 1].kind == "name"
             or tokens[i + 1].kind == "function")) then
-            -- LuaJIT's `const` declaration is a soft-keyword form of `local`.
-            -- Keep it lexed as a name so `local const`, `const = value`, and
-            -- `const(...)` retain their ordinary identifier meanings.
+            -- LuaJIT's `const` declaration is a soft-keyword form of `local`. Keep it
+            -- lexed as a name so `local const`, `const = value`, and `const(...)`
+            -- retain their ordinary identifier meanings.
             local isConst = kind == "name"
             local loctok = advance()
             if cur().kind == "function" then
@@ -1585,9 +1640,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.body = add(n, parseFuncbody())
                 return n
             end
-            -- Contextual typed declaration [CS-5]: 'local record R ... end' etc.
-            -- Only when the introducer is followed by a name, so that
-            -- 'local record = 5' stays a plain local.
+            -- Contextual typed declaration [CS-5]: 'local record R ... end' etc. Only
+            -- when the introducer is followed by a name, so that 'local record = 5'
+            -- stays a plain local.
             if not isConst and startsTypedecl(i) then
                 return parseTypedecl(loctok, "local")
             end
@@ -1707,22 +1762,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         n.stats = {}
         local returned = false
         while not BLOCK_FOLLOW[cur().kind] do
-            -- A return ends its block [grammar: block = *stat [retstat]]. What
-            -- follows is reported once and then parsed as usual, so the rest of
-            -- the block still checks and the tree still round-trips.
+            -- A return ends its block [grammar: block = *stat [retstat]]. What follows
+            -- is reported once and then parsed as usual, so the rest of the block still
+            -- checks and the tree still round-trips.
             if returned then
                 errAt(cur(), "'return' must be the last statement in a block",
                     nil, "move the 'return' below the statements that follow "
-                        .. "it, or delete them")
+                    .. "it, or delete them")
                 returned = false
             end
             local start = i
             local s = parseStatement()
-            if s.kind == "returnStmt" then returned = true end
+            if s.kind == "returnStmt" then
+                returned = true
+            end
             n.stats[#n.stats + 1] = add(n, s)
-            -- Progress guarantee: recovery may produce a statement out of thin
-            -- air (all-missing tokens); if so, consume the offending token so
-            -- the block loop always advances.
+            -- Progress guarantee: recovery may produce a statement out of thin air
+            -- (all-missing tokens); if so, consume the offending token so the block
+            -- loop always advances.
             if i == start then
                 local e = cst.ErrorStmt{kind = "errorStmt"}
                 errAt(cur(), ("unexpected '%s'"):format(spelling(cur())))
@@ -1737,9 +1794,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     root.blocks = {}
     while true do
         root.blocks[#root.blocks + 1] = add(root, parseBlock())
-        if cur().kind == "eof" then break end
-        -- Stray block terminator at top level ('end', 'else', ...): report,
-        -- consume, keep parsing.
+        if cur().kind == "eof" then
+            break
+        end
+        -- Stray block terminator at top level ('end', 'else', ...): report, consume,
+        -- keep parsing.
         local e = cst.ErrorStmt{kind = "errorStmt"}
         errAt(cur(), ("unexpected '%s' at top level")
             :format(spelling(cur())))

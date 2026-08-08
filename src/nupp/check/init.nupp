@@ -305,8 +305,8 @@ record checkMod.Checker
     validateCleanups: function(valueT: Type?, cleanups: any, at: any,
         code: string?, allowUnknown: boolean?)
 
-    --- Checks that a value's cleanups can be called from where it is being
-    --- discharged, so the checker only accepts what the generator can emit.
+    --- Checks that a value's cleanups can be called from where it is being discharged,
+    --- so the checker only accepts what the generator can emit.
     requireReachableCleanups: function(valueT: Type?, cleanups: any, at: any)
 
     --- Advice for an unknown name a project module is named after.
@@ -328,8 +328,8 @@ record checkMod.Checker
     --- Which direct module exports were established with `const M.field`.
     moduleFieldConst: {[string]: boolean}
 
-    --- Every immutable path rooted at the returned module table. This includes
-    --- nested `const` fields in a fresh exported table constructor.
+    --- Every immutable path rooted at the returned module table. This includes nested
+    --- `const` fields in a fresh exported table constructor.
     constModulePaths: {[string]: boolean}
 
     --- Whether that table was annotated. An annotated binding keeps the type it was
@@ -380,9 +380,9 @@ record checkMod.Checker
     --- Checks a record, interface, struct or alias declaration.
     checkTypedecl: function(stat: any)
 
-    -- The installed passes, as they returned themselves. A statement family reaches
-    -- the operations of another pass through these rather than through a local it
-    -- would have to be lexically inside `check` to see.
+    -- The installed passes, as they returned themselves. A statement family reaches the
+    -- operations of another pass through these rather than through a local it would
+    -- have to be lexically inside `check` to see.
 
     --- Ownership: see nupp.check.ownership.
     own: any
@@ -455,19 +455,27 @@ local REIFIABLE_PRIM = {
 
 --- Whether a field of this type can live in reified C memory.
 local function reifiableField(t: Type, isCdef: boolean?): boolean
-    if REIFIABLE_PRIM[t.tag] then return true end
+    if REIFIABLE_PRIM[t.tag] then
+        return true
+    end
     -- cstring/voidptr are legal in C-declared structs only: in a GC-managed struct a
     -- "const char *" field would dangle (no anchor)
     if isCdef and (t.tag == "cstring" or t.tag == "voidptr") then
         return true
     end
-    if t.tag == "nominal" and t.declKind == "struct" then return true end
-    if t.tag == "ptr" then return true end
+    if t.tag == "nominal" and t.declKind == "struct" then
+        return true
+    end
+    if t.tag == "ptr" then
+        return true
+    end
     if t.tag == "union" and #t.members == 2 and t.hasNil then
         local other = t.members[1] == T.nil_ and t.members[2] or t.members[1]
         -- any pointer-shaped type may be NULL, which is what the nullable spelling
         -- records
-        if other.tag == "ptr" then return true end
+        if other.tag == "ptr" then
+            return true
+        end
         if isCdef and (other == T.voidptr or other == T.cstring) then
             return true
         end
@@ -584,10 +592,14 @@ function checkMod.check(result, filename, env, opts)
     --- so a statement may disagree with it at any level; a type error is not a
     --- judgement, and no annotation reaches one.
     local function isAllowed(lint, code: string): boolean
-        if not lint then return false end
+        if not lint then
+            return false
+        end
         for j = #c.allowed, 1, -1 do
             local set = c.allowed[j]
-            if set[lint.name] or set[code] or set["*"] then return true end
+            if set[lint.name] or set[code] or set["*"] then
+                return true
+            end
         end
         return false
     end
@@ -600,7 +612,9 @@ function checkMod.check(result, filename, env, opts)
             value = value.token
         end
         local at = cst.firstToken(value)
-        if not at then return nil end
+        if not at then
+            return nil
+        end
         return {message = message, filename = atFilename or filename,
             line = at.line, col = at.col, offset = at.offset,
             length = #at.text}
@@ -611,9 +625,13 @@ function checkMod.check(result, filename, env, opts)
         local severity = "error"
         if lint then
             severity = lints.level(lint, c.lintConfig)
-            if severity == "off" then return end
+            if severity == "off" then
+                return
+            end
         end
-        if c.hoisting or isAllowed(lint, code) then return end
+        if c.hoisting or isAllowed(lint, code) then
+            return
+        end
         local at = cst.firstToken(nodeOrTok)
         c.diags[#c.diags + 1] = {
             code = lint and lint.code or code, lint = lint and lint.name or nil,
@@ -682,10 +700,10 @@ function checkMod.check(result, filename, env, opts)
             if v then
                 for i = #c.captureWatches, 1, -1 do
                     -- A watch asks about the scopes between its floor and itself.
-                    -- `with` sets no floor and so hears about every outward
-                    -- resolution; a closure being judged for hoisting sets the
-                    -- floor at its loop, because a name that was already bound
-                    -- before the loop is the same name on every iteration.
+                    -- `with` sets no floor and so hears about every outward resolution;
+                    -- a closure being judged for hoisting sets the floor at its loop,
+                    -- because a name that was already bound before the loop is the same
+                    -- name on every iteration.
                     local watch = c.captureWatches[i]
                     local at = s.depth or 0
                     if at < watch.depth and at >= (watch.floor or 0) then
@@ -696,7 +714,9 @@ function checkMod.check(result, filename, env, opts)
             end
             s = s.parent
         end
-        if env and env.globals then return env.globals[name] end
+        if env and env.globals then
+            return env.globals[name]
+        end
         return nil
     end
 
@@ -706,8 +726,6 @@ function checkMod.check(result, filename, env, opts)
         return e and e.t or nil
     end
 
-
-
     -- Set while a hoisted alias is being resolved, so an alias that names itself
     -- reports rather than recurses forever.
 
@@ -715,11 +733,15 @@ function checkMod.check(result, filename, env, opts)
         local s = c.scope
         while s do
             local t = s.types[name]
-            if t then return t, s.typeDefs[name] end
+            if t then
+                return t, s.typeDefs[name]
+            end
             local waiting = s.pending and s.pending[name]
             if waiting then
                 local resolved = c.resolvePendingAlias(name, waiting, s)
-                if resolved then return resolved, s.typeDefs[name] end
+                if resolved then
+                    return resolved, s.typeDefs[name]
+                end
             end
             s = s.parent
         end
@@ -735,7 +757,9 @@ function checkMod.check(result, filename, env, opts)
         return nil
     end
     c.definition = function(tok, kind)
-        if not tok then return nil end
+        if not tok then
+            return nil
+        end
         local def = tok.definition
         if not def or def.filename ~= filename or def.token ~= tok then
             def = {filename = filename, token = tok, name = tok.text}
@@ -751,7 +775,9 @@ function checkMod.check(result, filename, env, opts)
         return def
     end
     c.markToken = function(tok, def, t, kind)
-        if not tok then return end
+        if not tok then
+            return
+        end
         tok.definition = def
         tok.inferredType = t
         tok.semanticKind = kind or def and def.kind or "variable"
@@ -776,7 +802,9 @@ function checkMod.check(result, filename, env, opts)
             def.type = t
             def.constant = constant == true
                 or (tok == nil and old and old.constant) or false
-            if not def.kind or def.kind == "variable" then def.kind = kind end
+            if not def.kind or def.kind == "variable" then
+                def.kind = kind
+            end
         end
         c.scope.vars[name] = {
             t = t,
@@ -794,10 +822,16 @@ function checkMod.check(result, filename, env, opts)
     c.bindType = function(name, t, tok)
         c.scope.types[name] = t
         local kind = t and t.tag == "nominal" and t.declKind or "type"
-        if kind == "record" then kind = "type" end
-        if t and t.tag == "typevar" then kind = "typeParameter" end
+        if kind == "record" then
+            kind = "type"
+        end
+        if t and t.tag == "typevar" then
+            kind = "typeParameter"
+        end
         local def = tok and c.definition(tok, kind) or c.scope.typeDefs[name]
-        if def then def.type, def.kind = t, kind end
+        if def then
+            def.type, def.kind = t, kind
+        end
         c.scope.typeDefs[name] = def
         c.markToken(tok, def, t, kind)
     end
@@ -816,7 +850,9 @@ function checkMod.check(result, filename, env, opts)
     --- identifier.
     c.declKey = function(stat): string
         local qualifier = c.qualifierOf(stat)
-        if not qualifier then return stat.name.text end
+        if not qualifier then
+            return stat.name.text
+        end
         return qualifier .. "." .. stat.name.text
     end
 
@@ -869,13 +905,13 @@ function checkMod.check(result, filename, env, opts)
             local boundNode = generics.bounds and generics.bounds[j]
             if boundNode then
                 bounds[j] = c.resolveType(boundNode)
-                if tv.tag == "typevar" then tv.bound = bounds[j] end
+                if tv.tag == "typevar" then
+                    tv.bound = bounds[j]
+                end
             end
         end
         return params, bounds
     end
-
-
 
     ---------------------------------------------------------------------
     -- Narrowing: facts extracted from conditions
@@ -888,14 +924,18 @@ function checkMod.check(result, filename, env, opts)
     c.cNamespaceType = function(): Type
         local decls = require("nupp.cheader").declaredFunctions(function(tag)
             local found = c.lookupType(tag)
-            if found and found.tag == "nominal" then return found end
+            if found and found.tag == "nominal" then
+                return found
+            end
             return nil
         end)
         local fields = {}
         for name, t in pairs(decls) do
             fields[#fields + 1] = {name = name, type = t}
         end
-        if #fields == 0 then return T.any end
+        if #fields == 0 then
+            return T.any
+        end
         return T.shape(fields)
     end
 
@@ -952,9 +992,13 @@ function checkMod.check(result, filename, env, opts)
     ---
     --- @param call the called expression, if the statement had one
     local function neverReturns(call: Node?): boolean
-        if not call then return false end
+        if not call then
+            return false
+        end
         local kind = call.kind
-        if kind ~= "call" and kind ~= "methodCall" then return false end
+        if kind ~= "call" and kind ~= "methodCall" then
+            return false
+        end
         local signature = call.signatureType as Type?
         if signature and signature.tag == "func" and signature.noreturn then
             return true
@@ -963,7 +1007,9 @@ function checkMod.check(result, filename, env, opts)
             local callee = call.obj
             if callee and callee.kind == "name" then
                 local tok = callee.token
-                if tok and tok.text == "error" then return true end
+                if tok and tok.text == "error" then
+                    return true
+                end
             end
         end
         return false
@@ -975,13 +1021,17 @@ function checkMod.check(result, filename, env, opts)
     local function alwaysExits(block: Node?): boolean
         local stats = block and block.kind == "block" and block.stats or {}
         local last = stats[#stats]
-        if not last then return false end
+        if not last then
+            return false
+        end
         local kind = last.kind
         if kind == "returnStmt" or kind == "breakStmt"
             or kind == "continueStmt" then
             return true
         end
-        if kind == "callStmt" then return neverReturns(last.expr) end
+        if kind == "callStmt" then
+            return neverReturns(last.expr)
+        end
         return false
     end
 
@@ -994,20 +1044,32 @@ function checkMod.check(result, filename, env, opts)
     local function alwaysRaises(block: Node?): boolean
         local stats = block and block.kind == "block" and block.stats or {}
         local last = stats[#stats]
-        if not last then return false end
+        if not last then
+            return false
+        end
         local kind = last.kind
-        if kind == "callStmt" then return neverReturns(last.expr) end
-        if kind == "doStmt" then return alwaysRaises(last.body) end
+        if kind == "callStmt" then
+            return neverReturns(last.expr)
+        end
+        if kind == "doStmt" then
+            return alwaysRaises(last.body)
+        end
         if kind == "ifStmt" then
             local otherwise = last.elseClause
-            if not otherwise then return false end
+            if not otherwise then
+                return false
+            end
             for _, clause in ipairs(last.clauses) do
                 if clause.kind ~= "ifClause" and clause.kind ~= "elseifClause" then
                     return false
                 end
-                if not alwaysRaises(clause.body) then return false end
+                if not alwaysRaises(clause.body) then
+                    return false
+                end
             end
-            if otherwise.kind ~= "elseClause" then return false end
+            if otherwise.kind ~= "elseClause" then
+                return false
+            end
             return alwaysRaises(otherwise.body)
         end
         return false
@@ -1018,8 +1080,12 @@ function checkMod.check(result, filename, env, opts)
     ---
     --- @param x the node to search
     local function returnsSomewhere(x: Node): boolean
-        if x.kind == "returnStmt" then return true end
-        if x.kind == "funcbody" or x.kind == "shortfn" then return false end
+        if x.kind == "returnStmt" then
+            return true
+        end
+        if x.kind == "funcbody" or x.kind == "shortfn" then
+            return false
+        end
         for _, child in ipairs(x) do
             if not cst.isToken(child) and returnsSomewhere(child as Node) then
                 return true
@@ -1044,9 +1110,6 @@ function checkMod.check(result, filename, env, opts)
     -- Statements
     ---------------------------------------------------------------------
 
-
-
-
     -- Whether an annotation is well formed, and what one defines, is its own job; the
     -- walk only asks. See nupp.check.annotate.
     local marks = annotate.install(c)
@@ -1067,7 +1130,9 @@ function checkMod.check(result, filename, env, opts)
     -- than an open table's.
     local function modulePath(target: Node): string?
         local key = pathKey(target)
-        if not key or not c.moduleLocal then return nil end
+        if not key or not c.moduleLocal then
+            return nil
+        end
         if key:sub(1, #c.moduleLocal + 1) ~= c.moduleLocal .. "." then
             return nil
         end
@@ -1075,7 +1140,9 @@ function checkMod.check(result, filename, env, opts)
     end
 
     local function recordConstTableFields(path: string, value: Node?)
-        if not value or value.kind ~= "tableExpr" then return end
+        if not value or value.kind ~= "tableExpr" then
+            return
+        end
         for _, field in ipairs(value.fields or {}) do
             if field.kind == "fieldNamed" and field.isConst and field.name then
                 local fieldPath = path .. "." .. field.name.text
@@ -1087,11 +1154,17 @@ function checkMod.check(result, filename, env, opts)
 
     local function recordModuleField(target: Node, t: Type?, constant: boolean?,
         value: Node?)
-        if not c.moduleLocal or target.kind ~= "dotIndex" then return end
+        if not c.moduleLocal or target.kind ~= "dotIndex" then
+            return
+        end
         local base, member = target.obj, target.name
-        if not base or not member or base.kind ~= "name" then return end
+        if not base or not member or base.kind ~= "name" then
+            return
+        end
         local baseTok = base.token
-        if not baseTok or baseTok.text ~= c.moduleLocal then return end
+        if not baseTok or baseTok.text ~= c.moduleLocal then
+            return
+        end
         c.moduleFields[member.text] = t or T.any
         c.moduleFieldTokens[member.text] = member
         if constant then
@@ -1119,8 +1192,8 @@ function checkMod.check(result, filename, env, opts)
     c.returnsSomewhere = returnsSomewhere
 
     -- Each statement family is its own module, installed here and reached through one
-    -- table. A kind with no handler is a statement with nothing to check: empty,
-    -- break, goto, label, and the error nodes recovery leaves behind.
+    -- table. A kind with no handler is a statement with nothing to check: empty, break,
+    -- goto, label, and the error nodes recovery leaves behind.
     local statHandlers = {}
     for _, installed in ipairs({
         bindings.install(c), control.install(c), functions.install(c),
@@ -1133,11 +1206,12 @@ function checkMod.check(result, filename, env, opts)
 
     local function checkStat(stat: Node)
         local handle = statHandlers[stat.kind]
-        if handle then handle(stat) end
+        if handle then
+            handle(stat)
+        end
     end
 
     c.checkStat = checkStat
-
 
     -- Binds every type a block declares before any body is checked, so declarations in
     -- one block may name each other whatever the order. A nominal is created and bound
@@ -1154,7 +1228,9 @@ function checkMod.check(result, filename, env, opts)
                 n.byname = n.byname or {}
                 n.writeByname = n.writeByname or {}
                 local key = c.declKey(decl)
-                if c.qualifierOf(decl) then n.runtimePath = key end
+                if c.qualifierOf(decl) then
+                    n.runtimePath = key
+                end
                 c.bindType(key, n, nil)
             elseif k == "typeAlias" and decl.name and decl.value then
                 local waiting = {node = decl.value, tok = decl.name}
@@ -1171,7 +1247,9 @@ function checkMod.check(result, filename, env, opts)
             while decl and decl.kind == "pragmaStmt" do decl = decl.stat end
             local fname = decl and decl.kind == "funcStmt" and decl.name
             local ownerKey, memberTok = nil, nil
-            if fname then ownerKey, memberTok = c.funcOwner(fname) end
+            if fname then
+                ownerKey, memberTok = c.funcOwner(fname)
+            end
             if ownerKey then
                 local owner = c.lookupType(ownerKey)
                 local member = memberTok and memberTok.text
@@ -1193,13 +1271,17 @@ function checkMod.check(result, filename, env, opts)
     --- @param block the block node
     --- @param scopeManaged whether the caller has already pushed the scope
     c.checkBlock = function(block: Node?, scopeManaged: boolean?)
-        if not scopeManaged then c.pushScope() end
+        if not scopeManaged then
+            c.pushScope()
+        end
         hoistDeclarations(block)
         local stats = block and block.kind == "block" and block.stats or {}
         for _, stat in ipairs(stats) do
             checkStat(stat)
         end
-        if not scopeManaged then c.popScope() end
+        if not scopeManaged then
+            c.popScope()
+        end
     end
 
     -- A goto may leave a resource scope (the lowering cleans before re-dispatch), but
@@ -1207,13 +1289,19 @@ function checkMod.check(result, filename, env, opts)
     local function auditWithGotos(block)
         local labels, gotos = {}, {}
         local function walk(node, regions)
-            if not node or cst.isToken(node) then return end
+            if not node or cst.isToken(node) then
+                return
+            end
             if node.kind == "funcbody" then
-                if node.body then auditWithGotos(node.body) end
+                if node.body then
+                    auditWithGotos(node.body)
+                end
                 return
             end
             if node.kind == "shortfn" then
-                if node.body then auditWithGotos(node.body) end
+                if node.body then
+                    auditWithGotos(node.body)
+                end
                 return
             end
             local active = regions

@@ -24,7 +24,6 @@ local ansi = require("nupp.ansi")
 
 local diagnostics = {}
 
-
 local REPORTED = {note = "note", warning = "warning"}
 
 --- Whether a diagnostic stops a build. A note and a warning are reported and stepped
@@ -36,34 +35,42 @@ end
 
 local function readFile(path)
     local file = io.open(path, "rb")
-    if not file then return nil end
+    if not file then
+        return nil
+    end
     local source = file:read("*a")
     file:close()
     return source
 end
 
 local function lineText(source, wanted)
-    if not source or not wanted or wanted < 1 then return nil end
+    if not source or not wanted or wanted < 1 then
+        return nil
+    end
     local line, start = 1, 1
     while line < wanted do
         local newline = source:find("\n", start, true)
-        if not newline then return nil end
+        if not newline then
+            return nil
+        end
         start, line = newline + 1, line + 1
     end
     local finish = source:find("\n", start, true) or (#source + 1)
     return source:sub(start, finish - 1):gsub("\r$", "")
 end
 
---- The quoted source line and the caret run under it, appended to the report.
---- Nothing is appended when the source could not be read, since a rail with no
---- line beside it says less than leaving it out.
+--- The quoted source line and the caret run under it, appended to the report. Nothing
+--- is appended when the source could not be read, since a rail with no line beside it
+--- says less than leaving it out.
 local function writeSourceMark(out, style, paint, source, diagnostic)
     local shown = lineText(source, diagnostic.line)
-    if not shown then return end
+    if not shown then
+        return
+    end
     local number = tostring(diagnostic.line)
     local col = math.max(1, diagnostic.col or 1)
-    -- Tabs are copied through rather than counted as one column, so the carets
-    -- land under the span however the line was indented.
+    -- Tabs are copied through rather than counted as one column, so the carets land
+    -- under the span however the line was indented.
     local prefix = shown:sub(1, col - 1):gsub("[^\t]", " ")
     local available = math.max(1, #shown - col + 1)
     local length = math.max(1, math.min(diagnostic.length or 1, available))
@@ -76,28 +83,38 @@ end
 
 --- Writes diagnostics and returns whether an error was present.
 function diagnostics.report(values: {any}): boolean
-    if #values == 0 then return false end
+    if #values == 0 then
+        return false
+    end
     local style = ansi.style(io.stderr)
     local failed = false
     local sources = {}
     local out: {string} = {}
     local function sourceFor(path)
-        if not path then return nil end
-        if sources[path] == nil then sources[path] = readFile(path) or false end
+        if not path then
+            return nil
+        end
+        if sources[path] == nil then
+            sources[path] = readFile(path) or false
+        end
         return sources[path] or nil
     end
     for _, diagnostic in ipairs(values) do
         local severity = REPORTED[diagnostic.severity] or "error"
-        if severity == "error" then failed = true end
+        if severity == "error" then
+            failed = true
+        end
         local paint = ansi.forSeverity(style, severity)
         local code = diagnostic.code or ""
         if diagnostic.lint then
-            -- The name is what a suppression or a config entry writes, so it is
-            -- said beside the code rather than instead of it.
+            -- The name is what a suppression or a config entry writes, so it is said
+            -- beside the code rather than instead of it.
             code = code ~= "" and (code .. " " .. diagnostic.lint)
                 or diagnostic.lint
         end
-        if code ~= "" then code = style.faint(code .. ":") .. " " end
+        if code ~= "" then
+            code = style.faint(code .. ":") .. " "
+        end
         out[#out + 1] = style.path(("%s:%d:%d:"):format(
             diagnostic.filename or "?", diagnostic.line or 0,
             diagnostic.col or 0)) .. " " .. paint(severity) .. ": " .. code

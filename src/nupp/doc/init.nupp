@@ -39,8 +39,8 @@ local renderPage, homeHero = pageMod.render, pageMod.homeHero
 
 local doc = {}
 
---- Reads one source file as its documented declarations. Returns the module, or nil
---- and the parse errors that stopped it.
+--- Reads one source file as its documented declarations. Returns the module, or nil and
+--- the parse errors that stopped it.
 function doc.extract(source, path, name, opts)
     return extractMod.extract(source, path, name, opts)
 end
@@ -49,6 +49,7 @@ end
 function doc.markdown(modules, title)
     return markdownMod.render(modules, title)
 end
+
 local function sourceFiles(root, config, settings, requested)
     local paths, seen = {}, {}
     local sources = requested and #requested > 0 and requested
@@ -81,7 +82,8 @@ local function loadModules(root, config, settings, requested)
             local module, parseErrors = doc.extract(source, path, name,
                 {includeAll = settings.all,
                 includePrivate = settings.includePrivate})
-            if module then modules[#modules + 1] = module
+            if module then
+                modules[#modules + 1] = module
             else
                 for _, err in ipairs(parseErrors) do errors[#errors + 1] = err end
             end
@@ -101,7 +103,9 @@ local function embedFiles(root, markdown)
         local path = line:match("^<<<%s+@(%S+)%s*$")
         if path then
             local contents, err = readFile(join(root, path))
-            if not contents then return nil, err end
+            if not contents then
+                return nil, err
+            end
             out[#out + 1] = "```" .. (path:match("%.([%w_]+)$") or "text")
             out[#out + 1] = (contents:gsub("\n$", ""))
             out[#out + 1] = "```"
@@ -119,8 +123,12 @@ local function configuredPages(root, settings, title)
             return nil, "documentation page " .. index .. " must be a table"
         end
         local route = cleanRoute(configured.path)
-        if not route then return nil, "invalid documentation page path" end
-        if seen[route] then return nil, "duplicate documentation page path: " .. route end
+        if not route then
+            return nil, "invalid documentation page path"
+        end
+        if seen[route] then
+            return nil, "duplicate documentation page path: " .. route
+        end
         seen[route], home = true, home or route == ""
         local candidate = {}
         for key, value in pairs(configured) do candidate[key] = value end
@@ -134,13 +142,19 @@ local function configuredPages(root, settings, title)
         candidate.markdown = ""
         if candidate.source then
             local source, err = readFile(join(root, candidate.source))
-            if not source then return nil, err end
+            if not source then
+                return nil, err
+            end
             if source:sub(1, 4) == "---\n" then
                 local ending = source:find("\n---\n", 5, true)
-                if ending then source = source:sub(ending + 5) end
+                if ending then
+                    source = source:sub(ending + 5)
+                end
             end
             source, err = embedFiles(root, source)
-            if not source then return nil, err end
+            if not source then
+                return nil, err
+            end
             candidate.markdown = source
         end
         pages[#pages + 1] = candidate
@@ -217,21 +231,31 @@ end
 local function renderSite(root, outDir, modules, title, settings)
     configureScintillua(root, settings)
     local ok, err = copyPublicFiles(root, outDir, settings.public)
-    if not ok then return nil, err end
+    if not ok then
+        return nil, err
+    end
     local css = THEME
     if settings.customCss then
         local custom
         custom, err = readFile(join(root, tostring(settings.customCss)))
-        if not custom then return nil, err end
+        if not custom then
+            return nil, err
+        end
         css = css .. "\n" .. custom
     end
     ok, err = writeFile(join(outDir, "assets/style.css"), css)
-    if not ok then return nil, err end
+    if not ok then
+        return nil, err
+    end
     ok, err = writeFile(join(outDir, "assets/site.js"), SCRIPT)
-    if not ok then return nil, err end
+    if not ok then
+        return nil, err
+    end
     local pages
     pages, err = configuredPages(root, settings, title)
-    if not pages then return nil, err end
+    if not pages then
+        return nil, err
+    end
     local claimedRoutes = {}
     for _, candidate in ipairs(pages) do claimedRoutes[candidate.path] = true end
     for _, module in ipairs(modules) do
@@ -258,7 +282,9 @@ local function renderSite(root, outDir, modules, title, settings)
             markdown = doc.markdown({module})
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[#body + 1] = '<h1>Module: <code>' .. htmlEscape(module.name) .. '</code></h1>'
-            if module.text ~= "" then body[#body + 1] = markdownHtml(module.text, links) end
+            if module.text ~= "" then
+                body[#body + 1] = markdownHtml(module.text, links)
+            end
             if #module.items == 0 then
                 body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
             else
@@ -287,13 +313,19 @@ local function renderSite(root, outDir, modules, title, settings)
             current, items, file, settings, pages, candidate.path, candidate.layout)
         appendSearchEntries(searchEntries, candidate, file, markdown)
         ok, err = writeFile(join(outDir, file), html)
-        if not ok then return nil, err end
+        if not ok then
+            return nil, err
+        end
         local mdFile = candidate.path == "" and "index.md" or candidate.path .. ".md"
         ok, err = writeFile(join(outDir, mdFile), markdown)
-        if not ok then return nil, err end
+        if not ok then
+            return nil, err
+        end
         if candidate.path ~= "" then
             ok, err = writeFile(join(outDir, candidate.path .. "/llms.txt"), markdown)
-            if not ok then return nil, err end
+            if not ok then
+                return nil, err
+            end
         end
         allMarkdown[#allMarkdown + 1] = {page = candidate, text = markdown}
         if candidate.module then
@@ -302,7 +334,9 @@ local function renderSite(root, outDir, modules, title, settings)
             ok, err = writeFile(join(outDir, legacy), redirectHtml(
                 candidate.module.name:match("%.") and candidate.module.name:match("([^.]+)$")
                 .. "/index.html" or candidate.module.name .. "/index.html"))
-            if not ok then return nil, err end
+            if not ok then
+                return nil, err
+            end
         end
     end
 
@@ -320,17 +354,23 @@ local function renderSite(root, outDir, modules, title, settings)
     llms[#llms + 1] = ""
     llms[#llms + 1] = "- [Complete documentation](llms-full.txt)"
     ok, err = writeFile(join(outDir, "llms.txt"), table.concat(llms, "\n") .. "\n")
-    if not ok then return nil, err end
+    if not ok then
+        return nil, err
+    end
     local full = {"# " .. (settings.name or title)}
     for _, entry in ipairs(allMarkdown) do
         full[#full + 1] = "\n---\n\n## " .. entry.page.title .. "\n\n"
             .. trim(entry.text) .. "\n"
     end
     ok, err = writeFile(join(outDir, "llms-full.txt"), table.concat(full, "\n"))
-    if not ok then return nil, err end
+    if not ok then
+        return nil, err
+    end
     ok, err = writeFile(join(outDir, "assets/search-index.js"),
         searchIndexJs(searchEntries))
-    if not ok then return nil, err end
+    if not ok then
+        return nil, err
+    end
     return true
 end
 
@@ -343,9 +383,9 @@ end
 
 --- Where a documentation target writes when the manifest names no `outDir`.
 ---
---- `nupp tasks` reports this and `nupp clean` removes it, so the default lives
---- here rather than being spelled again wherever it is needed: a build that
---- writes somewhere the task table does not name is a build clean can miss.
+--- `nupp tasks` reports this and `nupp clean` removes it, so the default lives here
+--- rather than being spelled again wherever it is needed: a build that writes somewhere
+--- the task table does not name is a build clean can miss.
 ---
 --- @param format site, markdown, or both
 --- @return the path, relative to the project root
@@ -356,41 +396,57 @@ end
 function doc.build(root, config, settings, opts)
     root, settings, opts = root or ".", settings or {}, opts or {}
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
-    if #errors > 0 then report(errors); return 1 end
-    if opts.checkOnly then return 0 end
+    if #errors > 0 then
+        report(errors); return 1
+    end
+    if opts.checkOnly then
+        return 0
+    end
     local format = opts.format or settings.format or "site"
     local title = opts.title or settings.title or config.name or "Nupp API"
     local output = normalize(opts.output or settings.outDir
         or doc.defaultOutDir(format))
     output = join(root, output)
-    -- Recording is on for the writes below and off again before returning, so a
-    -- later caller without a collector cannot inherit this one's.
+    -- Recording is on for the writes below and off again before returning, so a later
+    -- caller without a collector cannot inherit this one's.
     filesMod.collect(opts.written)
     local code, message = 0, nil
     if format == "markdown" then
         local ok, err = writeFile(output, doc.markdown(modules, title))
-        if not ok then code, message = 1, tostring(err) end
+        if not ok then
+            code, message = 1, tostring(err)
+        end
     elseif format == "site" then
         local ok, err = renderSite(root, output, modules, title, settings)
-        if not ok then code, message = 1, tostring(err) end
+        if not ok then
+            code, message = 1, tostring(err)
+        end
     elseif format == "both" then
         local ok, err = renderSite(root, output, modules, title, settings)
-        if ok then ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title)) end
-        if not ok then code, message = 1, tostring(err) end
+        if ok then
+            ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title))
+        end
+        if not ok then
+            code, message = 1, tostring(err)
+        end
     else
         code = 2
         message = "documentation format must be site, markdown, or both"
     end
     filesMod.collect(nil)
-    if message then io.stderr:write("nupp: " .. message .. "\n") end
+    if message then
+        io.stderr:write("nupp: " .. message .. "\n")
+    end
     return code, output, format
 end
 
---- The documentation settings a manifest configured, either as its own `docs`
---- table or as a build target of that kind. Exported because the command line
---- needs to read them before it can let options override them.
+--- The documentation settings a manifest configured, either as its own `docs` table or
+--- as a build target of that kind. Exported because the command line needs to read them
+--- before it can let options override them.
 function doc.manifestSettings(config)
-    if type(config.docs) == "table" then return config.docs end
+    if type(config.docs) == "table" then
+        return config.docs
+    end
     for name, target in pairs(config.build and config.build.targets or {}) do
         if type(target) == "table" and target.kind == "docs" then
             local copy = {}
@@ -402,13 +458,17 @@ function doc.manifestSettings(config)
     return {}
 end
 
---- Reads the manifest a project root configured, or an empty configuration when it
---- has none. Returns nil and a message when there is one and it does not load.
+--- Reads the manifest a project root configured, or an empty configuration when it has
+--- none. Returns nil and a message when there is one and it does not load.
 function doc.loadConfig(root)
     local manifest = loadfile(join(root or ".", "nupp.lua"))
-    if not manifest then return {} end
+    if not manifest then
+        return {}
+    end
     local ok, loaded = pcall(manifest)
-    if not ok then return nil, tostring(loaded) end
+    if not ok then
+        return nil, tostring(loaded)
+    end
     return type(loaded) == "table" and loaded or {}
 end
 

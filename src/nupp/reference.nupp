@@ -29,32 +29,31 @@ record reference.Section
     --- The heading, which is also the anchor a `docs` pointer can name.
     title: string
 
-    --- What it is and when to reach for it. Markdown, kept to a few sentences:
-    --- the example is meant to carry the weight.
+    --- What it is and when to reach for it. Markdown, kept to a few sentences: the
+    --- example is meant to carry the weight.
     body: string
 
-    --- A complete module demonstrating it, or nil for a section that is
-    --- orientation rather than syntax. Compiled by the test.
+    --- A complete module demonstrating it, or nil for a section that is orientation
+    --- rather than syntax. Compiled by the test.
     example: string?
 
-    --- The codes that report getting this wrong. Each must resolve in
-    --- `nupp.explain`.
+    --- The codes that report getting this wrong. Each must resolve in `nupp.explain`.
     codes: {string}
 
-    --- Companion modules the example requires, by filename. A section about
-    --- reaching across a module boundary cannot demonstrate it in one file, and
-    --- an untested example of the thing readers most often get wrong would be
-    --- the wrong one to leave unchecked.
+    --- Companion modules the example requires, by filename. A section about reaching
+    --- across a module boundary cannot demonstrate it in one file, and an untested
+    --- example of the thing readers most often get wrong would be the wrong one to
+    --- leave unchecked.
     context: {[string]: string}?
 end
 
 -- Everything the reader needs, in the order it is worth reading.
 local SECTIONS: {reference.Section} = {
 
-reference.Section{
-    title = "What Nupp is",
-    codes = {},
-    body = [=[
+    reference.Section{
+        title = "What Nupp is",
+        codes = {},
+        body = [=[
 A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program is
 a valid Nupp program, and unannotated code checks silently — annotations are what
 turn checking on, one declaration at a time.
@@ -65,12 +64,12 @@ run time.
 
 Generated code targets LuaJIT 2.1.1784535649 or newer.
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Declaring things",
-    codes = {"NUPP2119"},
-    body = [=[
+    reference.Section{
+        title = "Declaring things",
+        codes = {"NUPP2119"},
+        body = [=[
 A typed declaration says where it lives, the way an ordinary Lua definition does:
 `local` keeps it to the file, a qualified name puts it on that table, and
 `global` publishes it project-wide. Saying none of the three is refused rather
@@ -80,7 +79,7 @@ silence is not reused for a different meaning.
 Inside its own body a declaration answers to its simple name, so a recursive
 field reads `User?` rather than `models.User?`.
 ]=],
-    example = [=[
+        example = [=[
 local models = {}
 
 local type UserId = uint32
@@ -94,12 +93,12 @@ end
 
 return models
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Types",
-    codes = {"NUPP2101", "NUPP2001"},
-    body = [=[
+    reference.Section{
+        title = "Types",
+        codes = {"NUPP2101", "NUPP2001"},
+        body = [=[
 Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
 `integer`, `table`, `thread`, `userdata`. The C numeric tower: `float`,
 `int8`…`int64`, `uint8`…`uint64`, plus `cdata`, `cstring` (`const char *`) and
@@ -119,7 +118,7 @@ containing just that value, and `const T` is a read-only view.
 Arithmetic on `integer` widens to `number`; annotate a result `number` unless you
 have narrowed it back.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 local type Id = uint32
 local type Maybe = string?
@@ -132,12 +131,12 @@ local type Handler = function(event: string): boolean
 local type Reply = unknown
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Functions",
-    codes = {"NUPP2002", "NUPP2106"},
-    body = [=[
+    reference.Section{
+        title = "Functions",
+        codes = {"NUPP2002", "NUPP2106"},
+        body = [=[
 Parameters and results are annotated in the usual place. Several results are
 listed comma-separated; inside a function *type* a multi-result needs parentheses.
 
@@ -148,7 +147,7 @@ A function that returns nothing still needs to say so, as `: nil`.
 A function that always raises, exits, or loops forever returns `never`; a call
 to it leaves the block it stands in, the way an inline `error` does.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 function m.add(a: integer, b: integer): integer
@@ -169,16 +168,16 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Generics and bounds",
-    codes = {"NUPP2101"},
-    body = [=[
+    reference.Section{
+        title = "Generics and bounds",
+        codes = {"NUPP2101"},
+        body = [=[
 Type parameters go in angle brackets after the name. `T is Bound` constrains one,
 and the bound is an ordinary type — usually an interface.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 interface m.Named
@@ -195,12 +194,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Property capabilities",
-    codes = {"NUPP2001", "NUPP2009"},
-    body = [=[
+    reference.Section{
+        title = "Property capabilities",
+        codes = {"NUPP2001", "NUPP2009"},
+        body = [=[
 `readonly` and `writeonly` grant member access independently on shapes,
 interfaces, records, and indexers. A readonly property is covariant; a
 writeonly property is contravariant. Declaring both separately permits
@@ -210,7 +209,7 @@ invariant type.
 These are views of members. `const T` makes a whole value read-only, and
 `borrows`/`exclusive` describe lifetime and aliasing instead.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 local type Input = {readonly value: string | integer}
@@ -233,18 +232,18 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Records",
-    codes = {"NUPP2004", "NUPP2118"},
-    body = [=[
+    reference.Section{
+        title = "Records",
+        codes = {"NUPP2004", "NUPP2118"},
+        body = [=[
 A record is a table with declared fields. It may carry inline methods, whose
 `self` is implicit, and it is constructed by calling it with a table.
 
 One explicit type per field: grouped names are rejected.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 --- A point in the plane.
@@ -263,16 +262,16 @@ local d = origin:lengthSquared()
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Interfaces",
-    codes = {"NUPP2001"},
-    body = [=[
+    reference.Section{
+        title = "Interfaces",
+        codes = {"NUPP2001"},
+        body = [=[
 An interface declares a shape without a body. `record X is Y` states that X
 includes Y, and the checker holds it to that.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 interface m.Named
@@ -286,18 +285,18 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Structs",
-    codes = {"NUPP2203"},
-    body = [=[
+    reference.Section{
+        title = "Structs",
+        codes = {"NUPP2203"},
+        body = [=[
 A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
 hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
 the one place a type changes what the program does at run time rather than only
 what the checker accepts.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 struct m.Vec3
@@ -311,12 +310,12 @@ local type Fixed = m.Vec3[16]
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Literal and tagged unions",
-    codes = {"NUPP2107"},
-    body = [=[
+    reference.Section{
+        title = "Literal and tagged unions",
+        codes = {"NUPP2107"},
+        body = [=[
 A union of string literals is a closed set of values — what other languages
 spell `enum`. It erases: the value at run time is the plain string, and a bare
 literal lands in it. A dispatch over one that leaves members unhandled is
@@ -328,7 +327,7 @@ the field is the tag, and comparing it narrows the union to the one record
 that declares that tag. That is the form to reach for when the alternatives
 carry data, since a bare literal carries none.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 type m.Color = "red" | "green" | "blue"
@@ -360,12 +359,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Narrowing",
-    codes = {"NUPP2001"},
-    body = [=[
+    reference.Section{
+        title = "Narrowing",
+        codes = {"NUPP2001"},
+        body = [=[
 `e is T` tests a type and narrows in the branch it proves. A truthiness test
 narrows an optional, including through a field path copied into a local. `e as T`
 is an explicit cast where you know better than the checker.
@@ -374,7 +373,7 @@ A function may return a predicate, `p is T`, meaning it answers whether that
 parameter holds the type — the value returned is a boolean, and the caller narrows
 on it.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 local function isString(v: any): v is string
@@ -396,12 +395,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Owned resources",
-    codes = {"NUPP2603", "NUPP2615"},
-    body = [=[
+    reference.Section{
+        title = "Owned resources",
+        codes = {"NUPP2603", "NUPP2615"},
+        body = [=[
 `@owned(cleanup)` says a result carries a cleanup obligation. An owned value must
 be discharged before it leaves scope: disposed, passed to a `takes` parameter,
 returned as an owner, or converted with `intoRaw`. Forgetting is a compile error,
@@ -412,7 +411,7 @@ Parameter modes say what a call does with what it is given: `takes` consumes,
 other view live, and `retains`/`releases` describe C holding a pointer across a
 call.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 local function closeFile(file: LuaFile)
@@ -439,12 +438,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "with scopes",
-    codes = {"NUPP2610"},
-    body = [=[
+    reference.Section{
+        title = "with scopes",
+        codes = {"NUPP2610"},
+        body = [=[
 `with` is the only place Nupp closes something for you. The resource is released
 when the block ends — on fallthrough, on `return`, on loop control, on a `goto`
 leaving the body, and on an error raised anywhere inside.
@@ -454,7 +453,7 @@ non-optional owner with at least one known cleanup. An optional owner has to be
 narrowed first. Inside the body the binding is a borrow. Several resources may
 share one scope, separated by commas.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 local function closeFile(file: LuaFile)
@@ -479,12 +478,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "C interop",
-    codes = {"NUPP2203", "NUPP2101"},
-    body = [=[
+    reference.Section{
+        title = "C interop",
+        codes = {"NUPP2203", "NUPP2101"},
+        body = [=[
 `cdef function` and `cdef struct` declare C with checked signatures. `from "lib"`
 resolves through `ffi.load`; omitting it uses the default namespace.
 
@@ -496,7 +495,7 @@ ejects a committed, hand-editable binding module instead.
 
 Reconstructing a raw pointer is confined to `unsafe do` blocks.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 cdef struct Point
@@ -512,12 +511,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Annotations",
-    codes = {"NUPP2119"},
-    body = [=[
+    reference.Section{
+        title = "Annotations",
+        codes = {"NUPP2119"},
+        body = [=[
 An annotation is declared as a record or struct carrying `@annotation`, whose
 `targets` list says where it may be applied. Its fields are the annotation's
 members, and values are compile-time constants. Unknown annotations, wrong
@@ -534,7 +533,7 @@ trusted. `const` is the shallow identity promise for a bodyless binding in a
 `.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
 of observable guarantees an optimization may change, locally to one function.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 @annotation(targets = {"record", "struct"})
@@ -550,12 +549,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Docblocks",
-    codes = {"NUPP2506"},
-    body = [=[
+    reference.Section{
+        title = "Docblocks",
+        codes = {"NUPP2506"},
+        body = [=[
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
 renders them.
@@ -565,7 +564,7 @@ docblock tag the checker reads as well as renders: a documented function that
 calls `error` without one is `undocumented-raise`. Raising is part of how a
 function is called, and Lua has no signature to find it out from.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 --- Reads a configuration file.
@@ -581,12 +580,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Modules",
-    codes = {"NUPP2120", "NUPP2101"},
-    body = [=[
+    reference.Section{
+        title = "Modules",
+        codes = {"NUPP2120", "NUPP2101"},
+        body = [=[
 Modules are Lua's: a file returns a value and `require` gets it. A module's type
 is whatever the file returned, and a declaration with a runtime value puts itself
 on that table, so nothing is merged in behind your back. Another file reaches a
@@ -603,7 +602,8 @@ constant propagation in consumers.
 A `.d.nupp` declaration file is the exception: it describes an interface it does
 not own and returns no table, so a bare declaration there is that interface.
 ]=],
-    context = {["models.nupp"] = [=[
+        context = {
+            ["models.nupp"] = [=[
 local models = {}
 
 record models.User
@@ -612,20 +612,21 @@ record models.User
 end
 
 return models
-]=]},
-    example = [=[
+]=]
+        },
+        example = [=[
 local models = require("models")
 
 local user: models.User = models.User{id = 1, name = "ada"}
 
 return user
 ]=],
-},
+    },
 
-reference.Section{
-    title = "LuaJIT 3.0 syntax",
-    codes = {"NUPP2504"},
-    body = [=[
+    reference.Section{
+        title = "LuaJIT 3.0 syntax",
+        codes = {"NUPP2504"},
+        body = [=[
 Nupp implements every LuaJIT 3.0 syntax extension and adds to them. Most is
 written straight through to the output, because LuaJIT 2.1 backported it.
 
@@ -653,7 +654,7 @@ The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are th
 ones Lua already has, and two spellings of one thing drift apart across a
 codebase. Suppress per statement with `@allow("customary-operator")`.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 function m.demo(n: integer, flag: boolean, label: string?): integer
@@ -671,12 +672,12 @@ end
 
 return m
 ]=],
-},
+    },
 
-reference.Section{
-    title = "Lints and suppression",
-    codes = {"NUPP2108"},
-    body = [=[
+    reference.Section{
+        title = "Lints and suppression",
+        codes = {"NUPP2108"},
+        body = [=[
 A type error says the program does not mean what it says it means: nothing
 configures or silences it. A lint says the program means something you probably
 did not intend, so it has a name, a level a project can move, and a suppression a
@@ -689,7 +690,7 @@ lint on that statement. It does not reach a type error; naming one is NUPP2108.
 Levels are set in `nupp.lua` under `lints`, by name or by category, resolving
 registry default → category → name → `@allow`.
 ]=],
-    example = [=[
+        example = [=[
 local m = {}
 
 function m.toggle(flag: boolean): boolean
@@ -700,16 +701,16 @@ end
 
 return m
 ]=],
-},
+    },
 
 }
 
 --- Everything the reader needs, in the order it is worth reading.
 reference.sections = SECTIONS
 
---- The toolchain, for a reader that will be running it rather than reading it.
---- Kept beside the language because knowing `check --json` carries applicable
---- fixes is worth more to a caller than another paragraph of syntax.
+--- The toolchain, for a reader that will be running it rather than reading it. Kept
+--- beside the language because knowing `check --json` carries applicable fixes is worth
+--- more to a caller than another paragraph of syntax.
 reference.tooling = [=[
 Positions are 1-based byte line and column numbers everywhere, matching the
 compiler's own diagnostics. Colour is off whenever output is not a terminal, so
@@ -738,9 +739,9 @@ The loop that works: run `check --json --strict`, apply a complete fix whose
 title matches the intended repair, re-run, and run `nupp test` before committing.
 ]=]
 
--- Rendering. The document is assembled once and printed by whatever asked for
--- it, so the committed markdown, the doc-site page and `nupp reference` cannot
--- disagree about what the reference says.
+-- Rendering. The document is assembled once and printed by whatever asked for it, so
+-- the committed markdown, the doc-site page and `nupp reference` cannot disagree about
+-- what the reference says.
 
 local function heading(level: integer, text: string): string
     return ("#"):rep(level) .. " " .. text
@@ -758,8 +759,8 @@ local function lintRows(): {string}
     return out
 end
 
---- The diagnostic codes that carry a worked example, so a reader knows which
---- ones `nupp explain` can say more about.
+--- The diagnostic codes that carry a worked example, so a reader knows which ones `nupp
+--- explain` can say more about.
 local function codeRows(): {string}
     local out: {string} = {}
     out[#out + 1] = "| Code | Meaning |"
@@ -791,8 +792,8 @@ function reference.markdown(opts: {level: integer?}?): string
         out[#out + 1] = ""
         out[#out + 1] = (section.body:gsub("^%s+", ""):gsub("%s+$", ""))
         out[#out + 1] = ""
-        -- A companion comes first: the example requires it, so a reader meeting
-        -- the require has already seen what it resolves to.
+        -- A companion comes first: the example requires it, so a reader meeting the
+        -- require has already seen what it resolves to.
         local names: {string} = {}
         for name in pairs(section.context or {}) do names[#names + 1] = name end
         table.sort(names)
@@ -838,10 +839,9 @@ function reference.markdown(opts: {level: integer?}?): string
     return table.concat(out, "\n")
 end
 
---- The same reference as an agent skill: YAML frontmatter naming it and saying
---- when to load it, then the document. The description is what a harness keeps
---- in context permanently, so it says what the skill covers rather than
---- summarizing the language.
+--- The same reference as an agent skill: YAML frontmatter naming it and saying when to
+--- load it, then the document. The description is what a harness keeps in context
+--- permanently, so it says what the skill covers rather than summarizing the language.
 ---
 --- @return SKILL.md, ready to write into a skills directory
 function reference.skill(): string

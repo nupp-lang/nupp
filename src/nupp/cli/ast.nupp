@@ -25,10 +25,10 @@ local command = spec.command{
                 items = {
                     type = "object",
                     properties = {code = {type = "string"},
-                        message = {type = "string"},
-                        offset = {type = "integer"}, length = {type = "integer"},
-                        line = {type = "integer"}, col = {type = "integer"},
-                        help = {type = "string"}},
+                    message = {type = "string"},
+                    offset = {type = "integer"}, length = {type = "integer"},
+                    line = {type = "integer"}, col = {type = "integer"},
+                    help = {type = "string"}},
                 },
             },
         },
@@ -36,20 +36,20 @@ local command = spec.command{
         definitions = {
             node = {
                 description = "A structural node, or a token with the trivia "
-                    .. "attached to it. The tree is lossless: every byte of the "
-                    .. "source is in exactly one token or one piece of trivia.",
+                .. "attached to it. The tree is lossless: every byte of the "
+                .. "source is in exactly one token or one piece of trivia.",
                 type = "object",
                 properties = {
                     tag = {type = "string", enum = {"node", "token"}},
                     kind = {type = "string"},
                     children = {type = "array",
-                        items = {["$ref"] = "#/definitions/node"}},
+                    items = {["$ref"] = "#/definitions/node"}},
                     text = {type = "string"},
                     offset = {type = "integer"}, line = {type = "integer"},
                     col = {type = "integer"},
                     missing = {type = "boolean",
-                        description = "Inserted by error recovery; not in the "
-                            .. "source."},
+                    description = "Inserted by error recovery; not in the "
+                    .. "source."},
                     trivia = {
                         type = "array",
                         items = {type = "object", properties = {

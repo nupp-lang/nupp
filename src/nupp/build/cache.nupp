@@ -33,15 +33,24 @@ local function jsonArray(items)
     return setmetatable(items, json.array_mt)
 end
 
-
 local function stable(value, seen)
     local kind = type(value)
-    if kind == "nil" then return "nil" end
-    if kind == "boolean" or kind == "number" then return tostring(value) end
-    if kind == "string" then return ("%q"):format(value) end
-    if kind ~= "table" then return "<" .. kind .. ">" end
+    if kind == "nil" then
+        return "nil"
+    end
+    if kind == "boolean" or kind == "number" then
+        return tostring(value)
+    end
+    if kind == "string" then
+        return ("%q"):format(value)
+    end
+    if kind ~= "table" then
+        return "<" .. kind .. ">"
+    end
     seen = seen or {}
-    if seen[value] then return "<cycle>" end
+    if seen[value] then
+        return "<cycle>"
+    end
     seen[value] = true
     local keys = {}
     for key in pairs(value) do keys[#keys + 1] = key end
@@ -72,32 +81,37 @@ local function moduleDir()
     return source:match("^@(.*)[/\\]") or "."
 end
 
--- The running compiler cannot change while it is running, so the answer is
--- computed once. Listing the tree shells out to `find`, and a build that asks
--- twice was paying for a second process to be told the same thing.
+-- The running compiler cannot change while it is running, so the answer is computed
+-- once. Listing the tree shells out to `find`, and a build that asks twice was paying
+-- for a second process to be told the same thing.
 local toolFingerprintMemo = nil
 
 local function toolFingerprint()
-    if toolFingerprintMemo then return toolFingerprintMemo end
+    if toolFingerprintMemo then
+        return toolFingerprintMemo
+    end
     local dir = moduleDir()
-    -- The installed build modules live one directory below the rest of the
-    -- compiler. Digest the complete compiler tree, not just nupp.build.*.
-    if basename(dir) == "build" then dir = dirname(dir) end
+    -- The installed build modules live one directory below the rest of the compiler.
+    -- Digest the complete compiler tree, not just nupp.build.*.
+    if basename(dir) == "build" then
+        dir = dirname(dir)
+    end
     local files = {}
     if dir:match("bootstrap$") then
         files = {join(dir, "nupp.lua")}
     else
         for _, path in ipairs(listFiles(dir)) do
-            if path:match("%.lua$") then files[#files + 1] = path end
+            if path:match("%.lua$") then
+                files[#files + 1] = path
+            end
         end
     end
-    -- Named relative to the compiler's own directory, so the answer describes
-    -- the compiler rather than where it was found. `moduleDir` reports
-    -- whatever `package.path` was written as, and the launcher writes an
-    -- absolute path where a test harness writes a relative one -- so hashing
-    -- the paths as given made one compiler fingerprint two ways depending on
-    -- how it was started, and anything keyed on it threw away the other's
-    -- work every time the two alternated.
+    -- Named relative to the compiler's own directory, so the answer describes the
+    -- compiler rather than where it was found. `moduleDir` reports whatever
+    -- `package.path` was written as, and the launcher writes an absolute path where a
+    -- test harness writes a relative one -- so hashing the paths as given made one
+    -- compiler fingerprint two ways depending on how it was started, and anything keyed
+    -- on it threw away the other's work every time the two alternated.
     local parts = {}
     for _, path in ipairs(files) do
         local relative = path
@@ -111,9 +125,9 @@ local function toolFingerprint()
     return toolFingerprintMemo
 end
 
--- Bumped whenever a recorded digest stops meaning what it meant, which
--- discards the last version's state instead of comparing hex that was computed
--- by a different function. Version 2 is where the cache keys moved off SHA-256.
+-- Bumped whenever a recorded digest stops meaning what it meant, which discards the
+-- last version's state instead of comparing hex that was computed by a different
+-- function. Version 2 is where the cache keys moved off SHA-256.
 local STATE_VERSION = 2
 
 local function emptyState()
@@ -123,7 +137,9 @@ end
 
 local function loadState(path)
     local text = readFile(path)
-    if not text then return emptyState() end
+    if not text then
+        return emptyState()
+    end
     local ok, state = pcall(json.decode, text)
     if not ok or type(state) ~= "table" or state.version ~= STATE_VERSION then
         return emptyState()
@@ -131,10 +147,9 @@ local function loadState(path)
     state.modules = state.modules or {}
     state.dependencies = state.dependencies or {}
     state.outputs = state.outputs or {}
-    -- Target name -> what that target last produced. Two targets can share one
-    -- output directory — a bundle and the binary stamped from it naturally do —
-    -- and each has to be able to remove its own leftovers without removing the
-    -- other's.
+    -- Target name -> what that target last produced. Two targets can share one output
+    -- directory — a bundle and the binary stamped from it naturally do — and each has
+    -- to be able to remove its own leftovers without removing the other's.
     state.targets = state.targets or {}
     return state
 end
@@ -142,7 +157,6 @@ end
 local function saveState(path, state)
     return writeFile(path, json.encode(state) .. "\n")
 end
-
 
 cache.jsonArray = jsonArray
 cache.stable = stable

@@ -88,15 +88,15 @@ function bindings.install(c: any): any
                         .. " value needs a matching ownership annotation")
                 end
             end
-            -- Inferred types are hints, not shackles — unannotated bindings widen
-            -- so common Lua idioms keep checking: literal shapes stay OPEN ("local
-            -- M = {a=1}; M.b = 2") —
+            -- Inferred types are hints, not shackles — unannotated bindings widen so
+            -- common Lua idioms keep checking: literal shapes stay OPEN ("local M =
+            -- {a=1}; M.b = 2") —
             --     but shapes RETURNED by calls (modules!) keep their type,
             -- integer widens ("local i = 1; i = i / 2"), nil init means "declared,
             -- assigned later". Annotated bindings keep their exact declared type.
             local bound = ann or init or T.any
-            -- Keep the cleanup list discovered at the initializer even when the
-            -- source spells only `owned<T>`.
+            -- Keep the cleanup list discovered at the initializer even when the source
+            -- spells only `owned<T>`.
             if ann and init and ownershipKind(ann) == "owned"
                 and ownershipKind(init) == "owned" then
                 bound = init
@@ -107,15 +107,19 @@ function bindings.install(c: any): any
                     -- an inferred binding holds a value of the type, not that one
                     -- value; annotate to keep the literal type
                     bound = bound.base or T.string
-                    if bound == T.integer then bound = T.number end
+                    if bound == T.integer then
+                        bound = T.number
+                    end
                 elseif bound.tag == "shape" and initNode
                     and initNode.kind == "tableExpr" then
                     local hasConst = false
                     for _, field in ipairs(initNode.fields or {}) do
-                        if field.isConst then hasConst = true; break end
+                        if field.isConst then
+                            hasConst = true; break
+                        end
                     end
                     if not hasConst then
-                    bound = T.table_
+                        bound = T.table_
                     end
                 elseif bound == T.nil_ then
                     bound = T.any
@@ -144,20 +148,19 @@ function bindings.install(c: any): any
             end
             if boundEntry and initNode and initNode.requiredModule then
                 boundEntry.requiredModule = initNode.requiredModule
-                -- Also on the definition, which outlives the scope: a module's
-                -- plain `function m.f` members are values on an open table and so
-                -- have no type to be found through, and which module the name holds
-                -- is the whole of what an editor needs to find where one of them
-                -- was written.
+                -- Also on the definition, which outlives the scope: a module's plain
+                -- `function m.f` members are values on an open table and so have no
+                -- type to be found through, and which module the name holds is the
+                -- whole of what an editor needs to find where one of them was written.
                 if boundEntry.definition then
                     boundEntry.definition.requiredModule =
                         initNode.requiredModule
                 end
             end
             -- `local kind = node.kind` copies a discriminant out of the value it
-            -- discriminates. Remembering where it came from is what lets a later
-            -- test on the copy narrow the original, which is how dispatch loops are
-            -- actually written.
+            -- discriminates. Remembering where it came from is what lets a later test
+            -- on the copy narrow the original, which is how dispatch loops are actually
+            -- written.
             if boundEntry and initNode and not ann
                 and initNode.kind == "dotIndex" then
                 boundEntry.aliasNode = initNode
@@ -298,10 +301,10 @@ function bindings.install(c: any): any
                         ownershipKind(et)
                         .. " value cannot be stored through a reference")
                 end
-                -- Writing nil to a table entry is how Lua removes it, so an array
-                -- or map accepts nil whatever its element type says a present value
-                -- holds. A record field is not that: it is declared, and removing
-                -- it would leave the type describing something that is not there.
+                -- Writing nil to a table entry is how Lua removes it, so an array or
+                -- map accepts nil whatever its element type says a present value holds.
+                -- A record field is not that: it is declared, and removing it would
+                -- leave the type describing something that is not there.
                 local removing = et == T.nil_
                     and target.kind == "bracketIndex"
                     and (target.containerTag == "array"
@@ -317,10 +320,9 @@ function bindings.install(c: any): any
                 end
             end
         end
-        -- Only now: a variable holds what was just written to it, which is what
-        -- lets `if not x then x = f() end` see a non-nil x. It has to come after
-        -- the checks above, or a target would be compared against the value being
-        -- written to it.
+        -- Only now: a variable holds what was just written to it, which is what lets
+        -- `if not x then x = f() end` see a non-nil x. It has to come after the checks
+        -- above, or a target would be compared against the value being written to it.
         for j, target in ipairs(stat.targets) do
             local key = pathKey(target)
             local et = inferred[j]
@@ -337,7 +339,9 @@ function bindings.install(c: any): any
 
     handlers.compoundAssign = function(stat: cst.CompoundAssign)
         local assignTarget, value, opTok = stat.target, stat.value, stat.op
-        if not assignTarget or not value or not opTok then return end
+        if not assignTarget or not value or not opTok then
+            return
+        end
         local targetT = c.infer(assignTarget)
         if constModuleField(assignTarget) then
             c.diag("NUPP2008", assignTarget,
@@ -397,12 +401,16 @@ function bindings.install(c: any): any
 
     handlers.callStmt = function(stat: cst.CallStmt)
         local called = stat.expr
-        if not called then return end
+        if not called then
+            return
+        end
         local resultT = c.infer(called)
         local ignoredOwner = ownershipKind(resultT) == "owned"
         if called.ffiOutContracts then
             for _, returned in ipairs(c.lastCallRets or {}) do
-                if ownershipKind(returned) == "owned" then ignoredOwner = true end
+                if ownershipKind(returned) == "owned" then
+                    ignoredOwner = true
+                end
             end
         end
         if ignoredOwner then

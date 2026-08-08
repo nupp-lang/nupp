@@ -78,7 +78,9 @@ function diagnostics.install(s: any): any
             for _, note in ipairs(e.notes or {}) do
                 message = message .. "\n\nnote: " .. note
             end
-            if e.help then message = message .. "\n\nhelp: " .. e.help end
+            if e.help then
+                message = message .. "\n\nhelp: " .. e.help
+            end
             out[#out + 1] = {
                 range = {
                     start = start,
@@ -103,7 +105,9 @@ function diagnostics.install(s: any): any
     -- the interface actually changed.
     local function checkAndPublish(uri, force)
         local doc = s.documents[uri]
-        if not doc then return false end
+        if not doc then
+            return false
+        end
         local path = uriToPath(uri)
         local r = s.inc.checkFile(path)
         local changed = r ~= doc.checkResult
@@ -113,7 +117,9 @@ function diagnostics.install(s: any): any
         -- The last state of this file that made sense, kept because a request about a
         -- half-written line still has to answer from something. A file being typed into
         -- does not parse for most of its life.
-        if r.result and not r.syntax then doc.checked = r.result end
+        if r.result and not r.syntax then
+            doc.checked = r.result
+        end
         if force or changed then
             notify("textDocument/publishDiagnostics", {
                 uri = uri,
@@ -127,10 +133,14 @@ function diagnostics.install(s: any): any
     -- identical cached result for unaffected files. Only invalidated dependents are
     -- republished, avoiding diagnostic churn.
     local function refreshOpenDocuments(changedUri)
-        if changedUri then checkAndPublish(changedUri, true) end
+        if changedUri then
+            checkAndPublish(changedUri, true)
+        end
         local uris = {}
         for uri in pairs(s.documents) do
-            if uri ~= changedUri then uris[#uris + 1] = uri end
+            if uri ~= changedUri then
+                uris[#uris + 1] = uri
+            end
         end
         table.sort(uris)
         for _, uri in ipairs(uris) do checkAndPublish(uri, false) end

@@ -28,7 +28,9 @@ function annotate.install(c: any): any
     local ops = {}
 
     function ops.stringValue(expr)
-        if not expr or expr.kind ~= "string" then return nil end
+        if not expr or expr.kind ~= "string" then
+            return nil
+        end
         local text = expr.token.text
         local quote = text:sub(1, 1)
         if (quote == '"' or quote == "'") and text:sub(-1) == quote then
@@ -38,16 +40,22 @@ function annotate.install(c: any): any
     end
 
     local function constantAnnotationExpr(expr)
-        if not expr then return false end
+        if not expr then
+            return false
+        end
         local kind = expr.kind
         if kind == "string" or kind == "number" or kind == "nilExpr"
             or kind == "trueExpr" or kind == "falseExpr" then
             return true
         end
-        if kind ~= "tableExpr" then return false end
+        if kind ~= "tableExpr" then
+            return false
+        end
         for _, field in ipairs(expr.fields or {}) do
             if field.kind == "fieldItem" or field.kind == "fieldNamed" then
-                if not constantAnnotationExpr(field.value) then return false end
+                if not constantAnnotationExpr(field.value) then
+                    return false
+                end
             else
                 return false
             end
@@ -56,13 +64,19 @@ function annotate.install(c: any): any
     end
 
     local function annotationReferencePath(expr)
-        if not expr then return nil end
+        if not expr then
+            return nil
+        end
         if expr.kind == "name" then
             return {expr.token.text}, {expr.token}
         end
-        if expr.kind ~= "dotIndex" then return nil end
+        if expr.kind ~= "dotIndex" then
+            return nil
+        end
         local names, tokens = annotationReferencePath(expr.obj)
-        if not names then return nil end
+        if not names then
+            return nil
+        end
         names[#names + 1] = expr.name.text
         tokens[#tokens + 1] = expr.name
         return names, tokens
@@ -87,7 +101,9 @@ function annotate.install(c: any): any
         local t, def, lookupErr
         if #names == 1 then
             t = T.builtins[name]
-            if not t then t, def, lookupErr = c.lookupType(name) end
+            if not t then
+                t, def, lookupErr = c.lookupType(name)
+            end
         else
             local moduleNames = {}
             for j = 1, #names - 1 do moduleNames[j] = names[j] end
@@ -283,7 +299,9 @@ function annotate.install(c: any): any
         end
         c.annotationDefinitions[name] = true
         local targets = annotationTargets(application)
-        if not targets then return end
+        if not targets then
+            return
+        end
         local nominal = declaration.resolvedType
         local members, order = {}, {}
         local singleValue = nil

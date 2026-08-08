@@ -46,11 +46,17 @@ end
 -- The first token under a node, trying every child rather than only the first, so a
 -- node whose leading child carries no token still finds the one that follows it.
 local function firstToken(node: cst.Child?)
-    if not node then return nil end
-    if cst.isToken(node) then return node end
+    if not node then
+        return nil
+    end
+    if cst.isToken(node) then
+        return node
+    end
     for _, child in ipairs(node) do
         local token = firstToken(child)
-        if token then return token end
+        if token then
+            return token
+        end
     end
     return nil
 end
@@ -74,7 +80,9 @@ function docblock.linesOf(node: cst.Child?): {string}
             pending = {}
         elseif trivia.kind == "whitespace" then
             local _, newlines = trivia.text:gsub("\n", "")
-            if newlines > 1 then pending = {} end
+            if newlines > 1 then
+                pending = {}
+            end
         end
     end
     for _, line in ipairs(pending) do lines[#lines + 1] = line end

@@ -16,10 +16,10 @@ local command = spec.command{
     name = "doc",
     summary = "Generate API documentation from source comments",
     usage = {"nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all]"
-        .. " [--format text|json] [path...]"},
+    .. " [--format text|json] [path...]"},
     options = require("nupp.cli.options").join(
         {names = {"-o", "--output"}, value = "PATH", key = "output",
-            help = "Output file or directory"},
+        help = "Output file or directory"},
         {name = "--title", value = "TITLE", help = "Documentation title"},
         {name = "--all", help = "Include private declarations"},
         require("nupp.cli.options").format()),
@@ -28,12 +28,12 @@ local command = spec.command{
         properties = {
             ok = {type = "boolean"},
             format = {type = "string",
-                description = "The resolved format: site, markdown, or both."},
+            description = "The resolved format: site, markdown, or both."},
             output = {type = "string",
-                description = "The file or directory the run was pointed at."},
+            description = "The file or directory the run was pointed at."},
             files = {type = "array", items = {type = "string"},
-                description = "Every path written. A file whose contents did "
-                    .. "not change is not rewritten and is not listed."},
+            description = "Every path written. A file whose contents did "
+            .. "not change is not rewritten and is not listed."},
         },
         required = {"ok", "format", "output", "files"},
     },
@@ -54,10 +54,9 @@ local function run(parsed: any): integer
         return 1
     end
     local settings = doc.manifestSettings(config)
-    -- What the docs target depends on is what the renderer loads. A project that
-    -- names lunamark as a rock gets it installed here, so `nupp doc` on a fresh
-    -- checkout renders rather than reporting a library nobody was told to
-    -- install.
+    -- What the docs target depends on is what the renderer loads. A project that names
+    -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
+    -- renders rather than reporting a library nobody was told to install.
     local deps = require("nupp.build.deps")
     local installed, depErr = deps.build(".",
         settings.outDir or "build", config, {}, settings)
@@ -85,7 +84,9 @@ local function run(parsed: any): integer
     end
     local asJson = values.format == "json"
     local written: {string} = {}
-    if asJson then opts.written = written end
+    if asJson then
+        opts.written = written
+    end
     local code, output, resolved = doc.build(".", config, settings, opts)
     if asJson then
         require("nupp.cli.report").write({ok = code == 0, files = written,
