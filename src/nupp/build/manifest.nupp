@@ -44,6 +44,80 @@ local function validateString(value, label)
     return true
 end
 
+-- A docs target is the one place a manifest key is read by something other than
+-- the build: the generator takes a dozen of its own, none of which the checks
+-- below know about, so a misspelling used to configure nothing and say nothing.
+-- `custmCss` rendered a site with the default theme and a clean exit.
+--
+-- The lists are closed on purpose: a manifest is a small enough thing to be
+-- exact about. They cover what the generator reads plus what any build target
+-- takes, because a docs target is still one of those — this project's declares
+-- `dependencies`, which is how `nupp doc` gets the rocks it renders with.
+local DOCS_KEYS = {
+    -- read by nupp.doc
+    "sources", "format", "outDir", "title", "name", "description", "github",
+    "logo", "public", "customCss", "lexers", "includePrivate", "all", "pages",
+    -- taken by any build target
+    "kind", "dependencies", "entries", "resources", "output", "stub",
+}
+
+local PAGE_KEYS = {
+    "path", "title", "source", "layout",
+    "heroTitle", "heroText", "heroImage", "heroImageAlt", "heroActions",
+    -- accepted spellings of the same five
+    "hero_title", "hero_text", "hero_image", "hero_image_alt", "hero_actions",
+    "features",
+}
+
+local HERO_ACTION_KEYS = {"text", "path", "theme"}
+local FEATURE_KEYS = {"icon", "image", "title", "details"}
+
+local function validateKeys(value, known, label)
+    if type(value) ~= "table" then return true end
+    local allowed = {}
+    for _, name in ipairs(known) do allowed[name] = true end
+    local unknown = {}
+    for key in pairs(value) do
+        if type(key) == "string" and not allowed[key] then
+            unknown[#unknown + 1] = key
+        end
+    end
+    table.sort(unknown)
+    local key = unknown[1]
+    if not key then return true end
+    local suggestion = require("nupp.check.fixits").nearest(key, known)
+    if suggestion then
+        return nil, ("%s has no key %q; did you mean %q?"):format(
+            label, key, suggestion)
+    end
+    return nil, ("%s has no key %q"):format(label, key)
+end
+
+local function validateDocsTarget(target, label)
+    local valid, err = validateKeys(target, DOCS_KEYS, label)
+    if not valid then return nil, err end
+    if target.pages ~= nil and type(target.pages) ~= "table" then
+        return nil, label .. ".pages must be an array of page tables"
+    end
+    for index, page in ipairs(target.pages or {}) do
+        local pageLabel = ("%s.pages[%d]"):format(label, index)
+        if type(page) ~= "table" then return nil, pageLabel .. " must be a table" end
+        valid, err = validateKeys(page, PAGE_KEYS, pageLabel)
+        if not valid then return nil, err end
+        for actionIndex, action in ipairs(page.heroActions or page.hero_actions or {}) do
+            valid, err = validateKeys(action, HERO_ACTION_KEYS,
+                ("%s.heroActions[%d]"):format(pageLabel, actionIndex))
+            if not valid then return nil, err end
+        end
+        for featureIndex, feature in ipairs(page.features or {}) do
+            valid, err = validateKeys(feature, FEATURE_KEYS,
+                ("%s.features[%d]"):format(pageLabel, featureIndex))
+            if not valid then return nil, err end
+        end
+    end
+    return true
+end
+
 local function validateTarget(target, label, dependencies)
     if type(target) ~= "table" then return nil, label .. " must be a table" end
     local kind = target.kind or "modules"
@@ -92,6 +166,10 @@ local function validateTarget(target, label, dependencies)
         if type(dependencies[name]) ~= "table" then
             return nil, label .. ".dependencies references unknown dependency " .. name
         end
+    end
+    if kind == "docs" then
+        valid, err = validateDocsTarget(target, label)
+        if not valid then return nil, err end
     end
     return true
 end

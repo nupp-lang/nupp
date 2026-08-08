@@ -227,4 +227,36 @@ function fixits.new(result: any, env: any): any
     return self
 end
 
+--- How many single-character edits separate two short names, counting an
+--- adjacent transposition as one. Exported because a misspelling is not only a
+--- source-code problem: the manifest validator suggests keys with it too, and
+--- one threshold beats two that drift.
+---
+--- @param left one name
+--- @param right the other
+--- @return the number of edits
+fixits.editDistance = editDistance
+
+--- The nearest of `candidates` to `name`, or nil when nothing is near enough or
+--- two are equally near. The threshold widens with the name, since a long word
+--- survives two typos and a short one is a different word by then.
+---
+--- @param name what was written
+--- @param candidates the names it might have meant
+--- @return the single nearest candidate, or nil
+function fixits.nearest(name: string, candidates: {string}): string?
+    local limit = #name < 5 and 1 or 2
+    local best, distance, tied = nil, nil, false
+    for _, candidate in ipairs(candidates) do
+        local candidateDistance = editDistance(name, candidate)
+        if not distance or candidateDistance < distance then
+            best, distance, tied = candidate, candidateDistance, false
+        elseif candidateDistance == distance then
+            tied = true
+        end
+    end
+    if tied or not distance or distance > limit then return nil end
+    return best
+end
+
 return fixits

@@ -861,14 +861,15 @@ Reference and the generated API. What that pass turned up:
       command has no `--target`, so there is no way to say which was meant
       either. Either sort and take the first, prefer `build.default` when it
       names a docs target, or refuse and ask — but not this.
-- [ ] **A docs target's keys are not validated, so a typo is silent.**
-      `validateManifest` checks `sources`, `format`, `outDir`, `title`,
-      `description` and `kind`; everything else the generator reads —
-      `name`, `github`, `logo`, `public`, `customCss`, `lexers`,
-      `includePrivate`, `all`, `pages` and every per-page key — is passed
-      straight through. `custmCss = "..."` builds a site with no custom CSS and
-      says nothing. The same whitelist is why an unknown key anywhere in the
-      manifest is ignored rather than reported.
+- [x] A docs target's keys are a closed set, checked down through its pages,
+      their hero actions and their features, and a key outside it is refused
+      with the nearest one it might have meant. Most of what a docs target
+      configures is read by the generator rather than by the build, so
+      `custmCss` used to render the default theme and exit cleanly.
+- [ ] An unknown key elsewhere in the manifest is still ignored. The docs
+      target got a closed set because the generator reads keys the build's
+      validation knows nothing about; the same argument is weaker everywhere
+      else, but "this configures nothing" is worth saying wherever it is true.
 - [x] `nupp tasks` reports `all` and `includePrivate` as themselves. It printed
       `Include private` for `all`, which takes in undocumented and `local`
       declarations, while the setting that label belongs to went unreported.

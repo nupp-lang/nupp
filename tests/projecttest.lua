@@ -124,6 +124,59 @@ return {
    remove(dir)
 end
 
+-- The generator reads a dozen keys the build's own validation knows nothing
+-- about, so a misspelling used to configure nothing and say nothing about it.
+function M.aMisspelledDocsKeyIsRejectedWithTheNameItMeant()
+   local function reject(target, wanted)
+      local dir = tempProject({["nupp.lua"] =
+         "return {include = {\"src\"}, build = {targets = {site = "
+         .. target .. "}}}\n"})
+      local config, err = project.loadManifest(dir)
+      assertEq(config, nil, "a key that configures nothing is refused")
+      assert(err:find(wanted, 1, true), wanted .. " not in: " .. tostring(err))
+      remove(dir)
+   end
+   reject('{kind = "docs", sources = {"src"}, titel = "x"}',
+      'has no key "titel"; did you mean "title"?')
+   reject('{kind = "docs", sources = {"src"}, pages = {{heroTitel = "x"}}}',
+      'pages[1] has no key "heroTitel"; did you mean "heroTitle"?')
+   reject('{kind = "docs", sources = {"src"}, pages = {{heroActions = '
+      .. '{{text = "G", them = "brand"}}}}}',
+      'heroActions[1] has no key "them"; did you mean "theme"?')
+   reject('{kind = "docs", sources = {"src"}, pages = {{features = '
+      .. '{{icon = "x", detials = "d"}}}}}',
+      'features[1] has no key "detials"; did you mean "details"?')
+   -- Nothing near enough to guess at is still named, without one.
+   reject('{kind = "docs", sources = {"src"}, wibble = 1}',
+      'has no key "wibble"')
+end
+
+-- A docs target is still a build target, so what any target takes belongs on
+-- one too. This project's declares the rocks `nupp doc` renders with.
+function M.aDocsTargetKeepsTheKeysEveryTargetTakes()
+   local dir = tempProject({["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {lunamark = {kind = "luarocks", rock = "lunamark",
+      version = "0.6.0-1"}},
+   build = {targets = {site = {
+      kind = "docs", sources = {"src"}, dependencies = {"lunamark"},
+      format = "both", name = "N", github = "https://example.com",
+      logo = "l.svg", public = "p", customCss = "c.css", lexers = "lx",
+      includePrivate = true, all = true,
+      pages = {{path = "", title = "H", layout = "home", source = "i.md",
+         heroTitle = "T", hero_text = "S", heroImage = "i.png",
+         heroImageAlt = "A", heroActions = {{text = "G", path = "g",
+         theme = "brand"}}, features = {{icon = "x", image = "y",
+         title = "T", details = "D"}}}},
+   }}},
+}
+]]})
+   local config, err = project.loadManifest(dir)
+   assert(config, "every documented key is accepted: " .. tostring(err))
+   remove(dir)
+end
+
 -- A docs target with no outDir does not land in the manifest's default
 -- directory; the generator has its own, and for markdown it is not even under
 -- it. `nupp clean` removes what the task table names, so naming the wrong

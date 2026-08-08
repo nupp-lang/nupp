@@ -39,6 +39,20 @@ dependency kinds, named target and dependency references, and dependency
 cycles. Configuration errors name the invalid field before any build work
 starts.
 
+A `docs` target is checked more closely than the rest, because most of what it
+configures is read by the documentation generator rather than by the build, and
+a key nothing reads would otherwise take effect silently. Its keys and its
+pages' keys are a closed set, and one that is not in it is refused by name:
+
+```text
+nupp: build.targets.site has no key "custmCss"; did you mean "customCss"?
+```
+
+A page's keys are checked the same way, and so are the keys of its
+`heroActions` and `features` entries.
+
+Elsewhere in the manifest an unrecognized key is still ignored.
+
 The implementation lives under the `nupp.build.*` submodule namespace in
 `src/nupp/build/`: `project` owns orchestration, `hash` owns cache digests, and
 `process` owns argv-based subprocess execution.
