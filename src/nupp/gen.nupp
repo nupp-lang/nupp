@@ -493,7 +493,7 @@ function gen.generate(result, filename)
             local runtimeName = x.recordRuntimeName or path or x.name.text
             local attached = x.recordRuntimeName or path
             local storage = attached and ""
-                or x.visibility == "global" and "" or "local "
+                or x.visibility == "global" and "" or "const "
             local expr = ("%s%s = {} %s.__index = %s")
                 :format(storage, runtimeName, runtimeName, runtimeName)
             e(expr, line)
@@ -535,7 +535,7 @@ function gen.generate(result, filename)
             local runtimeName = x.recordRuntimeName or path or x.name.text
             local attached = x.recordRuntimeName or path
             local storage = attached and ""
-                or x.visibility == "global" and "" or "local "
+                or x.visibility == "global" and "" or "const "
             e(("%s%s = {}"):format(storage, runtimeName), line)
             for _, entry in ipairs(defaults) do
                 entry.inlineRuntimeOwner = runtimeName
@@ -547,7 +547,7 @@ function gen.generate(result, filename)
         end
 
         if kind == "recordDecl" and x.declKind == "struct" then
-            -- struct S { a: float, b: OtherStruct, p: S* } lowers to local S =
+            -- struct S { a: float, b: OtherStruct, p: S* } lowers to const S =
             -- __nuppFfi.typeof("struct { float a; $ b; $ *p; }", OtherStruct,
             -- S_is_forward_error)
             needsFfi = true
@@ -587,12 +587,12 @@ function gen.generate(result, filename)
             local line = first and cst.isToken(first) and first.line or nil
             local path = declPath(x)
             local storage = path and ""
-                or x.visibility == "global" and "" or "local "
+                or x.visibility == "global" and "" or "const "
             -- The metatable is created up front so members declared later (function
             -- S:m()) have somewhere to attach; ffi.metatype hands back the ctype, which
             -- stays callable as the constructor.
             local mt = "__nuppMt_" .. x.name.text
-            local expr = "local " .. mt .. " = {__index = {}} " .. storage
+            local expr = "const " .. mt .. " = {__index = {}} " .. storage
                 .. (path or x.name.text)
                 .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { "
                 .. table.concat(cdecl, " ") .. " }\""
@@ -632,7 +632,7 @@ function gen.generate(result, filename)
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
             -- pcall tolerates re-declaration when two modules cdef one struct
-            e(('pcall(__nuppFfi.cdef, "struct %s { %s };") local %s = __nuppFfi.typeof("struct %s")')
+            e(('pcall(__nuppFfi.cdef, "struct %s { %s };") const %s = __nuppFfi.typeof("struct %s")')
                 :format(x.name.text, table.concat(fields, " "),
                 x.name.text, x.name.text), line)
             return
@@ -673,7 +673,7 @@ function gen.generate(result, filename)
                 needsLibs = true
                 ns = ("__nuppLib(%s)"):format(x.fromLib.text)
             end
-            e(('pcall(__nuppFfi.cdef, %q) local %s = %s.%s')
+            e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s')
                 :format(sig, name, ns, name), line)
             return
         end
@@ -918,7 +918,7 @@ function gen.generate(result, filename)
             local safe = tkind == "safeIndex" or tkind == "safeBracket"
             local dotted = tkind == "dotIndex" or tkind == "safeIndex"
             local prefix = nextTemp()
-            e(("do local %s = "):format(prefix), line)
+            e(("do const %s = "):format(prefix), line)
             emit(target.obj)
             e("; ")
             local reach = safe and "?." or "."
@@ -926,7 +926,7 @@ function gen.generate(result, filename)
                 assignTo(("%s%s%s"):format(prefix, reach, target.name.text))
             else
                 local key = nextTemp()
-                e(("local %s = "):format(key))
+                e(("const %s = "):format(key))
                 emit(target.expr)
                 e("; ")
                 assignTo(("%s%s[%s]"):format(prefix, safe and "?." or "", key))
@@ -951,12 +951,12 @@ function gen.generate(result, filename)
                 holders[#holders + 1] = holder
                 local spelling = cdefCType(output.typeNode) or "void **"
                 spelling = spelling:gsub("%s*%*$", "") .. "[1]"
-                e(("local %s=__nuppFfi.new(%q); "):format(holder, spelling))
+                e(("const %s=__nuppFfi.new(%q); "):format(holder, spelling))
             end
             local hasStatus = x.ffiOutContracts[1].hasStatus
             local status = hasStatus and nextTemp() or nil
             if status then
-                e("local " .. status .. "=")
+                e("const " .. status .. "=")
             end
             emit(x.obj)
             e("(")
@@ -1342,7 +1342,7 @@ function gen.generate(result, filename)
                 local slot = withCacheSites
                 local region = nextTemp()
                 local binding = x.bindings[1]
-                e("do local ", x.withTok and x.withTok.line or sourceLine(x))
+                e("do const ", x.withTok and x.withTok.line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 emit(binding.expr)
                 e(("; local %s=%s[%d]; if not %s then %s=function(%s%s)")
@@ -1355,23 +1355,23 @@ function gen.generate(result, filename)
                 end
                 e(("end; return \"normal\" end; %s[%d]=%s end;")
                     :format(withCacheName, slot, region))
-                e(("local %s,%s,%s=%s(%s,%s,%s%s);"):format(
+                e(("const %s,%s,%s=%s(%s,%s,%s%s);"):format(
                     ok, tag, payload, withGlobals.xpcall, region, withIdName,
                     owners[1], variadic and ",..." or ""))
                 withStack[#withStack] = nil
-                e(("local %s=1;"):format(count))
+                e(("const %s=1;"):format(count))
             else
                 e(("do local %s=0; local "):format(count),
                     x.withTok and x.withTok.line or sourceLine(x))
                 e(table.concat(owners, ","))
-                e(("; local %s,%s,%s=%s(function(%s)"):format(
+                e(("; const %s,%s,%s=%s(function(%s)"):format(
                     ok, tag, payload, withGlobals.xpcall,
                     variadic and "..." or ""))
                 withStack[#withStack + 1] = ctx
                 for j, binding in ipairs(x.bindings or {}) do
                     e(("%s="):format(owners[j]), sourceLine(binding.expr))
                     emit(binding.expr)
-                    e(("; %s=%d; local %s=%s;"):format(
+                    e(("; %s=%d; const %s=%s;"):format(
                         count, j, binding.name.text, owners[j]))
                 end
                 e("do")
@@ -1382,7 +1382,7 @@ function gen.generate(result, filename)
                     variadic and ",..." or ""))
                 withStack[#withStack] = nil
             end
-            e(("local %s,%s={},0;"):format(cleanupError,
+            e(("const %s={}; local %s=0;"):format(cleanupError,
                 hasCleanupError), x.endTok and x.endTok.line or nil)
             for j = #(x.bindings or {}), 1, -1 do
                 local binding = x.bindings[j]
@@ -1394,22 +1394,22 @@ function gen.generate(result, filename)
                         local field, fieldCleanup =
                             cleanup:match("^@field|([^|]+)|(.+)$")
                         if method then
-                            e(("local %s,%s=%s(function() %s:%s() end);")
+                            e(("const %s,%s=%s(function() %s:%s() end);")
                                 :format(cok, cerr, withGlobals.pcall,
                                 owners[j], method))
                         elseif field then
                             local fieldMethod = fieldCleanup:match("^@method:(.+)$")
                             if fieldMethod then
-                                e(("local %s,%s=%s(function() %s.%s:%s() end);")
+                                e(("const %s,%s=%s(function() %s.%s:%s() end);")
                                     :format(cok, cerr, withGlobals.pcall,
                                     owners[j], field, fieldMethod))
                             else
-                                e(("local %s,%s=%s(%s,%s.%s);")
+                                e(("const %s,%s=%s(%s,%s.%s);")
                                     :format(cok, cerr, withGlobals.pcall,
                                     fieldCleanup, owners[j], field))
                             end
                         else
-                            e(("local %s,%s=%s(%s,%s);")
+                            e(("const %s,%s=%s(%s,%s);")
                                 :format(cok, cerr, withGlobals.pcall, cleanup,
                                 owners[j]))
                         end
@@ -1497,7 +1497,7 @@ function gen.generate(result, filename)
             local index = names[1] and names[1].text or nextTemp()
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or sourceLine(x)
-            e(("do local %s="):format(holder), line)
+            e(("do const %s="):format(holder), line)
             emit(operand)
             e((";for %s=1,%d do"):format(index, x.numericIpairs.length))
             if names[2] then
@@ -1594,16 +1594,16 @@ function gen.generate(result, filename)
             names[#names + 1] = withGlobals[name]
             values[#values + 1] = name
         end
-        code = ("local %s={}; "):format(withCacheName)
-            .. ("local %s=%s; "):format(table.concat(names, ","),
+        code = ("const %s={}; "):format(withCacheName)
+            .. ("const %s=%s; "):format(table.concat(names, ","),
             table.concat(values, ","))
-            .. ("local function %s(...) return "):format(withPackName)
+            .. ("const function %s(...) return "):format(withPackName)
             .. ("{n=%s(\"#\",...),...} end; "):format(withGlobals.select)
-            .. ("local function %s(value) return value end; ")
+            .. ("const function %s(value) return value end; ")
             :format(withIdName)
-            .. ("local function %s(primary,errors,start) ")
+            .. ("const function %s(primary,errors,start) ")
             :format(withFailureName)
-            .. "local secondary={} for i=start,#errors do "
+            .. "const secondary={} for i=start,#errors do "
             .. ("secondary[#secondary+1]=errors[i] end return %s(")
             :format(withGlobals.setmetatable)
             .. "{primary=primary,suppressed=secondary},{__tostring=function(v) "
@@ -1628,28 +1628,28 @@ function gen.generate(result, filename)
         code = table.concat(effects) .. code
     end
     if needsArrayCache then
-        code = "local __nuppArrayCache = {}; local function __nuppArray(ct) "
+        code = "const __nuppArrayCache = {}; const function __nuppArray(ct) "
             .. "local a = __nuppArrayCache[ct] if not a then "
             .. 'a = __nuppFfi.typeof("$[?]", ct) __nuppArrayCache[ct] = a end '
             .. "return a end; " .. code
     end
     if needsLibs then
-        code = "local __nuppLibCache = {}; local function __nuppLib(n) "
+        code = "const __nuppLibCache = {}; const function __nuppLib(n) "
             .. "local l = __nuppLibCache[n] if not l then "
             .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
             .. code
     end
     if needsClearTab then
-        code = ("local %s = require(\"table.clear\"); "):format(clearTabName)
+        code = ("const %s = require(\"table.clear\"); "):format(clearTabName)
             .. code
     end
     if needsNewTab then
-        code = ("local %s = require(\"table.new\"); "):format(newTabName)
+        code = ("const %s = require(\"table.new\"); "):format(newTabName)
             .. code
     end
     if needsFfi then
         -- joins line 1 without adding a line (the invariant holds)
-        code = 'local __nuppFfi = require("ffi"); ' .. code
+        code = 'const __nuppFfi = require("ffi"); ' .. code
     end
     return code, diags
 end

@@ -868,6 +868,11 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
    assertEq(#genDiags, 0)
    assert(code:find('__nuppFfi.new("void *[1]")', 1, true),
       "allocates the logical out slot")
+   assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
+   assert(code:find("const posix_memalign = __nuppFfi.C.posix_memalign", 1, true),
+      code)
+   assert(code:find('const __nuppT', 1, true),
+      "out holders and status are const: " .. code)
    local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    assertEq(chunk(), true, "owned out pointer is returned and disposed")

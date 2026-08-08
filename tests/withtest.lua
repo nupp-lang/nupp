@@ -76,6 +76,9 @@ function M.aNonCapturingBodyIsLoweredToASharedRegion()
       "return calls",
    }, "\n"))
    assert(usesSharedRegion(code), "expected a shared region:\n" .. code)
+   assert(code:find("const __nuppT", 1, true), code)
+   assert(code:find("const function __nuppT", 1, true), code)
+   assert(code:find("do const%s+__nuppT"), code)
 end
 
 function M.aSharedRegionIsCorrectAcrossManyCalls()

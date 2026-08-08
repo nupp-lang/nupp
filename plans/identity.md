@@ -93,10 +93,10 @@ enumerated and nothing is scanned.
 
 ```lua
 -- an interface is one empty table, so conformance is keyed by identity
-local Sized = {}
+const Sized = {}
 
 -- a record: onto the runtime table its instances already reach through __index
-local Circle = {} Circle.__index = Circle
+const Circle = {} Circle.__index = Circle
 Circle.__nuppIs = {[Sized] = true}
 
 -- a struct: onto the index table the metatype already carries
@@ -211,10 +211,10 @@ end
 ```
 
 ```lua
-local Greeter = {}
+const Greeter = {}
 Greeter.greet = function(self) return "hello, " .. self.name end
 
-local Person = {} Person.__index = Person
+const Person = {} Person.__index = Person
 Person.greet = Greeter.greet
 Person.__nuppIs = {[Greeter] = true}
 ```

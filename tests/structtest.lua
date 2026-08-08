@@ -98,6 +98,15 @@ local v = new Vec2 {x = 0.1, y = 0}
 return v.x == 0.1]]), false) -- 0.1 is not representable in float32
 end
 
+function M.generatedStructBindingsAreConst()
+   local code, diags, genDiags = compile(VEC .. "return Vec2")
+   assertEq(#diags, 0, "check diagnostics")
+   assertEq(#genDiags, 0, "gen diagnostics")
+   assert(code:find("const __nuppMt_Vec2", 1, true), code)
+   assert(code:find("const Vec2 = __nuppFfi.metatype", 1, true), code)
+   assert(code:find('const __nuppFfi = require("ffi")', 1, true), code)
+end
+
 function M.inlineStructMethodsUseTheFfiMetatypeNamespace()
    assertEq(run(table.concat({
       "local struct Vec",

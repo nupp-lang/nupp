@@ -145,7 +145,7 @@ local record Point x: number end
 ```
 
 ```lua [Generated Lua]
-local Point = {} Point.__index = Point
+const Point = {} Point.__index = Point
 ```
 :::
 ````

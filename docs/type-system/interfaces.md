@@ -153,12 +153,12 @@ end
 ```
 
 ```lua
-local Greeter = {}
+const Greeter = {}
 function Greeter.greet(self)
 return "hello, " .. self.name
 end
 
-local Person = {} Person.__index = Person Person.greet = Greeter.greet
+const Person = {} Person.__index = Person Person.greet = Greeter.greet
 ```
 
 The body is emitted **once** and referenced, not copied — resolved where the

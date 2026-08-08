@@ -83,6 +83,26 @@ function M.cdefStructTyping()
    assertEq((diagsOf("cdef struct S\n   t: {number}\nend")), "NUPP2203:2")
 end
 
+function M.cdefBindingsAndHelpersUseConstWherePossible()
+   local code, diags, genDiags = compile(table.concat({
+      "cdef struct timeval",
+      "   tv_sec: int64",
+      "end",
+      "cdef function clock_gettime(clock: int32, value: timeval*): int32",
+   }, "\n"))
+   assertEq(#diags, 0, "check diagnostics")
+   assertEq(#genDiags, 0, "gen diagnostics")
+   assert(code:find("const timeval = __nuppFfi.typeof", 1, true), code)
+   assert(code:find("const clock_gettime = __nuppFfi.C.clock_gettime", 1, true),
+      code)
+
+   local libraryCode = compile(
+      "cdef function crc32(crc: uint64, buf: cstring, len: uint32): uint64 from 'z'")
+   assert(libraryCode:find("const __nuppLibCache", 1, true), libraryCode)
+   assert(libraryCode:find("const function __nuppLib", 1, true), libraryCode)
+   assert(libraryCode:find("local l = __nuppLibCache[n]", 1, true), libraryCode)
+end
+
 function M.ownRequiresPointer()
    assertEq((diagsOf(
       "@owned(free) cdef function bad(): int32")), "NUPP2203:1")

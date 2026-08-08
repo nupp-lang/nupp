@@ -397,7 +397,7 @@ function M.annotationDefinitionsAndApplicationsErase()
     local lua, errors = gen.generate(result, "test")
     assertEq(#errors, 0, "generation diagnostics")
     assert(not lua:find("documentation", 1, true), lua)
-    assert(lua:find("local User = {}", 1, true), lua)
+    assert(lua:find("const User = {}", 1, true), lua)
 end
 
 function M.annotationStructsDoNotPublishRuntimeConstructors()

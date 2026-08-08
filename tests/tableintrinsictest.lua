@@ -55,6 +55,8 @@ function M.injectsEachUsedTableBuiltinOnce()
       "one table.new binding")
    assertEq(occurrences(code, 'require("table.clear")'), 1,
       "one table.clear binding")
+   assert(code:find('const __nuppNew = require("table.new")', 1, true), code)
+   assert(code:find('const __nuppClear = require("table.clear")', 1, true), code)
    local first, second = run(src)
    assertEq(next(first), nil, "first table was cleared")
    assertEq(next(second), nil, "second table was cleared")
@@ -119,9 +121,9 @@ function M.generatedBindingsAvoidSourceNames()
       "return __nuppNew, __nuppClear, next(value)",
    }, "\n")
    local code = compile(src)
-   assertEq(code:find('local __nuppNew = require("table.new")', 1, true), nil,
+   assertEq(code:find('const __nuppNew = require("table.new")', 1, true), nil,
       "table.new binding avoids the source name")
-   assertEq(code:find('local __nuppClear = require("table.clear")', 1, true), nil,
+   assertEq(code:find('const __nuppClear = require("table.clear")', 1, true), nil,
       "table.clear binding avoids the source name")
    local first, second, remaining = run(src)
    assertEq(first, "new", "source new name survives")

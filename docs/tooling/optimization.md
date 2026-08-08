@@ -44,8 +44,8 @@ table.clear(cache)
 ```
 
 ```lua [Generated Lua]
-local __nuppNew = require("table.new")
-local __nuppClear = require("table.clear")
+const __nuppNew = require("table.new")
+const __nuppClear = require("table.clear")
 local cache = __nuppNew(128, 8)
 cache.ready = true
 __nuppClear(cache)
@@ -56,6 +56,9 @@ Each used builtin is bound once per generated module and omitted when unused.
 `OPT-1` shares the `table.new` binding. Recognition follows the stable prelude
 definition, so a locally shadowed `table` is untouched, and generated modules
 remain standalone under external LuaJIT.
+
+Compiler-only bindings are `const` when the lowering assigns them once. Loop
+controls, counters, cache-miss slots, and other mutable storage remain `local`.
 
 ### `OPT-1`, presizing
 
@@ -71,7 +74,7 @@ point.z = 3
 ```
 
 ```lua [Optimized Lua]
-local __nuppNew = require("table.new")
+const __nuppNew = require("table.new")
 local point = __nuppNew(0, 3)
 point.x = 1
 point.y = 2
@@ -108,7 +111,7 @@ end
 ```lua [Optimized Lua]
 local xs = {10, 20, 30}
 do
-    local __xs = xs
+    const __xs = xs
     for index = 1, 3 do
         local value = __xs[index]
         use(index, value)

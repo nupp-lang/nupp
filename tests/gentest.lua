@@ -120,6 +120,33 @@ function M.constSemantics()
       "const should survive type erasure: " .. code)
 end
 
+function M.generatedSingleAssignmentBindingsAreConst()
+   local recordCode = generate(table.concat({
+      "local record Point",
+      "   x: number",
+      "end",
+      "return Point",
+   }, "\n"))
+   assert(recordCode:find("const Point = {}", 1, true), recordCode)
+
+   local interfaceCode = generate(table.concat({
+      "local interface Named",
+      "   name: string",
+      "   function getName(): string return self.name end",
+      "end",
+      "return Named",
+   }, "\n"))
+   assert(interfaceCode:find("const Named = {}", 1, true), interfaceCode)
+
+   local compoundCode = generate(table.concat({
+      "local target = {value = 8}",
+      "target['value'] //= 2",
+      "return target.value",
+   }, "\n"))
+   assert(compoundCode:find("do const __nuppT", 1, true), compoundCode)
+   assert(compoundCode:find("const __nuppT2 =", 1, true), compoundCode)
+end
+
 -- A literal type is a type-only node like any other postfix or shape: the
 -- annotation has to vanish rather than leaving its token behind as a bare
 -- expression statement next to the one the initializer already wrote.

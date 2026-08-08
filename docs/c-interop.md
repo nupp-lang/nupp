@@ -78,9 +78,9 @@ use the default namespace. Both emit an `ffi.cdef` and a namespace lookup:
 
 ```lua
 pcall(ffi.cdef, "struct nativePoint { double x; double y; };")
-local nativePoint = ffi.typeof("struct nativePoint")
+const nativePoint = ffi.typeof("struct nativePoint")
 pcall(ffi.cdef, "double point_length(struct nativePoint *);")
-local point_length = ffi.load("mini").point_length
+const point_length = ffi.load("mini").point_length
 ```
 
 `cdef` bindings are always file-local. Export them by returning them in the
@@ -226,4 +226,3 @@ See the [build system reference](tooling/build.md) for C and Cargo provider
 configuration, [ownership](start/ownership.md) for the resource workflow, and
 the [ownership reference](ownership.md) for output parameters, callbacks,
 pinning, and raw-pointer escape hatches.
-

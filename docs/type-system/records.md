@@ -40,7 +40,7 @@ print(p:length())
 That lowers to what you would have written:
 
 ```lua
-local Point = {} Point.__index = Point
+const Point = {} Point.__index = Point
 local p = setmetatable({ x = 3, y = 4 }, Point)
 ```
 
@@ -138,8 +138,8 @@ end
 becomes
 
 ```lua
-local __nuppMt_Vec2 = {__index = {}}
-local Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), __nuppMt_Vec2)
+const __nuppMt_Vec2 = {__index = {}}
+const Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), __nuppMt_Vec2)
 ```
 
 Real memory, real widths. A `float` field truncates the way a C `float` does.

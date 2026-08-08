@@ -328,7 +328,7 @@ function M.bindsRepeatedImmutableDottedCallees()
    assertTrue(code:find("const __nupp_call_1= Foo . api . ping", 1, true) ~= nil,
       "first call binds the immutable path: " .. code)
    assertEq(select(2, code:gsub("__nupp_call_1", "")), 3,
-      "one declaration and two calls use the generated local")
+      "one declaration and two calls use the generated binding")
    assertEq(select(2, code:gsub("Foo . api . ping", "")), 1,
       "the dotted path is read only once")
    local found = false
@@ -485,6 +485,10 @@ function M.rewritesStableDeclaredArrayIteration()
       .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum")
    assertTrue(code:find("for _=1,3 do", 1, true) ~= nil,
       "numeric loop uses a proved static bound: " .. code)
+   assertTrue(code:find("do const __nuppT", 1, true) ~= nil,
+      "the evaluated-once operand is const: " .. code)
+   assertTrue(code:find("local value=", 1, true) ~= nil,
+      "the source loop value remains mutable: " .. code)
    assertEq(run("local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
       .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum"),
       6, "numeric loop result")
