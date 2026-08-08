@@ -4,35 +4,50 @@
   <desc id="desc">A nuppeppo yokai rendered as a flat silhouette inside a blue circle,
     with drooping closed eyes and a small mouth.</desc>
 
-  <!-- Theme accent blue disc behind the figure. -->
-  <circle cx="64" cy="64" r="62" fill="#176b8a"/>
-
-  <!-- The nuppeppo, scaled down and flattened to a single silhouette colour. -->
-  <g transform="translate(64,64) scale(0.72) translate(-65.5,-63.5)"
-     fill="#e6dfc0" stroke="#e6dfc0" stroke-linejoin="round" stroke-linecap="round">
-
+  <defs>
     <!-- Two broad, grounded feet. -->
-    <g stroke-width="3.2">
-      <path d="M42 98c-10 1-17 8-16 16 1 6 7 9 12 5 3 5 10 5 13 0 4 4 11 1 11-5 0-8-8-16-20-16Z"/>
-      <path d="M86 98c10 1 17 8 16 16-1 6-7 9-12 5-3 5-10 5-13 0-4 4-11 1-11-5 0-8 8-16 20-16Z"/>
-    </g>
+    <path id="foot-l" d="M42 98c-10 1-17 8-16 16 1 6 7 9 12 5 3 5 10 5 13 0 4 4 11 1 11-5 0-8-8-16-20-16Z"/>
+    <path id="foot-r" d="M86 98c10 1 17 8 16 16-1 6-7 9-12 5-3 5-10 5-13 0-4 4-11 1-11-5 0-8 8-16 20-16Z"/>
 
     <!-- Heavy egg-shaped torso, ending above the feet. -->
-    <path d="M61 10
+    <path id="torso" d="M61 10
              C82 8 95 24 96 46
              C97 59 102 70 103 82
              C105 94 98 102 87 106
              C75 110 58 110 45 106
              C33 103 26 95 28 83
              C29 71 34 60 33 47
-             C32 26 42 12 61 10Z"
-          stroke-width="5"/>
+             C32 26 42 12 61 10Z"/>
 
     <!-- Two low arms merge into the torso. -->
-    <g stroke-width="3.8">
-      <path d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
-      <path d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
+    <path id="arm-l" d="M37 55c-8 8-14 18-19 28-4 8-1 16 6 18 4 1 7-2 7-6 1 5 6 6 9 2 2 4 7 2 8-2 2-8-3-28-11-40Z"/>
+    <path id="arm-r" d="M92 54c9 8 15 18 19 29 3 9 0 17-7 19-4 1-7-2-6-6-2 5-7 5-10 1-3 4-8 2-9-2-2-9 5-29 13-41Z"/>
+  </defs>
+
+  <!-- Theme accent blue disc behind the figure. -->
+  <circle cx="64" cy="64" r="62" fill="#176b8a"/>
+
+  <g transform="translate(64,64) scale(0.72) translate(-65.5,-63.5)"
+     stroke-linejoin="round" stroke-linecap="round">
+
+    <!-- Outer edge: the same shapes, drawn behind at a heavier weight. -->
+    <g fill="#0d4a5f" stroke="#0d4a5f">
+      <use href="#foot-l" stroke-width="7.7"/>
+      <use href="#foot-r" stroke-width="7.7"/>
+      <use href="#torso"  stroke-width="9.5"/>
+      <use href="#arm-l"  stroke-width="8.3"/>
+      <use href="#arm-r"  stroke-width="8.3"/>
     </g>
+
+    <!-- The nuppeppo, flattened to a single silhouette colour. -->
+    <g fill="#e6dfc0" stroke="#e6dfc0">
+      <use href="#foot-l" stroke-width="3.2"/>
+      <use href="#foot-r" stroke-width="3.2"/>
+      <use href="#torso"  stroke-width="5"/>
+      <use href="#arm-l"  stroke-width="3.8"/>
+      <use href="#arm-r"  stroke-width="3.8"/>
+    </g>
+
     <!-- Sunken eyes: tapered lid strokes, outer corners drooping, and a small mouth. -->
     <g fill="#176b8a" stroke="none">
       <path d="M37 61 Q46 45 59 51 Q46 51 40 61 Z"/>
