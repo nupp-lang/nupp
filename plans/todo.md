@@ -847,6 +847,61 @@ Reference and the generated API. What that pass turned up:
       `doc.build` now collects its written paths for `--json`, so the list is
       already in hand.
 
+## Incrementality across commands
+
+Landed: cache keys are digested with XXH64 rather than a pure-Lua SHA-256,
+the prelude no longer builds the project index on the way to every command,
+project headers are stored between commands (`nupp.build.store`, plain data
+via `string.buffer`, in the gitignored build directory), `nupp check` reuses
+unchanged modules and replays their diagnostics, and bundled module
+declarations are checked when something asks for one.
+
+Measured on this compiler: whole-project check 2.10 s → 0.09 s warm,
+1.29 s cold; no-op build 1.45 s → 0.11 s; one named file 0.36 s → 0.08 s;
+`lsp inspect` 0.30 s → 0.08 s. The startup floor is 20 ms.
+
+What is left, in the order the numbers justify:
+
+- [ ] **The prelude image, if 11 ms is worth it.** `env.new` is 11.7 ms and
+      all of it is parsing and checking `prelude.d.nupp`, on every command.
+      Storing the result means storing a cyclic type graph, which
+      `string.buffer.encode` cannot do — it rejects cycles and does not
+      preserve sharing — so it needs a codec that assigns object ids and
+      rebuilds by reference. The delicate part is not the codec but
+      `types.nupp`'s arena: every structural type is interned under its
+      canonical `id`, and a restored graph has to be rewritten to whatever
+      the arena already holds before anything compares two types by
+      identity. Get that wrong and the interface cutoff either stops cutting
+      off or starts cutting off things that differ. Eleven milliseconds
+      against the most identity-sensitive machinery in the compiler is a bad
+      trade today; it becomes a good one if the floor drops further or the
+      graph grows.
+- [ ] **Cross-process cutoff is at the module, not the interface.** A body
+      edit stops at an unchanged interface, because the interface digest is
+      recorded and compared. But any edit to an exported *type declaration*
+      changes `projectIndexHash`, which disables reuse for the whole project
+      — the digest covers every declaration's source text, so reformatting a
+      docblock above a record rechecks everything. Narrowing it to the parts
+      of a header a dependent can actually observe would make type edits
+      incremental too.
+- [ ] **`typeFingerprint` describes a nominal by its declaration.** That is
+      correct — a nominal is its declaration site — but it means the
+      interface digest leans entirely on `projectIndexHash` to notice a
+      changed record. The two should be one mechanism rather than two that
+      happen to cover each other.
+- [ ] **The store never shrinks below what a run touched.** `KEEP_COLD`
+      bounds the cold entries at 2048, which is fine for a project this size
+      and unmeasured for a large one.
+- [ ] **The parser accepts statements after a top-level `return`.** Found
+      while writing cache tests: appending `local function f() end` after
+      `return m` parses clean and checks clean, where Lua rejects it. Either
+      a deliberate superset choice that is undocumented, or a gap.
+- [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
+      flaky.** Observed failing once in six runs with "unrecordable bytecode
+      must be reported"; it depends on the JIT attempting and aborting a
+      trace within 3000 iterations after `jit.flush()`. Unrelated to
+      caching, but it will keep costing somebody a bisect.
+
 ## Housekeeping
 
 - [x] Diagnostic fix-its as structured data (plan §5) — a diagnostic may

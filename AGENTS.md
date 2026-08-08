@@ -48,3 +48,16 @@ whenever output is not a terminal, so piped output never carries escapes.
 - `./bin/nupp test` runs the test suite. `--json` reports a record per test —
   name, status, duration, and the failure's message, file and line.
 - `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically.
+
+## Speed
+
+Commands reuse what the last one worked out, so a check of an unchanged
+project answers in about the time it takes to start. The cache lives in the
+build directory, is plain data, and is never load-bearing: deleting it, or
+finding it corrupt, costs one slow command and changes no answer. `nupp
+clean` removes it with everything else.
+
+This means a slow command is worth reading rather than waiting out. A check
+that takes a second is one that had to redo the project, and the usual reason
+is an edit to an exported type declaration — that invalidates every module,
+where an edit to a function body invalidates one.
