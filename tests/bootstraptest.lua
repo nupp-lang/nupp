@@ -9,6 +9,25 @@ local ROOT = HERE .. "/.."
 
 local M = {}
 
+local function readFile(path)
+   local file = assert(io.open(path, "rb"))
+   local source = file:read("*a")
+   file:close()
+   return source
+end
+
+-- A fresh checkout renders docs with the tracked compiler before any source has
+-- rebuilt it. Keep both halves of an admonition in that bundle: without the
+-- container renderer the markers become prose, and without the CSS the aside is
+-- structurally correct but visually plain.
+function M.trackedBootstrapCarriesAdmonitions()
+   local source = readFile(ROOT .. "/bootstrap/nupp.lua")
+   assert(source:find("ADMONITION_TITLES", 1, true),
+      "tracked bootstrap lacks the admonition container renderer")
+   assert(source:find(".nuppdoc-admonition{", 1, true),
+      "tracked bootstrap lacks admonition styling")
+end
+
 function M.launcherFallsBackToTrackedBootstrap()
    local dir = os.tmpname()
    os.remove(dir)

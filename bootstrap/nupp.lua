@@ -1,4 +1,831 @@
 -- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap
+package.preload["nupp.analysis"] = function(...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.cst" )
+
+local analysis = { }
+
+local LISTS = { "reads" , "writes" , "shapes" , "metatables" , "escapes" , "calls" }
+local FLAGS = { "allocates" , "yields" , "raises" , "external" }
+
+local function setOf ( values )
+local out = { }
+for _ , value in ipairs ( values or { } ) do out [ value ] = true end
+return out
+end
+
+local function summary ( )
+return {
+reads = { } , writes = { } , shapes = { } , metatables = { } ,
+escapes = { } , calls = { } , returns = { } ,
+allocates = false , yields = false , raises = false , external = false ,
+top = false ,
+}
+end
+
+local function fromContract ( contract )
+local out = summary ( )
+for _ , name in ipairs ( LISTS ) do out [ name ] = setOf ( contract [ name ] ) end
+for _ , value in ipairs ( contract . returns or { } ) do out . returns [ value ] = true end
+for _ , name in ipairs ( FLAGS ) do out [ name ] = contract [ name ] == true end
+return out
+end
+
+local function copy ( value )
+local out = summary ( )
+out . top = value . top == true
+for _ , name in ipairs ( LISTS ) do
+for path in pairs ( value [ name ] or { } ) do out [ name ] [ path ] = true end
+end
+for value2 in pairs ( value . returns or { } ) do out . returns [ value2 ] = true end
+for _ , name in ipairs ( FLAGS ) do out [ name ] = value [ name ] == true end
+return out
+end
+
+local function join ( into , other )
+local changed = false
+if other . top and not into . top then
+into . top , changed = true , true
+end
+for _ , name in ipairs ( LISTS ) do
+for path in pairs ( other [ name ] or { } ) do
+if not into [ name ] [ path ] then
+into [ name ] [ path ] , changed = true , true
+end
+end
+end
+for value in pairs ( other . returns or { } ) do
+if not into . returns [ value ] then
+into . returns [ value ] , changed = true , true
+end
+end
+for _ , name in ipairs ( FLAGS ) do
+if other [ name ] and not into [ name ] then
+into [ name ] , changed = true , true
+end
+end
+return changed
+end
+
+local function same ( a , b )
+local left , right = copy ( a ) , copy ( b )
+return not join ( left , right ) and not join ( right , left )
+end
+
+local function unwrap ( stat )
+while stat and stat . kind == "pragmaStmt" do stat = stat . stat end
+return stat
+end
+
+local function directName ( expr )
+while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
+expr = expr . expr
+end
+return expr and expr . kind == "name" and expr . token or nil
+end
+
+local function callName ( call )
+local callee = call and call . obj
+if not callee then
+return nil
+end
+if callee . kind == "name" then
+return callee . token and callee . token . text
+end
+if callee . kind == "dotIndex" and callee . obj and callee . obj . kind == "name" then
+return callee . obj . token . text .. "." .. callee . name . text
+end
+return nil
+end
+
+local function callArgs ( call )
+local args = call and call . args
+if not args or args . kind ~= "args" then
+return { }
+end
+if args . table then
+return { args . table }
+end
+return args . exprs or { }
+end
+
+local function definitionOfFunction ( stat )
+if stat . kind == "localFuncStmt" then
+return stat . name and stat . name . definition
+elseif stat . kind == "funcStmt" then
+local name = stat . name
+if not name then
+return nil
+end
+local token = name . method or name . base
+for _ , child in ipairs ( name ) do
+if cst . isToken ( child ) and child . kind == "name" then
+token = child
+end
+end
+return token and token . definition
+elseif stat . kind == "inlineMethod" or stat . kind == "cdefFunc" then
+return stat . name and stat . name . definition
+end
+return nil
+end
+
+local function collectFunctions ( root )
+local functions , byDefinition = { } , { }
+local function walk ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+local target = unwrap ( node )
+local kind = target and target . kind
+if kind == "localFuncStmt" or kind == "funcStmt"
+or kind == "inlineMethod" then
+local body = target . body
+local info = {
+node = target , body = body , definition = definitionOfFunction ( target ) ,
+params = { } , paramNames = { } , contract = target . effectContract
+or body and body . effectContract ,
+summary = summary ( ) ,
+}
+if target . name and target . name . method then
+info . paramNames [ 1 ] = "self"
+end
+for _ , param in ipairs ( body and body . params or { } ) do
+if param . name and not param . namedVararg then
+local at = # info . paramNames + 1
+info . params [ param . name . definition ] = at
+info . paramNames [ at ] = param . name . text
+end
+end
+functions [ # functions + 1 ] = info
+if info . definition then
+byDefinition [ info . definition ] = info
+end
+if body and body . body then
+walk ( body . body )
+end
+return
+elseif kind == "cdefFunc" then
+local info = {
+node = target , definition = definitionOfFunction ( target ) , params = { } ,
+paramNames = { } , contract = target . effectContract ,
+summary = target . effectContract and fromContract ( target . effectContract )
+or summary ( ) , external = true ,
+}
+if not target . effectContract then
+info . summary . top = true
+end
+for _ , param in ipairs ( target . params or { } ) do
+if param . name then
+local at = # info . paramNames + 1
+info . params [ param . name . definition ] = at
+info . paramNames [ at ] = param . name . text
+end
+end
+functions [ # functions + 1 ] = info
+if info . definition then
+byDefinition [ info . definition ] = info
+end
+return
+end
+for _ , child in ipairs ( node ) do walk ( child ) end
+end
+walk ( root )
+return functions , byDefinition
+end
+
+local PURE_BUILTINS = {
+type = true , tonumber = true , select = true , rawequal = true ,
+rawget = true , rawlen = true , ipairs = true , pairs = true , next = true ,
+}
+
+local function inferFunction ( info , byDefinition )
+local out = summary ( )
+local parent , localDefinitions = { } , { }
+local function find ( value )
+if not value then
+return nil
+end
+parent [ value ] = parent [ value ] or value
+if parent [ value ] ~= value then
+parent [ value ] = find ( parent [ value ] )
+end
+return parent [ value ]
+end
+local function union ( a , b )
+a , b = find ( a ) , find ( b )
+if a and b and a ~= b then
+parent [ b ] = a
+end
+end
+for definition , index in pairs ( info . params ) do
+localDefinitions [ definition ] = true
+end
+
+
+
+
+local function collectBindings ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "localFuncStmt" then
+if node . name and node . name . definition then
+localDefinitions [ node . name . definition ] = true
+end
+return
+elseif kind == "funcStmt" or kind == "inlineMethod"
+or kind == "funcExpr" or kind == "shortfn" then
+return
+elseif kind == "localStmt" then
+for j , name in ipairs ( node . names or { } ) do
+if name . definition then
+localDefinitions [ name . definition ] = true
+end
+local source = directName ( node . exprs and node . exprs [ j ] )
+if source then
+union ( name . definition , source . definition )
+end
+end
+elseif kind == "fornumStmt" then
+if node . name and node . name . definition then
+localDefinitions [ node . name . definition ] = true
+end
+elseif kind == "forinStmt" then
+for _ , name in ipairs ( node . names or { } ) do
+if name . definition then
+localDefinitions [ name . definition ] = true
+end
+end
+elseif kind == "assignStmt" then
+for j , target in ipairs ( node . targets or { } ) do
+local targetName = directName ( target )
+local source = directName ( node . exprs and node . exprs [ j ] )
+if targetName and source then
+union ( targetName . definition , source . definition )
+end
+end
+end
+for _ , child in ipairs ( node ) do collectBindings ( child ) end
+end
+collectBindings ( info . body and info . body . body )
+local rooted = { }
+for definition , index in pairs ( info . params ) do
+rooted [ find ( definition ) ] = info . paramNames [ index ]
+end
+
+local function rootOf ( expr )
+local token = directName ( expr )
+return token and rooted [ find ( token . definition ) ] or nil
+end
+
+local function substitute ( path , callee , args )
+if path : sub ( 1 , 1 ) == "$" then
+return path
+end
+local root , rest = path : match ( "^([%a_][%w_]*)(.*)$" )
+if not root then
+return "$capture"
+end
+local index
+for j , name in ipairs ( callee . paramNames or { } ) do
+if name == root then
+index = j ; break
+end
+end
+if not index then
+return "$capture"
+end
+local actual = rootOf ( args [ index ] )
+if actual then
+return actual .. rest
+end
+local token = directName ( args [ index ] )
+if token and localDefinitions [ token . definition ] then
+return nil
+end
+return "$capture"
+end
+
+local function applyCall ( call )
+local callee = call . obj
+local token = callee and ( callee . token or callee . name )
+local known = token and byDefinition [ token . definition ] or nil
+local args = callArgs ( call )
+if known then
+local effects = known . summary
+if effects . top then
+out . top = true
+end
+for _ , list in ipairs ( LISTS ) do
+for path in pairs ( effects [ list ] or { } ) do
+local mapped = substitute ( path , known , args )
+if mapped then
+out [ list ] [ mapped ] = true
+end
+end
+end
+for _ , flag in ipairs ( FLAGS ) do
+if effects [ flag ] then
+out [ flag ] = true
+end
+end
+return
+end
+local name = callName ( call )
+if PURE_BUILTINS [ name or "" ] then
+local root = rootOf ( args [ 1 ] )
+if root then
+out . reads [ root .. "[*]" ] = true
+end
+elseif name == "error" or name == "assert" then
+out . raises = true
+elseif name == "coroutine.yield" then
+out . yields = true
+else
+out . top = true
+end
+end
+
+local function returnedRoots ( expr )
+local direct = rootOf ( expr )
+if direct then
+return { [ 1 ] = direct }
+end
+if not expr or ( expr . kind ~= "call" and expr . kind ~= "methodCall" ) then
+return { }
+end
+local callee = expr . obj
+local token = callee and ( callee . token or callee . name )
+local known = token and byDefinition [ token . definition ] or nil
+if not known or known . summary . top then
+return { }
+end
+local args , roots = callArgs ( expr ) , { }
+for value in pairs ( known . summary . returns or { } ) do
+local resultIndex , root = value : match ( "^(%d+)=([%a_][%w_]*)$" )
+if resultIndex and root then
+for j , name in ipairs ( known . paramNames or { } ) do
+if name == root then
+local actual = rootOf ( args [ j ] )
+if actual then
+roots [ tonumber ( resultIndex ) ] = actual
+end
+end
+end
+end
+end
+return roots
+end
+
+local walk
+walk = function ( node , targetContext )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "localFuncStmt" or kind == "funcStmt"
+or kind == "inlineMethod" or kind == "funcExpr"
+or kind == "shortfn" then
+out . allocates = true
+return
+elseif kind == "tableExpr" then
+out . allocates = true
+elseif kind == "call" or kind == "methodCall" then
+applyCall ( node )
+elseif kind == "name" and not targetContext then
+local root = node . token and rooted [ find ( node . token . definition ) ]
+if root then
+out . reads [ root ] = true
+end
+elseif kind == "assignStmt" then
+for _ , target in ipairs ( node . targets or { } ) do
+local base = target
+while base and ( base . kind == "dotIndex" or base . kind == "bracketIndex"
+or base . kind == "safeIndex" or base . kind == "safeBracket" ) do
+base = base . obj
+end
+local token = directName ( base )
+local root = token and rooted [ find ( token . definition ) ]
+if root and target ~= base then
+out . writes [ root .. "[*]" ] = true
+out . shapes [ root ] = true
+elseif target ~= base and token
+and not localDefinitions [ token . definition ] then
+out . writes [ "$capture[*]" ] = true
+out . shapes [ "$capture" ] = true
+end
+walk ( target , true )
+end
+for j , expr in ipairs ( node . exprs or { } ) do
+local escaped = rootOf ( expr )
+local target = node . targets and node . targets [ j ]
+local targetName = directName ( target )
+if escaped and target and ( ( targetName
+and not localDefinitions [ targetName . definition ] )
+or not targetName ) then
+out . escapes [ escaped ] = true
+end
+walk ( expr , false )
+end
+return
+elseif kind == "compoundAssign" then
+local base = node . target
+while base and ( base . kind == "dotIndex" or base . kind == "bracketIndex" ) do
+base = base . obj
+end
+local token = directName ( base )
+local root = token and rooted [ find ( token . definition ) ]
+if root and node . target ~= base then
+out . writes [ root .. "[*]" ] = true
+end
+if root and node . target ~= base then
+out . shapes [ root ] = true
+end
+if node . target ~= base and token
+and not localDefinitions [ token . definition ] then
+out . writes [ "$capture[*]" ] = true
+out . shapes [ "$capture" ] = true
+end
+elseif kind == "returnStmt" then
+local exprs = node . exprs or { }
+for index , expr in ipairs ( exprs ) do
+local roots = returnedRoots ( expr )
+if index == # exprs then
+for resultIndex , root in pairs ( roots ) do
+local output = index + resultIndex - 1
+out . returns [ tostring ( output ) .. "=" .. root ] = true
+end
+elseif roots [ 1 ] then
+out . returns [ tostring ( index ) .. "=" .. roots [ 1 ] ] = true
+end
+end
+end
+for _ , child in ipairs ( node ) do
+if not cst . isToken ( child ) then
+walk ( child , targetContext )
+end
+end
+end
+walk ( info . body and info . body . body , false )
+return out
+end
+
+local function contractContains ( contract , inferred )
+local declared = fromContract ( contract )
+if inferred . top then
+return false , "calls code with unknown effects"
+end
+for _ , list in ipairs ( LISTS ) do
+for path in pairs ( inferred [ list ] ) do
+if not declared [ list ] [ path ] then
+return false , ( "is missing %s = %q" ) : format ( list , path )
+end
+end
+end
+for _ , flag in ipairs ( FLAGS ) do
+if inferred [ flag ] and not declared [ flag ] then
+return false , "is missing " .. flag .. " = true"
+end
+end
+for value in pairs ( inferred . returns ) do
+if not declared . returns [ value ] then
+return false , "is missing returns = " .. string . format ( "%q" , value )
+end
+end
+return true
+end
+
+
+
+
+local function aliasClasses ( body , byDefinition )
+local parent = { }
+local function find ( value )
+if not value then
+return nil
+end
+parent [ value ] = parent [ value ] or value
+if parent [ value ] ~= value then
+parent [ value ] = find ( parent [ value ] )
+end
+return parent [ value ]
+end
+local function union ( a , b )
+a , b = find ( a ) , find ( b )
+if a and b and a ~= b then
+parent [ b ] = a
+end
+end
+local function returnedAlias ( expr , resultIndex )
+local direct = directName ( expr )
+if direct then
+return { direct }
+end
+if not expr or ( expr . kind ~= "call" and expr . kind ~= "methodCall" ) then
+return { }
+end
+local callee = expr . obj
+local token = callee and ( callee . token or callee . name )
+local known = token and byDefinition [ token . definition ] or nil
+local args = callArgs ( expr )
+local aliases = { }
+if known and not known . summary . top then
+local prefix = tostring ( resultIndex or 1 ) .. "="
+for value in pairs ( known . summary . returns or { } ) do
+if value : sub ( 1 , # prefix ) == prefix then
+local root = value : sub ( # prefix + 1 ) : match ( "^([%a_][%w_]*)" )
+for j , name in ipairs ( known . paramNames or { } ) do
+if name == root then
+local actual = directName ( args [ j ] )
+if actual then
+aliases [ # aliases + 1 ] = actual
+end
+end
+end
+end
+end
+else
+
+
+
+for _ , arg in ipairs ( args ) do
+local actual = directName ( arg )
+if actual then
+aliases [ # aliases + 1 ] = actual
+end
+end
+end
+return aliases
+end
+local function walk ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "localFuncStmt" or kind == "funcStmt"
+or kind == "inlineMethod" or kind == "funcExpr" or kind == "shortfn" then
+return
+elseif kind == "localStmt" then
+for j , name in ipairs ( node . names or { } ) do
+local exprs = node . exprs or { }
+local expr = exprs [ j ] or ( # exprs == 1 and exprs [ 1 ] or nil )
+local resultIndex = # exprs == 1 and j or 1
+for _ , source in ipairs ( returnedAlias ( expr , resultIndex ) ) do
+union ( name . definition , source . definition )
+end
+end
+elseif kind == "assignStmt" then
+for j , target in ipairs ( node . targets or { } ) do
+local targetName = directName ( target )
+local exprs = node . exprs or { }
+local expr = exprs [ j ] or ( # exprs == 1 and exprs [ 1 ] or nil )
+local resultIndex = # exprs == 1 and j or 1
+for _ , source in ipairs ( returnedAlias ( expr , resultIndex ) ) do
+if targetName then
+union ( targetName . definition , source . definition )
+end
+end
+end
+end
+for _ , child in ipairs ( node ) do walk ( child ) end
+end
+walk ( body )
+return find
+end
+
+local function proveLoops ( body , byDefinition )
+local find = aliasClasses ( body , byDefinition )
+local literalLengths = { }
+local function collectLiteralLengths ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+local kind = node . kind
+if kind == "localFuncStmt" or kind == "funcStmt"
+or kind == "inlineMethod" or kind == "funcExpr"
+or kind == "shortfn" then
+return
+end
+if kind == "localStmt" then
+for j , name in ipairs ( node . names or { } ) do
+local value = node . exprs and node . exprs [ j ]
+if value and value . kind == "tableExpr" then
+local length , dense = 0 , true
+for _ , field in ipairs ( value . fields or { } ) do
+if field . kind == "fieldItem" then
+length = length + 1
+else
+dense = false
+end
+end
+if dense and name . definition then
+literalLengths [ name . definition ] = length
+end
+end
+end
+end
+for _ , child in ipairs ( node ) do collectLiteralLengths ( child ) end
+end
+collectLiteralLengths ( body )
+local function definitionReferences ( node , definition )
+if not node then
+return 0
+end
+if cst . isToken ( node ) then
+return node . kind == "name" and node . definition == definition and 1 or 0
+end
+local count = 0
+for _ , child in ipairs ( node ) do
+count = count + definitionReferences ( child , definition )
+end
+return count
+end
+local function walk ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+if node . kind == "localFuncStmt" or node . kind == "funcStmt"
+or node . kind == "inlineMethod" or node . kind == "funcExpr"
+or node . kind == "shortfn" then
+return
+end
+if node . kind == "forinStmt" and node . builtinIpairs then
+local operand = node . builtinIpairs . operand
+local wanted = operand . token and find ( operand . token . definition )
+local length = operand . token
+and literalLengths [ operand . token . definition ] or nil
+local stable , reason , related = length ~= nil , nil , nil
+if length == nil then
+reason = "the array's dense entry length is not statically known"
+related = operand
+elseif definitionReferences ( body , operand . token . definition ) > 2 then
+stable = false
+reason = "the literal array has another use that may alias or expose it"
+related = operand
+end
+local function inspect ( value )
+if not value or cst . isToken ( value ) or not stable then
+return
+end
+if value == node then
+inspect ( value . body )
+return
+end
+local kind = value . kind
+if kind == "localFuncStmt" or kind == "funcStmt"
+or kind == "inlineMethod" or kind == "funcExpr"
+or kind == "shortfn" then
+return
+end
+if kind == "assignStmt" then
+for _ , target in ipairs ( value . targets or { } ) do
+local base = target
+while base and ( base . kind == "dotIndex"
+or base . kind == "bracketIndex" ) do base = base . obj end
+local token = directName ( base )
+if target ~= base and token
+and find ( token . definition ) == wanted then
+stable , reason , related = false ,
+"the array may change shape in the loop" , target
+return
+end
+end
+elseif kind == "compoundAssign" then
+local base = value . target
+while base and ( base . kind == "dotIndex"
+or base . kind == "bracketIndex" ) do base = base . obj end
+local token = directName ( base )
+if value . target ~= base and token
+and find ( token . definition ) == wanted then
+stable , reason , related = false ,
+"the array may change shape in the loop" , value . target
+return
+end
+elseif kind == "call" or kind == "methodCall" then
+local callee = value . obj
+local token = callee and ( callee . token or callee . name )
+local known = token and byDefinition [ token . definition ] or nil
+if not known or known . summary . top or known . summary . external
+or known . summary . yields
+or next ( known . summary . metatables ) then
+stable , reason , related = false ,
+"a call in the loop may mutate or expose the array" , value
+return
+end
+local args = callArgs ( value )
+for path in pairs ( known . summary . shapes ) do
+if path : sub ( 1 , 1 ) == "$" then
+stable , reason , related = false ,
+"a call may change a captured table's shape" , value
+return
+end
+local root = path : match ( "^([%a_][%w_]*)" )
+local index
+for j , name in ipairs ( known . paramNames ) do
+if name == root then
+index = j ; break
+end
+end
+local actual = index and directName ( args [ index ] ) or nil
+if not actual then
+stable , reason , related = false ,
+"a call may change an unresolved argument's shape" ,
+value
+return
+elseif find ( actual . definition ) == wanted then
+stable , reason , related = false ,
+"a call may change the array's shape" , value
+return
+end
+end
+end
+for _ , child in ipairs ( value ) do inspect ( child ) end
+end
+
+
+
+inspect ( body )
+if stable then
+node . numericIpairsProof = { operand = operand , length = length }
+else
+node . numericIpairsDeclined = { message = reason , related = related }
+end
+end
+for _ , child in ipairs ( node ) do walk ( child ) end
+end
+walk ( body )
+end
+
+function analysis . run ( result , checker )
+local functions , byDefinition = collectFunctions ( result . root )
+for _ , info in ipairs ( functions ) do
+if info . contract then
+info . summary = fromContract ( info . contract )
+end
+end
+for _ = 1 , # functions + 1 do
+local changed = false
+for _ , info in ipairs ( functions ) do
+if info . body then
+local inferred = inferFunction ( info , byDefinition )
+local nextSummary = info . contract and fromContract ( info . contract )
+or inferred
+if not same ( info . summary , nextSummary ) then
+info . summary , changed = nextSummary , true
+end
+info . inferred = inferred
+info . body . effectSummary = nextSummary
+end
+end
+if not changed then
+break
+end
+end
+if checker then
+for _ , info in ipairs ( functions ) do
+if info . body and info . contract then
+local ok , why = contractContains ( info . contract , info . inferred )
+if not ok then
+checker . diag ( "NUPP2112" , info . node ,
+"@effects contract " .. tostring ( why ) )
+end
+end
+end
+end
+for _ , block in ipairs ( result . root . blocks or { } ) do
+proveLoops ( block , byDefinition )
+end
+for _ , info in ipairs ( functions ) do
+if info . body and info . body . body then
+proveLoops ( info . body . body , byDefinition )
+end
+end
+result . analysis = { functions = functions , byDefinition = byDefinition }
+return result . analysis
+end
+
+analysis . summary = summary
+analysis . join = join
+analysis . fromContract = fromContract
+
+return analysis
+
+end
 package.preload["nupp.annotations"] = function(...)
 
 
@@ -96,6 +923,7 @@ return nil , ( "annotation @%s is already defined" ) : format ( spec . name )
 end
 if spec . arguments ~= "none" and spec . arguments ~= "names"
 and spec . arguments ~= "owned"
+and spec . arguments ~= "effects"
 and spec . arguments ~= "warnings" and spec . arguments ~= "typed"
 and spec . arguments ~= "definition" then
 return nil , "unknown annotation argument policy"
@@ -136,7 +964,9 @@ end
 
 function Registry : removeSource ( source )
 for name , definition in pairs ( self . byname ) do
-if definition . source == source then self . byname [ name ] = nil end
+if definition . source == source then
+self . byname [ name ] = nil
+end
 end
 end
 
@@ -146,7 +976,9 @@ end
 
 local function categories ( node )
 local out = { }
-if node and node . kind ~= "fieldDecl" then out . statement = true end
+if node and node . kind ~= "fieldDecl" then
+out . statement = true
+end
 local fixed = node and CATEGORIES [ node . kind ]
 for name in pairs ( fixed or { } ) do out [ name ] = true end
 if node and node . kind == "recordDecl" then
@@ -160,7 +992,9 @@ end
 function Registry : accepts ( definition , node )
 local actual = categories ( node )
 for target in pairs ( definition . targetSet ) do
-if actual [ target ] then return true end
+if actual [ target ] then
+return true
+end
 end
 return false
 end
@@ -204,6 +1038,16 @@ targets = { "c-function" } ,
 name = "dispose" ,
 arguments = "none" ,
 targets = { "function" , "c-function" , "field" } ,
+} ,
+{
+name = "effects" ,
+arguments = "effects" ,
+targets = { "function" , "c-function" , "local-binding" } ,
+} ,
+{
+name = "relax" ,
+arguments = "names" ,
+targets = { "function" } ,
 } ,
 {
 name = "jit" ,
@@ -497,15 +1341,24 @@ local function jsonArray ( items )
 return setmetatable ( items , json . array_mt )
 end
 
-
 local function stable ( value , seen )
 local kind = type ( value )
-if kind == "nil" then return "nil" end
-if kind == "boolean" or kind == "number" then return tostring ( value ) end
-if kind == "string" then return ( "%q" ) : format ( value ) end
-if kind ~= "table" then return "<" .. kind .. ">" end
+if kind == "nil" then
+return "nil"
+end
+if kind == "boolean" or kind == "number" then
+return tostring ( value )
+end
+if kind == "string" then
+return ( "%q" ) : format ( value )
+end
+if kind ~= "table" then
+return "<" .. kind .. ">"
+end
 seen = seen or { }
-if seen [ value ] then return "<cycle>" end
+if seen [ value ] then
+return "<cycle>"
+end
 seen [ value ] = true
 local keys = { }
 for key in pairs ( value ) do keys [ # keys + 1 ] = key end
@@ -542,20 +1395,25 @@ end
 local toolFingerprintMemo = nil
 
 local function toolFingerprint ( )
-if toolFingerprintMemo then return toolFingerprintMemo end
+if toolFingerprintMemo then
+return toolFingerprintMemo
+end
 local dir = moduleDir ( )
 
 
-if basename ( dir ) == "build" then dir = dirname ( dir ) end
+if basename ( dir ) == "build" then
+dir = dirname ( dir )
+end
 local files = { }
 if dir : match ( "bootstrap$" ) then
 files = { join ( dir , "nupp.lua" ) }
 else
 for _ , path in ipairs ( listFiles ( dir ) ) do
-if path : match ( "%.lua$" ) then files [ # files + 1 ] = path end
+if path : match ( "%.lua$" ) then
+files [ # files + 1 ] = path
 end
 end
-
+end
 
 
 
@@ -587,7 +1445,9 @@ end
 
 local function loadState ( path )
 local text = readFile ( path )
-if not text then return emptyState ( ) end
+if not text then
+return emptyState ( )
+end
 local ok , state = pcall ( json . decode , text )
 if not ok or type ( state ) ~= "table" or state . version ~= STATE_VERSION then
 return emptyState ( )
@@ -598,7 +1458,6 @@ state . outputs = state . outputs or { }
 
 
 
-
 state . targets = state . targets or { }
 return state
 end
@@ -606,7 +1465,6 @@ end
 local function saveState ( path , state )
 return writeFile ( path , json . encode ( state ) .. "\n" )
 end
-
 
 cache . jsonArray = jsonArray
 cache . stable = stable
@@ -656,10 +1514,14 @@ while j <= # glob do
 local ch = glob : sub ( j , j )
 if ch == "*" and glob : sub ( j + 1 , j + 1 ) == "*" then
 out [ # out + 1 ] = ".*" ; j = j + 2
-elseif ch == "*" then out [ # out + 1 ] = "[^/]*" ; j = j + 1
-elseif ch == "?" then out [ # out + 1 ] = "[^/]" ; j = j + 1
+elseif ch == "*" then
+out [ # out + 1 ] = "[^/]*" ; j = j + 1
+elseif ch == "?" then
+out [ # out + 1 ] = "[^/]" ; j = j + 1
 else
-if ch : match ( "[%^%$%(%)%%%.%[%]%+%-]" ) then ch = "%" .. ch end
+if ch : match ( "[%^%$%(%)%%%.%[%]%+%-]" ) then
+ch = "%" .. ch
+end
 out [ # out + 1 ] = ch ; j = j + 1
 end
 end
@@ -679,7 +1541,9 @@ local base = join ( root , prefix )
 local pattern = globPattern ( join ( root , glob ) )
 local matches = { }
 for _ , path in ipairs ( listFiles ( base ) ) do
-if path : match ( pattern ) then matches [ # matches + 1 ] = path end
+if path : match ( pattern ) then
+matches [ # matches + 1 ] = path
+end
 end
 return matches
 end
@@ -687,13 +1551,19 @@ end
 local function sharedLibraryName ( name )
 name = name : gsub ( "%-" , "_" )
 local osName = ( jit and jit . os or "" ) : lower ( )
-if osName == "windows" then return name .. ".dll" end
-if osName == "osx" then return "lib" .. name .. ".dylib" end
+if osName == "windows" then
+return name .. ".dll"
+end
+if osName == "osx" then
+return "lib" .. name .. ".dylib"
+end
 return "lib" .. name .. ".so"
 end
 
 local function fetchGit ( root , name , source )
-if type ( source ) ~= "table" or not source . git then return root end
+if type ( source ) ~= "table" or not source . git then
+return root
+end
 if type ( source . rev ) ~= "string" or source . rev == "" then
 return nil , "dependency " .. name .. " requires an exact source.rev"
 end
@@ -701,7 +1571,9 @@ local checkout = join ( root , ".nupp/deps/" .. name )
 if not exists ( join ( checkout , ".git/HEAD" ) ) then
 mkdir ( dirname ( checkout ) )
 local code = process . run ( { "git" , "clone" , source . git , checkout } )
-if code ~= 0 then return nil , "git clone failed for " .. name end
+if code ~= 0 then
+return nil , "git clone failed for " .. name
+end
 end
 local code , head = process . capture ( { "git" , "rev-parse" , "HEAD" } , { cwd = checkout } )
 if code ~= 0 or normalize ( head : gsub ( "%s+$" , "" ) ) ~= source . rev then
@@ -728,23 +1600,33 @@ return files
 end
 
 local function bindingConfig ( dep )
-if type ( dep . bindings ) == "table" then return dep . bindings end
-if dep . header then return { header = dep . header } end
+if type ( dep . bindings ) == "table" then
+return dep . bindings
+end
+if dep . header then
+return { header = dep . header }
+end
 return nil
 end
 
 local function generateBinding ( root , outDir , name , dep , base , libraryPath ,
 extraCppflags )
 local binding = bindingConfig ( dep )
-if not binding or not binding . header then return nil end
+if not binding or not binding . header then
+return nil
+end
 local header = binding . header
-if header : sub ( 1 , 1 ) ~= "/" then header = join ( base , header ) end
+if header : sub ( 1 , 1 ) ~= "/" then
+header = join ( base , header )
+end
 local text , warnings = importc . import ( header , {
 lib = binding . library or dep . load or libraryPath ,
 cc = dep . cc ,
 cppflags = extraCppflags or dep . cppflags ,
 } )
-if not text then return nil , table . concat ( warnings or { } , "; " ) end
+if not text then
+return nil , table . concat ( warnings or { } , "; " )
+end
 for _ , warning in ipairs ( warnings or { } ) do
 io . stderr : write ( "nupp: warning: " .. warning .. "\n" )
 end
@@ -752,7 +1634,9 @@ local output = join ( root , binding . out or join ( outDir , "generated/" .. na
 local current = readFile ( output )
 if current ~= text then
 local ok , err = writeFile ( output , text )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 return output
 end
@@ -765,9 +1649,14 @@ end
 
 local function buildC ( root , outDir , name , dep , previous , childResults )
 local base , fetchErr = fetchGit ( root , name , dep . source )
-if not base then return nil , fetchErr end
-if dep . source then base = join ( base , dep . path or "." )
-else base = join ( root , dep . path or "." ) end
+if not base then
+return nil , fetchErr
+end
+if dep . source then
+base = join ( base , dep . path or "." )
+else
+base = join ( root , dep . path or "." )
+end
 local sources = dependencyFiles ( base , dep . sources or { } )
 local nativeInputs = { }
 for _ , path in ipairs ( sources ) do nativeInputs [ # nativeInputs + 1 ] = path end
@@ -777,7 +1666,9 @@ end
 local configuredBinding = bindingConfig ( dep )
 if configuredBinding and configuredBinding . header then
 local header = configuredBinding . header
-if header : sub ( 1 , 1 ) ~= "/" then header = join ( base , header ) end
+if header : sub ( 1 , 1 ) ~= "/" then
+header = join ( base , header )
+end
 nativeInputs [ # nativeInputs + 1 ] = header
 end
 table . sort ( nativeInputs )
@@ -786,7 +1677,9 @@ local _ , version = process . capture ( { compiler , "--version" } )
 local pkgFlags = { }
 if dep . pkgConfig then
 local code , flags = process . capture ( { "pkg-config" , "--cflags" , "--libs" , dep . pkgConfig } )
-if code ~= 0 then return nil , "pkg-config failed for " .. dep . pkgConfig .. ": " .. flags end
+if code ~= 0 then
+return nil , "pkg-config failed for " .. dep . pkgConfig .. ": " .. flags
+end
 pkgFlags = splitFlags ( flags )
 end
 local key = hash . digest ( stable ( dep ) .. "\0" .. hashFiles ( nativeInputs )
@@ -801,10 +1694,13 @@ local stagedOutput = output .. ".tmp"
 os . remove ( stagedOutput )
 local argv = { compiler }
 local osName = ( jit and jit . os or "" ) : lower ( )
-if osName == "osx" then argv [ # argv + 1 ] = "-dynamiclib"
+if osName == "osx" then
+argv [ # argv + 1 ] = "-dynamiclib"
 elseif osName ~= "windows" then
 argv [ # argv + 1 ] = "-shared" ; argv [ # argv + 1 ] = "-fPIC"
-else argv [ # argv + 1 ] = "-shared" end
+else
+argv [ # argv + 1 ] = "-shared"
+end
 argv [ # argv + 1 ] = "-o" ; argv [ # argv + 1 ] = stagedOutput
 for _ , dir in ipairs ( dep . includeDirs or { } ) do
 argv [ # argv + 1 ] = "-I" .. join ( base , dir )
@@ -813,7 +1709,9 @@ for _ , flag in ipairs ( dep . cflags or { } ) do argv [ # argv + 1 ] = flag end
 for _ , source in ipairs ( sources ) do argv [ # argv + 1 ] = source end
 for _ , childName in ipairs ( dep . dependencies or { } ) do
 local child = childResults and childResults [ childName ]
-if child . output then argv [ # argv + 1 ] = child . output end
+if child . output then
+argv [ # argv + 1 ] = child . output
+end
 end
 for _ , flag in ipairs ( pkgFlags ) do argv [ # argv + 1 ] = flag end
 for _ , flag in ipairs ( dep . ldflags or { } ) do argv [ # argv + 1 ] = flag end
@@ -823,9 +1721,13 @@ return nil , "C build failed for " .. name
 end
 local binary , binaryErr = readFile ( stagedOutput )
 os . remove ( stagedOutput )
-if not binary then return nil , binaryErr end
+if not binary then
+return nil , binaryErr
+end
 local installed , installErr = writeFile ( output , binary )
-if not installed then return nil , installErr end
+if not installed then
+return nil , installErr
+end
 end
 end
 local cppflags = { }
@@ -834,11 +1736,15 @@ for _ , dir in ipairs ( dep . includeDirs or { } ) do
 cppflags [ # cppflags + 1 ] = "-I" .. join ( base , dir )
 end
 for _ , flag in ipairs ( pkgFlags ) do
-if flag : match ( "^-I" ) or flag : match ( "^-D" ) then cppflags [ # cppflags + 1 ] = flag end
+if flag : match ( "^-I" ) or flag : match ( "^-D" ) then
+cppflags [ # cppflags + 1 ] = flag
+end
 end
 local binding , bindingErr = generateBinding ( root , outDir , name , dep , base ,
 dep . load or output or dep . pkgConfig , cppflags )
-if bindingErr then return nil , bindingErr end
+if bindingErr then
+return nil , bindingErr
+end
 return { key = key , output = output , binding = binding }
 end
 
@@ -870,13 +1776,20 @@ local output = join ( root , dep . out or join ( outDir , "lib/" .. sharedLibrar
 if not previous or previous . key ~= key or not exists ( output ) then
 local argv = { cargo , "build" , "--manifest-path" , manifest ,
 "--target-dir" , targetDir }
-if profile == "release" then argv [ # argv + 1 ] = "--release"
+if profile == "release" then
+argv [ # argv + 1 ] = "--release"
 elseif profile ~= "debug" then
 argv [ # argv + 1 ] = "--profile" ; argv [ # argv + 1 ] = profile
 end
-if dep . target then argv [ # argv + 1 ] = "--target" ; argv [ # argv + 1 ] = dep . target end
-if dep . locked ~= false then argv [ # argv + 1 ] = "--locked" end
-if dep . offline then argv [ # argv + 1 ] = "--offline" end
+if dep . target then
+argv [ # argv + 1 ] = "--target" ; argv [ # argv + 1 ] = dep . target
+end
+if dep . locked ~= false then
+argv [ # argv + 1 ] = "--locked"
+end
+if dep . offline then
+argv [ # argv + 1 ] = "--offline"
+end
 if # ( dep . features or { } ) > 0 then
 argv [ # argv + 1 ] = "--features"
 argv [ # argv + 1 ] = table . concat ( dep . features , "," )
@@ -902,9 +1815,13 @@ end
 end
 end
 end
-if not exists ( artifact ) then return nil , "Cargo artifact not found: " .. artifact end
+if not exists ( artifact ) then
+return nil , "Cargo artifact not found: " .. artifact
+end
 local ok , err = copyFile ( artifact , output )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 local binding = bindingConfig ( dep )
 if binding and binding . cbindgen then
@@ -919,7 +1836,9 @@ binding . header = header
 end
 local generated , bindingErr = generateBinding ( root , outDir , name , dep ,
 crateDir , dep . load or output )
-if bindingErr then return nil , bindingErr end
+if bindingErr then
+return nil , bindingErr
+end
 return { key = key , output = output , binding = generated }
 end
 
@@ -946,13 +1865,17 @@ local currentDirectory = nil
 
 local function absolute ( path )
 path = normalize ( path or "" )
-if path : sub ( 1 , 1 ) == "/" or path : match ( "^%a:" ) then return path end
+if path : sub ( 1 , 1 ) == "/" or path : match ( "^%a:" ) then
+return path
+end
 if not currentDirectory then
 local _ , printed = process . capture ( windows
 and { "cmd" , "/d" , "/c" , "cd" } or { "pwd" } )
 currentDirectory = normalize ( ( printed or "." ) : gsub ( "%s+$" , "" ) )
 end
-if path == "" or path == "." then return currentDirectory end
+if path == "" or path == "." then
+return currentDirectory
+end
 return join ( currentDirectory , path )
 end
 
@@ -963,9 +1886,13 @@ end
 
 
 local function luaDirectory ( dep )
-if dep . luaDir then return dep . luaDir end
+if dep . luaDir then
+return dep . luaDir
+end
 local named = os . getenv ( "NUPP_LUA_DIR" )
-if named and named ~= "" then return named end
+if named and named ~= "" then
+return named
+end
 for entry in ( package . cpath .. ";" ) : gmatch ( "([^;]*);" ) do
 local prefix = entry : match ( "^(.*)/lib/lua/" )
 if prefix and ( exists ( join ( prefix , "include/luajit-2.1/lua.h" ) )
@@ -998,7 +1925,9 @@ if entry ~= "" and not ( ";" .. current .. ";" )
 fresh [ # fresh + 1 ] = entry
 end
 end
-if # fresh == 0 then return current end
+if # fresh == 0 then
+return current
+end
 return table . concat ( fresh , ";" ) .. ";" .. current
 end
 
@@ -1009,7 +1938,9 @@ end
 
 local function declaredVersion ( rockspec )
 local text = rockspec and readFile ( rockspec )
-if not text then return nil end
+if not text then
+return nil
+end
 return text : match ( "[\r\n]version%s*=%s*[\"']([^\"']+)[\"']" )
 or text : match ( "^version%s*=%s*[\"']([^\"']+)[\"']" )
 end
@@ -1019,7 +1950,6 @@ end
 
 local listings = { }
 local toolVersions = { }
-
 
 
 
@@ -1033,7 +1963,9 @@ end
 
 local function installedRocks ( argv , tree , luaVersion )
 local id = tree .. "\0" .. luaVersion
-if listings [ id ] then return listings [ id ] end
+if listings [ id ] then
+return listings [ id ]
+end
 local listArgv = { }
 for _ , item in ipairs ( argv ) do listArgv [ # listArgv + 1 ] = item end
 listArgv [ # listArgv + 1 ] = "list"
@@ -1043,7 +1975,9 @@ local installed = { }
 if code == 0 then
 for line in printed : gmatch ( "[^\r\n]+" ) do
 local rock , version = line : match ( "^(%S+)\t(%S+)\t" )
-if rock then installed [ rock ] = version end
+if rock then
+installed [ rock ] = version
+end
 end
 end
 listings [ id ] = installed
@@ -1091,11 +2025,17 @@ return nil , ( "dependency %s is a rock and %s is not on PATH; install "
 end
 local argv = { luarocks , "--lua-version=" .. luaVersion , "--tree=" .. tree }
 local luaDir = luaDirectory ( dep )
-if luaDir then argv [ # argv + 1 ] = "--lua-dir=" .. luaDir end
-if dep . server then argv [ # argv + 1 ] = "--server=" .. dep . server end
+if luaDir then
+argv [ # argv + 1 ] = "--lua-dir=" .. luaDir
+end
+if dep . server then
+argv [ # argv + 1 ] = "--server=" .. dep . server
+end
 
 local inputs = { }
-if rockspec then inputs [ # inputs + 1 ] = rockspec end
+if rockspec then
+inputs [ # inputs + 1 ] = rockspec
+end
 if source then
 local files = rockSourceFiles ( source )
 
@@ -1116,7 +2056,6 @@ local key = hash . sha256 ( stable ( dep ) .. "\0" .. hashFiles ( inputs )
 
 
 
-
 local installed = installedRocks ( argv , tree , luaVersion )
 local present = installed [ rock ]
 local satisfied = present ~= nil and ( wanted == nil or present == wanted )
@@ -1128,10 +2067,13 @@ if source then
 
 
 install [ # install + 1 ] = "make"
-if rockspec then install [ # install + 1 ] = rockspec end
+if rockspec then
+install [ # install + 1 ] = rockspec
+end
 else
 install [ # install + 1 ] = "install"
-if rockspec then install [ # install + 1 ] = rockspec
+if rockspec then
+install [ # install + 1 ] = rockspec
 else
 install [ # install + 1 ] = rock
 install [ # install + 1 ] = dep . version
@@ -1173,7 +2115,9 @@ cpaths [ # cpaths + 1 ] = entries . cpath
 end
 end
 end
-if # paths == 0 then return nil end
+if # paths == 0 then
+return nil
+end
 return { path = table . concat ( paths , ";" ) , cpath = table . concat ( cpaths , ";" ) }
 end
 
@@ -1222,34 +2166,47 @@ luarocks = buildRock }
 local function buildDependencies ( root , outDir , config , previous , target )
 local results , visiting = { } , { }
 local function buildOne ( name )
-if results [ name ] then return results [ name ] end
-if visiting [ name ] then return nil , "dependency cycle involving " .. name end
+if results [ name ] then
+return results [ name ]
+end
+if visiting [ name ] then
+return nil , "dependency cycle involving " .. name
+end
 local dep = config . dependencies and config . dependencies [ name ]
-if type ( dep ) ~= "table" then return nil , "unknown dependency " .. tostring ( name ) end
+if type ( dep ) ~= "table" then
+return nil , "unknown dependency " .. tostring ( name )
+end
 local provider = PROVIDERS [ dep . kind ]
-if not provider then return nil , "unsupported dependency kind " .. tostring ( dep . kind ) end
+if not provider then
+return nil , "unsupported dependency kind " .. tostring ( dep . kind )
+end
 visiting [ name ] = true
 local childResults = { }
 for _ , child in ipairs ( dep . dependencies or { } ) do
 local childResult , err = buildOne ( child )
-if err then return nil , err end
+if err then
+return nil , err
+end
 childResults [ child ] = childResult
 end
 local result , err = provider ( root , outDir , name , dep , previous [ name ] ,
 childResults )
 visiting [ name ] = nil
-if not result then return nil , err end
+if not result then
+return nil , err
+end
 results [ name ] = result
 return result
 end
 local targetDeps = ( target or config . _target or { } ) . dependencies or { }
 for _ , name in ipairs ( targetDeps ) do
 local _ , err = buildOne ( name )
-if err then return nil , err end
+if err then
+return nil , err
+end
 end
 return results
 end
-
 
 deps . expandGlob = expandGlob
 deps . build = buildDependencies
@@ -1369,7 +2326,9 @@ add ( h [ 7 ] , g ) , add ( h [ 8 ] , hh )
 end
 local out = { }
 for _ , value in ipairs ( h ) do
-if value < 0 then value = value + 0x100000000 end
+if value < 0 then
+value = value + 0x100000000
+end
 out [ # out + 1 ] = ( "%08x" ) : format ( value )
 end
 return table . concat ( out )
@@ -1392,7 +2351,6 @@ value = round ( 0ULL , value )
 acc = bxor ( acc , value )
 return acc * P1 + P4
 end
-
 
 
 
@@ -1485,7 +2443,6 @@ end
 
 
 
-
 hash . DIGEST = "xxh64x2"
 
 hash . xxh64 = xxh64
@@ -1514,23 +2471,33 @@ local manifest = { }
 
 local function validateArray ( value , label , itemType , required )
 if value == nil then
-if required then return nil , label .. " is required" end
+if required then
+return nil , label .. " is required"
+end
 return true
 end
-if type ( value ) ~= "table" then return nil , label .. " must be an array" end
+if type ( value ) ~= "table" then
+return nil , label .. " must be an array"
+end
 local count , highest = 0 , 0
 for key , item in pairs ( value ) do
 if type ( key ) ~= "number" or key < 1 or key ~= math . floor ( key ) then
 return nil , label .. " must be an array"
 end
 count = count + 1
-if key > highest then highest = key end
+if key > highest then
+highest = key
+end
 if itemType and type ( item ) ~= itemType then
 return nil , label .. "[" .. key .. "] must be a " .. itemType
 end
 end
-if count ~= highest then return nil , label .. " must not contain gaps" end
-if required and count == 0 then return nil , label .. " must not be empty" end
+if count ~= highest then
+return nil , label .. " must not contain gaps"
+end
+if required and count == 0 then
+return nil , label .. " must not be empty"
+end
 return true
 end
 
@@ -1570,7 +2537,9 @@ local HERO_ACTION_KEYS = { "text" , "path" , "theme" }
 local FEATURE_KEYS = { "icon" , "image" , "title" , "details" }
 
 local function validateKeys ( value , known , label )
-if type ( value ) ~= "table" then return true end
+if type ( value ) ~= "table" then
+return true
+end
 local allowed = { }
 for _ , name in ipairs ( known ) do allowed [ name ] = true end
 local unknown = { }
@@ -1581,7 +2550,9 @@ end
 end
 table . sort ( unknown )
 local key = unknown [ 1 ]
-if not key then return true end
+if not key then
+return true
+end
 local suggestion = require ( "nupp.check.fixits" ) . nearest ( key , known )
 if suggestion then
 return nil , ( "%s has no key %q; did you mean %q?" ) : format (
@@ -1592,31 +2563,43 @@ end
 
 local function validateDocsTarget ( target , label )
 local valid , err = validateKeys ( target , DOCS_KEYS , label )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if target . pages ~= nil and type ( target . pages ) ~= "table" then
 return nil , label .. ".pages must be an array of page tables"
 end
 for index , page in ipairs ( target . pages or { } ) do
 local pageLabel = ( "%s.pages[%d]" ) : format ( label , index )
-if type ( page ) ~= "table" then return nil , pageLabel .. " must be a table" end
+if type ( page ) ~= "table" then
+return nil , pageLabel .. " must be a table"
+end
 valid , err = validateKeys ( page , PAGE_KEYS , pageLabel )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 for actionIndex , action in ipairs ( page . heroActions or page . hero_actions or { } ) do
 valid , err = validateKeys ( action , HERO_ACTION_KEYS ,
 ( "%s.heroActions[%d]" ) : format ( pageLabel , actionIndex ) )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 for featureIndex , feature in ipairs ( page . features or { } ) do
 valid , err = validateKeys ( feature , FEATURE_KEYS ,
 ( "%s.features[%d]" ) : format ( pageLabel , featureIndex ) )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 end
 return true
 end
 
 local function validateTarget ( target , label , dependencies )
-if type ( target ) ~= "table" then return nil , label .. " must be a table" end
+if type ( target ) ~= "table" then
+return nil , label .. " must be a table"
+end
 local kind = target . kind or "modules"
 if kind ~= "modules" and kind ~= "docs" and kind ~= "bundle"
 and kind ~= "binary" then
@@ -1629,25 +2612,35 @@ return nil , label .. ".stub is required for a binary target: it names "
 end
 if target . stub ~= nil then
 local valid , err = validateString ( target . stub , label .. ".stub" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 if target . description ~= nil and type ( target . description ) ~= "string" then
 return nil , label .. ".description must be a string"
 end
 if target . outDir ~= nil then
 local valid , err = validateString ( target . outDir , label .. ".outDir" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 local valid , err = validateArray ( target . entries , label .. ".entries" , "string" ,
 kind == "modules" or kind == "bundle" or kind == "binary" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if target . output ~= nil then
 valid , err = validateString ( target . output , label .. ".output" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 valid , err = validateArray ( target . sources , label .. ".sources" , "string" ,
 kind == "docs" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if target . format ~= nil and target . format ~= "site"
 and target . format ~= "markdown" and target . format ~= "both" then
 return nil , label .. ".format must be \"site\", \"markdown\", or \"both\""
@@ -1656,9 +2649,13 @@ if target . title ~= nil and type ( target . title ) ~= "string" then
 return nil , label .. ".title must be a string"
 end
 valid , err = validateArray ( target . resources , label .. ".resources" , "string" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 valid , err = validateArray ( target . dependencies , label .. ".dependencies" , "string" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 for _ , name in ipairs ( target . dependencies or { } ) do
 if type ( dependencies [ name ] ) ~= "table" then
 return nil , label .. ".dependencies references unknown dependency " .. name
@@ -1666,7 +2663,9 @@ end
 end
 if kind == "docs" then
 valid , err = validateDocsTarget ( target , label )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 return true
 end
@@ -1683,7 +2682,9 @@ local function validateRock ( dep , label )
 for _ , field in ipairs ( ROCK_STRINGS ) do
 if dep [ field ] ~= nil then
 local valid , err = validateString ( dep [ field ] , label .. "." .. field )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 end
 if dep . version == nil and dep . rockspec == nil and dep . path == nil then
@@ -1694,7 +2695,9 @@ end
 
 
 local valid , err = validateArray ( dep . bundle , label .. ".bundle" , "string" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 
 
 
@@ -1713,7 +2716,9 @@ local FMT_KEYS = { "methodParens" }
 
 local function validateManifest ( config )
 local valid , err = validateArray ( config . include , "include" , "string" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if config . strict ~= nil and type ( config . strict ) ~= "boolean" then
 return nil , "strict must be a boolean"
 end
@@ -1723,7 +2728,9 @@ if type ( config . fmt ) ~= "table" then
 return nil , "fmt must be a table"
 end
 valid , err = validateKeys ( config . fmt , FMT_KEYS , "fmt" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if config . fmt . methodParens ~= nil
 and type ( config . fmt . methodParens ) ~= "boolean" then
 return nil , "fmt.methodParens must be a boolean"
@@ -1752,7 +2759,9 @@ end
 end
 
 local dependencies = config . dependencies or { }
-if type ( dependencies ) ~= "table" then return nil , "dependencies must be a table" end
+if type ( dependencies ) ~= "table" then
+return nil , "dependencies must be a table"
+end
 for name , dep in pairs ( dependencies ) do
 if type ( name ) ~= "string" or name == "" then
 return nil , "dependency names must be non-empty strings"
@@ -1767,10 +2776,14 @@ return nil , "dependencies." .. name
 end
 valid , err = validateArray ( dep . dependencies ,
 "dependencies." .. name .. ".dependencies" , "string" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if dep . kind == "luarocks" then
 valid , err = validateRock ( dep , "dependencies." .. name )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 for _ , child in ipairs ( dep . dependencies or { } ) do
 if type ( dependencies [ child ] ) ~= "table" then
@@ -1782,19 +2795,27 @@ end
 
 local visiting , visited = { } , { }
 local function visit ( name )
-if visiting [ name ] then return nil , "dependency cycle involving " .. name end
-if visited [ name ] then return true end
+if visiting [ name ] then
+return nil , "dependency cycle involving " .. name
+end
+if visited [ name ] then
+return true
+end
 visiting [ name ] = true
 for _ , child in ipairs ( dependencies [ name ] . dependencies or { } ) do
 local ok , cycleErr = visit ( child )
-if not ok then return nil , cycleErr end
+if not ok then
+return nil , cycleErr
+end
 end
 visiting [ name ] , visited [ name ] = nil , true
 return true
 end
 for name in pairs ( dependencies ) do
 valid , err = visit ( name )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 
 if config . build ~= nil and type ( config . build ) ~= "table" then
@@ -1804,7 +2825,9 @@ local build = config . build
 if build then
 if build . outDir ~= nil then
 valid , err = validateString ( build . outDir , "build.outDir" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 if build . targets ~= nil then
 if type ( build . targets ) ~= "table" then
@@ -1828,12 +2851,18 @@ end
 for key , value in pairs ( target ) do effective [ key ] = value end
 valid , err = validateTarget ( effective ,
 "build.targets." .. name , dependencies )
-if not valid then return nil , err end
+if not valid then
+return nil , err
 end
-if targetCount == 0 then return nil , "build.targets must not be empty" end
+end
+if targetCount == 0 then
+return nil , "build.targets must not be empty"
+end
 if build . default ~= nil then
 valid , err = validateString ( build . default , "build.default" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if type ( build . targets [ build . default ] ) ~= "table" then
 return nil , "build.default references unknown target " .. build . default
 end
@@ -1843,19 +2872,31 @@ if build . default ~= nil then
 return nil , "build.default requires build.targets"
 end
 valid , err = validateTarget ( build , "build" , dependencies )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 end
 
 if config . test ~= nil then
-if type ( config . test ) ~= "table" then return nil , "test must be a table" end
-if not build then return nil , "test requires build configuration" end
+if type ( config . test ) ~= "table" then
+return nil , "test must be a table"
+end
+if not build then
+return nil , "test requires build configuration"
+end
 valid , err = validateArray ( config . test . argv , "test.argv" , "string" , true )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if config . test . build ~= nil then
 valid , err = validateString ( config . test . build , "test.build" )
-if not valid then return nil , err end
-if not build . targets then return nil , "test.build requires build.targets" end
+if not valid then
+return nil , err
+end
+if not build . targets then
+return nil , "test.build requires build.targets"
+end
 if type ( build . targets [ config . test . build ] ) ~= "table" then
 return nil , "test.build references unknown target " .. config . test . build
 end
@@ -1875,10 +2916,14 @@ if config . selfHost ~= nil then
 if type ( config . selfHost ) ~= "table" then
 return nil , "selfHost must be a table"
 end
-if not build then return nil , "selfHost requires build configuration" end
+if not build then
+return nil , "selfHost requires build configuration"
+end
 if config . selfHost . target ~= nil then
 valid , err = validateString ( config . selfHost . target , "selfHost.target" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 if not build . targets then
 return nil , "selfHost.target requires build.targets"
 end
@@ -1890,7 +2935,9 @@ end
 if config . selfHost . bootstrap ~= nil then
 valid , err = validateString ( config . selfHost . bootstrap ,
 "selfHost.bootstrap" )
-if not valid then return nil , err end
+if not valid then
+return nil , err
+end
 end
 end
 return true
@@ -1904,13 +2951,18 @@ if not chunk then
 return nil , "nupp: cannot load " .. path .. ": " .. tostring ( loadErr )
 end
 local ok , config = pcall ( chunk )
-if not ok then return nil , "nupp: " .. path .. ": " .. tostring ( config ) end
-if type ( config ) ~= "table" then return nil , "nupp: " .. path .. " must return a table" end
+if not ok then
+return nil , "nupp: " .. path .. ": " .. tostring ( config )
+end
+if type ( config ) ~= "table" then
+return nil , "nupp: " .. path .. " must return a table"
+end
 local valid , err = validateManifest ( config )
-if not valid then return nil , "nupp: " .. tostring ( err ) end
+if not valid then
+return nil , "nupp: " .. tostring ( err )
+end
 return config
 end
-
 
 manifest . validate = validateManifest
 
@@ -1950,15 +3002,16 @@ local isFatal , printErrors = diagnosticMod . isFatal , diagnosticMod . report
 local modules = { }
 
 local function typeFingerprint ( t , active )
-if not t then return "nil" end
+if not t then
+return "nil"
+end
 active = active or { }
-if active [ t ] then return "@" .. ( t . name or t . tag ) end
+if active [ t ] then
+return "@" .. ( t . name or t . tag )
+end
 active [ t ] = true
 local tag , value = t . tag , nil
 if tag == "nominal" then
-
-
-
 
 
 
@@ -2006,7 +3059,8 @@ value = tag .. "(" .. table . concat ( t . cleanups or { } , "," ) .. ","
 .. typeFingerprint ( t . inner , active ) .. ")"
 elseif tag == "borrowed" or tag == "pinned" then
 value = tag .. "(" .. typeFingerprint ( t . inner , active ) .. ")"
-elseif tag == "map" then value = "map(r="
+elseif tag == "map" then
+value = "map(r="
 .. ( t . readable and typeFingerprint ( t . key , active ) or "nil" )
 .. ":" .. ( t . readable and typeFingerprint ( t . value , active ) or "nil" )
 .. ",w=" .. typeFingerprint ( t . writeKey , active ) .. ":"
@@ -2023,9 +3077,13 @@ for _ , item in ipairs ( t . members or { } ) do
 items [ # items + 1 ] = typeFingerprint ( item , active )
 end
 table . sort ( items ) ; value = "union(" .. table . concat ( items , "|" ) .. ")"
-elseif tag == "literal" then value = "literal(" .. stable ( t . value ) .. ")"
-elseif tag == "typevar" then value = "typevar(" .. t . name .. ")"
-else value = tag or tostring ( t ) end
+elseif tag == "literal" then
+value = "literal(" .. stable ( t . value ) .. ")"
+elseif tag == "typevar" then
+value = "typevar(" .. t . name .. ")"
+else
+value = tag or tostring ( t )
+end
 active [ t ] = nil
 return value
 end
@@ -2041,7 +3099,9 @@ for _ , include in ipairs ( config . include or { } ) do
 include = normalize ( include )
 if normalized : sub ( 1 , # include + 1 ) == include .. "/" then
 local relative = normalized : sub ( # include + 2 )
-if # relative < # best then best = relative end
+if # relative < # best then
+best = relative
+end
 end
 end
 return best
@@ -2100,7 +3160,6 @@ newState . projectIndexHash = projectIndexFingerprint ( inc )
 
 
 
-
 local cacheCompatible = oldState . compilerHash == newState . compilerHash
 and oldState . configHash == newState . configHash
 and oldState . projectIndexHash == newState . projectIndexHash
@@ -2120,12 +3179,12 @@ and oldState . projectIndexHash == newState . projectIndexHash
 
 
 
-
-
 local queue , queuedPaths = { } , { }
 local function seed ( name , path )
 path = normalize ( path )
-if queuedPaths [ path ] then return end
+if queuedPaths [ path ] then
+return
+end
 queuedPaths [ path ] = true
 queue [ # queue + 1 ] = { name = name , path = path }
 end
@@ -2139,17 +3198,25 @@ else
 name = entry
 path = inc . modulePath ( entry )
 end
-if not path then return nil , "entry not found: " .. entry end
-if not name then return nil , "cannot determine module name for " .. path end
+if not path then
+return nil , "entry not found: " .. entry
+end
+if not name then
+return nil , "cannot determine module name for " .. path
+end
 seed ( name , path )
 end
-if # queue == 0 then return nil , "build.entries must contain at least one entry" end
+if # queue == 0 then
+return nil , "build.entries must contain at least one entry"
+end
 
 
 
 for _ , path in ipairs ( envMod . listSourceFiles ( inc . env , false ) ) do
 local name = envMod . moduleNameForPath ( inc . env , path )
-if name then seed ( name , path ) end
+if name then
+seed ( name , path )
+end
 end
 
 local records , reused , codeFor , paths = { } , { } , { } , { }
@@ -2164,7 +3231,9 @@ stats . checkedModules , stats . generatedModules , stats . reusedModules = 0 , 
 local said = { }
 
 local function enqueue ( name , path )
-if queued [ name ] or records [ name ] then return end
+if queued [ name ] or records [ name ] then
+return
+end
 path = path or inc . modulePath ( name )
 if path then
 queued [ name ] = true
@@ -2177,7 +3246,9 @@ end
 
 local function isFatalIn ( diags )
 for _ , diag in ipairs ( diags or { } ) do
-if isFatal ( diag ) then return true end
+if isFatal ( diag ) then
+return true
+end
 end
 return false
 end
@@ -2195,7 +3266,8 @@ if not fatal and not checkOnly then
 local genDiags
 local remarks = optimize . run ( result . result ,
 { level = config . _optLevel or 0 , filename = path ,
-disabled = config . _disabledPasses } )
+disabled = config . _disabledPasses ,
+relaxed = config . _relaxedGuarantees } )
 if config . _remarks then
 for _ , note in ipairs ( remarks ) do
 mine [ # mine + 1 ] = note
@@ -2206,7 +3278,9 @@ stats . generatedModules = stats . generatedModules + 1
 for _ , diag in ipairs ( genDiags or { } ) do
 mine [ # mine + 1 ] = diag
 end
-if # genDiags == 0 then artifactHash = hash . digest ( code ) end
+if # genDiags == 0 then
+artifactHash = hash . digest ( code )
+end
 end
 said [ name ] = mine
 records [ name ] = {
@@ -2258,7 +3332,6 @@ reused [ item . name ] = true
 
 
 
-
 said [ item . name ] = previous . diags
 for _ , depName in ipairs ( previous . dependencies ) do
 enqueue ( depName )
@@ -2303,13 +3376,11 @@ end
 
 
 
-
 for _ , name in ipairs ( order ) do
 if reused [ name ] then
 stats . reusedModules = stats . reusedModules + 1
 end
 end
-
 
 
 
@@ -2340,7 +3411,9 @@ if isFatal ( e ) then
 fatal = true
 
 
-if not e . code or e . code : sub ( 1 , 5 ) ~= "NUPP3" then checkFailed = true end
+if not e . code or e . code : sub ( 1 , 5 ) ~= "NUPP3" then
+checkFailed = true
+end
 end
 end
 if diagnostics then
@@ -2353,7 +3426,9 @@ end
 if fatal then
 return nil , checkFailed and "project has errors" or "code generation failed"
 end
-if checkOnly then return { outputs = { } } end
+if checkOnly then
+return { outputs = { } }
+end
 
 
 
@@ -2383,7 +3458,9 @@ for _ , pattern in ipairs ( target . resources or { } ) do
 for _ , source in ipairs ( expandGlob ( root , pattern ) ) do
 local output = join ( root , join ( outDir , resourceRelative ( config , source , root ) ) )
 local text , err = readFile ( source )
-if not text then return nil , err end
+if not text then
+return nil , err
+end
 outputs [ output ] = true
 if hashFile ( output ) ~= hash . digest ( text ) then
 pending [ # pending + 1 ] = { path = output , text = text }
@@ -2392,11 +3469,12 @@ end
 end
 for _ , item in ipairs ( pending ) do
 local ok , err = writeFile ( item . path , item . text )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 return { outputs = outputs }
 end
-
 
 modules . typeFingerprint = typeFingerprint
 modules . resourceRelative = resourceRelative
@@ -2452,7 +3530,9 @@ end
 local function entryModule ( root , outDir , target )
 local mainName = "nupp.main"
 local entries = target . entries or { }
-if entries [ 1 ] and not entries [ 1 ] : match ( "%.nupp$" ) then mainName = entries [ 1 ] end
+if entries [ 1 ] and not entries [ 1 ] : match ( "%.nupp$" ) then
+mainName = entries [ 1 ]
+end
 return mainName , join ( root , join ( outDir , mainName : gsub ( "%." , "/" ) .. ".lua" ) )
 end
 
@@ -2493,10 +3573,11 @@ local chunks = { banner or "" }
 
 
 
-
 for _ , rock in ipairs ( deps . rockModules ( root , config , target ) ) do
 local text , readErr = readFile ( rock . path )
-if not text then return nil , readErr end
+if not text then
+return nil , readErr
+end
 chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" )
 : format ( rock . name )
 chunks [ # chunks + 1 ] = text
@@ -2510,7 +3591,9 @@ for _ , name in ipairs ( names ) do
 local path = modules [ name ] . output
 if path and normalize ( path ) ~= normalize ( mainPath ) then
 local text , readErr = readFile ( path )
-if not text then return nil , readErr end
+if not text then
+return nil , readErr
+end
 chunks [ # chunks + 1 ] = ( "package.preload[%q] = function(...)\n" ) : format ( name )
 chunks [ # chunks + 1 ] = text
 chunks [ # chunks + 1 ] = "\nend\n"
@@ -2525,7 +3608,9 @@ local staged = normalize ( join ( root ,
 join ( outDir , resourceRelative ( config , source , root ) ) ) )
 if staged : sub ( 1 , # moduleDirPath + 1 ) == moduleDirPath .. "/" then
 local text , readErr = readFile ( staged )
-if not text then return nil , readErr end
+if not text then
+return nil , readErr
+end
 resources [ # resources + 1 ] =
 { name = staged : sub ( # moduleDirPath + 1 ) , text = text }
 else
@@ -2548,7 +3633,9 @@ end
 chunks [ # chunks + 1 ] = "}\nend\n"
 
 local mainText , mainErr = readFile ( mainPath )
-if not mainText then return nil , mainErr end
+if not mainText then
+return nil , mainErr
+end
 chunks [ # chunks + 1 ] = mainText
 return table . concat ( chunks ) , nil , unreachable
 end
@@ -2610,7 +3697,9 @@ end
 
 
 local function onMacOS ( )
-if package . config : sub ( 1 , 1 ) == "\\" then return false end
+if package . config : sub ( 1 , 1 ) == "\\" then
+return false
+end
 local _ , kernel = process . capture ( { "uname" , "-s" } )
 return kernel ~= nil and kernel : find ( "Darwin" ) ~= nil
 end
@@ -2628,10 +3717,11 @@ end
 
 
 
-
 local function stampFile ( output , stubText , payload )
 local written , writeErr = writeFile ( output , stampBinary ( stubText , payload ) )
-if not written then return nil , tostring ( writeErr ) end
+if not written then
+return nil , tostring ( writeErr )
+end
 local code , chmodErr = process . capture ( { "chmod" , "+x" , output } )
 if code ~= 0 then
 return nil , "cannot make " .. output .. " executable: "
@@ -2639,7 +3729,6 @@ return nil , "cannot make " .. output .. " executable: "
 end
 return true
 end
-
 
 package_ . longString = longString
 package_ . entryModule = entryModule
@@ -2667,7 +3756,9 @@ local windows = package . config : sub ( 1 , 1 ) == "\\"
 local function quote ( arg )
 arg = tostring ( arg )
 if windows then
-if not arg : find ( '[%s"]' ) then return arg end
+if not arg : find ( '[%s"]' ) then
+return arg
+end
 return '"' .. arg : gsub ( '(\\*)"' , '%1%1\\"' )
 : gsub ( '(\\+)$' , '%1%1' ) .. '"'
 end
@@ -2704,7 +3795,9 @@ end
 
 function process . mkdirCommand ( path , forWindows )
 path = tostring ( path )
-if forWindows == nil then forWindows = windows end
+if forWindows == nil then
+forWindows = windows
+end
 if forWindows then
 
 
@@ -2716,9 +3809,15 @@ return { "mkdir" , "-p" , path }
 end
 
 local function exitCode ( status )
-if status == true then return 0 end
-if type ( status ) ~= "number" then return 1 end
-if status > 255 then return math . floor ( status / 256 ) end
+if status == true then
+return 0
+end
+if type ( status ) ~= "number" then
+return 1
+end
+if status > 255 then
+return math . floor ( status / 256 )
+end
 return status
 end
 
@@ -2733,7 +3832,9 @@ local command = process . command ( argv , opts ) .. " >" .. quote ( tmp ) .. " 
 local code = exitCode ( os . execute ( command ) )
 local f = io . open ( tmp , "rb" )
 local output = f and f : read ( "*a" ) or ""
-if f then f : close ( ) end
+if f then
+f : close ( )
+end
 os . remove ( tmp )
 return code , output
 end
@@ -2796,6 +3897,7 @@ project . loadManifest = manifest . load
 
 
 project . describeTasks = tasks . describe
+
 project . encodeJson = tasks . encodeJson
 
 json . decode_array_with_array_mt ( true )
@@ -2809,11 +3911,17 @@ local isFatal = diagnosticMod . isFatal
 function project . build ( root , opts )
 root , opts = root or "." , opts or { }
 local config , loadErr = project . loadManifest ( root )
-if not config then io . stderr : write ( loadErr .. "\n" ) ; return 1 end
+if not config then
+io . stderr : write ( loadErr .. "\n" ) ; return 1
+end
 local strict = opts . strict
-if strict == nil then strict = config . strict == true end
+if strict == nil then
+strict = config . strict == true
+end
 local target , targetErr = targetConfig ( config , opts . target )
-if not target then io . stderr : write ( "nupp: " .. targetErr .. "\n" ) ; return 1 end
+if not target then
+io . stderr : write ( "nupp: " .. targetErr .. "\n" ) ; return 1
+end
 config . _target = target
 config . _strict = strict and true or false
 
@@ -2822,6 +3930,7 @@ config . _strict = strict and true or false
 config . _optLevel = opts . optLevel or 0
 config . _remarks = opts . remarks and true or false
 config . _disabledPasses = opts . disabled or { }
+config . _relaxedGuarantees = opts . relaxed or { }
 if target . kind == "docs" then
 
 
@@ -2849,7 +3958,9 @@ return 1
 end
 local outDir = normalize ( opts . outDir or target . outDir or "build" )
 local completionPath = join ( root , join ( outDir , ".nupp-complete" ) )
-if not opts . checkOnly then os . remove ( completionPath ) end
+if not opts . checkOnly then
+os . remove ( completionPath )
+end
 
 
 
@@ -2878,7 +3989,9 @@ end
 local targetKey = target . name or opts . target or "default"
 local dependencies , depErr = buildDependencies ( root , outDir , config ,
 oldState . dependencies )
-if not dependencies then io . stderr : write ( "nupp: " .. depErr .. "\n" ) ; return 1 end
+if not dependencies then
+io . stderr : write ( "nupp: " .. depErr .. "\n" ) ; return 1
+end
 newState . dependencies = dependencies
 local result , buildErr = buildModules ( root , outDir , config , target ,
 oldState , newState , opts . checkOnly , strict , opts . stats ,
@@ -2889,7 +4002,9 @@ io . stderr : write ( "nupp: " .. buildErr .. "\n" )
 end
 return 1
 end
-if opts . checkOnly then return 0 end
+if opts . checkOnly then
+return 0
+end
 for output in pairs ( result . outputs ) do newState . outputs [ output ] = true end
 
 
@@ -2932,10 +4047,13 @@ end
 newState . outputs [ output ] = true
 end
 for _ , dep in pairs ( dependencies ) do
-if dep . output then newState . outputs [ dep . output ] = true end
-if dep . binding then newState . outputs [ dep . binding ] = true end
+if dep . output then
+newState . outputs [ dep . output ] = true
 end
-
+if dep . binding then
+newState . outputs [ dep . binding ] = true
+end
+end
 
 
 
@@ -2944,7 +4062,9 @@ local mine = { }
 for output in pairs ( newState . outputs ) do mine [ # mine + 1 ] = output end
 table . sort ( mine )
 for _ , output in ipairs ( oldState . targets [ targetKey ] or { } ) do
-if not newState . outputs [ output ] then os . remove ( output ) end
+if not newState . outputs [ output ] then
+os . remove ( output )
+end
 end
 newState . targets [ targetKey ] = mine
 
@@ -2954,7 +4074,9 @@ opts . produced . target = targetKey
 opts . produced . outputs = mine
 end
 local ok , stateErr = saveState ( statePath , newState )
-if not ok then io . stderr : write ( "nupp: " .. stateErr .. "\n" ) ; return 1 end
+if not ok then
+io . stderr : write ( "nupp: " .. stateErr .. "\n" ) ; return 1
+end
 local completed , completionErr = writeFile ( completionPath ,
 newState . compilerHash .. "\n" )
 if not completed then
@@ -2972,16 +4094,19 @@ end
 function project . test ( root , args )
 root = root or "."
 local config , err = project . loadManifest ( root )
-if not config then io . stderr : write ( err .. "\n" ) ; return 1 end
+if not config then
+io . stderr : write ( err .. "\n" ) ; return 1
+end
 if type ( config . test ) ~= "table" or type ( config . test . argv ) ~= "table" then
 io . stderr : write ( "nupp: test.argv is not configured\n" ) ; return 1
 end
-if project . build ( root , { target = config . test . build } ) ~= 0 then return 1 end
+if project . build ( root , { target = config . test . build } ) ~= 0 then
+return 1
+end
 local argv = { }
 for _ , item in ipairs ( config . test . argv ) do argv [ # argv + 1 ] = item end
 for _ , item in ipairs ( args or { } ) do argv [ # argv + 1 ] = item end
 local env = config . test . env
-
 
 
 
@@ -3011,7 +4136,9 @@ return hash . digest ( table . concat ( parts , "\0" ) ) , files
 end
 
 local function removeTree ( path )
-if os . remove ( path ) then return 0 end
+if os . remove ( path ) then
+return 0
+end
 if package . config : sub ( 1 , 1 ) == "\\" then
 return process . run ( { "cmd" , "/d" , "/c" , "if" , "exist" , path ,
 "rmdir" , "/s" , "/q" , path } )
@@ -3034,7 +4161,9 @@ function project . clean ( root , opts )
 root , opts = root or "." , opts or { }
 local described , err = project . describeTasks ( root , opts . target ,
 { buildOnly = true } )
-if not described then io . stderr : write ( err .. "\n" ) ; return 1 end
+if not described then
+io . stderr : write ( err .. "\n" ) ; return 1
+end
 local tasks = opts . target and { described } or described . tasks
 local candidates = { }
 for _ , task in ipairs ( tasks ) do
@@ -3057,7 +4186,9 @@ covered = true
 break
 end
 end
-if not covered then selected [ # selected + 1 ] = path end
+if not covered then
+selected [ # selected + 1 ] = path
+end
 end
 
 
@@ -3083,7 +4214,9 @@ for _ , path in ipairs ( listFiles ( source ) ) do
 local relative = path : sub ( # normalize ( source ) + 2 )
 if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" then
 local ok , err = copyFile ( path , join ( destination , relative ) )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 end
 return true
@@ -3092,7 +4225,9 @@ end
 function project . updateBootstrap ( root )
 root = root or "."
 local config , err = project . loadManifest ( root )
-if not config then return nil , err end
+if not config then
+return nil , err
+end
 local target = assert ( targetConfig ( config ,
 config . selfHost and config . selfHost . target or nil ) )
 local bootstrapPath = join ( root ,
@@ -3105,9 +4240,13 @@ local text , bundleErr = bundleText ( root , config , target ,
 "-- Generated stage-0 compiler. "
 .. "Update with: nupp fixpoint --update-bootstrap\n" ,
 state and state . modules or nil )
-if not text then return nil , bundleErr end
+if not text then
+return nil , bundleErr
+end
 local ok , writeErr = writeFile ( bootstrapPath , text )
-if not ok then return nil , writeErr end
+if not ok then
+return nil , writeErr
+end
 return true
 end
 
@@ -3126,7 +4265,9 @@ end
 function project . binaryFixpoint ( root , opts )
 root = root or "."
 local config , err = project . loadManifest ( root )
-if not config then io . stderr : write ( err .. "\n" ) ; return 1 end
+if not config then
+io . stderr : write ( err .. "\n" ) ; return 1
+end
 local targetName = config . selfHost and config . selfHost . binary or nil
 if not targetName then
 io . stderr : write ( "nupp: selfHost.binary names no target to stamp\n" )
@@ -3143,7 +4284,9 @@ io . stderr : write ( ( "nupp: selfHost.binary names %s, which is a %s target\n"
 return 1
 end
 
-if project . build ( root , { target = targetName } ) ~= 0 then return 1 end
+if project . build ( root , { target = targetName } ) ~= 0 then
+return 1
+end
 local outDir = target . outDir or "build"
 local produced = join ( root , target . output or join ( outDir , targetName ) )
 local first , readErr = readFile ( produced )
@@ -3194,11 +4337,15 @@ end
 function project . fixpoint ( root , opts )
 root , opts = root or "." , opts or { }
 local config , err = project . loadManifest ( root )
-if not config then io . stderr : write ( err .. "\n" ) ; return 1 end
+if not config then
+io . stderr : write ( err .. "\n" ) ; return 1
+end
 local targetName = config . selfHost and config . selfHost . target or nil
 local stage1 , stage2 = "_stage1" , "_stage2"
 removeTree ( join ( root , stage1 ) ) ; removeTree ( join ( root , stage2 ) )
-if project . build ( root , { target = targetName , outDir = stage1 } ) ~= 0 then return 1 end
+if project . build ( root , { target = targetName , outDir = stage1 } ) ~= 0 then
+return 1
+end
 local target = assert ( targetConfig ( config , targetName ) )
 local entry = ( target . entries or { } ) [ 1 ] or "nupp.main"
 local moduleName = entry : match ( "%.nupp$" ) and envMod . moduleNameForPath (
@@ -3208,8 +4355,12 @@ local mainPath = join ( root , join ( stage1 , moduleName : gsub ( "%." , "/" ) 
 local packagePath = join ( root , stage1 ) .. "/?.lua;" .. package . path
 local argv = { "luajit" , "-e" , "package.path=" .. string . format ( "%q" , packagePath )
 .. " .. package.path" , mainPath , "build" , "--out-dir" , stage2 }
-if targetName then argv [ # argv + 1 ] = "--target" ; argv [ # argv + 1 ] = targetName end
-if process . run ( argv , { cwd = root } ) ~= 0 then return 1 end
+if targetName then
+argv [ # argv + 1 ] = "--target" ; argv [ # argv + 1 ] = targetName
+end
+if process . run ( argv , { cwd = root } ) ~= 0 then
+return 1
+end
 local first = treeDigest ( join ( root , stage1 ) )
 local second = treeDigest ( join ( root , stage2 ) )
 if first ~= second then
@@ -3221,11 +4372,15 @@ return 1
 end
 local destination = join ( root , target . outDir or "build" )
 local copied , copyErr = copyTree ( join ( root , stage2 ) , destination )
-if not copied then io . stderr : write ( "nupp: " .. copyErr .. "\n" ) ; return 1 end
+if not copied then
+io . stderr : write ( "nupp: " .. copyErr .. "\n" ) ; return 1
+end
 writeFile ( join ( destination , ".nupp-complete" ) , second .. "\n" )
 if opts . updateBootstrap then
 local updated , updateErr = project . updateBootstrap ( root )
-if not updated then io . stderr : write ( "nupp: " .. updateErr .. "\n" ) ; return 1 end
+if not updated then
+io . stderr : write ( "nupp: " .. updateErr .. "\n" ) ; return 1
+end
 end
 removeTree ( join ( root , stage1 ) ) ; removeTree ( join ( root , stage2 ) )
 if opts . result then
@@ -3312,7 +4467,6 @@ store.Store = {} store.Store.__index = store.Store
 
 
 
-
 function store . open ( path , stamp )
 local entries = { }
 local order = { }
@@ -3334,7 +4488,9 @@ and type ( decoded . order ) == "table"
 and type ( decoded . entries ) == "table" then
 entries = decoded . entries
 for _ , key in ipairs ( decoded . order ) do
-if entries [ key ] ~= nil then order [ # order + 1 ] = key end
+if entries [ key ] ~= nil then
+order [ # order + 1 ] = key
+end
 end
 end
 end
@@ -3343,7 +4499,9 @@ end
 function self . get ( key )
 stats . gets = ( stats . gets or 0 ) + 1
 local value = entries [ key ]
-if value == nil then return nil end
+if value == nil then
+return nil
+end
 stats . hits = ( stats . hits or 0 ) + 1
 live [ key ] = true
 return value
@@ -3351,14 +4509,18 @@ end
 
 function self . put ( key , value )
 stats . puts = ( stats . puts or 0 ) + 1
-if entries [ key ] == nil then order [ # order + 1 ] = key end
+if entries [ key ] == nil then
+order [ # order + 1 ] = key
+end
 entries [ key ] = value
 live [ key ] = true
 dirty = true
 end
 
 function self . save ( )
-if not path or not dirty then return end
+if not path or not dirty then
+return
+end
 
 
 
@@ -3386,13 +4548,14 @@ order = keptOrder , entries = keptEntries ,
 } )
 
 
-if ok then pcall ( fs . writeFile , path , text ) end
+if ok then
+pcall ( fs . writeFile , path , text )
+end
 dirty = false
 end
 
 return self
 end
-
 
 
 
@@ -3429,10 +4592,14 @@ self . value = value
 dirty = true
 end
 function self . save ( )
-if not path or not dirty then return end
+if not path or not dirty then
+return
+end
 local ok , text = pcall ( buffer . encode ,
 { format = FORMAT , stamp = stamp , value = self . value } )
-if ok then pcall ( fs . writeFile , path , text ) end
+if ok then
+pcall ( fs . writeFile , path , text )
+end
 dirty = false
 end
 return self
@@ -3470,10 +4637,14 @@ table . sort ( names )
 name = names [ 1 ]
 end
 local target = name and build . targets [ name ]
-if type ( target ) ~= "table" then return nil , "unknown build target " .. tostring ( name ) end
+if type ( target ) ~= "table" then
+return nil , "unknown build target " .. tostring ( name )
+end
 local merged = { }
 for key , value in pairs ( build ) do
-if key ~= "targets" and key ~= "default" then merged [ key ] = value end
+if key ~= "targets" and key ~= "default" then
+merged [ key ] = value
+end
 end
 for key , value in pairs ( target ) do merged [ key ] = value end
 if merged . kind == "docs" then
@@ -3497,7 +4668,9 @@ end
 
 
 local function outDirOf ( target )
-if target . outDir then return target . outDir end
+if target . outDir then
+return target . outDir
+end
 if target . kind == "docs" then
 return require ( "nupp.doc" ) . defaultOutDir ( target . format or "site" )
 end
@@ -3507,7 +4680,9 @@ end
 local function taskDescription ( config , name , isDefault )
 local requested = config . build . targets and name or nil
 local target , err = targetConfig ( config , requested )
-if not target then return nil , err end
+if not target then
+return nil , err
+end
 return {
 name = name ,
 default = isDefault ,
@@ -3585,13 +4760,19 @@ end
 
 function tasks . describe ( root , requested , opts )
 local config , err = manifest . load ( root or "." )
-if not config then return nil , err end
+if not config then
+return nil , err
+end
 local build = config . build
-if not build then return nil , "nupp: build is not configured" end
+if not build then
+return nil , "nupp: build is not configured"
+end
 local tasks , defaultName = configuredTasks ( config , opts and opts . buildOnly )
 if requested then
 for _ , task in ipairs ( tasks ) do
-if task . name == requested then return task end
+if task . name == requested then
+return task
+end
 end
 return nil , "nupp: unknown project task " .. requested
 end
@@ -3601,7 +4782,6 @@ end
 function tasks . encodeJson ( value )
 return json . encode ( value )
 end
-
 
 tasks . targetConfig = targetConfig
 tasks . configured = configuredTasks
@@ -3642,7 +4822,9 @@ local function refOf ( value ) return bit . band ( value , 0xffff ) end
 
 local function info ( id )
 local ok , entry = pcall ( ffi . typeinfo , id )
-if ok then return entry end
+if ok then
+return entry
+end
 return nil
 end
 
@@ -3652,7 +4834,9 @@ end
 local function resolve ( id )
 for _ = 1 , 16 do
 local entry = info ( id )
-if not entry then return nil , nil end
+if not entry then
+return nil , nil
+end
 local kind = kindOf ( entry . info )
 if kind == CT_TYPEDEF or kind == CT_ATTRIB then
 id = refOf ( entry . info )
@@ -3670,7 +4854,9 @@ local params = { }
 local child = entry . sib
 while child do
 local centry = info ( child )
-if not centry then break end
+if not centry then
+break
+end
 if kindOf ( centry . info ) == CT_FIELD then
 params [ # params + 1 ] = {
 name = centry . name ,
@@ -3693,7 +4879,9 @@ end
 
 decodeType = function ( id )
 local rid , entry = resolve ( id )
-if not entry then return { kind = "unknown" } end
+if not entry then
+return { kind = "unknown" }
+end
 local kind = kindOf ( entry . info )
 if kind == CT_VOID then
 return { kind = "void" }
@@ -3739,7 +4927,9 @@ local fields = { }
 local child = entry . sib
 while child do
 local centry = info ( child )
-if not centry then break end
+if not centry then
+break
+end
 if kindOf ( centry . info ) == CT_FIELD and centry . name then
 fields [ # fields + 1 ] = {
 name = centry . name ,
@@ -3773,9 +4963,15 @@ local INT32_MAX , UINT32 = 2147483647 , 4294967296
 
 local function enumeratorValue ( name , entry )
 local ok , value = pcall ( function ( ) return ffi . C [ name ] end )
-if not ok or type ( value ) ~= "number" then value = entry . size end
-if type ( value ) ~= "number" then return nil end
-if value > INT32_MAX then value = value - UINT32 end
+if not ok or type ( value ) ~= "number" then
+value = entry . size
+end
+if type ( value ) ~= "number" then
+return nil
+end
+if value > INT32_MAX then
+value = value - UINT32
+end
 return value
 end
 
@@ -3786,7 +4982,9 @@ local values = { }
 local child = entry . sib
 while child do
 local centry = info ( child )
-if not centry then break end
+if not centry then
+break
+end
 if kindOf ( centry . info ) == CT_CONSTVAL and centry . name then
 local value = enumeratorValue ( centry . name , centry )
 if value then
@@ -3811,8 +5009,12 @@ local inspectCache = { }
 
 
 local function preludeList ( prelude )
-if type ( prelude ) == "table" then return prelude end
-if type ( prelude ) == "string" and # prelude > 0 then return { prelude } end
+if type ( prelude ) == "table" then
+return prelude
+end
+if type ( prelude ) == "string" and # prelude > 0 then
+return { prelude }
+end
 return { }
 end
 
@@ -3820,7 +5022,9 @@ end
 
 
 local function targetUnits ( text )
-if type ( text ) == "table" then return text , true end
+if type ( text ) == "table" then
+return text , true
+end
 return { text } , false
 end
 
@@ -3830,8 +5034,9 @@ local units , perUnit = targetUnits ( text )
 local key = table . concat ( declarations , "\n" ) .. "\0"
 .. table . concat ( units , "\n" )
 local hit = inspectCache [ key ]
-if hit then return hit end
-
+if hit then
+return hit
+end
 
 
 
@@ -3850,7 +5055,9 @@ end
 
 local before = { }
 for id = 1 , MAX_CTYPE_ID do
-if info ( id ) then before [ id ] = true end
+if info ( id ) then
+before [ id ] = true
+end
 end
 
 
@@ -3905,21 +5112,29 @@ end
 
 function cdecl . declare ( text )
 local ok , err = pcall ( ffi . cdef , text )
-if not ok then return false , tostring ( err ) end
+if not ok then
+return false , tostring ( err )
+end
 return true
 end
 
 function cdecl . typeFromString ( spec )
 local ok , ct = pcall ( ffi . typeof , spec )
-if not ok then return nil , tostring ( ct ) end
+if not ok then
+return nil , tostring ( ct )
+end
 local id = tonumber ( ct )
-if not id then return nil , "not a C type: " .. spec end
+if not id then
+return nil , "not a C type: " .. spec
+end
 return decodeType ( id )
 end
 
 function cdecl . structById ( id )
 local rid , entry = resolve ( id )
-if not entry or kindOf ( entry . info ) ~= CT_STRUCT then return nil end
+if not entry or kindOf ( entry . info ) ~= CT_STRUCT then
+return nil
+end
 return decodeStruct ( rid , entry )
 end
 
@@ -3941,7 +5156,9 @@ if not abiCache then
 local parts = { jit . arch , jit . os }
 for _ , param in ipairs ( { "32bit" , "64bit" , "le" , "be" , "fpu" , "softfp" ,
 "hardfp" , "eabi" , "win" } ) do
-if ffi . abi ( param ) then parts [ # parts + 1 ] = param end
+if ffi . abi ( param ) then
+parts [ # parts + 1 ] = param
+end
 end
 abiCache = table . concat ( parts , "," )
 end
@@ -3990,7 +5207,9 @@ elseif kind == "float" then
 return model . bits == 32 and T . float or T . number
 elseif kind == "integer" then
 local pair = INT_BY_BITS [ model . bits ]
-if not pair then return T . number end
+if not pair then
+return T . number
+end
 return model . unsigned and pair [ 2 ] or pair [ 1 ]
 elseif kind == "pointer" then
 local pointee = model . to
@@ -4014,18 +5233,24 @@ named = resolver ( pointee . name )
 end
 if named then
 
-if readOnly then named = T . constOf ( named ) end
+if readOnly then
+named = T . constOf ( named )
+end
 return T . optional ( T . ptr ( named ) )
 end
 end
-if readOnly then return T . optional ( T . constOf ( T . voidptr ) ) end
+if readOnly then
+return T . optional ( T . constOf ( T . voidptr ) )
+end
 return T . optional ( T . voidptr )
 elseif kind == "struct" then
 local named = structs and structs [ model . id ]
 if not named and resolver and model . name then
 named = resolver ( model . name )
 end
-if named then return named end
+if named then
+return named
+end
 return T . voidptr
 elseif kind == "enum" then
 return T . int32
@@ -4043,7 +5268,9 @@ nuppType ( param . type , structs , resolver ) or T . any
 end
 local rets = { }
 local ret = nuppType ( fn . returns , structs , resolver )
-if ret then rets [ 1 ] = ret end
+if ret then
+rets [ 1 ] = ret
+end
 return T . func ( params , rets , fn . vararg )
 end
 
@@ -4062,7 +5289,9 @@ end
 
 local function capture ( cmd )
 local p = io . popen ( cmd .. " 2>/dev/null" )
-if not p then return nil end
+if not p then
+return nil
+end
 local out = p : read ( "*a" )
 p : close ( )
 return out
@@ -4070,7 +5299,9 @@ end
 
 local function readFile ( path )
 local f = io . open ( path , "rb" )
-if not f then return nil end
+if not f then
+return nil
+end
 local text = f : read ( "*a" )
 f : close ( )
 return text
@@ -4079,13 +5310,19 @@ end
 
 local toolchainCache = { }
 local function toolchainTag ( opts )
-if not opts . preprocess then return "-" end
+if not opts . preprocess then
+return "-"
+end
 local cc = opts . cc or "cc"
 local hit = toolchainCache [ cc ]
-if hit then return hit end
+if hit then
+return hit
+end
 local p = io . popen ( cc .. " --version 2>/dev/null" )
 local version = p and p : read ( "*l" ) or "unknown"
-if p then p : close ( ) end
+if p then
+p : close ( )
+end
 toolchainCache [ cc ] = version
 return version
 end
@@ -4098,10 +5335,14 @@ local cache = { }
 
 local declaredBlocks = { }
 function cheader . declare ( text )
-if declaredBlocks [ text ] ~= nil then return declaredBlocks [ text ] end
+if declaredBlocks [ text ] ~= nil then
+return declaredBlocks [ text ]
+end
 local ok , err = cdecl . declare ( text )
 declaredBlocks [ text ] = ok
-if not ok then return false , err end
+if not ok then
+return false , err
+end
 return true
 end
 
@@ -4117,7 +5358,9 @@ local function adoptingResolver ( resolver )
 return function ( tag )
 if resolver then
 local known = resolver ( tag )
-if known then return known end
+if known then
+return known
+end
 end
 return adoptStruct ( tag )
 end
@@ -4125,11 +5368,17 @@ end
 
 adoptStruct = function ( tag )
 local hit = adopted [ tag ]
-if hit then return hit end
+if hit then
+return hit
+end
 local model = cdecl . typeFromString ( "struct " .. tag )
-if not model or model . kind ~= "struct" then return nil end
+if not model or model . kind ~= "struct" then
+return nil
+end
 local declaration = cdecl . structById ( model . id )
-if not declaration then return nil end
+if not declaration then
+return nil
+end
 local nominal = T . nominal ( tag , "struct" )
 nominal . cdefName = tag
 nominal . fieldOrder = { }
@@ -4146,7 +5395,9 @@ end
 
 function cheader . typeFromString ( spec , resolver )
 local model , err = cdecl . typeFromString ( spec )
-if not model then return nil , err end
+if not model then
+return nil , err
+end
 return nuppType ( model , nil , adoptingResolver ( resolver ) )
 end
 
@@ -4168,8 +5419,9 @@ end
 function cheader . load ( path , opts )
 opts = opts or { }
 local source = readFile ( path )
-if not source then return nil , "cannot read " .. path end
-
+if not source then
+return nil , "cannot read " .. path
+end
 
 
 local preprocess = opts . preprocess and true or false
@@ -4179,7 +5431,9 @@ local key = table . concat ( {
 tostring ( preprocess ) , cdecl . abiTag ( ) , toolchainTag ( opts ) , source ,
 } , "\0" )
 local hit = cache [ key ]
-if hit then return hit end
+if hit then
+return hit
+end
 
 local text = source
 if preprocess then
@@ -4256,6 +5510,7 @@ local annotate = require ( "nupp.check.annotate" )
 local ownership = require ( "nupp.check.ownership" )
 local loopclosure = require ( "nupp.check.loopclosure" )
 local undocumentedraise = require ( "nupp.check.undocumentedraise" )
+local analysis = require ( "nupp.analysis" )
 local narrow = require ( "nupp.check.narrow" )
 local calls = require ( "nupp.check.calls" )
 local expr = require ( "nupp.check.expr" )
@@ -4640,6 +5895,15 @@ checkMod.Checker = {} checkMod.Checker.__index = checkMod.Checker
 
 
 
+
+
+
+
+
+
+
+
+
 local isA = relations . isA
 
 
@@ -4674,19 +5938,27 @@ uint8 = true , uint16 = true , uint32 = true , uint64 = true ,
 
 
 local function reifiableField ( t , isCdef )
-if REIFIABLE_PRIM [ t . tag ] then return true end
+if REIFIABLE_PRIM [ t . tag ] then
+return true
+end
 
 
 if isCdef and ( t . tag == "cstring" or t . tag == "voidptr" ) then
 return true
 end
-if t . tag == "nominal" and t . declKind == "struct" then return true end
-if t . tag == "ptr" then return true end
+if t . tag == "nominal" and t . declKind == "struct" then
+return true
+end
+if t . tag == "ptr" then
+return true
+end
 if t . tag == "union" and # t . members == 2 and t . hasNil then
 local other = t . members [ 1 ] == T . nil_ and t . members [ 2 ] or t . members [ 1 ]
 
 
-if other . tag == "ptr" then return true end
+if other . tag == "ptr" then
+return true
+end
 if isCdef and ( other == T . voidptr or other == T . cstring ) then
 return true
 end
@@ -4753,7 +6025,9 @@ disposerFieldStack = { } , validatedCleanupContracts = { } ,
 unsafeDepth = 0 , functionDepth = 0 ,
 captureWatches = { } , allowed = { } , hoisting = false ,
 resolvingAlias = { } , lastCallRets = nil ,
-moduleFields = { } , moduleFieldTokens = { } , moduleLocalAnnotated = false ,
+moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } ,
+constModulePaths = { } ,
+moduleLocalAnnotated = false ,
 } , checkMod.Checker)
 c . rootScope = c . scope
 
@@ -4801,10 +6075,14 @@ local moveExpression = own . moveExpression
 
 
 local function isAllowed ( lint , code )
-if not lint then return false end
+if not lint then
+return false
+end
 for j = # c . allowed , 1 , - 1 do
 local set = c . allowed [ j ]
-if set [ lint . name ] or set [ code ] or set [ "*" ] then return true end
+if set [ lint . name ] or set [ code ] or set [ "*" ] then
+return true
+end
 end
 return false
 end
@@ -4817,7 +6095,9 @@ atFilename = atFilename or value . filename
 value = value . token
 end
 local at = cst . firstToken ( value )
-if not at then return nil end
+if not at then
+return nil
+end
 return { message = message , filename = atFilename or filename ,
 line = at . line , col = at . col , offset = at . offset ,
 length = # at . text }
@@ -4828,9 +6108,13 @@ local lint = lints . get ( code )
 local severity = "error"
 if lint then
 severity = lints . level ( lint , c . lintConfig )
-if severity == "off" then return end
+if severity == "off" then
+return
 end
-if c . hoisting or isAllowed ( lint , code ) then return end
+end
+if c . hoisting or isAllowed ( lint , code ) then
+return
+end
 local at = cst . firstToken ( nodeOrTok )
 c . diags [ # c . diags + 1 ] = {
 code = lint and lint . code or code , lint = lint and lint . name or nil ,
@@ -4913,7 +6197,9 @@ return v
 end
 s = s . parent
 end
-if env and env . globals then return env . globals [ name ] end
+if env and env . globals then
+return env . globals [ name ]
+end
 return nil
 end
 
@@ -4926,17 +6212,19 @@ end
 
 
 
-
-
 c . lookupType = function ( name )
 local s = c . scope
 while s do
 local t = s . types [ name ]
-if t then return t , s . typeDefs [ name ] end
+if t then
+return t , s . typeDefs [ name ]
+end
 local waiting = s . pending and s . pending [ name ]
 if waiting then
 local resolved = c . resolvePendingAlias ( name , waiting , s )
-if resolved then return resolved , s . typeDefs [ name ] end
+if resolved then
+return resolved , s . typeDefs [ name ]
+end
 end
 s = s . parent
 end
@@ -4952,7 +6240,9 @@ end
 return nil
 end
 c . definition = function ( tok , kind )
-if not tok then return nil end
+if not tok then
+return nil
+end
 local def = tok . definition
 if not def or def . filename ~= filename or def . token ~= tok then
 def = { filename = filename , token = tok , name = tok . text }
@@ -4968,7 +6258,9 @@ tok . definition = def
 return def
 end
 c . markToken = function ( tok , def , t , kind )
-if not tok then return end
+if not tok then
+return
+end
 tok . definition = def
 tok . inferredType = t
 tok . semanticKind = kind or def and def . kind or "variable"
@@ -4993,7 +6285,9 @@ if def then
 def . type = t
 def . constant = constant == true
 or ( tok == nil and old and old . constant ) or false
-if not def . kind or def . kind == "variable" then def . kind = kind end
+if not def . kind or def . kind == "variable" then
+def . kind = kind
+end
 end
 c . scope . vars [ name ] = {
 t = t ,
@@ -5011,10 +6305,16 @@ end
 c . bindType = function ( name , t , tok )
 c . scope . types [ name ] = t
 local kind = t and t . tag == "nominal" and t . declKind or "type"
-if kind == "record" then kind = "type" end
-if t and t . tag == "typevar" then kind = "typeParameter" end
+if kind == "record" then
+kind = "type"
+end
+if t and t . tag == "typevar" then
+kind = "typeParameter"
+end
 local def = tok and c . definition ( tok , kind ) or c . scope . typeDefs [ name ]
-if def then def . type , def . kind = t , kind end
+if def then
+def . type , def . kind = t , kind
+end
 c . scope . typeDefs [ name ] = def
 c . markToken ( tok , def , t , kind )
 end
@@ -5033,7 +6333,9 @@ end
 
 c . declKey = function ( stat )
 local qualifier = c . qualifierOf ( stat )
-if not qualifier then return stat . name . text end
+if not qualifier then
+return stat . name . text
+end
 return qualifier .. "." .. stat . name . text
 end
 
@@ -5086,7 +6388,9 @@ c . bindType ( nameTok . text , tv , nameTok )
 local boundNode = generics . bounds and generics . bounds [ j ]
 if boundNode then
 bounds [ j ] = c . resolveType ( boundNode )
-if tv . tag == "typevar" then tv . bound = bounds [ j ] end
+if tv . tag == "typevar" then
+tv . bound = bounds [ j ]
+end
 end
 end
 return params , bounds
@@ -5100,19 +6404,21 @@ end
 
 
 
-
-
 c . cNamespaceType = function ( )
 local decls = require ( "nupp.cheader" ) . declaredFunctions ( function ( tag )
 local found = c . lookupType ( tag )
-if found and found . tag == "nominal" then return found end
+if found and found . tag == "nominal" then
+return found
+end
 return nil
 end )
 local fields = { }
 for name , t in pairs ( decls ) do
 fields [ # fields + 1 ] = { name = name , type = t }
 end
-if # fields == 0 then return T . any end
+if # fields == 0 then
+return T . any
+end
 return T . shape ( fields )
 end
 
@@ -5169,9 +6475,13 @@ local applyFacts = facts . applyFacts
 
 
 local function neverReturns ( call )
-if not call then return false end
+if not call then
+return false
+end
 local kind = call . kind
-if kind ~= "call" and kind ~= "methodCall" then return false end
+if kind ~= "call" and kind ~= "methodCall" then
+return false
+end
 local signature = call . signatureType
 if signature and signature . tag == "func" and signature . noreturn then
 return true
@@ -5180,7 +6490,9 @@ if kind == "call" then
 local callee = call . obj
 if callee and callee . kind == "name" then
 local tok = callee . token
-if tok and tok . text == "error" then return true end
+if tok and tok . text == "error" then
+return true
+end
 end
 end
 return false
@@ -5192,13 +6504,17 @@ end
 local function alwaysExits ( block )
 local stats = block and block . kind == "block" and block . stats or { }
 local last = stats [ # stats ]
-if not last then return false end
+if not last then
+return false
+end
 local kind = last . kind
 if kind == "returnStmt" or kind == "breakStmt"
 or kind == "continueStmt" then
 return true
 end
-if kind == "callStmt" then return neverReturns ( last . expr ) end
+if kind == "callStmt" then
+return neverReturns ( last . expr )
+end
 return false
 end
 
@@ -5211,20 +6527,32 @@ end
 local function alwaysRaises ( block )
 local stats = block and block . kind == "block" and block . stats or { }
 local last = stats [ # stats ]
-if not last then return false end
+if not last then
+return false
+end
 local kind = last . kind
-if kind == "callStmt" then return neverReturns ( last . expr ) end
-if kind == "doStmt" then return alwaysRaises ( last . body ) end
+if kind == "callStmt" then
+return neverReturns ( last . expr )
+end
+if kind == "doStmt" then
+return alwaysRaises ( last . body )
+end
 if kind == "ifStmt" then
 local otherwise = last . elseClause
-if not otherwise then return false end
+if not otherwise then
+return false
+end
 for _ , clause in ipairs ( last . clauses ) do
 if clause . kind ~= "ifClause" and clause . kind ~= "elseifClause" then
 return false
 end
-if not alwaysRaises ( clause . body ) then return false end
+if not alwaysRaises ( clause . body ) then
+return false
 end
-if otherwise . kind ~= "elseClause" then return false end
+end
+if otherwise . kind ~= "elseClause" then
+return false
+end
 return alwaysRaises ( otherwise . body )
 end
 return false
@@ -5235,8 +6563,12 @@ end
 
 
 local function returnsSomewhere ( x )
-if x . kind == "returnStmt" then return true end
-if x . kind == "funcbody" or x . kind == "shortfn" then return false end
+if x . kind == "returnStmt" then
+return true
+end
+if x . kind == "funcbody" or x . kind == "shortfn" then
+return false
+end
 for _ , child in ipairs ( x ) do
 if not cst . isToken ( child ) and returnsSomewhere ( child ) then
 return true
@@ -5263,9 +6595,6 @@ expr . install ( c )
 
 
 
-
-
-
 local marks = annotate . install ( c )
 c . marks = marks
 local stringValue = marks . stringValue
@@ -5282,20 +6611,65 @@ declare . install ( c , reifiableField , fix , insertBefore , validateAnnotation
 
 
 
-local function recordModuleField ( target , t )
-if not c . moduleLocal or target . kind ~= "dotIndex" then return end
+local function modulePath ( target )
+local key = pathKey ( target )
+if not key or not c . moduleLocal then
+return nil
+end
+if key : sub ( 1 , # c . moduleLocal + 1 ) ~= c . moduleLocal .. "." then
+return nil
+end
+return key
+end
+
+local function recordConstTableFields ( path , value )
+if not value or value . kind ~= "tableExpr" then
+return
+end
+for _ , field in ipairs ( value . fields or { } ) do
+if field . kind == "fieldNamed" and field . isConst and field . name then
+local fieldPath = path .. "." .. field . name . text
+c . constModulePaths [ fieldPath ] = true
+recordConstTableFields ( fieldPath , field . value )
+end
+end
+end
+
+local function recordModuleField ( target , t , constant ,
+value )
+if not c . moduleLocal or target . kind ~= "dotIndex" then
+return
+end
 local base , member = target . obj , target . name
-if not base or not member or base . kind ~= "name" then return end
+if not base or not member or base . kind ~= "name" then
+return
+end
 local baseTok = base . token
-if not baseTok or baseTok . text ~= c . moduleLocal then return end
+if not baseTok or baseTok . text ~= c . moduleLocal then
+return
+end
 c . moduleFields [ member . text ] = t or T . any
 c . moduleFieldTokens [ member . text ] = member
+if constant then
+c . moduleFieldConst [ member . text ] = true
+local path = modulePath ( target )
+if path then
+c . constModulePaths [ path ] = true
+recordConstTableFields ( path , value )
+end
+end
+end
+
+local function constModuleField ( target )
+local path = modulePath ( target )
+return path ~= nil and c . constModulePaths [ path ] == true
 end
 
 
 
 c . inferList = inferList
 c . recordModuleField = recordModuleField
+c . constModuleField = constModuleField
 c . alwaysExits = alwaysExits
 c . alwaysRaises = alwaysRaises
 c . returnsSomewhere = returnsSomewhere
@@ -5315,11 +6689,12 @@ statHandlers . typeAlias = c . checkTypedecl
 
 local function checkStat ( stat )
 local handle = statHandlers [ stat . kind ]
-if handle then handle ( stat ) end
+if handle then
+handle ( stat )
+end
 end
 
 c . checkStat = checkStat
-
 
 
 
@@ -5336,7 +6711,9 @@ decl . hoistedType , decl . hoistedEntry = n , entry
 n . byname = n . byname or { }
 n . writeByname = n . writeByname or { }
 local key = c . declKey ( decl )
-if c . qualifierOf ( decl ) then n . runtimePath = key end
+if c . qualifierOf ( decl ) then
+n . runtimePath = key
+end
 c . bindType ( key , n , nil )
 elseif k == "typeAlias" and decl . name and decl . value then
 local waiting = { node = decl . value , tok = decl . name }
@@ -5353,7 +6730,9 @@ local decl = stat
 while decl and decl . kind == "pragmaStmt" do decl = decl . stat end
 local fname = decl and decl . kind == "funcStmt" and decl . name
 local ownerKey , memberTok = nil , nil
-if fname then ownerKey , memberTok = c . funcOwner ( fname ) end
+if fname then
+ownerKey , memberTok = c . funcOwner ( fname )
+end
 if ownerKey then
 local owner = c . lookupType ( ownerKey )
 local member = memberTok and memberTok . text
@@ -5375,13 +6754,17 @@ end
 
 
 c . checkBlock = function ( block , scopeManaged )
-if not scopeManaged then c . pushScope ( ) end
+if not scopeManaged then
+c . pushScope ( )
+end
 hoistDeclarations ( block )
 local stats = block and block . kind == "block" and block . stats or { }
 for _ , stat in ipairs ( stats ) do
 checkStat ( stat )
 end
-if not scopeManaged then c . popScope ( ) end
+if not scopeManaged then
+c . popScope ( )
+end
 end
 
 
@@ -5389,13 +6772,19 @@ end
 local function auditWithGotos ( block )
 local labels , gotos = { } , { }
 local function walk ( node , regions )
-if not node or cst . isToken ( node ) then return end
+if not node or cst . isToken ( node ) then
+return
+end
 if node . kind == "funcbody" then
-if node . body then auditWithGotos ( node . body ) end
+if node . body then
+auditWithGotos ( node . body )
+end
 return
 end
 if node . kind == "shortfn" then
-if node . body then auditWithGotos ( node . body ) end
+if node . body then
+auditWithGotos ( node . body )
+end
 return
 end
 local active = regions
@@ -5457,6 +6846,7 @@ env . globalTypeDefs [ name ] = def
 end
 end
 
+analysis . run ( result , c )
 table . sort ( c . diags , function ( a , b ) return a . offset < b . offset end )
 result . moduleExports = c . moduleExports
 return c . diags , c . moduleType , c . moduleExports
@@ -5496,7 +6886,9 @@ function annotate . install ( c )
 local ops = { }
 
 function ops . stringValue ( expr )
-if not expr or expr . kind ~= "string" then return nil end
+if not expr or expr . kind ~= "string" then
+return nil
+end
 local text = expr . token . text
 local quote = text : sub ( 1 , 1 )
 if ( quote == '"' or quote == "'" ) and text : sub ( - 1 ) == quote then
@@ -5506,16 +6898,22 @@ return nil
 end
 
 local function constantAnnotationExpr ( expr )
-if not expr then return false end
+if not expr then
+return false
+end
 local kind = expr . kind
 if kind == "string" or kind == "number" or kind == "nilExpr"
 or kind == "trueExpr" or kind == "falseExpr" then
 return true
 end
-if kind ~= "tableExpr" then return false end
+if kind ~= "tableExpr" then
+return false
+end
 for _ , field in ipairs ( expr . fields or { } ) do
 if field . kind == "fieldItem" or field . kind == "fieldNamed" then
-if not constantAnnotationExpr ( field . value ) then return false end
+if not constantAnnotationExpr ( field . value ) then
+return false
+end
 else
 return false
 end
@@ -5524,13 +6922,19 @@ return true
 end
 
 local function annotationReferencePath ( expr )
-if not expr then return nil end
+if not expr then
+return nil
+end
 if expr . kind == "name" then
 return { expr . token . text } , { expr . token }
 end
-if expr . kind ~= "dotIndex" then return nil end
+if expr . kind ~= "dotIndex" then
+return nil
+end
 local names , tokens = annotationReferencePath ( expr . obj )
-if not names then return nil end
+if not names then
+return nil
+end
 names [ # names + 1 ] = expr . name . text
 tokens [ # tokens + 1 ] = expr . name
 return names , tokens
@@ -5555,7 +6959,9 @@ local tok = tokens [ # tokens ]
 local t , def , lookupErr
 if # names == 1 then
 t = T . builtins [ name ]
-if not t then t , def , lookupErr = c . lookupType ( name ) end
+if not t then
+t , def , lookupErr = c . lookupType ( name )
+end
 else
 local moduleNames = { }
 for j = 1 , # names - 1 do moduleNames [ j ] = names [ j ] end
@@ -5751,7 +7157,9 @@ return
 end
 c . annotationDefinitions [ name ] = true
 local targets = annotationTargets ( application )
-if not targets then return end
+if not targets then
+return
+end
 local nominal = declaration . resolvedType
 local members , order = { } , { }
 local singleValue = nil
@@ -5840,6 +7248,7 @@ local apply , facts = c . apply , c . facts
 local applyContract , metamethodOf = apply . applyContract , apply . metamethodOf
 local clearNarrowed , clearAliases = facts . clearNarrowed , facts . clearAliases
 local inferList , recordModuleField = c . inferList , c . recordModuleField
+local constModuleField = c . constModuleField
 local applyFacts , pathKey = c . applyFacts , c . pathKey
 local moveExpression = c . moveExpression
 local ownershipKind , ownershipState = c . ownershipKind , c . ownershipState
@@ -5914,10 +7323,20 @@ if bound . tag == "literal" then
 
 
 bound = bound . base or T . string
-if bound == T . integer then bound = T . number end
+if bound == T . integer then
+bound = T . number
+end
 elseif bound . tag == "shape" and initNode
 and initNode . kind == "tableExpr" then
+local hasConst = false
+for _ , field in ipairs ( initNode . fields or { } ) do
+if field . isConst then
+hasConst = true ; break
+end
+end
+if not hasConst then
 bound = T . table_
+end
 elseif bound == T . nil_ then
 bound = T . any
 end
@@ -5945,7 +7364,6 @@ j - exprCount + 1 ]
 end
 if boundEntry and initNode and initNode . requiredModule then
 boundEntry . requiredModule = initNode . requiredModule
-
 
 
 
@@ -6014,7 +7432,11 @@ end
 for j , target in ipairs ( stat . targets ) do
 local et = inferred [ j ]
 local written = values [ j ]
-recordModuleField ( target , et )
+local wasConstModuleField = constModuleField ( target )
+if wasConstModuleField then
+c . diag ( "NUPP2008" , target , "cannot assign to const module field" )
+end
+recordModuleField ( target , et , stat . isConst , written )
 local targetTok = target . kind == "name"
 and target . token or nil
 if targetTok then
@@ -6069,7 +7491,7 @@ c . diag ( written . withBinding and "NUPP2612"
 or "NUPP2603" , written ,
 "borrowed value cannot escape through assignment" )
 end
-else
+elseif not wasConstModuleField then
 target . writeContext = true
 local tt = c . infer ( target )
 target . writeContext = nil
@@ -6117,7 +7539,6 @@ end
 
 
 
-
 for j , target in ipairs ( stat . targets ) do
 local key = pathKey ( target )
 local et = inferred [ j ]
@@ -6134,8 +7555,15 @@ end
 
 handlers . compoundAssign = function ( stat )
 local assignTarget , value , opTok = stat . target , stat . value , stat . op
-if not assignTarget or not value or not opTok then return end
+if not assignTarget or not value or not opTok then
+return
+end
 local targetT = c . infer ( assignTarget )
+if constModuleField ( assignTarget ) then
+c . diag ( "NUPP2008" , assignTarget ,
+"cannot assign to const module field" )
+return
+end
 assignTarget . writeContext = true
 c . infer ( assignTarget )
 assignTarget . writeContext = nil
@@ -6189,12 +7617,16 @@ end
 
 handlers . callStmt = function ( stat )
 local called = stat . expr
-if not called then return end
+if not called then
+return
+end
 local resultT = c . infer ( called )
 local ignoredOwner = ownershipKind ( resultT ) == "owned"
 if called . ffiOutContracts then
 for _ , returned in ipairs ( c . lastCallRets or { } ) do
-if ownershipKind ( returned ) == "owned" then ignoredOwner = true end
+if ownershipKind ( returned ) == "owned" then
+ignoredOwner = true
+end
 end
 end
 if ignoredOwner then
@@ -6319,7 +7751,9 @@ node . borrowOwner = c . borrowRoot ( c . ownershipEntry ( args [ 1 ] ) )
 return T . borrowed ( rawType ( valueT ) )
 elseif intrinsic == "borrowFrom" then
 local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
-if args [ 2 ] then c . infer ( args [ 2 ] ) end
+if args [ 2 ] then
+c . infer ( args [ 2 ] )
+end
 local source = args [ 2 ] and c . ownershipEntry ( args [ 2 ] ) or nil
 if # args ~= 2 or c . ownershipKind ( valueT )
 or not c . pointerShaped ( valueT ) or not source then
@@ -6335,7 +7769,9 @@ node . borrowOwner = c . borrowRoot ( source )
 return T . borrowed ( rawType ( valueT ) )
 elseif intrinsic == "pin" then
 local pointerT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
-if args [ 2 ] then c . infer ( args [ 2 ] ) end
+if args [ 2 ] then
+c . infer ( args [ 2 ] )
+end
 if # args ~= 2 or not c . pointerShaped ( pointerT ) then
 c . diag ( "NUPP2602" , node ,
 "pin expects a pointer and its managed anchor" )
@@ -6429,8 +7865,12 @@ and c . env and c . env . resolveModule then
 local tok = nil
 if argsNode then
 local e1 = argExprs [ 1 ]
-if e1 and e1 . kind == "string" then tok = e1 . token end
-if argStr then tok = argStr end
+if e1 and e1 . kind == "string" then
+tok = e1 . token
+end
+if argStr then
+tok = argStr
+end
 end
 if tok then
 local text = tok . text
@@ -6438,7 +7878,9 @@ local modname = text : match ( '^"(.*)"$' ) or text : match ( "^'(.*)'$" )
 if modname then
 node . requiredModule = modname
 local mt = c . env . resolveModule ( c . env , modname )
-if mt then return mt end
+if mt then
+return mt
+end
 end
 end
 return c . opts and c . opts . strict and T . unknown or T . any
@@ -6449,7 +7891,9 @@ end
 
 local intrinsic = inferFfiIntrinsic ( node , calleeName , baseName ,
 memberName , typeArg , argExprs , argStr )
-if intrinsic then return intrinsic end
+if intrinsic then
+return intrinsic
+end
 local calleeT = callee and c . infer ( callee ) or T . any
 node . calleeType = rawType ( calleeT )
 local knownAts = nil
@@ -6504,23 +7948,33 @@ handlers . safeCall = handlers . call
 
 handlers . methodCall = function ( node )
 local receiver , member = node . obj , node . name
-if not receiver or not member then return T . any end
+if not receiver or not member then
+return T . any
+end
 local ot = c . infer ( receiver )
 
 
 
 local optional = node . safeObj ~= nil or node . safeMethod ~= nil
 local function withoutNil ( t )
-if t . tag ~= "union" then return t end
+if t . tag ~= "union" then
+return t
+end
 local nonnil = { }
 for _ , m in ipairs ( t . members ) do
-if m ~= T . nil_ then nonnil [ # nonnil + 1 ] = m end
+if m ~= T . nil_ then
+nonnil [ # nonnil + 1 ] = m
+end
 end
 return T . union ( nonnil )
 end
-if node . safeObj then ot = withoutNil ( ot ) end
+if node . safeObj then
+ot = withoutNil ( ot )
+end
 local mt , fieldDef = c . fieldType ( ot , member . text )
-if mt and node . safeMethod then mt = withoutNil ( mt ) end
+if mt and node . safeMethod then
+mt = withoutNil ( mt )
+end
 if mt then
 c . markToken ( member , fieldDef , mt ,
 mt . tag == "func" and "method" or "property" )
@@ -6540,7 +7994,9 @@ c . diag ( "NUPP2004" , member , ( "no method %q in %s" )
 or "check the receiver type and available methods" } )
 end
 end
-if node . args then c . inferCall ( node , T . any , node . args ) end
+if node . args then
+c . inferCall ( node , T . any , node . args )
+end
 return T . any
 end
 return handlers
@@ -6598,7 +8054,9 @@ end
 
 c . fieldType = function ( t , name )
 t = rawType ( t )
-if t . tag == "ptr" then return c . fieldType ( t . elem , name ) end
+if t . tag == "ptr" then
+return c . fieldType ( t . elem , name )
+end
 if t . tag == "typevar" and t . bound then
 local bound = t . bound
 local ft , fieldDef = c . fieldType ( bound , name )
@@ -6611,15 +8069,21 @@ if t . tag == "union" then
 local parts = { }
 for _ , m in ipairs ( t . members ) do
 local ft = c . fieldType ( m , name )
-if not ft then return nil end
+if not ft then
+return nil
+end
 parts [ # parts + 1 ] = ft
 end
-if # parts > 0 then return T . union ( parts ) end
+if # parts > 0 then
+return T . union ( parts )
+end
 return nil
 end
 if t . tag == "shape" then
 local named = t . byname [ name ]
-if named then return named end
+if named then
+return named
+end
 local indexKey , indexValue = t . indexReadKey , t . indexReadValue
 if indexKey and indexValue and isA ( T . string , indexKey ) then
 return T . optional ( indexValue )
@@ -6634,7 +8098,9 @@ end
 return ft and specializeSelf ( t , ft , t ) or nil ,
 t . fieldDefs and t . fieldDefs [ name ] or nil
 elseif t . tag == "map" then
-if not t . readable or not isA ( T . string , t . key ) then return nil end
+if not t . readable or not isA ( T . string , t . key ) then
+return nil
+end
 return T . optional ( t . value )
 elseif t == T . string and c . env and c . env . stringLib
 and c . env . stringLib . tag == "shape" then
@@ -6646,7 +8112,9 @@ end
 
 c . fieldWriteType = function ( t , name )
 t = rawType ( t )
-if t . tag == "ptr" then return c . fieldWriteType ( t . elem , name ) end
+if t . tag == "ptr" then
+return c . fieldWriteType ( t . elem , name )
+end
 if t . tag == "typevar" and t . bound then
 local bound = t . bound
 local ft , fieldDef = c . fieldWriteType ( bound , name )
@@ -6659,7 +8127,9 @@ if t . tag == "union" then
 local accepted = nil
 for _ , m in ipairs ( t . members ) do
 local ft = c . fieldWriteType ( m , name )
-if not ft then return nil end
+if not ft then
+return nil
+end
 if not accepted or isA ( ft , accepted ) then
 accepted = ft
 elseif not isA ( accepted , ft ) then
@@ -6670,7 +8140,9 @@ return accepted
 end
 if t . tag == "shape" then
 local named = t . writeByname [ name ]
-if named then return named end
+if named then
+return named
+end
 if t . indexWriteKey and isA ( T . string , t . indexWriteKey ) then
 return t . indexWriteValue
 end
@@ -6683,7 +8155,9 @@ end
 return ft and specializeSelf ( t , ft , t ) or nil ,
 t . writeFieldDefs and t . writeFieldDefs [ name ] or nil
 elseif t . tag == "map" then
-if not t . writeKey or not isA ( T . string , t . writeKey ) then return nil end
+if not t . writeKey or not isA ( T . string , t . writeKey ) then
+return nil
+end
 return t . writeValue
 end
 return nil
@@ -6691,7 +8165,9 @@ end
 
 c . fieldNames = function ( t , writing )
 t = rawType ( t )
-if t . tag == "ptr" then return c . fieldNames ( t . elem , writing ) end
+if t . tag == "ptr" then
+return c . fieldNames ( t . elem , writing )
+end
 if t . tag == "typevar" and t . bound then
 return c . fieldNames ( t . bound , writing )
 end
@@ -6703,7 +8179,9 @@ if not shared then
 shared = names
 else
 for name in pairs ( shared ) do
-if not names [ name ] then shared [ name ] = nil end
+if not names [ name ] then
+shared [ name ] = nil
+end
 end
 end
 end
@@ -6794,7 +8272,9 @@ local p2 , r2 = { } , { }
 for j , p in ipairs ( params ) do p2 [ j ] = substType ( p , map ) end
 for j , r in ipairs ( rets ) do r2 [ j ] = substType ( r , map ) end
 params , rets = p2 , r2
-if varargType then varargType = substType ( varargType , map ) end
+if varargType then
+varargType = substType ( varargType , map )
+end
 end
 if varargType then
 for j = # params + 1 , # ats do
@@ -6877,7 +8357,9 @@ affineValues [ f . name . text ] = vt
 c . moveExpression ( f . value , vt ,
 "affine record construction" , c . ownershipKind ( vt ) )
 end
-if genericMap then unify ( ft , vt , genericMap ) end
+if genericMap then
+unify ( ft , vt , genericMap )
+end
 local ok , why = isA ( vt , ft )
 if not ok then
 c . diag ( "NUPP2202" , f , ( "field %q: %s" )
@@ -6887,7 +8369,9 @@ end
 else
 c . diag ( "NUPP2202" , f ,
 "struct construction takes named fields only" )
-if f . value then c . infer ( f . value ) end
+if f . value then
+c . infer ( f . value )
+end
 end
 end
 else
@@ -6949,7 +8433,9 @@ cleanups [ # cleanups + 1 ] = "@dropfield|" .. name
 end
 end
 end
-if opaque then cleanups = { } end
+if opaque then
+cleanups = { }
+end
 local owned = T . owned ( calleeT , cleanups )
 return owned , { owned }
 end
@@ -7025,7 +8511,9 @@ local p2 , r2 = { } , { }
 for j , p in ipairs ( params ) do p2 [ j ] = substType ( p , map ) end
 for j , r in ipairs ( rets ) do r2 [ j ] = substType ( r , map ) end
 params , rets = p2 , r2
-if varargType then varargType = substType ( varargType , map ) end
+if varargType then
+varargType = substType ( varargType , map )
+end
 end
 
 local nparams = # params
@@ -7127,7 +8615,9 @@ if calleeT and calleeT . tag == "func"
 and ( calleeT . borrowsParam or calleeT . borrowsSelf
 or calleeT . borrowsParams ) then
 local sources = { }
-if calleeT . borrowsSelf then sources [ # sources + 1 ] = node . obj end
+if calleeT . borrowsSelf then
+sources [ # sources + 1 ] = node . obj
+end
 if calleeT . borrowsParam then
 sources [ # sources + 1 ] = args [ calleeT . borrowsParam ]
 end
@@ -7216,11 +8706,15 @@ local handlers = { }
 
 handlers . cdefStruct = function ( stat )
 local structName = stat . name
-if not structName then return end
+if not structName then
+return
+end
 local n = T . nominal ( structName . text , "struct" )
 n . cdefName = structName . text
 c . bindType ( structName . text , n , structName )
-if structName . definition then structName . definition . cdef = true end
+if structName . definition then
+structName . definition . cdef = true
+end
 n . fieldOrder = { }
 n . fieldDefs = { }
 n . writeFieldDefs = { }
@@ -7274,7 +8768,9 @@ if declared then
 local pt = c . resolveType ( declared )
 local mode = modeTok and modeTok . text or "plain"
 local pdef = c . definition ( pname , "parameter" )
-if pdef then pdef . type = pt end
+if pdef then
+pdef . type = pt
+end
 c . markToken ( pname , pdef , pt , "parameter" )
 if not ( reifiableField ( pt , true ) or pt == T . number
 or pt == T . string or pt . tag == "func" ) then
@@ -7374,13 +8870,17 @@ end
 local cdefType = T . func ( params , rets , stat . varargs or false ,
 paramModes , nil , nil , nil , nil , nil , nil , ffiOut , nil , false )
 local cdefName = stat . name
-if not cdefName then return end
+if not cdefName then
+return
+end
 c . bindVar ( cdefName . text , cdefType , true , cdefName , "function" )
 if stat . disposeContract then
 registerDefaultDisposer ( cdefType , cdefName . text ,
 stat . disposeTok or stat )
 end
-if cdefName . definition then cdefName . definition . cdef = true end
+if cdefName . definition then
+cdefName . definition . cdef = true
+end
 end
 
 return handlers
@@ -7440,15 +8940,21 @@ local expected , missing = { } , nil
 for _ , sourceToken in ipairs ( borrowContract . params
 or { borrowContract . param } ) do
 local source = ownershipState ( c . lookupEntry ( sourceToken . text ) )
-if source then expected [ # expected + 1 ] = borrowRoot ( source ) end
+if source then
+expected [ # expected + 1 ] = borrowRoot ( source )
+end
 end
 local actual = provenanceOwners ( stat . exprs [ j ] )
 for _ , source in ipairs ( expected ) do
 local found = false
 for _ , candidate in ipairs ( actual ) do
-if candidate == source then found = true end
+if candidate == source then
+found = true
 end
-if not found then missing = true end
+end
+if not found then
+missing = true
+end
 end
 if missing then
 c . diag ( "NUPP2619" , stat . exprs [ j ] or stat ,
@@ -7495,21 +9001,33 @@ if c . moduleType == T . table_ and not c . moduleLocalAnnotated
 and returnedName and returnedName . text == c . moduleLocal then
 local fields = { }
 for name , ft in pairs ( c . moduleFields ) do
+if c . moduleFieldConst [ name ] then
+fields [ # fields + 1 ] = { name = name , read = ft }
+else
 fields [ # fields + 1 ] = { name = name , type = ft }
 end
-if # fields > 0 then c . moduleType = T . shape ( fields ) end
+end
+if # fields > 0 then
+c . moduleType = T . shape ( fields )
+end
 end
 if c . opts and c . opts . strict and c . moduleType then
 
 
 local function untyped ( t )
-if t == T . any then return true end
+if t == T . any then
+return true
+end
 if t . tag == "func" then
 for _ , p in ipairs ( t . params ) do
-if p == T . any then return true end
+if p == T . any then
+return true
+end
 end
 for _ , r in ipairs ( t . rets ) do
-if r == T . any then return true end
+if r == T . any then
+return true
+end
 end
 end
 return false
@@ -7517,7 +9035,7 @@ end
 local shape = c . moduleType
 if shape . tag == "shape" then
 for _ , field in ipairs ( shape . fields ) do
-if untyped ( field . type ) then
+if untyped ( field . read or field . type ) then
 c . diag ( "NUPP2106" ,
 c . moduleFieldTokens [ field . name ] or stat ,
 ( "exported %q needs a type annotation" )
@@ -7592,9 +9110,10 @@ and T . borrowed ( rawType ( acquired ) ) or T . any
 c . bindVar ( binding . name . text , visible , binding . type ~= nil ,
 binding . name )
 local entry = c . scope . vars [ binding . name . text ]
-if entry then entry . withBinding = binding end
+if entry then
+entry . withBinding = binding
 end
-
+end
 
 
 c . captureWatches [ # c . captureWatches + 1 ] =
@@ -7620,7 +9139,6 @@ local allBranchesLeave = true
 
 local paths = { }
 for _ , clause in ipairs ( stat . clauses ) do
-
 
 
 c . pushScope ( )
@@ -7654,7 +9172,9 @@ dispatchStart = ( test . lhs and c . refType ( test . lhs ) )
 or ( test . rhs and c . refType ( test . rhs ) )
 end
 end
-if facts . exhausted == key then dispatchTotal = true end
+if facts . exhausted == key then
+dispatchTotal = true
+end
 else
 dispatchKey = false
 end
@@ -7704,7 +9224,6 @@ end
 
 
 
-
 if # paths > 0 then
 local joined = { }
 for key , t in pairs ( paths [ 1 ] ) do
@@ -7718,7 +9237,9 @@ break
 end
 members [ # members + 1 ] = other
 end
-if everywhere then joined [ key ] = T . union ( members ) end
+if everywhere then
+joined [ key ] = T . union ( members )
+end
 end
 applyFacts ( joined )
 end
@@ -7744,7 +9265,9 @@ c . pushScope ( )
 c . loops . push ( stat . body )
 c . checkBlock ( stat . body , true )
 c . loops . pop ( )
-if stat . cond then c . infer ( stat . cond ) end
+if stat . cond then
+c . infer ( stat . cond )
+end
 c . popScope ( )
 end
 
@@ -7760,10 +9283,14 @@ end
 
 handlers . fornumStmt = function ( stat )
 local from , to , var = stat . start , stat . stop , stat . var
-if not from or not to or not var then return end
+if not from or not to or not var then
+return
+end
 local st = c . infer ( from )
 local et = c . infer ( to )
-if stat . step then c . infer ( stat . step ) end
+if stat . step then
+c . infer ( stat . step )
+end
 c . numericOperand ( st , from , "for" )
 c . numericOperand ( et , to , "for" )
 c . pushScope ( )
@@ -7782,7 +9309,27 @@ handlers . forinStmt = function ( stat )
 local iterT = nil
 for j , e in ipairs ( stat . exprs or { } ) do
 local t = c . infer ( e )
-if j == 1 then iterT = t end
+if j == 1 then
+iterT = t
+end
+end
+local iterator = stat . exprs and stat . exprs [ 1 ]
+local callee = iterator and iterator . kind == "call" and iterator . obj or nil
+local calleeTok = callee and callee . kind == "name" and callee . token or nil
+local global = c . env and c . env . globals and c . env . globals . ipairs or nil
+local args = nil
+if iterator and iterator . kind == "call" then
+args = iterator . args
+end
+local operands = args and args . kind == "args" and args . exprs or { }
+local operand = # operands == 1 and operands [ 1 ] or nil
+local operandType = operand and c . refType ( operand ) or nil
+if calleeTok and calleeTok . text == "ipairs" and global
+and calleeTok . definition == global . definition and operand
+and global . definition and global . definition . constant
+and operand . kind == "name" and operandType
+and operandType . tag == "array" then
+stat . builtinIpairs = { operand = operand , type = operandType }
 end
 c . pushScope ( )
 for j , nameTok in ipairs ( stat . names ) do
@@ -7996,7 +9543,9 @@ c . bindType ( "self" , n . selfType )
 
 
 
-if c . qualifierOf ( stat ) then c . bindType ( stat . name . text , n , nil ) end
+if c . qualifierOf ( stat ) then
+c . bindType ( stat . name . text , n , nil )
+end
 n . typeParams , n . typeBounds = nil , nil
 if stat . generics then
 n . typeParams , n . typeBounds = c . bindGenerics ( stat . generics ,
@@ -8041,7 +9590,9 @@ n . supertypes [ # n . supertypes + 1 ] = super
 for _ , disposer in ipairs ( super . defaultDisposers or { } ) do
 local seen = false
 for _ , current in ipairs ( n . defaultDisposers or { } ) do
-if current == disposer then seen = true end
+if current == disposer then
+seen = true
+end
 end
 if not seen then
 n . defaultDisposers [ # n . defaultDisposers + 1 ] = disposer
@@ -8373,7 +9924,9 @@ return names
 end
 
 c . numericOperand = function ( t , node , op )
-if t == T . any or isA ( t , T . number ) then return true end
+if t == T . any or isA ( t , T . number ) then
+return true
+end
 c . diag ( "NUPP2003" , node ,
 ( "cannot apply '%s' to %s" ) : format ( op , T . tostring ( t ) ) )
 return false
@@ -8384,16 +9937,26 @@ end
 
 
 local function orderingFamily ( t )
-if t == T . any then return "any" end
-if isA ( t , T . number ) then return "number" end
-if isA ( t , T . string ) then return "string" end
+if t == T . any then
+return "any"
+end
+if isA ( t , T . number ) then
+return "number"
+end
+if isA ( t , T . string ) then
+return "string"
+end
 if t . tag == "union" then
 local family = nil
 for _ , member in ipairs ( t . members ) do
 if member ~= T . nil_ then
 local found = orderingFamily ( member )
-if not found or found == "any" then return found end
-if family and family ~= found then return nil end
+if not found or found == "any" then
+return found
+end
+if family and family ~= found then
+return nil
+end
 family = found
 end
 end
@@ -8405,14 +9968,24 @@ end
 
 local function numberLiteralType ( text )
 local lower = text : gsub ( "_" , "" ) : lower ( )
-if lower : find ( "ull" , 1 , true ) then return T . uint64 end
-if lower : find ( "ll" , 1 , true ) then return T . int64 end
-if lower : sub ( - 1 ) == "i" then return T . number end
+if lower : find ( "ull" , 1 , true ) then
+return T . uint64
+end
+if lower : find ( "ll" , 1 , true ) then
+return T . int64
+end
+if lower : sub ( - 1 ) == "i" then
+return T . number
+end
 if lower : find ( "x" , 1 , true ) then
-if lower : find ( "%." ) or lower : find ( "p" ) then return T . number end
+if lower : find ( "%." ) or lower : find ( "p" ) then
+return T . number
+end
 return T . integer
 end
-if lower : find ( "%." ) or lower : find ( "e" ) then return T . number end
+if lower : find ( "%." ) or lower : find ( "e" ) then
+return T . number
+end
 return T . integer
 end
 
@@ -8435,11 +10008,15 @@ end
 
 c . infer = function ( node )
 local handle = handlers [ node . kind ]
-if handle then return handle ( node ) end
+if handle then
+return handle ( node )
+end
 local kind = node . kind
 if kind == "number" then
 local literal = node . token
-if not literal then return T . number end
+if not literal then
+return T . number
+end
 local base = numberLiteralType ( literal . text )
 local value = tonumber ( ( literal . text : gsub ( "_" , "" ) ) )
 if value and ( base == T . integer or base == T . number ) then
@@ -8448,10 +10025,14 @@ end
 return base
 elseif kind == "string" then
 local literal = node . token
-if not literal then return T . string end
+if not literal then
+return T . string
+end
 local text = literal . text
 local body = text : match ( "^[\"']" ) and text : sub ( 2 , - 2 ) or nil
-if body then return T . literal ( body , T . string ) end
+if body then
+return T . literal ( body , T . string )
+end
 return T . string
 elseif kind == "nilExpr" then
 return T . nil_
@@ -8463,7 +10044,9 @@ elseif kind == "vararg" then
 return T . any
 elseif kind == "name" then
 local nameTok = node . token
-if not nameTok then return T . any end
+if not nameTok then
+return T . any
+end
 local nameText = nameTok . text
 local entry = c . lookupEntry ( nameText )
 if entry and entry . withBinding then
@@ -8522,7 +10105,9 @@ if not seen [ key ] then
 seen [ key ] = true
 local item = c . related ( definition ,
 "conflicting global value declared here" )
-if item then related [ # related + 1 ] = item end
+if item then
+related [ # related + 1 ] = item
+end
 end
 end
 c . diag ( "NUPP2104" , node ,
@@ -8559,7 +10144,9 @@ local inner = node . expr
 return inner and c . infer ( inner ) or T . any
 elseif kind == "ternary" then
 local cond , ifTrue , ifFalse = node . cond , node . ifTrue , node . ifFalse
-if not cond or not ifTrue or not ifFalse then return T . any end
+if not cond or not ifTrue or not ifFalse then
+return T . any
+end
 c . infer ( cond )
 local facts = c . analyzeCond ( cond )
 c . pushScope ( )
@@ -8573,7 +10160,9 @@ c . popScope ( )
 return T . union ( { tt , ft } )
 elseif kind == "castExpr" then
 local cast = node . expr
-if not cast then return c . resolveType ( node . type ) end
+if not cast then
+return c . resolveType ( node . type )
+end
 local source = c . infer ( cast )
 local target = c . resolveType ( node . type )
 if c . ownershipKind ( target ) then
@@ -8594,7 +10183,9 @@ end
 return target
 elseif kind == "isExpr" then
 local subject = node . expr
-if subject then c . infer ( subject ) end
+if subject then
+c . infer ( subject )
+end
 c . resolveType ( node . type )
 return T . boolean
 elseif kind == "funcExpr" then
@@ -8653,13 +10244,17 @@ local positional , named = { } , { }
 
 
 local function widened ( t )
-if t . tag == "literal" then return t . base or T . string end
+if t . tag == "literal" then
+return t . base or T . string
+end
 return t
 end
 
 
 local function refuseOwner ( value , valueT )
-if not c . ownershipKind ( valueT ) then return end
+if not c . ownershipKind ( valueT ) then
+return
+end
 c . diag ( value . withBinding and "NUPP2612" or "NUPP2603" , value ,
 c . ownershipKind ( valueT ) .. " value cannot be stored in a table" )
 end
@@ -8681,16 +10276,22 @@ refuseOwner ( value , valueT )
 
 
 local keep = valueT . tag == "literal"
-and valueT . base == T . string
-named [ # named + 1 ] = {
-name = fieldName . text ,
-type = keep and valueT or widened ( valueT ) ,
-}
+and ( f . isConst or valueT . base == T . string )
+local fieldT = keep and valueT or widened ( valueT )
+local field = { name = fieldName . text , read = fieldT }
+if not f . isConst then
+field . write = fieldT
+end
+named [ # named + 1 ] = field
 end
 elseif f . kind == "fieldBracket" then
 local value = f . value
-if f . key then c . infer ( f . key ) end
-if value then refuseOwner ( value , c . infer ( value ) ) end
+if f . key then
+c . infer ( f . key )
+end
+if value then
+refuseOwner ( value , c . infer ( value ) )
+end
 return T . table_
 end
 end
@@ -8776,7 +10377,9 @@ local resolved
 if spec then
 local resolver = function ( tag )
 local found = c . lookupType ( tag )
-if found and found . tag == "nominal" then return found end
+if found and found . tag == "nominal" then
+return found
+end
 return nil
 end
 local t , err = require ( "nupp.cheader" ) . typeFromString (
@@ -8789,7 +10392,9 @@ c . diag ( "NUPP2304" , node ,
 return T . any
 end
 end
-if name == "istype" then return T . boolean end
+if name == "istype" then
+return T . boolean
+end
 if name == "sizeof" or name == "alignof" then
 return T . integer
 end
@@ -8797,7 +10402,9 @@ if not resolved then
 
 return name == "typeof" and T . ctype ( T . cdata ) or T . cdata
 end
-if name == "typeof" then return T . ctype ( resolved ) end
+if name == "typeof" then
+return T . ctype ( resolved )
+end
 if name == "cast" then
 
 
@@ -8884,7 +10491,6 @@ end
 
 
 
-
 if calleeName == "cheader" then
 local args = argExprs
 local function literal ( e )
@@ -8928,7 +10534,6 @@ fields [ # fields + 1 ] = { name = name , type = t }
 end
 return T . shape ( fields )
 end
-
 
 
 if baseName == "ffi" and memberName == "cdef" then
@@ -9048,7 +10653,9 @@ end
 
 
 function self . spellingFix ( tok , candidates )
-if not tok or type ( tok . text ) ~= "string" then return nil end
+if not tok or type ( tok . text ) ~= "string" then
+return nil
+end
 local compared = tok . text
 if not compared : match ( "^__" ) then
 compared = compared : sub ( 1 , 1 ) == "_" and "_" .. compared
@@ -9065,14 +10672,18 @@ end
 end
 local stemLength = math . max ( 0 , # compared - 2 )
 local threshold = stemLength >= 5 and 2 or 1
-if not best or tied or distance > threshold then return nil end
+if not best or tied or distance > threshold then
+return nil
+end
 return { self . fix ( ( "change to `%s`" ) : format ( best ) ,
 self . replaceToken ( tok , best ) ) }
 end
 
 
 function self . nameSpellingFix ( tok , candidates )
-if not tok or type ( tok . text ) ~= "string" then return nil end
+if not tok or type ( tok . text ) ~= "string" then
+return nil
+end
 local best , distance , tied = nil , nil , false
 for key , value in pairs ( candidates or { } ) do
 local candidate = type ( key ) == "number" and value or key
@@ -9086,7 +10697,9 @@ end
 end
 end
 local threshold = # tok . text >= 5 and 2 or 1
-if not best or tied or distance > threshold then return nil end
+if not best or tied or distance > threshold then
+return nil
+end
 return { self . fix ( ( "change to `%s`" ) : format ( best ) ,
 self . replaceToken ( tok , best ) ) }
 end
@@ -9098,7 +10711,9 @@ function self . castFix ( expr , target )
 local first , last = cst . firstToken ( expr ) , cst . lastToken ( expr )
 local rendered = target and cst . textOf ( target ) or ""
 local name = rendered : match ( "^%s*([%a_][%w_%.]*)%s*$" )
-if not first or not last or not name then return nil end
+if not first or not last or not name then
+return nil
+end
 return { self . fix ( ( "cast to `%s`" ) : format ( name ) ,
 self . insertBefore ( first , "(" ) ,
 { offset = last . offset + # last . text , length = 0 ,
@@ -9139,14 +10754,18 @@ local requires = topLevelRequires ( )
 local after = requires [ # requires ]
 if after then
 local tok = cst . lastToken ( after . stat )
-if not tok then return nil end
+if not tok then
+return nil
+end
 return { offset = tok . offset + # tok . text , length = 0 ,
 newText = "\n" .. line }
 end
 local firstBlock = ( result . root . blocks or { } ) [ 1 ]
 local firstStat = firstBlock and ( firstBlock . stats or { } ) [ 1 ]
 local tok = firstStat and cst . firstToken ( firstStat )
-if not tok then return nil end
+if not tok then
+return nil
+end
 return { offset = tok . offset - ( tok . col - 1 ) , length = 0 ,
 newText = line .. "\n\n" }
 end
@@ -9154,7 +10773,9 @@ end
 
 function self . requiredAs ( moduleName )
 for _ , entry in ipairs ( topLevelRequires ( ) ) do
-if entry . module == moduleName then return entry . name end
+if entry . module == moduleName then
+return entry . name
+end
 end
 return nil
 end
@@ -9163,7 +10784,9 @@ end
 
 function self . requireBindsName ( name )
 for _ , entry in ipairs ( topLevelRequires ( ) ) do
-if entry . name == name then return true end
+if entry . name == name then
+return true
+end
 end
 return false
 end
@@ -9178,7 +10801,9 @@ local requireAdviceGiven = { }
 
 
 function self . missingRequire ( name )
-if not env or not env . modulesNamed then return nil , false , nil end
+if not env or not env . modulesNamed then
+return nil , false , nil
+end
 local candidates = { }
 for _ , moduleName in ipairs ( env . modulesNamed ( env , name ) or { } ) do
 
@@ -9186,8 +10811,12 @@ if moduleName ~= result . moduleName then
 candidates [ # candidates + 1 ] = moduleName
 end
 end
-if # candidates == 0 then return nil , false , nil end
-if requireAdviceGiven [ name ] then return nil , true , nil end
+if # candidates == 0 then
+return nil , false , nil
+end
+if requireAdviceGiven [ name ] then
+return nil , true , nil
+end
 requireAdviceGiven [ name ] = true
 local fixes = { }
 for _ , moduleName in ipairs ( candidates ) do
@@ -9239,7 +10868,9 @@ elseif candidateDistance == distance then
 tied = true
 end
 end
-if tied or not distance or distance > limit then return nil end
+if tied or not distance or distance > limit then
+return nil
+end
 return best
 end
 
@@ -9282,15 +10913,21 @@ for j , p in ipairs ( body . params or { } ) do
 if p . name and not p . namedVararg then
 modes [ j ] = p . modeTok and p . modeTok . text or "borrows"
 declared [ j ] = p . modeTok ~= nil
-if not p . modeTok then byname [ p . name . text ] = j end
+if not p . modeTok then
+byname [ p . name . text ] = j
+end
 end
 end
 
 local function raise ( name , effect )
 local at = byname [ name ]
-if not at then return end
+if not at then
+return
+end
 local current = modes [ at ]
-if current == "takes" or current == "plain" then return end
+if current == "takes" or current == "plain" then
+return
+end
 if effect == "takes" or effect == "plain"
 or effect == "exclusive" and current == "borrows" then
 modes [ at ] = effect
@@ -9306,16 +10943,22 @@ end
 
 local function returnBorrows ( name )
 local first = body . rets and body . rets [ 1 ]
-if not first or first . kind ~= "tborrows" then return false end
+if not first or first . kind ~= "tborrows" then
+return false
+end
 for _ , source in ipairs ( first . params or { first . param } ) do
-if source and source . text == name then return true end
+if source and source . text == name then
+return true
+end
 end
 return false
 end
 
 local walk
 walk = function ( node , nested )
-if not node or cst . isToken ( node ) then return end
+if not node or cst . isToken ( node ) then
+return
+end
 local kind = node . kind
 if nested and kind == "name" then
 raise ( node . token . text , "plain" )
@@ -9353,10 +10996,16 @@ walk ( node . obj , nested )
 return
 elseif kind == "methodCall" then
 local receiver = directName ( node . obj )
-if receiver then raise ( receiver , "plain" ) end
+if receiver then
+raise ( receiver , "plain" )
+end
 for _ , arg in ipairs ( node . args and node . args . exprs or { } ) do
 local name = directName ( arg )
-if name then raise ( name , "plain" ) else walk ( arg , nested ) end
+if name then
+raise ( name , "plain" )
+else
+walk ( arg , nested )
+end
 end
 return
 elseif kind == "assignStmt" then
@@ -9390,13 +11039,19 @@ elseif kind == "tableExpr" then
 for _ , child in ipairs ( node ) do
 if not cst . isToken ( child ) then
 local name = directName ( child . value or child )
-if name then raise ( name , "plain" ) else walk ( child , nested ) end
+if name then
+raise ( name , "plain" )
+else
+walk ( child , nested )
+end
 end
 end
 return
 end
 for _ , child in ipairs ( node ) do
-if not cst . isToken ( child ) then walk ( child , nested ) end
+if not cst . isToken ( child ) then
+walk ( child , nested )
+end
 end
 end
 walk ( body . body , false )
@@ -9416,11 +11071,15 @@ c . pushScope ( )
 if body . generics then
 typeParams , typeBounds = c . bindGenerics ( body . generics , "function" )
 end
-if selfType then c . bindVar ( "self" , selfType ) end
+if selfType then
+c . bindVar ( "self" , selfType )
+end
 for _ , p in ipairs ( body . params ) do
 if p . namedVararg then
 vararg = true
-if p . type then varargType = c . resolveType ( p . type ) end
+if p . type then
+varargType = c . resolveType ( p . type )
+end
 c . bindVar ( p . name . text , T . table_ , false , p . name ,
 "parameter" , true )
 elseif p . name then
@@ -9448,7 +11107,9 @@ and T . borrowed ( pt ) or pt
 c . bindVar ( p . name . text , bound , p . type ~= nil , p . name , "parameter" )
 else
 vararg = true
-if p . type then varargType = c . resolveType ( p . type ) end
+if p . type then
+varargType = c . resolveType ( p . type )
+end
 end
 end
 local annotated = nil
@@ -9528,7 +11189,9 @@ c . loops . setReturning ( wasReturning )
 c . loops . finish ( loopClosure , body )
 if body . disposeContract and disposeRoot and disposeRoot ~= "self" then
 local terminal = ownershipState ( c . lookupEntry ( disposeRoot ) )
-if terminal then terminal . moved = true end
+if terminal then
+terminal . moved = true
+end
 end
 c . disposerFieldStack [ # c . disposerFieldStack ] = nil
 if disposerContext then
@@ -9558,7 +11221,9 @@ if first and first . kind == "tpredicate" then
 local want = first . param . text
 local at
 for j , p in ipairs ( body . params or { } ) do
-if p . name and p . name . text == want then at = j end
+if p . name and p . name . text == want then
+at = j
+end
 end
 if not at then
 c . diag ( "NUPP2109" , first , ( "%s names no parameter of this "
@@ -9575,7 +11240,9 @@ end
 end
 end
 local borrowsParam , borrowsSelf , borrowsParams
-if elidedSelfBorrow then borrowsSelf = true end
+if elidedSelfBorrow then
+borrowsSelf = true
+end
 if first and first . kind == "tborrows" then
 borrowsParams = { }
 for _ , sourceToken in ipairs ( first . params or { first . param } ) do
@@ -9588,7 +11255,9 @@ borrowsSelf = true
 found = true
 else
 for j , p in ipairs ( body . params or { } ) do
-if p . name and p . name . text == want then found = j end
+if p . name and p . name . text == want then
+found = j
+end
 end
 end
 if not found then
@@ -9651,14 +11320,18 @@ modes [ # modes + 1 ] = mode
 else
 
 vararg = true
-if p . type then varargType = c . resolveType ( p . type ) end
+if p . type then
+varargType = c . resolveType ( p . type )
+end
 end
 end
 local rets = { }
 for j , r in ipairs ( body and body . rets or { } ) do
 rets [ j ] = c . resolveType ( r )
 end
-if # rets == 0 then rets [ 1 ] = T . any end
+if # rets == 0 then
+rets [ 1 ] = T . any
+end
 c . popScope ( )
 return T . func ( params , rets , vararg , modes ,
 nil , typeParams , typeBounds , nil , nil , nil , nil , varargType , false )
@@ -9670,7 +11343,9 @@ local handlers = { }
 
 handlers . localFuncStmt = function ( stat )
 local nameTok , body = stat . name , stat . body
-if not nameTok or not body then return end
+if not nameTok or not body then
+return
+end
 
 c . bindVar ( nameTok . text , T . any , false , nameTok , "function" ,
 stat . isConst )
@@ -9685,7 +11360,9 @@ end
 
 handlers . funcStmt = function ( stat )
 local fname , body = stat . name , stat . body
-if not fname or fname . kind ~= "funcname" or not body then return end
+if not fname or fname . kind ~= "funcname" or not body then
+return
+end
 local selfType = nil
 
 
@@ -9810,7 +11487,9 @@ handlers . dotIndex = function ( node )
 local kind = node . kind
 local member = node . name
 local target = node . obj
-if not member or not target then return T . any end
+if not member or not target then
+return T . any
+end
 local memberName = member . text
 
 local holderName = ""
@@ -9828,7 +11507,6 @@ if narrowed then
 c . infer ( target )
 return narrowed
 end
-
 
 
 local declared = key and c . lookupEntry ( key )
@@ -9855,7 +11533,6 @@ end
 
 
 
-
 local function exportedValue ( )
 local holder = holderName ~= ""
 and c . lookupEntry ( holderName ) or nil
@@ -9873,14 +11550,18 @@ return nil
 end
 if base == T . any or base == T . table_ then
 local exported = exportedValue ( )
-if exported then return exported end
+if exported then
+return exported
+end
 return T . any
 end
 
 if kind == "safeIndex" and base . tag == "union" then
 local nonnil = { }
 for _ , m in ipairs ( base . members ) do
-if m ~= T . nil_ then nonnil [ # nonnil + 1 ] = m end
+if m ~= T . nil_ then
+nonnil [ # nonnil + 1 ] = m
+end
 end
 base = T . union ( nonnil )
 end
@@ -9889,8 +11570,11 @@ local ft , fieldDef
 if writing then
 ft , fieldDef = c . fieldWriteType ( base , memberName )
 local after = c . fieldType ( base , memberName )
-if not after then node . postWriteType = false
-elseif after ~= ft then node . postWriteType = after end
+if not after then
+node . postWriteType = false
+elseif after ~= ft then
+node . postWriteType = after
+end
 else
 ft , fieldDef = c . fieldType ( base , memberName )
 end
@@ -9911,13 +11595,17 @@ if mm then
 local keyType = T . literal ( memberName , T . string )
 node . indexObjectType , node . indexKeyType = base , keyType
 node . usesIndexContract = true
-if writing then return T . any end
+if writing then
+return T . any
+end
 local out = c . applyContract ( mm , { base , keyType } ,
 { target , node } , node , contractName )
 return kind == "safeIndex" and T . optional ( out ) or out
 end
 local exported = exportedValue ( )
-if exported then return exported end
+if exported then
+return exported
+end
 local fixes = c . edits . nameSpellingFix ( member ,
 c . fieldNames ( base , writing ) )
 c . diag ( "NUPP2004" , member , ( "no field %q in %s" )
@@ -9927,14 +11615,18 @@ or "check the receiver type and available fields" } )
 return T . any
 end
 c . markToken ( member , fieldDef , ft , "property" )
-return kind == "safeIndex" and T . optional ( ft ) or ft
+local out = kind == "safeIndex" and T . optional ( ft ) or ft
+node . resolvedType = out
+return out
 end
 handlers . safeIndex = handlers . dotIndex
 
 handlers . bracketIndex = function ( node )
 local kind = node . kind
 local target , key = node . obj , node . expr
-if not target or not key then return T . any end
+if not target or not key then
+return T . any
+end
 local trackedObject = c . infer ( target )
 local ot = rawType ( trackedObject )
 local writing = node . writeContext == true
@@ -9945,7 +11637,9 @@ c . diag ( "NUPP2604" , node ,
 .. "or borrowed value in checked code" )
 end
 local it = c . infer ( key )
-if ot == T . any or ot == T . table_ then return T . any end
+if ot == T . any or ot == T . table_ then
+return T . any
+end
 
 
 node . containerTag = ot . tag
@@ -10044,7 +11738,8 @@ if not ok then
 c . diag ( "NUPP2004" , key , ( "map key: %s" ) : format ( why ) )
 end
 if writing then
-if not ot . readable then node . postWriteType = false
+if not ot . readable then
+node . postWriteType = false
 elseif ot . value ~= valueType then
 node . postWriteType = T . optional ( ot . value )
 end
@@ -10063,7 +11758,8 @@ if not ok then
 c . diag ( "NUPP2004" , key , ( "indexer key: %s" ) : format ( why ) )
 end
 if writing then
-if not ot . indexReadValue then node . postWriteType = false
+if not ot . indexReadValue then
+node . postWriteType = false
 elseif ot . indexReadValue ~= valueType then
 node . postWriteType = T . optional ( ot . indexReadValue )
 end
@@ -10083,7 +11779,9 @@ local mm = c . metamethodOf ( ot , contractName )
 if mm then
 node . indexObjectType , node . indexKeyType = ot , it
 node . usesIndexContract = true
-if writing then return T . any end
+if writing then
+return T . any
+end
 local out = c . applyContract ( mm , { ot , it } , { target , key } ,
 node , contractName )
 return kind == "safeBracket" and T . optional ( out ) or out
@@ -10132,7 +11830,9 @@ local loopclosure = { }
 local function leavesFirstPass ( body )
 local stats = body and body . kind == "block" and body . stats or { }
 local last = stats [ # stats ]
-if not last then return false end
+if not last then
+return false
+end
 return last . kind == "returnStmt" or last . kind == "breakStmt"
 end
 
@@ -10190,7 +11890,9 @@ end
 
 
 function ops . begin ( enclosing )
-if returning then return nil end
+if returning then
+return nil
+end
 local loop = loops [ # loops ]
 if not loop or loop . once or loop . functionDepth ~= enclosing then
 return nil
@@ -10206,14 +11908,18 @@ end
 
 
 function ops . finish ( watch , at )
-if not watch then return end
+if not watch then
+return
+end
 for i = # c . captureWatches , 1 , - 1 do
 if c . captureWatches [ i ] == watch then
 table . remove ( c . captureWatches , i )
 break
 end
 end
-if watch . captured then return end
+if watch . captured then
+return
+end
 c . diag ( "NUPP2505" , at ,
 "this function is built once per iteration but does not use the "
 .. "iteration, so every one of them is the same function" ,
@@ -10319,12 +12025,16 @@ end
 if fname . method then
 
 table . remove ( names )
-if # names == 0 then return nil , nil end
+if # names == 0 then
+return nil , nil
+end
 local parts = { }
 for j , tok in ipairs ( names ) do parts [ j ] = tok . text end
 return table . concat ( parts , "." ) , fname . method
 end
-if # names < 2 then return nil , nil end
+if # names < 2 then
+return nil , nil
+end
 local member = table . remove ( names )
 local parts = { }
 for j , tok in ipairs ( names ) do parts [ j ] = tok . text end
@@ -10339,7 +12049,9 @@ function facts . lookupNarrowed ( key )
 local sc = c . scope
 while sc do
 local t = sc . narrowed and sc . narrowed [ key ]
-if t then return t end
+if t then
+return t
+end
 sc = sc . parent
 end
 return nil
@@ -10364,16 +12076,24 @@ end
 end
 
 c . refType = function ( node )
-if not node then return nil end
+if not node then
+return nil
+end
 local key = facts . pathKey ( node )
 if key then
 local narrowed = facts . lookupNarrowed ( key )
-if narrowed then return narrowed end
+if narrowed then
+return narrowed
 end
-if node . kind == "name" then return c . lookupVar ( node . token . text ) end
+end
+if node . kind == "name" then
+return c . lookupVar ( node . token . text )
+end
 if node . kind == "dotIndex" then
 local baseT = c . refType ( node . obj )
-if baseT then return c . fieldType ( baseT , node . name . text ) end
+if baseT then
+return c . fieldType ( baseT , node . name . text )
+end
 end
 return nil
 end
@@ -10418,8 +12138,12 @@ local vt = c . lookupVar ( name )
 if vt then
 local out = { t = { } , f = { } }
 local truthy , falsy = truthiness ( vt )
-if truthy then out . t [ name ] = truthy end
-if falsy then out . f [ name ] = falsy end
+if truthy then
+out . t [ name ] = truthy
+end
+if falsy then
+out . f [ name ] = falsy
+end
 return out
 end
 return none
@@ -10431,8 +12155,12 @@ local vt = key and c . refType ( cond )
 if key and vt then
 local out = { t = { } , f = { } }
 local truthy , falsy = truthiness ( vt )
-if truthy then out . t [ key ] = truthy end
-if falsy then out . f [ key ] = falsy end
+if truthy then
+out . t [ key ] = truthy
+end
+if falsy then
+out . f [ key ] = falsy
+end
 return out
 end
 return none
@@ -10453,7 +12181,9 @@ local target = c . resolveType ( typeArg )
 local vt = c . refType ( first )
 local out = { t = { } , f = { } }
 out . t [ key ] = target
-if vt then out . f [ key ] = subtract ( vt , target ) end
+if vt then
+out . f [ key ] = subtract ( vt , target )
+end
 return out
 end
 return none
@@ -10471,7 +12201,9 @@ if key and arg then
 local vt = c . refType ( arg )
 local out = { t = { } , f = { } }
 out . t [ key ] = predicate . type
-if vt then out . f [ key ] = subtract ( vt , predicate . type ) end
+if vt then
+out . f [ key ] = subtract ( vt , predicate . type )
+end
 return out
 end
 end
@@ -10483,7 +12215,9 @@ local vt = c . refType ( cond . expr )
 local target = c . resolveType ( cond . type )
 local out = { t = { } , f = { } }
 out . t [ key ] = target
-if vt then out . f [ key ] = subtract ( vt , target ) end
+if vt then
+out . f [ key ] = subtract ( vt , target )
+end
 return out
 end
 return none
@@ -10493,7 +12227,9 @@ local inner = facts . analyzeCond ( cond . operand )
 return { t = inner . f , f = inner . t }
 elseif kind == "binop" then
 local opTok , lhs , rhs = cond . op , cond . lhs , cond . rhs
-if not opTok or not lhs or not rhs then return none end
+if not opTok or not lhs or not rhs then
+return none
+end
 local op = opTok . kind
 if op == "==" or op == "~=" then
 
@@ -10545,7 +12281,9 @@ out . t [ aliasKey ] = litT
 local aliasT = c . refType ( aliasNode )
 local rest = aliasT
 and withoutMember ( aliasT , litT ) or nil
-if rest then out . f [ aliasKey ] = rest end
+if rest then
+out . f [ aliasKey ] = rest
+end
 end
 end
 out . t [ key ] = litT
@@ -10610,7 +12348,9 @@ c . popScope ( )
 local t = { }
 for key , lt in pairs ( l . t ) do
 local rt = r . t [ key ]
-if rt then t [ key ] = T . union ( { lt , rt } ) end
+if rt then
+t [ key ] = T . union ( { lt , rt } )
+end
 end
 
 
@@ -10625,9 +12365,13 @@ seen [ m ] = true
 end
 for _ , m in ipairs ( rf . tag == "union"
 and rf . members or { rf } ) do
-if seen [ m ] then keep [ # keep + 1 ] = m end
+if seen [ m ] then
+keep [ # keep + 1 ] = m
 end
-if # keep > 0 then fal [ key ] = T . union ( keep ) end
+end
+if # keep > 0 then
+fal [ key ] = T . union ( keep )
+end
 end
 end
 return { t = t , f = fal }
@@ -10645,7 +12389,9 @@ local sc = c . scope
 while sc do
 if sc . narrowed then
 for k , v in pairs ( sc . narrowed ) do
-if out [ k ] == nil and not blocked [ k ] then out [ k ] = v end
+if out [ k ] == nil and not blocked [ k ] then
+out [ k ] = v
+end
 end
 end
 for k , entry in pairs ( sc . vars ) do
@@ -10803,12 +12549,13 @@ local subtract = narrowing . subtract
 
 
 
-
 local function customaryOperator ( c , opTok )
 
 
 local classic = lexer . CUSTOMARY [ opTok . text ]
-if not classic then return end
+if not classic then
+return
+end
 c . diag ( "NUPP2504" , opTok ,
 ( "%s is the customary spelling of %s" ) : format ( opTok . text , classic ) ,
 { c . edits . fix ( ( "change to `%s`" ) : format ( classic ) ,
@@ -10822,16 +12569,26 @@ end
 function operators . install ( c )
 
 local function orderingFamily ( t )
-if t == T . any then return "any" end
-if isA ( t , T . number ) then return "number" end
-if isA ( t , T . string ) then return "string" end
+if t == T . any then
+return "any"
+end
+if isA ( t , T . number ) then
+return "number"
+end
+if isA ( t , T . string ) then
+return "string"
+end
 if t . tag == "union" then
 local family = nil
 for _ , member in ipairs ( t . members ) do
 if member ~= T . nil_ then
 local found = orderingFamily ( member )
-if not found or found == "any" then return found end
-if family and family ~= found then return nil end
+if not found or found == "any" then
+return found
+end
+if family and family ~= found then
+return nil
+end
 family = found
 end
 end
@@ -10848,7 +12605,9 @@ c . minusNil = function ( t )
 if t . tag == "union" and t . hasNil then
 local m = { }
 for _ , x in ipairs ( t . members ) do
-if x ~= T . nil_ then m [ # m + 1 ] = x end
+if x ~= T . nil_ then
+m [ # m + 1 ] = x
+end
 end
 return T . union ( m )
 end
@@ -10860,13 +12619,17 @@ local handlers = { }
 handlers . unop = function ( node )
 local operand = node . operand
 local opTok = node . op
-if not operand or not opTok then return T . any end
+if not operand or not opTok then
+return T . any
+end
 customaryOperator ( c , opTok )
 local t = c . infer ( operand )
 local op = opTok . kind
 if op == "-" then
 local mm = c . metamethodOf ( t , "__unm" )
-if mm then return c . applyContract ( mm , { t } , { operand } , node , "__unm" ) end
+if mm then
+return c . applyContract ( mm , { t } , { operand } , node , "__unm" )
+end
 c . numericOperand ( t , node , op )
 return t == T . any and T . number or t
 elseif op == "~" then
@@ -10874,7 +12637,9 @@ c . numericOperand ( t , node , op )
 return T . integer
 elseif op == "#" then
 local mm = c . metamethodOf ( t , "__len" )
-if mm then return c . applyContract ( mm , { t } , { operand } , node , "__len" ) end
+if mm then
+return c . applyContract ( mm , { t } , { operand } , node , "__len" )
+end
 if not ( t == T . any or isA ( t , T . string ) or isA ( t , T . table_ ) ) then
 c . diag ( "NUPP2003" , node ,
 ( "cannot apply '#' to %s" ) : format ( T . tostring ( t ) ) )
@@ -10888,7 +12653,9 @@ end
 
 handlers . binop = function ( node )
 local opTok , lhs , rhs = node . op , node . lhs , node . rhs
-if not opTok or not lhs or not rhs then return T . any end
+if not opTok or not lhs or not rhs then
+return T . any
+end
 customaryOperator ( c , opTok )
 local op = opTok . kind
 local lt , rt
@@ -10913,7 +12680,9 @@ node , mmName )
 end
 c . numericOperand ( lt , lhs , op )
 c . numericOperand ( rt , rhs , op )
-if op == "/" or op == "^" then return T . number end
+if op == "/" or op == "^" then
+return T . number
+end
 if isA ( lt , T . integer ) and isA ( rt , T . integer )
 and lt ~= T . any and rt ~= T . any then
 return T . integer
@@ -10986,7 +12755,9 @@ parts [ # parts + 1 ] = T . nil_
 end
 return T . union ( parts )
 else
-if lt == T . nil_ then return rt end
+if lt == T . nil_ then
+return rt
+end
 return T . union ( { c . minusNil ( lt ) , rt } )
 end
 end
@@ -11053,10 +12824,14 @@ end
 
 function own . pointerShaped ( t )
 t = rawType ( t )
-if t . tag == "ptr" or t == T . cstring or t == T . voidptr then return true end
+if t . tag == "ptr" or t == T . cstring or t == T . voidptr then
+return true
+end
 if t . tag == "union" and t . hasNil then
 for _ , member in ipairs ( t . members ) do
-if member ~= T . nil_ and not own . pointerShaped ( member ) then return false end
+if member ~= T . nil_ and not own . pointerShaped ( member ) then
+return false
+end
 end
 return true
 end
@@ -11117,7 +12892,9 @@ signature [ # signature + 1 ] = cleanup .. ":"
 .. ( cleanupT and cleanupT . id or "?" )
 end
 local contractKey = table . concat ( signature , "|" )
-if c . validatedCleanupContracts [ contractKey ] then return end
+if c . validatedCleanupContracts [ contractKey ] then
+return
+end
 c . validatedCleanupContracts [ contractKey ] = true
 for j , cleanup in ipairs ( cleanups or { } ) do
 if cleanup : match ( "^@method:" ) or cleanup : match ( "^@field|" )
@@ -11155,11 +12932,17 @@ function own . resolvedOwnedCleanups ( valueT , cleanups , opaque , at )
 local resource = rawType ( valueT )
 if resource . tag == "union" then
 for _ , member in ipairs ( resource . members ) do
-if member ~= T . nil_ then resource = member ; break end
+if member ~= T . nil_ then
+resource = member ; break
 end
 end
-if resource . tag == "nominal" then resource . affineResource = true end
-if # ( cleanups or { } ) > 0 or opaque then return cleanups or { } end
+end
+if resource . tag == "nominal" then
+resource . affineResource = true
+end
+if # ( cleanups or { } ) > 0 or opaque then
+return cleanups or { }
+end
 local base = resource
 local defaults = base . tag == "nominal" and base . defaultDisposers or nil
 if not defaults or # defaults == 0 then
@@ -11185,11 +12968,15 @@ c . diag ( "NUPP2602" , at ,
 return
 end
 local base = rawType ( ft . params [ 1 ] )
-if base . tag ~= "nominal" then return end
+if base . tag ~= "nominal" then
+return
+end
 local defaults = base . defaultDisposers or { }
 base . defaultDisposers = defaults
 for _ , current in ipairs ( defaults ) do
-if current == path then return end
+if current == path then
+return
+end
 end
 defaults [ # defaults + 1 ] = path
 end
@@ -11208,8 +12995,12 @@ function own . provenanceOwner ( expr )
 while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
 expr = expr . expr
 end
-if not expr then return nil end
-if expr . borrowOwner then return own . borrowRoot ( expr . borrowOwner ) end
+if not expr then
+return nil
+end
+if expr . borrowOwner then
+return own . borrowRoot ( expr . borrowOwner )
+end
 if expr . kind == "name" then
 local entry = own . ownershipState ( c . lookupEntry ( expr . token . text ) )
 return own . borrowRoot ( entry and ( entry . borrowOwner or entry ) )
@@ -11219,14 +13010,20 @@ return own . provenanceOwner ( expr . obj )
 elseif expr . kind == "tableExpr" then
 for _ , field in ipairs ( expr . fields or { } ) do
 local owner = own . provenanceOwner ( field . value )
-if owner then return owner end
+if owner then
+return owner
+end
 end
 elseif expr . kind == "call" and expr . recordConstruct then
 local arguments = expr . args and expr . args . exprs or { }
-if expr . args and expr . args . table then arguments = { expr . args . table } end
+if expr . args and expr . args . table then
+arguments = { expr . args . table }
+end
 for _ , argument in ipairs ( arguments ) do
 local owner = own . provenanceOwner ( argument )
-if owner then return owner end
+if owner then
+return owner
+end
 end
 end
 return nil
@@ -11234,7 +13031,9 @@ end
 
 function own . provenanceOwners ( expr , out , seen )
 out , seen = out or { } , seen or { }
-if not expr or cst . isToken ( expr ) then return out end
+if not expr or cst . isToken ( expr ) then
+return out
+end
 if expr . borrowOwners then
 for _ , owner in ipairs ( expr . borrowOwners ) do
 owner = own . borrowRoot ( owner )
@@ -11245,14 +13044,18 @@ end
 return out
 end
 local one = own . provenanceOwner ( expr )
-if one and not seen [ one ] then seen [ one ] , out [ # out + 1 ] = true , one end
+if one and not seen [ one ] then
+seen [ one ] , out [ # out + 1 ] = true , one
+end
 if expr . kind == "tableExpr" then
 for _ , field in ipairs ( expr . fields or { } ) do
 own . provenanceOwners ( field . value , out , seen )
 end
 elseif expr . kind == "call" and expr . recordConstruct then
 local arguments = expr . args and expr . args . exprs or { }
-if expr . args and expr . args . table then arguments = { expr . args . table } end
+if expr . args and expr . args . table then
+arguments = { expr . args . table }
+end
 for _ , argument in ipairs ( arguments ) do
 own . provenanceOwners ( argument , out , seen )
 end
@@ -11411,10 +13214,69 @@ local validateAnnotation = marks . validateAnnotation
 local stringValue = marks . stringValue
 
 local handlers = { }
+local RELAXATIONS = {
+[ "function-identity" ] = true , [ "load-order" ] = true ,
+[ "error-site" ] = true , frames = true , [ "gc-timing" ] = true ,
+[ "table-order" ] = true ,
+}
+
+local function effectContract ( application )
+local listMembers = {
+reads = true , writes = true , shapes = true , metatables = true ,
+escapes = true , calls = true , returns = true ,
+}
+local boolMembers = {
+allocates = true , yields = true , raises = true , external = true ,
+}
+local contract = {
+reads = { } , writes = { } , shapes = { } , metatables = { } ,
+escapes = { } , calls = { } , returns = { } ,
+allocates = false , yields = false , raises = false , external = false ,
+}
+local seen = { }
+for _ , arg in ipairs ( application . annotationArgs or { } ) do
+local name = arg . name and arg . name . text or nil
+if not name or seen [ name ] or not ( listMembers [ name ] or boolMembers [ name ] ) then
+c . diag ( "NUPP2112" , arg ,
+"@effects arguments must be unique named effect members" )
+elseif listMembers [ name ] then
+seen [ name ] = true
+local expr = arg . expr
+if not expr or expr . kind ~= "tableExpr" then
+c . diag ( "NUPP2112" , arg ,
+( "@effects.%s must be an array of strings" ) : format ( name ) )
+else
+for _ , field in ipairs ( expr . fields or { } ) do
+local value = field . kind == "fieldItem"
+and stringValue ( field . value ) or nil
+if not value then
+c . diag ( "NUPP2112" , field ,
+( "@effects.%s entries must be strings" ) : format ( name ) )
+else
+contract [ name ] [ # contract [ name ] + 1 ] = value
+end
+end
+end
+else
+seen [ name ] = true
+local expr = arg . expr
+if not expr or ( expr . kind ~= "trueExpr"
+and expr . kind ~= "falseExpr" ) then
+c . diag ( "NUPP2112" , arg ,
+( "@effects.%s must be true or false" ) : format ( name ) )
+else
+contract [ name ] = expr . kind == "trueExpr"
+end
+end
+end
+return contract
+end
 
 handlers . pragmaStmt = function ( stat )
 local annotationName = stat . name
-if not annotationName then return end
+if not annotationName then
+return
+end
 local written = annotationName . text
 local target = stat . stat
 while target and target . kind == "pragmaStmt" do
@@ -11438,13 +13300,65 @@ end
 local annotation , valid = validateAnnotation ( stat , target )
 
 if not annotation then
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 return
 end
 if written == "annotation" then
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 if valid and target and targetKind == "recordDecl" then
 defineAnnotation ( stat , target )
+end
+return
+end
+
+if written == "effects" then
+if valid and target then
+local contract = effectContract ( stat )
+target . effectContract = contract
+if targetBody then
+targetBody . effectContract = contract
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
+if valid and target and target . kind == "localStmt"
+and target . effectContract then
+for _ , name in ipairs ( target . names or { } ) do
+if name . definition then
+name . definition . effectContract = target . effectContract
+end
+end
+end
+return
+end
+
+if written == "relax" then
+local relaxed = { }
+for _ , arg in ipairs ( stat . annotationArgs or { } ) do
+local expr = arg . expr
+local value = expr and expr . kind == "name" and expr . token . text
+or stringValue ( expr )
+if not value or not RELAXATIONS [ value ] then
+c . diag ( "NUPP2112" , arg ,
+"@relax names function-identity, load-order, error-site, "
+.. "frames, gc-timing, or table-order" )
+else
+relaxed [ value ] = true
+end
+end
+if valid and target then
+target . relaxedGuarantees = relaxed
+if targetBody then
+targetBody . relaxedGuarantees = relaxed
+end
+end
+if stat . stat then
+c . checkStat ( stat . stat )
 end
 return
 end
@@ -11532,7 +13446,9 @@ targetBody . ownCleanups = cleanups
 targetBody . ownOpaque = opaque
 targetBody . ownTok = annotationName
 end
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 return
 end
 
@@ -11573,7 +13489,9 @@ name = outName , source = sourceName ,
 success = success , at = stat . name ,
 }
 end
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 return
 end
 
@@ -11596,12 +13514,16 @@ elseif valid and target and targetKind == "cdefFunc" then
 target . disposeContract = true
 target . disposeTok = stat . name
 end
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 return
 end
 
 if written ~= "allow" then
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 return
 end
 
@@ -11632,11 +13554,15 @@ c . diag ( "NUPP2108" , arg ,
 ( "%s is not a lint, so it cannot be allowed" )
 : format ( name ) )
 end
-if name then set [ name ] = true end
+if name then
+set [ name ] = true
+end
 end
 end
 c . allowed [ # c . allowed + 1 ] = set
-if stat . stat then c . checkStat ( stat . stat ) end
+if stat . stat then
+c . checkStat ( stat . stat )
+end
 c . allowed [ # c . allowed ] = nil
 end
 
@@ -11691,7 +13617,9 @@ local pointerShaped = c . pointerShaped
 
 
 local function exportingModuleFixes ( name , base )
-if not c . env or not c . env . modulesExporting or not base then return { } end
+if not c . env or not c . env . modulesExporting or not base then
+return { }
+end
 local fixes = { }
 for _ , moduleName in ipairs ( c . env . modulesExporting ( c . env , name ) or { } ) do
 if moduleName ~= c . result . moduleName then
@@ -11746,12 +13674,18 @@ end
 
 
 c . resolveType = function ( node )
-if not node then return T . any end
+if not node then
+return T . any
+end
 local kind = node . kind
 if kind == "tname" then
 local base = node . base
-if not base then return T . any end
-if base . kind == "nil" then return T . nil_ end
+if not base then
+return T . any
+end
+if base . kind == "nil" then
+return T . nil_
+end
 if # node > 1 and node [ 2 ] and node [ 2 ] . kind == "." then
 local names , lastTok = { } , nil
 for _ , child in ipairs ( node ) do
@@ -11789,7 +13723,9 @@ end
 local lexical , walkFrom = nil , 2
 if # names >= 2 then
 lexical = c . lookupType ( names [ 1 ] .. "." .. names [ 2 ] )
-if lexical then walkFrom = 3 end
+if lexical then
+walkFrom = 3
+end
 end
 if not lexical then
 lexical = names [ 1 ] and c . lookupType ( names [ 1 ] ) or nil
@@ -11798,7 +13734,9 @@ if lexical then
 for j = walkFrom , # names do
 lexical = lexical . tag == "nominal" and lexical . nestedTypes
 and lexical . nestedTypes [ names [ j ] ] or nil
-if not lexical then break end
+if not lexical then
+break
+end
 end
 lexical = lexical and lexical . tag == "nominal"
 and lexical . nestedTypes and lexical . nestedTypes [ typeName ] or nil
@@ -11859,8 +13797,12 @@ if name == "pinned" and not pointerShaped ( inner ) then
 c . diag ( "NUPP2602" , node ,
 "pinned<T> requires a pointer-shaped T" )
 end
-if name == "owned" then return T . owned ( inner ) end
-if name == "borrowed" then return T . borrowed ( inner ) end
+if name == "owned" then
+return T . owned ( inner )
+end
+if name == "borrowed" then
+return T . borrowed ( inner )
+end
 return T . pinned ( inner )
 end
 
@@ -11881,7 +13823,9 @@ node . reified = ( "require(%q).%s" ) : format ( moduleName , name )
 else
 node . reified = name
 end
-if t . cdefName then node . cdefName = t . cdefName end
+if t . cdefName then
+node . cdefName = t . cdefName
+end
 elseif t . tag == "nominal" and t . declKind == "record" then
 
 
@@ -11905,7 +13849,9 @@ if not seen [ key ] then
 seen [ key ] = true
 local item = c . related ( definition ,
 "conflicting global type declared here" )
-if item then related [ # related + 1 ] = item end
+if item then
+related [ # related + 1 ] = item
+end
 end
 end
 c . diag ( "NUPP2102" , node ,
@@ -11926,17 +13872,25 @@ or "declare the type, qualify its module, or correct the spelling" } )
 return T . any
 elseif kind == "tliteral" then
 local literal = node . token
-if not literal then return T . any end
+if not literal then
+return T . any
+end
 local text = literal . text
-if text == "true" then return T . literal ( true , T . boolean ) end
-if text == "false" then return T . literal ( false , T . boolean ) end
+if text == "true" then
+return T . literal ( true , T . boolean )
+end
+if text == "false" then
+return T . literal ( false , T . boolean )
+end
 return T . literal ( text : sub ( 2 , - 2 ) , T . string )
 elseif kind == "tconst" then
 return T . constOf ( c . resolveType ( node . inner ) )
 elseif kind == "tcarray" then
 local elem = c . resolveType ( node . element )
 local count = node . count
-if not count then return T . carray ( elem , nil ) end
+if not count then
+return T . carray ( elem , nil )
+end
 
 
 local written = tonumber ( count . text )
@@ -11998,19 +13952,25 @@ if entry . read then
 c . diag ( "NUPP2118" , fieldName ,
 ( "duplicate readonly capability for property %q" )
 : format ( name ) )
-else entry . read = ft end
+else
+entry . read = ft
+end
 elseif capability == "write" then
 if entry . write then
 c . diag ( "NUPP2118" , fieldName ,
 ( "duplicate writeonly capability for property %q" )
 : format ( name ) )
-else entry . write = ft end
+else
+entry . write = ft
+end
 else
 if entry . read or entry . write then
 c . diag ( "NUPP2118" , fieldName ,
 ( "ordinary property %q already has a capability" )
 : format ( name ) )
-else entry . read , entry . write = ft , ft end
+else
+entry . read , entry . write = ft , ft
+end
 end
 end
 elseif f . kind == "tmap" then
@@ -12029,8 +13989,10 @@ else
 indexer [ keyName ] , indexer [ valueName ] = key , value
 end
 end
-if capability == "read" then setIndexer ( "read" )
-elseif capability == "write" then setIndexer ( "write" )
+if capability == "read" then
+setIndexer ( "read" )
+elseif capability == "write" then
+setIndexer ( "write" )
 else
 setIndexer ( "read" )
 setIndexer ( "write" )
@@ -12057,7 +14019,9 @@ if p . kind == "tfuncParam" then
 local first = p [ 1 ]
 if first and cst . isToken ( first ) and first . kind == "..." then
 vararg = true
-if p . type then varargType = c . resolveType ( p . type ) end
+if p . type then
+varargType = c . resolveType ( p . type )
+end
 else
 params [ # params + 1 ] = p . type and c . resolveType ( p . type )
 or T . any
@@ -12067,7 +14031,9 @@ end
 end
 end
 for j , r in ipairs ( node . rets or { } ) do rets [ j ] = c . resolveType ( r ) end
-if node . generics then c . popScope ( ) end
+if node . generics then
+c . popScope ( )
+end
 return T . func ( params , rets , vararg , paramModes , nil ,
 typeParams , typeBounds , nil , nil , nil , nil , varargType )
 elseif kind == "tparen" then
@@ -12147,9 +14113,13 @@ local undocumentedraise = { }
 
 
 local function raisesAt ( node )
-if not node or cst . isToken ( node ) then return nil end
+if not node or cst . isToken ( node ) then
+return nil
+end
 local kind = node . kind
-if kind == "funcbody" or kind == "shortfn" then return nil end
+if kind == "funcbody" or kind == "shortfn" then
+return nil
+end
 if kind == "call" then
 local callee = node . obj
 if callee and callee . kind == "name" and callee . token
@@ -12159,7 +14129,9 @@ end
 end
 for _ , child in ipairs ( node ) do
 local at = raisesAt ( child )
-if at then return at end
+if at then
+return at
+end
 end
 return nil
 end
@@ -12178,11 +14150,17 @@ local ops = { }
 
 
 function ops . check ( stat , body )
-if not stat or not body then return end
+if not stat or not body then
+return
+end
 local raiseTok = raisesAt ( body . body )
-if not raiseTok then return end
+if not raiseTok then
+return
+end
 local info , documented = docblock . of ( stat )
-if not documented or # info . raises > 0 then return end
+if not documented or # info . raises > 0 then
+return
+end
 local label = stat . name and ( cst . textOf ( stat . name ) : gsub ( "%s+" , "" ) )
 or "this function"
 
@@ -12389,7 +14367,6 @@ io . write ( command . spec : help ( ) )
 return 0
 end
 if parsed . values . schema then
-
 
 
 require ( "nupp.cli.report" ) . write ( command . spec . schema )
@@ -12634,6 +14611,7 @@ local produced = { }
 local code = project . build ( "." , { outDir = projectOutDir , target = target ,
 strict = settings . strict , optLevel = settings . optLevel ,
 remarks = settings . remarks , disabled = settings . disabled ,
+relaxed = settings . relaxed ,
 diagnostics = asJson and diagnostics or nil ,
 produced = asJson and produced or nil } )
 return finish ( code , produced . target , produced . outputs or { } )
@@ -12914,6 +14892,9 @@ compile.Settings = {} compile.Settings.__index = compile.Settings
 
 
 
+
+
+
 local LEVELS = { [ "0" ] = 0 , [ "1" ] = 1 , [ "2" ] = 2 }
 
 
@@ -12925,6 +14906,7 @@ strict = values . strict ,
 optLevel = LEVELS [ values . optLevel ] or 0 ,
 remarks = values . remarks and true or false ,
 disabled = values . disabled or { } ,
+relaxed = values . relaxed or { } ,
 diagnostics = collected ,
 } , compile.Settings)
 end
@@ -12937,11 +14919,15 @@ local collected = settings . diagnostics
 
 
 local function say ( values )
-if not collected then return diagnosticMod . report ( values ) end
+if not collected then
+return diagnosticMod . report ( values )
+end
 local fatal = false
 for _ , diagnostic in ipairs ( values ) do
 collected [ # collected + 1 ] = diagnostic
-if diagnosticMod . isFatal ( diagnostic ) then fatal = true end
+if diagnosticMod . isFatal ( diagnostic ) then
+fatal = true
+end
 end
 return fatal
 end
@@ -12968,7 +14954,7 @@ if say ( diags ) then
 return nil , "type errors"
 end
 local remarks = require ( "nupp.optimize" ) . run ( result , { level = settings . optLevel ,
-filename = path , disabled = settings . disabled } )
+filename = path , disabled = settings . disabled , relaxed = settings . relaxed } )
 if settings . remarks then
 say ( remarks )
 end
@@ -13044,7 +15030,6 @@ local settings = doc . manifestSettings ( config )
 
 
 
-
 local deps = require ( "nupp.build.deps" )
 local installed , depErr = deps . build ( "." ,
 settings . outDir or "build" , config , { } , settings )
@@ -13072,7 +15057,9 @@ settings . all = true
 end
 local asJson = values . format == "json"
 local written = { }
-if asJson then opts . written = written end
+if asJson then
+opts . written = written
+end
 local code , output , resolved = doc . build ( "." , config , settings , opts )
 if asJson then
 require ( "nupp.cli.report" ) . write ( { ok = code == 0 , files = written ,
@@ -13188,6 +15175,7 @@ for line in ( source : gsub ( "\n$" , "" ) .. "\n" ) : gmatch ( "([^\n]*)\n" ) d
 out [ # out + 1 ] = line == "" and "" or ( "    " .. line )
 end
 end
+
 local wrong , right = entry . wrong , entry . right
 if wrong then
 quote ( ansi . forSeverity ( style , "error" ) ( "Reports it:" ) , wrong )
@@ -13585,7 +15573,9 @@ end
 end
 return 1
 end
-if not text then return fail ( ) end
+if not text then
+return fail ( )
+end
 if not asJson then
 for _ , warning in ipairs ( warnings ) do
 io . stderr : write ( "nupp: warning: " .. warning .. "\n" )
@@ -13778,7 +15768,9 @@ end
 
 local function readFile ( path )
 local file , err = io . open ( path , "rb" )
-if not file then return nil , err end
+if not file then
+return nil , err
+end
 local source = file : read ( "*a" )
 file : close ( )
 return source
@@ -13786,11 +15778,17 @@ end
 
 local function writeFile ( path , source )
 local file , err = io . open ( path , "wb" )
-if not file then return nil , err end
+if not file then
+return nil , err
+end
 local ok , writeErr = file : write ( source )
 local closeOk , closeErr = file : close ( )
-if not ok then return nil , writeErr end
-if not closeOk then return nil , closeErr end
+if not ok then
+return nil , writeErr
+end
+if not closeOk then
+return nil , closeErr
+end
 return true
 end
 
@@ -13834,7 +15832,9 @@ end
 
 local function utf8Char ( source , offset )
 local first = source : byte ( offset )
-if not first or first < 0x80 then return 1 , 1 end
+if not first or first < 0x80 then
+return 1 , 1
+end
 local bytes = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
 return bytes , bytes == 4 and 2 or 1
 end
@@ -13843,7 +15843,9 @@ local function lineStart ( source , wanted )
 local line , offset = 1 , 1
 while line < wanted do
 local newline = source : find ( "\n" , offset , true )
-if not newline then return nil end
+if not newline then
+return nil
+end
 offset , line = newline + 1 , line + 1
 end
 return offset
@@ -13852,7 +15854,9 @@ end
 
 local function toLspPosition ( source , line , column )
 local start = lineStart ( source , line )
-if not start then return nil , "line is past the end of the file" end
+if not start then
+return nil , "line is past the end of the file"
+end
 local finish = source : find ( "\n" , start , true ) or ( # source + 1 )
 local target = start + column - 1
 if target < start or target > finish then
@@ -14078,7 +16082,9 @@ params = params } )
 for index = # emitted , 1 , - 1 do
 local message = emitted [ index ]
 if message . id == id then
-if message . error then return nil , message . error . message end
+if message . error then
+return nil , message . error . message
+end
 return message . result
 end
 end
@@ -14090,14 +16096,20 @@ session . dispatch ( { jsonrpc = "2.0" , method = method , params = params } )
 end
 
 local _ , initErr = request ( "initialize" , { } )
-if initErr then return nil , initErr end
+if initErr then
+return nil , initErr
+end
 notify ( "initialized" , { } )
 
 local function source ( path )
 path = normalizePath ( path )
-if sources [ path ] then return sources [ path ] end
+if sources [ path ] then
+return sources [ path ]
+end
 local text , err = readFile ( path )
-if not text then return nil , err end
+if not text then
+return nil , err
+end
 sources [ path ] = text
 return text
 end
@@ -14105,7 +16117,9 @@ end
 local function open ( path )
 path = normalizePath ( path )
 local text , err = source ( path )
-if not text then return nil , err end
+if not text then
+return nil , err
+end
 notify ( "textDocument/didOpen" , { textDocument = {
 uri = pathToUri ( path ) , languageId = "nupp" , version = 1 , text = text ,
 } } )
@@ -14125,7 +16139,9 @@ start = fromLspPosition ( source , range . start ) ,
 end
 
 local function locationValue ( client , location )
-if not location or location == json . null then return nil end
+if not location or location == json . null then
+return nil
+end
 local path = uriToPath ( location . uri )
 return { file = displayPath ( client . root , path ) ,
 range = rangeValue ( client , path , location . range ) }
@@ -14136,7 +16152,9 @@ return { textDocument = { uri = pathToUri ( path ) } , position = position }
 end
 
 local function locationText ( location )
-if not location then return "" end
+if not location then
+return ""
+end
 local start = location . range . start
 return ( "%s:%d:%d" ) : format ( location . file , start . line , start . column )
 end
@@ -14175,7 +16193,9 @@ end
 end
 end
 table . sort ( edits , function ( left , right )
-if left . file ~= right . file then return left . file < right . file end
+if left . file ~= right . file then
+return left . file < right . file
+end
 return left . range . start . offset < right . range . start . offset
 end )
 return edits
@@ -14198,7 +16218,9 @@ end
 
 local function parseOptions ( operation , args )
 local parsed , err = OPERATION_SPECS [ operation ] : parse ( args )
-if not parsed then return nil , err end
+if not parsed then
+return nil , err
+end
 local opts = parsed . values
 opts . root = opts . root or "."
 opts . format = opts . format or "text"
@@ -14212,23 +16234,37 @@ return nil , nil , nil , "expected FILE LINE COLUMN"
 end
 local path = resolvePath ( opts . root , opts . positional [ 1 ] )
 local source , readErr = client . open ( path )
-if not source then return nil , nil , nil , readErr end
+if not source then
+return nil , nil , nil , readErr
+end
 local line , lineErr = parsePositive ( opts . positional [ 2 ] , "line" )
-if not line then return nil , nil , nil , lineErr end
+if not line then
+return nil , nil , nil , lineErr
+end
 local column , columnErr = parsePositive ( opts . positional [ 3 ] , "column" )
-if not column then return nil , nil , nil , columnErr end
+if not column then
+return nil , nil , nil , columnErr
+end
 local position , positionErr = toLspPosition ( source , line , column )
-if not position then return nil , nil , nil , positionErr end
+if not position then
+return nil , nil , nil , positionErr
+end
 return path , source , position
 end
 
 local function runInspect ( client , opts )
 local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
+if not path then
+return nil , err
+end
 local result , requestErr = client . request ( "$/nupp/inspect" ,
 positionParams ( path , position ) )
-if requestErr then return nil , requestErr end
-if result == json . null then result = nil end
+if requestErr then
+return nil , requestErr
+end
+if result == json . null then
+result = nil
+end
 local value = result and {
 name = result . name ,
 kind = result . kind ,
@@ -14238,12 +16274,19 @@ documentation = result . documentation ,
 definition = locationValue ( client , result . definition ) ,
 range = result . range and rangeValue ( client , path , result . range ) or nil ,
 } or nil
-if opts . format == "json" then jsonOutput ( { symbol = value or json . null } )
+if opts . format == "json" then
+jsonOutput ( { symbol = value or json . null } )
 elseif value then
 io . write ( value . name .. " (" .. value . kind .. ")\n" )
-if value . type then io . write ( value . type .. "\n" ) end
-if value . detail then io . write ( value . detail .. "\n" ) end
-if value . documentation then io . write ( "\n" .. value . documentation .. "\n" ) end
+if value . type then
+io . write ( value . type .. "\n" )
+end
+if value . detail then
+io . write ( value . detail .. "\n" )
+end
+if value . documentation then
+io . write ( "\n" .. value . documentation .. "\n" )
+end
 if value . definition then
 io . write ( "Defined at " .. locationText ( value . definition ) .. "\n" )
 end
@@ -14253,26 +16296,39 @@ end
 
 local function runDefinition ( client , opts )
 local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
+if not path then
+return nil , err
+end
 local result , requestErr = client . request ( "textDocument/definition" ,
 positionParams ( path , position ) )
-if requestErr then return nil , requestErr end
+if requestErr then
+return nil , requestErr
+end
 local value = locationValue ( client , result )
-if opts . format == "json" then jsonOutput ( { definition = value or json . null } )
-elseif value then io . write ( locationText ( value ) .. "\n" ) end
+if opts . format == "json" then
+jsonOutput ( { definition = value or json . null } )
+elseif value then
+io . write ( locationText ( value ) .. "\n" )
+end
 return true
 end
 
 local function runReferences ( client , opts )
 local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
+if not path then
+return nil , err
+end
 local params = positionParams ( path , position )
 params . context = { includeDeclaration = opts . includeDeclaration or false }
 local result , requestErr = client . request ( "textDocument/references" , params )
-if requestErr then return nil , requestErr end
+if requestErr then
+return nil , requestErr
+end
 local values = jsonArray ( { } )
 local seen = { }
-if type ( result ) ~= "table" then result = { } end
+if type ( result ) ~= "table" then
+result = { }
+end
 for _ , location in ipairs ( result ) do
 local value = locationValue ( client , location )
 local start , finish = value . range . start , value . range [ "end" ]
@@ -14314,18 +16370,26 @@ for _ , child in ipairs ( symbol . children or { } ) do printSymbol ( child , in
 end
 
 local function runSymbols ( client , opts )
-if # opts . positional > 1 then return nil , "symbols accepts at most one pattern" end
+if # opts . positional > 1 then
+return nil , "symbols accepts at most one pattern"
+end
 local values = jsonArray ( { } )
 local seen = { }
 if opts . file then
 local path = resolvePath ( opts . root , opts . file )
 local _ , openErr = client . open ( path )
-if openErr then return nil , openErr end
+if openErr then
+return nil , openErr
+end
 local result , requestErr = client . request ( "textDocument/documentSymbol" ,
 { textDocument = { uri = pathToUri ( path ) } } )
-if requestErr then return nil , requestErr end
+if requestErr then
+return nil , requestErr
+end
 local pattern = opts . positional [ 1 ] and opts . positional [ 1 ] : lower ( )
-if type ( result ) ~= "table" then result = { } end
+if type ( result ) ~= "table" then
+result = { }
+end
 for _ , symbol in ipairs ( result ) do
 if not pattern or symbol . name : lower ( ) : find ( pattern , 1 , true ) then
 local value = documentSymbolValue ( client , path , symbol )
@@ -14339,8 +16403,12 @@ end
 else
 local result , requestErr = client . request ( "workspace/symbol" ,
 { query = opts . positional [ 1 ] or "" } )
-if requestErr then return nil , requestErr end
-if type ( result ) ~= "table" then result = { } end
+if requestErr then
+return nil , requestErr
+end
+if type ( result ) ~= "table" then
+result = { }
+end
 for _ , symbol in ipairs ( result ) do
 local value = {
 name = symbol . name ,
@@ -14356,8 +16424,11 @@ values [ # values + 1 ] = value
 end
 end
 end
-if opts . format == "json" then jsonOutput ( { symbols = values } )
-else for _ , symbol in ipairs ( values ) do printSymbol ( symbol , 0 ) end end
+if opts . format == "json" then
+jsonOutput ( { symbols = values } )
+else
+for _ , symbol in ipairs ( values ) do printSymbol ( symbol , 0 ) end
+end
 return true
 end
 
@@ -14384,7 +16455,9 @@ end
 end
 for path , rawEdits in pairs ( grouped ) do
 local source , readErr = client . source ( path )
-if not source then return nil , nil , readErr end
+if not source then
+return nil , nil , readErr
+end
 local edits = { }
 for _ , edit in ipairs ( rawEdits ) do
 local from = fromLspPosition ( source , edit . range . start ) . offset
@@ -14397,7 +16470,9 @@ table . sort ( edits , latestFirst )
 local last = # source + 1
 local text = source
 for _ , edit in ipairs ( edits ) do
-if edit . to > last then return nil , nil , "rename edits overlap" end
+if edit . to > last then
+return nil , nil , "rename edits overlap"
+end
 text = text : sub ( 1 , edit . from - 1 ) .. edit . newText .. text : sub ( edit . to )
 last = edit . from
 end
@@ -14410,7 +16485,9 @@ end
 local function identifierAt ( source , line , column )
 local start = lineStart ( source , line )
 local offset = start and start + column - 1
-if not offset then return nil end
+if not offset then
+return nil
+end
 local left , right = offset , offset
 while left > 1 and source : sub ( left - 1 , left - 1 ) : match ( "[A-Za-z0-9_]" ) do
 left = left - 1
@@ -14423,27 +16500,37 @@ return name ~= "" and name or nil
 end
 
 local function runRename ( client , opts )
-if # opts . positional ~= 4 then return nil , "expected FILE LINE COLUMN NEW_NAME" end
+if # opts . positional ~= 4 then
+return nil , "expected FILE LINE COLUMN NEW_NAME"
+end
 local newName = opts . positional [ 4 ]
 local targetOpts = { positional = { opts . positional [ 1 ] , opts . positional [ 2 ] ,
 opts . positional [ 3 ] } , root = opts . root }
 local path , source , position , err = target ( client , targetOpts , 3 )
-if not path then return nil , err end
+if not path then
+return nil , err
+end
 local params = positionParams ( path , position )
 params . newName = newName
 local result , requestErr = client . request ( "textDocument/rename" , params )
-if requestErr then return nil , requestErr end
+if requestErr then
+return nil , requestErr
+end
 local changes = result and result . changes or { }
 local edits = editValues ( client , changes )
 local rewritten , previews , rewriteErr = rewrittenFiles ( client , changes )
-if not rewritten then return nil , rewriteErr end
+if not rewritten then
+return nil , rewriteErr
+end
 local changedFiles = { }
 for changedPath in pairs ( rewritten ) do changedFiles [ # changedFiles + 1 ] = changedPath end
 table . sort ( changedFiles )
 if opts . write then
 for _ , changedPath in ipairs ( changedFiles ) do
 local ok , writeErr = writeFile ( changedPath , rewritten [ changedPath ] )
-if not ok then return nil , writeErr end
+if not ok then
+return nil , writeErr
+end
 end
 end
 local oldName = identifierAt ( source , tonumber ( opts . positional [ 2 ] ) ,
@@ -14476,7 +16563,9 @@ end
 
 local function runActions ( client , opts )
 local path , _ , position , err = target ( client , opts , 3 )
-if not path then return nil , err end
+if not path then
+return nil , err
+end
 local params = positionParams ( path , position )
 params . range = { start = position , [ "end" ] = position }
 local context = { diagnostics = jsonArray ( { } ) }
@@ -14486,9 +16575,13 @@ and "refactor.rewrite" or opts . only } )
 end
 params . context = context
 local result , requestErr = client . request ( "textDocument/codeAction" , params )
-if requestErr then return nil , requestErr end
+if requestErr then
+return nil , requestErr
+end
 local actions = jsonArray ( { } )
-if type ( result ) ~= "table" then result = { } end
+if type ( result ) ~= "table" then
+result = { }
+end
 for _ , action in ipairs ( result ) do
 local diagnostic = action . diagnostics and action . diagnostics [ 1 ]
 actions [ # actions + 1 ] = {
@@ -14500,7 +16593,8 @@ code = diagnostic . code , message = diagnostic . message ,
 edits = editValues ( client , action . edit and action . edit . changes or { } ) ,
 }
 end
-if opts . format == "json" then jsonOutput ( { actions = actions } )
+if opts . format == "json" then
+jsonOutput ( { actions = actions } )
 else
 for _ , action in ipairs ( actions ) do
 io . write ( action . kind .. ": " .. action . title .. "\n" )
@@ -14519,10 +16613,14 @@ actions = runActions ,
 }
 
 local function dispatch ( args )
-if # args == 0 then return lsp . run ( "." ) end
+if # args == 0 then
+return lsp . run ( "." )
+end
 local operation = args [ 1 ]
 if operation == "serve" or operation == "server" then
-if # args > 2 then return usageError ( "lsp serve accepts at most one root" ) end
+if # args > 2 then
+return usageError ( "lsp serve accepts at most one root" )
+end
 if args [ 2 ] and args [ 2 ] : sub ( 1 , 1 ) == "-" then
 return usageError ( "unknown option " .. args [ 2 ] )
 end
@@ -14531,7 +16629,9 @@ end
 local run = OPERATIONS [ operation ]
 if not run then
 
-if # args == 1 and operation : sub ( 1 , 1 ) ~= "-" then return lsp . run ( operation ) end
+if # args == 1 and operation : sub ( 1 , 1 ) ~= "-" then
+return lsp . run ( operation )
+end
 return usageError ( "unknown lsp operation " .. operation )
 end
 local rest = { }
@@ -14539,7 +16639,9 @@ for index = 2 , # args do rest [ # rest + 1 ] = args [ index ] end
 
 local grammar = assert ( OPERATION_SPECS [ operation ] )
 local opts , optionErr = parseOptions ( operation , rest )
-if not opts then return grammar : usageError ( optionErr ) end
+if not opts then
+return grammar : usageError ( optionErr )
+end
 if opts . help then
 io . write ( grammar : help ( ) )
 return 0
@@ -14549,11 +16651,17 @@ reportMod . write ( grammar . schema )
 return 0
 end
 local ansi = require ( "nupp.ansi" )
-if type ( opts . color ) == "string" then ansi . setMode ( opts . color ) end
+if type ( opts . color ) == "string" then
+ansi . setMode ( opts . color )
+end
 local client , clientErr = newClient ( opts . root )
-if not client then io . stderr : write ( "nupp: " .. clientErr .. "\n" ) ; return 1 end
+if not client then
+io . stderr : write ( "nupp: " .. clientErr .. "\n" ) ; return 1
+end
 local ok , runErr = run ( client , opts )
-if not ok then io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" ) ; return 1 end
+if not ok then
+io . stderr : write ( "nupp: " .. tostring ( runErr ) .. "\n" ) ; return 1
+end
 return 0
 end
 
@@ -14613,6 +16721,11 @@ invalid = "the optimization level is -O0, -O1 or -O2" ,
 help = "Optimization level (default -O0, which rewrites nothing)" } ,
 { name = "--remarks" ,
 help = "Report what the optimizer did and what it declined to do" } ,
+{ name = "--relax" , value = "GUARANTEE" , form = "attached" ,
+key = "relaxed" , repeats = true , set = true ,
+choices = { "function-identity" , "load-order" , "error-site" , "frames" ,
+"gc-timing" , "table-order" } , display = "--relax=GUARANTEE" ,
+help = "Allow optimizations to change one named observable guarantee" } ,
 { name = "-Zno-opt" , value = "CODE" , form = "attached" , key = "disabled" ,
 repeats = true , set = true , display = "-Zno-opt=CODE" ,
 help = "Turn off one pass, named by its stable code, to bisect a "
@@ -14880,7 +16993,6 @@ lint = e . lint ,
 
 
 
-
 docs = explain . anchor ( e . code ) ,
 message = e . msg ,
 range = rangeAt ( source , e . offset , e . length ) ,
@@ -14928,6 +17040,7 @@ required = { "start" , "end" } ,
 
 
 report . POSITION = POSITION
+
 report . RANGE = RANGE
 
 
@@ -15431,7 +17544,9 @@ local byName = { }
 local patterned = { }
 local declared = { }
 for _ , entry in ipairs ( raw . options or { } ) do declared [ # declared + 1 ] = entry end
-if raw . schema then declared [ # declared + 1 ] = SCHEMA_OPTION end
+if raw . schema then
+declared [ # declared + 1 ] = SCHEMA_OPTION
+end
 if raw . universal ~= false then
 for _ , entry in ipairs ( UNIVERSAL ) do declared [ # declared + 1 ] = entry end
 end
@@ -16117,6 +18232,32 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -16478,6 +18619,12 @@ cst.CompoundAssign = {} cst.CompoundAssign.__index = cst.CompoundAssign
 
 
 cst.AssignStmt = {} cst.AssignStmt.__index = cst.AssignStmt
+
+
+
+
+
+
 
 
 
@@ -17093,6 +19240,9 @@ cst.FieldNamed = {} cst.FieldNamed.__index = cst.FieldNamed
 
 
 
+
+
+
 cst.FieldItem = {} cst.FieldItem.__index = cst.FieldItem
 
 
@@ -17586,12 +19736,16 @@ end
 end
 end
 end
-if not returned then return nil end
+if not returned then
+return nil
+end
 
 
 if returned . kind == "call" then
 local callee = returned . obj
-if not callee or callee . kind ~= "name" then return nil end
+if not callee or callee . kind ~= "name" then
+return nil
+end
 local calleeName = callee . token
 if not calleeName or calleeName . text ~= "setmetatable" then
 return nil
@@ -17600,11 +19754,17 @@ local argsNode = returned . args
 local args = argsNode and argsNode . kind == "args"
 and argsNode . exprs or { }
 returned = args [ 1 ]
-if not returned then return nil end
+if not returned then
+return nil
 end
-if returned . kind ~= "name" then return nil end
+end
+if returned . kind ~= "name" then
+return nil
+end
 local token = returned . token
-if not token then return nil end
+if not token then
+return nil
+end
 return token . text
 end
 
@@ -17707,7 +19867,6 @@ local ansi = require ( "nupp.ansi" )
 
 local diagnostics = { }
 
-
 local REPORTED = { note = "note" , warning = "warning" }
 
 
@@ -17719,18 +19878,24 @@ end
 
 local function readFile ( path )
 local file = io . open ( path , "rb" )
-if not file then return nil end
+if not file then
+return nil
+end
 local source = file : read ( "*a" )
 file : close ( )
 return source
 end
 
 local function lineText ( source , wanted )
-if not source or not wanted or wanted < 1 then return nil end
+if not source or not wanted or wanted < 1 then
+return nil
+end
 local line , start = 1 , 1
 while line < wanted do
 local newline = source : find ( "\n" , start , true )
-if not newline then return nil end
+if not newline then
+return nil
+end
 start , line = newline + 1 , line + 1
 end
 local finish = source : find ( "\n" , start , true ) or ( # source + 1 )
@@ -17742,7 +19907,9 @@ end
 
 local function writeSourceMark ( out , style , paint , source , diagnostic )
 local shown = lineText ( source , diagnostic . line )
-if not shown then return end
+if not shown then
+return
+end
 local number = tostring ( diagnostic . line )
 local col = math . max ( 1 , diagnostic . col or 1 )
 
@@ -17759,19 +19926,27 @@ end
 
 
 function diagnostics . report ( values )
-if # values == 0 then return false end
+if # values == 0 then
+return false
+end
 local style = ansi . style ( io . stderr )
 local failed = false
 local sources = { }
 local out = { }
 local function sourceFor ( path )
-if not path then return nil end
-if sources [ path ] == nil then sources [ path ] = readFile ( path ) or false end
+if not path then
+return nil
+end
+if sources [ path ] == nil then
+sources [ path ] = readFile ( path ) or false
+end
 return sources [ path ] or nil
 end
 for _ , diagnostic in ipairs ( values ) do
 local severity = REPORTED [ diagnostic . severity ] or "error"
-if severity == "error" then failed = true end
+if severity == "error" then
+failed = true
+end
 local paint = ansi . forSeverity ( style , severity )
 local code = diagnostic . code or ""
 if diagnostic . lint then
@@ -17780,7 +19955,9 @@ if diagnostic . lint then
 code = code ~= "" and ( code .. " " .. diagnostic . lint )
 or diagnostic . lint
 end
-if code ~= "" then code = style . faint ( code .. ":" ) .. " " end
+if code ~= "" then
+code = style . faint ( code .. ":" ) .. " "
+end
 out [ # out + 1 ] = style . path ( ( "%s:%d:%d:" ) : format (
 diagnostic . filename or "?" , diagnostic . line or 0 ,
 diagnostic . col or 0 ) ) .. " " .. paint ( severity ) .. ": " .. code
@@ -17864,6 +20041,7 @@ end
 function doc . markdown ( modules , title )
 return markdownMod . render ( modules , title )
 end
+
 local function sourceFiles ( root , config , settings , requested )
 local paths , seen = { } , { }
 local sources = requested and # requested > 0 and requested
@@ -17896,7 +20074,8 @@ local name = moduleName ( path , root , config . include or { } )
 local module , parseErrors = doc . extract ( source , path , name ,
 { includeAll = settings . all ,
 includePrivate = settings . includePrivate } )
-if module then modules [ # modules + 1 ] = module
+if module then
+modules [ # modules + 1 ] = module
 else
 for _ , err in ipairs ( parseErrors ) do errors [ # errors + 1 ] = err end
 end
@@ -17916,7 +20095,9 @@ for line in ( markdown .. "\n" ) : gmatch ( "(.-)\n" ) do
 local path = line : match ( "^<<<%s+@(%S+)%s*$" )
 if path then
 local contents , err = readFile ( join ( root , path ) )
-if not contents then return nil , err end
+if not contents then
+return nil , err
+end
 out [ # out + 1 ] = "```" .. ( path : match ( "%.([%w_]+)$" ) or "text" )
 out [ # out + 1 ] = ( contents : gsub ( "\n$" , "" ) )
 out [ # out + 1 ] = "```"
@@ -17934,8 +20115,12 @@ if type ( configured ) ~= "table" then
 return nil , "documentation page " .. index .. " must be a table"
 end
 local route = cleanRoute ( configured . path )
-if not route then return nil , "invalid documentation page path" end
-if seen [ route ] then return nil , "duplicate documentation page path: " .. route end
+if not route then
+return nil , "invalid documentation page path"
+end
+if seen [ route ] then
+return nil , "duplicate documentation page path: " .. route
+end
 seen [ route ] , home = true , home or route == ""
 local candidate = { }
 for key , value in pairs ( configured ) do candidate [ key ] = value end
@@ -17949,13 +20134,19 @@ candidate . title = candidate . title or ( route == "" and title or route )
 candidate . markdown = ""
 if candidate . source then
 local source , err = readFile ( join ( root , candidate . source ) )
-if not source then return nil , err end
+if not source then
+return nil , err
+end
 if source : sub ( 1 , 4 ) == "---\n" then
 local ending = source : find ( "\n---\n" , 5 , true )
-if ending then source = source : sub ( ending + 5 ) end
+if ending then
+source = source : sub ( ending + 5 )
+end
 end
 source , err = embedFiles ( root , source )
-if not source then return nil , err end
+if not source then
+return nil , err
+end
 candidate . markdown = source
 end
 pages [ # pages + 1 ] = candidate
@@ -18032,21 +20223,31 @@ end
 local function renderSite ( root , outDir , modules , title , settings )
 configureScintillua ( root , settings )
 local ok , err = copyPublicFiles ( root , outDir , settings . public )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 local css = THEME
 if settings . customCss then
 local custom
 custom , err = readFile ( join ( root , tostring ( settings . customCss ) ) )
-if not custom then return nil , err end
+if not custom then
+return nil , err
+end
 css = css .. "\n" .. custom
 end
 ok , err = writeFile ( join ( outDir , "assets/style.css" ) , css )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 ok , err = writeFile ( join ( outDir , "assets/site.js" ) , SCRIPT )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 local pages
 pages , err = configuredPages ( root , settings , title )
-if not pages then return nil , err end
+if not pages then
+return nil , err
+end
 local claimedRoutes = { }
 for _ , candidate in ipairs ( pages ) do claimedRoutes [ candidate . path ] = true end
 for _ , module in ipairs ( modules ) do
@@ -18073,7 +20274,9 @@ for _ , item in ipairs ( module . items ) do items [ # items + 1 ] = item end
 markdown = doc . markdown ( { module } )
 local links = symbolLinks ( linkIndex , module , relativePrefix ( file ) )
 body [ # body + 1 ] = '<h1>Module: <code>' .. htmlEscape ( module . name ) .. '</code></h1>'
-if module . text ~= "" then body [ # body + 1 ] = markdownHtml ( module . text , links ) end
+if module . text ~= "" then
+body [ # body + 1 ] = markdownHtml ( module . text , links )
+end
 if # module . items == 0 then
 body [ # body + 1 ] = '<div class="nuppdoc-empty">No public declarations.</div>'
 else
@@ -18102,13 +20305,19 @@ local html = renderPage ( candidate . title , title , table . concat ( body , "\
 current , items , file , settings , pages , candidate . path , candidate . layout )
 appendSearchEntries ( searchEntries , candidate , file , markdown )
 ok , err = writeFile ( join ( outDir , file ) , html )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 local mdFile = candidate . path == "" and "index.md" or candidate . path .. ".md"
 ok , err = writeFile ( join ( outDir , mdFile ) , markdown )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 if candidate . path ~= "" then
 ok , err = writeFile ( join ( outDir , candidate . path .. "/llms.txt" ) , markdown )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 allMarkdown [ # allMarkdown + 1 ] = { page = candidate , text = markdown }
 if candidate . module then
@@ -18117,7 +20326,9 @@ local legacy = "modules/" .. candidate . module . name : gsub ( "[^%w._-]" , "-"
 ok , err = writeFile ( join ( outDir , legacy ) , redirectHtml (
 candidate . module . name : match ( "%." ) and candidate . module . name : match ( "([^.]+)$" )
 .. "/index.html" or candidate . module . name .. "/index.html" ) )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 end
 
@@ -18135,17 +20346,23 @@ end
 llms [ # llms + 1 ] = ""
 llms [ # llms + 1 ] = "- [Complete documentation](llms-full.txt)"
 ok , err = writeFile ( join ( outDir , "llms.txt" ) , table . concat ( llms , "\n" ) .. "\n" )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 local full = { "# " .. ( settings . name or title ) }
 for _ , entry in ipairs ( allMarkdown ) do
 full [ # full + 1 ] = "\n---\n\n## " .. entry . page . title .. "\n\n"
 .. trim ( entry . text ) .. "\n"
 end
 ok , err = writeFile ( join ( outDir , "llms-full.txt" ) , table . concat ( full , "\n" ) )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 ok , err = writeFile ( join ( outDir , "assets/search-index.js" ) ,
 searchIndexJs ( searchEntries ) )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 return true
 end
 
@@ -18171,8 +20388,12 @@ end
 function doc . build ( root , config , settings , opts )
 root , settings , opts = root or "." , settings or { } , opts or { }
 local modules , errors = loadModules ( root , config or { } , settings , opts . sources )
-if # errors > 0 then report ( errors ) ; return 1 end
-if opts . checkOnly then return 0 end
+if # errors > 0 then
+report ( errors ) ; return 1
+end
+if opts . checkOnly then
+return 0
+end
 local format = opts . format or settings . format or "site"
 local title = opts . title or settings . title or config . name or "Nupp API"
 local output = normalize ( opts . output or settings . outDir
@@ -18184,20 +20405,30 @@ filesMod . collect ( opts . written )
 local code , message = 0 , nil
 if format == "markdown" then
 local ok , err = writeFile ( output , doc . markdown ( modules , title ) )
-if not ok then code , message = 1 , tostring ( err ) end
+if not ok then
+code , message = 1 , tostring ( err )
+end
 elseif format == "site" then
 local ok , err = renderSite ( root , output , modules , title , settings )
-if not ok then code , message = 1 , tostring ( err ) end
+if not ok then
+code , message = 1 , tostring ( err )
+end
 elseif format == "both" then
 local ok , err = renderSite ( root , output , modules , title , settings )
-if ok then ok , err = writeFile ( join ( output , "api.md" ) , doc . markdown ( modules , title ) ) end
-if not ok then code , message = 1 , tostring ( err ) end
+if ok then
+ok , err = writeFile ( join ( output , "api.md" ) , doc . markdown ( modules , title ) )
+end
+if not ok then
+code , message = 1 , tostring ( err )
+end
 else
 code = 2
 message = "documentation format must be site, markdown, or both"
 end
 filesMod . collect ( nil )
-if message then io . stderr : write ( "nupp: " .. message .. "\n" ) end
+if message then
+io . stderr : write ( "nupp: " .. message .. "\n" )
+end
 return code , output , format
 end
 
@@ -18205,7 +20436,9 @@ end
 
 
 function doc . manifestSettings ( config )
-if type ( config . docs ) == "table" then return config . docs end
+if type ( config . docs ) == "table" then
+return config . docs
+end
 for name , target in pairs ( config . build and config . build . targets or { } ) do
 if type ( target ) == "table" and target . kind == "docs" then
 local copy = { }
@@ -18221,9 +20454,13 @@ end
 
 function doc . loadConfig ( root )
 local manifest = loadfile ( join ( root or "." , "nupp.lua" ) )
-if not manifest then return { } end
+if not manifest then
+return { }
+end
 local ok , loaded = pcall ( manifest )
-if not ok then return nil , tostring ( loaded ) end
+if not ok then
+return nil , tostring ( loaded )
+end
 return type ( loaded ) == "table" and loaded or { }
 end
 
@@ -18298,7 +20535,9 @@ end
 
 
 local function raisesHtml ( raises , heading , links )
-if # raises == 0 then return "" end
+if # raises == 0 then
+return ""
+end
 local entries = { }
 for _ , condition in ipairs ( raises ) do
 entries [ # entries + 1 ] = "<li>" .. markdownHtml ( condition , links ) .. "</li>"
@@ -18427,7 +20666,8 @@ local THEME = [[
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
  * deliberately: this is the part of the stylesheet a project stylesheet targets. */
-:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem}
+:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e}
+.nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
 .nuppdoc-code-group{position:relative;display:flex;overflow:hidden;flex-wrap:wrap;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{order:-1;padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel{display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
 /* The gutter and the code are siblings sharing the pre's line box metrics, so the
  * numbers stay level with their lines. The code scrolls inside itself, which keeps
@@ -18723,11 +20963,17 @@ local normalize , join = filesMod . normalize , filesMod . join
 
 local extract = { }
 local function firstToken ( node )
-if not node then return nil end
-if cst . isToken ( node ) then return node end
+if not node then
+return nil
+end
+if cst . isToken ( node ) then
+return node
+end
 for _ , child in ipairs ( node ) do
 local token = firstToken ( child )
-if token then return token end
+if token then
+return token
+end
 end
 return nil
 end
@@ -18744,7 +20990,9 @@ local docLines , parseDoc = docblock . linesOf , docblock . parse
 
 local function declaredName ( stat )
 local name = stat . name . text
-if not stat . qualifiers then return name end
+if not stat . qualifiers then
+return name
+end
 local parts = { }
 for j , token in ipairs ( stat . qualifiers ) do parts [ j ] = token . text end
 parts [ # parts + 1 ] = name
@@ -18766,7 +21014,9 @@ else
 piece = ( param . modeTok and ( param . modeTok . text .. " " ) or "" )
 .. ( param . name and param . name . text or "?" )
 end
-if param . type then piece = piece .. ": " .. syntax ( param . type ) end
+if param . type then
+piece = piece .. ": " .. syntax ( param . type )
+end
 params [ # params + 1 ] = piece
 end
 local returns = { }
@@ -18775,7 +21025,9 @@ returns [ # returns + 1 ] = syntax ( value )
 end
 local prefix = stat . kind == "localFuncStmt" and "local function " or "function "
 local result = prefix .. name .. genericText ( body ) .. "(" .. table . concat ( params , ", " ) .. ")"
-if # returns > 0 then result = result .. ": " .. table . concat ( returns , ", " ) end
+if # returns > 0 then
+result = result .. ": " .. table . concat ( returns , ", " )
+end
 return result
 end
 
@@ -18796,7 +21048,9 @@ local result = "cdef function " .. stat . name . text .. "("
 if stat . ret then
 result = result .. ": " .. ( stat . ownTok and "own " or "" ) .. syntax ( stat . ret )
 end
-if stat . fromLib then result = result .. " from " .. stat . fromLib . text end
+if stat . fromLib then
+result = result .. " from " .. stat . fromLib . text
+end
 return result
 end
 
@@ -18901,19 +21155,29 @@ elseif stat . kind == "cdefStruct" then
 name , kind , public = stat . name . text , "struct" , true
 signature = "cdef struct " .. name
 elseif stat . kind == "localStmt" then
-if # ( stat . names or { } ) ~= 1 then return nil end
+if # ( stat . names or { } ) ~= 1 then
+return nil
+end
 name , kind = stat . names [ 1 ] . text , "variable"
 signature = ( stat . isConst and "const " or "local " ) .. name
-if stat . types [ 1 ] then signature = signature .. ": " .. syntax ( stat . types [ 1 ] ) end
-if typeFunction ( stat . types [ 1 ] ) then kind = "function" end
+if stat . types [ 1 ] then
+signature = signature .. ": " .. syntax ( stat . types [ 1 ] )
+end
+if typeFunction ( stat . types [ 1 ] ) then
+kind = "function"
+end
 else
 return nil
 end
-if info . tags [ "local" ] then public = includeAll end
+if info . tags [ "local" ] then
+public = includeAll
+end
 if kind == "method" and privateName ( name ) and not includePrivate then
 public = false
 end
-if not public then return nil end
+if not public then
+return nil
+end
 local itemPath = moduleName .. "." .. name
 local moduleTail = moduleName : match ( "([^.]+)$" ) or moduleName
 if name : sub ( 1 , # moduleTail + 1 ) == moduleTail .. "." then
@@ -19001,7 +21265,9 @@ for _ , include in ipairs ( includes or { } ) do
 local prefix = normalize ( join ( root , include ) )
 if path : sub ( 1 , # prefix + 1 ) == prefix .. "/" then
 local candidate = path : sub ( # prefix + 2 )
-if # candidate < # best then best = candidate end
+if # candidate < # best then
+best = candidate
+end
 end
 end
 best = best : gsub ( "%.d%.nupp$" , "" ) : gsub ( "%.nupp$" , "" )
@@ -19031,7 +21297,9 @@ end
 function extract . extract ( source , path , name , opts )
 opts = opts or { }
 local parsed = parser . parse ( source , path )
-if # parsed . errors > 0 then return nil , parsed . errors end
+if # parsed . errors > 0 then
+return nil , parsed . errors
+end
 local result = { name = name , path = path , text = "" , items = { } }
 result . text = headerDoc ( parsed . root ) or ""
 local declarationFile = path ~= nil and path : match ( "%.d%.nupp$" ) ~= nil
@@ -19039,7 +21307,9 @@ for _ , block in ipairs ( parsed . root . blocks or { } ) do
 for _ , stat in ipairs ( block . stats or { } ) do
 local item = declarationItem ( stat , name , opts . includeAll ,
 declarationFile , opts . includePrivate )
-if item then result . items [ # result . items + 1 ] = item end
+if item then
+result . items [ # result . items + 1 ] = item
+end
 local info = parseDoc ( docLines ( stat ) )
 if info . tags . module then
 result . text = type ( info . tags . module ) == "string"
@@ -19048,7 +21318,9 @@ end
 end
 end
 table . sort ( result . items , function ( left , right )
-if left . kind == right . kind then return left . name < right . name end
+if left . kind == right . kind then
+return left . name < right . name
+end
 return left . kind < right . kind
 end )
 return result , { }
@@ -19096,7 +21368,9 @@ local collector = nil
 
 local function writeFile ( path , contents )
 local ok , err = fs . writeFileIfChanged ( path , contents )
-if ok and collector then collector [ # collector + 1 ] = normalize ( path ) end
+if ok and collector then
+collector [ # collector + 1 ] = normalize ( path )
+end
 return ok , err
 end
 
@@ -19104,6 +21378,7 @@ end
 function files . collect ( into )
 collector = into
 end
+
 
 
 
@@ -19136,11 +21411,15 @@ code , output = process . capture ( { "cmd" , "/c" , "dir" , "/s" , "/b" , path 
 else
 code , output = process . capture ( { "find" , path , "-type" , "f" } )
 end
-if code ~= 0 then return { } end
+if code ~= 0 then
+return { }
+end
 local paths = { }
 for candidate in output : gmatch ( "[^\r\n]+" ) do
 candidate = normalize ( candidate )
-if not hiddenBelow ( path , candidate ) then paths [ # paths + 1 ] = candidate end
+if not hiddenBelow ( path , candidate ) then
+paths [ # paths + 1 ] = candidate
+end
 end
 table . sort ( paths )
 return paths
@@ -19149,21 +21428,29 @@ end
 local function listFiles ( path )
 local paths = { }
 for _ , candidate in ipairs ( listDirectoryFiles ( path ) ) do
-if candidate : match ( "%.nupp$" ) then paths [ # paths + 1 ] = candidate end
+if candidate : match ( "%.nupp$" ) then
+paths [ # paths + 1 ] = candidate
+end
 end
 return paths
 end
 
 local function copyPublicFiles ( root , outDir , public )
-if not public or public == "" then return true end
+if not public or public == "" then
+return true
+end
 local directory = join ( root , public )
 for _ , source in ipairs ( listDirectoryFiles ( directory ) ) do
 local relative = source : sub ( # directory + 2 )
 local contents , err = readFile ( source )
-if not contents then return nil , err end
+if not contents then
+return nil , err
+end
 local ok
 ok , err = writeFile ( join ( outDir , relative ) , contents )
-if not ok then return nil , err end
+if not ok then
+return nil , err
+end
 end
 return true
 end
@@ -19262,13 +21549,27 @@ local token = tokens [ index ]
 local previous = tokens [ index - 1 ]
 local following = tokens [ index + 1 ]
 if token . kind == "name" then
-if CONTEXTUAL_KEYWORDS [ token . text ] then return "keyword" end
-if TYPE_NAMES [ token . text ] or token . text : match ( "^%u" ) then return "type" end
-if previous and previous . text == "@" then return "meta" end
-if previous and previous . kind == "function" then return "function" end
-if previous and previous . text == "metamethod" then return "function" end
-if previous and TYPE_DECLARATIONS [ previous . text ] then return "type" end
-if following and following . text == "(" then return "function" end
+if CONTEXTUAL_KEYWORDS [ token . text ] then
+return "keyword"
+end
+if TYPE_NAMES [ token . text ] or token . text : match ( "^%u" ) then
+return "type"
+end
+if previous and previous . text == "@" then
+return "meta"
+end
+if previous and previous . kind == "function" then
+return "function"
+end
+if previous and previous . text == "metamethod" then
+return "function"
+end
+if previous and TYPE_DECLARATIONS [ previous . text ] then
+return "type"
+end
+if following and following . text == "(" then
+return "function"
+end
 if previous and ( previous . text == "." or previous . text == ":" ) then
 return "property"
 end
@@ -19287,8 +21588,12 @@ return "operator"
 end
 
 local function tokenClasses ( style , text )
-if style == "type" then return "token class-name nuppdoc-token-type" end
-if style == "meta" then return "token directive nuppdoc-token-meta" end
+if style == "type" then
+return "token class-name nuppdoc-token-type"
+end
+if style == "meta" then
+return "token directive nuppdoc-token-meta"
+end
 if style == "keyword" then
 return "token keyword keyword-" .. text : gsub ( "[^%w%-]" , "-" )
 .. " nuppdoc-token-keyword"
@@ -19349,9 +21654,13 @@ local BUNDLED_MODULE = "scintillua.lexers."
 local BUNDLED_DIRECTORY = "@bundled/scintillua/lexers"
 
 local function bundledName ( path )
-if type ( path ) ~= "string" then return nil end
+if type ( path ) ~= "string" then
+return nil
+end
 local prefix = BUNDLED_DIRECTORY .. "/"
-if path : sub ( 1 , # prefix ) ~= prefix then return nil end
+if path : sub ( 1 , # prefix ) ~= prefix then
+return nil
+end
 return path : sub ( # prefix + 1 ) : match ( "^([%w_+-]+)%.lua$" )
 end
 
@@ -19368,17 +21677,22 @@ if name then
 chunk = package . preload [ BUNDLED_MODULE .. name ]
 
 
-if not chunk then return nil , "cannot open " .. path end
+if not chunk then
+return nil , "cannot open " .. path
+end
 else
 chunk , err = loadfile ( path )
-if not chunk then return nil , err end
+if not chunk then
+return nil , err
+end
 end
 
 
-if env then setfenv ( chunk , env ) end
+if env then
+setfenv ( chunk , env )
+end
 return chunk
 end
-
 
 
 
@@ -19389,7 +21703,9 @@ local LEXER_MODULE = "scintillua/lexers/lexer"
 local function installedLexers ( )
 for template in package . path : gmatch ( "[^;]+" ) do
 local candidate = template : gsub ( "%?" , LEXER_MODULE )
-if exists ( candidate ) then return dirname ( candidate ) end
+if exists ( candidate ) then
+return dirname ( candidate )
+end
 end
 return nil
 end
@@ -19400,7 +21716,9 @@ local function configureScintillua ( root , settings )
 
 
 local installed = installedLexers ( )
-if installed and not exists ( join ( installed , "lexer.lua" ) ) then installed = nil end
+if installed and not exists ( join ( installed , "lexer.lua" ) ) then
+installed = nil
+end
 local bundled = not installed
 and package . preload [ BUNDLED_MODULE .. "lexer" ] ~= nil
 if not installed and not bundled then
@@ -19413,7 +21731,9 @@ local base = installed or BUNDLED_DIRECTORY
 local searchPath = base
 if settings . lexers then
 local custom = join ( root , settings . lexers )
-if exists ( custom ) then searchPath = custom .. ";" .. base end
+if exists ( custom ) then
+searchPath = custom .. ";" .. base
+end
 end
 if scintilluaSearchPath ~= searchPath then
 scintilluaDirectory , scintilluaSearchPath , scintilluaLibrary , scintilluaLexers =
@@ -19423,10 +21743,14 @@ scintilluaBundled = bundled
 end
 
 local function loadScintillua ( language )
-if not scintilluaDirectory then return nil end
+if not scintilluaDirectory then
+return nil
+end
 language = tostring ( language or "" ) : lower ( )
 language = SCINTILLUA_ALIASES [ language ] or language
-if not language : match ( "^[%w_+-]+$" ) then return nil end
+if not language : match ( "^[%w_+-]+$" ) then
+return nil
+end
 if scintilluaLexers [ language ] ~= nil then
 return scintilluaLexers [ language ] or nil
 end
@@ -19445,9 +21769,13 @@ end
 else
 chunk = loadfile ( join ( scintilluaDirectory , "lexer.lua" ) )
 end
-if not chunk then return nil end
+if not chunk then
+return nil
+end
 local ok , library = pcall ( chunk )
-if not ok or type ( library ) ~= "table" then return nil end
+if not ok or type ( library ) ~= "table" then
+return nil
+end
 library . property = setmetatable ( {
 [ "scintillua.lexers" ] = scintilluaSearchPath ,
 } , {
@@ -19465,30 +21793,60 @@ end
 
 local function scintilluaStyle ( tag )
 local base = tostring ( tag or "default" ) : match ( "^[^%.]+" )
-if base == "whitespace" or base == "default" then return nil end
-if base == "comment" then return "comment" end
-if base == "keyword" then return "keyword" end
-if base == "string" or base == "regex" then return "string" end
-if base == "number" then return "number" end
-if base == "function" or base == "label" then return "function" end
-if base == "type" or base == "class" then return "type" end
-if base == "preprocessor" or base == "annotation" then return "meta" end
-if base == "operator" then return "operator" end
-if base == "constant" then return "boolean" end
-if base == "property" then return "property" end
-if base == "identifier" or base == "variable" then return "variable" end
+if base == "whitespace" or base == "default" then
+return nil
+end
+if base == "comment" then
+return "comment"
+end
+if base == "keyword" then
+return "keyword"
+end
+if base == "string" or base == "regex" then
+return "string"
+end
+if base == "number" then
+return "number"
+end
+if base == "function" or base == "label" then
+return "function"
+end
+if base == "type" or base == "class" then
+return "type"
+end
+if base == "preprocessor" or base == "annotation" then
+return "meta"
+end
+if base == "operator" then
+return "operator"
+end
+if base == "constant" then
+return "boolean"
+end
+if base == "property" then
+return "property"
+end
+if base == "identifier" or base == "variable" then
+return "variable"
+end
 return nil
 end
 
 local function highlightScintillua ( source , language )
 local loaded = loadScintillua ( language )
-if not loaded then return nil end
+if not loaded then
+return nil
+end
 local ok , tags = pcall ( loaded . lex , loaded , source )
-if not ok or type ( tags ) ~= "table" then return nil end
+if not ok or type ( tags ) ~= "table" then
+return nil
+end
 local out , start = { } , 1
 for index = 1 , # tags , 2 do
 local finish = tonumber ( tags [ index + 1 ] )
-if not finish then return nil end
+if not finish then
+return nil
+end
 local text = source : sub ( start , finish - 1 )
 local style = scintilluaStyle ( tags [ index ] )
 if style then
@@ -19499,12 +21857,16 @@ out [ # out + 1 ] = htmlEscape ( text )
 end
 start = finish
 end
-if start <= # source then out [ # out + 1 ] = htmlEscape ( source : sub ( start ) ) end
+if start <= # source then
+out [ # out + 1 ] = htmlEscape ( source : sub ( start ) )
+end
 return table . concat ( out )
 end
 
 local function codeHtml ( source , language , links )
-if language == "nupp" then return highlightNupp ( source , links ) end
+if language == "nupp" then
+return highlightNupp ( source , links )
+end
 return highlightScintillua ( source , language ) or htmlEscape ( source )
 end
 
@@ -19516,6 +21878,8 @@ return highlight
 
 end
 package.preload["nupp.doc.html"] = function(...)
+
+
 
 
 
@@ -19575,6 +21939,15 @@ return out
 end
 
 local codeGroupIndex = 0
+local markdownHtml
+
+local ADMONITION_TITLES = {
+note = "Note" ,
+info = "Info" ,
+tip = "Tip" ,
+warning = "Warning" ,
+danger = "Danger" ,
+}
 
 
 
@@ -19643,6 +22016,15 @@ out [ # out + 1 ] = "</div>"
 return table . concat ( out )
 end
 
+local function admonitionHtml ( kind , title , source , links )
+title = title ~= "" and title or ADMONITION_TITLES [ kind ]
+return '<aside class="nuppdoc-admonition nuppdoc-admonition-'
+.. htmlEscape ( kind ) .. '" aria-label="' .. htmlEscape ( title ) .. '">'
+.. '<p class="nuppdoc-admonition-title">' .. htmlEscape ( title ) .. "</p>"
+.. '<div class="nuppdoc-admonition-body">'
+.. markdownHtml ( source , links ) .. "</div></aside>"
+end
+
 
 
 local function readFence ( lines , index )
@@ -19667,6 +22049,33 @@ end
 
 
 
+local function readContainer ( lines , index )
+local body , depth , fenced = { } , 1 , false
+index = index + 1
+while index <= # lines do
+local line = lines [ index ]
+if line : match ( "^```" ) then
+fenced = not fenced
+elseif not fenced then
+local marker = trim ( line )
+if marker == ":::" then
+depth = depth - 1
+if depth == 0 then
+return table . concat ( body , "\n" ) , index + 1
+end
+elseif marker : match ( "^:::%s+[%w-]+" ) then
+depth = depth + 1
+end
+end
+body [ # body + 1 ] = line
+index = index + 1
+end
+return nil , index
+end
+
+
+
+
 local function extractBlocks ( text , links , rendered )
 local lines , out , index = { } , { } , 1
 for line in ( text .. "\n" ) : gmatch ( "(.-)\n" ) do lines [ # lines + 1 ] = line end
@@ -19678,7 +22087,9 @@ out [ # out + 1 ] = ""
 end
 while index <= # lines do
 local line = lines [ index ]
-if trim ( line ) == "::: code-group" then
+local marker = trim ( line )
+local directive , title = marker : match ( "^:::%s+([%w-]+)%s*(.-)%s*$" )
+if marker == "::: code-group" then
 local blocks = { }
 index = index + 1
 while index <= # lines and trim ( lines [ index ] ) ~= ":::" do
@@ -19691,6 +22102,14 @@ index = index + 1
 end
 end
 placeholder ( codeGroupHtml ( blocks , links ) )
+elseif directive and ADMONITION_TITLES [ directive ] then
+local body , after = readContainer ( lines , index )
+if body then
+index = after - 1
+placeholder ( admonitionHtml ( directive , title , body , links ) )
+else
+out [ # out + 1 ] = line
+end
 elseif lines [ index ] : match ( "^```" ) then
 local block , after = readFence ( lines , index )
 index = after - 1
@@ -19752,7 +22171,7 @@ pipe_tables = true ,
 } )
 end
 
-local function markdownHtml ( text , links , headingShift )
+markdownHtml = function ( text , links , headingShift )
 text = tostring ( text or "" )
 if text == "" then
 return ""
@@ -19840,7 +22259,9 @@ return fields , methods
 end
 
 local function markdownArguments ( out , params , heading )
-if # params == 0 then return end
+if # params == 0 then
+return
+end
 out [ # out + 1 ] = heading .. " Arguments"
 out [ # out + 1 ] = ""
 out [ # out + 1 ] = "| Name | Type | Description |"
@@ -19854,7 +22275,9 @@ out [ # out + 1 ] = ""
 end
 
 local function markdownReturns ( out , returns , heading )
-if # returns == 0 then return end
+if # returns == 0 then
+return
+end
 out [ # out + 1 ] = heading .. " Returns"
 out [ # out + 1 ] = ""
 out [ # out + 1 ] = "| Type | Description |"
@@ -19869,7 +22292,9 @@ end
 
 
 local function markdownRaises ( out , raises , heading )
-if # raises == 0 then return end
+if # raises == 0 then
+return
+end
 out [ # out + 1 ] = heading .. " Raises"
 out [ # out + 1 ] = ""
 for _ , condition in ipairs ( raises ) do
@@ -19885,7 +22310,9 @@ out [ # out + 1 ] = ""
 
 
 
-if item . doc . text ~= "" then out [ # out + 1 ] = item . doc . text ; out [ # out + 1 ] = "" end
+if item . doc . text ~= "" then
+out [ # out + 1 ] = item . doc . text ; out [ # out + 1 ] = ""
+end
 out [ # out + 1 ] = "```nupp"
 out [ # out + 1 ] = item . signature
 out [ # out + 1 ] = "```"
@@ -19941,11 +22368,15 @@ end
 
 function markdown . render ( modules , title )
 local out = { }
-if title and title ~= "" then out [ # out + 1 ] = "# " .. title ; out [ # out + 1 ] = "" end
+if title and title ~= "" then
+out [ # out + 1 ] = "# " .. title ; out [ # out + 1 ] = ""
+end
 for moduleIndex , module in ipairs ( modules ) do
 out [ # out + 1 ] = "# Module: `" .. module . name .. "`"
 out [ # out + 1 ] = ""
-if module . text ~= "" then out [ # out + 1 ] = module . text ; out [ # out + 1 ] = "" end
+if module . text ~= "" then
+out [ # out + 1 ] = module . text ; out [ # out + 1 ] = ""
+end
 local currentKind = nil
 for _ , item in ipairs ( module . items ) do
 if item . kind ~= currentKind then
@@ -19955,7 +22386,9 @@ out [ # out + 1 ] = ""
 end
 renderMarkdownItem ( out , item )
 end
-if moduleIndex < # modules then out [ # out + 1 ] = "---" ; out [ # out + 1 ] = "" end
+if moduleIndex < # modules then
+out [ # out + 1 ] = "---" ; out [ # out + 1 ] = ""
+end
 end
 return table . concat ( out , "\n" ) .. "\n"
 end
@@ -19988,7 +22421,9 @@ local page = { }
 
 local function assetHref ( prefix , source )
 source = tostring ( source )
-if source : match ( "^[%w+.-]+:" ) or source : sub ( 1 , 1 ) == "/" then return source end
+if source : match ( "^[%w+.-]+:" ) or source : sub ( 1 , 1 ) == "/" then
+return source
+end
 return prefix .. source
 end
 
@@ -20014,9 +22449,13 @@ return root
 end
 
 local function moduleBranchContains ( node , current )
-if node . module and node . module . name == current then return true end
+if node . module and node . module . name == current then
+return true
+end
 for _ , name in ipairs ( node . order ) do
-if moduleBranchContains ( node . children [ name ] , current ) then return true end
+if moduleBranchContains ( node . children [ name ] , current ) then
+return true
+end
 end
 return false
 end
@@ -20121,7 +22560,9 @@ return '<dialog class="nuppdoc-search-dialog" aria-label="Search documentation"'
 end
 
 local function breadcrumbs ( route , title , pages , prefix )
-if route == "" then return "" end
+if route == "" then
+return ""
+end
 local byPath = { }
 for _ , candidate in ipairs ( pages or { } ) do byPath [ candidate . path ] = candidate end
 local out = { '<nav class="nuppdoc-breadcrumbs" aria-label="Breadcrumb"><ol>' ,
@@ -20150,11 +22591,17 @@ end
 local function pageNavigation ( route , pages , prefix )
 local current
 for index , candidate in ipairs ( pages or { } ) do
-if candidate . path == route then current = index ; break end
+if candidate . path == route then
+current = index ; break
 end
-if not current then return "" end
+end
+if not current then
+return ""
+end
 local previous , following = pages [ current - 1 ] , pages [ current + 1 ]
-if not previous and not following then return "" end
+if not previous and not following then
+return ""
+end
 local out = { '<nav class="nuppdoc-page-nav" aria-label="Documentation pages">' }
 if previous then
 out [ # out + 1 ] = '<a class="nuppdoc-page-nav-previous" href="'
@@ -20173,7 +22620,9 @@ return table . concat ( out )
 end
 
 local function homeHero ( config , links )
-if config . layout ~= "home" then return "" end
+if config . layout ~= "home" then
+return ""
+end
 local class = config . heroImage and "nuppdoc-hero-main has-image"
 or "nuppdoc-hero-main"
 local out = { '<section class="nuppdoc-home-hero"><div class="' .. class
@@ -20235,7 +22684,9 @@ else
 out [ # out + 1 ] = '<span class="nuppdoc-mark">++</span>'
 end
 local name = settings . name
-if name == nil then name = siteTitle end
+if name == nil then
+name = siteTitle
+end
 if name ~= "" then
 out [ # out + 1 ] = '<span class="nuppdoc-brand-name">'
 .. htmlEscape ( name ) .. '</span>'
@@ -20407,7 +22858,9 @@ return string . rep ( "../" , count )
 end
 
 local function addSymbolLink ( links , ambiguous , name , url )
-if not name or name == "" or ambiguous [ name ] then return end
+if not name or name == "" or ambiguous [ name ] then
+return
+end
 if links [ name ] and links [ name ] ~= url then
 links [ name ] = nil
 ambiguous [ name ] = true
@@ -20461,9 +22914,13 @@ end
 local function cleanRoute ( route )
 route = normalize ( tostring ( route or "" ) ) : gsub ( "^/" , "" )
 route = route : gsub ( "/index%.html$" , "" ) : gsub ( "%.html$" , "" )
-if route == "." then route = "" end
+if route == "." then
+route = ""
+end
 for segment in route : gmatch ( "[^/]+" ) do
-if segment == "." or segment == ".." then return nil end
+if segment == "." or segment == ".." then
+return nil
+end
 end
 return route
 end
@@ -20490,10 +22947,14 @@ return table . concat ( parts , "/" )
 end
 
 local function rewriteConfiguredPageLinks ( markdown , candidate , pages , file )
-if not candidate . source then return markdown end
+if not candidate . source then
+return markdown
+end
 local routes = { }
 for _ , page in ipairs ( pages ) do
-if page . source then routes [ resolveDots ( normalize ( page . source ) ) ] = page . path end
+if page . source then
+routes [ resolveDots ( normalize ( page . source ) ) ] = page . path
+end
 end
 local sourceDirectory = dirname ( normalize ( candidate . source ) )
 return ( markdown : gsub ( "(%[[^%]]+%]%()([^%)]+)(%))" ,
@@ -20506,7 +22967,9 @@ local path , fragment = target : match ( "^([^#]+)(#.*)$" )
 path , fragment = path or target , fragment or ""
 local route = routes [ resolveDots ( normalize ( join ( sourceDirectory , path ) ) ) ]
 or routes [ resolveDots ( normalize ( path ) ) ]
-if route == nil then return opening .. target .. closing end
+if route == nil then
+return opening .. target .. closing
+end
 return opening .. relativePrefix ( file ) .. routeFile ( route )
 .. fragment .. closing
 end ) )
@@ -20573,11 +23036,17 @@ end
 
 
 local function firstToken ( node )
-if not node then return nil end
-if cst . isToken ( node ) then return node end
+if not node then
+return nil
+end
+if cst . isToken ( node ) then
+return node
+end
 for _ , child in ipairs ( node ) do
 local token = firstToken ( child )
-if token then return token end
+if token then
+return token
+end
 end
 return nil
 end
@@ -20601,7 +23070,9 @@ elseif trivia . kind == "comment" then
 pending = { }
 elseif trivia . kind == "whitespace" then
 local _ , newlines = trivia . text : gsub ( "\n" , "" )
-if newlines > 1 then pending = { } end
+if newlines > 1 then
+pending = { }
+end
 end
 end
 for _ , line in ipairs ( pending ) do lines [ # lines + 1 ] = line end
@@ -20732,7 +23203,9 @@ end
 
 local function readFile ( path )
 local f = io . open ( path , "rb" )
-if not f then return nil end
+if not f then
+return nil
+end
 local content = f : read ( "*a" )
 f : close ( )
 return content
@@ -20755,7 +23228,9 @@ if embedded == nil then
 local preloaded = package . preload [ "nupp.embedded" ]
 embedded = preloaded and preloaded ( ) or false
 end
-if embedded and embedded [ relative ] then return embedded [ relative ] end
+if embedded and embedded [ relative ] then
+return embedded [ relative ]
+end
 return readFile ( moduleDir ( ) .. relative )
 end
 
@@ -20784,8 +23259,6 @@ end
 
 
 
-
-
 local function listLjppFiles ( root , withDeclarations )
 local command
 if package . config : sub ( 1 , 1 ) == "\\" then
@@ -20798,7 +23271,9 @@ command = "find " .. shellQuote ( root )
 .. " -print 2>/dev/null"
 end
 local pipe = io . popen ( command )
-if not pipe then return { } end
+if not pipe then
+return { }
+end
 local files = { }
 for path in pipe : lines ( ) do files [ # files + 1 ] = normalizePath ( path ) end
 pipe : close ( )
@@ -20860,13 +23335,17 @@ end
 
 
 function envMod . listSourceFiles ( env , withDeclarations )
-if withDeclarations == nil then withDeclarations = true end
+if withDeclarations == nil then
+withDeclarations = true
+end
 local rootDir = env . rootDir or "."
 local roots = { }
 for _ , dir in ipairs ( ( env . config or { } ) . include or { } ) do
 roots [ # roots + 1 ] = rootDir .. "/" .. dir
 end
-if # roots == 0 then roots [ 1 ] = rootDir end
+if # roots == 0 then
+roots [ 1 ] = rootDir
+end
 local outDir = outDirFor ( env )
 local files , seen = { } , { }
 for _ , root in ipairs ( roots ) do
@@ -20891,12 +23370,18 @@ end
 
 function envMod . isProjectPath ( env , path )
 path = normalizePath ( path )
-if not path : match ( "%.nupp$" ) then return false end
-if isBookkeepingPath ( path , outDirFor ( env ) ) then return false end
+if not path : match ( "%.nupp$" ) then
+return false
+end
+if isBookkeepingPath ( path , outDirFor ( env ) ) then
+return false
+end
 for _ , rawRoot in ipairs ( env . roots or { } ) do
 local root = normalizePath ( rawRoot )
 if root == "." or root == "" then
-if path : sub ( 1 , 1 ) ~= "/" then return true end
+if path : sub ( 1 , 1 ) ~= "/" then
+return true
+end
 elseif path : sub ( 1 , # root + 1 ) == root .. "/" then
 return true
 end
@@ -20911,7 +23396,9 @@ for _ , rawRoot in ipairs ( env . roots or { } ) do
 local root = normalizePath ( rawRoot )
 local rel = nil
 if root == "." or root == "" then
-if path : sub ( 1 , 1 ) ~= "/" then rel = path end
+if path : sub ( 1 , 1 ) ~= "/" then
+rel = path
+end
 elseif path : sub ( 1 , # root + 1 ) == root .. "/" then
 rel = path : sub ( # root + 2 )
 end
@@ -20919,14 +23406,18 @@ if rel and rel : match ( "%.nupp$" ) and not rel : match ( "%.d%.nupp$" ) then
 rel = rel : gsub ( "%.nupp$" , "" )
 rel = rel : gsub ( "/init$" , "" )
 local name = rel : gsub ( "/" , "." )
-if name ~= "" and ( not best or # name < # best ) then best = name end
+if name ~= "" and ( not best or # name < # best ) then
+best = name
+end
 end
 end
 return best
 end
 
 local function declarationKind ( stat )
-if stat . kind == "recordDecl" then return stat . declKind end
+if stat . kind == "recordDecl" then
+return stat . declKind
+end
 return "type"
 end
 
@@ -20971,7 +23462,9 @@ local header = {
 path = path , moduleName = envMod . moduleNameForPath ( env , path ) ,
 declarations = { } ,
 }
-if not parsed or # parsed . errors > 0 then return header end
+if not parsed or # parsed . errors > 0 then
+return header
+end
 local moduleLocal = cst . returnedLocal ( parsed . root )
 header . moduleLocal = moduleLocal
 for _ , block in ipairs ( parsed . root . blocks or { } ) do
@@ -21070,11 +23563,14 @@ end
 
 
 
-
 function envMod . headerStore ( env )
-if env . headerStoreOpened then return env . headerStore end
+if env . headerStoreOpened then
+return env . headerStore
+end
 env . headerStoreOpened = true
-if env . cacheDisabled then return nil end
+if env . cacheDisabled then
+return nil
+end
 local storeMod = require ( "nupp.build.store" )
 local cacheMod = require ( "nupp.build.cache" )
 
@@ -21120,7 +23616,9 @@ end
 
 
 function envMod . annotationKey ( env )
-if env . annotationKeyMemo then return env . annotationKeyMemo end
+if env . annotationKeyMemo then
+return env . annotationKeyMemo
+end
 
 
 
@@ -21144,11 +23642,14 @@ end
 
 
 
-
 function envMod . formatStore ( env )
-if env . formatStoreOpened then return env . formatStore end
+if env . formatStoreOpened then
+return env . formatStore
+end
 env . formatStoreOpened = true
-if env . cacheDisabled then return nil end
+if env . cacheDisabled then
+return nil
+end
 local storeMod = require ( "nupp.build.store" )
 local cacheMod = require ( "nupp.build.cache" )
 env . formatStore = storeMod . open (
@@ -21160,26 +23661,36 @@ end
 
 
 function envMod . persist ( env )
-if env . headerStore then env . headerStore . save ( ) end
-if env . formatStore then env . formatStore . save ( ) end
+if env . headerStore then
+env . headerStore . save ( )
+end
+if env . formatStore then
+env . formatStore . save ( )
+end
 end
 
 
 
 
 function envMod . ensureProjectIndex ( env )
-if env . projectIndex then return env . projectIndex end
+if env . projectIndex then
+return env . projectIndex
+end
 local store = envMod . headerStore ( env )
 local headers = { }
 for _ , path in ipairs ( envMod . listProjectFiles ( env ) ) do
 local source = readFile ( path )
 local header = nil
 local key = source and store and envMod . headerKey ( env , path , source )
-if key then header = store . get ( key ) end
+if key then
+header = store . get ( key )
+end
 if not header then
 header = envMod . projectHeader ( env , path ,
 source and parser . parse ( source , path ) or nil )
-if key then store . put ( key , header ) end
+if key then
+store . put ( key , header )
+end
 end
 headers [ # headers + 1 ] = header
 end
@@ -21194,13 +23705,17 @@ return ensure ( env )
 end
 
 function envMod . declarationType ( env , filename , name , kind , visibility )
-if visibility ~= "module" and visibility ~= "global" then return nil end
+if visibility ~= "module" and visibility ~= "global" then
+return nil
+end
 
 
 
 
 
-if not envMod . isProjectPath ( env , filename ) then return nil end
+if not envMod . isProjectPath ( env , filename ) then
+return nil
+end
 local index = projectIndexFor ( env )
 local path = normalizePath ( filename )
 for _ , entry in ipairs ( index . byPath [ path ] or { } ) do
@@ -21247,7 +23762,9 @@ for _ , entry in ipairs ( index . byPath [ normalizePath ( path ) ] or { } ) do
 if entry . visibility == "module" and entry . type then
 exports . types [ entry . name ] = entry . type
 exports . typeDefs [ entry . name ] = entry . definition
-if entry . kind == "struct" then exports . values [ entry . name ] = entry . type end
+if entry . kind == "struct" then
+exports . values [ entry . name ] = entry . type
+end
 end
 end
 return exports
@@ -21255,7 +23772,9 @@ end
 
 local function loadModule ( env , name )
 local cached = env . loaded [ name ]
-if cached then return cached end
+if cached then
+return cached
+end
 local path = envMod . findModulePath ( env , name )
 if not path then
 
@@ -21270,7 +23789,9 @@ env . loaded [ name ] = byPath
 return byPath
 end
 local src = readFile ( path )
-if not src then return nil end
+if not src then
+return nil
+end
 local record = {
 inProgress = true , path = path , exports = seededExports ( env , path ) ,
 }
@@ -21294,7 +23815,9 @@ end
 
 function envMod . resolveModule ( env , name )
 local record = loadModule ( env , name )
-if not record then return nil end
+if not record then
+return nil
+end
 return record . inProgress and T . any or record . type
 end
 
@@ -21316,7 +23839,9 @@ matches [ # matches + 1 ] = entry
 found = entry
 end
 end
-if # matches > 1 then return nil , "ambiguous project type" , matches end
+if # matches > 1 then
+return nil , "ambiguous project type" , matches
+end
 return found
 end
 
@@ -21324,7 +23849,9 @@ end
 
 local function loadedGlobal ( env , entries , kind )
 local entry , err , conflicts = globalEntry ( entries , kind )
-if not entry then return nil , err , conflicts end
+if not entry then
+return nil , err , conflicts
+end
 if entry . moduleName then
 env . resolveModuleExports ( env , entry . moduleName )
 end
@@ -21334,7 +23861,9 @@ end
 function envMod . resolveProjectType ( env , filename , name )
 local index = projectIndexFor ( env )
 local entry , err , conflicts = loadedGlobal ( env , index . byName [ name ] )
-if not entry then return nil , nil , err , nil , nil , conflicts end
+if not entry then
+return nil , nil , err , nil , nil , conflicts
+end
 return entry . type , entry . definition , nil , entry . moduleName , entry . visibility
 end
 
@@ -21368,7 +23897,9 @@ end
 function envMod . resolveProjectValue ( env , filename , name )
 local index = projectIndexFor ( env )
 local entry , err , conflicts = loadedGlobal ( env , index . byName [ name ] , "struct" )
-if not entry then return nil , nil , err , nil , conflicts end
+if not entry then
+return nil , nil , err , nil , conflicts
+end
 return entry . type , entry . definition , nil , entry . moduleName
 end
 
@@ -21378,8 +23909,12 @@ end
 function envMod . resolveProjectAnnotation ( env , filename , name )
 local index = projectIndexFor ( env )
 local entries = index . annotationsByName [ name ]
-if not entries or # entries == 0 then return nil end
-if # entries > 1 then return nil , "ambiguous project annotation @" .. name end
+if not entries or # entries == 0 then
+return nil
+end
+if # entries > 1 then
+return nil , "ambiguous project annotation @" .. name
+end
 local entry = entries [ 1 ]
 if normalizePath ( entry . path ) ~= normalizePath ( filename )
 and entry . moduleName then
@@ -21420,7 +23955,6 @@ end
 
 
 
-
 function envMod . exportedNominal ( env , moduleName , typeName )
 local index = projectIndexFor ( env )
 local entry = nil
@@ -21432,8 +23966,12 @@ entry = candidate
 break
 end
 end
-if not entry then return nil end
-if entry . type then return entry . type , entry . definition end
+if not entry then
+return nil
+end
+if entry . type then
+return entry . type , entry . definition
+end
 local exports = env . resolveModuleExports ( env , moduleName )
 return exports and exports . types [ typeName ] or entry . type ,
 exports and exports . typeDefs [ typeName ] or entry . definition
@@ -21443,7 +23981,9 @@ end
 
 local function configAt ( dir )
 local chunk = loadfile ( dir .. "/nupp.lua" )
-if not chunk then return { } end
+if not chunk then
+return { }
+end
 local ok , loaded = pcall ( chunk )
 return ok and type ( loaded ) == "table" and loaded or { }
 end
@@ -21499,7 +24039,9 @@ end
 local seenRoot = { }
 for _ , root in ipairs ( env . roots ) do seenRoot [ normalizePath ( root ) ] = true end
 local function addRoot ( dir )
-if seenRoot [ normalizePath ( dir ) ] then return end
+if seenRoot [ normalizePath ( dir ) ] then
+return
+end
 seenRoot [ normalizePath ( dir ) ] = true
 env . roots [ # env . roots + 1 ] = dir
 end
@@ -21557,7 +24099,6 @@ local BUNDLED = {
 
 
 
-
 local BUNDLED_SOURCE = {
 [ "nupp.std.resources" ] = "/std/resources.nupp" ,
 [ "nupp.std.zone" ] = "/std/zone.nupp" ,
@@ -21568,9 +24109,13 @@ local BUNDLED_SOURCE = {
 
 local function loadBundled ( name , file , declarationFile )
 local bundledSrc = bundledSource ( file )
-if not bundledSrc then return false end
+if not bundledSrc then
+return false
+end
 local result = parser . parse ( bundledSrc , name )
-if # result . errors > 0 then return false end
+if # result . errors > 0 then
+return false
+end
 
 
 
@@ -21839,14 +24384,18 @@ for _ , entry in ipairs ( ENTRIES ) do byCode [ entry . code ] = entry end
 local function lintFor ( code )
 local lints = require ( "nupp.lints" )
 for _ , lint in ipairs ( lints . all ) do
-if lint . code == code then return lint end
+if lint . code == code then
+return lint
+end
 end
 return nil
 end
 
 local function familyFor ( code )
 for _ , family in ipairs ( FAMILIES ) do
-if code : sub ( 1 , # family . prefix ) == family . prefix then return family end
+if code : sub ( 1 , # family . prefix ) == family . prefix then
+return family
+end
 end
 return nil
 end
@@ -21855,9 +24404,13 @@ end
 
 
 function explain . anchor ( code )
-if not code then return nil end
+if not code then
+return nil
+end
 local entry = byCode [ code ]
-if entry then return entry . docs end
+if entry then
+return entry . docs
+end
 local family = familyFor ( code )
 return family and family . docs or nil
 end
@@ -21866,7 +24419,9 @@ end
 function explain . lookup ( code )
 local entry = byCode [ code ]
 local family = familyFor ( code )
-if not entry and not family then return nil end
+if not entry and not family then
+return nil
+end
 local lint = lintFor ( code )
 if entry then
 return setmetatable( {
@@ -21998,7 +24553,9 @@ return ( not n . missing and n . kind ~= "eof" ) and n or nil
 end
 for _ , child in ipairs ( n ) do
 local t = firstToken ( child )
-if t then return t end
+if t then
+return t
+end
 end
 return nil
 end
@@ -22009,7 +24566,9 @@ return ( not n . missing and n . kind ~= "eof" ) and n or nil
 end
 for j = # n , 1 , - 1 do
 local t = lastToken ( n [ j ] )
-if t then return t end
+if t then
+return t
+end
 end
 return nil
 end
@@ -22026,7 +24585,9 @@ if pair then
 openIdx , closer = idx , pair
 end
 elseif child . kind == closer then
-if idx > openIdx + 1 then return openIdx , idx end
+if idx > openIdx + 1 then
+return openIdx , idx
+end
 return nil
 end
 end
@@ -22040,10 +24601,14 @@ end
 local function breakIfArms ( n )
 local function breakBefore ( node )
 local tok = node and firstToken ( node )
-if tok then tok . forceBreak = true end
+if tok then
+tok . forceBreak = true
+end
 end
 for idx , clause in ipairs ( n . clauses or { } ) do
-if idx > 1 then breakBefore ( clause ) end
+if idx > 1 then
+breakBefore ( clause )
+end
 breakBefore ( clause . body )
 end
 if n . elseClause then
@@ -22051,7 +24616,9 @@ breakBefore ( n . elseClause )
 breakBefore ( n . elseClause . body )
 end
 local close = lastToken ( n )
-if close and close . kind == "end" then close . forceBreak = true end
+if close and close . kind == "end" then
+close . forceBreak = true
+end
 end
 
 
@@ -22077,7 +24644,9 @@ if op and ( op . kind ~= "not" or op . text == "!" ) then
 op . unaryTok = true
 end
 elseif kind == "binop" then
-if n . op and BREAK_OPS [ n . op . kind ] then n . op . breakOp = true end
+if n . op and BREAK_OPS [ n . op . kind ] then
+n . op . breakOp = true
+end
 elseif kind == "ifStmt" then
 breakIfArms ( n )
 end
@@ -22085,7 +24654,9 @@ end
 local openIdx , closeIdx
 if kind == "withStmt" then
 for idx , child in ipairs ( n ) do
-if child == n . withTok then openIdx = idx end
+if child == n . withTok then
+openIdx = idx
+end
 if child == n . doTok then
 closeIdx = idx
 child . withHeaderClose = true
@@ -22126,14 +24697,18 @@ markStart = true
 walk ( stat , block + 1 , childGroup )
 markStart = false
 local first , last = firstToken ( stat ) , lastToken ( stat )
-if first then first . stmtLastTok = last end
+if first then
+first . stmtLastTok = last
+end
 end
 elseif declish and child ~= n . generics then
 markStart = true
 walk ( child , block + 1 , childGroup )
 markStart = false
 local first , last = firstToken ( child ) , lastToken ( child )
-if first then first . stmtLastTok = last end
+if first then
+first . stmtLastTok = last
+end
 elseif kind == "pragmaStmt" and child == n . stat then
 
 
@@ -22155,7 +24730,9 @@ markStart = true
 walk ( stat , 0 , nil )
 markStart = false
 local first , last = firstToken ( stat ) , lastToken ( stat )
-if first then first . stmtLastTok = last end
+if first then
+first . stmtLastTok = last
+end
 end
 else
 walk ( child , 0 , nil )
@@ -22170,34 +24747,60 @@ end
 
 
 local function sep ( prev , tok )
-if prev . spacedTok or tok . spacedTok then return " " end
-if prev . unaryTok then return "" end
-
-if prev . _shortfnOpen or tok . _shortfnClose then return "" end
-if prev . kind == "..." and tok . namedVararg then return "" end
-
-
-if prev . typeColon then return " " end
-if tok . typePostfix then return "" end
-if tok . generic then return "" end
-if prev . generic then
-if prev . kind == "<" then return "" end
-if tok . kind == "(" then return "" end
+if prev . spacedTok or tok . spacedTok then
+return " "
 end
-if NO_SPACE_AFTER [ prev . kind ] then return "" end
+if prev . unaryTok then
+return ""
+end
+
+if prev . _shortfnOpen or tok . _shortfnClose then
+return ""
+end
+if prev . kind == "..." and tok . namedVararg then
+return ""
+end
+
+
+if prev . typeColon then
+return " "
+end
+if tok . typePostfix then
+return ""
+end
+if tok . generic then
+return ""
+end
+if prev . generic then
+if prev . kind == "<" then
+return ""
+end
+if tok . kind == "(" then
+return ""
+end
+end
+if NO_SPACE_AFTER [ prev . kind ] then
+return ""
+end
 local k = tok . kind
-if NO_SPACE_BEFORE [ k ] then return "" end
+if NO_SPACE_BEFORE [ k ] then
+return ""
+end
 if k == "::" then
 return prev . kind == "name" and "" or " "
 end
 if k == "(" or k == "[" then
-if k == "[" and prev . propertyCapability then return " " end
+if k == "[" and prev . propertyCapability then
+return " "
+end
 return CALLEE_KINDS [ prev . kind ] and "" or " "
 end
 if k == "{" or k == "string" then
 
 
-if prev . contextualOp then return " " end
+if prev . contextualOp then
+return " "
+end
 return prev . kind == "name" and "" or " "
 end
 return " "
@@ -22227,8 +24830,12 @@ line = word
 width = restWidth
 end
 end
-if line ~= "" then lines [ # lines + 1 ] = line end
-if # lines == 0 then lines [ 1 ] = "" end
+if line ~= "" then
+lines [ # lines + 1 ] = line
+end
+if # lines == 0 then
+lines [ 1 ] = ""
+end
 return lines
 end
 
@@ -22242,7 +24849,9 @@ for _ , raw in ipairs ( rawLines ) do
 local body = raw : gsub ( "^%-%-+" , "" )
 body = body : gsub ( "^ " , "" )
 local fence = body : match ( "^%s*```" )
-if fence then fenced = not fenced end
+if fence then
+fenced = not fenced
+end
 if fenced or fence or ( not fenced and body : match ( "^    %S" ) ) then
 current = nil
 blocks [ # blocks + 1 ] = { kind = "verbatim" , text = body }
@@ -22273,7 +24882,9 @@ end
 local function renderComment ( rawLines , indentStr , marker )
 local prefix = indentStr .. marker
 local width = DOC_WIDTH - displayWidth ( prefix ) - 1
-if width < 24 then width = 24 end
+if width < 24 then
+width = 24
+end
 local out = { }
 for _ , block in ipairs ( parseDoc ( rawLines ) ) do
 if block . kind == "blank" then
@@ -22299,7 +24910,9 @@ out [ # out + 1 ] = ( prefix .. " " .. line ) : gsub ( "%s+$" , "" )
 end
 end
 end
-if # out == 0 then out [ 1 ] = prefix end
+if # out == 0 then
+out [ 1 ] = prefix
+end
 return out
 end
 
@@ -22391,7 +25004,9 @@ end
 
 local function lineFirstToken ( line )
 for _ , item in ipairs ( line . items ) do
-if item . kind == "token" then return item . token end
+if item . kind == "token" then
+return item . token
+end
 end
 return nil
 end
@@ -22408,7 +25023,9 @@ end
 parts [ # parts + 1 ] = item . token . text
 prevTok = item . token
 elseif item . kind == "comment" or item . kind == "raw" then
-if # parts > 0 then parts [ # parts + 1 ] = " " end
+if # parts > 0 then
+parts [ # parts + 1 ] = " "
+end
 parts [ # parts + 1 ] = item . text
 prevTok = nil
 end
@@ -22422,7 +25039,9 @@ end
 local function computeIndents ( lines )
 for idx , line in ipairs ( lines ) do
 for _ , item in ipairs ( line . items ) do
-if item . kind == "token" then item . token . lineIdx = idx end
+if item . kind == "token" then
+item . token . lineIdx = idx
+end
 end
 end
 for _ , line in ipairs ( lines ) do
@@ -22439,7 +25058,9 @@ firstInner = it2 . token
 break
 end
 end
-if firstInner then break end
+if firstInner then
+break
+end
 end
 g . broken = firstInner ~= nil and firstInner . lineIdx > item . token . lineIdx
 end
@@ -22452,7 +25073,9 @@ local depth = tok . blockDepth or 0
 local hang = 0
 local g = tok . groupRef
 while g do
-if g . broken then hang = hang + 1 end
+if g . broken then
+hang = hang + 1
+end
 g = g . parent
 end
 depth = depth + hang
@@ -22482,7 +25105,9 @@ end
 
 local function indexOfToken ( items , tok )
 for idx , item in ipairs ( items ) do
-if item . kind == "token" and item . token == tok then return idx end
+if item . kind == "token" and item . token == tok then
+return idx
+end
 end
 return nil
 end
@@ -22537,7 +25162,9 @@ if start <= closeIdx - 1 then
 emit ( slice ( start , closeIdx - 1 ) , line . indent + 1 )
 end
 emit ( slice ( closeIdx , # line . items ) , line . indent )
-if # out > 1 then return out end
+if # out > 1 then
+return out
+end
 return nil
 end
 
@@ -22555,14 +25182,18 @@ breaks [ # breaks + 1 ] = idx
 end
 end
 end
-if # breaks == 0 then return nil end
+if # breaks == 0 then
+return nil
+end
 local start = 1
 for _ , at in ipairs ( breaks ) do
 emit ( slice ( start , at - 1 ) , start == 1 and line . indent or line . indent + 1 )
 start = at
 end
 emit ( slice ( start , # line . items ) , line . indent + 1 )
-if # out > 1 then return out end
+if # out > 1 then
+return out
+end
 return nil
 end
 
@@ -22588,7 +25219,9 @@ next_ [ # next_ + 1 ] = line
 end
 end
 lines = next_
-if not changed then break end
+if not changed then
+break
+end
 end
 computeIndents ( lines )
 return lines
@@ -22613,7 +25246,9 @@ local wantBlank = line . blankBefore
 if doc and # out > 0 and out [ # out ] ~= "" and line . indent <= prevIndent then
 wantBlank = true
 end
-if wantBlank and # out > 0 then push ( "" ) end
+if wantBlank and # out > 0 then
+push ( "" )
+end
 if doc or plain then
 local commentLines = doc and renderDoc ( doc . rawLines , indentStr )
 or renderComment ( plain . rawLines , indentStr , "--" )
@@ -22645,7 +25280,9 @@ end
 local text = table . concat ( out , "\n" )
 text = text : gsub ( "\n\n\n+" , "\n\n" )
 text = text : gsub ( "^\n+" , "" ) : gsub ( "%s+$" , "" )
-if # text > 0 then text = text .. "\n" end
+if # text > 0 then
+text = text .. "\n"
+end
 return text
 end
 
@@ -22677,12 +25314,16 @@ end
 
 local applications = { }
 local function walk ( node )
-if not node or cst . isToken ( node ) then return end
+if not node or cst . isToken ( node ) then
+return
+end
 if node . kind == "pragmaStmt" or node . kind == "annotationApply" then
 applications [ # applications + 1 ] = node
 end
 for _ , child in ipairs ( node ) do
-if not cst . isToken ( child ) then walk ( child ) end
+if not cst . isToken ( child ) then
+walk ( child )
+end
 end
 end
 walk ( result . root )
@@ -22700,7 +25341,11 @@ local duplicate = false
 for _ , entry in ipairs ( target . entries or { } ) do
 for _ , attached in ipairs ( entry . annotations or { } ) do
 if attached . name . text == "annotationValue" then
-if marked then duplicate = true else marked = entry . name . text end
+if marked then
+duplicate = true
+else
+marked = entry . name . text
+end
 end
 end
 end
@@ -22714,7 +25359,9 @@ end
 
 local function triviaIsWhitespace ( tok )
 for _ , trivia in ipairs ( tok and tok . trivia or { } ) do
-if trivia . kind ~= "whitespace" then return false end
+if trivia . kind ~= "whitespace" then
+return false
+end
 end
 return true
 end
@@ -22723,7 +25370,9 @@ local name = application . name . text
 local member = singleValues [ name ]
 if opts and opts . resolveAnnotation and not localDefinitions [ name ] then
 local definition = opts . resolveAnnotation ( name )
-if definition then member = definition . singleValue end
+if definition then
+member = definition . singleValue
+end
 end
 local args = application . annotationArgs or { }
 local arg = # args == 1 and args [ 1 ] or nil
@@ -22745,10 +25394,14 @@ end
 
 
 local function parenthesizeMethodCalls ( result , opts )
-if opts and opts . methodParens == false then return end
+if opts and opts . methodParens == false then
+return
+end
 local before , after = { } , { }
 local function walk ( node )
-if not node or cst . isToken ( node ) then return end
+if not node or cst . isToken ( node ) then
+return
+end
 if node . kind == "methodCall" then
 local args = node . args
 if args and not args . exprs and ( args . table or args . str ) then
@@ -22766,16 +25419,24 @@ end
 end
 end
 for _ , child in ipairs ( node ) do
-if not cst . isToken ( child ) then walk ( child ) end
+if not cst . isToken ( child ) then
+walk ( child )
+end
 end
 end
 walk ( result . root )
-if not next ( before ) then return end
+if not next ( before ) then
+return
+end
 local tokens = { }
 for _ , tok in ipairs ( result . tokens ) do
-if before [ tok ] then tokens [ # tokens + 1 ] = before [ tok ] end
+if before [ tok ] then
+tokens [ # tokens + 1 ] = before [ tok ]
+end
 tokens [ # tokens + 1 ] = tok
-if after [ tok ] then tokens [ # tokens + 1 ] = after [ tok ] end
+if after [ tok ] then
+tokens [ # tokens + 1 ] = after [ tok ]
+end
 end
 result . tokens = tokens
 end
@@ -22959,7 +25620,9 @@ end
 
 local function nextCodepoint ( text , pos )
 local b1 = text : byte ( pos )
-if not b1 or b1 < 0x80 then return b1 , pos + 1 end
+if not b1 or b1 < 0x80 then
+return b1 , pos + 1
+end
 local count , cp
 if b1 >= 0xc2 and b1 <= 0xdf then
 count , cp = 2 , b1 - 0xc0
@@ -22972,7 +25635,9 @@ return b1 , pos + 1
 end
 for j = 2 , count do
 local byte = text : byte ( pos + j - 1 )
-if not byte or byte < 0x80 or byte > 0xbf then return b1 , pos + 1 end
+if not byte or byte < 0x80 or byte > 0xbf then
+return b1 , pos + 1
+end
 cp = cp * 0x40 + byte - 0x80
 end
 if ( count == 3 and cp < 0x800 ) or ( count == 4 and cp < 0x10000 )
@@ -23063,9 +25728,15 @@ return ( path : gsub ( "/$" , "" ) )
 end
 
 local function join ( left , right )
-if not left or left == "" or left == "." then return normalize ( right ) end
-if not right or right == "" then return normalize ( left ) end
-if right : sub ( 1 , 1 ) == "/" then return normalize ( right ) end
+if not left or left == "" or left == "." then
+return normalize ( right )
+end
+if not right or right == "" then
+return normalize ( left )
+end
+if right : sub ( 1 , 1 ) == "/" then
+return normalize ( right )
+end
 return normalize ( left .. "/" .. right )
 end
 
@@ -23079,7 +25750,9 @@ end
 
 local function readFile ( path )
 local f , err = io . open ( path , "rb" )
-if not f then return nil , err end
+if not f then
+return nil , err
+end
 local text = f : read ( "*a" )
 f : close ( )
 return text
@@ -23087,21 +25760,29 @@ end
 
 local function exists ( path )
 local f = io . open ( path , "rb" )
-if not f then return false end
+if not f then
+return false
+end
 f : close ( )
 return true
 end
 
 local function mkdir ( path )
-if path == "" or path == "." then return true end
+if path == "" or path == "." then
+return true
+end
 return process . run ( process . mkdirCommand ( path ) ) == 0
 end
 
 local function writeFile ( path , text )
-if not mkdir ( dirname ( path ) ) then return nil , "cannot create " .. dirname ( path ) end
+if not mkdir ( dirname ( path ) ) then
+return nil , "cannot create " .. dirname ( path )
+end
 local tmp = path .. ".tmp"
 local f , err = io . open ( tmp , "wb" )
-if not f then return nil , err end
+if not f then
+return nil , err
+end
 f : write ( text )
 f : close ( )
 local ok , renameErr = os . rename ( tmp , path )
@@ -23109,17 +25790,27 @@ if not ok and exists ( path ) then
 local backup = path .. ".old"
 os . remove ( backup )
 local moved , moveErr = os . rename ( path , backup )
-if not moved then os . remove ( tmp ) ; return nil , moveErr end
-ok , renameErr = os . rename ( tmp , path )
-if ok then os . remove ( backup ) else os . rename ( backup , path ) end
+if not moved then
+os . remove ( tmp ) ; return nil , moveErr
 end
-if not ok then os . remove ( tmp ) ; return nil , renameErr end
+ok , renameErr = os . rename ( tmp , path )
+if ok then
+os . remove ( backup )
+else
+os . rename ( backup , path )
+end
+end
+if not ok then
+os . remove ( tmp ) ; return nil , renameErr
+end
 return true
 end
 
 local function copyFile ( source , destination )
 local text , err = readFile ( source )
-if not text then return nil , err end
+if not text then
+return nil , err
+end
 return writeFile ( destination , text )
 end
 
@@ -23130,7 +25821,9 @@ code , output = process . capture ( { "cmd" , "/c" , "dir" , "/s" , "/b" , path 
 else
 code , output = process . capture ( { "find" , path , "-type" , "f" } )
 end
-if code ~= 0 then return { } end
+if code ~= 0 then
+return { }
+end
 local files = { }
 for file in output : gmatch ( "[^\r\n]+" ) do files [ # files + 1 ] = normalize ( file ) end
 table . sort ( files )
@@ -23140,7 +25833,9 @@ end
 
 
 local function writeFileIfChanged ( path , text )
-if readFile ( path ) == text then return true end
+if readFile ( path ) == text then
+return true
+end
 return writeFile ( path , text )
 end
 
@@ -23220,20 +25915,28 @@ local CP
 
 
 
-
 local function cdefCType ( t )
-if t . kind == "topt" then t = t . inner end
+if t . kind == "topt" then
+t = t . inner
+end
 if t . kind == "tname" then
 local name = t . base . text
-if name == "cstring" then return "const char *" end
-if name == "voidptr" then return "void *" end
-if t . cdefName then return "struct " .. t . cdefName end
+if name == "cstring" then
+return "const char *"
+end
+if name == "voidptr" then
+return "void *"
+end
+if t . cdefName then
+return "struct " .. t . cdefName
+end
 return CP [ name ]
 elseif t . kind == "tconst" then
 local inner = cdefCType ( t . inner )
-if inner then return "const " .. inner end
+if inner then
+return "const " .. inner
+end
 elseif t . kind == "tcarray" then
-
 
 
 
@@ -23243,13 +25946,17 @@ return element .. "[" .. ( t . count and t . count . text or "?" ) .. "]"
 end
 elseif t . kind == "tptr" then
 local inner = cdefCType ( t . inner )
-if inner then return inner .. " *" end
+if inner then
+return inner .. " *"
+end
 elseif t . kind == "tfunc" then
 local params = { }
 for _ , param in ipairs ( t . params or { } ) do
 if param . type then
 local rendered = cdefCType ( param . type )
-if not rendered then return nil end
+if not rendered then
+return nil
+end
 params [ # params + 1 ] = rendered
 elseif param [ 1 ] and cst . isToken ( param [ 1 ] )
 and param [ 1 ] . kind == "..." then
@@ -23258,9 +25965,13 @@ end
 end
 local ret = "void"
 if t . rets and # t . rets > 0 then
-if # t . rets > 1 then return nil end
+if # t . rets > 1 then
+return nil
+end
 ret = cdefCType ( t . rets [ 1 ] )
-if not ret then return nil end
+if not ret then
+return nil
+end
 end
 return ( "%s (*)(%s)" ) : format ( ret ,
 # params > 0 and table . concat ( params , ", " ) or "void" )
@@ -23305,7 +26016,9 @@ end
 
 
 local function declPath ( x )
-if not x . qualifiers then return nil end
+if not x . qualifiers then
+return nil
+end
 local parts = { }
 for _ , token in ipairs ( x . qualifiers ) do
 parts [ # parts + 1 ] = token . text
@@ -23322,7 +26035,9 @@ local diags = { }
 local tempCounter = 0
 local usedNames = { }
 for _ , tok in ipairs ( result . tokens or { } ) do
-if tok . kind == "name" then usedNames [ tok . text ] = true end
+if tok . kind == "name" then
+usedNames [ tok . text ] = true
+end
 end
 local function nextTemp ( )
 local name
@@ -23343,7 +26058,6 @@ local withPackName , withIdName , withFailureName
 
 
 local withGlobals
-
 
 
 local withCacheName
@@ -23381,18 +26095,26 @@ end
 
 local function e ( text , line )
 sync ( line )
-if not atLineStart then raw ( " " ) end
+if not atLineStart then
+raw ( " " )
+end
 raw ( text )
 end
 
 local emit
 
 local function sourceLine ( node )
-if not node then return nil end
-if cst . isToken ( node ) then return node . line end
+if not node then
+return nil
+end
+if cst . isToken ( node ) then
+return node . line
+end
 for _ , child in ipairs ( node ) do
 local line = sourceLine ( child )
-if line then return line end
+if line then
+return line
+end
 end
 return nil
 end
@@ -23406,9 +26128,15 @@ end
 local function labelsIn ( block )
 local labels = { }
 local function walk ( n )
-if not n or cst . isToken ( n ) then return end
-if n . kind == "funcbody" then return end
-if n . kind == "withStmt" then return end
+if not n or cst . isToken ( n ) then
+return
+end
+if n . kind == "funcbody" then
+return
+end
+if n . kind == "withStmt" then
+return
+end
 if n . kind == "labelStmt" and n . name then
 labels [ n . name . text ] = true
 end
@@ -23426,8 +26154,12 @@ end
 local function usesVararg ( block )
 local found = false
 local function walk ( n )
-if found or not n or cst . isToken ( n ) then return end
-if n . kind == "funcbody" or n . kind == "shortfn" then return end
+if found or not n or cst . isToken ( n ) then
+return
+end
+if n . kind == "funcbody" or n . kind == "shortfn" then
+return
+end
 if n . kind == "vararg" then
 found = true
 return
@@ -23440,14 +26172,18 @@ end
 
 local function activeWith ( )
 local ctx = withStack [ # withStack ]
-if ctx and ctx . functionDepth == emitFunctionDepth then return ctx end
+if ctx and ctx . functionDepth == emitFunctionDepth then
+return ctx
+end
 return nil
 end
 
 local function emitPackedReturn ( ctx , x )
 e ( ( "return \"return\",%s(" ) : format ( withPackName ) , sourceLine ( x ) )
 for j , expr in ipairs ( x . exprs or { } ) do
-if j > 1 then e ( "," ) end
+if j > 1 then
+e ( "," )
+end
 emit ( expr )
 end
 e ( ")" )
@@ -23455,8 +26191,12 @@ end
 
 emit = function ( x )
 if cst . isToken ( x ) then
-if x . missing or x . kind == "eof" then return end
-if x . typeColon or x . typeSeparator then return end
+if x . missing or x . kind == "eof" then
+return
+end
+if x . typeColon or x . typeSeparator then
+return
+end
 local text = x . text
 if x . kind == "string" and text : sub ( 1 , 1 ) == "`" then
 
@@ -23479,6 +26219,55 @@ e ( "(" , sourceLine ( x ) )
 emit ( x )
 e ( ").pointer" )
 x . passPinnedPointer = true
+return
+end
+if x . folded then
+e ( x . folded , sourceLine ( x ) )
+return
+end
+if kind == "assignStmt" and x . isConst then
+for i , target in ipairs ( x . targets or { } ) do
+if i > 1 then
+e ( "," )
+end
+emit ( target )
+end
+e ( "=" )
+for i , value in ipairs ( x . exprs or { } ) do
+if i > 1 then
+e ( "," )
+end
+emit ( value )
+end
+return
+end
+if kind == "fieldNamed" and x . isConst then
+if x . name then
+emit ( x . name )
+end
+e ( "=" )
+if x . value then
+emit ( x . value )
+end
+return
+end
+if kind == "ifStmt" and ( x . constantBranch or x . constantBranchNone ) then
+
+
+
+e ( "do" , sourceLine ( x ) )
+if x . constantBranch then
+emit ( x . constantBranch )
+end
+local endTok
+for i = # x , 1 , - 1 do
+local child = x [ i ]
+if cst . isToken ( child ) and child . kind == "end" then
+endTok = child
+break
+end
+end
+e ( "end" , endTok and endTok . line or nil )
 return
 end
 if kind == "recordDecl" and x . declKind == "record" then
@@ -23517,7 +26306,9 @@ if entry . kind == "fieldDecl" then
 local fname = entry . name . text
 local t = entry . type
 
-if t . kind == "topt" then t = t . inner end
+if t . kind == "topt" then
+t = t . inner
+end
 if t . kind == "tname" and C_PRIM [ t . base . text ] then
 cdecl [ # cdecl + 1 ] = C_PRIM [ t . base . text ] .. " " .. fname .. ";"
 elseif t . kind == "tname" then
@@ -23748,19 +26539,25 @@ elseif child . kind == "istringClose" then
 chunk = text : sub ( 2 , - 2 )
 end
 if chunk and # chunk > 0 then
-if piecesOpen then e ( ".." ) end
+if piecesOpen then
+e ( ".." )
+end
 e ( quoteChunk ( chunk ) , child . line )
 piecesOpen = true
 end
 else
-if piecesOpen then e ( ".." ) end
+if piecesOpen then
+e ( ".." )
+end
 e ( "tostring(" )
 emit ( child )
 e ( ")" )
 piecesOpen = true
 end
 end
-if not piecesOpen then e ( '""' ) end
+if not piecesOpen then
+e ( '""' )
+end
 e ( ")" )
 
 elseif kind == "binop" and x . op . kind == "//" then
@@ -23771,7 +26568,6 @@ emit ( x . rhs )
 e ( "))" )
 
 elseif kind == "compoundAssign" and LOWERED_COMPOUND [ x . op . kind ] then
-
 
 
 
@@ -23840,7 +26636,9 @@ e ( ( "local %s=__nuppFfi.new(%q); " ) : format ( holder , spelling ) )
 end
 local hasStatus = x . ffiOutContracts [ 1 ] . hasStatus
 local status = hasStatus and nextTemp ( ) or nil
-if status then e ( "local " .. status .. "=" ) end
+if status then
+e ( "local " .. status .. "=" )
+end
 emit ( x . obj )
 e ( "(" )
 local args = x . args and x . args . exprs or { }
@@ -23850,7 +26648,9 @@ outputAt [ output . cIndex ] = holders [ j ]
 end
 local argumentIndex = 1
 for cIndex = 1 , # args + # holders do
-if cIndex > 1 then e ( "," ) end
+if cIndex > 1 then
+e ( "," )
+end
 if outputAt [ cIndex ] then
 e ( outputAt [ cIndex ] )
 else
@@ -23859,9 +26659,13 @@ argumentIndex = argumentIndex + 1
 end
 end
 e ( "); return " )
-if status then e ( status ) end
+if status then
+e ( status )
+end
 for j , output in ipairs ( x . ffiOutContracts ) do
-if status or j > 1 then e ( "," ) end
+if status or j > 1 then
+e ( "," )
+end
 if output . success == "zero" then
 e ( ( "(%s==0 and %s[0] or nil)" ) : format ( status , holders [ j ] ) )
 elseif output . success == "nonzero" then
@@ -23881,19 +26685,43 @@ elseif kind == "call" and x . ownershipIntrinsic then
 local args = x . args and x . args . exprs or { }
 local line = sourceLine ( x )
 if x . ownershipIntrinsic == "borrow" then
-if args [ 1 ] then emit ( args [ 1 ] ) else e ( "nil" , line ) end
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" , line )
+end
 elseif x . ownershipIntrinsic == "borrowFrom" then
-if args [ 1 ] then emit ( args [ 1 ] ) else e ( "nil" , line ) end
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" , line )
+end
 elseif x . ownershipIntrinsic == "pin" then
 e ( "{pointer=" , line )
-if args [ 1 ] then emit ( args [ 1 ] ) else e ( "nil" ) end
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
 e ( ",anchor=" )
-if args [ 2 ] then emit ( args [ 2 ] ) else e ( "nil" ) end
+if args [ 2 ] then
+emit ( args [ 2 ] )
+else
+e ( "nil" )
+end
 e ( "}" )
 elseif x . ownershipIntrinsic == "intoRaw" then
-if args [ 1 ] then emit ( args [ 1 ] ) else e ( "nil" ) end
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
 elseif x . ownershipIntrinsic == "fromRaw" then
-if args [ 1 ] then emit ( args [ 1 ] ) else e ( "nil" ) end
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
 else
 e ( "(function(__p) if __p == nil then return end " , line )
 for _ , cleanup in ipairs ( x . ownerCleanups or { } ) do
@@ -23915,7 +26743,11 @@ e ( cleanup .. "(__p); " )
 end
 end
 e ( "end)(" )
-if args [ 1 ] then emit ( args [ 1 ] ) else e ( "nil" ) end
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
 e ( ")" )
 end
 return
@@ -23973,7 +26805,9 @@ local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 e ( ( "__nuppArray(%s)(" ) : format ( x . carrayElem ) , line )
 local args = x . args and x . args . exprs or { }
-if args [ 2 ] then emit ( args [ 2 ] ) end
+if args [ 2 ] then
+emit ( args [ 2 ] )
+end
 e ( ")" )
 return
 
@@ -23998,7 +26832,9 @@ local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 e ( "setmetatable(" , line )
 local tbl = x . args and ( x . args . table or ( x . args . exprs or { } ) [ 1 ] )
-if tbl then emit ( tbl ) end
+if tbl then
+emit ( tbl )
+end
 e ( ", " .. x . recordConstruct .. ")" )
 return
 
@@ -24023,7 +26859,9 @@ e ( ( "const %s = { n = select(\"#\", ...), ... }" )
 : format ( body . varargParam . name . text ) )
 end
 emitFunctionDepth = emitFunctionDepth + 1
-if body . body then emit ( body . body ) end
+if body . body then
+emit ( body . body )
+end
 emitFunctionDepth = emitFunctionDepth - 1
 local endTok
 for j = # body , 1 , - 1 do
@@ -24041,7 +26879,9 @@ needsFfi = true
 local first = x [ 1 ]
 local line = first and cst . isToken ( first ) and first . line or nil
 local names = { }
-if x . name . method then names [ 1 ] = "self" end
+if x . name . method then
+names [ 1 ] = "self"
+end
 for _ , p in ipairs ( x . body . params or { } ) do
 if p . namedVararg then
 names [ # names + 1 ] = "..."
@@ -24059,7 +26899,9 @@ e ( ( "const %s = { n = select(\"#\", ...), ... }" )
 : format ( x . body . varargParam . name . text ) )
 end
 emitFunctionDepth = emitFunctionDepth + 1
-if x . body . body then emit ( x . body . body ) end
+if x . body . body then
+emit ( x . body . body )
+end
 emitFunctionDepth = emitFunctionDepth - 1
 
 local endTok
@@ -24108,7 +26950,6 @@ gotos = { } ,
 
 
 
-
 local shared = not x . capturesEnclosing
 and # ( x . bindings or { } ) == 1
 if shared then
@@ -24124,7 +26965,9 @@ e ( ( "; local %s=%s[%d]; if not %s then %s=function(%s%s)" )
 binding . name . text , variadic and ",..." or "" ) )
 withStack [ # withStack + 1 ] = ctx
 e ( "do" )
-if x . body then emit ( x . body ) end
+if x . body then
+emit ( x . body )
+end
 e ( ( "end; return \"normal\" end; %s[%d]=%s end;" )
 : format ( withCacheName , slot , region ) )
 e ( ( "local %s,%s,%s=%s(%s,%s,%s%s);" ) : format (
@@ -24147,7 +26990,9 @@ e ( ( "; %s=%d; local %s=%s;" ) : format (
 count , j , binding . name . text , owners [ j ] ) )
 end
 e ( "do" )
-if x . body then emit ( x . body ) end
+if x . body then
+emit ( x . body )
+end
 e ( ( "end; return \"normal\" end,%s%s);" ) : format ( withIdName ,
 variadic and ",..." or "" ) )
 withStack [ # withStack ] = nil
@@ -24257,6 +27102,37 @@ local ctx = activeWith ( )
 ctx . gotos [ x . name . text ] = true
 e ( ( "return %q" ) : format ( "goto:" .. x . name . text ) , sourceLine ( x ) )
 
+elseif kind == "forinStmt" and x . numericIpairs then
+local holder , index = nextTemp ( ) , nextTemp ( )
+local operand = x . numericIpairs . operand
+local first = x [ 1 ]
+local line = first and cst . isToken ( first ) and first . line or sourceLine ( x )
+e ( ( "do local %s=" ) : format ( holder ) , line )
+emit ( operand )
+e ( ( ";for %s=1,%d do" ) : format ( index , x . numericIpairs . length ) )
+local names = x . names or { }
+if names [ 1 ] then
+e ( ( "local %s=%s;" ) : format ( names [ 1 ] . text , index ) )
+end
+if names [ 2 ] then
+e ( ( "local %s=%s[%s];" ) : format ( names [ 2 ] . text , holder , index ) )
+end
+for j = 3 , # names do e ( ( "local %s=nil;" ) : format ( names [ j ] . text ) ) end
+emitLoopDepth = emitLoopDepth + 1
+if x . body then
+emit ( x . body )
+end
+emitLoopDepth = emitLoopDepth - 1
+local endTok
+for j = # x , 1 , - 1 do
+local child = x [ j ]
+if cst . isToken ( child ) and child . kind == "end" then
+endTok = child
+break
+end
+end
+e ( "end end" , endTok and endTok . line or nil )
+
 elseif kind == "whileStmt" or kind == "fornumStmt"
 or kind == "forinStmt" or kind == "repeatStmt" then
 for _ , child in ipairs ( x ) do
@@ -24285,11 +27161,15 @@ end
 emitFunctionDepth = emitFunctionDepth - 1
 
 elseif kind == "pragmaStmt" then
-if x . stat then emit ( x . stat ) end
+if x . stat then
+emit ( x . stat )
+end
 
 elseif kind == "unsafeStmt" then
 e ( "do" , x . unsafeTok and x . unsafeTok . line or nil )
-if x . body then emit ( x . body ) end
+if x . body then
+emit ( x . body )
+end
 e ( "end" , x . endTok and x . endTok . line or nil )
 
 elseif kind == "localStmt" then
@@ -24440,7 +27320,9 @@ local generics = { }
 
 
 function generics . subst ( t , map )
-if not T . hasTypevar ( t ) then return t end
+if not T . hasTypevar ( t ) then
+return t
+end
 local tag = t . tag
 if tag == "typevar" then
 return map [ t ] or T . any
@@ -24523,7 +27405,9 @@ parts [ # parts + 1 ] = ( map [ tv ] or T . any ) . id
 end
 local key = table . concat ( parts , "|" )
 local cached = instantiations [ key ]
-if cached then return cached end
+if cached then
+return cached
+end
 local inst = T . nominal ( n . name , n . declKind )
 inst . origin = n
 inst . typeArgs = { }
@@ -24571,7 +27455,9 @@ end
 
 function generics . unify ( param , arg , map )
 param , arg = T . unwrapOwnership ( param ) , T . unwrapOwnership ( arg )
-if not T . hasTypevar ( param ) then return end
+if not T . hasTypevar ( param ) then
+return
+end
 local tag = param . tag
 if tag == "typevar" then
 if arg ~= T . any and arg ~= T . nil_ then
@@ -24630,8 +27516,12 @@ if reads or writes then
 for _ , f in ipairs ( param . fields ) do
 local read = reads and reads [ f . name ]
 local write = writes and writes [ f . name ]
-if f . read and read then generics . unify ( f . read , read , map ) end
-if f . write and write then generics . unify ( f . write , write , map ) end
+if f . read and read then
+generics . unify ( f . read , read , map )
+end
+if f . write and write then
+generics . unify ( f . write , write , map )
+end
 end
 end
 elseif tag == "func" then
@@ -24642,7 +27532,9 @@ generics . unify ( p , arg . params [ j ] , map )
 end
 end
 for j , r in ipairs ( param . rets ) do
-if arg . rets [ j ] then generics . unify ( r , arg . rets [ j ] , map ) end
+if arg . rets [ j ] then
+generics . unify ( r , arg . rets [ j ] , map )
+end
 end
 end
 elseif tag == "nominal" then
@@ -24652,12 +27544,16 @@ local ao = arg . origin or arg
 if po == ao then
 for j , p in ipairs ( param . typeArgs or { } ) do
 local a = arg . typeArgs and arg . typeArgs [ j ]
-if a then generics . unify ( p , a , map ) end
+if a then
+generics . unify ( p , a , map )
+end
 end
 end
 end
 elseif tag == "ptr" then
-if arg . tag == "ptr" then generics . unify ( param . elem , arg . elem , map ) end
+if arg . tag == "ptr" then
+generics . unify ( param . elem , arg . elem , map )
+end
 end
 end
 
@@ -24703,7 +27599,9 @@ end
 
 
 function generics . addSelf ( ft , selfType , selfMode )
-if ft . tag ~= "func" then return ft end
+if ft . tag ~= "func" then
+return ft
+end
 local params = { selfType }
 local modes = { selfMode or "plain" }
 for _ , p in ipairs ( ft . params ) do params [ # params + 1 ] = p end
@@ -24740,7 +27638,9 @@ local process = require ( "nupp.build.process" )
 
 local function readFile ( path )
 local f = io . open ( path , "rb" )
-if not f then return nil end
+if not f then
+return nil
+end
 local s = f : read ( "*a" )
 f : close ( )
 return s
@@ -24748,7 +27648,9 @@ end
 
 local function capture ( argv )
 local code , out = process . capture ( argv )
-if code ~= 0 then return nil end
+if code ~= 0 then
+return nil
+end
 return out
 end
 
@@ -24777,7 +27679,9 @@ local function normalize ( text )
 while true do
 local s2 , changed = text : gsub ( "__attribute__%s*%(%b()%)" , "" )
 text = s2
-if changed == 0 then break end
+if changed == 0 then
+break
+end
 end
 text = text : gsub ( "__asm__%s*%b()" , "" )
 text = text : gsub ( "__asm%s*%b()" , "" )
@@ -24793,12 +27697,18 @@ end
 local function statements ( text )
 local out , buf , depth = { } , { } , 0
 for ch in text : gmatch ( "." ) do
-if ch == "{" then depth = depth + 1 end
-if ch == "}" then depth = depth - 1 end
+if ch == "{" then
+depth = depth + 1
+end
+if ch == "}" then
+depth = depth - 1
+end
 if ch == ";" and depth == 0 then
 local stmt = table . concat ( buf ) : gsub ( "%s+" , " " ) : gsub ( "^%s+" , "" )
 : gsub ( "%s+$" , "" )
-if # stmt > 0 then out [ # out + 1 ] = stmt end
+if # stmt > 0 then
+out [ # out + 1 ] = stmt
+end
 buf = { }
 else
 buf [ # buf + 1 ] = ch
@@ -24812,15 +27722,15 @@ end
 
 
 
-
 local function stripLinemarkers ( text )
 local out = { }
 for line in ( text .. "\n" ) : gmatch ( "(.-)\n" ) do
-if not line : match ( "^#" ) then out [ # out + 1 ] = line end
+if not line : match ( "^#" ) then
+out [ # out + 1 ] = line
+end
 end
 return table . concat ( out , "\n" )
 end
-
 
 
 
@@ -24877,15 +27787,23 @@ local kind = model and model . kind or "unknown"
 if kind == "boolean" then
 return "boolean"
 elseif kind == "float" then
-if model . bits == 32 then return "float" end
-if model . bits == 64 then return "number" end
+if model . bits == 32 then
+return "float"
+end
+if model . bits == 64 then
+return "number"
+end
 return nil
 elseif kind == "integer" or kind == "enum" then
 local pair = INTEGER_TYPE [ model . bits ]
-if not pair then return nil end
+if not pair then
+return nil
+end
 return model . unsigned and pair [ 2 ] or pair [ 1 ]
 elseif kind == "struct" then
-if model . name and knownStructs [ model . name ] then return model . name end
+if model . name and knownStructs [ model . name ] then
+return model . name
+end
 return nil
 elseif kind == "pointer" then
 local pointee = model . to
@@ -24894,7 +27812,9 @@ and model . const then
 return "cstring"
 end
 if pointee and pointee . kind == "function" then
-if callbacks then return renderFunctionType ( pointee , knownStructs ) end
+if callbacks then
+return renderFunctionType ( pointee , knownStructs )
+end
 return nil
 end
 if pointee and pointee . kind == "struct" and pointee . name
@@ -24915,14 +27835,20 @@ renderFunctionType = function ( fn , knownStructs )
 local params = { }
 for _ , param in ipairs ( fn . params or { } ) do
 local rendered = renderType ( param . type , knownStructs , false )
-if not rendered then return nil end
+if not rendered then
+return nil
+end
 params [ # params + 1 ] = rendered
 end
-if fn . vararg then params [ # params + 1 ] = "..." end
+if fn . vararg then
+params [ # params + 1 ] = "..."
+end
 local out = "function(" .. table . concat ( params , ", " ) .. ")"
 if fn . returns and fn . returns . kind ~= "void" then
 local ret = renderType ( fn . returns , knownStructs , false )
-if not ret then return nil end
+if not ret then
+return nil
+end
 out = out .. ": " .. ret
 end
 return out
@@ -24932,7 +27858,9 @@ end
 local function headerMacroNames ( rawHeader )
 local names = { }
 for name , after in rawHeader : gmatch ( "#%s*define%s+([%a_][%w_]*)([^\n]?)" ) do
-if after ~= "(" then names [ # names + 1 ] = name end
+if after ~= "(" then
+names [ # names + 1 ] = name
+end
 end
 return names
 end
@@ -24949,8 +27877,12 @@ end
 
 local function constantExpr ( value )
 value = value : gsub ( "([%dxXa-fA-F])[uUlL]+%f[%W]" , "%1" )
-if value : match ( "^%s*$" ) then return nil end
-if value : match ( '^"[^"]*"$' ) then return value , "string" end
+if value : match ( "^%s*$" ) then
+return nil
+end
+if value : match ( '^"[^"]*"$' ) then
+return value , "string"
+end
 if value : match ( "^[%d%sxXa-fA-F%.%+%-%*/%%%(%)<>|&~]+$" )
 and value : match ( "%d" ) then
 return value , "number"
@@ -25036,7 +27968,6 @@ emit ( "" )
 
 
 
-
 if # parsed . rejected > 0 then
 for _ , reject in ipairs ( parsed . rejected ) do
 emit ( ( "-- import-c: skipped declaration (%s)" ) : format ( reject . reason ) )
@@ -25051,7 +27982,9 @@ for _ , declaration in ipairs ( parsed . structs ) do
 local name = declaration . name
 local fields = { }
 local ok = identifier ( name ) and true or false
-if ok then knownStructs [ name ] = true end
+if ok then
+knownStructs [ name ] = true
+end
 for _ , field in ipairs ( declaration . fields ) do
 local rendered = renderType ( field . type , knownStructs , false )
 if not rendered or not identifier ( field . name ) then
@@ -25085,17 +28018,25 @@ end
 local name = identifier ( param . name ) and param . name or "arg" .. index
 params [ # params + 1 ] = name .. ": " .. rendered
 end
-if fn . vararg then params [ # params + 1 ] = "..." end
+if fn . vararg then
+params [ # params + 1 ] = "..."
+end
 local ret
 if fn . returns and fn . returns . kind ~= "void" then
 ret = renderType ( fn . returns , knownStructs , false )
-if not ret then ok = false end
+if not ret then
+ok = false
+end
 end
 if ok then
 local sig = "cdef function " .. fn . name .. "("
 .. table . concat ( params , ", " ) .. ")"
-if ret then sig = sig .. ": " .. ret end
-if opts . lib then sig = sig .. ( " from %q" ) : format ( opts . lib ) end
+if ret then
+sig = sig .. ": " .. ret
+end
+if opts . lib then
+sig = sig .. ( " from %q" ) : format ( opts . lib )
+end
 emit ( sig )
 exports [ # exports + 1 ] = fn . name
 else
@@ -25108,7 +28049,9 @@ end
 local constLines = { }
 local taken = { }
 local function constant ( name , typeName , expr )
-if not identifier ( name ) or taken [ name ] then return end
+if not identifier ( name ) or taken [ name ] then
+return
+end
 taken [ name ] = true
 constLines [ # constLines + 1 ] = ( "local %s: %s = %s" )
 : format ( name , typeName , expr )
@@ -25296,7 +28239,9 @@ function incremental . new ( rootDir , opts )
 opts = opts or { }
 local env = envMod . new ( rootDir , opts )
 local strict = opts . strict
-if strict == nil then strict = env . config . strict == true end
+if strict == nil then
+strict = env . config . strict == true
+end
 local q = query . new ( )
 local inc = setmetatable( { env = env , q = q } , incremental.Inc)
 
@@ -25320,7 +28265,9 @@ seen [ path ] = true
 files [ # files + 1 ] = path
 end
 for path in pairs ( openPaths ) do
-if not seen [ path ] then files [ # files + 1 ] = path end
+if not seen [ path ] then
+files [ # files + 1 ] = path
+end
 end
 table . sort ( files )
 q : setInput ( "projectFiles" , "root" , files )
@@ -25330,7 +28277,9 @@ updateProjectFiles ( )
 
 q : define ( "fileText" , function ( _ , path )
 local f = io . open ( path , "rb" )
-if not f then return nil end
+if not f then
+return nil
+end
 local s = f : read ( "*a" )
 f : close ( )
 return s
@@ -25338,14 +28287,18 @@ end )
 
 q : define ( "parse" , function ( self , path )
 local text = self : get ( "fileText" , path )
-if not text then return nil end
+if not text then
+return nil
+end
 return parser . parse ( text , path )
 end )
 
 
 
 local function sameHeader ( a , b )
-if not a or not b then return false end
+if not a or not b then
+return false
+end
 if a . path ~= b . path or a . moduleName ~= b . moduleName
 or a . moduleLocal ~= b . moduleLocal
 or # a . declarations ~= # b . declarations then
@@ -25376,11 +28329,14 @@ end
 
 q : define ( "projectHeader" , function ( self , path )
 local text = self : get ( "fileText" , path )
-if text == nil then return envMod . projectHeader ( env , path , nil ) end
+if text == nil then
+return envMod . projectHeader ( env , path , nil )
+end
 local key = envMod . headerKey ( env , path , text )
 local cached = headerStore . get ( key )
-if cached then return cached end
-
+if cached then
+return cached
+end
 
 
 local header = envMod . projectHeader ( env , path , self : get ( "parse" , path ) )
@@ -25454,7 +28410,9 @@ end )
 
 q : define ( "moduleExports" , function ( self , name )
 local path = modulePath ( self , name )
-if not path then return nil end
+if not path then
+return nil
+end
 local r = self : get ( "checkModule" , path )
 return r and r . exports or nil
 end )
@@ -25462,7 +28420,9 @@ end )
 
 function inc . openDocument ( path , text )
 local wasOpen = openPaths [ path ]
-if envMod . moduleNameForPath ( env , path ) then openPaths [ path ] = true end
+if envMod . moduleNameForPath ( env , path ) then
+openPaths [ path ] = true
+end
 if not wasOpen and openPaths [ path ] and not diskPaths [ path ] then
 updateProjectFiles ( )
 end
@@ -25473,7 +28433,9 @@ function inc . closeDocument ( path )
 q : clearInput ( "fileText" , path )
 if openPaths [ path ] then
 openPaths [ path ] = nil
-if not diskPaths [ path ] then updateProjectFiles ( ) end
+if not diskPaths [ path ] then
+updateProjectFiles ( )
+end
 end
 end
 
@@ -25487,7 +28449,9 @@ diskPaths [ path ] = nil
 elseif envMod . moduleNameForPath ( env , path ) then
 diskPaths [ path ] = true
 end
-if not openPaths [ path ] then q : clearInput ( "fileText" , path ) end
+if not openPaths [ path ] then
+q : clearInput ( "fileText" , path )
+end
 if existed ~= ( diskPaths [ path ] and true or false ) then
 updateProjectFiles ( )
 end
@@ -25780,14 +28744,20 @@ end
 
 
 local function scanLongBracket ( src , pos )
-if byte ( src , pos ) ~= 91 then return nil , false end
+if byte ( src , pos ) ~= 91 then
+return nil , false
+end
 local level = 0
 local p = pos + 1
 while byte ( src , p ) == 61 do level = level + 1 ; p = p + 1 end
-if byte ( src , p ) ~= 91 then return nil , false end
+if byte ( src , p ) ~= 91 then
+return nil , false
+end
 local close = "]" .. ( "=" ) : rep ( level ) .. "]"
 local s = find ( src , close , p + 1 , true )
-if not s then return # src + 1 , false end
+if not s then
+return # src + 1 , false
+end
 return s + # close , true
 end
 
@@ -25813,7 +28783,9 @@ local function trackNewlines ( text , startpos )
 local search = 1
 while true do
 local nl = find ( text , "\n" , search , true )
-if not nl then break end
+if not nl then
+break
+end
 line = line + 1
 lineStart = startpos + nl
 search = nl + 1
@@ -25903,7 +28875,9 @@ if ch == 92 then
 pos = pos + 2
 elseif ch == 96 then
 pos = pos + 1
-if opening then return "string" end
+if opening then
+return "string"
+end
 interp [ # interp ] = nil
 return "istringClose"
 elseif ch == 36 and byte ( source , pos + 1 ) == 123 then
@@ -25918,7 +28892,9 @@ else
 pos = pos + 1
 end
 end
-if not opening then interp [ # interp ] = nil end
+if not opening then
+interp [ # interp ] = nil
+end
 addError ( start , l , c , "unterminated interpolated string" )
 return "error"
 end
@@ -25957,13 +28933,19 @@ p = skipUnderscores ( p + 1 )
 p , more = scanDigits ( p , isHex )
 digits = digits + more
 end
-if digits == 0 then wellformed = false end
+if digits == 0 then
+wellformed = false
+end
 local e = byte ( source , p )
 if e == 112 or e == 80 then
 p = skipUnderscores ( p + 1 )
 local s = byte ( source , p )
-if s == 43 or s == 45 then p = skipUnderscores ( p + 1 ) end
-if not isDigit ( byte ( source , p ) ) then wellformed = false end
+if s == 43 or s == 45 then
+p = skipUnderscores ( p + 1 )
+end
+if not isDigit ( byte ( source , p ) ) then
+wellformed = false
+end
 p = scanDigits ( p , isDigit )
 end
 else
@@ -25980,8 +28962,12 @@ local e = byte ( source , p )
 if e == 101 or e == 69 then
 p = skipUnderscores ( p + 1 )
 local s = byte ( source , p )
-if s == 43 or s == 45 then p = skipUnderscores ( p + 1 ) end
-if not isDigit ( byte ( source , p ) ) then wellformed = false end
+if s == 43 or s == 45 then
+p = skipUnderscores ( p + 1 )
+end
+if not isDigit ( byte ( source , p ) ) then
+wellformed = false
+end
 p = scanDigits ( p , isDigit )
 end
 end
@@ -25990,8 +28976,12 @@ local function suffix ( word )
 local at = p
 for j = 1 , # word do
 local ch = byte ( source , at )
-if ch and ch >= 65 and ch <= 90 then ch = ch + 32 end
-if ch ~= byte ( word , j ) then return nil end
+if ch and ch >= 65 and ch <= 90 then
+ch = ch + 32
+end
+if ch ~= byte ( word , j ) then
+return nil
+end
 at = skipUnderscores ( at + 1 )
 end
 return at
@@ -26242,9 +29232,13 @@ function lints . level ( lint , config )
 local level = lint . level
 if config then
 local byCategory = config [ lint . category ]
-if byCategory and LEVELS [ byCategory ] then level = byCategory end
+if byCategory and LEVELS [ byCategory ] then
+level = byCategory
+end
 local byName = config [ lint . name ] or config [ lint . code ]
-if byName and LEVELS [ byName ] then level = byName end
+if byName and LEVELS [ byName ] then
+level = byName
+end
 end
 return level
 end
@@ -26360,6 +29354,7 @@ root = rootDir ,
 folders = { } ,
 documents = { } ,
 
+
 lexed = { } ,
 }
 s . inc = incremental . new ( rootDir , { folders = s . folders } )
@@ -26418,7 +29413,6 @@ local lastSentTokens = tokens . lastSent
 
 
 
-
 local function reroot ( nextFolders )
 s . folders = nextFolders
 s . inc = incremental . new ( rootDir , { folders = s . folders } )
@@ -26451,10 +29445,6 @@ end
 
 
 
-
-
-
-
 local handlers = { }
 
 handlers [ "initialize" ] = function ( id , params )
@@ -26465,7 +29455,9 @@ local opened = folderPaths ( params and params . workspaceFolders )
 if # opened == 0 and params and params . rootUri then
 opened = folderPaths ( { params . rootUri } )
 end
-if # opened > 0 then reroot ( opened ) end
+if # opened > 0 then
+reroot ( opened )
+end
 respond ( id , {
 capabilities = {
 textDocumentSync = 1 ,
@@ -26518,7 +29510,9 @@ removed [ path ] = true
 end
 local next_ , seen = { } , { }
 local function keep ( path )
-if removed [ path ] or seen [ path ] then return end
+if removed [ path ] or seen [ path ] then
+return
+end
 seen [ path ] = true
 next_ [ # next_ + 1 ] = path
 end
@@ -26563,14 +29557,18 @@ respond ( id , json . null )
 return
 end
 local offset = offsetAtPosition ( doc . text , params . position )
-if not offset then respond ( id , json . null ) ; return end
+if not offset then
+respond ( id , json . null ) ; return
+end
 for _ , tok in ipairs ( doc . result . tokens ) do
 if tok . kind ~= "eof" and offset >= tok . offset
 and offset < tok . offset + # tok . text then
 local location = definitionLocation ( tok . definition )
 if location == json . null then
 local member = memberAt ( doc , offset )
-if member then location = memberLocation ( member ) end
+if member then
+location = memberLocation ( member )
+end
 end
 respond ( id , location )
 return
@@ -26598,14 +29596,18 @@ range = tokenRange ( doc . text , tok ) ,
 return
 end
 end
-if not tok or not t then respond ( id , json . null ) ; return end
+if not tok or not t then
+respond ( id , json . null ) ; return
+end
 local name = def and def . name or tok . text
 local prefix = def and def . cdef and "cdef "
 or def and def . constant and "const " or ""
 local value = "```nupp\n" .. prefix .. name .. ": "
 .. T . tostring ( t ) .. "\n```"
 local docs = documentationFor ( def )
-if docs then value = value .. "\n\n" .. docs end
+if docs then
+value = value .. "\n\n" .. docs
+end
 respond ( id , {
 contents = { kind = "markdown" , value = value } ,
 range = tokenRange ( doc . text , tok ) ,
@@ -26617,7 +29619,9 @@ end
 
 handlers [ "$/nupp/inspect" ] = function ( id , params )
 local _ , doc , tok , offset = symbolAt ( params )
-if not tok then respond ( id , json . null ) ; return end
+if not tok then
+respond ( id , json . null ) ; return
+end
 local member = memberAt ( doc , offset )
 if member then
 local path , memberTok , stat = memberDeclaration ( member . moduleName ,
@@ -26645,7 +29649,9 @@ return
 end
 local def = tok . definition
 local t = tok . inferredType or def and def . type
-if not t then respond ( id , json . null ) ; return end
+if not t then
+respond ( id , json . null ) ; return
+end
 respond ( id , {
 name = def and def . name or tok . text ,
 kind = def and def . kind or "variable" ,
@@ -26674,7 +29680,9 @@ return
 end
 local offset = offsetAtPosition ( doc . text , params . position )
 local call = offset and signatureAt ( doc . result , offset )
-if not call then respond ( id , json . null ) ; return end
+if not call then
+respond ( id , json . null ) ; return
+end
 local ft = call . signatureType
 local name = "call"
 if call . kind == "methodCall" and call . name then
@@ -26689,7 +29697,9 @@ parameters [ # parameters + 1 ] = { label =
 ( mode and mode ~= "plain" and mode .. " " or "" )
 .. T . tostring ( param ) }
 end
-if ft . vararg then parameters [ # parameters + 1 ] = { label = "..." } end
+if ft . vararg then
+parameters [ # parameters + 1 ] = { label = "..." }
+end
 local activeParameter = 0
 for _ , child in ipairs ( call . args or { } ) do
 if cst . isToken ( child ) and child . kind == ","
@@ -26714,7 +29724,9 @@ end
 
 handlers [ "textDocument/references" ] = function ( id , params )
 local _ , doc , tok , offset = symbolAt ( params )
-if not tok then respond ( id , json . empty_array ) ; return end
+if not tok then
+respond ( id , json . empty_array ) ; return
+end
 local includeDeclaration = params . context
 and params . context . includeDeclaration or false
 if not tok . definition then
@@ -26731,7 +29743,9 @@ end
 
 local function renameSubject ( params )
 local _ , doc , tok , offset = symbolAt ( params )
-if not tok then return doc , nil , nil end
+if not tok then
+return doc , nil , nil
+end
 if tok . definition then
 if isProjectDefinition ( tok . definition ) then
 return doc , tok , function ( includeDeclaration )
@@ -26742,7 +29756,9 @@ return doc , nil , nil
 end
 local member = memberAt ( doc , offset )
 local path = member and s . inc . modulePath ( member . moduleName )
-if not path then return doc , nil , nil end
+if not path then
+return doc , nil , nil
+end
 for _ , projectPath in ipairs ( s . inc . projectFiles ( ) ) do
 if projectPath == path then
 return doc , tok , function ( includeDeclaration )
@@ -26755,7 +29771,9 @@ end
 
 handlers [ "textDocument/prepareRename" ] = function ( id , params )
 local doc , tok = renameSubject ( params )
-if not tok then respond ( id , json . null ) ; return end
+if not tok then
+respond ( id , json . null ) ; return
+end
 respond ( id , {
 range = tokenRange ( doc . text , tok ) ,
 placeholder = tok . text ,
@@ -26823,8 +29841,12 @@ wanted [ kind ] = true
 end
 local offers = wire . array ( { } )
 local function offer ( kind , title , edits , diagnostic )
-if wanted and not wanted [ kind ] then return end
-if not edits or # edits == 0 then return end
+if wanted and not wanted [ kind ] then
+return
+end
+if not edits or # edits == 0 then
+return
+end
 offers [ # offers + 1 ] = {
 title = title ,
 kind = kind ,
@@ -26935,7 +29957,9 @@ return s . inc . env . resolveProjectAnnotation ( s . inc . env , path , name )
 end ,
 methodParens = envMod . fmtMethodParensDefault ( s . inc . env ) ,
 } )
-if # errors > 0 or formatted == doc . text then return nil end
+if # errors > 0 or formatted == doc . text then
+return nil
+end
 return formatted
 end
 
@@ -26948,7 +29972,9 @@ end
 
 local function formattingEdits ( uri , doc )
 local formatted = formattedText ( uri , doc )
-if not formatted then return nil end
+if not formatted then
+return nil
+end
 local before , after = splitLines ( doc . text ) , splitLines ( formatted )
 local starts = lineStarts ( doc . text )
 local edits = { }
@@ -26968,7 +29994,9 @@ return edits
 end
 
 local function respondWithEdits ( id , edits , keep )
-if not edits then respond ( id , json . empty_array ) ; return end
+if not edits then
+respond ( id , json . empty_array ) ; return
+end
 local out = wire . array ( { } )
 for _ , edit in ipairs ( edits ) do
 if not keep or keep ( edit ) then
@@ -26980,14 +30008,18 @@ end
 
 handlers [ "textDocument/formatting" ] = function ( id , params )
 local uri , doc = documentAt ( params )
-if not doc then respond ( id , json . empty_array ) ; return end
+if not doc then
+respond ( id , json . empty_array ) ; return
+end
 respondWithEdits ( id , formattingEdits ( uri , doc ) )
 end
 
 handlers [ "textDocument/rangeFormatting" ] = function ( id , params )
 local uri , doc = documentAt ( params )
 local range = params and params . range
-if not doc or not range then respond ( id , json . empty_array ) ; return end
+if not doc or not range then
+respond ( id , json . empty_array ) ; return
+end
 
 
 
@@ -27030,7 +30062,9 @@ end
 end
 end
 table . sort ( found , function ( a , b )
-if a . name ~= b . name then return a . name < b . name end
+if a . name ~= b . name then
+return a . name < b . name
+end
 return a . location . uri < b . location . uri
 end )
 respond ( id , found )
@@ -27038,7 +30072,9 @@ end
 
 handlers [ "textDocument/documentHighlight" ] = function ( id , params )
 local uri , doc , tok , offset = symbolAt ( params )
-if not tok then respond ( id , json . empty_array ) ; return end
+if not tok then
+respond ( id , json . empty_array ) ; return
+end
 local highlights = wire . array ( { } )
 local wanted = symbolKey ( tok . definition )
 if wanted then
@@ -27080,7 +30116,9 @@ startLine = from . line , endLine = to . line - 1 ,
 end
 end
 table . sort ( ranges , function ( a , b )
-if a . startLine ~= b . startLine then return a . startLine < b . startLine end
+if a . startLine ~= b . startLine then
+return a . startLine < b . startLine
+end
 return a . endLine > b . endLine
 end )
 respond ( id , ranges )
@@ -27189,18 +30227,30 @@ while session . running ( ) do
 local contentLength = nil
 while true do
 local line = io . stdin : read ( "*l" )
-if line == nil then return 0 end
-line = line : gsub ( "\r$" , "" )
-if line == "" then break end
-local len = line : match ( "^[Cc]ontent%-[Ll]ength:%s*(%d+)" )
-if len then contentLength = tonumber ( len ) end
+if line == nil then
+return 0
 end
-if not contentLength then return 1 end
+line = line : gsub ( "\r$" , "" )
+if line == "" then
+break
+end
+local len = line : match ( "^[Cc]ontent%-[Ll]ength:%s*(%d+)" )
+if len then
+contentLength = tonumber ( len )
+end
+end
+if not contentLength then
+return 1
+end
 local body = io . stdin : read ( contentLength )
-if body == nil then return 0 end
+if body == nil then
+return 0
+end
 
 local ok , msg = pcall ( json . decode , body )
-if ok then session . dispatch ( msg ) end
+if ok then
+session . dispatch ( msg )
+end
 end
 return 0
 end
@@ -27262,7 +30312,9 @@ edits [ # edits + 1 ] = { offset = at , length = 0 , newText = INDENT }
 end
 end
 local newline = source : find ( "\n" , at , true )
-if not newline then break end
+if not newline then
+break
+end
 at = newline + 1
 end
 return edits
@@ -27281,9 +30333,15 @@ returnStmt = true , breakStmt = true , continueStmt = true , gotoStmt = true ,
 local function escapesScope ( node )
 local found = false
 local function walk ( value )
-if found or cst . isToken ( value ) then return end
-if value . kind == "funcbody" then return end
-if ESCAPING_STATS [ value . kind ] then found = true ; return end
+if found or cst . isToken ( value ) then
+return
+end
+if value . kind == "funcbody" then
+return
+end
+if ESCAPING_STATS [ value . kind ] then
+found = true ; return
+end
 for _ , child in ipairs ( value ) do walk ( child ) end
 end
 walk ( node )
@@ -27295,12 +30353,18 @@ end
 
 
 local function ownedLocal ( stat )
-if stat . kind ~= "localStmt" or stat . isConst then return nil end
-if # ( stat . names or { } ) ~= 1 or # ( stat . exprs or { } ) ~= 1 then return nil end
+if stat . kind ~= "localStmt" or stat . isConst then
+return nil
+end
+if # ( stat . names or { } ) ~= 1 or # ( stat . exprs or { } ) ~= 1 then
+return nil
+end
 local nameTok = stat . names [ 1 ]
 local def = nameTok . definition
 local t = def and def . type
-if not t or t . tag ~= "owned" or # ( t . cleanups or { } ) == 0 then return nil end
+if not t or t . tag ~= "owned" or # ( t . cleanups or { } ) == 0 then
+return nil
+end
 return def
 end
 
@@ -27331,9 +30395,13 @@ end
 
 function actions . wrapInWith ( source , root , stat )
 local def = ownedLocal ( stat )
-if not def then return nil end
+if not def then
+return nil
+end
 local block , index = tree . enclosingBlock ( root , stat )
-if not block then return nil end
+if not block then
+return nil
+end
 local localTok = stat [ 1 ]
 if not localTok or not cst . isToken ( localTok ) or localTok . text ~= "local" then
 return nil
@@ -27345,7 +30413,9 @@ local lastBody = ( closeAt or # block . stats + 1 ) - 1
 
 for i = index + 1 , lastBody do
 local s = block . stats [ i ]
-if s . kind == "returnStmt" and tree . mentions ( s , def ) then return nil end
+if s . kind == "returnStmt" and tree . mentions ( s , def ) then
+return nil
+end
 end
 local indent = indentAt ( source , localTok . offset )
 local edits = { }
@@ -27396,17 +30466,23 @@ if stat . kind ~= "withStmt" or not stat . withTok or not stat . doTok
 or not stat . endTok then
 return nil
 end
-if stat . body and escapesScope ( stat . body ) then return nil end
+if stat . body and escapesScope ( stat . body ) then
+return nil
+end
 local indent = indentAt ( source , stat . withTok . offset )
 local declarations , disposals = { } , { }
 for i , binding in ipairs ( stat . bindings or { } ) do
-if not binding . name or not binding . expr then return nil end
+if not binding . name or not binding . expr then
+return nil
+end
 local from = binding . name . offset
 local _ , to = tree . nodeBounds ( binding . expr )
 declarations [ i ] = "local " .. source : sub ( from , to - 1 )
 table . insert ( disposals , 1 , ( "dispose(%s)" ) : format ( binding . name . text ) )
 end
-if # declarations == 0 then return nil end
+if # declarations == 0 then
+return nil
+end
 local separator = "\n" .. indent
 local edits = { }
 edits [ 1 ] = {
@@ -27459,10 +30535,14 @@ function complete . completionContext ( result , offset )
 local tokens = result and result . tokens or { }
 local index = nil
 for cursor , tok in ipairs ( tokens ) do
-if tok . kind == "eof" or tok . offset >= offset then break end
+if tok . kind == "eof" or tok . offset >= offset then
+break
+end
 index = cursor
 end
-if not index then return nil end
+if not index then
+return nil
+end
 local context = { prefix = "" , typePosition = false }
 local tok = tokens [ index ]
 if tok . kind == "name" and offset <= tok . offset + # tok . text then
@@ -27470,7 +30550,9 @@ context . prefix = tok . text : sub ( 1 , offset - tok . offset )
 index = index - 1
 tok = tokens [ index ]
 end
-if not tok then return context end
+if not tok then
+return context
+end
 
 
 
@@ -27479,7 +30561,9 @@ if tok . kind == ":" and tok . typeColon then
 context . typePosition = true
 return context
 end
-if tok . kind ~= "." and tok . kind ~= ":" then return context end
+if tok . kind ~= "." and tok . kind ~= ":" then
+return context
+end
 context . method = tok . kind == ":"
 context . path = { }
 index = index - 1
@@ -27504,7 +30588,9 @@ end
 
 function complete . membersOf ( t )
 local members = { }
-if type ( t ) ~= "table" then return members end
+if type ( t ) ~= "table" then
+return members
+end
 for name , member in pairs ( t . byname or { } ) do
 members [ name ] = {
 type = member ,
@@ -27587,7 +30673,9 @@ end
 local path = s . inc . modulePath ( moduleName )
 local checked = path and s . inc . checkFile ( path )
 local result = checked and checked . result
-if not result then return end
+if not result then
+return
+end
 for _ , member in ipairs ( moduleMemberDeclarations ( result , moduleName ) ) do
 add ( member . name , "function" , nil , {
 filename = path , token = member . token , name = member . name ,
@@ -27601,7 +30689,9 @@ local items = wire . array ( { } )
 local seen = { }
 local context = completionContext ( doc . result , offset ) or { }
 local function add ( label , kind , t , def , priority )
-if not label or seen [ label ] then return end
+if not label or seen [ label ] then
+return
+end
 
 
 if context . typePosition and not TYPE_KINDS [ kind or "variable" ] then
@@ -27613,9 +30703,13 @@ label = label ,
 kind = completionKinds [ kind ] or completionKinds . variable ,
 sortText = tostring ( priority or 5 ) .. label ,
 }
-if t then item . detail = T . tostring ( t ) end
+if t then
+item . detail = T . tostring ( t )
+end
 local docs = documentationFor ( def )
-if docs then item . documentation = docs end
+if docs then
+item . documentation = docs
+end
 items [ # items + 1 ] = item
 end
 
@@ -27770,7 +30864,9 @@ local message = e . msg
 for _ , note in ipairs ( e . notes or { } ) do
 message = message .. "\n\nnote: " .. note
 end
-if e . help then message = message .. "\n\nhelp: " .. e . help end
+if e . help then
+message = message .. "\n\nhelp: " .. e . help
+end
 out [ # out + 1 ] = {
 range = {
 start = start ,
@@ -27795,7 +30891,9 @@ end
 
 local function checkAndPublish ( uri , force )
 local doc = s . documents [ uri ]
-if not doc then return false end
+if not doc then
+return false
+end
 local path = uriToPath ( uri )
 local r = s . inc . checkFile ( path )
 local changed = r ~= doc . checkResult
@@ -27805,7 +30903,9 @@ doc . result = r . result
 
 
 
-if r . result and not r . syntax then doc . checked = r . result end
+if r . result and not r . syntax then
+doc . checked = r . result
+end
 if force or changed then
 notify ( "textDocument/publishDiagnostics" , {
 uri = uri ,
@@ -27819,10 +30919,14 @@ end
 
 
 local function refreshOpenDocuments ( changedUri )
-if changedUri then checkAndPublish ( changedUri , true ) end
+if changedUri then
+checkAndPublish ( changedUri , true )
+end
 local uris = { }
 for uri in pairs ( s . documents ) do
-if uri ~= changedUri then uris [ # uris + 1 ] = uri end
+if uri ~= changedUri then
+uris [ # uris + 1 ] = uri
+end
 end
 table . sort ( uris )
 for _ , uri in ipairs ( uris ) do checkAndPublish ( uri , false ) end
@@ -27879,7 +30983,9 @@ function navigate . install ( s )
 
 local function fileTokens ( filename , source )
 local entry = s . lexed [ filename ]
-if entry and entry . source == source then return entry . tokens end
+if entry and entry . source == source then
+return entry . tokens
+end
 local tokens = lexer . lex ( source )
 s . lexed [ filename ] = { source = source , tokens = tokens }
 return tokens
@@ -27889,7 +30995,9 @@ end
 
 local function sourceForPath ( path )
 for uri , doc in pairs ( s . documents ) do
-if uriToPath ( uri ) == path then return doc . text end
+if uriToPath ( uri ) == path then
+return doc . text
+end
 end
 return readFile ( path )
 end
@@ -27907,28 +31015,40 @@ if source : sub ( tok . offset , tok . offset + # tok . text - 1 ) == tok . text
 found = tok . offset
 else
 local relocated = findDeclaration ( tokens , tok . text , tok . offset )
-if not relocated then return nil end
+if not relocated then
+return nil
+end
 found = relocated . offset
 end
 for index , candidate in ipairs ( tokens ) do
-if candidate . offset == found then return index end
+if candidate . offset == found then
+return index
+end
 end
 return nil
 end
 
 local function resolveDefinition ( def )
-if not def or not def . token or not def . filename then return nil end
+if not def or not def . token or not def . filename then
+return nil
+end
 local source = definitionSource ( def )
-if not source then return nil end
+if not source then
+return nil
+end
 local tokens = fileTokens ( def . filename , source )
 local index = declarationIndex ( def , source , tokens )
-if not index then return nil end
+if not index then
+return nil
+end
 return source , tokens , index
 end
 
 local function definitionLocation ( def )
 local source , tokens , index = resolveDefinition ( def )
-if not source then return json . null end
+if not source then
+return json . null
+end
 local tok = tokens [ index ]
 return {
 uri = pathToUri ( def . filename ) ,
@@ -27941,7 +31061,9 @@ end
 
 local function documentationFor ( def )
 local _ , tokens , index = resolveDefinition ( def )
-if not tokens then return def and def . token and fromTrivia ( def . token . trivia ) end
+if not tokens then
+return def and def . token and fromTrivia ( def . token . trivia )
+end
 return documentationAt ( tokens , index )
 end
 
@@ -27960,9 +31082,13 @@ return uri , doc , offset and tokenAt ( doc . result , offset ) or nil , offset
 end
 
 local function isOpenDefinition ( def )
-if not def or not def . filename then return false end
+if not def or not def . filename then
+return false
+end
 for uri in pairs ( s . documents ) do
-if uriToPath ( uri ) == def . filename then return true end
+if uriToPath ( uri ) == def . filename then
+return true
+end
 end
 return false
 end
@@ -27972,10 +31098,16 @@ end
 
 
 local function isProjectDefinition ( def )
-if not def or not def . filename then return false end
-if isOpenDefinition ( def ) then return true end
+if not def or not def . filename then
+return false
+end
+if isOpenDefinition ( def ) then
+return true
+end
 for _ , path in ipairs ( s . inc . projectFiles ( ) ) do
-if path == def . filename then return true end
+if path == def . filename then
+return true
+end
 end
 return false
 end
@@ -28014,7 +31146,9 @@ end
 local function referencesFor ( def , includeDeclaration )
 local wanted = symbolKey ( def )
 local locations = wire . array ( { } )
-if not wanted or not def . token then return locations end
+if not wanted or not def . token then
+return locations
+end
 local seen = { }
 for _ , entry in ipairs ( documentsMentioning ( def . token . text ) ) do
 local declaring = uriToPath ( entry . uri ) == def . filename
@@ -28040,11 +31174,15 @@ if includeDeclaration then
 local location = definitionLocation ( def )
 if location ~= json . null then
 local key = location . uri .. ":" .. tostring ( def . token . offset )
-if not seen [ key ] then locations [ # locations + 1 ] = location end
+if not seen [ key ] then
+locations [ # locations + 1 ] = location
+end
 end
 end
 table . sort ( locations , function ( a , b )
-if a . uri ~= b . uri then return a . uri < b . uri end
+if a . uri ~= b . uri then
+return a . uri < b . uri
+end
 local ap , bp = a . range . start , b . range . start
 return ap . line < bp . line
 or ( ap . line == bp . line and ap . character < bp . character )
@@ -28064,12 +31202,18 @@ end
 
 local function memberDeclaration ( moduleName , memberName )
 local path = s . inc . modulePath ( moduleName )
-if not path then return nil end
+if not path then
+return nil
+end
 local checked = s . inc . checkFile ( path )
 local result = checked and checked . result
-if not result then return nil end
+if not result then
+return nil
+end
 for _ , hit in ipairs ( memberOccurrences ( result , moduleName , memberName ) ) do
-if hit . stat then return path , hit . token , hit . stat end
+if hit . stat then
+return path , hit . token , hit . stat
+end
 end
 return nil
 end
@@ -28078,9 +31222,13 @@ end
 
 
 local function memberAt ( doc , offset )
-if not doc or not doc . result or not offset then return nil end
+if not doc or not doc . result or not offset then
+return nil
+end
 local member = moduleMemberAt ( doc . result , offset )
-if not member then return nil end
+if not member then
+return nil
+end
 if not memberDeclaration ( member . moduleName , member . name ) then
 return nil
 end
@@ -28089,9 +31237,13 @@ end
 
 local function memberLocation ( member )
 local path , tok = memberDeclaration ( member . moduleName , member . name )
-if not path then return json . null end
+if not path then
+return json . null
+end
 local source = sourceForPath ( path )
-if not source then return json . null end
+if not source then
+return json . null
+end
 return {
 uri = pathToUri ( path ) ,
 range = {
@@ -28119,7 +31271,9 @@ end
 end
 end
 table . sort ( locations , function ( a , b )
-if a . uri ~= b . uri then return a . uri < b . uri end
+if a . uri ~= b . uri then
+return a . uri < b . uri
+end
 local ap , bp = a . range . start , b . range . start
 return ap . line < bp . line
 or ( ap . line == bp . line and ap . character < bp . character )
@@ -28132,7 +31286,9 @@ end
 
 local function memberHover ( member )
 local path , tok , stat = memberDeclaration ( member . moduleName , member . name )
-if not path then return nil end
+if not path then
+return nil
+end
 local value = "```nupp\n" .. functionSignature ( stat ) .. "\n```"
 local source = sourceForPath ( path )
 if source then
@@ -28140,7 +31296,9 @@ local tokens = fileTokens ( path , source )
 for index , candidate in ipairs ( tokens ) do
 if candidate . offset == tok . offset then
 local docs = documentationAt ( tokens , index )
-if docs then value = value .. "\n\n" .. docs end
+if docs then
+value = value .. "\n\n" .. docs
+end
 break
 end
 end
@@ -28153,7 +31311,9 @@ end
 
 
 local function resolveReceiver ( checked , path )
-if not checked then return nil end
+if not checked then
+return nil
+end
 local base = nil
 for _ , def in ipairs ( checked . symbols or { } ) do
 if def . name == path [ 1 ] and ( def . type or def . requiredModule ) then
@@ -28161,7 +31321,9 @@ base = def
 break
 end
 end
-if not base then return nil end
+if not base then
+return nil
+end
 local moduleName = base . requiredModule
 if not moduleName and checked . moduleLocal == path [ 1 ] then
 moduleName = checked . moduleName
@@ -28170,12 +31332,18 @@ local t = base . type
 for index = 2 , # path do
 
 
-if moduleName and index == 2 then return nil , nil end
+if moduleName and index == 2 then
+return nil , nil
+end
 local member = t and membersOf ( t ) [ path [ index ] ]
 t = member and member . type or nil
-if not t then return nil , nil end
+if not t then
+return nil , nil
 end
-if # path > 1 then moduleName = nil end
+end
+if # path > 1 then
+moduleName = nil
+end
 return t , moduleName
 end
 
@@ -28245,7 +31413,9 @@ semantic . TYPE_WORDS = {
 function semantic . syntaxKinds ( result )
 local kinds = { }
 local function mark ( tok , kind )
-if tok and cst . isToken ( tok ) then kinds [ tok ] = kind end
+if tok and cst . isToken ( tok ) then
+kinds [ tok ] = kind
+end
 end
 tree . walkNodes ( result . root , function ( node )
 local kind = node . kind
@@ -28314,15 +31484,21 @@ mark ( node [ 1 ] , "keyword" )
 elseif kind == "labelStmt" or kind == "gotoStmt" then
 mark ( node . name , "label" )
 elseif kind == "param" or kind == "tfuncParam" then
-if node . modeTok then mark ( node . modeTok , "keyword" ) end
+if node . modeTok then
+mark ( node . modeTok , "keyword" )
+end
 mark ( node . name , "parameter" )
 elseif kind == "fieldDecl" or kind == "tshapeField" then
-if node . capability then mark ( node . capability , "keyword" ) end
+if node . capability then
+mark ( node . capability , "keyword" )
+end
 mark ( node . name , "property" )
 elseif kind == "fieldNamed" then
 mark ( node . name , "property" )
 elseif kind == "indexerDecl" or kind == "tmap" then
-if node . capability then mark ( node . capability , "keyword" ) end
+if node . capability then
+mark ( node . capability , "keyword" )
+end
 elseif kind == "generics" then
 for _ , tok in ipairs ( node . names or { } ) do mark ( tok , "typeParameter" ) end
 end
@@ -28331,7 +31507,9 @@ return kinds
 end
 
 function semantic . addSemanticSpan ( entries , source , offset , spanText , kind , modifiers )
-if not spanText or spanText == "" then return end
+if not spanText or spanText == "" then
+return
+end
 local pos = 1
 while pos <= # spanText do
 local newline = spanText : find ( "\n" , pos , true )
@@ -28349,7 +31527,9 @@ kind = semantic . semanticIndex [ kind ] , modifiers = modifiers or 0 ,
 }
 end
 end
-if not newline then break end
+if not newline then
+break
+end
 pos = newline + 1
 end
 end
@@ -28413,7 +31593,6 @@ and tok . kind ~= "," and tok . kind ~= ";" and tok . kind ~= "." then
 kind = "operator"
 end
 if kind then
-
 
 
 
@@ -28486,7 +31665,9 @@ same = false
 break
 end
 end
-if not same then break end
+if not same then
+break
+end
 prefix = prefix + 5
 end
 local suffix = 0
@@ -28499,7 +31680,9 @@ same = false
 break
 end
 end
-if not same then break end
+if not same then
+break
+end
 suffix = suffix + 5
 end
 local deleteCount = # before - prefix - suffix
@@ -28507,7 +31690,9 @@ local inserted = wire . array ( { } )
 for index = prefix + 1 , # after - suffix do
 inserted [ # inserted + 1 ] = after [ index ]
 end
-if deleteCount == 0 and # inserted == 0 then return wire . array ( { } ) end
+if deleteCount == 0 and # inserted == 0 then
+return wire . array ( { } )
+end
 return wire . array ( { {
 start = prefix , deleteCount = deleteCount , data = inserted ,
 } } )
@@ -28517,6 +31702,7 @@ return {
 semanticEntries = semanticEntries ,
 encodeSemanticEntries = encodeSemanticEntries ,
 rememberTokens = rememberTokens , tokenEdits = tokenEdits ,
+
 
 lastSent = function ( uri ) return sentTokens [ uri ] end ,
 }
@@ -28551,9 +31737,13 @@ variable = 13 , constant = 14 ,
 local function declarationChildren ( stat , source )
 local children = { }
 local function child ( nameTok , kind , node )
-if not nameTok then return end
+if not nameTok then
+return
+end
 local from , to = tree . nodeBounds ( node or nameTok )
-if not from then return end
+if not from then
+return
+end
 children [ # children + 1 ] = {
 name = nameTok . text ,
 kind = symbols . SYMBOL_KINDS [ kind ] or symbols . SYMBOL_KINDS . field ,
@@ -28583,9 +31773,13 @@ end
 function symbols . documentSymbols ( result , source )
 local found = wire . array ( { } )
 local function emit ( stat , nameTok , kind , path )
-if not nameTok then return end
+if not nameTok then
+return
+end
 local from , to = tree . nodeBounds ( stat )
-if not from then return end
+if not from then
+return
+end
 found [ # found + 1 ] = {
 name = path or nameTok . text ,
 kind = symbols . SYMBOL_KINDS [ kind ] or symbols . SYMBOL_KINDS . variable ,
@@ -28643,9 +31837,13 @@ end
 function symbols . foldableSpans ( result )
 local spans = { }
 tree . walkNodes ( result . root , function ( node )
-if node . kind == "block" or node . kind == "chunk" then return end
+if node . kind == "block" or node . kind == "chunk" then
+return
+end
 local from , to = tree . nodeBounds ( node )
-if from and to and to > from then spans [ # spans + 1 ] = { from , to } end
+if from and to and to > from then
+spans [ # spans + 1 ] = { from , to }
+end
 end )
 return spans
 end
@@ -28683,7 +31881,9 @@ end
 
 function text . readFile ( path )
 local f = io . open ( path , "rb" )
-if not f then return nil end
+if not f then
+return nil
+end
 local source = f : read ( "*a" )
 f : close ( )
 return source
@@ -28692,7 +31892,9 @@ end
 
 function text . utf8Char ( source , offset )
 local first = source : byte ( offset )
-if not first or first < 0x80 then return 1 , 1 end
+if not first or first < 0x80 then
+return 1 , 1
+end
 local len = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
 return len , len == 4 and 2 or 1
 end
@@ -28713,10 +31915,14 @@ end
 function text . offsetAtPosition ( source , target )
 local line , character , pos = 0 , 0 , 1
 while pos <= # source and line < target . line do
-if source : byte ( pos ) == 10 then line = line + 1 end
+if source : byte ( pos ) == 10 then
+line = line + 1
+end
 pos = pos + 1
 end
-if line ~= target . line then return nil end
+if line ~= target . line then
+return nil
+end
 while pos <= # source and source : byte ( pos ) ~= 10
 and character < target . character do
 local bytes , units = text . utf8Char ( source , pos )
@@ -28755,7 +31961,9 @@ end
 function text . lineStarts ( source )
 local starts = { 1 }
 for pos = 1 , # source do
-if source : byte ( pos ) == 10 then starts [ # starts + 1 ] = pos + 1 end
+if source : byte ( pos ) == 10 then
+starts [ # starts + 1 ] = pos + 1
+end
 end
 return starts
 end
@@ -28783,7 +31991,9 @@ skipBefore , skipAfter = di , dj
 break
 end
 end
-if skipBefore then break end
+if skipBefore then
+break
+end
 end
 if not skipBefore then
 skipBefore , skipAfter = # before - i + 1 , # after - j + 1
@@ -28815,21 +32025,27 @@ local cst = require ( "nupp.cst" )
 local tree = { }
 
 function tree . tokenAt ( result , offset )
-if not result then return nil end
+if not result then
+return nil
+end
 local previous = nil
 for _ , tok in ipairs ( result . tokens or { } ) do
 if tok . kind ~= "eof" then
 if offset >= tok . offset and offset < tok . offset + # tok . text then
 return tok
 end
-if tok . offset + # tok . text == offset then previous = tok end
+if tok . offset + # tok . text == offset then
+previous = tok
+end
 end
 end
 return previous
 end
 
 function tree . symbolKey ( def )
-if not def or not def . filename or not def . token then return nil end
+if not def or not def . filename or not def . token then
+return nil
+end
 return def . filename .. ":" .. tostring ( def . token . offset )
 end
 
@@ -28857,14 +32073,22 @@ end
 
 function tree . documentationAt ( tokens , index )
 local tok = tokens [ index ]
-if not tok then return nil end
+if not tok then
+return nil
+end
 local docs = tree . fromTrivia ( tok . trivia )
-if docs then return docs end
+if docs then
+return docs
+end
 for cursor = index - 1 , 1 , - 1 do
 local candidate = tokens [ cursor ]
-if candidate . line ~= tok . line then break end
+if candidate . line ~= tok . line then
+break
+end
 docs = tree . fromTrivia ( candidate . trivia )
-if docs then return docs end
+if docs then
+return docs
+end
 end
 return nil
 end
@@ -28923,10 +32147,14 @@ end
 
 
 function tree . walkNodes ( node , visit )
-if not node or cst . isToken ( node ) then return end
+if not node or cst . isToken ( node ) then
+return
+end
 visit ( node )
 for _ , child in ipairs ( node ) do
-if not cst . isToken ( child ) then tree . walkNodes ( child , visit ) end
+if not cst . isToken ( child ) then
+tree . walkNodes ( child , visit )
+end
 end
 end
 
@@ -28970,12 +32198,16 @@ function tree . memberHolder ( node )
 if node . kind == "dotIndex" or node . kind == "methodCall"
 or node . kind == "safeIndex" then
 local obj = node . obj
-if obj and obj . kind == "name" then return obj . token , node . name end
+if obj and obj . kind == "name" then
+return obj . token , node . name
+end
 return nil
 end
 if node . kind == "funcStmt" then
 local fname = node . name
-if not fname or fname . kind ~= "funcname" then return nil end
+if not fname or fname . kind ~= "funcname" then
+return nil
+end
 local names = { }
 for _ , child in ipairs ( fname ) do
 if cst . isToken ( child ) and child . kind == "name" then
@@ -28984,7 +32216,9 @@ end
 end
 
 
-if # names ~= 2 then return nil end
+if # names ~= 2 then
+return nil
+end
 return names [ 1 ] , names [ 2 ]
 end
 return nil
@@ -28998,8 +32232,12 @@ function tree . functionSignature ( stat )
 local block = stat . body and stat . body . body
 local parts , first , done = { } , true , false
 local function walk ( node )
-if done then return end
-if node == block then done = true return end
+if done then
+return
+end
+if node == block then
+done = true return
+end
 if cst . isToken ( node ) then
 if not first then
 for _ , trivia in ipairs ( node . trivia ) do
@@ -29019,9 +32257,13 @@ end
 
 
 function tree . moduleHeld ( result , tok )
-if not tok then return nil end
+if not tok then
+return nil
+end
 local def = tok . definition
-if def and def . requiredModule then return def . requiredModule end
+if def and def . requiredModule then
+return def . requiredModule
+end
 if result . moduleName and result . moduleLocal == tok . text then
 return result . moduleName
 end
@@ -29035,8 +32277,12 @@ function tree . memberOccurrences ( result , moduleName , memberName )
 local found = { }
 tree . walkNodes ( result . root , function ( node )
 local holder , member = tree . memberHolder ( node )
-if not member or member . text ~= memberName then return end
-if tree . moduleHeld ( result , holder ) ~= moduleName then return end
+if not member or member . text ~= memberName then
+return
+end
+if tree . moduleHeld ( result , holder ) ~= moduleName then
+return
+end
 found [ # found + 1 ] = {
 token = member ,
 stat = node . kind == "funcStmt" and node or nil ,
@@ -29050,9 +32296,13 @@ end
 function tree . moduleMemberDeclarations ( result , moduleName )
 local found = { }
 tree . walkNodes ( result . root , function ( node )
-if node . kind ~= "funcStmt" then return end
+if node . kind ~= "funcStmt" then
+return
+end
 local holder , member = tree . memberHolder ( node )
-if not member or tree . moduleHeld ( result , holder ) ~= moduleName then return end
+if not member or tree . moduleHeld ( result , holder ) ~= moduleName then
+return
+end
 found [ # found + 1 ] = { name = member . text , token = member , stat = node }
 end )
 table . sort ( found , function ( a , b ) return a . token . offset < b . token . offset end )
@@ -29064,7 +32314,9 @@ function tree . moduleMemberAt ( result , offset )
 local best = nil
 tree . walkNodes ( result . root , function ( node )
 local holder , member = tree . memberHolder ( node )
-if not member or not holder then return end
+if not member or not holder then
+return
+end
 if offset < member . offset
 or offset >= member . offset + # member . text then
 return
@@ -29088,9 +32340,13 @@ end
 function tree . enclosingChain ( result , offset )
 local chain = { }
 local function walk ( node )
-if cst . isToken ( node ) then return end
+if cst . isToken ( node ) then
+return
+end
 local from , to = tree . nodeBounds ( node )
-if not from or offset < from or offset > to then return end
+if not from or offset < from or offset > to then
+return
+end
 chain [ # chain + 1 ] = { from = from , to = to }
 for _ , child in ipairs ( node ) do walk ( child ) end
 end
@@ -29114,7 +32370,9 @@ local block , index
 tree . walkNodes ( root , function ( node )
 if node . kind == "block" then
 for i , s in ipairs ( node . stats or { } ) do
-if s == stat then block , index = node , i end
+if s == stat then
+block , index = node , i
+end
 end
 end
 end )
@@ -29129,7 +32387,9 @@ if kinds [ node . kind ] then
 local first , last = tree . nodeBounds ( node )
 if first and from >= first and to <= last then
 local size = last - first
-if not bestSize or size < bestSize then best , bestSize = node , size end
+if not bestSize or size < bestSize then
+best , bestSize = node , size
+end
 end
 end
 end )
@@ -29140,9 +32400,13 @@ end
 function tree . mentions ( node , def )
 local found = false
 local function walk ( value )
-if found then return end
+if found then
+return
+end
 if cst . isToken ( value ) then
-if value . definition and value . definition == def then found = true end
+if value . definition and value . definition == def then
+found = true
+end
 else
 for _ , child in ipairs ( value ) do walk ( child ) end
 end
@@ -29231,7 +32495,9 @@ local inner = narrowing . subtract ( t . inner , rem )
 return inner == t . inner and t or T . pinned ( inner )
 end
 local function without ( m )
-if m . tag == "typevar" then return m end
+if m . tag == "typevar" then
+return m
+end
 if m == T . boolean then
 if isA ( T . literal ( false , T . boolean ) , rem ) then
 return T . literal ( true , T . boolean )
@@ -29240,20 +32506,32 @@ if isA ( T . literal ( true , T . boolean ) , rem ) then
 return T . literal ( false , T . boolean )
 end
 end
-if isA ( m , rem ) then return nil end
+if isA ( m , rem ) then
+return nil
+end
 return m
 end
-if t . tag ~= "union" then return without ( t ) or t end
+if t . tag ~= "union" then
+return without ( t ) or t
+end
 local out = { }
 local changed = false
 for _ , m in ipairs ( t . members ) do
 local kept = without ( m )
-if kept ~= m then changed = true end
-if kept then out [ # out + 1 ] = kept end
+if kept ~= m then
+changed = true
+end
+if kept then
+out [ # out + 1 ] = kept
+end
 end
 
-if # out == 0 then return T . never end
-if not changed then return t end
+if # out == 0 then
+return T . never
+end
+if not changed then
+return t
+end
 return T . union ( out )
 end
 
@@ -29264,12 +32542,18 @@ end
 
 
 function narrowing . memberSet ( t )
-if not t then return nil end
-if t . tag == "literal" then return { t } end
+if not t then
+return nil
+end
+if t . tag == "literal" then
+return { t }
+end
 if t . tag == "union" then
 local out = { }
 for _ , m in ipairs ( t . members ) do
-if m . tag ~= "literal" then return nil end
+if m . tag ~= "literal" then
+return nil
+end
 out [ # out + 1 ] = m
 end
 return out
@@ -29287,12 +32571,18 @@ end
 
 function narrowing . withoutMember ( t , litT )
 local members = narrowing . memberSet ( t )
-if not members then return nil end
+if not members then
+return nil
+end
 local rest = { }
 for _ , m in ipairs ( members ) do
-if m ~= litT then rest [ # rest + 1 ] = m end
+if m ~= litT then
+rest [ # rest + 1 ] = m
 end
-if # rest == 0 then return nil , true end
+end
+if # rest == 0 then
+return nil , true
+end
 return T . union ( rest ) , false
 end
 
@@ -29305,15 +32595,21 @@ end
 
 
 function narrowing . truthiness ( vt )
-if vt == T . any then return nil , nil end
+if vt == T . any then
+return nil , nil
+end
 local FALSE_T = T . literal ( false , T . boolean )
 local truthy = narrowing . subtract ( narrowing . subtract ( vt , T . nil_ ) , FALSE_T )
 local falsy = { }
 if vt == T . nil_ or ( vt . tag == "union" and vt . hasNil ) then
 falsy [ # falsy + 1 ] = T . nil_
 end
-if isA ( FALSE_T , vt ) then falsy [ # falsy + 1 ] = FALSE_T end
-if # falsy == 0 then return truthy , nil end
+if isA ( FALSE_T , vt ) then
+falsy [ # falsy + 1 ] = FALSE_T
+end
+if # falsy == 0 then
+return truthy , nil
+end
 return truthy , T . union ( falsy )
 end
 
@@ -29356,6 +32652,16 @@ name = "presize" ,
 level = 1 ,
 summary = "size a table built field by field when it is created" ,
 } ,
+[ "OPT-2" ] = {
+name = "numeric-ipairs" ,
+level = 1 ,
+summary = "iterate a stable declared array with a numeric for loop" ,
+} ,
+[ "OPT-3" ] = {
+name = "constant-fold" ,
+level = 1 ,
+summary = "fold exact primitive expressions and propagate const bindings" ,
+} ,
 }
 
 
@@ -29365,8 +32671,12 @@ local PRESIZE_MIN = 2
 
 
 local function nameText ( node )
-if not node or isToken ( node ) then return nil end
-if node . kind ~= "name" then return nil end
+if not node or isToken ( node ) then
+return nil
+end
+if node . kind ~= "name" then
+return nil
+end
 return node . token and node . token . text or nil
 end
 
@@ -29375,7 +32685,9 @@ end
 
 
 local function occurrences ( node , name )
-if not node then return 0 end
+if not node then
+return 0
+end
 if isToken ( node ) then
 return ( node . kind == "name" and node . text == name ) and 1 or 0
 end
@@ -29390,13 +32702,14 @@ end
 
 
 local function fieldTargetBase ( target )
-if not target or isToken ( target ) then return nil end
+if not target or isToken ( target ) then
+return nil
+end
 if target . kind ~= "dotIndex" and target . kind ~= "bracketIndex" then
 return nil
 end
 return nameText ( target . obj )
 end
-
 
 
 
@@ -29424,7 +32737,9 @@ end
 
 
 local function fieldWrites ( stat , name )
-if stat . kind ~= "assignStmt" then return { } end
+if stat . kind ~= "assignStmt" then
+return { }
+end
 local writes = { }
 for _ , target in ipairs ( stat . targets or { } ) do
 if fieldTargetBase ( target ) == name then
@@ -29461,7 +32776,9 @@ end
 for _ , target in ipairs ( writes ) do
 local kind , value = writtenKey ( target )
 if kind == "array" then
-if value > array then array = value end
+if value > array then
+array = value
+end
 elseif kind == "hash" and value then
 if not hashKeys [ value ] then
 hashKeys [ value ] = true
@@ -29528,9 +32845,492 @@ end
 end
 
 local function walk ( node , remarks )
-if not node or isToken ( node ) then return end
-if node . stats then presizeBlock ( node . stats , remarks ) end
+if not node or isToken ( node ) then
+return
+end
+if node . stats then
+presizeBlock ( node . stats , remarks )
+end
 for _ , child in ipairs ( node ) do walk ( child , remarks ) end
+end
+
+local function numericIpairsWalk ( node , remarks )
+if not node or isToken ( node ) then
+return
+end
+if node . kind == "forinStmt" and node . builtinIpairs then
+if node . numericIpairsProof then
+node . numericIpairs = node . numericIpairsProof
+remark ( remarks , node , "OPT-2" ,
+"numeric-ipairs: the declared array has a stable shape in this loop" )
+elseif node . numericIpairsDeclined then
+local declined = node . numericIpairsDeclined
+local token = declined . related and firstToken ( declined . related ) or nil
+remark ( remarks , node , "OPT-2" ,
+"numeric-ipairs: not rewritten because " .. declined . message ,
+token and { {
+line = token . line , col = token . col , offset = token . offset ,
+length = # token . text , message = "proof stopped here" ,
+} } or nil )
+end
+end
+for _ , child in ipairs ( node ) do numericIpairsWalk ( child , remarks ) end
+end
+
+
+
+
+
+
+local MAX_EXACT_INTEGER = 9007199254740991
+
+local function literal ( kind , value , code )
+return { kind = kind , value = value , code = code }
+end
+
+local function integerLiteral ( node )
+if not node . token then
+return nil
+end
+local text = node . token . text
+local lower = text : lower ( )
+if lower : find ( "ll" , 1 , true ) or lower : sub ( - 1 ) == "i" then
+return nil
+end
+local value = tonumber ( ( text : gsub ( "_" , "" ) ) )
+if not value or value ~= value or value == math . huge or value == - math . huge
+or value ~= math . floor ( value ) or math . abs ( value ) > MAX_EXACT_INTEGER then
+return nil
+end
+return literal ( "number" , value , ( "%.0f" ) : format ( value ) )
+end
+
+local function stringLiteral ( node )
+if not node . token then
+return nil
+end
+local chunk = loadstring ( "return " .. node . token . text )
+if not chunk then
+return nil
+end
+local ok , value = pcall ( chunk )
+if not ok or type ( value ) ~= "string" then
+return nil
+end
+return literal ( "string" , value , string . format ( "%q" , value ) )
+end
+
+local function truthy ( value )
+return value . kind ~= "nil" and not ( value . kind == "boolean" and not value . value )
+end
+
+local function scope ( parent )
+return { parent = parent , constants = { } , paths = { } }
+end
+
+local function lookupConstant ( current , name )
+while current do
+local found = current . constants [ name ]
+if found ~= nil then
+return found or nil
+end
+current = current . parent
+end
+return nil
+end
+
+local function textPath ( node )
+if not node or isToken ( node ) then
+return nil
+end
+if node . kind == "name" and node . token then
+return node . token . text
+end
+if node . kind == "dotIndex" and node . name then
+local base = textPath ( node . obj )
+return base and ( base .. "." .. node . name . text ) or nil
+end
+return nil
+end
+
+local function lookupPath ( current , path )
+local root = path : match ( "^[^.]+" )
+while current do
+
+
+
+
+local found = current . paths [ path ]
+if found ~= nil then
+return found or nil
+end
+if root and current . paths [ root ] == false then
+return nil
+end
+current = current . parent
+end
+return nil
+end
+
+local function bindPath ( current , path , value )
+if not path then
+return
+end
+
+
+local prefix = path .. "."
+for known in pairs ( current . paths ) do
+if known == path or known : sub ( 1 , # prefix ) == prefix then
+current . paths [ known ] = false
+end
+end
+current . paths [ path ] = value or false
+end
+
+local function bindObjectFields ( current , path , value )
+bindPath ( current , path , value )
+if not value or value . kind ~= "table" then
+return
+end
+for name , field in pairs ( value . fields ) do
+bindObjectFields ( current , path .. "." .. name , field )
+end
+end
+
+local function resolvedLiteral ( node )
+local t = node and node . resolvedType
+if not t or t . tag ~= "literal" then
+return nil
+end
+if t . base and ( t . base . tag == "number" or t . base . tag == "integer" )
+and type ( t . constant ) == "number"
+and t . constant == math . floor ( t . constant )
+and math . abs ( t . constant ) <= MAX_EXACT_INTEGER then
+return literal ( "number" , t . constant , ( "%.0f" ) : format ( t . constant ) )
+elseif t . base and t . base . tag == "string" and type ( t . constant ) == "string" then
+return literal ( "string" , t . constant , string . format ( "%q" , t . constant ) )
+elseif t . base and t . base . tag == "boolean" and type ( t . constant ) == "boolean" then
+return literal ( "boolean" , t . constant , tostring ( t . constant ) )
+end
+return nil
+end
+
+local foldBlock , foldFunction
+
+local function foldExpr ( node , current )
+if not node or isToken ( node ) then
+return nil
+end
+local kind = node . kind
+if kind == "number" then
+local value = integerLiteral ( node )
+if value then
+node . folded = value . code
+end
+return value
+elseif kind == "string" then
+local value = stringLiteral ( node )
+if value then
+node . folded = value . code
+end
+return value
+elseif kind == "nilExpr" then
+node . folded = "nil"
+return literal ( "nil" , nil , "nil" )
+elseif kind == "trueExpr" or kind == "falseExpr" then
+local value = kind == "trueExpr"
+node . folded = tostring ( value )
+return literal ( "boolean" , value , node . folded )
+elseif kind == "name" and node . token then
+local value = lookupConstant ( current , node . token . text )
+if value then
+node . folded = value . code
+end
+return value or lookupPath ( current , node . token . text )
+elseif kind == "paren" or kind == "castExpr" then
+local value = foldExpr ( node . expr , current )
+if value then
+node . folded = value . code
+end
+return value
+elseif kind == "unop" then
+local value = foldExpr ( node . operand , current )
+if not value or not node . op then
+return nil
+end
+local op = node . op . kind
+if op == "not" then
+local answer = literal ( "boolean" , not truthy ( value ) ,
+tostring ( not truthy ( value ) ) )
+node . folded = answer . code
+return answer
+elseif op == "-" and value . kind == "number" and value . value ~= 0 then
+local answer = - value . value
+if math . abs ( answer ) <= MAX_EXACT_INTEGER then
+local folded = literal ( "number" , answer , ( "%.0f" ) : format ( answer ) )
+node . folded = folded . code
+return folded
+end
+elseif op == "#" and value . kind == "string" then
+local folded = literal ( "number" , # value . value , tostring ( # value . value ) )
+node . folded = folded . code
+return folded
+end
+return nil
+elseif kind == "binop" then
+local left , right = foldExpr ( node . lhs , current ) , foldExpr ( node . rhs , current )
+if not left or not right or not node . op then
+return nil
+end
+local op = node . op . kind
+if op == "and" then
+local folded = truthy ( left ) and right or left
+node . folded = folded . code
+return folded
+elseif op == "or" then
+local folded = truthy ( left ) and left or right
+node . folded = folded . code
+return folded
+elseif op == "??" then
+local folded = left . kind == "nil" and right or left
+node . folded = folded . code
+return folded
+elseif left . kind == "number" and right . kind == "number" then
+local answer
+if op == "+" then
+answer = left . value + right . value
+elseif op == "-" then
+answer = left . value - right . value
+elseif op == "*" then
+answer = left . value * right . value
+elseif op == "%" and right . value ~= 0 then
+answer = left . value % right . value
+end
+if answer and math . abs ( answer ) <= MAX_EXACT_INTEGER then
+local folded = literal ( "number" , answer , ( "%.0f" ) : format ( answer ) )
+node . folded = folded . code
+return folded
+end
+elseif op == ".." and left . kind == "string" and right . kind == "string" then
+local folded = literal ( "string" , left . value .. right . value ,
+string . format ( "%q" , left . value .. right . value ) )
+node . folded = folded . code
+return folded
+end
+local comparable = left . kind == right . kind
+or ( left . kind == "nil" or right . kind == "nil" )
+if comparable and ( op == "==" or op == "~=" ) then
+local equal = left . value == right . value
+local folded = literal ( "boolean" , op == "==" and equal or not equal ,
+tostring ( op == "==" and equal or not equal ) )
+node . folded = folded . code
+return folded
+end
+if left . kind == right . kind and ( left . kind == "number" or left . kind == "string" )
+and ( op == "<" or op == ">" or op == "<=" or op == ">=" ) then
+local answer
+if op == "<" then
+answer = left . value < right . value
+elseif op == ">" then
+answer = left . value > right . value
+elseif op == "<=" then
+answer = left . value <= right . value
+else
+answer = left . value >= right . value
+end
+local folded = literal ( "boolean" , answer , tostring ( answer ) )
+node . folded = folded . code
+return folded
+end
+return nil
+elseif kind == "call" or kind == "safeCall" then
+foldExpr ( node . obj , current )
+for _ , arg in ipairs ( node . args and node . args . exprs or { } ) do foldExpr ( arg , current ) end
+elseif kind == "methodCall" then
+foldExpr ( node . obj , current )
+for _ , arg in ipairs ( node . args and node . args . exprs or { } ) do foldExpr ( arg , current ) end
+elseif kind == "dotIndex" or kind == "safeIndex" then
+foldExpr ( node . obj , current )
+local value = resolvedLiteral ( node ) or lookupPath ( current , textPath ( node ) )
+if value and value . kind ~= "table" then
+node . folded = value . code
+end
+return value
+elseif kind == "bracketIndex" or kind == "safeBracket" then
+foldExpr ( node . obj , current )
+foldExpr ( node . expr , current )
+elseif kind == "tableExpr" then
+local fields = { }
+for _ , field in ipairs ( node . fields or { } ) do
+foldExpr ( field . key , current )
+local value = foldExpr ( field . value , current )
+if field . kind == "fieldNamed" and field . isConst and field . name
+and value then
+fields [ field . name . text ] = value
+end
+end
+if next ( fields ) then
+return { kind = "table" , fields = fields }
+end
+elseif kind == "istring" then
+for _ , part in ipairs ( node . parts or { } ) do foldExpr ( part , current ) end
+elseif kind == "funcExpr" then
+if node . body then
+foldFunction ( node . body , current )
+end
+elseif kind == "shortfn" then
+local inner = scope ( current )
+for _ , param in ipairs ( node . params or { } ) do
+if param . name then
+inner . constants [ param . name . text ] = false
+end
+end
+if node . expr then
+foldExpr ( node . expr , inner )
+end
+if node . body then
+foldBlock ( node . body , inner )
+end
+end
+return nil
+end
+
+foldFunction = function ( body , current )
+local inner = scope ( current )
+for _ , param in ipairs ( body . params or { } ) do
+if param . name then
+inner . constants [ param . name . text ] = false
+end
+end
+if body . body then
+foldBlock ( body . body , inner )
+end
+end
+
+local function foldStatement ( stat , current )
+local kind = stat . kind
+if kind == "localStmt" then
+local values = { }
+for i , expr in ipairs ( stat . exprs or { } ) do values [ i ] = foldExpr ( expr , current ) end
+for i , name in ipairs ( stat . names or { } ) do
+current . constants [ name . text ] = stat . isConst and values [ i ] or false
+if stat . isConst and values [ i ] and values [ i ] . kind == "table" then
+bindObjectFields ( current , name . text , values [ i ] )
+else
+bindPath ( current , name . text , nil )
+end
+end
+elseif kind == "assignStmt" then
+for _ , expr in ipairs ( stat . exprs or { } ) do foldExpr ( expr , current ) end
+for i , target in ipairs ( stat . targets or { } ) do
+local path = textPath ( target )
+if target . kind == "name" and target . token then
+current . constants [ target . token . text ] = false
+bindPath ( current , target . token . text , nil )
+else
+foldExpr ( target , current )
+if stat . isConst and path then
+local value = foldExpr ( ( stat . exprs or { } ) [ i ] , current )
+if value and value . kind == "table" then
+bindObjectFields ( current , path , value )
+end
+elseif path then
+bindPath ( current , path , nil )
+end
+end
+end
+elseif kind == "returnStmt" then
+for _ , expr in ipairs ( stat . exprs or { } ) do foldExpr ( expr , current ) end
+elseif kind == "callStmt" then
+foldExpr ( stat . expr , current )
+elseif kind == "compoundAssign" then
+foldExpr ( stat . target , current )
+foldExpr ( stat . value , current )
+if stat . target and stat . target . kind == "name" and stat . target . token then
+current . constants [ stat . target . token . text ] = false
+end
+elseif kind == "ifStmt" then
+local selected , allConstant = nil , true
+for _ , clause in ipairs ( stat . clauses or { } ) do
+local condition = foldExpr ( clause . cond , current )
+if not condition then
+allConstant = false
+elseif not selected and truthy ( condition ) then
+selected = clause . body
+end
+if clause . body then
+foldBlock ( clause . body , scope ( current ) )
+end
+end
+if stat . elseClause and stat . elseClause . body then
+foldBlock ( stat . elseClause . body , scope ( current ) )
+end
+if allConstant then
+stat . constantBranch = selected or ( stat . elseClause and stat . elseClause . body )
+stat . constantBranchNone = stat . constantBranch == nil
+end
+elseif kind == "whileStmt" then
+foldExpr ( stat . cond , current )
+if stat . body then
+foldBlock ( stat . body , scope ( current ) )
+end
+elseif kind == "repeatStmt" then
+local inner = scope ( current )
+if stat . body then
+foldBlock ( stat . body , inner )
+end
+foldExpr ( stat . cond , inner )
+elseif kind == "doStmt" or kind == "unsafeStmt" then
+if stat . body then
+foldBlock ( stat . body , scope ( current ) )
+end
+elseif kind == "fornumStmt" then
+foldExpr ( stat . start , current )
+foldExpr ( stat . stop , current )
+foldExpr ( stat . step , current )
+local inner = scope ( current )
+if stat . var then
+inner . constants [ stat . var . text ] = false
+end
+if stat . body then
+foldBlock ( stat . body , inner )
+end
+elseif kind == "forinStmt" then
+for _ , expr in ipairs ( stat . exprs or { } ) do foldExpr ( expr , current ) end
+local inner = scope ( current )
+for _ , name in ipairs ( stat . names or { } ) do inner . constants [ name . text ] = false end
+if stat . body then
+foldBlock ( stat . body , inner )
+end
+elseif kind == "localFuncStmt" then
+if stat . name then
+current . constants [ stat . name . text ] = false
+end
+if stat . body then
+foldFunction ( stat . body , current )
+end
+elseif kind == "funcStmt" or kind == "inlineMethod" then
+if stat . body then
+foldFunction ( stat . body , current )
+end
+elseif kind == "pragmaStmt" and stat . stat then
+foldStatement ( stat . stat , current )
+end
+end
+
+foldBlock = function ( block , current )
+for _ , stat in ipairs ( block . stats or { } ) do foldStatement ( stat , current ) end
+end
+
+local function constantFoldWalk ( node )
+if not node or isToken ( node ) then
+return
+end
+if node . kind == "block" then
+foldBlock ( node , scope ( nil ) )
+return
+end
+for _ , child in ipairs ( node ) do constantFoldWalk ( child ) end
 end
 
 
@@ -29546,6 +33346,12 @@ local disabled = opts . disabled or { }
 local remarks = { }
 if level >= optimize . passes [ "OPT-1" ] . level and not disabled [ "OPT-1" ] then
 walk ( result . root , remarks )
+end
+if level >= optimize . passes [ "OPT-2" ] . level and not disabled [ "OPT-2" ] then
+numericIpairsWalk ( result . root , remarks )
+end
+if level >= optimize . passes [ "OPT-3" ] . level and not disabled [ "OPT-3" ] then
+constantFoldWalk ( result . root )
 end
 for _ , entry in ipairs ( remarks ) do
 entry . filename = result . filename or opts . filename
@@ -29673,10 +33479,11 @@ end
 
 local function advance ( )
 local tok = tokens [ i ]
-if tok . kind ~= "eof" then i = i + 1 end
+if tok . kind ~= "eof" then
+i = i + 1
+end
 return tok
 end
-
 
 
 
@@ -29687,8 +33494,12 @@ end
 
 
 local function found ( tok )
-if tok . kind == "eof" then return "end of file" end
-if tok . text == "" then return tok . kind end
+if tok . kind == "eof" then
+return "end of file"
+end
+if tok . text == "" then
+return tok . kind
+end
 return ( "%q" ) : format ( tok . text )
 end
 
@@ -29714,7 +33525,9 @@ end
 
 
 local function expect ( kind , what )
-if cur ( ) . kind == kind then return advance ( ) end
+if cur ( ) . kind == kind then
+return advance ( )
+end
 errAt ( cur ( ) , ( "'%s' expected%s; found %s" ) : format ( kind ,
 what and ( " " .. what ) or "" , found ( cur ( ) ) ) , "NUPP1002" )
 return missing ( kind )
@@ -29722,7 +33535,9 @@ end
 
 
 local function expectName ( what )
-if cur ( ) . kind == "name" then return advance ( ) end
+if cur ( ) . kind == "name" then
+return advance ( )
+end
 errAt ( cur ( ) , ( "name expected%s; found %s" ) : format (
 what and ( " " .. what ) or "" , found ( cur ( ) ) ) , "NUPP1003" )
 return missing ( "name" )
@@ -29775,10 +33590,11 @@ local COMPOUND_ASSIGN = {
 
 
 
-
 local function compoundOp ( )
 local tok = tokens [ i ]
-if tok . kind == "~=" and tok . text ~= "~=" then return nil end
+if tok . kind == "~=" and tok . text ~= "~=" then
+return nil
+end
 return COMPOUND_ASSIGN [ tok . kind ]
 end
 
@@ -29801,7 +33617,9 @@ local ALIAS_KW = { [ "type" ] = true }
 
 
 local function afterDeclName ( at )
-if not tokens [ at ] or tokens [ at ] . kind ~= "name" then return nil end
+if not tokens [ at ] or tokens [ at ] . kind ~= "name" then
+return nil
+end
 local j = at + 1
 while tokens [ j ] and tokens [ j ] . kind == "." do
 if not tokens [ j + 1 ] or tokens [ j + 1 ] . kind ~= "name" then
@@ -29820,16 +33638,24 @@ if not kw or kw . kind ~= "name" or not TYPEDECL_KW [ kw . text ] then
 return false
 end
 local name = tokens [ at + 1 ]
-if not name or name . kind ~= "name" then return false end
+if not name or name . kind ~= "name" then
+return false
+end
 
 
 
 
-if name . line ~= kw . line then return false end
+if name . line ~= kw . line then
+return false
+end
 local past = afterDeclName ( at + 1 )
-if not past then return false end
+if not past then
+return false
+end
 local after = tokens [ past ]
-if not after then return false end
+if not after then
+return false
+end
 if ALIAS_KW [ kw . text ] then
 return after . kind == "=" or after . kind == "<"
 end
@@ -29859,7 +33685,9 @@ end
 
 
 local function parseGenerics ( n )
-if cur ( ) . kind ~= "<" then return nil end
+if cur ( ) . kind ~= "<" then
+return nil
+end
 local g = setmetatable( { kind = "generics" } , cst.Generics)
 add ( g , advance ( ) ) . generic = true
 g . names , g . bounds = { } , { }
@@ -29870,7 +33698,9 @@ if cur ( ) . kind == "name" and cur ( ) . text == "is" then
 add ( g , advance ( ) )
 g . bounds [ at ] = add ( g , parseType ( ) )
 end
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( g , advance ( ) )
 until false
 add ( g , expect ( ">" , "to close generic parameter list" ) ) . generic = true
@@ -29883,7 +33713,9 @@ end
 
 
 local function startsType ( tok )
-if not tok then return false end
+if not tok then
+return false
+end
 local k = tok . kind
 return k == "name" or k == "nil" or k == "{" or k == "function"
 or k == "(" or k == "string"
@@ -29903,7 +33735,6 @@ n . inner = add ( n , parseTypePrimary ( ) )
 return n
 end
 if kind == "string" or kind == "true" or kind == "false" then
-
 
 
 
@@ -29952,7 +33783,9 @@ end
 local member
 if cur ( ) . kind == "[" then
 member = setmetatable( { kind = "tmap" , capability = capability } , cst.Tmap)
-if capability then add ( member , capability ) end
+if capability then
+add ( member , capability )
+end
 add ( member , advance ( ) )
 member . key = add ( member , parseType ( ) )
 add ( member , expect ( "]" , "to close indexer key type" ) )
@@ -29961,7 +33794,9 @@ member . value = add ( member , parseType ( ) )
 else
 member = setmetatable( { kind = "tshapeField" ,
 capability = capability } , cst.TshapeField)
-if capability then add ( member , capability ) end
+if capability then
+add ( member , capability )
+end
 member . name = add ( member , expectName ( "in shape field" ) )
 annotationColon ( member , "in shape field" )
 member . type = add ( member , parseType ( ) )
@@ -29996,7 +33831,9 @@ n . fields = { }
 repeat
 local f = shapeMember ( )
 n . fields [ # n . fields + 1 ] = add ( n , f )
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until cur ( ) . kind == "}" or cur ( ) . kind == "eof"
 else
@@ -30054,7 +33891,9 @@ else
 p . type = add ( p , parseType ( ) )
 end
 n . params [ # n . params + 1 ] = add ( n , p )
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 end
@@ -30127,7 +33966,9 @@ end
 
 parseType = function ( noUnion )
 local t = parsePosttype ( )
-if noUnion or cur ( ) . kind ~= "|" then return t end
+if noUnion or cur ( ) . kind ~= "|" then
+return t
+end
 local n = setmetatable( { kind = "tunion" } , cst.Tunion)
 n . types = { add ( n , t ) }
 while cur ( ) . kind == "|" do
@@ -30329,6 +34170,15 @@ f . key = add ( f , resetNoMethod ( parseExp ) )
 add ( f , expect ( "]" , "to close field key" ) )
 add ( f , expect ( "=" , "in table field" ) )
 f . value = add ( f , resetNoMethod ( parseExp ) )
+elseif cur ( ) . kind == "name" and cur ( ) . text == "const"
+and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "name"
+and tokens [ i + 2 ] and tokens [ i + 2 ] . kind == "=" then
+f = setmetatable( { kind = "fieldNamed" } , cst.FieldNamed)
+f . isConst = true
+add ( f , advance ( ) )
+f . name = add ( f , advance ( ) )
+add ( f , advance ( ) )
+f . value = add ( f , resetNoMethod ( parseExp ) )
 elseif cur ( ) . kind == "name" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "=" then
 f = setmetatable( { kind = "fieldNamed" } , cst.FieldNamed)
 f . name = add ( f , advance ( ) )
@@ -30396,7 +34246,9 @@ n . params [ # n . params + 1 ] = add ( n , p )
 if p . namedVararg and cur ( ) . kind == "," then
 errAt ( cur ( ) , "named vararg must be the last parameter" )
 end
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 end
@@ -30528,7 +34380,9 @@ n . type = add ( n , parseType ( ) )
 left = n
 else
 local pri = BINPRI [ cur ( ) . kind ]
-if not ( pri and pri [ 1 ] > limit ) then break end
+if not ( pri and pri [ 1 ] > limit ) then
+break
+end
 local n = setmetatable( { kind = "binop" } , cst.Binop)
 n . lhs = add ( n , left )
 n . op = add ( n , advance ( ) )
@@ -30598,7 +34452,9 @@ annotationColon ( p , "in parameter annotation" )
 p . type = add ( p , parseType ( ) )
 end
 n . params [ # n . params + 1 ] = add ( n , p )
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 end
@@ -30630,7 +34486,6 @@ local parseTypedecl
 
 
 
-
 parseReturnType = function ( )
 local after = tokens [ i + 1 ]
 if cur ( ) . kind == "name" and after and after . kind == "name"
@@ -30642,7 +34497,6 @@ n . type = add ( n , parseType ( ) )
 return n
 end
 local result = parseType ( )
-
 
 
 
@@ -30658,7 +34512,9 @@ add ( n , advance ( ) )
 repeat
 local param = add ( n , expectName ( "as borrowed-result source" ) )
 n . params [ # n . params + 1 ] = param
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 add ( n , expect ( ")" , "to close borrowed-result sources" ) )
@@ -30676,11 +34532,12 @@ end
 
 
 
-
 local function parseAnnotationApplication ( n )
 add ( n , expect ( "@" ) )
 n . name = add ( n , expectName ( "after '@'" ) )
-if cur ( ) . kind ~= "(" then return n end
+if cur ( ) . kind ~= "(" then
+return n
+end
 
 n . open = add ( n , advance ( ) )
 n . annotationArgs = { }
@@ -30694,7 +34551,9 @@ arg . eq = add ( arg , advance ( ) )
 end
 arg . expr = add ( arg , resetNoMethod ( parseExp ) )
 n . annotationArgs [ # n . annotationArgs + 1 ] = add ( n , arg )
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 end
@@ -30800,7 +34659,9 @@ local function introduce ( n )
 n . visibility = visibility
 n . keyword = kw
 n . modifier = modifierTok
-if modifierTok then add ( n , modifierTok ) end
+if modifierTok then
+add ( n , modifierTok )
+end
 add ( n , kw )
 return n
 end
@@ -30821,7 +34682,9 @@ if cur ( ) . kind == "name" and cur ( ) . text == "is" then
 add ( n , advance ( ) )
 repeat
 n . supertypes [ # n . supertypes + 1 ] = add ( n , parseType ( ) )
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 end
@@ -30835,7 +34698,6 @@ parseRecordBody ( n )
 return n
 end
 end
-
 
 
 
@@ -30873,7 +34735,9 @@ p . name = add ( p , expectName ( "as cdef parameter" ) )
 annotationColon ( p , "in cdef parameter" )
 p . type = add ( p , parseType ( ) )
 n . params [ # n . params + 1 ] = add ( n , p )
-if cur ( ) . kind ~= "," then break end
+if cur ( ) . kind ~= "," then
+break
+end
 add ( n , advance ( ) )
 until false
 end
@@ -31073,6 +34937,56 @@ n . name = add ( n , fn )
 n . body = add ( n , parseFuncbody ( ) )
 return n
 
+elseif kind == "name" and cur ( ) . text == "const"
+and tokens [ i + 1 ] and ( tokens [ i + 1 ] . kind == "..."
+or tokens [ i + 1 ] . kind == "name" )
+and ( ( tokens [ i + 1 ] . kind == "name" and tokens [ i + 2 ]
+and tokens [ i + 2 ] . kind == "." )
+or ( tokens [ i + 1 ] . kind == "..." and tokens [ i + 2 ]
+and tokens [ i + 2 ] . kind == "name" and tokens [ i + 3 ]
+and tokens [ i + 3 ] . kind == "." ) ) then
+local n = setmetatable( { kind = "assignStmt" } , cst.AssignStmt)
+n . isConst = true
+add ( n , advance ( ) )
+if cur ( ) . kind == "..." then
+n . deepConst = true
+add ( n , advance ( ) )
+end
+n . targets = { add ( n , parseSuffixedexp ( ) ) }
+local function plainFieldPath ( target )
+if target . kind ~= "dotIndex" then
+return false
+end
+local base = target . obj
+return base and ( base . kind == "name" or plainFieldPath ( base ) )
+end
+if not plainFieldPath ( n . targets [ 1 ] ) then
+errAt ( cst . firstToken ( n . targets [ 1 ] ) or cur ( ) ,
+"const field declaration needs a dotted field path" )
+end
+add ( n , expect ( "=" , "in const field declaration" ) )
+n . exprs = parseExplist ( n )
+if n . deepConst then
+local function markDeep ( value )
+if not value or value . kind ~= "tableExpr" then
+return
+end
+for _ , field in ipairs ( value . fields or { } ) do
+if field . kind == "fieldNamed" then
+field . isConst = true
+else
+errAt ( cst . firstToken ( field ) or cur ( ) ,
+"const... table requires named fields" )
+end
+if field . value then
+markDeep ( field . value )
+end
+end
+end
+for _ , value in ipairs ( n . exprs ) do markDeep ( value ) end
+end
+return n
+
 elseif kind == "local" or ( kind == "name" and cur ( ) . text == "const"
 and tokens [ i + 1 ] and ( tokens [ i + 1 ] . kind == "name"
 or tokens [ i + 1 ] . kind == "function" ) ) then
@@ -31224,7 +35138,9 @@ returned = false
 end
 local start = i
 local s = parseStatement ( )
-if s . kind == "returnStmt" then returned = true end
+if s . kind == "returnStmt" then
+returned = true
+end
 n . stats [ # n . stats + 1 ] = add ( n , s )
 
 
@@ -31243,7 +35159,9 @@ local root = setmetatable( { kind = "chunk" } , cst.Chunk)
 root . blocks = { }
 while true do
 root . blocks [ # root . blocks + 1 ] = add ( root , parseBlock ( ) )
-if cur ( ) . kind == "eof" then break end
+if cur ( ) . kind == "eof" then
+break
+end
 
 
 local e = setmetatable( { kind = "errorStmt" } , cst.ErrorStmt)
@@ -31384,10 +35302,14 @@ end
 function query . Q : clearInput ( name , key )
 self . revision = self . revision + 1
 local byName = self . inputs [ name ]
-if byName then byName [ key ] = nil end
+if byName then
+byName [ key ] = nil
+end
 
 local m = self . memo [ name ]
-if m then m [ key ] = nil end
+if m then
+m [ key ] = nil
+end
 end
 
 
@@ -31460,7 +35382,9 @@ local ok , value = pcall ( def . fn , self , key )
 local frame = self . stack [ # self . stack ]
 self . stack [ # self . stack ] = nil
 self . active [ activeKey ] = nil
-if not ok then error ( value , 0 ) end
+if not ok then
+error ( value , 0 )
+end
 
 local changedAt = self . revision
 if entry then
@@ -31486,7 +35410,9 @@ end
 depChangedAt = function ( self , name , key )
 local byName = self . inputs [ name ]
 local inp = byName and byName [ key ]
-if inp then return inp . changedAt end
+if inp then
+return inp . changedAt
+end
 self : get ( name , key )
 local m = self . memo [ name ]
 local entry = m and m [ key ]
@@ -31525,7 +35451,6 @@ local reference = { }
 
 
 reference.Section = {} reference.Section.__index = reference.Section
-
 
 
 
@@ -32026,6 +35951,12 @@ erased comment.
 Applications spell an unqualified `@name`, so a definition is registered
 project-wide and is the one declaration exempt from the visibility rule. Both the
 definition and every application are erased from the generated Lua.
+
+Built-in contracts use the same surface. `@effects` is a complete effect
+summary: visible bodies are checked against it and bodyless declarations are
+trusted. `const` is the shallow identity promise for a bodyless binding in a
+`.d.nupp`; it does not freeze a table's fields. `@relax` records a closed set
+of observable guarantees an optimization may change, locally to one function.
 ]=] ,
 example = [=[
 local m = {}
@@ -32086,10 +36017,18 @@ on that table, so nothing is merged in behind your back. Another file reaches a
 member through the module it was attached to, and a module path also names a type
 directly, as in `models.user.User`.
 
+The returned local already identifies the module table; there is no `module`
+keyword. Use `const M.field = value` to make an export slot immutable. A fresh
+table can mark individual named slots with `const name = value`, or use
+`const... M.field = {...}` to mark all of its named slots recursively. These
+guarantees are checked in Nupp and preserve exact primitive literals for
+constant propagation in consumers.
+
 A `.d.nupp` declaration file is the exception: it describes an interface it does
 not own and returns no table, so a bare declaration there is that interface.
 ]=] ,
-context = { [ "models.nupp" ] = [=[
+context = {
+[ "models.nupp" ] = [=[
 local models = {}
 
 record models.User
@@ -32098,7 +36037,8 @@ record models.User
 end
 
 return models
-]=] } ,
+]=]
+} ,
 example = [=[
 local models = require("models")
 
@@ -32117,8 +36057,23 @@ written straight through to the output, because LuaJIT 2.1 backported it.
 
 Available: `continue`; compound assignment (`+= -= *= /= //= %= &= |=`); the
 ternary `c ? a : b`; `??` for nil-coalescing; safe navigation `?.`; short
-functions `|x| -> e`; `const` bindings including `const function`; and the
-customary spellings `!`, `&&`, `||`, `!=`.
+functions `|x| -> e`; `const` bindings including `const function` and immutable
+named table fields; and the customary spellings `!`, `&&`, `||`, `!=`.
+
+`const M.field = value` initializes an immutable field. Inside a fresh table
+constructor, `const name = value` does the same for a named slot. `const...`
+before the outer field declaration is sugar that applies it recursively to the
+new table graph:
+
+```nupp
+local M = {}
+const... M.settings = {name = "nupp", nested = {count = 0}}
+return M
+```
+
+The checker rejects later writes through those paths. Plain `const M.field`
+remains shallow: ordinary inner fields stay mutable unless they are themselves
+declared `const`.
 
 The customary spellings are legal but linted: `not`, `and`, `or` and `~=` are the
 ones Lua already has, and two spellings of one thing drift apart across a
@@ -32306,10 +36261,8 @@ out [ # out + 1 ] = ""
 out [ # out + 1 ] = heading ( base + 1 , "Working with the toolchain" )
 out [ # out + 1 ] = ""
 out [ # out + 1 ] = ( reference . tooling : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" ) )
-out [ # out + 1 ] = ""
 return table . concat ( out , "\n" )
 end
-
 
 
 
@@ -32359,7 +36312,9 @@ local relations = { }
 
 
 local function admitsNil ( t )
-if t == T . nil_ or t == T . any or t == T . unknown then return true end
+if t == T . nil_ or t == T . any or t == T . unknown then
+return true
+end
 return t . tag == "union" and t . hasNil or false
 end
 
@@ -32420,7 +36375,9 @@ return isA ( have , want )
 end
 
 local function optionalIsA ( a , b )
-if not a or not b then return false end
+if not a or not b then
+return false
+end
 return isA ( a , b )
 end
 
@@ -32435,7 +36392,9 @@ local fresh = a . tag == "shape" and a . fresh == true
 for name , want in pairs ( b . byname or { } ) do
 local have = aReads [ name ]
 if not have then
-if admitsNil ( want ) then goto nextRead end
+if admitsNil ( want ) then
+goto nextRead
+end
 return false , ( "%s is not a %s (no readable member %q)" )
 : format ( T . tostring ( a ) , T . tostring ( b ) , name )
 end
@@ -32446,7 +36405,9 @@ end
 :: nextRead ::
 end
 for name , want in pairs ( b . writeByname or { } ) do
-if fresh then goto nextWrite end
+if fresh then
+goto nextWrite
+end
 local have = aWrites [ name ]
 if not have then
 return false , ( "%s is not a %s (no writable member %q)" )
@@ -32464,9 +36425,13 @@ end
 local function sameCleanups ( a , b )
 local left = a or { }
 local right = b or { }
-if # left ~= # right then return false end
+if # left ~= # right then
+return false
+end
 for j , name in ipairs ( left ) do
-if name ~= right [ j ] then return false end
+if name ~= right [ j ] then
+return false
+end
 end
 return true
 end
@@ -32476,22 +36441,34 @@ end
 
 
 local function check ( a , b )
-if a == b then return true end
+if a == b then
+return true
+end
 local atag , btag = a . tag , b . tag
-if atag == "any" or btag == "any" then return true end
+if atag == "any" or btag == "any" then
+return true
+end
 
 
 
 
-if atag == "never" then return true end
-if btag == "unknown" then return true end
+if atag == "never" then
+return true
+end
+if btag == "unknown" then
+return true
+end
 
 
 if atag == "typevar" then
-if a . bound then return isA ( a . bound , b ) end
+if a . bound then
+return isA ( a . bound , b )
+end
 return true
 end
-if btag == "typevar" then return true end
+if btag == "typevar" then
+return true
+end
 
 
 
@@ -32513,12 +36490,18 @@ end
 return isA ( a . inner , b )
 end
 if atag == "borrowed" then
-if btag == "borrowed" then return isA ( a . inner , b . inner ) end
-if btag == "owned" then return fail ( a , b ) end
+if btag == "borrowed" then
+return isA ( a . inner , b . inner )
+end
+if btag == "owned" then
+return fail ( a , b )
+end
 return isA ( a . inner , b )
 end
 if atag == "pinned" then
-if btag == "pinned" then return isA ( a . inner , b . inner ) end
+if btag == "pinned" then
+return isA ( a . inner , b . inner )
+end
 return fail ( a , b )
 end
 if btag == "owned" or btag == "borrowed" or btag == "pinned" then
@@ -32538,7 +36521,9 @@ return true
 end
 if btag == "union" then
 for _ , m in ipairs ( b . members ) do
-if isA ( a , m ) then return true end
+if isA ( a , m ) then
+return true
+end
 end
 return fail ( a , b )
 end
@@ -32548,13 +36533,17 @@ end
 
 if atag == "nominal" then
 for _ , parent in ipairs ( a . supertypes or { } ) do
-if parent == b or isA ( parent , b ) then return true end
+if parent == b or isA ( parent , b ) then
+return true
+end
 end
 end
 
 
 local widensFrom = WIDENS [ atag ]
-if widensFrom and widensFrom [ btag ] then return true end
+if widensFrom and widensFrom [ btag ] then
+return true
+end
 
 
 
@@ -32596,7 +36585,9 @@ and a . origin == b . origin then
 if next ( a . byname or { } ) or next ( a . writeByname or { } )
 or a . indexReadValue or a . indexWriteValue then
 local ok , why = propertiesFit ( a , b )
-if not ok then return false , why end
+if not ok then
+return false , why
+end
 if b . indexReadValue and ( not a . indexReadValue
 or not optionalIsA ( b . indexReadKey , a . indexReadKey )
 or not optionalIsA ( a . indexReadValue , b . indexReadValue ) ) then
@@ -32642,7 +36633,9 @@ end
 
 
 if atag == "literal" then
-if b == ( a . base or T . string ) then return true end
+if b == ( a . base or T . string ) then
+return true
+end
 return isA ( a . base or T . string , b )
 end
 
@@ -32652,7 +36645,9 @@ end
 if btag == "nominal" and b . declKind == "interface" and b . byname then
 if ( atag == "nominal" or atag == "shape" ) and a . byname then
 local ok , why = propertiesFit ( a , b )
-if not ok then return false , why end
+if not ok then
+return false , why
+end
 if b . indexReadValue then
 if not a . indexReadValue
 or not optionalIsA ( b . indexReadKey , a . indexReadKey )
@@ -32718,14 +36713,20 @@ end
 
 if atag == "array" and btag == "array" then
 local ok = isA ( a . elem , b . elem )
-if ok then return true end
+if ok then
+return true
+end
 return fail ( a , b )
 end
 
 if atag == "tuple" and btag == "tuple" then
-if # a . elems ~= # b . elems then return fail ( a , b ) end
+if # a . elems ~= # b . elems then
+return fail ( a , b )
+end
 for j , e in ipairs ( a . elems ) do
-if not isA ( e , b . elems [ j ] ) then return fail ( a , b ) end
+if not isA ( e , b . elems [ j ] ) then
+return fail ( a , b )
+end
 end
 return true
 end
@@ -32733,7 +36734,9 @@ end
 
 if atag == "tuple" and btag == "array" then
 for _ , e in ipairs ( a . elems ) do
-if not isA ( e , b . elem ) then return fail ( a , b ) end
+if not isA ( e , b . elem ) then
+return fail ( a , b )
+end
 end
 return true
 end
@@ -32742,7 +36745,9 @@ end
 
 if b . tag == "map" and a . tag == "shape" then
 if b . readable then
-if not isA ( T . string , b . key ) then return fail ( a , b ) end
+if not isA ( T . string , b . key ) then
+return fail ( a , b )
+end
 if a . indexReadValue then
 if not optionalIsA ( b . key , a . indexReadKey )
 or not optionalIsA ( a . indexReadValue , b . value ) then
@@ -32787,7 +36792,9 @@ end
 
 local arrayPart = a . tag == "nominal" and a . arrayOf or nil
 if b . tag == "array" and arrayPart then
-if isA ( arrayPart , b . elem ) and isA ( b . elem , arrayPart ) then return true end
+if isA ( arrayPart , b . elem ) and isA ( b . elem , arrayPart ) then
+return true
+end
 return fail ( a , b )
 end
 
@@ -32797,7 +36804,9 @@ end
 if btag == "shape" then
 if ( atag == "shape" or atag == "nominal" ) and a . byname then
 local ok , why = propertiesFit ( a , b )
-if not ok then return false , why end
+if not ok then
+return false , why
+end
 if b . indexReadValue and ( not a . indexReadValue
 or not optionalIsA ( b . indexReadKey , a . indexReadKey )
 or not optionalIsA ( a . indexReadValue , b . indexReadValue ) ) then
@@ -32822,14 +36831,18 @@ return true
 end
 return fail ( a , b )
 end
-if atag == "carray" and btag == "voidptr" then return true end
+if atag == "carray" and btag == "voidptr" then
+return true
+end
 if atag == "carray" and btag == "ptr" and b . elem == a . elem then
 return true
 end
 
 if atag == "ptr" and btag == "ptr" then
 
-if isA ( a . elem , b . elem ) and isA ( b . elem , a . elem ) then return true end
+if isA ( a . elem , b . elem ) and isA ( b . elem , a . elem ) then
+return true
+end
 return fail ( a , b )
 end
 
@@ -32843,7 +36856,9 @@ return false , ( "%s is not a %s (parameter count %d vs %d)" )
 end
 
 local n = # a . params
-if # b . params < n then n = # b . params end
+if # b . params < n then
+n = # b . params
+end
 for j = 1 , n do
 local am = a . paramModes and a . paramModes [ j ] or "plain"
 local bm = b . paramModes and b . paramModes [ j ] or "plain"
@@ -32872,7 +36887,9 @@ return false , ( "%s is not a %s (extra arguments)" )
 : format ( T . tostring ( a ) , T . tostring ( b ) )
 end
 local rn = # a . rets
-if # b . rets < rn then rn = # b . rets end
+if # b . rets < rn then
+rn = # b . rets
+end
 for j = 1 , rn do
 
 if not isA ( a . rets [ j ] , b . rets [ j ] ) then
@@ -32900,7 +36917,9 @@ local perA = cache [ a ] or { }
 cache [ a ] = perA
 local hit = perA [ b ]
 if hit ~= nil then
-if hit == true then return true end
+if hit == true then
+return true
+end
 return false , tostring ( hit )
 end
 local ok , why = check ( a , b )
@@ -32967,7 +36986,9 @@ table . insert ( loaders , 2 , loadLjppModule )
 
 local installed = true
 return function ( )
-if not installed then return end
+if not installed then
+return
+end
 installed = false
 for j , loader in ipairs ( loaders ) do
 if loader == loadLjppModule then
@@ -33073,11 +37094,7 @@ local profile = { }
 
 
 
-
-
 profile.Sample = {} profile.Sample.__index = profile.Sample
-
-
 
 
 
@@ -33128,10 +37145,7 @@ profile.SampleReport = {} profile.SampleReport.__index = profile.SampleReport
 
 
 
-
-
 profile.SampleSession = {} profile.SampleSession.__index = profile.SampleSession
-
 
 
 
@@ -33179,7 +37193,6 @@ profile.AbortSite = {} profile.AbortSite.__index = profile.AbortSite
 
 
 profile.TraceReport = {} profile.TraceReport.__index = profile.TraceReport
-
 
 
 
@@ -33272,10 +37285,18 @@ end
 
 local function dominantState ( sample )
 local state , best = "N" , sample . compiled
-if sample . interpreted > best then state , best = "I" , sample . interpreted end
-if sample . cCode > best then state , best = "C" , sample . cCode end
-if sample . collecting > best then state , best = "G" , sample . collecting end
-if sample . compiling > best then state , best = "J" , sample . compiling end
+if sample . interpreted > best then
+state , best = "I" , sample . interpreted
+end
+if sample . cCode > best then
+state , best = "C" , sample . cCode
+end
+if sample . collecting > best then
+state , best = "G" , sample . collecting
+end
+if sample . compiling > best then
+state , best = "J" , sample . compiling
+end
 return state
 end
 
@@ -33283,7 +37304,9 @@ end
 
 
 local function appendFrames ( frames , text , separator )
-if text == "" then return end
+if text == "" then
+return
+end
 
 local pattern = "[^" .. separator .. "]+"
 for piece in text : gmatch ( pattern ) do
@@ -33299,11 +37322,17 @@ end
 
 
 local function collapse ( samples )
-if # samples == 0 then return "" end
+if # samples == 0 then
+return ""
+end
 
 table . sort ( samples , function ( a , b )
-if a . count ~= b . count then return a . count > b . count end
-if a . zonePath ~= b . zonePath then return a . zonePath < b . zonePath end
+if a . count ~= b . count then
+return a . count > b . count
+end
+if a . zonePath ~= b . zonePath then
+return a . zonePath < b . zonePath
+end
 return a . stack < b . stack
 end )
 
@@ -33313,7 +37342,9 @@ local sample = samples [ index ]
 local frames = { }
 appendFrames ( frames , sample . zonePath , "/" )
 appendFrames ( frames , sample . stack , ";" )
-if # frames == 0 then frames [ 1 ] = "<root>" end
+if # frames == 0 then
+frames [ 1 ] = "<root>"
+end
 frames [ # frames ] = frames [ # frames ] .. "_[" .. dominantState ( sample ) .. "]"
 lines [ index ] = table . concat ( frames , ";" ) .. " "
 .. string . format ( "%d" , sample . count )
@@ -33336,7 +37367,9 @@ if stack : sub ( from , from + # prefix - 1 ) == prefix then
 return stack : sub ( from )
 end
 local nextFrame = stack : find ( ";" , from , true )
-if not nextFrame then return stack end
+if not nextFrame then
+return stack
+end
 from = nextFrame + 1
 end
 return stack
@@ -33389,7 +37422,9 @@ local cachedStacks = { }
 aggregate [ cachedPath ] = cachedStacks
 
 local function record ( thread , samples , vmstate )
-if session . paused then return end
+if session . paused then
+return
+end
 
 local path = zone . path ( )
 if path ~= cachedPath then
@@ -33415,11 +37450,16 @@ cachedStacks [ stack ] = sample
 end
 
 sample . count = sample . count + samples
-if vmstate == "N" then sample . compiled = sample . compiled + samples
-elseif vmstate == "I" then sample . interpreted = sample . interpreted + samples
-elseif vmstate == "C" then sample . cCode = sample . cCode + samples
-elseif vmstate == "G" then sample . collecting = sample . collecting + samples
-elseif vmstate == "J" then sample . compiling = sample . compiling + samples
+if vmstate == "N" then
+sample . compiled = sample . compiled + samples
+elseif vmstate == "I" then
+sample . interpreted = sample . interpreted + samples
+elseif vmstate == "C" then
+sample . cCode = sample . cCode + samples
+elseif vmstate == "G" then
+sample . collecting = sample . collecting + samples
+elseif vmstate == "J" then
+sample . compiling = sample . compiling + samples
 end
 end
 
@@ -33480,7 +37520,6 @@ local samples = 0
 
 
 
-
 local merged = { }
 for path , stacks in pairs ( self . aggregate ) do
 if not prefix or path : sub ( 1 , # prefix ) == prefix then
@@ -33514,7 +37553,9 @@ samples = samples ,
 stacks = # kept ,
 text = collapse ( kept ) ,
 } , profile.SampleReport)
-if filename then writeFile ( filename , report . text ) end
+if filename then
+writeFile ( filename , report . text )
+end
 return report
 end
 
@@ -33536,7 +37577,9 @@ end
 
 
 local function abortReason ( errorCode , errorArg )
-if not errorCode then return "abort" end
+if not errorCode then
+return "abort"
+end
 
 local format = traceerr [ errorCode ]
 if not format then
@@ -33545,7 +37588,9 @@ end
 if format : find ( "NYI: bytecode" , 1 , true ) and type ( errorArg ) == "number" then
 return "NYI: bytecode " .. opcodeName ( errorArg )
 end
-if errorArg == nil then return format end
+if errorArg == nil then
+return format
+end
 
 local ok , filled = pcall ( string . format , format , errorArg )
 return ok and filled or format
@@ -33555,11 +37600,21 @@ end
 
 
 local function classify ( reason )
-if reason : find ( "blacklist" , 1 , true ) then return "blacklist" end
-if reason : find ( "leaving loop" , 1 , true ) then return "info" end
-if reason : find ( "inner loop" , 1 , true ) then return "info" end
-if reason : find ( "down-recursion" , 1 , true ) then return "info" end
-if reason : find ( "up-recursion" , 1 , true ) then return "info" end
+if reason : find ( "blacklist" , 1 , true ) then
+return "blacklist"
+end
+if reason : find ( "leaving loop" , 1 , true ) then
+return "info"
+end
+if reason : find ( "inner loop" , 1 , true ) then
+return "info"
+end
+if reason : find ( "down-recursion" , 1 , true ) then
+return "info"
+end
+if reason : find ( "up-recursion" , 1 , true ) then
+return "info"
+end
 return "warn"
 end
 
@@ -33577,10 +37632,11 @@ end
 
 
 local function trimSource ( source )
-if source : sub ( 1 , 1 ) == "@" then return source : sub ( 2 ) end
+if source : sub ( 1 , 1 ) == "@" then
+return source : sub ( 2 )
+end
 return source
 end
-
 
 
 
@@ -33663,14 +37719,17 @@ callback = function ( ) end ,
 
 
 
-
 local function onTraceEvent ( ... )
 local what , _ , func , pc , errorCode , errorArg = ...
-if what ~= "abort" or session . paused then return end
+if what ~= "abort" or session . paused then
+return
+end
 
 local reason = abortReason ( errorCode , errorArg )
 local severity = classify ( reason )
-if severity == "info" and not session . includeBenign then return end
+if severity == "info" and not session . includeBenign then
+return
+end
 
 session . totalAborts = session . totalAborts + 1
 if severity == "blacklist" then
@@ -33697,7 +37756,6 @@ jit . attach ( onTraceEvent , "trace" )
 tracing = true
 return session
 end
-
 
 
 
@@ -33741,9 +37799,15 @@ local sites = { }
 for _ , site in pairs ( self . sites ) do sites [ # sites + 1 ] = site end
 table . sort ( sites , function ( a , b )
 local left , right = severityRank ( a . severity ) , severityRank ( b . severity )
-if left ~= right then return left < right end
-if a . count ~= b . count then return a . count > b . count end
-if a . reason ~= b . reason then return a . reason < b . reason end
+if left ~= right then
+return left < right
+end
+if a . count ~= b . count then
+return a . count > b . count
+end
+if a . reason ~= b . reason then
+return a . reason < b . reason
+end
 return a . location < b . location
 end )
 
@@ -33753,7 +37817,9 @@ totalAborts = self . totalAborts ,
 blacklisted = self . blacklisted ,
 sites = sites ,
 } , profile.TraceReport)
-if filename then writeFile ( filename , tostring ( report ) ) end
+if filename then
+writeFile ( filename , tostring ( report ) )
+end
 return report
 end
 
@@ -33833,7 +37899,6 @@ package.preload["nupp.std.zone"] = function(...)
 local zone = { }
 
 
-
 local stack = require ( "jit.zone" )
 
 
@@ -33865,7 +37930,9 @@ end
 
 function zone . acquire ( )
 references = references + 1
-if references > 1 then return end
+if references > 1 then
+return
+end
 
 for index = # stack , 1 , - 1 do stack [ index ] = nil end
 depth = 0
@@ -33877,10 +37944,14 @@ end
 
 
 function zone . release ( )
-if references == 0 then return end
+if references == 0 then
+return
+end
 
 references = references - 1
-if references > 0 then return end
+if references > 0 then
+return
+end
 
 for index = # stack , 1 , - 1 do stack [ index ] = nil end
 depth = 0
@@ -33890,7 +37961,9 @@ end
 
 
 function zone . push ( name )
-if not active then return end
+if not active then
+return
+end
 
 depth = depth + 1
 stack [ depth ] = name
@@ -33901,7 +37974,9 @@ end
 
 
 function zone . pop ( )
-if not active or depth == 0 then return nil end
+if not active or depth == 0 then
+return nil
+end
 
 local name = stack [ depth ]
 stack [ depth ] = nil
@@ -33912,7 +37987,9 @@ end
 
 
 function zone . current ( )
-if depth == 0 then return nil end
+if depth == 0 then
+return nil
+end
 return stack [ depth ]
 end
 
@@ -33923,9 +38000,10 @@ end
 
 
 
-
 function zone . path ( )
-if version == pathVersion then return pathText end
+if version == pathVersion then
+return pathText
+end
 
 if depth == 0 then
 pathText = ""
@@ -33942,9 +38020,10 @@ end
 
 
 
-
 function zone . enter ( name )
-if not active then return 0 end
+if not active then
+return 0
+end
 
 depth = depth + 1
 stack [ depth ] = name
@@ -33955,8 +38034,12 @@ end
 
 
 function zone . leave ( token )
-if token == 0 or not active or token ~= generation then return end
-if depth == 0 then return end
+if token == 0 or not active or token ~= generation then
+return
+end
+if depth == 0 then
+return
+end
 
 stack [ depth ] = nil
 depth = depth - 1
@@ -34019,6 +38102,7 @@ types.Array = {} types.Array.__index = types.Array
 
 
 types.Map = {} types.Map.__index = types.Map
+
 
 
 
@@ -34305,7 +38389,9 @@ local arena = { }
 
 local function intern ( key , build )
 local found = arena [ key ]
-if found then return found end
+if found then
+return found
+end
 local made = build ( )
 made . id = key
 arena [ key ] = made
@@ -34321,9 +38407,7 @@ types . any = prim ( "any" )
 
 
 
-
 types . unknown = prim ( "unknown" )
-
 
 
 types . never = prim ( "never" )
@@ -34430,16 +38514,24 @@ for _ , f in ipairs ( sorted ) do
 local read = f . read
 local write = f . write
 if f . type then
-if f . capability == "read" then read = f . type
-elseif f . capability == "write" then write = f . type
-else read , write = f . type , f . type end
+if f . capability == "read" then
+read = f . type
+elseif f . capability == "write" then
+write = f . type
+else
+read , write = f . type , f . type
+end
 end
 f . read , f . write = read , write
 parts [ # parts + 1 ] = f . name .. ":r="
 .. ( read and read . id or "-" ) .. ":w="
 .. ( write and write . id or "-" )
-if read then byname [ f . name ] = read end
-if write then writeByname [ f . name ] = write end
+if read then
+byname [ f . name ] = read
+end
+if write then
+writeByname [ f . name ] = write
+end
 end
 local irk = indexer and indexer . readKey or nil
 local irv = indexer and indexer . readValue or nil
@@ -34476,10 +38568,14 @@ flat [ # flat + 1 ] = t
 end
 end
 for _ , m in ipairs ( members ) do push ( m ) end
-if # flat == 1 then return flat [ 1 ] end
+if # flat == 1 then
+return flat [ 1 ]
+end
 
 for _ , m in ipairs ( flat ) do
-if m == types . any then return types . any end
+if m == types . any then
+return types . any
+end
 end
 table . sort ( flat , function ( a , b ) return a . id < b . id end )
 local ids = { }
@@ -34487,7 +38583,9 @@ for j , m in ipairs ( flat ) do ids [ j ] = m . id end
 return intern ( "union(" .. table . concat ( ids , "|" ) .. ")" , function ( )
 local hasNil = false
 for _ , m in ipairs ( flat ) do
-if m == types . nil_ then hasNil = true end
+if m == types . nil_ then
+hasNil = true
+end
 end
 return setmetatable( { tag = "union" , members = flat , hasNil = hasNil } , types.Union)
 end )
@@ -34554,8 +38652,9 @@ varargType , noreturn )
 
 
 
-
-if # rets == 1 and rets [ 1 ] == types . never then noreturn = true end
+if # rets == 1 and rets [ 1 ] == types . never then
+noreturn = true
+end
 local pids = { }
 local rids = { }
 local modes = { }
@@ -34583,7 +38682,9 @@ and typeBounds [ j ] . id or "any" )
 end
 key = key .. "|<" .. table . concat ( genericParts , "," ) .. ">"
 end
-if borrowsParam then key = key .. "|borrows" .. borrowsParam end
+if borrowsParam then
+key = key .. "|borrows" .. borrowsParam
+end
 if borrowsParams and # borrowsParams > 0 then
 key = key .. "|borrows(" .. table . concat ( borrowsParams , "," ) .. ")"
 end
@@ -34594,8 +38695,12 @@ key = key .. "|out:" .. ( output . kind or "owned" ) .. ":"
 .. ( output . success or "always" ) .. ":"
 .. tostring ( output . sourceParam or "" )
 end
-if borrowsSelf then key = key .. "|borrowsself" end
-if noreturn then key = key .. "|noreturn" end
+if borrowsSelf then
+key = key .. "|borrowsself"
+end
+if noreturn then
+key = key .. "|noreturn"
+end
 return intern ( key , function ( )
 return setmetatable( { tag = "func" , params = params , rets = rets ,
 vararg = vararg or false ,
@@ -34633,7 +38738,9 @@ end
 
 
 function types . constOf ( t )
-if t . tag == "const" then return t end
+if t . tag == "const" then
+return t
+end
 return intern ( "const(" .. t . id .. ")" ,
 function ( ) return setmetatable( { tag = "const" , inner = t } , types.Const) end )
 end
@@ -34779,7 +38886,9 @@ return t . name
 elseif tag == "metatable" then
 return "metatable<" .. types . tostring ( t . of ) .. ">"
 elseif tag == "literal" then
-if t . base == types . string then return ( "%q" ) : format ( t . constant ) end
+if t . base == types . string then
+return ( "%q" ) : format ( t . constant )
+end
 return tostring ( t . constant )
 elseif tag == "func" then
 local ps = { }
@@ -34843,8 +38952,8 @@ local record cjson
     --- Returns an independent module instance with its own configuration.
     new: function(): cjson
 
-    -- Configuration. Each call returns the setting in force after the
-    -- call, so calling with no argument reads the current value.
+    -- Configuration. Each call returns the setting in force after the call, so calling
+    -- with no argument reads the current value.
     encode_sparse_array: function(
         convert: boolean?,
         ratio: integer?,
@@ -34858,8 +38967,8 @@ local record cjson
     decode_invalid_numbers: function(setting: boolean?): boolean
     encode_escape_forward_slash: function(setting: boolean?): boolean
 
-    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean or
-    --- the strings "on"/"off".
+    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean
+    --- or the strings "on"/"off".
     encode_empty_table_as_object: function(setting: any?): boolean
 
     --- Whether decoded JSON arrays carry array_mt.
@@ -34916,8 +39025,8 @@ local record CJsonSafe
     decode_invalid_numbers: function(setting: boolean?): boolean
     encode_escape_forward_slash: function(setting: boolean?): boolean
 
-    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean or
-    --- the strings "on"/"off".
+    --- Whether an empty table encodes as `{}` (true) or `[]` (false). Accepts a boolean
+    --- or the strings "on"/"off".
     encode_empty_table_as_object: function(setting: any?): boolean
 
     --- Whether decoded JSON arrays carry array_mt.
@@ -34992,9 +39101,9 @@ local record ffi
     --- Reads, and optionally sets, the C errno.
     errno: function(newerr: integer?): integer
 
-    --- Reads LuaJIT's own record of a declared C type. Internal to the
-    --- implementation rather than part of the documented FFI, but it is
-    --- how a program can learn what a cdef declared.
+    --- Reads LuaJIT's own record of a declared C type. Internal to the implementation
+    --- rather than part of the documented FFI, but it is how a program can learn what a
+    --- cdef declared.
     typeinfo: function(id: integer): any
 
     --- The default C namespace: symbols in the running process.
@@ -35024,19 +39133,18 @@ local record JitProfile
     ---
     --- `mode` is a string of option characters:
     ---
-    ---   * `"f"` — sample the function, `"l"` the line, `"z"` the zone (see
+    --- * `"f"` — sample the function, `"l"` the line, `"z"` the zone (see
     ---     the bundled `jit.zone` module).
-    ---   * `"i<n>"` — sample every `n` milliseconds, 10 by default. Below
+    --- * `"i<n>"` — sample every `n` milliseconds, 10 by default. Below
     ---     about 10 the timer starts taking real time away from the thread it
     ---     is measuring.
-    ---   * `"r"` — report raw sample counts rather than accumulating.
-    ---   * `"v"` — report the VM state.
+    --- * `"r"` — report raw sample counts rather than accumulating. * `"v"` — report
+    --- the VM state.
     ---
-    --- The callback runs on the interrupted thread, so it must not allocate
-    --- heavily or raise; it is also the only place `dumpstack` sees the
-    --- sampled stack. `vmstate` is one character: `"N"` running compiled code,
-    --- `"I"` interpreting, `"C"` in a C function, `"G"` collecting, `"J"`
-    --- compiling.
+    --- The callback runs on the interrupted thread, so it must not allocate heavily or
+    --- raise; it is also the only place `dumpstack` sees the sampled stack. `vmstate`
+    --- is one character: `"N"` running compiled code, `"I"` interpreting, `"C"` in a C
+    --- function, `"G"` collecting, `"J"` compiling.
     ---
     --- @param mode the option string described above
     --- @param cb receives the sampled thread, how many samples this batch
@@ -35048,22 +39156,21 @@ local record JitProfile
 
     --- Renders a sampled stack as text.
     ---
-    --- `fmt` is a template applied once per frame: `"p"` is the function,
-    --- `"f"` its name, `"F"` the name with its source, and `"l"` the source
-    --- line. Anything else is a literal, so the tail of the format is the
-    --- separator between frames.
+    --- `fmt` is a template applied once per frame: `"p"` is the function, `"f"` its
+    --- name, `"F"` the name with its source, and `"l"` the source line. Anything else
+    --- is a literal, so the tail of the format is the separator between frames.
     ---
-    --- `"Z"` is not a frame at all: it stops the format there on the last
-    --- frame, which is how the separator is kept from trailing. `"lZ;"` is
-    --- `a;b;c`, where `"l;"` would be `a;b;c;`.
+    --- `"Z"` is not a frame at all: it stops the format there on the last frame, which
+    --- is how the separator is kept from trailing. `"lZ;"` is `a;b;c`, where `"l;"`
+    --- would be `a;b;c;`.
     ---
-    --- `depth` counts frames from the top; a negative count walks from the
-    --- bottom instead, which is the order a collapsed-stack profile wants.
-    --- Frames the JIT inlined into a trace are not there to walk, so a
-    --- compiled call chain arrives shorter than its source reads.
+    --- `depth` counts frames from the top; a negative count walks from the bottom
+    --- instead, which is the order a collapsed-stack profile wants. Frames the JIT
+    --- inlined into a trace are not there to walk, so a compiled call chain arrives
+    --- shorter than its source reads.
     ---
-    --- Meaningful only for the thread handed to a `start` callback, and only
-    --- while that callback is running.
+    --- Meaningful only for the thread handed to a `start` callback, and only while that
+    --- callback is running.
     ---
     --- @param thread the sampled thread; omit for the current one
     --- @param fmt the per-frame format described above
@@ -35092,12 +39199,12 @@ local record JitUtil
 
     --- Describes a function, or the bytecode position `pc` inside it.
     ---
-    --- The two kinds of function answer with different keys, so read the one
-    --- you want only after checking it is there. A Lua function reports
-    --- `source`, `loc`, `linedefined`, `lastlinedefined`, `params`,
-    --- `stackslots`, `upvalues`, `bytecodes`, `gcconsts`, `nconsts`,
-    --- `children`, `isvararg`, `proto`, and `currentline` when `pc` is given.
-    --- A builtin reports `ffid`, `addr` and `upvalues`, and nothing else.
+    --- The two kinds of function answer with different keys, so read the one you want
+    --- only after checking it is there. A Lua function reports `source`, `loc`,
+    --- `linedefined`, `lastlinedefined`, `params`, `stackslots`, `upvalues`,
+    --- `bytecodes`, `gcconsts`, `nconsts`, `children`, `isvararg`, `proto`, and
+    --- `currentline` when `pc` is given. A builtin reports `ffid`, `addr` and
+    --- `upvalues`, and nothing else.
     ---
     --- @param func the function to describe
     --- @param pc the bytecode index to resolve `currentline` from
@@ -35128,8 +39235,8 @@ local record JitUtil
     --- @return the name, or nil when the index is out of range
     funcuvname: function(func: any, idx: integer): string?
 
-    --- Describes a compiled trace: its link, extent, exit count, and the
-    --- machine code it occupies.
+    --- Describes a compiled trace: its link, extent, exit count, and the machine code
+    --- it occupies.
     ---
     --- @param tr the trace number
     --- @return the description table, or nil when no such trace exists
@@ -35196,22 +39303,20 @@ regenerated per LuaJIT build, so an index is only as stable as the build.
 
 local record JitVmdef
 
-    --- Bytecode opcode names, packed six characters each and space-padded, so
-    --- opcode `n` is `bcnames:sub(n * 6 + 1, n * 6 + 6)` with the padding
-    --- trimmed. One string rather than a table because the VM generator emits
-    --- it that way.
+    --- Bytecode opcode names, packed six characters each and space-padded, so opcode
+    --- `n` is `bcnames:sub(n * 6 + 1, n * 6 + 6)` with the padding trimmed. One string
+    --- rather than a table because the VM generator emits it that way.
     bcnames: string
 
     --- IR opcode names, packed six characters each, read like `bcnames`.
     irnames: string
 
-    --- Trace error messages, keyed by the error code that a `"trace"` event
-    --- reports on `"abort"`. Each is a `string.format` pattern that the
-    --- accompanying error argument fills in, so most carry a `%s` or `%d`.
+    --- Trace error messages, keyed by the error code that a `"trace"` event reports on
+    --- `"abort"`. Each is a `string.format` pattern that the accompanying error
+    --- argument fills in, so most carry a `%s` or `%d`.
     traceerr: {[integer]: string}
 
-    --- Fast-function names, keyed by the `ffid` that `funcinfo` reports for a
-    --- builtin.
+    --- Fast-function names, keyed by the `ffid` that `funcinfo` reports for a builtin.
     ffnames: {[integer]: string}
 
     --- IR call target names, keyed by the index `ircalladdr` takes.
@@ -35245,13 +39350,13 @@ measured with. `nupp.std.zone` wraps this and gates it; prefer that over calling
 this module directly.
 ]]
 
---- The profiler zone stack. Callable: with a name it pushes, with no argument
---- it pops and returns the name it removed.
+--- The profiler zone stack. Callable: with a name it pushes, with no argument it pops
+--- and returns the name it removed.
 ---
 --- Exported, so code that holds the stack can name what it is holding.
 record Zone
-    --- Pushes `name`, or pops and returns the innermost zone when `name` is
-    --- omitted. Popping an empty stack raises "empty zone stack".
+    --- Pushes `name`, or pops and returns the innermost zone when `name` is omitted.
+    --- Popping an empty stack raises "empty zone stack".
     ---
     --- @param z the zone stack
     --- @param name the zone to push, or nil to pop
@@ -35297,14 +39402,14 @@ This file is parsed and checked by `nupp` itself: the first dogfooded `.d.nupp`
 declaration file.
 ]]
 
---- Writes every argument to standard output, converted with `tostring`,
---- separated by tabs and followed by a newline.
+--- Writes every argument to standard output, converted with `tostring`, separated by
+--- tabs and followed by a newline.
 ---
 --- @param ... the values to write
 local print: function(...: any)
 
---- Returns the type name of a value: "nil", "boolean", "number", "string",
---- "table", "function", "thread" or "userdata", plus "cdata" for FFI values.
+--- Returns the type name of a value: "nil", "boolean", "number", "string", "table",
+--- "function", "thread" or "userdata", plus "cdata" for FFI values.
 ---
 --- @param v the value to classify
 --- @return the type name
@@ -35316,16 +39421,16 @@ local type: function(v: any): string
 --- @return the string form of `v`
 local tostring: function(v: any): string
 
---- Converts a value to a number, or nil when it has no numeric meaning. With
---- `base`, `v` is read as an unsigned integer numeral in that base.
+--- Converts a value to a number, or nil when it has no numeric meaning. With `base`,
+--- `v` is read as an unsigned integer numeral in that base.
 ---
 --- @param v the value to convert
 --- @param base the numeral base, 2 through 36; decimal when omitted
 --- @return the number, or nil when `v` does not denote one
 local tonumber: function(v: any, base: number?): number?
 
---- Returns an iterator over every key/value pair of `t`, in unspecified
---- order. New keys must not be added to `t` during the traversal.
+--- Returns an iterator over every key/value pair of `t`, in unspecified order. New keys
+--- must not be added to `t` during the traversal.
 ---
 --- @typearg K the key type
 --- @typearg V the value type
@@ -35333,16 +39438,16 @@ local tonumber: function(v: any, base: number?): number?
 --- @return an iterator yielding each key and its value, and nil when done
 local pairs: function<K, V>(t: {[K]: V}): function(): (K, V)
 
---- Returns an iterator over the array part of `t`, from index 1 up to the
---- first missing element.
+--- Returns an iterator over the array part of `t`, from index 1 up to the first missing
+--- element.
 ---
 --- @typearg V the element type
 --- @param t the array to traverse
 --- @return an iterator yielding each index and the element stored there
-local ipairs: function<V>(t: {V}): function(): (integer, V)
+const ipairs: function<V>(t: {V}): function(): (integer, V)
 
---- Returns the pair that follows key `k` in `t`. Passing nil, or omitting
---- `k`, returns the first pair; the traversal order is unspecified.
+--- Returns the pair that follows key `k` in `t`. Passing nil, or omitting `k`, returns
+--- the first pair; the traversal order is unspecified.
 ---
 --- @param t the table to step through
 --- @param k the key to step past, or nil to start the traversal
@@ -35350,9 +39455,9 @@ local ipairs: function<V>(t: {V}): function(): (integer, V)
 --- @return the value stored at that key
 local next: function(t: table, k: any?): (any, any)
 
---- Selects from a vararg list. With a number, returns every argument from the
---- nth onwards, counting from the end when `n` is negative; with "#", returns
---- how many arguments follow.
+--- Selects from a vararg list. With a number, returns every argument from the nth
+--- onwards, counting from the end when `n` is negative; with "#", returns how many
+--- arguments follow.
 ---
 --- @param n the 1-based index to select from, or the string "#"
 --- @param ... the arguments to select from
@@ -35381,15 +39486,14 @@ local rawset: function(t: table, k: any, v: any): table
 --- @return whether the values are primitively equal
 local rawequal: function(a: any, b: any): boolean
 
---- Returns the length of a table or string without consulting a `__len`
---- metamethod.
+--- Returns the length of a table or string without consulting a `__len` metamethod.
 ---
 --- @param v the table or string to measure
 --- @return the length
 local rawlen: function(v: any): integer
 
---- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the
---- current metatable has a `__metatable` field.
+--- Sets `t`'s metatable, or removes it when `mt` is nil. Raises when the current
+--- metatable has a `__metatable` field.
 ---
 --- @typearg T the table type
 --- @param t the table to change
@@ -35397,8 +39501,8 @@ local rawlen: function(v: any): integer
 --- @return `t`
 local setmetatable: function<T>(t: T, mt: metatable<T>?): T
 
---- Returns the metatable of `v`, or the value of its `__metatable` field when
---- it has one, or nil when there is no metatable.
+--- Returns the metatable of `v`, or the value of its `__metatable` field when it has
+--- one, or nil when there is no metatable.
 ---
 --- @param v the value to inspect
 --- @return the metatable, its `__metatable` stand-in, or nil
@@ -35412,10 +39516,9 @@ local getmetatable: function<T>(v: T): metatable<T>?
 --- @return `v`, now known not to be nil or false
 local assert: function<T>(v: T?, msg: any?): T
 
---- Raises `msg` as an error, unwinding to the nearest `pcall`. A string
---- message is prefixed with a source position chosen by `level`: 1, the
---- default, blames the caller of `error`, 2 blames its caller in turn, and 0
---- adds no position at all.
+--- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
+--- prefixed with a source position chosen by `level`: 1, the default, blames the caller
+--- of `error`, 2 blames its caller in turn, and 0 adds no position at all.
 ---
 --- @param msg the error value to raise
 --- @param level whose position to blame, or 0 for none
@@ -35429,8 +39532,8 @@ local error: function(msg: any, level: number?): never
 --- @return the call's results, or the error value
 local pcall: function(f: any, ...: any): (boolean, any)
 
---- Like `pcall`, but runs `handler` on the error before the stack unwinds, so
---- it can still collect a traceback.
+--- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
+--- still collect a traceback.
 ---
 --- @param f the function to call
 --- @param handler called with the error value at the point of the failure
@@ -35447,23 +39550,23 @@ local xpcall: function(f: any, handler: any, ...: any): (boolean, any)
 --- @return the selected elements
 local unpack: function(t: table, i: number?, j: number?): any
 
---- Loads module `name` the first time it is asked for and returns its value.
---- Later calls hand back the value cached in `package.loaded`.
+--- Loads module `name` the first time it is asked for and returns its value. Later
+--- calls hand back the value cached in `package.loaded`.
 ---
 --- @param name the module name, with `.` separating path components
 --- @return the value the module returned
 local require: function(name: string): any
 
---- Controls the garbage collector. `opt` is "collect" for a full cycle, the
---- default, or "stop", "restart", "count", "step", "setpause" or "setstepmul".
+--- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
+--- "stop", "restart", "count", "step", "setpause" or "setstepmul".
 ---
 --- @param opt the operation to perform
 --- @param arg the step size or parameter that the operation takes
 --- @return what the operation reports: "count" gives the kilobytes in use
 local collectgarbage: function(opt: string?, arg: number?): number
 
---- Compiles a chunk read piecewise from `chunk`, a function returning
---- successive pieces of source, without running it.
+--- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
+--- of source, without running it.
 ---
 --- @param chunk the reader function, or the source string
 --- @param name the chunk name to use in error messages
@@ -35481,8 +39584,8 @@ local load: function(chunk: any, name: string?, mode: string?, env: table?): (an
 --- @return the compile error, when there was one
 local loadstring: function(s: string, name: string?): (any, string?)
 
---- Compiles the file at `path`, or standard input when it is omitted, without
---- running it.
+--- Compiles the file at `path`, or standard input when it is omitted, without running
+--- it.
 ---
 --- @param path the file to compile, or nil for standard input
 --- @param mode "b", "t" or "bt", limiting binary or text sources
@@ -35491,23 +39594,23 @@ local loadstring: function(s: string, name: string?): (any, string?)
 --- @return the load error, when there was one
 local loadfile: function(path: string?, mode: string?, env: table?): (any, string?)
 
---- Sets the environment a function sees as its globals. `f` is the function
---- itself, or a stack level: 1 is the caller, 0 the running thread.
+--- Sets the environment a function sees as its globals. `f` is the function itself, or
+--- a stack level: 1 is the caller, 0 the running thread.
 ---
 --- @param f the function whose globals are being replaced, or a stack level
 --- @param env the table to use as that function's globals
 --- @return `f`, when it was a function
 local setfenv: function(f: any, env: table): any
 
---- Returns the environment a function sees as its globals, addressed the way
---- `setfenv` addresses one.
+--- Returns the environment a function sees as its globals, addressed the way `setfenv`
+--- addresses one.
 ---
 --- @param f the function to ask about, or a stack level
 --- @return that function's globals
 local getfenv: function(f: any?): table
 
---- Loads and runs the file at `path`, or standard input when it is omitted.
---- Errors from the chunk propagate to the caller.
+--- Loads and runs the file at `path`, or standard input when it is omitted. Errors from
+--- the chunk propagate to the caller.
 ---
 --- @param path the file to run, or nil for standard input
 --- @return whatever the chunk returns
@@ -35519,8 +39622,8 @@ local dofile: function(path: string?): any
 --- @return the kilobytes currently allocated
 local gcinfo: function(): integer
 
---- Creates a userdata with a fresh empty metatable, with no metatable, or
---- sharing the metatable of an existing proxy.
+--- Creates a userdata with a fresh empty metatable, with no metatable, or sharing the
+--- metatable of an existing proxy.
 ---
 --- @param mt true for a new metatable, false or nil for none, or a proxy to
 ---     share a metatable with
@@ -35533,9 +39636,8 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
---- String manipulation and pattern matching. Every function here is also
---- reachable as a method on a string value, so `s:upper()` means
---- `string.upper(s)`.
+--- String manipulation and pattern matching. Every function here is also reachable as a
+--- method on a string value, so `s:upper()` means `string.upper(s)`.
 local string: {
     --- Returns the numeric codes of the characters of `s` from `i` to `j`.
     ---
@@ -35551,16 +39653,16 @@ local string: {
     --- @return the assembled string
     char: function(...: number): string,
 
-    --- Returns a binary representation of a Lua function that has no
-    --- upvalues, in a form `loadstring` accepts.
+    --- Returns a binary representation of a Lua function that has no upvalues, in a
+    --- form `loadstring` accepts.
     ---
     --- @param f the function to dump
     --- @param strip whether to discard debug information
     --- @return the bytecode string
     dump: function(f: any, strip: boolean?): string,
 
-    --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any
-    --- captures the pattern has follow the two returned indices.
+    --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any captures
+    --- the pattern has follow the two returned indices.
     ---
     --- @param s the string to search
     --- @param pat the pattern to look for
@@ -35570,27 +39672,25 @@ local string: {
     --- @return the index where the match ends
     find: function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
 
-    --- Formats the arguments into `fmt`, which takes the C `printf`
-    --- directives plus `%q` for a string quoted so Lua can read it back.
+    --- Formats the arguments into `fmt`, which takes the C `printf` directives plus
+    --- `%q` for a string quoted so Lua can read it back.
     ---
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
     format: function(fmt: string, ...: any): string,
 
-    --- Returns an iterator over each successive match of `pat` in `s`, or
-    --- over that match's captures when the pattern has any. Anchors have no
-    --- special meaning here.
+    --- Returns an iterator over each successive match of `pat` in `s`, or over that
+    --- match's captures when the pattern has any. Anchors have no special meaning here.
     ---
     --- @param s the string to scan
     --- @param pat the pattern to repeat across `s`
     --- @return an iterator yielding one match at a time
     gmatch: function(s: string, pat: string): function(): string,
 
-    --- Replaces matches of `pat` in `s`. `repl` may be a string, in which
-    --- `%1` through `%9` stand for captures and `%0` for the whole match, a
-    --- table looked up by the first capture, or a function called with the
-    --- captures.
+    --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
+    --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
+    --- first capture, or a function called with the captures.
     ---
     --- @param s the subject string
     --- @param pat the pattern to replace
@@ -35612,8 +39712,8 @@ local string: {
     --- @return the lowercased string
     lower: function(s: string): string,
 
-    --- Returns the captures of the first match of `pat` in `s`, or the whole
-    --- match when the pattern has no captures.
+    --- Returns the captures of the first match of `pat` in `s`, or the whole match when
+    --- the pattern has no captures.
     ---
     --- @param s the string to search
     --- @param pat the pattern to look for
@@ -35650,11 +39750,11 @@ local string: {
     upper: function(s: string): string,
 }
 
---- Table manipulation. These functions work on the array part of a table:
---- the integer keys 1 through `#t`.
+--- Table manipulation. These functions work on the array part of a table: the integer
+--- keys 1 through `#t`.
 local table: {
-    --- Joins the elements `t[i]` through `t[j]`, each of which must be a
-    --- string or a number, into a single string.
+    --- Joins the elements `t[i]` through `t[j]`, each of which must be a string or a
+    --- number, into a single string.
     ---
     --- @param t the array to join
     --- @param sep what to place between elements, nothing by default
@@ -35663,8 +39763,8 @@ local table: {
     --- @return the joined string
     concat: function(t: table, sep: string?, i: number?, j: number?): string,
 
-    --- Inserts `v` at position `pos`, shifting later elements up. Called with
-    --- two arguments, appends that value to the end instead.
+    --- Inserts `v` at position `pos`, shifting later elements up. Called with two
+    --- arguments, appends that value to the end instead.
     ---
     --- @param t the array to insert into
     --- @param pos the position to insert at, or the value to append
@@ -35678,8 +39778,8 @@ local table: {
     --- @return the element that was removed
     remove: function(t: table, pos: number?): any,
 
-    --- Sorts `t` in place, between indices 1 and `#t`. The sort is not
-    --- stable, and `cmp` must be a strict order or it may raise.
+    --- Sorts `t` in place, between indices 1 and `#t`. The sort is not stable, and
+    --- `cmp` must be a strict order or it may raise.
     ---
     --- @typearg V the element type
     --- @param t the array to sort
@@ -35687,8 +39787,8 @@ local table: {
     ---     is used when it is omitted
     sort: function<V>(t: {V}, cmp: function(V, V): boolean?),
 
-    --- Returns the largest positive numeric key of `t`, or 0 when it has
-    --- none. Deprecated, and unlike `#t` it also sees keys past a hole.
+    --- Returns the largest positive numeric key of `t`, or 0 when it has none.
+    --- Deprecated, and unlike `#t` it also sees keys past a hole.
     ---
     --- @param t the table to scan
     --- @return the largest positive numeric key
@@ -35696,23 +39796,23 @@ local table: {
 
     -- LuaJIT extensions
 
-    --- Creates a table preallocated for `narray` array slots and `nhash` hash
-    --- slots, so filling it in does not have to rehash.
+    --- Creates a table preallocated for `narray` array slots and `nhash` hash slots, so
+    --- filling it in does not have to rehash.
     ---
     --- @param narray how many array slots to reserve
     --- @param nhash how many hash slots to reserve
     --- @return the new table
     new: function(narray: number, nhash: number): table,
 
-    --- Removes every key from `t` while keeping the space it has already
-    --- allocated, so it can be refilled without reallocating.
+    --- Removes every key from `t` while keeping the space it has already allocated, so
+    --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
     clear: function(t: table),
 }
 
---- Mathematical functions and constants, operating on the doubles that plain
---- Lua numbers are.
+--- Mathematical functions and constants, operating on the doubles that plain Lua
+--- numbers are.
 local math: {
     --- Returns the absolute value of `x`.
     ---
@@ -35765,8 +39865,7 @@ local math: {
     --- @return the remainder
     fmod: function(x: number, y: number): number,
 
-    --- Splits `x` into its integral and fractional parts, both keeping the
-    --- sign of `x`.
+    --- Splits `x` into its integral and fractional parts, both keeping the sign of `x`.
     ---
     --- @param x the number to split
     --- @return the integral part
@@ -35809,8 +39908,8 @@ local math: {
     --- @return the angle in radians
     atan: function(x: number): number,
 
-    --- Returns the arc tangent of `y / x`, using the sign of both arguments
-    --- to place the result in the right quadrant.
+    --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
+    --- the result in the right quadrant.
     ---
     --- @param y the numerator
     --- @param x the denominator
@@ -35847,22 +39946,22 @@ local math: {
     --- @return the angle in radians
     rad: function(d: number): number,
 
-    --- Returns the smallest of its arguments. Comparing integers gives an integer
-    --- back, so a bound taken this way stays usable as an index.
+    --- Returns the smallest of its arguments. Comparing integers gives an integer back,
+    --- so a bound taken this way stays usable as an index.
     ---
     --- @param ... the numbers to compare, at least one
     --- @return the smallest of them
     min: function<N is number>(...: N): N,
 
-    --- Returns the largest of its arguments. Comparing integers gives an integer
-    --- back, so a bound taken this way stays usable as an index.
+    --- Returns the largest of its arguments. Comparing integers gives an integer back,
+    --- so a bound taken this way stays usable as an index.
     ---
     --- @param ... the numbers to compare, at least one
     --- @return the largest of them
     max: function<N is number>(...: N): N,
 
-    --- Returns a pseudo-random number: a float in [0,1) with no arguments, an
-    --- integer in [1,`m`] with one, or an integer in [`m`,`n`] with two.
+    --- Returns a pseudo-random number: a float in [0,1) with no arguments, an integer
+    --- in [1,`m`] with one, or an integer in [`m`,`n`] with two.
     ---
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
@@ -35874,8 +39973,8 @@ local math: {
     --- @param seed the seed to start from
     randomseed: function(seed: number),
 
-    --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x`
-    --- equals the fraction times 2 raised to the exponent.
+    --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x` equals the
+    --- fraction times 2 raised to the exponent.
     ---
     --- @param x the number to split
     --- @return the fraction
@@ -35896,18 +39995,18 @@ local math: {
     huge: number,
 }
 
---- Operating-system facilities: clocks and calendars, the environment,
---- processes and file names.
+--- Operating-system facilities: clocks and calendars, the environment, processes and
+--- file names.
 local os: {
-    --- Returns the CPU time the program has used, in seconds. It measures
-    --- intervals of work, not wall-clock time.
+    --- Returns the CPU time the program has used, in seconds. It measures intervals of
+    --- work, not wall-clock time.
     ---
     --- @return the CPU seconds consumed so far
     clock: function(): number,
 
-    --- Formats the time `t` as text according to `fmt`. A leading "!" formats
-    --- in UTC rather than local time, and a `fmt` of "*t" returns a table of
-    --- date fields instead of a string.
+    --- Formats the time `t` as text according to `fmt`. A leading "!" formats in UTC
+    --- rather than local time, and a `fmt` of "*t" returns a table of date fields
+    --- instead of a string.
     ---
     --- @param fmt the `strftime` format, "%c" by default
     --- @param t the time to format, the current time by default
@@ -35921,8 +40020,8 @@ local os: {
     --- @return the difference in seconds
     difftime: function(t2: number, t1: number): number,
 
-    --- Runs `cmd` with the system shell and waits for it. With no argument it
-    --- instead reports whether a shell is available at all.
+    --- Runs `cmd` with the system shell and waits for it. With no argument it instead
+    --- reports whether a shell is available at all.
     ---
     --- @param cmd the command line to run
     --- @return the command's exit status, or whether a shell exists
@@ -35962,8 +40061,8 @@ local os: {
     --- @return the time, in the system's own epoch-based encoding
     time: function(spec: table?): number,
 
-    --- Returns a file name usable for a temporary file. The file itself is
-    --- neither created nor removed for you.
+    --- Returns a file name usable for a temporary file. The file itself is neither
+    --- created nor removed for you.
     ---
     --- @return the temporary file name
     tmpname: function(): string,
@@ -35988,8 +40087,8 @@ local package: {
     searchers: {function(string): any}?,
 }
 
---- A Lua file handle. Ownership is attached by producers rather than this
---- interface, so standard streams and borrowed handles use the same type.
+--- A Lua file handle. Ownership is attached by producers rather than this interface, so
+--- standard streams and borrowed handles use the same type.
 local interface LuaFile
     close: function(self: LuaFile): (boolean?, string?)
     flush: function(self: LuaFile): (boolean?, string?)
@@ -36002,11 +40101,11 @@ local interface LuaFile
     write: function(self: LuaFile, ...: any): (LuaFile?, string?)
 end
 
---- File input and output. Producers return borrowed handles here; annotated
---- wrappers in `nupp.std.resources` establish ownership obligations.
+--- File input and output. Producers return borrowed handles here; annotated wrappers in
+--- `nupp.std.resources` establish ownership obligations.
 local io: {
-    --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added
-    --- for update and a trailing "b" for binary.
+    --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
+    --- and a trailing "b" for binary.
     ---
     --- @param path the file to open
     --- @param mode the mode to open it in, "r" by default
@@ -36014,23 +40113,22 @@ local io: {
     --- @return the reason it could not be opened
     open: function(path: string, mode: string?): (LuaFile?, string?),
 
-    --- Returns an iterator over the lines of the file at `path`, closing it
-    --- once the iterator runs out, or over the default input file when
-    --- `path` is omitted.
+    --- Returns an iterator over the lines of the file at `path`, closing it once the
+    --- iterator runs out, or over the default input file when `path` is omitted.
     ---
     --- @param path the file to read, or nil for the default input file
     --- @return an iterator yielding one line at a time
     lines: function(path: string?): function(): string,
 
-    --- Reads the default input file according to the given formats: "*l" for
-    --- a line, "*n" for a number, "*a" for the rest, or a byte count.
+    --- Reads the default input file according to the given formats: "*l" for a line,
+    --- "*n" for a number, "*a" for the rest, or a byte count.
     ---
     --- @param ... the formats to read, "*l" by default
     --- @return one value per format, or nil where the read came up short
     read: function(...: any): any,
 
-    --- Writes each argument, which must be a string or a number, to the
-    --- default output file.
+    --- Writes each argument, which must be a string or a number, to the default output
+    --- file.
     ---
     --- @param ... the values to write
     --- @return the file that was written to
@@ -36042,22 +40140,22 @@ local io: {
     --- @return whether the file closed cleanly
     close: function(f: LuaFile?): boolean?,
 
-    --- Sets the default input file, opening `f` first when it is a name.
-    --- With no argument it returns the current one instead.
+    --- Sets the default input file, opening `f` first when it is a name. With no
+    --- argument it returns the current one instead.
     ---
     --- @param f the file handle or name to switch to
     --- @return the default input file
     input: function(f: (LuaFile | string)?): LuaFile,
 
-    --- Sets the default output file, opening `f` first when it is a name.
-    --- With no argument it returns the current one instead.
+    --- Sets the default output file, opening `f` first when it is a name. With no
+    --- argument it returns the current one instead.
     ---
     --- @param f the file handle or name to switch to
     --- @return the default output file
     output: function(f: (LuaFile | string)?): LuaFile,
 
-    --- Runs `cmd` in a separate process and returns a handle on one of its
-    --- streams: its standard output for "r", its standard input for "w".
+    --- Runs `cmd` in a separate process and returns a handle on one of its streams: its
+    --- standard output for "r", its standard input for "w".
     ---
     --- @param cmd the command line to run
     --- @param mode which stream to connect, "r" by default
@@ -36080,19 +40178,18 @@ local io: {
     stdin: LuaFile,
 }
 
---- Cooperative multitasking. Coroutines are typed as `thread`; the values
---- they carry across a resume or a yield are not tracked.
+--- Cooperative multitasking. Coroutines are typed as `thread`; the values they carry
+--- across a resume or a yield are not tracked.
 local coroutine: {
-    --- Creates a coroutine with `f` as its body. The body does not start
-    --- running until the first `resume`.
+    --- Creates a coroutine with `f` as its body. The body does not start running until
+    --- the first `resume`.
     ---
     --- @param f the function to run inside the coroutine
     --- @return the new coroutine
     create: function(f: any): thread,
 
-    --- Starts or continues `co`. The extra arguments go to its body on the
-    --- first call, and become the results of the `yield` that suspended it
-    --- on later ones.
+    --- Starts or continues `co`. The extra arguments go to its body on the first call,
+    --- and become the results of the `yield` that suspended it on later ones.
     ---
     --- @param co the coroutine to run
     --- @param ... the values to pass into it
@@ -36100,23 +40197,23 @@ local coroutine: {
     --- @return the values it yielded or returned, or the error it raised
     resume: function(co: thread, ...: any): (boolean, any),
 
-    --- Suspends the running coroutine. The arguments become the results of
-    --- the `resume` that started it.
+    --- Suspends the running coroutine. The arguments become the results of the `resume`
+    --- that started it.
     ---
     --- @param ... the values to hand back to the resumer
     --- @return the values passed to the next `resume`
     yield: function(...: any): any,
 
-    --- Returns the state of `co`: "running", "suspended", "normal" for one
-    --- that resumed another coroutine, or "dead".
+    --- Returns the state of `co`: "running", "suspended", "normal" for one that resumed
+    --- another coroutine, or "dead".
     ---
     --- @param co the coroutine to inspect
     --- @return the state name
     status: function(co: thread): string,
 
-    --- Creates a coroutine and returns a function that resumes it, passing
-    --- along its own arguments. Errors propagate to the caller instead of
-    --- being returned as a status.
+    --- Creates a coroutine and returns a function that resumes it, passing along its
+    --- own arguments. Errors propagate to the caller instead of being returned as a
+    --- status.
     ---
     --- @param f the function to run inside the coroutine
     --- @return a function that resumes the coroutine
@@ -36128,16 +40225,16 @@ local coroutine: {
     --- @return whether that is the main coroutine
     running: function(): (thread?, boolean),
 
-    --- Whether the running coroutine is allowed to yield, which is false on
-    --- the main coroutine.
+    --- Whether the running coroutine is allowed to yield, which is false on the main
+    --- coroutine.
     ---
     --- @return whether a `yield` would succeed here
     isyieldable: function(): boolean,
 }
 
---- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`,
---- `~`, `<<`, `>>` and `~>>` operators: arguments are normalized to 32-bit
---- integers and results come back signed.
+--- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
+--- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
+--- come back signed.
 local bit: {
     --- Normalizes `x` into the signed 32-bit integer range, wrapping around.
     ---
@@ -36245,68 +40342,68 @@ local jit: {
     --- @param recursive whether to apply the change to nested functions too
     on: function(f: any?, recursive: boolean?),
 
-    --- Turns compilation off for `f`, or for the whole VM when it is
-    --- omitted, leaving already compiled code in place.
+    --- Turns compilation off for `f`, or for the whole VM when it is omitted, leaving
+    --- already compiled code in place.
     ---
     --- @param f the function to disable, or nil for the whole VM
     --- @param recursive whether to apply the change to nested functions too
     off: function(f: any?, recursive: boolean?),
 
-    --- Flushes compiled code, for `f` or for the whole cache when it is
-    --- omitted, so the affected code is traced again from scratch. A trace
-    --- number flushes that one trace.
+    --- Flushes compiled code, for `f` or for the whole cache when it is omitted, so the
+    --- affected code is traced again from scratch. A trace number flushes that one
+    --- trace.
     ---
     --- @param f the function to flush, a trace number, or nil for the whole
     ---     cache
     --- @param recursive whether to flush nested functions too
     flush: function(f: any?, recursive: boolean?),
 
-    --- Adds or removes a handler for a compiler event, so a program can watch
-    --- the JIT as it works. Omitting `event` removes the handler.
+    --- Adds or removes a handler for a compiler event, so a program can watch the JIT
+    --- as it works. Omitting `event` removes the handler.
     ---
-    --- The handler's own signature is decided by the event, which is why this
-    --- one is variadic:
+    --- The handler's own signature is decided by the event, which is why this one is
+    --- variadic:
     ---
-    ---   * `"bc"` — `(func)`, once per function the VM records bytecode for.
-    ---   * `"trace"` — `(what, tr, func, pc, otr, oex)`, where `what` is
+    --- * `"bc"` — `(func)`, once per function the VM records bytecode for. * `"trace"`
+    --- — `(what, tr, func, pc, otr, oex)`, where `what` is
     ---     `"start"`, `"stop"`, `"abort"`, `"flush"` or `"free"`. On
     ---     `"abort"`, `otr` is an error code to look up in
     ---     `require("jit.vmdef").traceerr` and `oex` is its argument; on
     ---     `"start"` for a side trace they are the parent trace and its exit.
-    ---   * `"record"` — `(tr, func, pc, depth)`, per bytecode recorded.
-    ---   * `"texit"` — `(tr, ex, ngpr, nfpr)`, per trace exit.
+    --- * `"record"` — `(tr, func, pc, depth)`, per bytecode recorded. * `"texit"` —
+    --- `(tr, ex, ngpr, nfpr)`, per trace exit.
     ---
-    --- A handler runs inside the compiler, so it must not allocate heavily,
-    --- raise, or re-enter the VM in ways that would trigger further
-    --- compilation. Dropping the last reference to a handler does not detach
-    --- it: hold onto it and pass it back with no `event` to remove it.
+    --- A handler runs inside the compiler, so it must not allocate heavily, raise, or
+    --- re-enter the VM in ways that would trigger further compilation. Dropping the
+    --- last reference to a handler does not detach it: hold onto it and pass it back
+    --- with no `event` to remove it.
     ---
     --- @param callback the handler to add, or the one to remove
     --- @param event which event to attach to, or nil to detach
     attach: function(callback: function(...: any), event: string?),
 
-    --- The optimization submodule. `jit.opt.start` takes flags such as
-    --- `"hotloop=10"` or `"-fold"`, each as its own argument.
+    --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
+    --- or `"-fold"`, each as its own argument.
     opt: {
         start: function(...: any),
     },
 
-    --- Reports how the VM was built for a security-relevant parameter, such
-    --- as `"prng"` or `"strhash"`.
+    --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
+    --- or `"strhash"`.
     ---
     --- @param param the parameter to report on
     --- @return the setting in force
     security: function(param: string): any,
 }
 
--- `jit.util` is deliberately absent: LuaJIT registers it under
--- package.loaded only, so `jit.util` is nil at runtime and reaching through
--- it is a nil index rather than introspection. It is declared as the bundled
--- `jit.util` module instead, alongside `jit.profile`, `jit.zone` and
--- `jit.vmdef`, which are require()-only for the same reason.
+-- `jit.util` is deliberately absent: LuaJIT registers it under package.loaded only, so
+-- `jit.util` is nil at runtime and reaching through it is a nil index rather than
+-- introspection. It is declared as the bundled `jit.util` module instead, alongside
+-- `jit.profile`, `jit.zone` and `jit.vmdef`, which are require()-only for the same
+-- reason.
 
---- The debug interface: stack inspection, hooks, locals and upvalues. Using
---- it costs performance and voids assumptions the compiler would rather make.
+--- The debug interface: stack inspection, hooks, locals and upvalues. Using it costs
+--- performance and voids assumptions the compiler would rather make.
 local debug: {
     --- Describes a function, or the activation record at a stack level.
     ---
@@ -36322,8 +40419,8 @@ local debug: {
     --- @return the traceback text
     traceback: function(msg: any?, level: number?): string,
 
-    --- Installs a debug hook: a function, a mask built from "c", "r" and "l",
-    --- and an optional instruction count.
+    --- Installs a debug hook: a function, a mask built from "c", "r" and "l", and an
+    --- optional instruction count.
     ---
     --- @param ... the hook function, its mask, and the count
     sethook: function(...: any),
@@ -36384,9 +40481,9 @@ local debug: {
     getregistry: function(): table,
 }
 
---- The command-line arguments of the running script, where `arg[1]` is the
---- first one. Index 0 holds the script name, and negative indices hold the
---- interpreter and the options it was given.
+--- The command-line arguments of the running script, where `arg[1]` is the first one.
+--- Index 0 holds the script name, and negative indices hold the interpreter and the
+--- options it was given.
 local arg: {string}
 ]=],
 ["/decls/stringbuffer.d.nupp"] = [=[
@@ -36402,26 +40499,26 @@ Length with `#buf`, concatenation with `..`, and `tostring` are metamethods, so
 they are not members of the record below; use `buf:tostring()`.
 ]]
 
---- A mutable, binary-transparent byte sequence. Methods with nothing else to
---- return hand back the buffer itself, so calls chain.
+--- A mutable, binary-transparent byte sequence. Methods with nothing else to return
+--- hand back the buffer itself, so calls chain.
 ---
---- Exported, so code that passes buffers around can name the type:
---- `function render(out: buffer.Buffer): buffer.Buffer`.
+--- Exported, so code that passes buffers around can name the type: `function
+--- render(out: buffer.Buffer): buffer.Buffer`.
 record Buffer
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string
     metamethod __tostring: function(self): string
 
-    --- Appends each argument: a string, a number, another buffer, or any
-    --- object with a `__tostring` metamethod.
+    --- Appends each argument: a string, a number, another buffer, or any object with a
+    --- `__tostring` metamethod.
     ---
     --- @param b the buffer to append to
     --- @param ... the values to append, in order
     --- @return `b`
     put: function(b: Buffer, ...: any): Buffer
 
-    --- Appends the arguments formatted by `fmt`, which takes the same
-    --- directives as `string.format`.
+    --- Appends the arguments formatted by `fmt`, which takes the same directives as
+    --- `string.format`.
     ---
     --- @param b the buffer to append to
     --- @param fmt the format string
@@ -36429,8 +40526,8 @@ record Buffer
     --- @return `b`
     putf: function(b: Buffer, fmt: string, ...: any): Buffer
 
-    --- Appends `len` bytes read from the memory that `data` points to. The
-    --- cdata object has to be convertible to a pointer.
+    --- Appends `len` bytes read from the memory that `data` points to. The cdata object
+    --- has to be convertible to a pointer.
     ---
     --- @param b the buffer to append to
     --- @param data the memory to copy from
@@ -36438,9 +40535,9 @@ record Buffer
     --- @return `b`
     putcdata: function(b: Buffer, data: voidptr, len: uint64): Buffer
 
-    --- Replaces the buffer contents with a reference to `data`, freeing any
-    --- space already allocated. Nothing is copied until the buffer is
-    --- written to again, and the reference keeps `data` alive meanwhile.
+    --- Replaces the buffer contents with a reference to `data`, freeing any space
+    --- already allocated. Nothing is copied until the buffer is written to again, and
+    --- the reference keeps `data` alive meanwhile.
     ---
     --- @param b the buffer to reset onto `data`
     --- @param data the string, or cdata pointer, to reference
@@ -36448,9 +40545,9 @@ record Buffer
     --- @return `b`
     set: function(b: Buffer, data: any, len: uint64?): Buffer
 
-    --- Consumes bytes from the front of the buffer and returns them. With no
-    --- argument the whole buffer is consumed; each further argument takes
-    --- one more string, and a nil argument takes whatever remains.
+    --- Consumes bytes from the front of the buffer and returns them. With no argument
+    --- the whole buffer is consumed; each further argument takes one more string, and a
+    --- nil argument takes whatever remains.
     ---
     --- @param b the buffer to read from
     --- @param ... how many bytes each returned string takes
@@ -36463,32 +40560,31 @@ record Buffer
     --- @return the buffer contents
     tostring: function(b: Buffer): string
 
-    --- Empties the buffer, keeping the space it has already allocated so it
-    --- can be refilled without reallocating.
+    --- Empties the buffer, keeping the space it has already allocated so it can be
+    --- refilled without reallocating.
     ---
     --- @param b the buffer to empty
     --- @return `b`
     reset: function(b: Buffer): Buffer
 
-    --- Frees the buffer space at once, leaving the object itself intact and
-    --- empty. The collector does this on its own, so it is only worth
-    --- calling when the memory has to go back immediately.
+    --- Frees the buffer space at once, leaving the object itself intact and empty. The
+    --- collector does this on its own, so it is only worth calling when the memory has
+    --- to go back immediately.
     ---
     --- @param b the buffer to free
     --- @return `b`
     free: function(b: Buffer): Buffer
 
-    --- Consumes `n` bytes from the front of the buffer and discards them,
-    --- stopping at the end of the data.
+    --- Consumes `n` bytes from the front of the buffer and discards them, stopping at
+    --- the end of the data.
     ---
     --- @param b the buffer to skip in
     --- @param n how many bytes to discard
     --- @return `b`
     skip: function(b: Buffer, n: integer): Buffer
 
-    --- Returns a pointer to the buffer data, for zero-copy reads and
-    --- in-place writes. The data is not zero-terminated, so the length has
-    --- to travel with the pointer.
+    --- Returns a pointer to the buffer data, for zero-copy reads and in-place writes.
+    --- The data is not zero-terminated, so the length has to travel with the pointer.
     ---
     --- @param b the buffer to point into
     --- @return the unconsumed data, as the zero-based `uint8_t *` view that
@@ -36496,9 +40592,9 @@ record Buffer
     --- @return how many bytes are readable there
     ref: function(b: Buffer): (uint8[?], uint64)
 
-    --- Reserves at least `size` bytes of write space and returns a pointer
-    --- to it. The space is uninitialized, and joins the buffer data only
-    --- once `commit` says how much of it was written.
+    --- Reserves at least `size` bytes of write space and returns a pointer to it. The
+    --- space is uninitialized, and joins the buffer data only once `commit` says how
+    --- much of it was written.
     ---
     --- @param b the buffer to reserve space in
     --- @param size how many bytes are needed at least
@@ -36507,34 +40603,34 @@ record Buffer
     --- @return how many bytes are actually available, at least `size`
     reserve: function(b: Buffer, size: integer): (uint8[?], uint64)
 
-    --- Appends the first `used` bytes of the space handed out by the last
-    --- `reserve` to the buffer data.
+    --- Appends the first `used` bytes of the space handed out by the last `reserve` to
+    --- the buffer data.
     ---
     --- @param b the buffer that space was reserved in
     --- @param used how many bytes were written
     --- @return `b`
     commit: function(b: Buffer, used: integer): Buffer
 
-    --- Serializes `obj` and appends the encoding to the buffer. Encodings
-    --- concatenate, so several objects can be streamed into one buffer.
+    --- Serializes `obj` and appends the encoding to the buffer. Encodings concatenate,
+    --- so several objects can be streamed into one buffer.
     ---
     --- @param b the buffer to append to
     --- @param obj the value to serialize
     --- @return `b`
     encode: function(b: Buffer, obj: any): Buffer
 
-    --- Deserializes one object from the front of the buffer, leaving any
-    --- data after it in place. Raises on malformed or truncated input.
+    --- Deserializes one object from the front of the buffer, leaving any data after it
+    --- in place. Raises on malformed or truncated input.
     ---
     --- @param b the buffer to read from
     --- @return the decoded value, of any supported type
     decode: function(b: Buffer): any
 end
 
---- Creates a buffer. The options table may carry a `dict` array of string
---- keys that occur often and a `metatable` array of metatables, which the
---- serializer encodes as indexes; an encoder and its decoder must share
---- them, and neither table may be modified afterwards.
+--- Creates a buffer. The options table may carry a `dict` array of string keys that
+--- occur often and a `metatable` array of metatables, which the serializer encodes as
+--- indexes; an encoder and its decoder must share them, and neither table may be
+--- modified afterwards.
 ---
 --- @param size a minimum initial buffer size, or the options table when it
 ---     is the only argument
@@ -36542,15 +40638,15 @@ end
 --- @return the new buffer
 local new: function(size: (integer | table)?, options: table?): Buffer
 
---- Serializes `v` to a string. Raises on unsupported types, circular
---- references, and nesting too deep to encode.
+--- Serializes `v` to a string. Raises on unsupported types, circular references, and
+--- nesting too deep to encode.
 ---
 --- @param v the value to serialize
 --- @return the encoded bytes
 local encode: function(v: any): string
 
---- Deserializes a whole encoded string. Raises on malformed input, and also
---- when anything is left over after one top-level object.
+--- Deserializes a whole encoded string. Raises on malformed input, and also when
+--- anything is left over after one top-level object.
 ---
 --- @param s the encoded bytes
 --- @return the decoded value, of any supported type
@@ -36601,63 +40697,60 @@ local profile = {}
 
 --- What `profile.sample` collects, and how much of it. Every field is optional.
 type profile.SampleOptions = {
-    --- Milliseconds between samples; 10 by default, which is 100 a second.
-    --- Below about 10 the timer starts taking real time away from the thread it
-    --- is measuring, so lower it for a short window and read the result knowing
-    --- that it was paid for.
+    --- Milliseconds between samples; 10 by default, which is 100 a second. Below about
+    --- 10 the timer starts taking real time away from the thread it is measuring, so
+    --- lower it for a short window and read the result knowing that it was paid for.
     intervalMs: integer?,
 
-    --- How many frames to walk per sample; 16 by default. The walk is linear in
-    --- this and it happens on the interrupted thread, so raise it only when a
-    --- specific question needs the depth.
+    --- How many frames to walk per sample; 16 by default. The walk is linear in this
+    --- and it happens on the interrupted thread, so raise it only when a specific
+    --- question needs the depth.
     stackDepth: integer?,
 
     --- Keep only the samples taken under a zone path starting with this, so
     --- "frame/render" reads as that subtree alone.
     ---
-    --- Applied at `stop` rather than while sampling: narrowing it costs nothing
-    --- at runtime, and widening it afterwards is not possible, because the
-    --- prefix is fixed when the session starts.
+    --- Applied at `stop` rather than while sampling: narrowing it costs nothing at
+    --- runtime, and widening it afterwards is not possible, because the prefix is fixed
+    --- when the session starts.
     zone: string?,
 
-    --- The module the program starts at, as a stack frame names it. Everything
-    --- below the outermost frame from it is dropped.
+    --- The module the program starts at, as a stack frame names it. Everything below
+    --- the outermost frame from it is dropped.
     ---
-    --- A profiler samples the whole stack it is embedded in, and what is under
-    --- the program — the loader that read it, the pcall that guards it — is
-    --- not the program. Naming its module cuts the report back to it.
+    --- A profiler samples the whole stack it is embedded in, and what is under the
+    --- program — the loader that read it, the pcall that guards it — is not the
+    --- program. Naming its module cuts the report back to it.
     ---
-    --- Frames read "<module>:<name>", so the module is the part to give. A
-    --- stack with no frame from it is kept whole rather than emptied, and two
-    --- stacks that differ only below the root become one, their counts summed.
+    --- Frames read "<module>:<name>", so the module is the part to give. A stack with
+    --- no frame from it is kept whole rather than emptied, and two stacks that differ
+    --- only below the root become one, their counts summed.
     root: string?,
 }
 
 --- What `profile.trace` counts. Every field is optional.
 type profile.TraceOptions = {
-    --- Include the aborts that are ordinary trace formation rather than a
-    --- refusal — leaving a loop, recursion, an inner loop. False by default;
-    --- turn it on when the question is why a particular trace never formed.
+    --- Include the aborts that are ordinary trace formation rather than a refusal —
+    --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
+    --- question is why a particular trace never formed.
     includeBenign: boolean?,
 }
 
 --- How much an abort is worth reading.
 ---
---- `blacklist` is always actionable: the code is demoted to the interpreter for
---- the rest of the process. `warn` is a refusal that may or may not sit on a
---- hot path. `info` is trace formation working as designed.
+--- `blacklist` is always actionable: the code is demoted to the interpreter for the
+--- rest of the process. `warn` is a refusal that may or may not sit on a hot path.
+--- `info` is trace formation working as designed.
 type profile.Severity = "blacklist" | "warn" | "info"
 
 --- One distinct stack, and what landed on it.
 ---
---- A row of a `SampleReport`, built at `stop`. The five state counts sum to
---- `count`.
+--- A row of a `SampleReport`, built at `stop`. The five state counts sum to `count`.
 record profile.Sample
     --- The zone path the samples were taken under, "" when none was open.
     zonePath: string
 
-    --- The stack as `dumpstack` rendered it, ";" between frames, outermost
-    --- first.
+    --- The stack as `dumpstack` rendered it, ";" between frames, outermost first.
     stack: string
 
     --- Samples on this stack, in every VM state.
@@ -36681,11 +40774,9 @@ end
 
 --- What a sample session saw, as `SampleSession:stop` returns it.
 ---
---- `tostring` on it is the collapsed-stack text, so it prints and pipes
---- directly.
+--- `tostring` on it is the collapsed-stack text, so it prints and pipes directly.
 record profile.SampleReport
-    --- The interval the session ran at, so the sample counts can be read as
-    --- time.
+    --- The interval the session ran at, so the sample counts can be read as time.
     intervalMs: integer
 
     --- Samples recorded, after the zone filter.
@@ -36694,10 +40785,9 @@ record profile.SampleReport
     --- Distinct stacks they fell on.
     stacks: integer
 
-    --- One line per stack: semicolon-separated frames, a space, then the sample
-    --- count. Ordered by count descending. Empty when nothing was sampled,
-    --- which a short session and a zone prefix that matched nothing both
-    --- produce.
+    --- One line per stack: semicolon-separated frames, a space, then the sample count.
+    --- Ordered by count descending. Empty when nothing was sampled, which a short
+    --- session and a zone prefix that matched nothing both produce.
     text: string
 
     metamethod __tostring: function(self): string
@@ -36705,8 +40795,8 @@ end
 
 --- A running sampler, as `profile.sample` returns it.
 ---
---- Live until `stop`, and there is at most one at a time. Dropping the handle
---- without stopping leaves the timer running for the rest of the process.
+--- Live until `stop`, and there is at most one at a time. Dropping the handle without
+--- stopping leaves the timer running for the rest of the process.
 record profile.SampleSession
     --- The interval it was started at.
     intervalMs: integer
@@ -36714,8 +40804,7 @@ record profile.SampleSession
     --- The zone prefix `stop` will filter by, or nil for all of them.
     zoneFilter: string?
 
-    --- The module `stop` will cut the stacks back to, or nil to keep them
-    --- whole.
+    --- The module `stop` will cut the stacks back to, or nil to keep them whole.
     root: string?
 
     --- Whether recording is suspended. The timer keeps firing.
@@ -36724,9 +40813,9 @@ record profile.SampleSession
     --- Whether `stop` has run.
     stopped: boolean
 
-    --- Samples so far, by zone path and then by stack. Two levels rather than
-    --- one joined key, so a sample taken in a zone that has not changed since
-    --- the last one costs a single table lookup.
+    --- Samples so far, by zone path and then by stack. Two levels rather than one
+    --- joined key, so a sample taken in a zone that has not changed since the last one
+    --- costs a single table lookup.
     aggregate: {[string]: {[string]: profile.Sample}}
 end
 
@@ -36740,8 +40829,8 @@ record profile.AbortSite
     --- Times this exact severity, reason, location and zone fired.
     count: integer
 
-    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is
-    --- rendered with the opcode's name.
+    --- The reason, from `jit.vmdef.traceerr`. An unrecordable bytecode is rendered with
+    --- the opcode's name.
     reason: string
 
     --- "<file>:<line>" of the function being recorded when it aborted.
@@ -36753,23 +40842,22 @@ end
 
 --- What a trace session saw, as `TraceSession:stop` returns it.
 ---
---- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and
---- diffs directly.
+--- `tostring` on it renders `sites` as RFC 4180 CSV, so it prints, sorts and diffs
+--- directly.
 record profile.TraceReport
-    --- Wallclock seconds the session was active, in whole seconds: it comes
-    --- from `os.time`, so a session shorter than one reads as zero and dividing
-    --- by it is the caller's problem.
+    --- Wallclock seconds the session was active, in whole seconds: it comes from
+    --- `os.time`, so a session shorter than one reads as zero and dividing by it is the
+    --- caller's problem.
     durationSec: integer
 
-    --- Abort events recorded. Excludes the benign ones unless `includeBenign`
-    --- was set.
+    --- Abort events recorded. Excludes the benign ones unless `includeBenign` was set.
     totalAborts: integer
 
     --- Blacklist events among them. Always actionable.
     blacklisted: integer
 
-    --- One row per distinct severity, reason, location and zone. Ordered by
-    --- severity, then by count descending.
+    --- One row per distinct severity, reason, location and zone. Ordered by severity,
+    --- then by count descending.
     sites: {profile.AbortSite}
 
     metamethod __tostring: function(self): string
@@ -36777,8 +40865,8 @@ end
 
 --- A running trace-abort collector, as `profile.trace` returns it.
 ---
---- Live until `stop`, and there is at most one at a time. Dropping the handle
---- without stopping leaves the event hook attached for the rest of the process.
+--- Live until `stop`, and there is at most one at a time. Dropping the handle without
+--- stopping leaves the event hook attached for the rest of the process.
 record profile.TraceSession
     --- Whether the benign trace-formation events are being counted.
     includeBenign: boolean
@@ -36810,9 +40898,9 @@ end
 -- Shared
 -------------------------------------------------------------------------------
 
--- Writes `text` to `path`, replacing whatever was there. Raised errors carry
--- the path, since the caller passed a name and a failure that does not repeat
--- it says nothing about which name was wrong.
+-- Writes `text` to `path`, replacing whatever was there. Raised errors carry the path,
+-- since the caller passed a name and a failure that does not repeat it says nothing
+-- about which name was wrong.
 local function writeFile(path: string, text: string)
     local file, openReason = io.open(path, "w")
     if not file then
@@ -36837,30 +40925,40 @@ end
 -------------------------------------------------------------------------------
 
 -- The zone path and the stack are joined with ";" and "/" respectively, and a
--- collapsed-stack line ends at its first newline, so a frame carrying either
--- would be read as two frames or as two lines. Nothing legitimately names a
--- function this way; what does is a chunk loaded from a string.
+-- collapsed-stack line ends at its first newline, so a frame carrying either would be
+-- read as two frames or as two lines. Nothing legitimately names a function this way;
+-- what does is a chunk loaded from a string.
 local function sanitize(frame: string): string
     return (frame:gsub("[;/\n\r]", "_"))
 end
 
--- The VM state the most samples on a stack were in, as the one character
--- `jit.profile` reports it with. Ties go to the earlier test, which puts
--- "compiled" ahead of the states that are all forms of not running the program.
+-- The VM state the most samples on a stack were in, as the one character `jit.profile`
+-- reports it with. Ties go to the earlier test, which puts "compiled" ahead of the
+-- states that are all forms of not running the program.
 local function dominantState(sample: profile.Sample): string
     local state, best = "N", sample.compiled
-    if sample.interpreted > best then state, best = "I", sample.interpreted end
-    if sample.cCode > best then state, best = "C", sample.cCode end
-    if sample.collecting > best then state, best = "G", sample.collecting end
-    if sample.compiling > best then state, best = "J", sample.compiling end
+    if sample.interpreted > best then
+        state, best = "I", sample.interpreted
+    end
+    if sample.cCode > best then
+        state, best = "C", sample.cCode
+    end
+    if sample.collecting > best then
+        state, best = "G", sample.collecting
+    end
+    if sample.compiling > best then
+        state, best = "J", sample.compiling
+    end
     return state
 end
 
--- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces
--- are dropped: a zone path is "" when no zone is open, and dumpstack can render
--- a frame it has no name for as nothing at all.
+-- Appends the pieces of `text`, split on `separator`, to `frames`. Empty pieces are
+-- dropped: a zone path is "" when no zone is open, and dumpstack can render a frame it
+-- has no name for as nothing at all.
 local function appendFrames(frames: {string}, text: string, separator: string)
-    if text == "" then return end
+    if text == "" then
+        return
+    end
 
     local pattern = "[^" .. separator .. "]+"
     for piece in text:gmatch(pattern) do
@@ -36868,19 +40966,25 @@ local function appendFrames(frames: {string}, text: string, separator: string)
     end
 end
 
--- Collapsed-stack text: one line per stack, frames separated by ";", then a
--- space and the sample count. The zone path leads, so a flame graph opens on
--- the zones and drills into the code beneath each.
+-- Collapsed-stack text: one line per stack, frames separated by ";", then a space and
+-- the sample count. The zone path leads, so a flame graph opens on the zones and drills
+-- into the code beneath each.
 --
--- The leaf carries the dominant VM state as a "_[N]" suffix, the convention
--- FlameGraph and speedscope already colour on. The letters are LuaJIT's own:
--- N compiled, I interpreted, C in a C function, G collecting, J compiling.
+-- The leaf carries the dominant VM state as a "_[N]" suffix, the convention FlameGraph
+-- and speedscope already colour on. The letters are LuaJIT's own: N compiled, I
+-- interpreted, C in a C function, G collecting, J compiling.
 local function collapse(samples: {profile.Sample}): string
-    if #samples == 0 then return "" end
+    if #samples == 0 then
+        return ""
+    end
 
     table.sort(samples, function(a: profile.Sample, b: profile.Sample): boolean
-        if a.count ~= b.count then return a.count > b.count end
-        if a.zonePath ~= b.zonePath then return a.zonePath < b.zonePath end
+        if a.count ~= b.count then
+            return a.count > b.count
+        end
+        if a.zonePath ~= b.zonePath then
+            return a.zonePath < b.zonePath
+        end
         return a.stack < b.stack
     end)
 
@@ -36890,7 +40994,9 @@ local function collapse(samples: {profile.Sample}): string
         local frames: {string} = {}
         appendFrames(frames, sample.zonePath, "/")
         appendFrames(frames, sample.stack, ";")
-        if #frames == 0 then frames[1] = "<root>" end
+        if #frames == 0 then
+            frames[1] = "<root>"
+        end
         frames[#frames] = frames[#frames] .. "_[" .. dominantState(sample) .. "]"
         lines[index] = table.concat(frames, ";") .. " "
             .. string.format("%d", sample.count)
@@ -36898,13 +41004,13 @@ local function collapse(samples: {profile.Sample}): string
     return table.concat(lines, "\n")
 end
 
--- Everything below the outermost frame belonging to `root` is what started the
--- program rather than the program. Frames read "<module>:<name>", so the module
--- is matched at a frame boundary; a substring match anywhere would cut a stack
--- at a function that merely mentions the name.
+-- Everything below the outermost frame belonging to `root` is what started the program
+-- rather than the program. Frames read "<module>:<name>", so the module is matched at a
+-- frame boundary; a substring match anywhere would cut a stack at a function that
+-- merely mentions the name.
 --
--- A stack with no frame from `root` is left whole. That is the honest answer
--- for a sample taken before the program was entered, or after it returned.
+-- A stack with no frame from `root` is left whole. That is the honest answer for a
+-- sample taken before the program was entered, or after it returned.
 local function trimToRoot(stack: string, root: string): string
     local prefix = root .. ":"
     local from = 1
@@ -36913,15 +41019,17 @@ local function trimToRoot(stack: string, root: string): string
             return stack:sub(from)
         end
         local nextFrame = stack:find(";", from, true)
-        if not nextFrame then return stack end
+        if not nextFrame then
+            return stack
+        end
         from = nextFrame + 1
     end
     return stack
 end
 
--- One session at a time: the profiler is a process-wide singleton, and starting
--- a second would silently replace the first's callback while its handle still
--- looked live.
+-- One session at a time: the profiler is a process-wide singleton, and starting a
+-- second would silently replace the first's callback while its handle still looked
+-- live.
 local sampling = false
 
 --- Starts sampling.
@@ -36953,20 +41061,22 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         aggregate = {},
     }
 
-    -- Negative, so the walk runs outermost frame first: that is the order a
-    -- collapsed stack is written in, and reversing it here would mean building
-    -- a list per sample on the interrupted thread.
+    -- Negative, so the walk runs outermost frame first: that is the order a collapsed
+    -- stack is written in, and reversing it here would mean building a list per sample
+    -- on the interrupted thread.
     local walk = -stackDepth
     local aggregate = session.aggregate
-    -- The zone path is a string the zone module holds onto until the stack
-    -- changes, so consecutive samples in one zone hit the same table entry
-    -- without hashing a fresh key.
+    -- The zone path is a string the zone module holds onto until the stack changes, so
+    -- consecutive samples in one zone hit the same table entry without hashing a fresh
+    -- key.
     local cachedPath = ""
     local cachedStacks: {[string]: profile.Sample} = {}
     aggregate[cachedPath] = cachedStacks
 
     local function record(thread: any, samples: integer, vmstate: string)
-        if session.paused then return end
+        if session.paused then
+            return
+        end
 
         local path = zone.path()
         if path ~= cachedPath then
@@ -36978,8 +41088,8 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
             cachedPath, cachedStacks = path, stacks
         end
 
-        -- Only meaningful for the thread this callback was handed, and only
-        -- while it is running.
+        -- Only meaningful for the thread this callback was handed, and only while it is
+        -- running.
         local stack = thread and jitProfile.dumpstack(thread, "FZ;", walk) or ""
         local sample = cachedStacks[stack]
         if not sample then
@@ -36992,28 +41102,33 @@ function profile.sample(options: profile.SampleOptions?): profile.SampleSession
         end
 
         sample.count = sample.count + samples
-        if vmstate == "N" then sample.compiled = sample.compiled + samples
-        elseif vmstate == "I" then sample.interpreted = sample.interpreted + samples
-        elseif vmstate == "C" then sample.cCode = sample.cCode + samples
-        elseif vmstate == "G" then sample.collecting = sample.collecting + samples
-        elseif vmstate == "J" then sample.compiling = sample.compiling + samples
+        if vmstate == "N" then
+            sample.compiled = sample.compiled + samples
+        elseif vmstate == "I" then
+            sample.interpreted = sample.interpreted + samples
+        elseif vmstate == "C" then
+            sample.cCode = sample.cCode + samples
+        elseif vmstate == "G" then
+            sample.collecting = sample.collecting + samples
+        elseif vmstate == "J" then
+            sample.compiling = sample.compiling + samples
         end
     end
 
     zone.acquire()
-    -- "l" keys the sampler on the source line, which is the finest thing it
-    -- coalesces on: consecutive samples sharing a key arrive as one call
-    -- carrying their count, so anything coarser would attribute a run of
-    -- samples to whichever stack the last of them was on. "i<n>" is the
-    -- interval. The stack and the VM state arrive either way.
+    -- "l" keys the sampler on the source line, which is the finest thing it coalesces
+    -- on: consecutive samples sharing a key arrive as one call carrying their count, so
+    -- anything coarser would attribute a run of samples to whichever stack the last of
+    -- them was on. "i<n>" is the interval. The stack and the VM state arrive either
+    -- way.
     jitProfile.start("li" .. string.format("%d", intervalMs), record)
     sampling = true
     return session
 end
 
---- Stops recording without ending the session. The timer keeps firing, at the
---- cost of one test per sample, and what was recorded on either side of the
---- pause is kept — which is how a benchmark leaves its setup out.
+--- Stops recording without ending the session. The timer keeps firing, at the cost of
+--- one test per sample, and what was recorded on either side of the pause is kept —
+--- which is how a benchmark leaves its setup out.
 ---
 --- Idempotent.
 ---
@@ -37054,10 +41169,9 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
     local root = self.root
     local kept: {profile.Sample} = {}
     local samples: integer = 0
-    -- Trimming can bring two stacks together, when what they differed in was
-    -- only what started them, so the rows are merged rather than the first one
-    -- standing for both. The key holds a NUL because a zone name and a frame
-    -- can hold anything else.
+    -- Trimming can bring two stacks together, when what they differed in was only what
+    -- started them, so the rows are merged rather than the first one standing for both.
+    -- The key holds a NUL because a zone name and a frame can hold anything else.
     local merged: {[string]: profile.Sample} = {}
     for path, stacks in pairs(self.aggregate) do
         if not prefix or path:sub(1, #prefix) == prefix then
@@ -37091,7 +41205,9 @@ function profile.SampleSession:stop(filename: string?): profile.SampleReport
         stacks = #kept,
         text = collapse(kept),
     }
-    if filename then writeFile(filename, report.text) end
+    if filename then
+        writeFile(filename, report.text)
+    end
     return report
 end
 
@@ -37102,18 +41218,20 @@ end
 local traceerr = vmdef.traceerr
 local bcnames = vmdef.bcnames
 
--- Opcode names come packed six characters each and space-padded, so the name is
--- the slice with its padding trimmed.
+-- Opcode names come packed six characters each and space-padded, so the name is the
+-- slice with its padding trimmed.
 local function opcodeName(opcode: integer): string
     local start = opcode * 6 + 1
     return (bcnames:sub(start, start + 5):gsub("%s+$", ""))
 end
 
 -- The reason a trace aborted, as text. `traceerr` holds format strings, and the
--- argument that fills one in is the abort's own second operand — an opcode for
--- the unrecordable-bytecode errors, a number or a string for the rest.
+-- argument that fills one in is the abort's own second operand — an opcode for the
+-- unrecordable-bytecode errors, a number or a string for the rest.
 local function abortReason(errorCode: any, errorArg: any): string
-    if not errorCode then return "abort" end
+    if not errorCode then
+        return "abort"
+    end
 
     local format = traceerr[errorCode as integer]
     if not format then
@@ -37122,21 +41240,33 @@ local function abortReason(errorCode: any, errorArg: any): string
     if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
         return "NYI: bytecode " .. opcodeName(errorArg as integer)
     end
-    if errorArg == nil then return format end
+    if errorArg == nil then
+        return format
+    end
 
     local ok, filled = pcall(string.format, format, errorArg)
     return ok and filled as string or format
 end
 
--- Trace formation reports the ordinary as an abort too: a loop that was left,
--- recursion in either direction, an inner loop found. None of those is the
--- compiler refusing anything, so they are separated out rather than counted.
+-- Trace formation reports the ordinary as an abort too: a loop that was left, recursion
+-- in either direction, an inner loop found. None of those is the compiler refusing
+-- anything, so they are separated out rather than counted.
 local function classify(reason: string): profile.Severity
-    if reason:find("blacklist", 1, true) then return "blacklist" end
-    if reason:find("leaving loop", 1, true) then return "info" end
-    if reason:find("inner loop", 1, true) then return "info" end
-    if reason:find("down-recursion", 1, true) then return "info" end
-    if reason:find("up-recursion", 1, true) then return "info" end
+    if reason:find("blacklist", 1, true) then
+        return "blacklist"
+    end
+    if reason:find("leaving loop", 1, true) then
+        return "info"
+    end
+    if reason:find("inner loop", 1, true) then
+        return "info"
+    end
+    if reason:find("down-recursion", 1, true) then
+        return "info"
+    end
+    if reason:find("up-recursion", 1, true) then
+        return "info"
+    end
     return "warn"
 end
 
@@ -37150,18 +41280,19 @@ local function severityRank(severity: profile.Severity): integer
     end
 end
 
--- Lua prefixes a file source with "@", and the function descriptions inherit
--- it. Strip it so a row reads "path:line". A source that is not a file — "[C]",
--- a loaded string — does not carry the prefix and is left as it is.
+-- Lua prefixes a file source with "@", and the function descriptions inherit it. Strip
+-- it so a row reads "path:line". A source that is not a file — "[C]", a loaded string —
+-- does not carry the prefix and is left as it is.
 local function trimSource(source: string): string
-    if source:sub(1, 1) == "@" then return source:sub(2) end
+    if source:sub(1, 1) == "@" then
+        return source:sub(2)
+    end
     return source
 end
 
--- Where the compiler was when it gave up. `funcinfo` knows the bytecode
--- position, so it can name the line inside the function rather than the line
--- the function started on; `debug.getinfo` is the fallback for the case where
--- it answers nothing useful.
+-- Where the compiler was when it gave up. `funcinfo` knows the bytecode position, so it
+-- can name the line inside the function rather than the line the function started on;
+-- `debug.getinfo` is the fallback for the case where it answers nothing useful.
 local function describeLocation(func: any, pc: any): string
     if func then
         local ok, info = pcall(jitUtil.funcinfo, func, pc as integer)
@@ -37181,8 +41312,8 @@ local function describeLocation(func: any, pc: any): string
     return "?:0"
 end
 
--- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an
--- embedded quote is doubled. In practice only `reason` ever needs it.
+-- RFC 4180: a field holding a comma, a quote or a line break is quoted, and an embedded
+-- quote is doubled. In practice only `reason` ever needs it.
 local function csvField(text: string): string
     if text:find("[,\"\n\r]") then
         return "\"" .. text:gsub("\"", "\"\"") .. "\""
@@ -37205,9 +41336,9 @@ local function serializeTraceReport(report: profile.TraceReport): string
     return table.concat(lines, "\n")
 end
 
--- A record's namespace table is the metatable its instances are stamped with,
--- so installing a declared contract is an ordinary assignment to it. The cast
--- is because the contract is not a field: see docs/metamethods.md.
+-- A record's namespace table is the metatable its instances are stamped with, so
+-- installing a declared contract is an ordinary assignment to it. The cast is because
+-- the contract is not a field: see docs/metamethods.md.
 (profile.TraceReport as {[string]: any}).__tostring = serializeTraceReport;
 
 (profile.SampleReport as {[string]: any}).__tostring =
@@ -37237,17 +41368,20 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
         callback = function() end,
     }
 
-    -- Variadic because `jit.attach` hands each event its own arguments; a
-    -- "trace" event's are what this unpacks. The trace number is the one this
-    -- does not need: what identifies a site is where the compiler was, not
-    -- which attempt it was on.
+    -- Variadic because `jit.attach` hands each event its own arguments; a "trace"
+    -- event's are what this unpacks. The trace number is the one this does not need:
+    -- what identifies a site is where the compiler was, not which attempt it was on.
     local function onTraceEvent(...: any)
         local what, _, func, pc, errorCode, errorArg = ...
-        if what ~= "abort" or session.paused then return end
+        if what ~= "abort" or session.paused then
+            return
+        end
 
         local reason = abortReason(errorCode, errorArg)
         local severity = classify(reason)
-        if severity == "info" and not session.includeBenign then return end
+        if severity == "info" and not session.includeBenign then
+            return
+        end
 
         session.totalAborts = session.totalAborts + 1
         if severity == "blacklist" then
@@ -37275,9 +41409,8 @@ function profile.trace(options: profile.TraceOptions?): profile.TraceSession
     return session
 end
 
---- Stops counting without ending the session. The hook stays attached, at the
---- cost of one test per abort, and what was counted on either side of the pause
---- is kept.
+--- Stops counting without ending the session. The hook stays attached, at the cost of
+--- one test per abort, and what was counted on either side of the pause is kept.
 ---
 --- Idempotent.
 ---
@@ -37318,9 +41451,15 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
     for _, site in pairs(self.sites) do sites[#sites + 1] = site end
     table.sort(sites, function(a: profile.AbortSite, b: profile.AbortSite): boolean
         local left, right = severityRank(a.severity), severityRank(b.severity)
-        if left ~= right then return left < right end
-        if a.count ~= b.count then return a.count > b.count end
-        if a.reason ~= b.reason then return a.reason < b.reason end
+        if left ~= right then
+            return left < right
+        end
+        if a.count ~= b.count then
+            return a.count > b.count
+        end
+        if a.reason ~= b.reason then
+            return a.reason < b.reason
+        end
         return a.location < b.location
     end)
 
@@ -37330,7 +41469,9 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
         blacklisted = self.blacklisted,
         sites = sites,
     }
-    if filename then writeFile(filename, tostring(report)) end
+    if filename then
+        writeFile(filename, tostring(report))
+    end
     return report
 end
 
@@ -37407,19 +41548,18 @@ This is process-wide, not per-coroutine.
 
 local zone = {}
 
--- The array part is what the profiler reads, so writing it directly is what
--- it sees.
+-- The array part is what the profiler reads, so writing it directly is what it sees.
 local stack = require("jit.zone") as {string}
 
--- Annotated: an unannotated integer binding widens to number, and these index
--- the stack.
+-- Annotated: an unannotated integer binding widens to number, and these index the
+-- stack.
 local references: integer = 0
 local active = false
 local generation: integer = 0
 local depth: integer = 0
 
--- Bumped by every change to the stack, so `path` can tell whether the string it
--- built last time still describes it.
+-- Bumped by every change to the stack, so `path` can tell whether the string it built
+-- last time still describes it.
 local version: integer = 0
 local pathVersion: integer = -1
 local pathText = ""
@@ -37435,12 +41575,14 @@ function zone.depth(): integer
     return depth
 end
 
---- Starts recording, or joins a recording in progress. Needs a matching
---- `release`. The first caller clears the stack and opens a new generation,
---- so tokens from an earlier session cannot pop into this one.
+--- Starts recording, or joins a recording in progress. Needs a matching `release`. The
+--- first caller clears the stack and opens a new generation, so tokens from an earlier
+--- session cannot pop into this one.
 function zone.acquire()
     references = references + 1
-    if references > 1 then return end
+    if references > 1 then
+        return
+    end
 
     for index = #stack, 1, -1 do stack[index] = nil end
     depth = 0
@@ -37449,13 +41591,17 @@ function zone.acquire()
     active = true
 end
 
---- Releases one `acquire`; the last empties the stack. Releasing nothing is
---- ignored, so a teardown that runs twice is harmless.
+--- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
+--- a teardown that runs twice is harmless.
 function zone.release()
-    if references == 0 then return end
+    if references == 0 then
+        return
+    end
 
     references = references - 1
-    if references > 0 then return end
+    if references > 0 then
+        return
+    end
 
     for index = #stack, 1, -1 do stack[index] = nil end
     depth = 0
@@ -37465,18 +41611,22 @@ end
 
 --- Pushes a zone. A no-op while inactive.
 function zone.push(name: string)
-    if not active then return end
+    if not active then
+        return
+    end
 
     depth = depth + 1
     stack[depth] = name
     version = version + 1
 end
 
---- Pops the innermost zone, or nil when inactive or empty. Empty is not an
---- error: a profile can start or stop part-way through a frame, leaving half
---- a pair outside the session.
+--- Pops the innermost zone, or nil when inactive or empty. Empty is not an error: a
+--- profile can start or stop part-way through a frame, leaving half a pair outside the
+--- session.
 function zone.pop(): string?
-    if not active or depth == 0 then return nil end
+    if not active or depth == 0 then
+        return nil
+    end
 
     local name = stack[depth]
     stack[depth] = nil
@@ -37487,20 +41637,23 @@ end
 
 --- The innermost zone, without popping it.
 function zone.current(): string?
-    if depth == 0 then return nil end
+    if depth == 0 then
+        return nil
+    end
     return stack[depth]
 end
 
 --- The pushed zones joined with "/", outermost first, or "" when none are.
 ---
---- Cached until the stack next changes, so reading it repeatedly between two
---- pushes costs a comparison. That is worth the two words it takes: a profiler
---- reads this from the sampling callback, on the thread it interrupted, and a
---- string built fresh there is an allocation charged to whatever the program
---- happened to be doing — which the same profiler then reports as collector
---- time the program did not spend.
+--- Cached until the stack next changes, so reading it repeatedly between two pushes
+--- costs a comparison. That is worth the two words it takes: a profiler reads this from
+--- the sampling callback, on the thread it interrupted, and a string built fresh there
+--- is an allocation charged to whatever the program happened to be doing — which the
+--- same profiler then reports as collector time the program did not spend.
 function zone.path(): string
-    if version == pathVersion then return pathText end
+    if version == pathVersion then
+        return pathText
+    end
 
     if depth == 0 then
         pathText = ""
@@ -37514,12 +41667,13 @@ end
 
 --- Pushes a zone and returns a token for `leave`, or 0 when inactive.
 ---
---- The paired form, for a `leave` that may run after its session ended —
---- usually a coroutine resumed after a profile stopped. The token carries the
---- generation, so a late `leave` is discarded rather than popping someone
---- else's zone.
+--- The paired form, for a `leave` that may run after its session ended — usually a
+--- coroutine resumed after a profile stopped. The token carries the generation, so a
+--- late `leave` is discarded rather than popping someone else's zone.
 function zone.enter(name: string): integer
-    if not active then return 0 end
+    if not active then
+        return 0
+    end
 
     depth = depth + 1
     stack[depth] = name
@@ -37527,11 +41681,15 @@ function zone.enter(name: string): integer
     return generation
 end
 
---- Closes a zone opened by `enter`. A zero token, a stale generation, or an
---- empty stack are all ignored.
+--- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
+--- are all ignored.
 function zone.leave(token: integer)
-    if token == 0 or not active or token ~= generation then return end
-    if depth == 0 then return end
+    if token == 0 or not active or token ~= generation then
+        return
+    end
+    if depth == 0 then
+        return
+    end
 
     stack[depth] = nil
     depth = depth - 1
