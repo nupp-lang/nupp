@@ -82,9 +82,8 @@ end
 local xs = {10, 20, 30}
 do
     local __xs = xs
-    for __index = 1, 3 do
-        local index = __index
-        local value = __xs[__index]
+    for index = 1, 3 do
+        local value = __xs[index]
         use(index, value)
     end
 end

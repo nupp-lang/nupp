@@ -483,7 +483,7 @@ function M.rewritesStableDeclaredArrayIteration()
    local code, remarks = compile(
       "local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
       .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum")
-   assertTrue(code:find("for __nuppT", 1, true) ~= nil,
+   assertTrue(code:find("for _=1,3 do", 1, true) ~= nil,
       "numeric loop uses a proved static bound: " .. code)
    assertEq(run("local xs: {integer} = {1, 2, 3}\nlocal sum = 0\n"
       .. "for _, value in ipairs(xs) do sum = sum + value end\nreturn sum"),
@@ -505,8 +505,27 @@ function M.rewritesProvenLoopsInsideFunctions()
       "end",
       "return total()",
    }, "\n"))
-   assertTrue(code:find("for __nuppT", 1, true) ~= nil,
+   assertTrue(code:find("for _=1,2 do", 1, true) ~= nil,
       "function-local loops use the same proof: " .. code)
+end
+
+function M.usesTheSourceIndexAsTheNumericControlVariable()
+   local code = compile(table.concat({
+      "local xs: {integer} = {10, 20, 30}",
+      "local sum = 0",
+      "for index, value in ipairs(xs) do sum += index + value end",
+      "return sum",
+   }, "\n"))
+   assertTrue(code:find("for index=1,3 do", 1, true) ~= nil,
+      "the source index controls the numeric loop: " .. code)
+   assertEq(code:find("local index=", 1, true), nil,
+      "the index is not copied from a generated temporary")
+   assertEq(run(table.concat({
+      "local xs: {integer} = {10, 20, 30}",
+      "local sum = 0",
+      "for index, value in ipairs(xs) do sum += index + value end",
+      "return sum",
+   }, "\n")), 66, "direct index loop result")
 end
 
 function M.keepsIpairsWhenDenseEntryIsNotProven()
@@ -593,7 +612,7 @@ function M.allowsCallsWhoseShapeEffectsStayLocal()
       "local xs: {integer} = {1, 2, 3}",
       "for _, value in ipairs(xs) do scratch() end",
    }, "\n"))
-   assertTrue(code:find("for __nuppT", 1, true) ~= nil,
+   assertTrue(code:find("for _=1,3 do", 1, true) ~= nil,
       "unrelated local mutation leaves the proof intact: " .. code)
 end
 
@@ -601,8 +620,8 @@ function M.doesNotRewriteShadowedIpairs()
    local code = compile(
       "local function ipairs(xs) return next, xs, nil end\n"
       .. "local xs: {integer} = {7}\nfor i, value in ipairs(xs) do break end")
-   assertEq(code:find("for __nuppT", 1, true), nil,
-      "a shadowed iterator is not the builtin")
+   assertTrue(code:find("in ipairs", 1, true) ~= nil,
+      "a shadowed iterator is not rewritten")
 end
 
 function M.levelZeroKeepsIpairs()

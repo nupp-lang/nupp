@@ -1460,17 +1460,18 @@ function gen.generate(result, filename)
             e(("return %q"):format("goto:" .. x.name.text), sourceLine(x))
 
         elseif kind == "forinStmt" and x.numericIpairs then
-            local holder, index = nextTemp(), nextTemp()
+            local holder = nextTemp()
             local operand = x.numericIpairs.operand
+            local names = x.names or {}
+            -- The first generic-for binding already is the numeric index. Use it as
+            -- the control variable instead of introducing a temporary and copying it
+            -- into the source binding on every iteration.
+            local index = names[1] and names[1].text or nextTemp()
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or sourceLine(x)
             e(("do local %s="):format(holder), line)
             emit(operand)
             e((";for %s=1,%d do"):format(index, x.numericIpairs.length))
-            local names = x.names or {}
-            if names[1] then
-                e(("local %s=%s;"):format(names[1].text, index))
-            end
             if names[2] then
                 e(("local %s=%s[%s];"):format(names[2].text, holder, index))
             end
