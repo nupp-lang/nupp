@@ -20,6 +20,17 @@ work makes sense in.
       Nothing checks that a union's members have refinements that can tell each
       other apart, and nothing checks a construction against the refinement of
       what it builds — `new Circle {kind = "square"}` passes.
+- [ ] **Settle what `is` means, and let an interface carry defaults**
+      ([design](identity.md)). Three of the steps there repair this week's work:
+      the refinement renderer hand-rolls nil guards where `?.` reads the path
+      once, nothing verifies that an implementor can satisfy an interface's
+      refinement (a record the checker proved conforms can answer `false` to
+      `is`), and the refinement belongs on interfaces rather than records —
+      which is what stops `is R` meaning two things depending on the body. Then
+      the capability: instance reachability so a prototype-built instance
+      answers `is` at all (tecs's events answer `false` today), conformance
+      markers so `is I` works on records and structs without enumerating
+      implementors, and default method bodies with a required `@override`.
 - [ ] **Check metatable bodies, not just key spellings.** Today
       `setmetatable(t, {…})` on a literal only validates that each `__` key is
       a real metamethod (`src/nupp/check/callexpr.nupp:265`), and
