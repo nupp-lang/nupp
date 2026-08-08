@@ -101,6 +101,30 @@ function M.digestSeparatesEveryLength()
    end
 end
 
+-- The fingerprint identifies the compiler, not where it was found. It used to
+-- hash each file's path as given, and `moduleDir` reports whatever
+-- `package.path` was written as -- so the launcher's absolute path and a
+-- harness's relative one described the same compiler two ways, and every
+-- cache stamped with it discarded the other's work whenever they alternated.
+function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
+   local function fingerprintUnder(prefix)
+      local script = ("package.path=%q..package.path "
+         .. "print(require('nupp.build.cache').toolFingerprint())")
+         :format(prefix .. "build/?.lua;")
+      local pipe = assert(io.popen("luajit -e " .. ("%q"):format(script)))
+      local out = pipe:read("*l")
+      pipe:close()
+      return out
+   end
+   local cwd = assert(io.popen("pwd"))
+   local here = cwd:read("*l")
+   cwd:close()
+   local relative = fingerprintUnder("")
+   assert(relative and relative ~= "", "the relative run produced a digest")
+   assertEq(fingerprintUnder(here .. "/"), relative,
+      "the same compiler fingerprints the same either way")
+end
+
 function M.windowsMkdirUsesNativePathAndIsIdempotent()
    local command = process.mkdirCommand("build/nupp", true)
    assertEq(table.concat(command, " "),

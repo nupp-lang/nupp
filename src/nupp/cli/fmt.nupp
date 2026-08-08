@@ -116,6 +116,32 @@ local function run(parsed: any): integer
             return finish(1, {})
         end
     end
+    -- Whether a file already formats to itself is a pure function of its
+    -- bytes, the options, and the annotations the project declares -- so the
+    -- answer keeps, and `nupp fmt --check` over an unchanged project is the
+    -- gate a build runs on every commit.
+    --
+    -- Both answers are stored, not just "already formatted". A project that
+    -- is largely unformatted is the ordinary case for a gate, and it is
+    -- exactly the case where every run would otherwise format every file to
+    -- rediscover what the last run discovered.
+    --
+    -- Only a run that needs no text can act on a stored answer. `--write`
+    -- needs the formatted bytes for a file that is not formatted, so a
+    -- negative verdict tells it nothing it can use; the filter form needs
+    -- them for every file, and is excluded entirely.
+    local settled = reporting and envMod.formatStore(env) or nil
+    local textNeeded = write and true or false
+    local hashMod = require("nupp.build.hash")
+    local optionsKey = nil
+    local function verdictKey(path: string, source: string): string
+        if not optionsKey then
+            optionsKey = hashMod.digest(tostring(methodParens) .. "\0"
+                .. envMod.annotationKey(env))
+        end
+        return hashMod.digest(optionsKey .. "\0" .. path .. "\0" .. source)
+    end
+
     local failed = false
     local unformatted: {string} = {}
     for _, path in ipairs(paths) do
@@ -131,6 +157,13 @@ local function run(parsed: any): integer
                 io.stderr:write("nupp: " .. tostring(err) .. "\n")
             end
             failed = true
+        elseif settled and settled.get(verdictKey(path, source)) == "same" then
+            -- Known to format to itself: nothing to report and nothing to
+            -- rewrite. Parsing the file and laying it out is the whole cost
+            -- of finding that out, which is why it is worth not doing twice.
+        elseif not textNeeded and settled
+            and settled.get(verdictKey(path, source)) == "differs" then
+            unformatted[#unformatted + 1] = path
         else
             local formatted, errors = fmt.format(source, path, {
                 annotations = env.annotations,
@@ -139,6 +172,13 @@ local function run(parsed: any): integer
                 end,
                 methodParens = methodParens,
             })
+            -- A file that could not be formatted at all is not recorded: that
+            -- is a diagnostic about the file rather than a verdict on its
+            -- layout, and the next run has to say it again.
+            if settled and #errors == 0 then
+                settled.put(verdictKey(path, source),
+                    formatted == source and "same" or "differs")
+            end
             if #errors > 0 then
                 -- Could not be formatted, which is a different answer from being
                 -- unformatted, and the list form cannot tell them apart.
@@ -168,6 +208,7 @@ local function run(parsed: any): integer
             end
         end
     end
+    envMod.persist(env)
     if reporting then
         if #unformatted > 0 and not asJson then
             io.write(table.concat(unformatted, "\n"), "\n")

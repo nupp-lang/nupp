@@ -91,7 +91,23 @@ local function toolFingerprint()
             if path:match("%.lua$") then files[#files + 1] = path end
         end
     end
-    toolFingerprintMemo = hashFiles(files)
+    -- Named relative to the compiler's own directory, so the answer describes
+    -- the compiler rather than where it was found. `moduleDir` reports
+    -- whatever `package.path` was written as, and the launcher writes an
+    -- absolute path where a test harness writes a relative one -- so hashing
+    -- the paths as given made one compiler fingerprint two ways depending on
+    -- how it was started, and anything keyed on it threw away the other's
+    -- work every time the two alternated.
+    local parts = {}
+    for _, path in ipairs(files) do
+        local relative = path
+        if path:sub(1, #dir + 1) == dir .. "/" then
+            relative = path:sub(#dir + 2)
+        end
+        parts[#parts + 1] = relative .. "\0" .. (hashFile(path) or "missing")
+    end
+    table.sort(parts)
+    toolFingerprintMemo = hash.digest(table.concat(parts, "\0"))
     return toolFingerprintMemo
 end
 

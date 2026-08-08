@@ -354,14 +354,32 @@ Landed: cache keys are digested with XXH64 rather than a pure-Lua SHA-256,
 the prelude no longer builds the project index on the way to every command,
 project headers are stored between commands (`nupp.build.store`, plain data
 via `string.buffer`, in the gitignored build directory), `nupp check` reuses
-unchanged modules and replays their diagnostics, and bundled module
-declarations are checked when something asks for one.
+unchanged modules and replays their diagnostics, bundled module declarations
+are checked when something asks for one, `nupp fmt` stores each file's
+formatting verdict, the editor session writes what it worked out on shutdown,
+and the project scan prunes dot-directories instead of walking the whole
+checkout and discarding it.
 
-Measured on this compiler: whole-project check 2.10 s → 0.09 s warm,
-1.29 s cold; no-op build 1.45 s → 0.11 s; one named file 0.36 s → 0.08 s;
-`lsp inspect` 0.30 s → 0.08 s. The startup floor is 20 ms.
+Measured on this compiler, warm against cold: whole-project check 0.15 s
+against 1.26 s; `fmt --check` 0.13 s against 1.99 s; no-op build 0.17 s;
+one named file 0.14 s; `lsp inspect` 0.14 s. The startup floor is 20 ms.
 
 What is left, in the order the numbers justify:
+
+- [ ] **Five subprocesses per command, about 75 ms of the remaining 130.**
+      A warm check is 20 ms of interpreter start, about 45 ms of actual work,
+      and five `find` invocations. `nupp.fs` shells out because Lua has no
+      directory API and the FFI would need one implementation per platform;
+      that reasoning still holds, but the price is now most of what a warm
+      command costs. Two of the five are the same listing asked for twice,
+      which memoizing per environment would remove -- except that an editor
+      session lives for hours and files appear in it, so the memo needs an
+      invalidation story before it is safe.
+- [ ] **`fmt --check` says 103 of this project's ~110 files are not
+      formatted.** Unrelated to caching and worth knowing on its own: the
+      formatter and the committed source disagree almost everywhere, so
+      `fmt --check` cannot be used as a gate here until somebody decides
+      which is right.
 
 - [ ] **The prelude image, if 11 ms is worth it.** `env.new` is 11.7 ms and
       all of it is parsing and checking `prelude.d.nupp`, on every command.
