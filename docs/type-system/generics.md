@@ -80,7 +80,9 @@ uninhabited. A struct cannot carry one either: `ffi.istype` already answers
 exactly.
 
 A subject that is not a plain name is evaluated once and handed to the test,
-since a refinement may read it more than once.
+since a refinement may read it more than once. Reaching through a field guards
+the step before it with `?.`, because the test runs against values that are not
+of the type yet — `where self.a.b.c == "x"` compiles to `s.a?.b?.c == "x"`.
 
 ## Inference at a call site
 

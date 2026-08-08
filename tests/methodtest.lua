@@ -290,6 +290,33 @@ function M.aComputedSubjectIsEvaluatedOnce()
    }, "\n")), 11)
 end
 
+-- Reaching through a field has to guard the step before it, because the test
+-- runs against values that are not of the type yet. `?.` is the runtime's own
+-- answer to that, and it reads each step once where a written-out guard read it
+-- twice.
+function M.aRefinementReachesThroughFieldsSafely()
+   local decl = table.concat({
+      "local record Inner",
+      "   c: string",
+      "end",
+      "local record Mid",
+      "   b: Inner",
+      "end",
+      "local interface Deep where self.a.b.c == 'x'",
+      "   a: Mid",
+      "end",
+   }, "\n")
+   -- present, absent halfway, and not a table at all
+   assertEq(run(decl .. table.concat({
+      "",
+      "local full: any = {a = {b = {c = 'x'}}}",
+      "local partial: any = {a = {}}",
+      "local n: any = 42",
+      "return (full is Deep and 1 or 0) + (partial is Deep and 10 or 0)",
+      "   + (n is Deep and 100 or 0)",
+   }, "\n")), 1)
+end
+
 -- A constructor is the whole reason `new` is worth having over a literal: a
 -- literal may leave a declared field out, and a constructor may not.
 function M.constructorsRunAndFillEveryField()

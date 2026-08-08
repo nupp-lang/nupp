@@ -36041,24 +36041,21 @@ return "(" .. predicate . render ( node . a , subject ) .. " " .. op .. " "
 .. predicate . render ( node . b , subject ) .. ")"
 end
 
-local path = node . path or { }
-local guards , access = { } , subject
-for j , segment in ipairs ( path ) do
-if j > 1 then guards [ # guards + 1 ] = access .. " ~= nil" end
-access = access .. "." .. segment
+
+
+
+
+local access = subject
+for j , segment in ipairs ( node . path or { } ) do
+access = access .. ( j > 1 and "?." or "." ) .. segment
 end
 
-local test
 if op == "cmp" then
-test = access .. " " .. ( node . cmp or "==" ) .. " " .. ( node . literal or "nil" )
+return access .. " " .. ( node . cmp or "==" ) .. " " .. ( node . literal or "nil" )
 elseif op == "typeis" then
-test = ( "type(%s) == %q" ) : format ( access , node . luaType or "nil" )
-else
-test = access .. " ~= nil"
+return ( "type(%s) == %q" ) : format ( access , node . luaType or "nil" )
 end
-
-if # guards == 0 then return test end
-return "(" .. table . concat ( guards , " and " ) .. " and " .. test .. ")"
+return access .. " ~= nil"
 end
 
 
