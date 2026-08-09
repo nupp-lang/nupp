@@ -221,8 +221,8 @@ local function treeHtml(files, current)
         table.sort(node.files, function(a, b) return a.path < b.path end)
         for _, file in ipairs(node.files) do
             local active = file.path == current and " aria-current=page" or ""
-            out[#out + 1] = "<li><span class='status " .. file.status .. "'></span><a"
-                .. active .. " href='files/" .. escape(file.path) .. ".html'>"
+            out[#out + 1] = "<li><a" .. active .. " href='files/"
+                .. escape(file.path) .. ".html'>"
                 .. escape(file.path:match("([^/]+)$")) .. "</a><span class=badge>"
                 .. file.lines.percent .. "%</span></li>"
         end

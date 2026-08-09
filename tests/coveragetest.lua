@@ -47,6 +47,8 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     assert(index:find("aria-sort=none", 1, true), "sortable headings expose their state")
     assert(index:find("td>.status{margin-right:.45rem}", 1, true),
         "table status dots leave room before filenames")
+    local tree = assert(index:match("<nav class=tree>(.-)</nav>"), "coverage tree")
+    assert(not tree:find("class='status", 1, true), "file tree omits status circles")
     test.matches(read(out .. "/lcov.info"), "SF:src/nupp/")
     assert(os.execute("rm -rf " .. string.format("%q", out)) == 0)
 end
