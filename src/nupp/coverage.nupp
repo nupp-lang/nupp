@@ -183,12 +183,23 @@ local STYLE = [[
 
 local SCRIPT = [[document.querySelectorAll('[data-view]').forEach(function(b){b.onclick=function(){document.querySelectorAll('.view').forEach(function(v){v.classList.toggle('hidden',v.id!==b.dataset.view)})}});document.querySelectorAll('th button[data-key]').forEach(function(b){b.onclick=function(){var table=b.closest('table'),body=table.tBodies[0],key=b.dataset.key,rows=[].slice.call(body.rows),desc=b.dataset.desc==='1';rows.sort(function(a,z){var x=a.dataset[key],y=z.dataset[key];return (Number(x)-Number(y)||x.localeCompare(y))*(desc?-1:1)});table.querySelectorAll('th button[data-key]').forEach(function(h){h.setAttribute('aria-sort','none')});b.dataset.desc=desc?'0':'1';b.setAttribute('aria-sort',desc?'descending':'ascending');rows.forEach(function(r){body.appendChild(r)})}});]]
 
+local STYLE_OVERLAY = [[
+:root{--sidebar-width:290px}.shell{grid-template-columns:var(--sidebar-width) 8px minmax(0,1fr)}aside{border-right:0}.sidebar-resizer{position:relative;z-index:1;cursor:col-resize}.sidebar-resizer::before{position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--line);content:""}.sidebar-resizer:hover::before,.sidebar-resizer:focus-visible::before{width:3px;left:2px;background:var(--accent)}.sidebar-resizer:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.tree .file.covered{color:#7ee787}.tree .file.partial{color:#e3b341}.tree .file.uncovered{color:#f47067}.tree .file.non-executable{color:var(--faint)}.tree .file[aria-current=page]{color:var(--fg)}@media(max-width:780px){.sidebar-resizer{display:none}}
+]]
+
+local RESIZE_SCRIPT = [[(function(){var handle=document.querySelector('.sidebar-resizer'),root=document.documentElement;if(!handle)return;function resize(x){var width=Math.max(220,Math.min(520,x));root.style.setProperty('--sidebar-width',width+'px');handle.setAttribute('aria-valuenow',width)}handle.addEventListener('pointerdown',function(e){e.preventDefault();handle.setPointerCapture(e.pointerId);function move(event){resize(event.clientX)}function end(){handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end)}handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end)})})();]]
+
 local function page(title, tree, body, base)
     return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
         .. "<base href='" .. (base or "") .. "'><title>" .. escape(title)
-        .. " | Nupp coverage</title><style>" .. STYLE
+        .. " | Nupp coverage</title><style>" .. STYLE .. STYLE_OVERLAY
         .. "</style><div class=shell><aside><a class=brand href='index.html'>Nupp coverage</a>"
-        .. tree .. "</aside><main>" .. body .. "</main></div><script>" .. SCRIPT
+        .. tree
+        .. "</aside><div class=sidebar-resizer role=separator tabindex=0 aria-label='Resize file tree' aria-orientation=vertical aria-valuemin=220 aria-valuemax=520 aria-valuenow=290></div><main>"
+        .. body
+        .. "</main></div><script>"
+        .. SCRIPT
+        .. RESIZE_SCRIPT
         .. "</script>"
 end
 
@@ -221,10 +232,10 @@ local function treeHtml(files, current)
         table.sort(node.files, function(a, b) return a.path < b.path end)
         for _, file in ipairs(node.files) do
             local active = file.path == current and " aria-current=page" or ""
-            out[#out + 1] = "<li><a" .. active .. " href='files/"
+            out[#out + 1] = "<li><a class='file " .. file.status .. "'" .. active
+                .. " href='files/"
                 .. escape(file.path) .. ".html'>"
-                .. escape(file.path:match("([^/]+)$")) .. "</a><span class=badge>"
-                .. file.lines.percent .. "%</span></li>"
+                .. escape(file.path:match("([^/]+)$")) .. "</a></li>"
         end
         out[#out + 1] = "</ul>"
         return table.concat(out)
@@ -242,7 +253,10 @@ local function rows(files)
     local out = {}
     for _, file in ipairs(files) do
         out[#out + 1] = "<tr data-name='" .. escape(file.path) .. "' data-lines='"
-            .. file.lines.percent .. "' data-branches='" .. file.branches.percent
+            .. file.lines.percent .. "' data-missed-lines='" .. #file.lines.missing
+            .. "' data-functions='" .. file.functions.percent .. "' data-missed-functions='"
+            .. #file.functions.missing .. "' data-branches='" .. file.branches.percent
+            .. "' data-missed-arms='" .. #file.branches.missing
             .. "'><td><span class='status " .. file.status .. "'></span><a href='files/"
             .. escape(file.path) .. ".html'>" .. escape(file.path) .. "</a></td><td>"
             .. file.lines.covered .. " / " .. file.lines.total .. " (" .. file.lines.percent
@@ -265,15 +279,19 @@ local function indexBody(summary, model, title)
     out[
         #out + 1
     ] = "<table><thead><tr><th><button data-key=name aria-sort=none>Name <span class=sort-indicator aria-hidden=true></span></button></th>"
-        .. "<th><button data-key=lines aria-sort=none>Lines <span class=sort-indicator aria-hidden=true></span></button></th><th>Missed lines</th>"
-        .. "<th>Functions</th><th>Missed functions</th><th><button data-key=branches aria-sort=none>Branches <span class=sort-indicator aria-hidden=true></span></button></th>"
-        .. "<th>Missed arms</th></tr></thead><tbody>" .. rows(summary.files)
+        .. "<th><button data-key=lines aria-sort=none>Lines <span class=sort-indicator aria-hidden=true></span></button></th><th><button data-key=missedLines aria-sort=none>Missed lines <span class=sort-indicator aria-hidden=true></span></button></th>"
+        .. "<th><button data-key=functions aria-sort=none>Functions <span class=sort-indicator aria-hidden=true></span></button></th><th><button data-key=missedFunctions aria-sort=none>Missed functions <span class=sort-indicator aria-hidden=true></span></button></th><th><button data-key=branches aria-sort=none>Branches <span class=sort-indicator aria-hidden=true></span></button></th>"
+        .. "<th><button data-key=missedArms aria-sort=none>Missed arms <span class=sort-indicator aria-hidden=true></span></button></th></tr></thead><tbody>"
+        .. rows(
+        summary.files
+    )
         .. "</tbody></table>"
     return table.concat(out)
 end
 
 local function codeRows(source, file, language)
     local out, sourceLines = {}, splitLines(source)
+    local highlighted = highlight.codeLines(source, language)
     local executable = {}
     for _, site in ipairs(file.sites) do executable[site.line] = true end
     for line, text in ipairs(sourceLines) do
@@ -294,7 +312,7 @@ local function codeRows(source, file, language)
         end
         out[#out + 1] = "<span id='L" .. line .. "' class='row " .. state
             .. "'><span class=num>" .. line .. "</span><span class=hit>" .. detail
-            .. "</span>" .. highlight.codeHtml(text, language) .. "</span>"
+            .. "</span>" .. (highlighted[line] or escape(text)) .. "</span>"
     end
     return table.concat(out)
 end

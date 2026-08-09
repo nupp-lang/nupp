@@ -139,34 +139,67 @@ local function declarationName(tokens, index)
         or TYPE_DECLARATIONS[previous.text])
 end
 
-local function highlightNupp(source, links)
+--- Builds one valid HTML fragment per source line. Syntax tokens may cross a line
+--- boundary (notably Lua-style long comments), but a coverage report wraps each line in
+--- its own element, so the span must be closed and reopened at the boundary.
+local function lineWriter(source)
+    if source == "" then
+        return {lines = {}, append = function() end}
+    end
+    local lines = {""}
+    local function append(text, class, href)
+        local start = 1
+        while true do
+            local finish = text:find("\n", start, true)
+            local piece = finish and text:sub(start, finish - 1) or text:sub(start)
+            local rendered = htmlEscape(piece)
+            if class and piece ~= "" then
+                rendered = '<span class="' .. class .. '">' .. rendered .. "</span>"
+                if href then
+                    rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-' .. href.style
+                        .. '" href="' .. htmlEscape(href.url) .. '">' .. rendered .. "</a>"
+                end
+            end
+            lines[#lines] = lines[#lines] .. rendered
+            if not finish then
+                break
+            end
+            lines[#lines + 1] = ""
+            start = finish + 1
+        end
+    end
+    return {lines = lines, append = append}
+end
+
+local function highlightNuppLines(source, links)
+    local out = lineWriter(source)
     local tokens = lexer.lex(source, "documentation-code-block.nupp")
-    local out = {}
     for index, token in ipairs(tokens) do
         for _, trivia in ipairs(token.trivia) do
             if trivia.kind == "comment" or trivia.kind == "hashbang" then
-                out[#out + 1] = '<span class="token comment nuppdoc-token-comment">'
-                    .. htmlEscape(trivia.text) .. "</span>"
+                out.append(trivia.text, "token comment nuppdoc-token-comment")
             else
-                out[#out + 1] = htmlEscape(trivia.text)
+                out.append(trivia.text)
             end
         end
         if token.kind ~= "eof" then
             local style = tokenStyle(tokens, index)
-            local rendered = '<span class="' .. tokenClasses(style, token.text)
-                .. '">' .. htmlEscape(token.text) .. "</span>"
             local url = nil
             if links and token.kind == "name" and not declarationName(tokens, index) then
                 url = links[qualifiedName(tokens, index)] or links[token.text]
             end
-            if url then
-                rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-'
-                    .. style .. '" href="' .. htmlEscape(url) .. '">' .. rendered .. "</a>"
-            end
-            out[#out + 1] = rendered
+            out.append(token.text, tokenClasses(style, token.text),
+                url and {url = url, style = style} or nil)
         end
     end
-    return table.concat(out)
+    if source:sub(-1) == "\n" then
+        out.lines[#out.lines] = nil
+    end
+    return out.lines
+end
+
+local function highlightNupp(source, links)
+    return table.concat(highlightNuppLines(source, links), "\n")
 end
 
 local SCINTILLUA_ALIASES = {
@@ -363,7 +396,7 @@ local function scintilluaStyle(tag)
     return nil
 end
 
-local function highlightScintillua(source, language)
+local function highlightScintilluaLines(source, language)
     local loaded = loadScintillua(language)
     if not loaded then
         return nil
@@ -372,7 +405,7 @@ local function highlightScintillua(source, language)
     if not ok or type(tags) ~= "table" then
         return nil
     end
-    local out, start = {}, 1
+    local out, start = lineWriter(source), 1
     for index = 1, #tags, 2 do
         local finish = tonumber(tags[index + 1])
         if not finish then
@@ -381,28 +414,44 @@ local function highlightScintillua(source, language)
         local text = source:sub(start, finish - 1)
         local style = scintilluaStyle(tags[index])
         if style then
-            out[#out + 1] = '<span class="' .. tokenClasses(style, text)
-                .. '">' .. htmlEscape(text) .. '</span>'
+            out.append(text, tokenClasses(style, text))
         else
-            out[#out + 1] = htmlEscape(text)
+            out.append(text)
         end
         start = finish
     end
     if start <= #source then
-        out[#out + 1] = htmlEscape(source:sub(start))
+        out.append(source:sub(start))
     end
-    return table.concat(out)
+    if source:sub(-1) == "\n" then
+        out.lines[#out.lines] = nil
+    end
+    return out.lines
+end
+
+local function codeLines(source, language, links)
+    if language == "nupp" then
+        return highlightNuppLines(source, links)
+    end
+    local highlighted = highlightScintilluaLines(source, language)
+    if highlighted then
+        return highlighted
+    end
+    local out = lineWriter(source)
+    out.append(source)
+    if source:sub(-1) == "\n" then
+        out.lines[#out.lines] = nil
+    end
+    return out.lines
 end
 
 local function codeHtml(source, language, links)
-    if language == "nupp" then
-        return highlightNupp(source, links)
-    end
-    return highlightScintillua(source, language) or htmlEscape(source)
+    return table.concat(codeLines(source, language, links), "\n")
 end
 
 highlight.nuppSource = highlightNupp
 highlight.codeHtml = codeHtml
+highlight.codeLines = codeLines
 highlight.configureScintillua = configureScintillua
 
 return highlight

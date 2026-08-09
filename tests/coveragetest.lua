@@ -2,6 +2,7 @@
 -- command, and inspect the artifacts rather than reaching into its implementation.
 local test = require("assert")
 local cjson = require("cjson")
+local highlight = require("nupp.doc.highlight")
 local M = {}
 
 local ROOT = debug.getinfo(1, "S").source:match("^@(.+)/tests/")
@@ -40,7 +41,7 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     test.matches(detail, "Generated Lua")
     assert(detail:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
     assert(detail:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
-    assert(detail:find("<a aria-current=page href='files/src/nupp/gen.nupp.html'", 1, true),
+    assert(detail:find("<a class='file partial' aria-current=page href='files/src/nupp/gen.nupp.html'", 1, true),
         "coverage tree marks the selected file")
     assert(detail:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
@@ -49,8 +50,27 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
         "table status dots leave room before filenames")
     local tree = assert(index:match("<nav class=tree>(.-)</nav>"), "coverage tree")
     assert(not tree:find("class='status", 1, true), "file tree omits status circles")
+    assert(tree:find("class='file partial'", 1, true), "file tree colors coverage state")
+    assert(not tree:find("class=badge", 1, true), "file tree omits percentage badges")
+    assert(index:find("class=sidebar-resizer role=separator", 1, true), "sidebar is resizable")
+    assert(index:find("data-key=missedLines", 1, true), "missed lines are sortable")
+    assert(index:find("data-key=functions", 1, true), "functions are sortable")
+    assert(index:find("data-key=missedFunctions", 1, true), "missed functions are sortable")
+    assert(index:find("data-key=missedArms", 1, true), "missed arms are sortable")
     test.matches(read(out .. "/lcov.info"), "SF:src/nupp/")
     assert(os.execute("rm -rf " .. string.format("%q", out)) == 0)
+end
+
+function M.highlightsLongCommentsAcrossSourceLines()
+    highlight.configureScintillua(ROOT, {})
+    local nupp = highlight.codeLines("--[[ outer\ninside\n]]\nlocal value = 1", "nupp")
+    assert(nupp[1]:find("nuppdoc-token-comment", 1, true))
+    assert(nupp[2]:find("nuppdoc-token-comment", 1, true))
+    assert(nupp[3]:find("nuppdoc-token-comment", 1, true))
+    local lua = highlight.codeLines("--[[ outer\ninside\n]]\nlocal value = 1", "lua")
+    assert(lua[1]:find("nuppdoc-token-comment", 1, true))
+    assert(lua[2]:find("nuppdoc-token-comment", 1, true))
+    assert(lua[3]:find("nuppdoc-token-comment", 1, true))
 end
 
 return M
