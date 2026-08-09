@@ -115,14 +115,21 @@ work makes sense in.
 - [ ] **Comptime** ([design](comptime.md)): deterministic data evaluation,
       deliberately not a macro or declaration-generation system. Unstarted —
       `comptime` is not a token, and `@comptime` is a reserved annotation that
-      errors with NUPP2113 (`src/compiler/annotations.nupp:214`).
+      errors with NUPP2113 (`src/compiler/annotations.nupp:214`). Start it
+      against a program that needs a generated table, not against a program
+      that wants a constant: those keep turning out to have cheaper answers,
+      `OPT-3` having since taken `//` and the bit operators.
   - [ ] C1: `comptime do ... end` expression blocks; compile-time-known
         literals and `const` bindings; capability-limited evaluation; canonical
         literal/table quoting; line-count-preserving generation; in-memory
         query caching and equal-result cutoff.
   - [ ] C2: target-aware `sizeof`/`alignof`/`offsetof`; immutable `reflect(T)`
         descriptors; semantic type fingerprints and module interface
-        dependencies.
+        dependencies. Blocked on a compile-time layout model, which nupp has
+        deliberately not built: `layoutof` answers the same question at run
+        time through the FFI, because sizes belong to the running platform and
+        not the compiling one. A separate project rather than the step after
+        C1.
   - [ ] C3: file-private `@comptime` functions with ordinary type checking,
         erased runtime output, bounded recursion, and comptime call stacks.
   - [ ] C4: isolated evaluator worker, cancellation/resource limits, LSP
