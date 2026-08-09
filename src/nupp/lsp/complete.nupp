@@ -14,8 +14,68 @@ local complete = {}
 
 --- What the cursor is completing: the dotted receiver in front of it, whether it was
 --- reached by `.` or `:`, whether it stands in a type annotation, and how much of the
+--- name has been typed.
+type complete.Context = {
+    prefix: string,
+    typePosition: boolean,
+
+    --- Set when the receiver was reached by `:`, which sends rather than reads.
+    method: boolean?,
+
+    --- The receiver's dotted path, outermost first.
+    path: {string}?,
+}
+
+--- One thing a receiver offers after its dot, and which completion kind paints it.
+type complete.Member = {
+    type: T.Type,
+    kind: string,
+}
+
+--- What signature help reads of a call: the signature the checker resolved for it, and
+--- the parts a label is built from. The three call forms carry different things, so
+--- this is the view they share rather than any one of them.
+type complete.CallSite = {
+    kind: string,
+    signatureType: any,
+    obj: any,
+    name: any,
+    args: any,
+
+    --- What the checker recorded about resolving an overload set, when it did.
+    overloadCandidates: {any}?,
+    overloadWinner: any?,
+}
+
+--- What completion reads of a session: the query graph, which is where a required
+--- module's declarations and members come from.
+type complete.Session = {
+    inc: any,
+}
+
+--- The two navigation questions completion asks. Navigation requires this module, so
+--- the pair it lends back is named here rather than taken from there.
+type complete.Navigation = {
+    documentationFor: function(def: any): string?,
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?),
+}
+
+--- What installing completion gives the session back.
+type complete.Api = {
+    --- Everything a required module offers after its dot, handed to `add`.
+    moduleCompletions: function(moduleName: string,
+    add: function(label: string?, kind: string?, t: T.Type?, def: any,
+    priority: integer?): nil): nil,
+
+    --- The protocol's completion items for a position in a document.
+    completionItems: function(doc: any, offset: integer): {any},
+}
+
+--- What the cursor is completing: the dotted receiver in front of it, whether it was
+--- reached by `.` or `:`, whether it stands in a type annotation, and how much of the
 --- name has been typed. Nil when the cursor stands after nothing.
-function complete.completionContext(result, offset)
+function complete.completionContext(result: tree.Parse?,
+    offset: integer): complete.Context?
     local tokens = result and result.tokens or {}
     local index = nil
     for cursor, tok in ipairs(tokens) do
@@ -70,13 +130,13 @@ end
 --- The named members of a type, as {name -> {type, kind}}. Only what can be written
 --- after a dot: a metamethod contract is a protocol the value fulfils, not a field
 --- anybody spells.
-function complete.membersOf(t)
+function complete.membersOf(t: T.Type?): {[string]: complete.Member}
     local members = {}
     if type(t) ~= "table" then
         return members
     end
-    if t.tag == "intersection" then
-        for _, part in ipairs(t.members) do
+    if (t as T.Nominal).tag == "intersection" then
+        for _, part in ipairs((t as T.Intersection).members) do
             for name, entry in pairs(complete.membersOf(part)) do
                 local prior = members[name]
                 if prior then
@@ -97,20 +157,23 @@ function complete.membersOf(t)
         end
         return members
     end
-    for name, member in pairs(t.byname or {}) do
+    -- A shape and a declaration both carry their members by name; the type test above
+    -- is what tells either from a primitive.
+    for name, member in pairs((t as T.Nominal).byname or {}) do
         members[name] = {
             type = member,
             kind = type(member) == "table" and member.tag == "func"
             and "function" or "property",
         }
     end
-    for name, nested in pairs(t.nestedTypes or {}) do
+    for name, nested in pairs((t as T.Nominal).nestedTypes or {}) do
         members[name] = {type = nested, kind = "type"}
     end
     return members
 end
 
-function complete.signatureAt(result, offset)
+function complete.signatureAt(result: tree.Parse,
+    offset: integer): complete.CallSite?
     local best, bestSize
     tree.walkNodes(result.root, function(node)
         if (node.kind == "call" or node.kind == "safeCall"
@@ -119,14 +182,16 @@ function complete.signatureAt(result, offset)
             or node.overloadCandidates) and node.args then
             local first, last = tree.nodeBounds(node.args)
             if first and offset >= first and offset <= last then
-                local size = last - first
+                -- Bounds are found together, so the first one testing non-nil settles
+                -- the second.
+                local size = (last as integer) - first
                 if not bestSize or size < bestSize then
                     best, bestSize = node, size
                 end
             end
         end
     end)
-    return best
+    return best as complete.CallSite?
 end
 
 complete.completionKinds = {
@@ -156,7 +221,8 @@ local TYPE_KINDS = {
 --- Installs the completion questions that need a session.
 ---
 --- @param s the session's state
-function complete.install(s: any, nav: any): any
+function complete.install(s: complete.Session,
+    nav: complete.Navigation): complete.Api
     local documentationFor, resolveReceiver = nav.documentationFor, nav.resolveReceiver
     local completionContext, membersOf = complete.completionContext, complete.membersOf
     local completionKinds, completionWords = complete.completionKinds, complete.completionWords
@@ -195,7 +261,8 @@ function complete.install(s: any, nav: any): any
     local function completionItems(doc, offset)
         local items = wire.array({})
         local seen = {}
-        local context = completionContext(doc.result, offset) or {}
+        local context = (completionContext(doc.result, offset)
+            or {}) as complete.Context
         local function add(label, kind, t, def, priority)
             if not label or seen[label] then
                 return
@@ -234,7 +301,8 @@ function complete.install(s: any, nav: any): any
                     if not context.method or member.kind == "function" then
                         add(name, context.method and "method" or member.kind,
                             member.type,
-                            t.fieldDefs and t.fieldDefs[name] or nil, 1)
+                            (t as T.Nominal).fieldDefs
+                            and (t as T.Nominal).fieldDefs[name] or nil, 1)
                     end
                 end
             end

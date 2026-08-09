@@ -21,6 +21,32 @@ local readFile = text.readFile
 
 local diagnostics = {}
 
+--- What this module reads of a session. A session is built field by field as it starts
+--- and rebound when a workspace folder moves, so what a module needs of it is stated
+--- where the module reads it rather than inferred from the table that opens it.
+type diagnostics.Session = {
+    --- The open documents, by URI.
+    documents: {[string]: any},
+
+    --- The query graph this session answers from.
+    inc: any,
+
+    --- How the session speaks to the client unprompted.
+    notify: function(method: string, params: any): nil,
+}
+
+--- What installing diagnostics gives the session back.
+type diagnostics.Api = {
+    --- The compiler's diagnostics for one file, converted to the protocol's.
+    toLspDiagnostics: function(errors: {any}, source: string?): {any},
+
+    --- Rechecks one document and publishes what changed, answering whether it did.
+    checkAndPublish: function(uri: string, force: boolean?): boolean,
+
+    --- Rechecks every open document, the named one first and unconditionally.
+    refreshOpenDocuments: function(changedUri: string?): nil,
+}
+
 -- Diagnostics a build enforces but an editor should not shout about, because a file
 -- being typed into is half-written by definition and the missing half is usually the
 -- next thing the author writes. A module used before it is required is one; a binding
@@ -39,7 +65,7 @@ local PROTOCOL_SEVERITY = {
 --- Installs diagnostic publication on one session.
 ---
 --- @param s the session's state
-function diagnostics.install(s: any): any
+function diagnostics.install(s: diagnostics.Session): diagnostics.Api
     local notify = s.notify
 
     local function toLspDiagnostics(errors, source)

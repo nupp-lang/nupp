@@ -7,9 +7,33 @@ be needed. Incremental edits arrive as replaced ranges, and a reply that says
 what changed needs the smallest run of lines that differ.
 ]]
 
+local lexer = require("nupp.lexer")
+
 local text = {}
 
-function text.uriToPath(uri)
+--- A position as the protocol counts it: zero-based lines, and a character offset in
+--- UTF-16 code units rather than the bytes the lexer works in.
+type text.Position = {
+    line: integer,
+    character: integer,
+}
+
+--- A half-open span between two protocol positions. The end key is quoted because the
+--- protocol named it after a Lua keyword.
+type text.Range = {
+    start: text.Position,
+    ["end"]: text.Position,
+}
+
+--- One run of lines replaced wholesale, where `from`..`to` is a half-open span of the
+--- original's 1-based line numbers and `lines` is what takes its place.
+type text.Hunk = {
+    from: integer,
+    to: integer,
+    lines: {string},
+}
+
+function text.uriToPath(uri: string): string
     local path = uri:gsub("^file://", "")
     path = path:gsub("%%(%x%x)", function(hex)
         return string.char(tonumber(hex, 16) or 0)
@@ -17,13 +41,13 @@ function text.uriToPath(uri)
     return path
 end
 
-function text.pathToUri(path)
+function text.pathToUri(path: string): string
     return "file://" .. path:gsub("[^%w%-%._~/:]", function(ch)
         return ("%%%02X"):format(ch:byte())
     end)
 end
 
-function text.readFile(path)
+function text.readFile(path: string): string?
     local f = io.open(path, "rb")
     if not f then
         return nil
@@ -34,7 +58,7 @@ function text.readFile(path)
 end
 
 -- LSP positions count UTF-16 code units; lexer offsets count UTF-8 bytes.
-function text.utf8Char(source, offset)
+function text.utf8Char(source: string, offset: number): integer, integer
     local first = source:byte(offset)
     if not first or first < 0x80 then
         return 1, 1
@@ -43,8 +67,8 @@ function text.utf8Char(source, offset)
     return len, len == 4 and 2 or 1
 end
 
-function text.positionAtOffset(source, offset)
-    local line, character, pos = 0, 0, 1
+function text.positionAtOffset(source: string, offset: number): text.Position
+    local line: integer, character: integer, pos: integer = 0, 0, 1
     while pos < offset and pos <= #source do
         if source:byte(pos) == 10 then
             line, character, pos = line + 1, 0, pos + 1
@@ -56,8 +80,8 @@ function text.positionAtOffset(source, offset)
     return {line = line, character = character}
 end
 
-function text.offsetAtPosition(source, target)
-    local line, character, pos = 0, 0, 1
+function text.offsetAtPosition(source: string, target: text.Position): integer?
+    local line: integer, character: integer, pos: integer = 0, 0, 1
     while pos <= #source and line < target.line do
         if source:byte(pos) == 10 then
             line = line + 1
@@ -75,7 +99,7 @@ function text.offsetAtPosition(source, target)
     return pos
 end
 
-function text.tokenRange(source, tok)
+function text.tokenRange(source: string, tok: lexer.Token): text.Range
     return {
         start = text.positionAtOffset(source, tok.offset),
         ["end"] = text.positionAtOffset(source, tok.offset + #tok.text),
@@ -84,7 +108,7 @@ end
 
 --- The lines of `text`, each keeping its own newline, so concatenating them reproduces
 --- the text exactly — including a final line with no newline at all.
-function text.splitLines(source)
+function text.splitLines(source: string): {string}
     local lines = {}
     local pos = 1
     while pos <= #source do
@@ -102,7 +126,7 @@ end
 
 --- The byte offset each line of `text` starts at, plus one past the end, so a run of
 --- lines converts to a span without counting anything twice.
-function text.lineStarts(source)
+function text.lineStarts(source: string): {integer}
     local starts = {1}
     for pos = 1, #source do
         if source:byte(pos) == 10 then
@@ -115,18 +139,18 @@ end
 -- How far ahead a resynchronization is looked for before the rest of the file is called
 -- one changed run. A formatter's edits are local; a gap wider than this is a rewrite,
 -- and describing a rewrite in pieces saves nobody anything.
-local RESYNC = 64
+local RESYNC: integer = 64
 
 --- The runs of lines turning `before` into `after`, as {from, to, lines} where
 --- `from`..`to` is a half-open span of `before`'s line numbers.
-function text.lineHunks(before, after)
+function text.lineHunks(before: {string}, after: {string}): {text.Hunk}
     local hunks = {}
-    local i, j = 1, 1
+    local i: integer, j: integer = 1, 1
     while i <= #before or j <= #after do
         if before[i] ~= nil and before[i] == after[j] then
             i, j = i + 1, j + 1
         else
-            local skipBefore, skipAfter = nil, nil
+            local skipBefore: integer?, skipAfter: integer? = nil, nil
             for distance = 1, RESYNC do
                 for di = 0, distance do
                     local dj = distance - di
@@ -143,9 +167,13 @@ function text.lineHunks(before, after)
                 skipBefore, skipAfter = #before - i + 1, #after - j + 1
             end
             local lines = {}
-            for index = j, j + skipAfter - 1 do lines[#lines + 1] = after[index] end
+            -- Both skips are set together, so narrowing the first settles the second;
+            -- the cast says so where the checker cannot follow the assignment.
+            for index = j, j + (skipAfter as integer) - 1 do
+                lines[#lines + 1] = after[index]
+            end
             hunks[#hunks + 1] = {from = i, to = i + skipBefore, lines = lines}
-            i, j = i + skipBefore, j + skipAfter
+            i, j = i + skipBefore, j + (skipAfter as integer)
         end
     end
     return hunks

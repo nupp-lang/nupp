@@ -11,6 +11,16 @@ local tree = require("nupp.lsp.tree")
 
 local actions = {}
 
+--- One replacement over the original document, in the shape the checker's fixes already
+--- speak: a byte offset, how much of the source it covers, and what takes its place.
+--- Offsets never account for each other, so a whole action converts to protocol edits
+--- in one place.
+type actions.Edit = {
+    offset: integer,
+    length: integer,
+    newText: string,
+}
+
 actions.QUICKFIX = "quickfix"
 
 actions.REFACTOR = "refactor.rewrite"
@@ -110,12 +120,16 @@ end
 --- The `dispose(<name>)` statement discharging `def`, searched forward from `from` in
 --- `block`. It is where the owner's life already ends, so it is where the `with` scope
 --- ends too.
-local function disposeOf(block, from, def)
+local function disposeOf(block: cst.Block, from: integer,
+    def: tree.Definition): integer?
     for i = from, #(block.stats or {}) do
         local stat = block.stats[i]
         local call = stat.kind == "callStmt" and stat.expr or nil
         local callee = call and call.kind == "call" and call.obj or nil
-        local args = call and call.args and call.args.exprs or {}
+        -- A call holds its argument list as a plain node, so reaching the expressions
+        -- inside it says which two productions those nodes are.
+        local args = call and (call as cst.Call).args
+            and ((call as cst.Call).args as cst.Args).exprs or {}
         if callee and callee.kind == "name" and callee.token
             and callee.token.text == "dispose" and #args == 1
             and args[1].kind == "name" and args[1].token
@@ -132,25 +146,29 @@ end
 --- the acquisition expression survive exactly as written. The scope closes at the
 --- `dispose` when there is one, and otherwise at the end of the enclosing block, which
 --- is the same place the owner's obligation currently comes due.
-function actions.wrapInWith(source, root, stat)
+function actions.wrapInWith(source: string, root: cst.Child,
+    stat: tree.Kinded): {actions.Edit}?
     local def = ownedLocal(stat)
     if not def then
         return nil
     end
-    local block, index = tree.enclosingBlock(root, stat)
+    -- A block and the position in it are found together, as are the two bounds of a
+    -- node, so testing one of a pair settles the other. The casts below say so where
+    -- the checker cannot follow the assignment that paired them.
+    local block, index = tree.enclosingBlock(root, stat as cst.Node)
     if not block then
         return nil
     end
-    local localTok = stat[1]
+    local localTok = (stat as cst.Node)[1]
     if not localTok or not cst.isToken(localTok) or localTok.text ~= "local" then
         return nil
     end
-    local _, headEnd = tree.nodeBounds(stat)
-    local closeAt = disposeOf(block, index + 1, def)
+    local _, headEnd = tree.nodeBounds(stat as cst.Node)
+    local closeAt = disposeOf(block, (index as integer) + 1, def)
     local lastBody = (closeAt or #block.stats + 1) - 1
     -- Returning the owner is the one disposition `with` cannot express: the scope would
     -- close it on the way out and hand back a dead value.
-    for i = index + 1, lastBody do
+    for i = (index as integer) + 1, lastBody do
         local s = block.stats[i]
         if s.kind == "returnStmt" and tree.mentions(s, def) then
             return nil
@@ -160,19 +178,19 @@ function actions.wrapInWith(source, root, stat)
     local edits = {}
     edits[#edits + 1] = {offset = localTok.offset, length = #localTok.text,
         newText = "with"}
-    if not closeAt and lastBody < index + 1 then
+    if not closeAt and lastBody < (index as integer) + 1 then
         -- An owner acquired and never touched again: opening and closing the scope land
         -- on the same offset, so they are one edit rather than two zero-width inserts
         -- whose order would decide which came first.
-        edits[#edits + 1] = {offset = headEnd, length = 0,
+        edits[#edits + 1] = {offset = headEnd as integer, length = 0,
             newText = " do\n" .. indent .. "end"}
         return edits
     end
-    edits[#edits + 1] = {offset = headEnd, length = 0, newText = " do"}
-    if lastBody >= index + 1 then
+    edits[#edits + 1] = {offset = headEnd as integer, length = 0, newText = " do"}
+    if lastBody >= (index as integer) + 1 then
         -- Up to the `dispose` line rather than the last statement, so a comment sitting
         -- between them moves into the body along with the code it is about.
-        local bodyFrom = tree.nodeBounds(block.stats[index + 1])
+        local bodyFrom = tree.nodeBounds(block.stats[(index as integer) + 1])
         local bodyTo
         if closeAt then
             bodyTo = lineStart(source, (tree.nodeBounds(block.stats[closeAt])))
@@ -186,10 +204,11 @@ function actions.wrapInWith(source, root, stat)
     end
     if closeAt then
         local from, to = tree.nodeBounds(block.stats[closeAt])
-        edits[#edits + 1] = {offset = from, length = to - from, newText = "end"}
+        edits[#edits + 1] = {offset = from as integer,
+            length = (to as integer) - (from as integer), newText = "end"}
     else
         local _, to = tree.nodeBounds(block.stats[lastBody])
-        edits[#edits + 1] = {offset = to, length = 0,
+        edits[#edits + 1] = {offset = to as integer, length = 0,
             newText = "\n" .. indent .. "end"}
     end
     return edits
@@ -200,7 +219,7 @@ end
 --- Cleanup keeps the order `with` gives it: acquired left to right, disposed right to
 --- left. The body may not leave the scope by `return`, `break`, `continue` or `goto`,
 --- because `with` closes its owners on those paths and a trailing `dispose` would not.
-function actions.unwrapWith(source, stat)
+function actions.unwrapWith(source: string, stat: tree.Kinded): {actions.Edit}?
     if stat.kind ~= "withStmt" or not stat.withTok or not stat.doTok
         or not stat.endTok then
         return nil
@@ -216,7 +235,7 @@ function actions.unwrapWith(source, stat)
         end
         local from = binding.name.offset
         local _, to = tree.nodeBounds(binding.expr)
-        declarations[i] = "local " .. source:sub(from, to - 1)
+        declarations[i] = "local " .. source:sub(from, (to as integer) - 1)
         table.insert(disposals, 1, ("dispose(%s)"):format(binding.name.text))
     end
     if #declarations == 0 then

@@ -14,6 +14,46 @@ local T = require("nupp.types")
 
 local semantic = {}
 
+--- One coloured span, before the protocol's relative encoding flattens it. A token that
+--- spans lines contributes one of these per line, because the protocol has no way to
+--- say a span crosses one.
+type semantic.Entry = {
+    line: integer,
+    character: integer,
+    length: integer,
+
+    --- Index into `semanticTypes`, or absent when nothing names this kind.
+    kind: integer?,
+
+    --- The modifier bitmask: 1 declaration, 2 readonly.
+    modifiers: integer,
+}
+
+--- What semantic tokens read of a session, which is nothing: the session is taken so
+--- the shape matches the other installs.
+type semantic.Session = {
+    documents: {[string]: any},
+}
+
+--- What installing semantic tokens gives the session back.
+type semantic.Api = {
+    --- Every coloured span in a document, in source order.
+    semanticEntries: function(doc: any): {semantic.Entry},
+
+    --- The protocol's encoding: five integers a token, each position relative to the
+    --- token before it.
+    encodeSemanticEntries: function(entries: {semantic.Entry}): {integer},
+
+    --- Records what was sent for a URI and answers with the id naming it.
+    rememberTokens: function(uri: string, data: {integer}): string,
+
+    --- The one edit turning `before` into `after`, aligned to token boundaries.
+    tokenEdits: function(before: {integer}, after: {integer}): {any},
+
+    --- The answer last given for `uri`, which a delta is computed against.
+    lastSent: function(uri: string): any,
+}
+
 semantic.semanticTypes = wire.array({
     "namespace", "type", "class", "enum", "interface", "struct",
     "typeParameter", "parameter", "variable", "property", "enumMember",
@@ -43,7 +83,7 @@ semantic.TYPE_WORDS = {
     ["const"] = true,
 }
 
-function semantic.syntaxKinds(result)
+function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
     local kinds = {}
     local function mark(tok, kind)
         if tok and cst.isToken(tok) then
@@ -142,7 +182,8 @@ function semantic.syntaxKinds(result)
     return kinds
 end
 
-function semantic.addSemanticSpan(entries, source, offset, spanText, kind, modifiers)
+function semantic.addSemanticSpan(entries: {semantic.Entry}, source: string,
+    offset: integer, spanText: string?, kind: string, modifiers: integer?): nil
     if not spanText or spanText == "" then
         return
     end
@@ -186,7 +227,7 @@ end
 --- the session is taken so the shape matches the other installs.
 ---
 --- @param s the session's state
-function semantic.install(s: any): any
+function semantic.install(s: semantic.Session): semantic.Api
     local semanticIndex, semanticKindMap = semantic.semanticIndex, semantic.semanticKindMap
     local syntaxKinds, addSemanticSpan = semantic.syntaxKinds, semantic.addSemanticSpan
 

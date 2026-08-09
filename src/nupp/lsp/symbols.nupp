@@ -11,6 +11,17 @@ local text = require("nupp.lsp.text")
 
 local symbols = {}
 
+--- One entry of the outline, as the protocol shapes it: what it is called, which
+--- SymbolKind paints it, the span it covers and the span selecting it names, and the
+--- members it holds.
+interface symbols.Symbol
+    name: string
+    kind: integer
+    range: text.Range
+    selectionRange: text.Range
+    children: {symbols.Symbol}
+end
+
 -- LSP SymbolKind, by the names this compiler uses for the same things.
 symbols.SYMBOL_KINDS = {
     record = 5, class = 5, struct = 23, interface = 11,
@@ -29,12 +40,13 @@ local function declarationChildren(stat, source)
         if not from then
             return
         end
+        -- Bounds are found together, so the test above settles the end as well.
         children[#children + 1] = {
             name = nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.field,
             range = {
                 start = text.positionAtOffset(source, from),
-                ["end"] = text.positionAtOffset(source, to),
+                ["end"] = text.positionAtOffset(source, to as integer),
             },
             selectionRange = text.tokenRange(source, nameTok),
             children = wire.array({}),
@@ -55,7 +67,7 @@ end
 --- The declarations a file makes, as a nested outline. A qualified name is written as
 --- its path: `record m.Point` is one declaration called `m.Point`, because that is the
 --- name a reader searches for.
-function symbols.documentSymbols(result, source)
+function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.Symbol}
     local found = wire.array({})
     local function emit(stat, nameTok, kind, path)
         if not nameTok then
@@ -65,12 +77,13 @@ function symbols.documentSymbols(result, source)
         if not from then
             return
         end
+        -- Bounds are found together, so the test above settles the end as well.
         found[#found + 1] = {
             name = path or nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.variable,
             range = {
                 start = text.positionAtOffset(source, from),
-                ["end"] = text.positionAtOffset(source, to),
+                ["end"] = text.positionAtOffset(source, to as integer),
             },
             selectionRange = text.tokenRange(source, nameTok),
             children = declarationChildren(stat, source),
@@ -119,7 +132,7 @@ end
 --- table. The construct rather than the block inside it, so a fold starts at the line
 --- that says what is being folded — a body alone would collapse to a header the editor
 --- never showed as foldable.
-function symbols.foldableSpans(result)
+function symbols.foldableSpans(result: tree.Parse): {{integer}}
     local spans = {}
     tree.walkNodes(result.root, function(node)
         if node.kind == "block" or node.kind == "chunk" then

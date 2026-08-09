@@ -8,10 +8,90 @@ so they answer without a session.
 ]]
 
 local cst = require("nupp.cst")
+local lexer = require("nupp.lexer")
 
 local tree = {}
 
-function tree.tokenAt(result, offset)
+--- What these questions read off a parse: the tree, the token stream, and the two
+--- module facts the checker writes back onto the parse it was given. A parse reaches
+--- the server through the query graph, which carries it untyped, so the shape is stated
+--- where it is read rather than where it happens to be built.
+type tree.Parse = {
+    root: cst.Chunk,
+    tokens: {lexer.Token},
+
+    --- The module this file is, once the checker has said so.
+    moduleName: string?,
+
+    --- The local the file returns, which its qualified declarations attach to.
+    moduleLocal: string?,
+}
+
+--- A statement a caller picked out by kind. The kinds are a table read at run time, so
+--- which production came back is a fact about the call rather than about this
+--- declaration; what stands here is what the callers read off one.
+type tree.Kinded = {
+    kind: string,
+
+    --- The names a `local` binds, one of which a `with` scope would wrap.
+    names: any,
+
+    --- The parts of a `with` scope an unwrap takes apart.
+    withTok: any,
+    doTok: any,
+    endTok: any,
+    bindings: any,
+    body: any,
+}
+
+--- Where a name was declared, as the checker leaves it on every token that spells it.
+--- Nothing declares this shape: it is built field by field while checking, so the
+--- readers agree on it here.
+type tree.Definition = {
+    --- The file the declaration is in, which for a cross-file definition is not the
+    --- document being edited.
+    filename: string?,
+
+    --- The token that spells the declaration.
+    token: lexer.Token?,
+
+    name: string?,
+
+    --- What was declared, which is also what paints the semantic token.
+    kind: string?,
+
+    --- The module a `require` bound to this name.
+    requiredModule: string?,
+}
+
+--- One use of a module member, with the statement that declares it when this use is the
+--- declaration.
+type tree.Occurrence = {
+    token: lexer.Token,
+    stat: cst.FuncStmt?,
+}
+
+--- One plain member a module declares, and where.
+type tree.MemberDeclaration = {
+    name: string,
+    token: lexer.Token,
+    stat: cst.FuncStmt,
+}
+
+--- The (module, member) pair a position names.
+type tree.MemberRef = {
+    moduleName: string,
+    name: string,
+    token: lexer.Token,
+}
+
+--- A half-open byte span of the source.
+type tree.Span = {
+    from: integer,
+    to: integer,
+}
+
+function tree.tokenAt(result: tree.Parse?, offset: number): lexer.Token?
     if not result then
         return nil
     end
@@ -29,14 +109,14 @@ function tree.tokenAt(result, offset)
     return previous
 end
 
-function tree.symbolKey(def)
+function tree.symbolKey(def: tree.Definition?): string?
     if not def or not def.filename or not def.token then
         return nil
     end
     return def.filename .. ":" .. tostring(def.token.offset)
 end
 
-function tree.fromTrivia(triviaList)
+function tree.fromTrivia(triviaList: {lexer.Trivia}?): string?
     local lines = {}
     for _, trivia in ipairs(triviaList or {}) do
         if trivia.kind == "comment" then
@@ -58,7 +138,7 @@ end
 -- docs are therefore searched for backwards along the line that the name sits on, in
 -- the token stream of the declaring file, which for a cross-file definition is not the
 -- document being edited.
-function tree.documentationAt(tokens, index)
+function tree.documentationAt(tokens: {lexer.Token}, index: integer): string?
     local tok = tokens[index]
     if not tok then
         return nil
@@ -93,7 +173,8 @@ local DECLARING = {
 -- mod.name`, or one that opens its own line ahead of a `:`, which is how typed bindings
 -- and record fields are written. The candidate nearest `near` wins, so a file that has
 -- only shifted still resolves to the declaration it used to.
-function tree.findDeclaration(tokens, name, near)
+function tree.findDeclaration(tokens: {lexer.Token}, name: string,
+    near: number): lexer.Token?
     local best, bestDistance
     for index, tok in ipairs(tokens) do
         if tok.kind == "name" and tok.text == name then
@@ -133,7 +214,7 @@ end
 -- Lines are the right grain: the formatter never joins them, so a line either survived
 -- as it was or did not.
 
-function tree.walkNodes(node, visit)
+function tree.walkNodes(node: cst.Child?, visit: function(cst.Node): nil): nil
     if not node or cst.isToken(node) then
         return
     end
@@ -145,7 +226,7 @@ function tree.walkNodes(node, visit)
     end
 end
 
-function tree.nodeBounds(node)
+function tree.nodeBounds(node: cst.Child): integer?, integer?
     local first, last
     local function walk(value)
         if cst.isToken(value) then
@@ -181,7 +262,7 @@ end
 ---
 --- A `funcname` is read through the statement that owns it, so a declaration arrives
 --- once and arrives with its signature still in reach.
-function tree.memberHolder(node)
+function tree.memberHolder(node: cst.Node): lexer.Token?, lexer.Token?
     if node.kind == "dotIndex" or node.kind == "methodCall"
         or node.kind == "safeIndex" then
         local obj = node.obj
@@ -215,8 +296,10 @@ end
 --- is shown the parameters and returns as they were written. A plain member has nothing
 --- else to show — no type was ever computed for the table it sits on, and inventing one
 --- from the body would say more than is known.
-function tree.functionSignature(stat)
-    local block = stat.body and stat.body.body
+function tree.functionSignature(stat: cst.FuncStmt): string
+    -- A statement holds its funcbody as a plain node, so reaching the block inside it
+    -- says which production that node is.
+    local block = stat.body and (stat.body as cst.Funcbody).body
     local parts, first, done = {}, true, false
     local function walk(node)
         if done then
@@ -243,7 +326,7 @@ end
 
 --- The module a name in `result` holds, or nil. A name bound to `require("m")` holds m;
 --- the local a file returns holds the file's own module.
-function tree.moduleHeld(result, tok)
+function tree.moduleHeld(result: tree.Parse, tok: lexer.Token?): string?
     if not tok then
         return nil
     end
@@ -260,7 +343,8 @@ end
 --- Every `m.f` in `result` naming `memberName` of `moduleName`, as {token, stat}.
 --- `stat` is set on the `function m.f` that writes it, which is the one place a
 --- definition points at and the one a rename has to reach even when nothing uses it.
-function tree.memberOccurrences(result, moduleName, memberName)
+function tree.memberOccurrences(result: tree.Parse, moduleName: string,
+    memberName: string): {tree.Occurrence}
     local found = {}
     tree.walkNodes(result.root, function(node)
         local holder, member = tree.memberHolder(node)
@@ -280,7 +364,8 @@ function tree.memberOccurrences(result, moduleName, memberName)
 end
 
 --- Every plain member `moduleName` declares, as {name, stat}, in source order.
-function tree.moduleMemberDeclarations(result, moduleName)
+function tree.moduleMemberDeclarations(result: tree.Parse,
+    moduleName: string): {tree.MemberDeclaration}
     local found = {}
     tree.walkNodes(result.root, function(node)
         if node.kind ~= "funcStmt" then
@@ -297,7 +382,7 @@ function tree.moduleMemberDeclarations(result, moduleName)
 end
 
 --- The (module, member) a position names, when it is on the member of an `m.f`.
-function tree.moduleMemberAt(result, offset)
+function tree.moduleMemberAt(result: tree.Parse, offset: number): tree.MemberRef?
     local best = nil
     tree.walkNodes(result.root, function(node)
         local holder, member = tree.memberHolder(node)
@@ -324,7 +409,7 @@ end
 
 --- The chain of nodes covering `offset`, innermost last, which is what a selection
 --- expands through.
-function tree.enclosingChain(result, offset)
+function tree.enclosingChain(result: tree.Parse, offset: number): {tree.Span}
     local chain = {}
     local function walk(node)
         if cst.isToken(node) then
@@ -352,7 +437,7 @@ end
 
 --- The block whose `stats` hold `stat`, and where in it, so a rewrite that spans
 --- following statements knows what "following" means.
-function tree.enclosingBlock(root, stat)
+function tree.enclosingBlock(root: cst.Child, stat: cst.Node): cst.Block?, integer?
     local block, index
     tree.walkNodes(root, function(node)
         if node.kind == "block" then
@@ -367,24 +452,27 @@ function tree.enclosingBlock(root, stat)
 end
 
 --- The innermost node of `kinds` whose source range covers [from, to].
-function tree.innermostAt(root, kinds, from, to)
+function tree.innermostAt(root: cst.Child, kinds: {[string]: boolean}, from: number,
+    to: number?): tree.Kinded?
     local best, bestSize
     tree.walkNodes(root, function(node)
         if kinds[node.kind] then
             local first, last = tree.nodeBounds(node)
-            if first and from >= first and to <= last then
-                local size = last - first
+            if first and from >= first and (to as number) <= last then
+                -- Bounds are found together, so the first one testing non-nil settles
+                -- the second.
+                local size = (last as integer) - first
                 if not bestSize or size < bestSize then
                     best, bestSize = node, size
                 end
             end
         end
     end)
-    return best
+    return best as tree.Kinded?
 end
 
 --- Whether `node` tree.mentions the local `def` declares, anywhere below it.
-function tree.mentions(node, def)
+function tree.mentions(node: cst.Child, def: tree.Definition): boolean
     local found = false
     local function walk(value)
         if found then

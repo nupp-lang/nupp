@@ -437,7 +437,7 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             end
         end
         local signatures = wire.array({})
-        local activeSignature = 0
+        local activeSignature: integer = 0
         for candidateIndex, candidate in ipairs(candidates) do
             local parameters = wire.array({})
             for index, param in ipairs(candidate.paramPack.head or {}) do

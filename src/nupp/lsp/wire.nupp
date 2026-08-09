@@ -22,7 +22,7 @@ wire.json = json
 --- Marks `items` as a JSON array, so an empty one encodes as `[]` rather than `{}`.
 ---
 --- @param items the list to mark
-function wire.array(items: any): any
+function wire.array<T is table>(items: T): T
     return setmetatable(items, json.array_mt)
 end
 

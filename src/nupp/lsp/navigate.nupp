@@ -12,7 +12,9 @@ so it has no declaration site of its own until the module that defines it is
 found and asked.
 ]]
 
+local cst = require("nupp.cst")
 local lexer = require("nupp.lexer")
+local T = require("nupp.types")
 local text = require("nupp.lsp.text")
 local tree = require("nupp.lsp.tree")
 local complete = require("nupp.lsp.complete")
@@ -31,10 +33,78 @@ local json = wire.json
 
 local navigate = {}
 
+--- What navigation reads of a session: the documents it holds open, the lex it keeps
+--- per file, and the query graph every closed file comes from.
+type navigate.Session = {
+    documents: {[string]: any},
+
+    --- The last lex of each file, so a question needing only tokens does not reparse.
+    lexed: {[string]: any},
+
+    inc: any,
+}
+
+--- What installing navigation gives the session back. The handlers reach these through
+--- the session they were installed on, so the whole set is named here.
+type navigate.Api = {
+    --- The tokens of a file, lexed once per text.
+    fileTokens: function(filename: string, source: string): {lexer.Token},
+
+    --- What a file reads as right now: the editor's buffer, or the disk.
+    sourceForPath: function(path: string): string?,
+
+    definitionSource: function(def: any): string?,
+
+    --- Where `def` stands in `tokens`, or nil when it is no longer there at all.
+    declarationIndex: function(def: any, source: string,
+    tokens: {lexer.Token}): integer?,
+
+    resolveDefinition: function(def: any): (string?, {lexer.Token}?, integer?),
+
+    --- The protocol Location of a declaration, or the null the protocol wants.
+    definitionLocation: function(def: any): any,
+
+    documentationFor: function(def: any): string?,
+
+    --- The URI a request names, and the document held under it. The URI is read
+    --- straight off the request's untyped parameters and is not validated here.
+    documentAt: function(params: any): (any, any),
+
+    --- The same, plus the token a request's position falls on and that offset. The
+    --- token carries the checker's marks, which the lexer's declaration has no room
+    --- for, so it arrives as what those passes left rather than as a bare token.
+    symbolAt: function(params: any): (any, any, any, integer?),
+
+    isOpenDefinition: function(def: any): boolean,
+
+    --- Whether the file declaring `def` is one this session can rewrite.
+    isProjectDefinition: function(def: any): boolean,
+
+    --- Every checked file that could mention `name`, as {uri, source, result}.
+    documentsMentioning: function(name: string): {any},
+
+    referencesFor: function(def: any, includeDeclaration: boolean?): {any},
+
+    --- The `function m.f` declaring a member, with the file it is in.
+    memberDeclaration: function(moduleName: string,
+    memberName: string): (any, lexer.Token?, cst.FuncStmt?),
+
+    memberAt: function(doc: any, offset: integer?): tree.MemberRef?,
+
+    memberLocation: function(member: tree.MemberRef): any,
+
+    memberReferences: function(member: any, includeDeclaration: boolean?): {any},
+
+    memberHover: function(member: tree.MemberRef): string?,
+
+    --- The type a receiver path names, plus the module it holds when it holds one.
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?),
+}
+
 --- Installs the navigation questions on one session.
 ---
 --- @param s the session's state
-function navigate.install(s: any): any
+function navigate.install(s: navigate.Session): navigate.Api
 
     local function fileTokens(filename, source)
         local entry = s.lexed[filename]
