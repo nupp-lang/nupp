@@ -1892,8 +1892,8 @@ name = name : gsub ( "%-" , "_" )
 local osName = ( jit and jit . os or "" ) : lower ( )
 if osName == "windows" then
 return name .. ".dll"
-end
-if osName == "osx" then
+
+elseif osName == "osx" then
 return "lib" .. name .. ".dylib"
 end
 
@@ -3111,7 +3111,7 @@ local PAGE_KEYS = { "path" , "title" , "source" , "layout" , "heroTitle" , "hero
 "hero_title" , "hero_text" , "hero_image" , "hero_image_alt" , "hero_actions" , "features" , }
 
 local HERO_ACTION_KEYS = { "text" , "path" , "theme" }
-local FEATURE_KEYS = { "icon" , "image" , "title" , "details" }
+local FEATURE_KEYS = { "icon" , "image" , "imageAlt" , "title" , "details" , "code" , "codeLanguage" }
 local TASK_KEYS = { "description" , "argv" , "build" , "env" }
 
 local function validateKeys ( value , known , label )
@@ -7194,7 +7194,7 @@ packTypes = { } ,
 typeDefs = { } ,
 pending = { } ,
 parent = nil
-} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , functionDepth = 0 , captureWatches = { } , allowed = { } , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
+} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , functionDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
 c . rootScope = c . scope
 c . recordEffect = function ( effect )
 result . effects [ effect ] = true
@@ -7869,11 +7869,11 @@ end
 local kind = last . kind
 if kind == "callStmt" then
 return neverReturns ( last . expr )
-end
-if kind == "doStmt" then
+
+elseif kind == "doStmt" then
 return alwaysRaises ( last . body )
-end
-if kind == "ifStmt" then
+
+elseif kind == "ifStmt" then
 local otherwise = last . elseClause
 if not otherwise then
 return false
@@ -8105,9 +8105,12 @@ c . pushScope ( )
 end
 hoistDeclarations ( block )
 local stats = block and block . kind == "block" and block . stats or { }
-for _ , stat in ipairs ( stats ) do
+local wasNext = c . nextStat
+for i , stat in ipairs ( stats ) do
+c . nextStat = stats [ i + 1 ]
 checkStat ( stat )
 end
+c . nextStat = wasNext
 if not scopeManaged then
 c . popScope ( )
 end
@@ -11400,6 +11403,82 @@ local memberSet = narrowing . memberSet
 
 local control = { }
 
+local LITERAL_KINDS
+
+= { string = true , number = true , nilExpr = true , trueExpr = true , falseExpr = true , }
+
+
+
+
+local function literalEquality ( stat )
+if stat . elseClause or # ( stat . clauses or { } ) ~= 1 then
+return nil , nil
+end
+local clause = stat . clauses [ 1 ]
+local cond = clause and clause . cond
+if not cond or cond . kind ~= "binop" or not cond . op or cond . op . kind ~= "==" then
+return nil , nil
+end
+local lhs , rhs = cond . lhs , cond . rhs
+local name , literal = nil , nil
+if lhs and lhs . kind == "name" and rhs and LITERAL_KINDS [ rhs . kind ] then
+name , literal = lhs , rhs
+elseif rhs and rhs . kind == "name" and lhs and LITERAL_KINDS [ lhs . kind ] then
+name , literal = rhs , lhs
+end
+local nameTok , literalTok = name and name . token , literal and cst . firstToken ( literal )
+if not nameTok or not literalTok then
+return nil
+end
+
+return { name = nameTok . text , literal = literalTok . text }
+end
+
+
+
+local function writesName ( body , name )
+if not body or cst . isToken ( body ) or body . kind == "funcbody" or body . kind == "shortfn" then
+return false
+end
+local function isName ( node )
+if not node or node . kind ~= "name" or not node . token then
+return false
+end
+return node . token . text == name
+end
+
+if body . kind == "compoundAssign" and isName ( body . target ) then
+return true
+end
+if body . kind == "assignStmt" then
+for _ , target in ipairs ( body . targets or { } ) do
+if isName ( target ) then
+return true
+end
+end
+end
+for _ , child in ipairs ( body ) do
+if not cst . isToken ( child ) and writesName ( child , name ) then
+return true
+end
+end
+
+return false
+end
+
+
+local function isLocal ( c , name )
+local scope = c . scope
+while scope do
+if scope . vars and scope . vars [ name ] then
+return true
+end
+scope = scope . parent
+end
+
+return false
+end
+
 
 
 
@@ -11677,18 +11756,54 @@ c . popScope ( )
 end
 
 handlers . ifStmt = function ( stat )
+local adjacent = c . nextStat
+local first = literalEquality ( stat )
+local second = adjacent and adjacent . kind == "ifStmt" and literalEquality ( adjacent ) or nil
+local firstClause = stat . clauses and stat . clauses [ 1 ] or nil
+local firstEnd = cst . lastToken ( stat )
+local nextIf = adjacent and cst . firstToken ( adjacent ) or nil
+if first and second and first . name == second . name and first . literal ~= second . literal and isLocal (
+c ,
+first . name
+) and not writesName ( firstClause and firstClause . body , first . name ) and firstEnd and nextIf then
+c . diag (
+"else-if" ,
+adjacent ,
+"this condition is mutually exclusive with the preceding if; write elseif instead" ,
+{
+c . edits . fix (
+"write `elseif`" ,
+c . edits . replaceToken ( firstEnd , "" ) ,
+c . edits . replaceToken ( nextIf , "elseif" )
+) ,
+} ,
+{ help = "replace the second if with elseif and remove the preceding end" }
+)
+end
 local otherwise = stat . elseClause
 local elseBody = otherwise and otherwise . kind == "elseClause" and otherwise . body or nil
 local elseStats = elseBody and elseBody . kind == "block" and elseBody . stats or { }
 
 
 
-if # elseStats == 1 and elseStats [ 1 ] . kind == "ifStmt" then
+local nested = # elseStats == 1 and elseStats [ 1 ] . kind == "ifStmt" and elseStats [ 1 ] or nil
+local elseTok = otherwise and cst . firstToken ( otherwise ) or nil
+local nestedIf = nested and cst . firstToken ( nested ) or nil
+local nestedEnd = nested and cst . lastToken ( nested ) or nil
+local fixes = nested and elseTok and nestedIf and nestedEnd and {
+c . edits . fix (
+"write `elseif`" ,
+c . edits . replaceToken ( elseTok , "elseif" ) ,
+c . edits . replaceToken ( nestedIf , "" ) ,
+c . edits . replaceToken ( nestedEnd , "" )
+) ,
+} or nil
+if nested then
 c . diag (
 "else-if" ,
 otherwise ,
 "this else contains only an if; write elseif instead" ,
-nil ,
+fixes ,
 { help = "replace else followed by if with elseif" }
 )
 end
@@ -14354,8 +14469,8 @@ return name == "typeof" and T . ctype ( T . cdata ) or T . cdata
 end
 if name == "typeof" then
 return T . ctype ( resolved )
-end
-if name == "cast" then
+
+elseif name == "cast" then
 
 
 return subtract ( resolved , T . nil_ )
@@ -14431,7 +14546,6 @@ return T . any
 end
 node . carrayElem = elemT . name
 return T . carray ( elemT , nil )
-end
 
 
 
@@ -14444,7 +14558,7 @@ end
 
 
 
-if calleeName == "layoutof" then
+elseif calleeName == "layoutof" then
 local args = argExprs
 local subject = args [ 1 ] and c . infer ( args [ 1 ] ) or nil
 if not subject or subject . tag ~= "nominal" or subject . declKind ~= "struct" then
@@ -14524,12 +14638,11 @@ printed = table . concat ( printed , "," ) ,
 nested = nested
 }
 return c . lookupType ( "Layout" ) or T . any
-end
 
 
 
 
-if calleeName == "cheader" then
+elseif calleeName == "cheader" then
 local args = argExprs
 local function literal ( e )
 if e and e . kind == "string" then
@@ -18284,9 +18397,8 @@ if valid and target and targetKind == "recordDecl" then
 defineAnnotation ( stat , target )
 end
 return
-end
 
-if written == "effects" then
+elseif written == "effects" then
 if valid and target then
 local contract = effectContract ( stat )
 target . effectContract = contract
@@ -18305,9 +18417,8 @@ end
 end
 end
 return
-end
 
-if written == "relax" then
+elseif written == "relax" then
 local relaxed = { }
 for _ , arg in ipairs ( stat . annotationArgs or { } ) do
 local expr = arg . expr
@@ -18333,9 +18444,8 @@ if stat . stat then
 c . checkStat ( stat . stat )
 end
 return
-end
 
-if written == "owned" then
+elseif written == "owned" then
 local cleanups = { }
 local opaque , outName , success = false , nil , "always"
 for _ , arg in ipairs ( stat . annotationArgs or { } ) do
@@ -18412,9 +18522,8 @@ if stat . stat then
 c . checkStat ( stat . stat )
 end
 return
-end
 
-if written == "borrowed" then
+elseif written == "borrowed" then
 local outName , sourceName , success = nil , nil , "always"
 for _ , arg in ipairs ( stat . annotationArgs or { } ) do
 local expr = arg . expr
@@ -18446,9 +18555,8 @@ if stat . stat then
 c . checkStat ( stat . stat )
 end
 return
-end
 
-if written == "dispose" then
+elseif written == "dispose" then
 local ownerKey = nil
 if target and target . kind == "funcStmt" then
 local fname = target . name
@@ -18809,8 +18917,8 @@ c . diag ( "NUPP2602" , node , "pinned<T> requires a pointer-shaped T" )
 end
 if name == "owned" then
 return T . owned ( inner )
-end
-if name == "borrowed" then
+
+elseif name == "borrowed" then
 return T . borrowed ( inner )
 end
 return T . pinned ( inner )
@@ -18906,8 +19014,8 @@ end
 local text = literal . text
 if text == "true" then
 return T . literal ( true , T . boolean )
-end
-if text == "false" then
+
+elseif text == "false" then
 return T . literal ( false , T . boolean )
 end
 return T . literal ( text : sub ( 2 , - 2 ) , T . string )
@@ -19316,6 +19424,11 @@ local state = { }
 
 
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
+
+
 
 
 
@@ -21102,8 +21215,8 @@ end
 function completions . render ( shell , commands )
 if shell == "bash" then
 return bash ( commands )
-end
-if shell == "zsh" then
+
+elseif shell == "zsh" then
 return zsh ( commands )
 end
 
@@ -25624,6 +25737,9 @@ local cst = { }
 
 
 
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -27608,7 +27724,7 @@ local relativePrefix , cleanRoute = urlsMod . relativePrefix , urlsMod . cleanRo
 local symbolLinkIndex , symbolLinks = urlsMod . symbolLinkIndex , urlsMod . symbolLinks
 local rewriteConfiguredPageLinks = urlsMod . rewriteConfiguredPageLinks
 local moduleSummary , renderHtmlItem = apiMod . moduleSummary , apiMod . renderHtmlItem
-local renderPage , homeHero = pageMod . render , pageMod . homeHero
+local renderPage , homeHero , homeFeatures = pageMod . render , pageMod . homeHero , pageMod . homeFeatures
 
 local doc = { }
 
@@ -27993,6 +28109,7 @@ body [ # body + 1 ] = homeHero ( candidate , links )
 local renderedMarkdown = rewriteConfiguredPageLinks ( markdown , candidate , pages , file )
 body [ # body + 1 ] = markdownHtml ( renderedMarkdown , links , 0 )
 if candidate . path == "" then
+body [ # body + 1 ] = homeFeatures ( candidate , links )
 body [ # body + 1 ] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
 for _ , module in ipairs ( modules ) do
 body [
@@ -28434,7 +28551,7 @@ local THEME = [[
 @media(max-width:1100px){.nuppdoc-shell{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr)}.nuppdoc-outline{display:none}.nuppdoc-content{width:min(100% - 5rem,var(--nuppdoc-content-width))}}@media(max-width:760px){.nuppdoc-top-nav{display:none}.nuppdoc-search{width:140px}.nuppdoc-shell{display:block}.nuppdoc-sidebar{position:static;max-height:none;padding:.7rem 1rem;border-right:0;border-bottom:1px solid var(--nuppdoc-border);box-shadow:none}.nuppdoc-sidebar h2{display:none}.nuppdoc-sidebar ul{display:flex;overflow:auto;gap:.25rem}.nuppdoc-content{width:auto;padding:1.5rem 1.25rem 4rem}}@media(max-width:480px){.nuppdoc-search{display:none}.nuppdoc-brand span:last-child{display:none}.nuppdoc-content table{display:block;overflow:auto}}
 /* The custom properties a site is meant to override. They are named and grouped
  * deliberately: this is the part of the stylesheet a project stylesheet targets. */
-:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-height:30rem;--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e}
+:root{--nuppdoc-text-faint:color-mix(in srgb,var(--nuppdoc-text-muted) 72%,transparent);--nuppdoc-sidebar-background:var(--nuppdoc-background-alt);--nuppdoc-accent-contrast:#fff;--nuppdoc-home-width:1152px;--nuppdoc-home-gutter:2rem;--nuppdoc-hero-glow-color:var(--nuppdoc-accent);--nuppdoc-hero-glow-size:520px;--nuppdoc-hero-glow-blur:24px;--nuppdoc-hero-glow-opacity:.68;--nuppdoc-code-block-radius:8px;--nuppdoc-playground-height:30rem;--nuppdoc-playground-border:color-mix(in srgb,var(--nuppdoc-border) 70%,var(--nuppdoc-text));--nuppdoc-code-tab-text:var(--nuppdoc-text-muted);--nuppdoc-code-tab-hover-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-text:var(--nuppdoc-text);--nuppdoc-code-tab-active-bar:var(--nuppdoc-accent);--nuppdoc-code-tab-divider:var(--nuppdoc-border);--nuppdoc-code-tab-font-size:.72rem;--nuppdoc-code-tab-font-weight:600;--nuppdoc-code-tab-padding:.45rem .75rem;--nuppdoc-admonition-note:var(--nuppdoc-accent);--nuppdoc-admonition-info:#0969da;--nuppdoc-admonition-tip:#1a7f37;--nuppdoc-admonition-warning:#9a6700;--nuppdoc-admonition-danger:#cf222e}
 .nuppdoc-admonition{--nuppdoc-admonition-color:var(--nuppdoc-admonition-note);margin:1.25rem 0;padding:.85rem 1rem;border:1px solid color-mix(in srgb,var(--nuppdoc-admonition-color) 45%,var(--nuppdoc-border));border-left:4px solid var(--nuppdoc-admonition-color);border-radius:8px;background:color-mix(in srgb,var(--nuppdoc-admonition-color) 9%,var(--nuppdoc-background))}.nuppdoc-admonition-info{--nuppdoc-admonition-color:var(--nuppdoc-admonition-info)}.nuppdoc-admonition-tip{--nuppdoc-admonition-color:var(--nuppdoc-admonition-tip)}.nuppdoc-admonition-warning{--nuppdoc-admonition-color:var(--nuppdoc-admonition-warning)}.nuppdoc-admonition-danger{--nuppdoc-admonition-color:var(--nuppdoc-admonition-danger)}.nuppdoc-admonition-title{margin:0;color:var(--nuppdoc-admonition-color);font-size:.78rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em}.nuppdoc-admonition-body>:first-child{margin-top:.35rem}.nuppdoc-admonition-body>:last-child{margin-bottom:0}
 .nuppdoc-code-group{position:relative;display:flex;overflow:hidden;flex-wrap:wrap;margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);box-shadow:none}.nuppdoc-code-tab-input{position:absolute;width:1px;height:1px;margin:0;padding:0;border:0;opacity:0;appearance:none;clip-path:inset(50%);pointer-events:none;-webkit-appearance:none}.nuppdoc-code-tab{order:-1;padding:var(--nuppdoc-code-tab-padding);border-bottom:2px solid transparent;color:var(--nuppdoc-code-tab-text);cursor:pointer;font-family:var(--nuppdoc-font);font-size:var(--nuppdoc-code-tab-font-size);font-weight:var(--nuppdoc-code-tab-font-weight)}.nuppdoc-code-tab:hover{color:var(--nuppdoc-code-tab-hover-text)}.nuppdoc-code-panel{display:none;width:100%;margin:0;border-top:1px solid var(--nuppdoc-code-tab-divider)}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab+.nuppdoc-code-panel{display:block}.nuppdoc-code-tab-input:checked+.nuppdoc-code-tab{border-bottom-color:var(--nuppdoc-code-tab-active-bar);color:var(--nuppdoc-code-tab-active-text)}.nuppdoc-code-tab-input:focus-visible+.nuppdoc-code-tab{outline:2px solid var(--nuppdoc-accent);outline-offset:-2px}.nuppdoc-code-group>.nuppdoc-code-block{width:100%}.nuppdoc-code-group>.nuppdoc-code-block pre,.nuppdoc-code-panel .nuppdoc-code-block pre{margin:0;border:0;border-radius:0}.nuppdoc-labeled-code{margin:1.25rem 0}.nuppdoc-code-group>.nuppdoc-labeled-code{margin:0}.nuppdoc-code-group>.nuppdoc-labeled-code+.nuppdoc-labeled-code{border-top:1px solid var(--nuppdoc-border)}.nuppdoc-labeled-code figcaption{padding:.45rem .6rem;color:var(--nuppdoc-text-muted);font-family:var(--nuppdoc-font);font-size:.72rem;font-weight:600}.nuppdoc-labeled-code pre{margin:0;border-radius:0}.nuppdoc-code-group>.nuppdoc-labeled-code pre{border:0}@media print{.nuppdoc-code-panel{display:block}}
 /* The gutter and the code are siblings sharing the pre's line box metrics, so the
@@ -28446,8 +28563,16 @@ local THEME = [[
 .nuppdoc-line-numbers span{display:block}
 /* A ```playground fence. Given a height rather than sized to its contents: an
  * iframe cannot measure a document it does not share an origin with, and the
- * editor inside scrolls on its own anyway. */
-.nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
+ * editor inside scrolls on its own anyway.
+ *
+ * Its own border property rather than the prose one. This frame is the outer
+ * edge of a stack of panes whose inner edges the playground draws for itself,
+ * and at the hairline a body of text wants it was the one line in the picture
+ * that disappeared -- most visibly down the left and right, where it stands
+ * alone rather than beside a rule the playground drew. The default carries the
+ * theme's own border toward its text so any palette gets a visible edge; a site
+ * that wants the frame to match the panes exactly sets the property. */
+.nuppdoc-playground{display:block;width:100%;height:var(--nuppdoc-playground-height);margin:1.25rem 0;border:1px solid var(--nuppdoc-playground-border);border-radius:var(--nuppdoc-code-block-radius);background:var(--nuppdoc-code-background);color-scheme:normal}
 .nuppdoc-logo{width:auto;height:28px;border-radius:5px}
 .nuppdoc-icon-link{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer;text-decoration:none}.nuppdoc-icon-link:hover,.nuppdoc-icon-link[aria-pressed="true"]{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-icon-link svg{width:18px;height:18px}.nuppdoc-panel-toggle-right svg{transform:scaleX(-1)}
 .nuppdoc-shell{transition:grid-template-columns 160ms ease}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr) var(--nuppdoc-outline-width)}.nuppdoc-shell.is-outline-collapsed{grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed.is-outline-collapsed{grid-template-columns:0 minmax(0,1fr) 0}.nuppdoc-shell.is-sidebar-collapsed>.nuppdoc-sidebar,.nuppdoc-shell.is-outline-collapsed>.nuppdoc-outline{overflow:hidden;padding-right:0;padding-left:0;border:0;opacity:0;pointer-events:none}
@@ -28697,6 +28822,20 @@ local SCRIPT = [[
         addEventListener("scroll", update, {passive: true});
         addEventListener("resize", update);
         update();
+    }
+
+    const showcaseFeatures = document.querySelectorAll(".nuppdoc-showcase-feature");
+    if (showcaseFeatures.length && typeof IntersectionObserver === "function" &&
+        !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        root.classList.add("nuppdoc-motion-ready");
+        const reveal = new IntersectionObserver((entries, observer) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                entry.target.classList.add("is-visible");
+                observer.unobserve(entry.target);
+            }
+        }, {threshold: 0.16});
+        showcaseFeatures.forEach((feature) => reveal.observe(feature));
     }
 })();
 ]]
@@ -29515,11 +29654,11 @@ end
 local function tokenClasses ( style , text )
 if style == "type" then
 return "token class-name nuppdoc-token-type"
-end
-if style == "meta" then
+
+elseif style == "meta" then
 return "token directive nuppdoc-token-meta"
-end
-if style == "keyword" then
+
+elseif style == "keyword" then
 return "token keyword keyword-" .. text : gsub ( "[^%w%-]" , "-" ) .. " nuppdoc-token-keyword"
 end
 
@@ -29765,8 +29904,8 @@ return nil
 end
 if base == "comment" then
 return "comment"
-end
-if base == "keyword" then
+
+elseif base == "keyword" then
 return "keyword"
 end
 if base == "string" or base == "regex" then
@@ -29786,11 +29925,11 @@ return "meta"
 end
 if base == "operator" then
 return "operator"
-end
-if base == "constant" then
+
+elseif base == "constant" then
 return "boolean"
-end
-if base == "property" then
+
+elseif base == "property" then
 return "property"
 end
 if base == "identifier" or base == "variable" then
@@ -30556,6 +30695,9 @@ local page = { }
 
 
 
+
+
+
 local function assetHref ( prefix , source )
 source = tostring ( source )
 if source : match ( "^[%w+.-]+:" ) or source : sub ( 1 , 1 ) == "/" then
@@ -30854,27 +30996,42 @@ config . heroImage
 ) .. '" alt="' .. htmlEscape ( config . heroImageAlt ) .. '"></div>'
 end
 out [ # out + 1 ] = '</div>'
-if # ( config . features or { } ) > 0 then
-out [ # out + 1 ] = '<div class="nuppdoc-features">'
+out [ # out + 1 ] = '</section>'
+
+return table . concat ( out )
+end
+
+
+
+local function homeFeatures ( config , links )
+if config . layout ~= "home" or # ( config . features or { } ) == 0 then
+return ""
+end
+
+local out = { '<section class="nuppdoc-feature-showcase" aria-label="Nupp features">' }
 for _ , feature in ipairs ( config . features ) do
-out [ # out + 1 ] = '<section class="nuppdoc-feature">'
+out [ # out + 1 ] = '<article class="nuppdoc-showcase-feature">'
+out [ # out + 1 ] = '<div class="nuppdoc-showcase-visual">'
 if feature . image then
-out [ # out + 1 ] = '<img class="nuppdoc-feature-image" src="' .. htmlEscape ( feature . image ) .. '" alt="">'
+out [
+# out + 1
+] = '<img src="' .. htmlEscape ( feature . image ) .. '" alt="' .. htmlEscape ( feature . imageAlt or "" ) .. '">'
+elseif feature . code then
+local language = feature . codeLanguage or "nupp"
+out [ # out + 1 ] = markdownHtml ( "```" .. language .. "\n" .. feature . code .. "\n```" , links )
 elseif feature . icon then
 out [
 # out + 1
-] = '<span class="nuppdoc-feature-icon" aria-hidden="true">' .. htmlEscape ( feature . icon ) .. '</span>'
+] = '<span class="nuppdoc-showcase-icon" aria-hidden="true">' .. htmlEscape ( feature . icon ) .. '</span>'
 end
 out [
 # out + 1
-] = '<h2>' .. htmlEscape (
+] = '</div><div class="nuppdoc-showcase-copy"><h2>' .. htmlEscape (
 feature . title
-) .. '</h2><div class="nuppdoc-feature-details">' .. markdownHtml (
+) .. '</h2><div class="nuppdoc-showcase-details">' .. markdownHtml (
 feature . details or "" ,
 links
-) .. '</div></section>'
-end
-out [ # out + 1 ] = '</div>'
+) .. '</div></div></article>'
 end
 out [ # out + 1 ] = '</section>'
 
@@ -31017,6 +31174,7 @@ prefix .. 'assets/search-index.js'
 end
 
 page . homeHero = homeHero
+page . homeFeatures = homeFeatures
 
 return page
 
@@ -35302,8 +35460,8 @@ if t . kind == "tname" then
 local name = t . base . text
 if name == "cstring" then
 return "const char *"
-end
-if name == "voidptr" then
+
+elseif name == "voidptr" then
 return "void *"
 end
 if t . cdefName then
@@ -35975,6 +36133,22 @@ e ( "=" )
 if x . value then
 emit ( x . value )
 end
+return
+end
+if x . constantLoopNone then
+
+
+
+e ( "do" , sourceLine ( x ) )
+local endTok
+for i = # x , 1 , - 1 do
+local child = x [ i ]
+if cst . isToken ( child ) and child . kind == "end" then
+endTok = child
+break
+end
+end
+e ( "end" , endTok and endTok . line or nil )
 return
 end
 if kind == "ifStmt" and ( x . constantBranch or x . constantBranchNone ) then
@@ -38156,8 +38330,8 @@ local out , buf , depth = { } , { } , 0
 for ch in text : gmatch ( "." ) do
 if ch == "{" then
 depth = depth + 1
-end
-if ch == "}" then
+
+elseif ch == "}" then
 depth = depth - 1
 end
 if ch == ";" and depth == 0 then
@@ -39779,7 +39953,7 @@ name = "else-if" ,
 code = "NUPP2510" ,
 category = "style" ,
 level = "warning" ,
-summary = "an else containing only an if" ,
+summary = "a conditional chain written as separate ifs" ,
 } , lints.Lint) ,
 }
 
@@ -44116,7 +44290,11 @@ optimize . passes = {
 ] = { name = "numeric-ipairs" , level = 1 , summary = "iterate a stable declared array with a numeric for loop" , } ,
 [
 "OPT-3"
-] = { name = "constant-fold" , level = 1 , summary = "fold exact primitive expressions and propagate const bindings" , } ,
+] = {
+name = "constant-fold" ,
+level = 1 ,
+summary = "fold exact primitive expressions, drop dead branches and loops, and propagate const bindings" ,
+} ,
 [
 "OPT-4"
 ] = { name = "static-callable" , level = 1 , summary = "bind repeated immutable dotted callees at their first use" , } ,
@@ -44647,6 +44825,21 @@ end
 
 local MAX_EXACT_INTEGER = 9007199254740991
 
+
+
+
+
+
+
+local BITOPS = {
+[ "&" ] = bit . band ,
+[ "|" ] = bit . bor ,
+[ "~" ] = bit . bxor ,
+[ "<<" ] = bit . lshift ,
+[ ">>" ] = bit . rshift ,
+[ "~>>" ] = bit . arshift ,
+}
+
 local function literal ( kind , value , code )
 return { kind = kind , value = value , code = code }
 end
@@ -44852,6 +45045,11 @@ elseif op == "#" and value . kind == "string" then
 local folded = literal ( "number" , # value . value , tostring ( # value . value ) )
 node . folded = folded . code
 return folded
+elseif op == "~" and value . kind == "number" then
+local answer = bit . bnot ( value . value )
+local folded = literal ( "number" , answer , ( "%.0f" ) : format ( answer ) )
+node . folded = folded . code
+return folded
 end
 return nil
 elseif kind == "binop" then
@@ -44882,6 +45080,15 @@ elseif op == "*" then
 answer = left . value * right . value
 elseif op == "%" and right . value ~= 0 then
 answer = left . value % right . value
+elseif op == "//" and right . value ~= 0 then
+
+
+
+
+
+answer = math . floor ( left . value / right . value )
+elseif BITOPS [ op ] then
+answer = BITOPS [ op ] ( left . value , right . value )
 end
 if answer and math . abs ( answer ) <= MAX_EXACT_INTEGER then
 local folded = literal ( "number" , answer , ( "%.0f" ) : format ( answer ) )
@@ -45061,9 +45268,15 @@ stat . constantBranch = selected or ( stat . elseClause and stat . elseClause . 
 stat . constantBranchNone = stat . constantBranch == nil
 end
 elseif kind == "whileStmt" then
-foldExpr ( stat . cond , current )
+local condition = foldExpr ( stat . cond , current )
 if stat . body then
 foldBlock ( stat . body , scope ( current ) )
+end
+
+
+
+if condition and not truthy ( condition ) then
+stat . constantLoopNone = true
 end
 elseif kind == "repeatStmt" then
 local inner = scope ( current )
@@ -45076,9 +45289,28 @@ if stat . body then
 foldBlock ( stat . body , scope ( current ) )
 end
 elseif kind == "fornumStmt" then
-foldExpr ( stat . start , current )
-foldExpr ( stat . stop , current )
-foldExpr ( stat . step , current )
+local from , to = foldExpr ( stat . start , current ) , foldExpr ( stat . stop , current )
+
+
+
+local by = literal ( "number" , 1 , "1" )
+if stat . step then
+by = foldExpr ( stat . step , current )
+end
+
+
+
+
+local function known ( value )
+return value ~= nil and value . kind == "number"
+end
+
+if known ( from ) and known ( to ) and known ( by ) and by . value ~= 0 then
+local runs = by . value > 0 and from . value <= to . value or by . value < 0 and from . value >= to . value
+if not runs then
+stat . constantLoopNone = true
+end
+end
 local inner = scope ( current )
 if stat . var then
 inner . constants [ stat . var . text ] = false
@@ -47834,8 +48066,8 @@ end
 local tag = t . tag
 if tag == "literal" then
 return luaTypeOf ( t . base )
-end
-if tag == "prim" then
+
+elseif tag == "prim" then
 local name = t . id
 if name == "string" or name == "cstring" then
 return "string"
@@ -47845,19 +48077,19 @@ return "number"
 end
 if name == "boolean" then
 return "boolean"
-end
-if name == "table" then
+
+elseif name == "table" then
 return "table"
-end
-if name == "thread" then
+
+elseif name == "thread" then
 return "thread"
-end
-if name == "userdata" then
+
+elseif name == "userdata" then
 return "userdata"
 end
 return nil
-end
-if tag == "nominal" then
+
+elseif tag == "nominal" then
 if t . declKind == "struct" then
 return "cdata"
 end
@@ -47895,8 +48127,8 @@ local op = node . op
 
 if op == "const" then
 return node . value
-end
-if op == "not" then
+
+elseif op == "not" then
 local inner = predicate . satisfiedBy ( node . a , fieldAt )
 if inner == nil then
 return nil
@@ -48002,8 +48234,8 @@ local op = node . op
 
 if op == "const" then
 return node . value and "true" or "false"
-end
-if op == "not" then
+
+elseif op == "not" then
 return "not (" .. predicate . render ( node . a , subject ) .. ")"
 end
 if op == "and" or op == "or" then
@@ -50074,22 +50306,22 @@ if # ( b . cleanups or { } ) > 0 and not sameCleanups ( a . cleanups , b . clean
 return fail ( a , b )
 end
 return isA ( a . inner , b . inner )
-end
-if btag == "borrowed" then
+
+elseif btag == "borrowed" then
 return isA ( a . inner , b . inner )
 end
 return isA ( a . inner , b )
-end
-if atag == "borrowed" then
+
+elseif atag == "borrowed" then
 if btag == "borrowed" then
 return isA ( a . inner , b . inner )
-end
-if btag == "owned" then
+
+elseif btag == "owned" then
 return fail ( a , b )
 end
 return isA ( a . inner , b )
-end
-if atag == "pinned" then
+
+elseif atag == "pinned" then
 if btag == "pinned" then
 return isA ( a . inner , b . inner )
 end
@@ -50118,12 +50350,11 @@ return true
 end
 end
 return fail ( a , b )
-end
 
 
 
 
-if btag == "intersection" then
+elseif btag == "intersection" then
 for _ , m in ipairs ( b . members ) do
 local ok , why = isA ( a , m )
 if not ok then
@@ -50144,12 +50375,11 @@ if btag == "shape" or ( btag == "nominal" and b . declKind == "interface" ) then
 return isA ( intersectionSurface ( a ) , b )
 end
 return fail ( a , b )
-end
 
 
 
 
-if atag == "nominal" then
+elseif atag == "nominal" then
 for _ , parent in ipairs ( a . supertypes or { } ) do
 if parent == b or isA ( parent , b ) then
 return true
@@ -52114,8 +52344,8 @@ if tag == "ptr" then
 
 local inner = types . cName ( t . elem )
 return ( inner or "void" ) .. " *"
-end
-if tag == "carray" then
+
+elseif tag == "carray" then
 local elem = types . cName ( t . elem )
 if elem and t . count then
 return elem .. "[" .. tostring ( t . count ) .. "]"
