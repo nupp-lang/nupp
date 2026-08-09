@@ -195,7 +195,7 @@ function functions.install(c: state.Checker): state.StatHandlers
     -- Builds the function type from a funcbody, binds params, checks the body, and
     -- returns the resulting type.
     c.checkFuncbody = function(body, selfType)
-        local params, rets, paramModes = {}, {}, {}
+        local params, rets, paramModes, paramNames = {}, {}, {}, {}
         -- Inline methods may spell their implicit receiver as the first
         -- parameter. It is still the receiver rather than an ordinary
         -- argument: bind that spelling to the owner type and leave it out of
@@ -250,6 +250,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             elseif p.name then
                 local pt = p.type and c.resolveType(p.type) or (expectedParams and expectedParams[#params + 1]) or T.any
                 params[#params + 1] = pt
+                paramNames[#params] = p.name.text
                 local mode = inferredModes[#params] or "borrows"
                 if not declaredModes[
                     #params
@@ -567,7 +568,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             retPack,
             packParams,
             yieldPack,
-            resumePack
+            resumePack,
+            nil,
+            paramNames
         )
     end
 
@@ -575,7 +578,7 @@ function functions.install(c: state.Checker): state.StatHandlers
     -- to publish a method before its own statement is reached, so two methods may call
     -- each other.
     c.signatureOf = function(body, selfType)
-        local params, modes = {}, {}
+        local params, modes, paramNames = {}, {}, {}
         local inferredModes, declaredModes = inferredParameterModes(body or {})
         local explicitSelf = selfType and body and body.params and body.params[1]
         if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
@@ -589,6 +592,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         if selfType then
             params[1] = selfType
             modes[1] = "plain"
+            paramNames[1] = "self"
         end
         local varargType = nil
         local paramPackTail = nil
@@ -606,6 +610,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 params[#params + 1] = pt
                 modes[#modes + 1] = mode
+                paramNames[#params] = p.name.text
             else
                 -- `...` and `...rest`, with or without an element annotation
                 vararg = true
@@ -652,7 +657,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             retPack,
             packParams,
             yieldPack,
-            resumePack
+            resumePack,
+            nil,
+            paramNames
         )
     end
 
@@ -753,8 +760,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                     params[#params + 1] = p
                 end
                 local modes = {body.disposeMethod and "takes" or "plain"}
+                local names = {"self"}
                 for _, mode in ipairs(ft.paramModes or {}) do
                     modes[#modes + 1] = mode
+                end
+                for _, name in ipairs(ft.paramNames or {}) do
+                    names[#names + 1] = name
                 end
                 owner.byname[
                     member
@@ -776,7 +787,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                     ft.retPack,
                     ft.packParams,
                     ft.yieldPack,
-                    ft.resumePack
+                    ft.resumePack,
+                    ft.noYield,
+                    names
                 )
                 owner.writeByname[member] = owner.byname[member]
             elseif owner.declKind == "record" or owner.declKind == "interface" then

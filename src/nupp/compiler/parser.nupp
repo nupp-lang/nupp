@@ -868,10 +868,32 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if kind == "(" then
             local n = new cst.Args {kind = "args"}
             add(n, advance())
+            n.exprs = {}
             if cur().kind ~= ")" then
-                n.exprs = resetNoMethod(parseExplist, n)
-            else
-                n.exprs = {}
+                repeat
+                    local argument
+                    if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
+                        local named = new cst.NamedArg {kind = "namedArg"}
+                        named.name = add(named, advance())
+                        add(named, advance()) -- '='
+                        named.value = add(named, resetNoMethod(parseExp))
+                        argument = named
+                    elseif cur().kind == "..." and tokens[
+                        i + 1
+                    ] and tokens[i + 1].kind ~= "," and tokens[i + 1].kind ~= ")" then
+                        local expanded = new cst.ExpandArg {kind = "expandArg"}
+                        add(expanded, advance()).valueExpansion = true
+                        expanded.value = add(expanded, resetNoMethod(parseExp))
+                        argument = expanded
+                    else
+                        argument = resetNoMethod(parseExp)
+                    end
+                    n.exprs[#n.exprs + 1] = add(n, argument)
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
             end
             add(n, expect(")", "to close arguments"))
             return n
@@ -1564,6 +1586,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(e, advance())
                 e.expr = add(e, parseExp())
                 add(e, expect("end", "to close 'matches'"))
+            elseif cur().kind == "name" and cur().text == "expands" and tokens[i + 1] and tokens[i + 1].kind == "(" then
+                -- Contextual: a field named `expands` is followed by a colon. The
+                -- declaration form is an ordered list of readable field names.
+                e = new cst.ExpansionDecl {kind = "expansionDecl", names = {}}
+                add(e, advance()).expansionKeyword = true
+                add(e, advance()) -- '('
+                if cur().kind == ")" then
+                    errAt(cur(), "an expansion needs at least one field")
+                else
+                    repeat
+                        e.names[#e.names + 1] = add(e, expectName("in expansion declaration"))
+                        if cur().kind ~= "," then
+                            break
+                        end
+                        add(e, advance())
+                    until false
+                end
+                add(e, expect(")", "to close expansion declaration"))
             elseif cur().kind == "name" and cur().text == "metamethod" and tokens[
                 i + 1
             ] and tokens[i + 1].kind == "name" then

@@ -156,7 +156,7 @@ function generics.subst(t: Type, map: Bindings): Type
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
-            t.noYield)
+            t.noYield, t.paramNames)
     end
 
     return t
@@ -190,7 +190,8 @@ function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
         nil,
         concrete.yieldPack,
         concrete.resumePack,
-        concrete.noYield
+        concrete.noYield,
+        concrete.paramNames
     ) as T.Func
 end
 
@@ -261,6 +262,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         inst.typeArgs[j] = map[tv] or T.any
     end
     inst.fieldOrder = n.fieldOrder
+    inst.expansions = n.expansions
     inst.arrayOf = n.arrayOf and generics.subst(n.arrayOf, map) or nil
     inst.fieldDefs = n.fieldDefs
     inst.writeFieldDefs = n.writeFieldDefs
@@ -521,16 +523,18 @@ function generics.dropSelf(ft: Type): Type
     if ft.tag == "func" and #ft.params >= 1 then
         local params: {Type} = {}
         local modes: {string} = {}
+        local names: {string} = {}
         for j = 2, #ft.params do
             params[#params + 1] = ft.params[j]
         end
         for j = 2, #ft.params do
             modes[#modes + 1] = ft.paramModes and ft.paramModes[j] or "plain"
+            names[#names + 1] = ft.paramNames and ft.paramNames[j] or ""
         end
         local paramPack = T.pack(params, ft.paramPack.tail, modes)
         return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield)
+            ft.noYield, names)
     end
 
     return ft
@@ -555,11 +559,15 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
     end
     local params: {Type} = {selfType}
     local modes: {string} = {selfMode or "plain"}
+    local names: {string} = {"self"}
     for _, p in ipairs(ft.params) do
         params[#params + 1] = p
     end
     for _, mode in ipairs(ft.paramModes or {}) do
         modes[#modes + 1] = mode
+    end
+    for _, name in ipairs(ft.paramNames or {}) do
+        names[#names + 1] = name
     end
     local paramPack = T.pack(params, ft.paramPack.tail, modes)
 
@@ -582,7 +590,8 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         ft.packParams,
         ft.yieldPack,
         ft.resumePack,
-        ft.noYield
+        ft.noYield,
+        names
     )
 end
 

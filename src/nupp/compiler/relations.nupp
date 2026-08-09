@@ -199,11 +199,18 @@ local function memberIsA(have: Type, want: Type): boolean
             wp[#wp + 1] = want.params[j]
         end
         local hm, wm = {}, {}
+        local hn, wn = {}, {}
         for j = 2, #have.params do
             hm[#hm + 1] = have.paramModes and have.paramModes[j] or "plain"
         end
         for j = 2, #want.params do
             wm[#wm + 1] = want.paramModes and want.paramModes[j] or "plain"
+        end
+        for j = 2, #have.params do
+            hn[#hn + 1] = have.paramNames and have.paramNames[j] or ""
+        end
+        for j = 2, #want.params do
+            wn[#wn + 1] = want.paramNames and want.paramNames[j] or ""
         end
         return (isA(T.func(hp, have.rets, have.vararg, hm, nil, nil, nil, nil, nil, nil, nil, have.varargType, nil, T.pack(
             hp,
@@ -212,7 +219,7 @@ local function memberIsA(have: Type, want: Type): boolean
         ), have.retPack, have.packParams, have.yieldPack, have.resumePack,
             -- Both sides keep the qualifier, so dropping the receiver to
             -- compare shapes does not also drop the suspension check.
-            have.noYield), T.func(
+            have.noYield, hn), T.func(
             wp,
             want.rets,
             want.vararg,
@@ -231,7 +238,8 @@ local function memberIsA(have: Type, want: Type): boolean
             want.packParams,
             want.yieldPack,
             want.resumePack,
-            want.noYield
+            want.noYield,
+            wn
         )))
     end
 

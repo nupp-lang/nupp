@@ -111,7 +111,11 @@ local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.comp
         for index, item in ipairs(t.params or {}) do
             params[
                 #params + 1
-            ] = tostring(t.paramModes and t.paramModes[index] or "plain") .. ":" .. typeFingerprint(item, active)
+            ] = tostring(
+                t.paramNames and t.paramNames[index] or ""
+            ) .. "=" .. tostring(
+                t.paramModes and t.paramModes[index] or "plain"
+            ) .. ":" .. typeFingerprint(item, active)
         end
         for _, item in ipairs(t.rets or {}) do
             returns[#returns + 1] = typeFingerprint(item, active)

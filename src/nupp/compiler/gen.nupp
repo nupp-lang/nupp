@@ -783,6 +783,28 @@ function gen.generate(
             -- their own.
             return
         end
+        if kind == "expansionDecl" then
+            -- A declaration-directed field projection is type metadata only.
+            return
+        end
+        if kind == "args" and x.loweredArgs then
+            e("(", sourceLine(x))
+            for j, argument in ipairs(x.loweredArgs) do
+                if j > 1 then
+                    e(",")
+                end
+                if argument.generatedKind == "field" then
+                    emit(argument.source)
+                    e("." .. argument.name, sourceLine(argument.source))
+                elseif argument.generatedKind == "nil" then
+                    e("nil", sourceLine(x))
+                else
+                    emit(argument.expr)
+                end
+            end
+            e(")")
+            return
+        end
         if x.passPinnedPointer then
             x.passPinnedPointer = nil
             e("(", sourceLine(x))
@@ -2311,7 +2333,11 @@ function gen.generate(
         -- for absent keys belongs to the copy the same way it belonged to the original,
         -- not flattened into it. A `__metatable` field makes `getmetatable` answer with
         -- a stand-in rather than a table, and that is left where it is.
-        code = ("const function %s(t) const out = {} "):format(cloneTabName)
+        code = (
+            "const function %s(t) const out = {} "
+        ):format(
+            cloneTabName
+        )
             .. "for k, v in next, t do out[k] = v end "
             .. "const mt = getmetatable(t) "
             .. "if type(mt) == \"table\" then setmetatable(out, mt) end "

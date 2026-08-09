@@ -170,6 +170,54 @@ function calls.install(c: state.Checker): calls.Ops
         return {related = related and {related} or nil, help = "compare the call with the declared parameter list"}
     end
 
+    --- Expansion projections visible through a static type. A union exposes only the
+    --- arities whose ordered fields agree in every member; a bound type parameter
+    --- exposes exactly its bound's capabilities.
+    local function expansionsOf(t: Type): {[integer]: {string}}
+        t = rawType(t)
+        if t.tag == "typevar" and t.bound then
+            return expansionsOf(t.bound as Type)
+        end
+        if t.tag == "nominal" then
+            return t.expansions or {}
+        end
+        if t.tag ~= "union" then
+            return {}
+        end
+        local common: {[integer]: {string}}? = nil
+        for _, member in ipairs(t.members) do
+            local found = expansionsOf(member)
+            if not common then
+                common = {}
+                for arity, names in pairs(found) do
+                    local copied = {}
+                    for j, name in ipairs(names) do
+                        copied[j] = name
+                    end
+                    common[arity] = copied
+                end
+            else
+                for arity, names in pairs(common) do
+                    local other = found[arity]
+                    local same = other and #other == #names
+                    if same then
+                        for j, name in ipairs(names) do
+                            if other[j] ~= name then
+                                same = false
+                                break
+                            end
+                        end
+                    end
+                    if not same then
+                        common[arity] = nil
+                    end
+                end
+            end
+        end
+
+        return common or {}
+    end
+
     c.fieldType = function(t, name)
         t = rawType(t)
         if t.tag == "ptr" then
@@ -719,7 +767,9 @@ function calls.install(c: state.Checker): calls.Ops
                         T.pack({calleeT}),
                         signature.packParams,
                         signature.yieldPack,
-                        signature.resumePack
+                        signature.resumePack,
+                        signature.noYield,
+                        signature.paramNames
                     )
                     builtSignatures[#builtSignatures + 1] = built
                     bySignature[built] = entries[index] or {index = index, signature = signature}
@@ -758,7 +808,9 @@ function calls.install(c: state.Checker): calls.Ops
                             T.pack({instance}),
                             nil,
                             selectedSignature.yieldPack,
-                            selectedSignature.resumePack
+                            selectedSignature.resumePack,
+                            selectedSignature.noYield,
+                            selectedSignature.paramNames
                         )
                     end
                     node.valuePack = pack
@@ -887,7 +939,15 @@ function calls.install(c: state.Checker): calls.Ops
             -- still check the argument expressions themselves
             for _, arg in ipairs(args) do
                 if not cst.isToken(arg) then
-                    local argumentType = c.infer(arg)
+                    local value = (arg.kind == "namedArg" or arg.kind == "expandArg") and arg.value or arg
+                    if arg.kind == "namedArg" or arg.kind == "expandArg" then
+                        c.diag(
+                            "NUPP2006",
+                            arg,
+                            "named arguments and value expansion require a statically known callable"
+                        )
+                    end
+                    local argumentType = c.infer(value)
                     if c.ownershipKind(argumentType) then
                         c.diag(
                             "NUPP2603",
@@ -901,11 +961,297 @@ function calls.install(c: state.Checker): calls.Ops
             return T.any, nil
         end
 
-        -- Lua expands only the final argument expression. Keep that sequence intact so
-        -- a generic tail binds heterogeneous slots instead of a widened element type.
+        local advanced = false
+        for _, argument in ipairs(args) do
+            if not cst.isToken(argument) and (argument.kind == "namedArg" or argument.kind == "expandArg") then
+                advanced = true
+                break
+            end
+        end
+
+        -- Named arguments and declaration-directed expansion are normalized to the
+        -- same positional pack ordinary Lua calls use. Each expression is inferred
+        -- once; candidate probing only rearranges the resulting types.
+        local advancedOverloadSelected = false
         local ats = knownAts or {}
         local argPack
-        if knownAts then
+        local argNodes = {}
+        if advanced then
+            local rawArguments = {}
+            local namedStarted = false
+            for sourceIndex, argument in ipairs(args) do
+                if not cst.isToken(argument) and argument.kind == "namedArg" then
+                    namedStarted = true
+                    local value = argument.value or argument
+                    rawArguments[
+                        #rawArguments + 1
+                    ] = {
+                        kind = "named",
+                        name = argument.name and argument.name.text or "",
+                        node = value,
+                        type = c.infer(value),
+                        source = argument,
+                    }
+                elseif not cst.isToken(argument) and argument.kind == "expandArg" then
+                    if namedStarted then
+                        c.diag("NUPP2006", argument, "a positional expansion cannot follow a named argument")
+                    end
+                    local value = argument.value or argument
+                    if value.kind ~= "name" then
+                        c.diag(
+                            "NUPP2006",
+                            value,
+                            "an expansion operand must be a name",
+                            nil,
+                            {help = "bind the producing expression to a local, then expand that local"}
+                        )
+                    end
+                    local valueType = c.infer(value)
+                    if c.ownershipKind(valueType) then
+                        c.diag("NUPP2603", value, "an owned or borrowed container cannot be expanded")
+                    end
+                    rawArguments[
+                        #rawArguments + 1
+                    ] = {
+                        kind = "expand",
+                        node = value,
+                        type = valueType,
+                        expansions = expansionsOf(valueType),
+                        source = argument,
+                    }
+                else
+                    if namedStarted then
+                        c.diag("NUPP2006", argument, "a positional argument cannot follow a named argument")
+                    end
+                    local valueType
+                    if cst.isToken(argument) then
+                        valueType = argument.kind == "string" and T.string or T.any
+                    else
+                        valueType = c.infer(argument)
+                    end
+                    local valuePack = not namedStarted and sourceIndex == #args and not cst.isToken(
+                        argument
+                    ) and argument.valuePack or nil
+                    rawArguments[
+                        #rawArguments + 1
+                    ] = {kind = "plain", node = argument, type = valueType, pack = valuePack, source = argument,}
+                end
+            end
+
+            local function normalizations(ft: T.Func): {any}, string?
+                local labels = {}
+                for j, name in ipairs(ft.paramNames or {}) do
+                    if name ~= "" then
+                        labels[name] = j
+                    end
+                end
+                local named, firstNamed, lastNamed, priorNamed = {}, nil, 0, 0
+                local positional = {}
+                for _, argument in ipairs(rawArguments) do
+                    if argument.kind == "named" then
+                        local index = labels[argument.name]
+                        if not index then
+                            return {}, ("unknown named argument %q"):format(argument.name)
+                        end
+                        if named[index] then
+                            return {}, ("named argument %q is supplied twice"):format(argument.name)
+                        end
+                        if index <= priorNamed then
+                            return {}, "named arguments must follow parameter order"
+                        end
+                        priorNamed = index
+                        firstNamed = firstNamed and math.min(firstNamed, index) or index
+                        lastNamed = math.max(lastNamed, index)
+                        named[index] = argument
+                    else
+                        positional[#positional + 1] = argument
+                    end
+                end
+
+                local states = {{types = {}, nodes = {}, lowered = {}}}
+                for _, argument in ipairs(positional) do
+                    local nextStates = {}
+                    if argument.kind == "plain" then
+                        for _, current in ipairs(states) do
+                            local copy = {types = {}, nodes = {}, lowered = {}}
+                            for j, item in ipairs(current.types) do
+                                copy.types[j] = item
+                                copy.nodes[j] = current.nodes[j]
+                            end
+                            for j, item in ipairs(current.lowered) do
+                                copy.lowered[j] = item
+                            end
+                            local pack = argument.pack
+                            if pack and not pack.tail and #pack.head > 0 then
+                                for _, itemType in ipairs(pack.head) do
+                                    copy.types[#copy.types + 1] = itemType
+                                    copy.nodes[#copy.nodes + 1] = argument.node
+                                end
+                            else
+                                copy.types[#copy.types + 1] = argument.type
+                                copy.nodes[#copy.nodes + 1] = argument.node
+                            end
+                            copy.lowered[#copy.lowered + 1] = {generatedKind = "expr", expr = argument.node}
+                            nextStates[#nextStates + 1] = copy
+                        end
+                    else
+                        local arities = {}
+                        for arity in pairs(argument.expansions or {}) do
+                            arities[#arities + 1] = arity
+                        end
+                        table.sort(arities)
+                        if #arities == 0 then
+                            return {}, ("%s has no declared expansion"):format(T.tostring(argument.type))
+                        end
+                        for _, current in ipairs(states) do
+                            for _, arity in ipairs(arities) do
+                                local names = argument.expansions[arity]
+                                local copy = {types = {}, nodes = {}, lowered = {}}
+                                for j, item in ipairs(current.types) do
+                                    copy.types[j] = item
+                                    copy.nodes[j] = current.nodes[j]
+                                end
+                                for j, item in ipairs(current.lowered) do
+                                    copy.lowered[j] = item
+                                end
+                                local readable = true
+                                for _, name in ipairs(names) do
+                                    local fieldType = c.fieldType(argument.type, name)
+                                    if not fieldType or c.ownershipKind(fieldType) then
+                                        readable = false
+                                        break
+                                    end
+                                    copy.types[#copy.types + 1] = fieldType
+                                    copy.nodes[#copy.nodes + 1] = argument.node
+                                    copy.lowered[
+                                        #copy.lowered + 1
+                                    ] = {generatedKind = "field", source = argument.node, name = name}
+                                end
+                                if readable then
+                                    nextStates[#nextStates + 1] = copy
+                                end
+                            end
+                        end
+                    end
+                    states = nextStates
+                end
+
+                local completed = {}
+                for _, current in ipairs(states) do
+                    if not firstNamed then
+                        completed[
+                            #completed + 1
+                        ] = {
+                            pack = T.pack(current.types),
+                            types = current.types,
+                            nodes = current.nodes,
+                            lowered = current.lowered,
+                        }
+                    elseif #current.types < firstNamed then
+                        local total = math.max(#current.types, lastNamed)
+                        local types, nodes, lowered = {}, {}, {}
+                        for j = 1, total do
+                            if j <= #current.types then
+                                types[j] = current.types[j]
+                                nodes[j] = current.nodes[j]
+                                lowered[j] = current.lowered[j]
+                            elseif named[j] then
+                                types[j] = named[j].type
+                                nodes[j] = named[j].node
+                                lowered[j] = {generatedKind = "expr", expr = named[j].node}
+                            else
+                                types[j] = T.nil_
+                                nodes[j] = node
+                                lowered[j] = {generatedKind = "nil"}
+                            end
+                        end
+                        completed[
+                            #completed + 1
+                        ] = {pack = T.pack(types), types = types, nodes = nodes, lowered = lowered}
+                    end
+                end
+
+                return completed
+            end
+
+            local function chooseFor(ft: T.Func): any, T.Func?, string?
+                local choices, why = normalizations(ft)
+                if #choices == 0 then
+                    return nil, nil, why
+                end
+                if #choices == 1 then
+                    local specialized, rejected = probeSignature(ft, choices[1].pack, node.cdefCall)
+                    if specialized then
+                        return choices[1], specialized
+                    end
+                    return nil, nil, rejected or "arguments do not fit"
+                end
+                local accepted = {}
+                for _, choice in ipairs(choices) do
+                    local specialized = probeSignature(ft, choice.pack, node.cdefCall)
+                    if specialized then
+                        accepted[#accepted + 1] = {choice = choice, signature = specialized}
+                    end
+                end
+                if #accepted == 1 then
+                    return accepted[1].choice, accepted[1].signature
+                elseif #accepted > 1 then
+                    return nil, nil, "several expansion arities accept this call"
+                end
+
+                return nil, nil, "no declared expansion arity accepts this call"
+            end
+
+            local selected
+            if overloads then
+                local survivors, originals, rejections, choices = {}, {}, {}, {}
+                for _, candidate in ipairs(overloads) do
+                    local choice, specialized, why = chooseFor(candidate)
+                    if choice and specialized then
+                        survivors[#survivors + 1] = specialized
+                        originals[#originals + 1] = candidate
+                        choices[#choices + 1] = choice
+                    else
+                        rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "arguments do not fit")
+                    end
+                end
+                node.overloadCandidates = overloads
+                if #survivors == 0 then
+                    c.diag(
+                        "NUPP2125",
+                        node,
+                        "no overload accepts this call: " .. table.concat(rejections, "; "),
+                        nil,
+                        callDetails(node)
+                    )
+                    return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+                elseif #survivors > 1 then
+                    c.diag(
+                        "NUPP2126",
+                        node,
+                        "several overloads accept this call: " .. signaturesText(survivors),
+                        nil,
+                        callDetails(node)
+                    )
+                    return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+                end
+                calleeT = survivors[1]
+                node.overloadWinner = originals[1]
+                node.signatureType = calleeT
+                selected = choices[1]
+                advancedOverloadSelected = true
+            else
+                selected = chooseFor(calleeT as T.Func)
+                if not selected then
+                    local _, _, why = chooseFor(calleeT as T.Func)
+                    local code = why and why:find("several", 1, true) and "NUPP2126" or "NUPP2125"
+                    c.diag(code, node, why or "call arguments cannot be bound", nil, callDetails(node))
+                    return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+                end
+            end
+            ats, argNodes, argPack = selected.types, selected.nodes, selected.pack
+            argsNode.loweredArgs = selected.lowered
+        elseif knownAts then
             argPack = T.pack(knownAts)
         elseif #args == 1 and cst.isToken(args[1]) then
             ats[1] = args[1].kind == "string" and T.string or T.any
@@ -929,12 +1275,13 @@ function calls.install(c: state.Checker): calls.Ops
             end
             argPack = T.pack(ats)
         end
-        local argNodes = {}
-        for j = 1, #argPack.head do
-            argNodes[j] = args[math.min(j, #args)] or node
+        if not advanced then
+            for j = 1, #argPack.head do
+                argNodes[j] = args[math.min(j, #args)] or node
+            end
         end
 
-        if overloads then
+        if overloads and not advancedOverloadSelected then
             local survivors, originals, rejections = {}, {}, {}
             for _, candidate in ipairs(overloads) do
                 local specialized, why = probeSignature(candidate, selectionPack, node.cdefCall)
@@ -1269,7 +1616,9 @@ function calls.install(c: state.Checker): calls.Ops
             retPack,
             calleeT.packParams,
             calleeT.yieldPack,
-            calleeT.resumePack
+            calleeT.resumePack,
+            calleeT.noYield,
+            calleeT.paramNames
         )
 
         return T.packAt(retPack, 1) or T.nil_, retPack.head, retPack

@@ -261,6 +261,14 @@ record types.Func
     --- Per-parameter ownership mode, "plain" unless stated otherwise.
     paramModes: {string}
 
+    --- External parameter labels, aligned with `params`. An empty string is an
+    --- unlabeled slot. Labels erase at generation but let calls bind `name = value`.
+    paramNames: {string}
+
+    --- Interning identity of the callable contract with labels removed. Used to join
+    --- control-flow alternatives conservatively when only their external names differ.
+    unlabeledId: string
+
     --- What calling it proves about one of its arguments.
     predicate: {
         param: integer,
@@ -386,6 +394,9 @@ record types.Nominal
 
     --- Declared fields that carry affine values, in declaration order.
     affineFields: {string}?
+
+    --- Ordered readable-field projections, keyed by their result arity.
+    expansions: {[integer]: {string}}?
 
     --- Element type of a record's array part, when it declared one.
     arrayOf: types.Type?
@@ -709,14 +720,49 @@ end
 function types.union(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
+    local functionByContract: {[string]: integer} = {}
     local function push(t: types.Type)
         if t.tag == "union" then
             for _, m in ipairs(t.members) do
                 push(m)
             end
+        elseif t.tag == "func" and functionByContract[t.unlabeledId] then
+            local at = functionByContract[t.unlabeledId] as integer
+            local prior = flat[at] as types.Func
+            if prior ~= t then
+                -- A value selected from differently labeled functions can still be
+                -- called positionally, but no label is guaranteed by both branches.
+                local merged = types.func(
+                    prior.params,
+                    prior.rets,
+                    prior.vararg,
+                    prior.paramModes,
+                    prior.predicate,
+                    prior.typeParams,
+                    prior.typeBounds,
+                    prior.borrowsParam,
+                    prior.borrowsSelf,
+                    prior.borrowsParams,
+                    prior.ffiOut,
+                    prior.varargType,
+                    prior.noreturn,
+                    prior.paramPack,
+                    prior.retPack,
+                    prior.packParams,
+                    prior.yieldPack,
+                    prior.resumePack,
+                    prior.noYield
+                )
+                seen[prior] = nil
+                seen[merged] = true
+                flat[at] = merged
+            end
         elseif not seen[t] then
             seen[t] = true
             flat[#flat + 1] = t
+            if t.tag == "func" then
+                functionByContract[t.unlabeledId] = #flat
+            end
         end
     end
 
@@ -1104,7 +1150,8 @@ function types.func(
     packParams: {types.PackVar}?,
     yieldPack: types.Pack?,
     resumePack: types.Pack?,
-    noYield: boolean?
+    noYield: boolean?,
+    paramNames: {string}?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -1115,9 +1162,11 @@ function types.func(
     local pids: {string} = {}
     local rids: {string} = {}
     local modes: {string} = {}
+    local names: {string} = {}
     for j, p in ipairs(params) do
         pids[j] = p.id
         modes[j] = paramModes and paramModes[j] or "plain"
+        names[j] = paramNames and paramNames[j] or ""
     end
     for j, r in ipairs(rets) do
         rids[j] = r.id
@@ -1187,6 +1236,10 @@ function types.func(
     if noYield then
         key = key .. "|noyield"
     end
+    local unlabeledId = key
+    if paramNames then
+        key = key .. "|names(" .. table.concat(names, ",") .. ")"
+    end
 
     return intern(key, function()
         return new types.Func {
@@ -1196,6 +1249,8 @@ function types.func(
             vararg = vararg or false,
             varargType = vararg and varargType or nil,
             paramModes = modes,
+            paramNames = names,
+            unlabeledId = unlabeledId,
             predicate = predicate,
             typeParams = typeParams,
             typeBounds = typeBounds,
@@ -1254,7 +1309,8 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.packParams,
         fn.yieldPack,
         fn.resumePack,
-        want
+        want,
+        fn.paramNames
     )
 end
 
@@ -1458,7 +1514,12 @@ function types.tostring(t: types.Type): string
         local ps: {string} = {}
         for j, p in ipairs(t.params) do
             local mode = t.paramModes and t.paramModes[j]
-            ps[j] = (mode and mode ~= "plain" and mode .. " " or "") .. types.tostring(p)
+            local label = t.paramNames and t.paramNames[j]
+            ps[
+                j
+            ] = (
+                mode and mode ~= "plain" and mode .. " " or ""
+            ) .. (label and label ~= "" and label .. ": " or "") .. types.tostring(p)
         end
         local paramTail = t.paramPack.tail
         if paramTail then

@@ -547,7 +547,7 @@ function resolve.install(c: state.Checker): nil
             end
             return T.shape(fields, indexer)
         elseif kind == "tfunc" then
-            local params, rets, paramModes = {}, {}, {}
+            local params, rets, paramModes, paramNames = {}, {}, {}, {}
             local vararg = false
             local varargType = nil
             local typeParams, typeBounds, packParams
@@ -572,6 +572,7 @@ function resolve.install(c: state.Checker): nil
                         params[#params + 1] = p.type and c.resolveType(p.type) or T.any
                         local mode = p.modeTok
                         paramModes[#params] = mode and mode.text or "plain"
+                        paramNames[#params] = p.name and p.name.text or ""
                     end
                 end
             end
@@ -592,7 +593,7 @@ function resolve.install(c: state.Checker): nil
             return T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
                 -- `nosuspend function(...)`: the one way to state the guarantee about
                 -- something whose body is never seen here.
-                node.noSuspend)
+                node.noSuspend, paramNames)
         elseif kind == "tparen" then
             return c.resolveType(node.inner)
         end

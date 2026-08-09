@@ -83,7 +83,7 @@ function cdef.install(
     end
 
     handlers.cdefFunc = function(stat: cst.CdefFunc)
-        local params, paramModes = {}, {}
+        local params, paramModes, paramNames = {}, {}, {}
         local outputByName = {}
         for _, output in ipairs(stat.ownedOuts or {}) do
             output.kind = "owned"
@@ -136,6 +136,7 @@ function cdef.install(
                 else
                     params[#params + 1] = pt
                     paramModes[#params] = mode
+                    paramNames[#params] = pname and pname.text or ""
                     logicalByName[pname and pname.text or ""] = #params
                 end
             end
@@ -217,7 +218,14 @@ function cdef.install(
             nil,
             ffiOut,
             nil,
-            false
+            false,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            paramNames
         )
         local cdefName = stat.name
         if not cdefName then

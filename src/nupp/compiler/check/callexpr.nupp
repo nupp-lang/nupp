@@ -639,7 +639,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         nil,
                         nil,
                         bodyType.paramPack,
-                        wrappedReturns
+                        wrappedReturns,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        bodyType.paramNames
                     )
                     node.wrappedProtocol = T.protocolThread(
                         bodyType.paramPack,

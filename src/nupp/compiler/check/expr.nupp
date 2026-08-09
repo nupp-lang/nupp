@@ -333,7 +333,8 @@ function expr.install(c: state.Checker): nil
             -- LuaJIT keeps it in `package.loaded` and puts nothing on the `string`
             -- table, so `string.buffer.new` would be a member this runtime does not
             -- have -- the reason `jit.util` and friends are modules here rather than
-            -- prelude fields (nupp.compiler.env). A compiler-provided global is the shape
+            -- prelude fields (nupp.compiler.env). A compiler-provided global is the
+            -- shape
             -- that
             -- already exists for `carray` and `cheader`, and it is the one used here.
             --
@@ -516,7 +517,7 @@ function expr.install(c: state.Checker): nil
             return body and c.checkFuncbody(body) or T.any
         elseif kind == "shortfn" then
             c.pushScope()
-            local params = {}
+            local params, paramNames = {}, {}
             local vararg = false
             local expectedParams: {Type}? = nil
             local expected = expectedShortfns[node]
@@ -539,6 +540,7 @@ function expr.install(c: state.Checker): nil
                         end
                     else
                         params[#params + 1] = pt
+                        paramNames[#params] = pname and pname.text or ""
                         if pname then
                             c.bindVar(pname.text, pt, p.type ~= nil, pname, "parameter")
                         end
@@ -582,7 +584,12 @@ function expr.install(c: state.Checker): nil
                 nil,
                 nil,
                 T.pack(params, vararg and {kind = "unknown", type = T.any} or nil),
-                retPack
+                retPack,
+                nil,
+                nil,
+                nil,
+                nil,
+                paramNames
             )
         elseif kind == "istring" then
             -- every ${...} part is tostring-ed; the whole literal is a string

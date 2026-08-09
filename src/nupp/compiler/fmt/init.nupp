@@ -383,8 +383,11 @@ local function sep(prev, tok)
     if prev._shortfnOpen or tok._shortfnClose then
         return ""
     end
-    if prev.kind == "..." and tok.namedVararg then
+    if prev.kind == "..." and (tok.namedVararg or prev.valueExpansion) then
         return ""
+    end
+    if prev.expansionKeyword and tok.kind == "(" then
+        return " "
     end
     -- Typed-layer refinements: annotation colons read "x: T"; postfix type markers and
     -- generic brackets are tight (T?, S*, List<T>).

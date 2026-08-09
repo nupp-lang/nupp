@@ -80,7 +80,11 @@ local function fingerprint(t: any, binders: any, active: any): string
         for j, param in ipairs(t.params or {}) do
             params[
                 j
-            ] = tostring(t.paramModes and t.paramModes[j] or "plain") .. ":" .. fingerprint(param, binders, active)
+            ] = tostring(
+                t.paramNames and t.paramNames[j] or ""
+            ) .. "=" .. tostring(
+                t.paramModes and t.paramModes[j] or "plain"
+            ) .. ":" .. fingerprint(param, binders, active)
         end
         out = "fn(" .. table.concat(params, ",") .. ")"
     else
@@ -108,7 +112,11 @@ local function packFingerprint(ft: any): string
     for j, param in ipairs(ft.paramPack.head or {}) do
         parts[
             j
-        ] = tostring(ft.paramPack.modes and ft.paramPack.modes[j] or "plain") .. ":" .. fingerprint(param, binders, {})
+        ] = tostring(
+            ft.paramNames and ft.paramNames[j] or ""
+        ) .. "=" .. tostring(
+            ft.paramPack.modes and ft.paramPack.modes[j] or "plain"
+        ) .. ":" .. fingerprint(param, binders, {})
     end
     local tail = ft.paramPack.tail
     if tail then
