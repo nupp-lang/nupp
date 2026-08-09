@@ -158,7 +158,13 @@ function cdef.install(
                 if base.tag ~= "ptr" and base ~= T.cstring and base ~= T.voidptr then
                     c.diag("NUPP2203", stat.ret, "@owned applies to pointer returns only")
                 end
-                stat.ownCleanups = resolvedOwnedCleanups(rt, stat.ownCleanups, stat.ownOpaque, stat.ownTok or stat)
+                stat.ownCleanups = resolvedOwnedCleanups(
+                    rt,
+                    stat.ownCleanups,
+                    stat.ownOpaque,
+                    stat.ownTok or stat,
+                    stat.cleanupRegistrationNode
+                )
                 rets[1] = T.owned(rt, stat.ownCleanups)
             end
             if not (reifiableField(rt, true) or rt == T.number) then
@@ -180,6 +186,13 @@ function cdef.install(
                 end
                 rets[#rets + 1] = T.borrowed(valueType)
             else
+                output.cleanups = resolvedOwnedCleanups(
+                    output.valueType,
+                    output.cleanups,
+                    false,
+                    output.at or stat,
+                    output.cleanupRegistrationNode
+                )
                 local ownedOutput = T.owned(valueType, output.cleanups)
                 validateCleanups(
                     T.owned(output.valueType, output.cleanups),
@@ -212,7 +225,12 @@ function cdef.install(
         end
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
         if stat.disposeContract then
-            registerDefaultDisposer(cdefType, cdefName.text, stat.disposeTok or stat)
+            registerDefaultDisposer(
+                cdefType,
+                cdefName.text,
+                stat.disposeTok or stat,
+                stat.cleanupRegistrationNode
+            )
         end
         if cdefName.definition then
             cdefName.definition.cdef = true

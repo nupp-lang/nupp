@@ -830,6 +830,40 @@ function M.customDisposersMustDischargeEveryOwnedField()
    }, "\n")), "NUPP2603")
 end
 
+function M.contextualCleanupUsesExplicitOwnerFields()
+   local source = table.concat({
+      "local released = ''",
+      "local record Arena",
+      "   name: string",
+      "end",
+      "local record Allocation",
+      "   arena: Arena",
+      "   value: string",
+      "   @dispose",
+      "   function close(self)",
+      "      released = self.arena.name .. ':' .. self.value",
+      "   end",
+      "end",
+      "@owned",
+      "local function allocate(arena: Arena, value: string): Allocation",
+      "   return new Allocation {arena = arena, value = value}",
+      "end",
+      "local arena = new Arena {name = 'frame'}",
+      "local allocation = allocate(arena, 'buffer')",
+      "dispose(allocation)",
+      "return released",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(not code:find("__nuppCleanupRegistry", 1, true),
+      "a method cleanup needs no hidden context registry")
+   local chunk, loadErr = loadstring(code, "@ownership-context")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), "frame:buffer", "the disposer reads its explicit context")
+end
+
 function M.rawCoroutinesCannotSuspendTemporalObligations()
    assertEq(codes(RESOURCE .. table.concat({
       "",
@@ -1125,7 +1159,8 @@ function M.rawTransferAndDisposalAreStaticAndDeterministic()
    local code, genDiags = gen.generate(result, "ownership-test")
    assertEq(#genDiags, 0)
    assert(not code:find(".gc(", 1, true), "ownership emits no ffi.gc calls")
-   assert(code:find("free(__p)", 1, true), "dispose calls cleanup directly")
+   assert(code:find("return cleanup(value)", 1, true),
+      "dispose calls the resolved cleanup")
    local chunk, loadErr = loadstring(code, "@ownership-runtime")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    assertEq(chunk(), true, "raw transfer runs without a double free")
@@ -1153,6 +1188,35 @@ function M.multipleCleanupsRunInAnnotationOrder()
    local chunk, loadErr = loadstring(code, "@ownership-cleanup-order")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    assertEq(chunk(), "stop,release", "cleanup order")
+end
+
+function M.sameSpelledCleanupBindingsKeepDistinctReferences()
+   local source = table.concat({
+      "local calls = ''",
+      "local record Resource end",
+      "do",
+      "   local function close(value: Resource) calls = calls .. 'a' end",
+      "   @owned(close)",
+      "   local function open(): Resource return new Resource {} end",
+      "   local value = open()",
+      "   dispose(value)",
+      "end",
+      "do",
+      "   local function close(value: Resource) calls = calls .. 'b' end",
+      "   @owned(close)",
+      "   local function open(): Resource return new Resource {} end",
+      "   local value = open()",
+      "   dispose(value)",
+      "end",
+      "return calls",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-cleanup-identity")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   assertEq(chunk(), "ab", "each contract kept its resolved binding")
 end
 
 function M.consumingCFunctionsNeedNoRuntimeDetachment()

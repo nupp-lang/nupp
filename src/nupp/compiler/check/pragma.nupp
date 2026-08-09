@@ -252,16 +252,24 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     target.ownedOuts = target.ownedOuts or {}
                     target.ownedOuts[
                         #target.ownedOuts + 1
-                    ] = {name = outName, cleanups = cleanups, success = success, at = stat.name,}
+                    ] = {
+                        name = outName,
+                        cleanups = cleanups,
+                        success = success,
+                        at = stat.name,
+                        cleanupRegistrationNode = stat,
+                    }
                 end
             elseif valid and target and targetKind == "cdefFunc" then
                 target.ownCleanups = cleanups
                 target.ownOpaque = opaque
                 target.ownTok = stat.name
+                target.cleanupRegistrationNode = stat
             elseif valid and targetBody then
                 targetBody.ownCleanups = cleanups
                 targetBody.ownOpaque = opaque
                 targetBody.ownTok = annotationName
+                targetBody.cleanupRegistrationNode = stat
             end
             if stat.stat then
                 c.checkStat(stat.stat)
@@ -313,12 +321,15 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 targetBody.disposeContract = true
                 targetBody.disposeMethod = ownerKey ~= nil
                 targetBody.disposeTok = annotationName
+                targetBody.cleanupRegistrationNode = stat
             elseif valid and targetKind == "localFuncStmt" and targetBody then
                 targetBody.disposeContract = true
                 targetBody.disposeTok = annotationName
+                targetBody.cleanupRegistrationNode = stat
             elseif valid and target and targetKind == "cdefFunc" then
                 target.disposeContract = true
                 target.disposeTok = stat.name
+                target.cleanupRegistrationNode = stat
             end
             if stat.stat then
                 c.checkStat(stat.stat)

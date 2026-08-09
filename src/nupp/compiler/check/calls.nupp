@@ -851,11 +851,11 @@ function calls.install(c: state.Checker): calls.Ops
                                 opaque = true
                             else
                                 for _, cleanup in ipairs(valueT.cleanups) do
-                                    cleanups[#cleanups + 1] = "@field|" .. name .. "|" .. cleanup
+                                    cleanups[#cleanups + 1] = T.fieldCleanup(name, cleanup)
                                 end
                             end
                         elseif c.ownershipKind(valueT) == "pinned" then
-                            cleanups[#cleanups + 1] = "@dropfield|" .. name
+                            cleanups[#cleanups + 1] = T.dropFieldCleanup(name)
                         end
                     end
                 end

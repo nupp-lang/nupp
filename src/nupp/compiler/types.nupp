@@ -127,12 +127,25 @@ record types.CArray
     count: integer?
 end
 
+--- One operation that can discharge an owned value. Function references carry the
+--- binding resolved where the contract was declared; the other forms reach through
+--- the owned value itself and therefore need no module linkage.
+record types.Cleanup
+    id: string
+    kind: 'function' | 'method' | 'field' | 'dropfield'
+    key: string?
+    name: string?
+    functionType: types.Type?
+    field: string?
+    cleanup: types.Cleanup?
+end
+
 --- An owned value: affine, and released by its cleanups.
 record types.Owned
     id: string
     tag: 'owned'
     inner: types.Type
-    cleanups: {string}
+    cleanups: {types.Cleanup}
 end
 
 --- A borrowed value, which may not escape its lexical owner.
@@ -365,9 +378,8 @@ record types.Nominal
     --- table to reference it out of.
     inheritedDefaults: {[string]: types.Type}?
 
-    --- Default terminal operations inherited from `@dispose` contracts. Entries are
-    --- cleanup paths; `@method:name` invokes `value:name()`.
-    defaultDisposers: {string}?
+    --- Default terminal operations inherited from `@dispose` contracts.
+    defaultDisposers: {types.Cleanup}?
 
     --- Whether this nominal has appeared behind an `owned<T>` contract.
     affineResource: boolean?
@@ -818,17 +830,49 @@ function types.ptr(t: types.Type): types.Type
     end)
 end
 
--- Ownership qualifiers exist only in the static model. Both erase to the wrapped cdata
--- value, but owned values are affine and borrowed values may not escape their lexical
--- owner. `cleanups` is an ordered array of function names supplied by @owned; an empty
--- list is an opaque, transfer-only owner.
-function types.owned(t: types.Type, cleanups: {string}?): types.Type
-    local list: {string} = {}
-    for j, name in ipairs(cleanups or {}) do
-        list[j] = name
+--- A free cleanup binding resolved in its declaring module.
+function types.functionCleanup(key: string, name: string, functionType: types.Type?): types.Cleanup
+    return new types.Cleanup {
+        id = "function:" .. key,
+        kind = "function",
+        key = key,
+        name = name,
+        functionType = functionType,
+    }
+end
+
+--- A default disposer reached through the owned value.
+function types.methodCleanup(name: string): types.Cleanup
+    return new types.Cleanup {id = "method:" .. name, kind = "method", name = name}
+end
+
+--- A cleanup applied to one affine field of an owning record.
+function types.fieldCleanup(field: string, cleanup: types.Cleanup): types.Cleanup
+    return new types.Cleanup {
+        id = "field:" .. field .. ":" .. cleanup.id,
+        kind = "field",
+        field = field,
+        cleanup = cleanup,
+    }
+end
+
+--- Dropping a pinned field's strong Lua anchor needs no call.
+function types.dropFieldCleanup(field: string): types.Cleanup
+    return new types.Cleanup {id = "dropfield:" .. field, kind = "dropfield", field = field}
+end
+
+--- Ownership qualifiers exist only in the static model. Both erase to the wrapped
+--- value, but owned values are affine and borrowed values may not escape their lexical
+--- owner. An empty cleanup list is an opaque, transfer-only owner.
+function types.owned(t: types.Type, cleanups: {types.Cleanup}?): types.Type
+    local list: {types.Cleanup} = {}
+    local ids = {}
+    for j, cleanup in ipairs(cleanups or {}) do
+        list[j] = cleanup
+        ids[j] = cleanup.id
     end
 
-    return intern("owned(" .. table.concat(list, ",") .. ":" .. t.id .. ")", function()
+    return intern("owned(" .. table.concat(ids, ",") .. ":" .. t.id .. ")", function()
         return new types.Owned {tag = "owned", inner = t, cleanups = list}
     end)
 end
@@ -1123,10 +1167,14 @@ function types.func(
         key = key .. "|borrows(" .. table.concat(borrowsParams, ",") .. ")"
     end
     for _, output in ipairs(ffiOut or {}) do
+        local cleanupIds = {}
+        for j, cleanup in ipairs(output.cleanups or {}) do
+            cleanupIds[j] = cleanup.id
+        end
         key = key .. "|out:" .. (
             output.kind or "owned"
         ) .. ":" .. output.name .. ":" .. table.concat(
-            output.cleanups or {},
+            cleanupIds,
             ","
         ) .. ":" .. (output.success or "always") .. ":" .. tostring(output.sourceParam or "")
     end

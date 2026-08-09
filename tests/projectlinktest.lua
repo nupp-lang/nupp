@@ -476,22 +476,30 @@ return res
    end)
 end
 
--- These two asserted that a private cleanup may cross a module boundary. It may
--- not, and letting it through was worse than the error it replaced: the program
--- type-checked and then died on `attempt to call a nil value`, because a
--- discharge emits a call to the cleanup by name and the name is not there. Until
--- a cleanup is a resolved reference rather than a spelling, the checker has to
--- refuse what the generator cannot emit. See plans/todo.md.
-function M.aPrivateCleanupCannotCrossIntoAWith()
+-- A free cleanup is resolved where the producer declares it, registered there, and
+-- linked lazily where the consumer discharges it. The private spelling never has to be
+-- visible in the consumer.
+function M.aPrivateCleanupCrossesIntoAWith()
    withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["input.txt"] = "hello\n",
+      ["main.nupp"] = [[
+local res = require("res")
+local use = require("use")
+
+print(use.slurp("input.txt"), res.closed)
+]],
       ["src/res.g.nupp"] = [[
 local res = {}
+res.closed = 0
 
-local function closeFile(file: LuaFile)
+@dispose
+local function closeFile(takes file: LuaFile)
+    res.closed = res.closed + 1
     file:close()
 end
 
-@owned(closeFile)
+@owned
 function res.open(path: string): LuaFile
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
@@ -514,23 +522,33 @@ end
 return use
 ]],
    }, function(dir)
-      local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
-      assertEq(diags[1] and diags[1].code, "NUPP2620",
-         "a with cannot acquire an owner whose cleanup it cannot call")
-      assert(diags[1].help:find("@dispose", 1, true),
-         "and is told the form that would travel with the value")
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      assertEq(os.execute(command), 0,
+         "cross-module with cleanup: " .. readFile(errors))
+      assertEq(readFile(output), "hello\n\t1\n", "the private cleanup ran")
    end)
 end
 
--- An explicit `dispose` emits the same call in the same scope, so it has to be
--- refused on the same grounds. Whichever way a caller discharges an owner, the
--- cleanup has to be reachable from where the call is written.
-function M.aPrivateCleanupCannotCrossIntoAnExplicitDispose()
+function M.aPrivateCleanupCrossesIntoAnExplicitDispose()
    withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["input.txt"] = "hello\n",
+      ["main.nupp"] = [[
+local res = require("res")
+local use = require("use")
+
+use.touch("input.txt")
+print(res.closed)
+]],
       ["src/res.g.nupp"] = [[
 local res = {}
+res.closed = 0
 
 local function closeFile(file: LuaFile)
+    res.closed = res.closed + 1
     file:close()
 end
 
@@ -556,9 +574,13 @@ end
 return use
 ]],
    }, function(dir)
-      local diags = checkFile(projectEnv(dir), dir .. "/src/use.g.nupp")
-      assertEq(diags[1] and diags[1].code, "NUPP2620",
-         "a dispose cannot discharge an owner whose cleanup it cannot call")
+      local output = dir .. "/output.txt"
+      local errors = dir .. "/errors.txt"
+      local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
+      assertEq(os.execute(command), 0,
+         "cross-module explicit cleanup: " .. readFile(errors))
+      assertEq(readFile(output), "1\n", "the private cleanup ran")
    end)
 end
 

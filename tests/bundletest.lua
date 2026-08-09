@@ -326,15 +326,9 @@ local handle = resources.open_file("input.txt", "r")
 return 1
 ]],
    })
-   -- NUPP2620 rather than NUPP2610 is the whole assertion. NUPP2610 would mean
-   -- the value arrived as an ordinary one and the `@owned` contract never
-   -- crossed; NUPP2620 means it did cross, and the only thing missing is a way
-   -- to name its cleanup from here. Discharging becomes possible when a cleanup
-   -- is a resolved reference rather than a spelling — see plans/todo.md.
-   local acquired = run(dir, "'" .. NUPP .. "' check --strict acquire.nupp")
-   assert(acquired:find("NUPP2620", 1, true),
-      "the owned contract crosses, but its private cleanup cannot be called "
-      .. "from here: " .. acquired)
+   local acquired, acquiredOk = run(dir, "'" .. NUPP .. "' run acquire.nupp")
+   assert(acquiredOk and acquired == "hello\n\n",
+      "the standard-library private cleanup links and runs: " .. acquired)
 
    -- The obligation crosses too, which is the other half of the contract being
    -- real rather than erased at the boundary.

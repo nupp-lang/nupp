@@ -411,14 +411,14 @@ local function propertiesFit(a: PropertyType, b: PropertyType): boolean, string?
     return true
 end
 
-local function sameCleanups(a: {string}?, b: {string}?): boolean
-    local left: {string} = a or {}
-    local right: {string} = b or {}
+local function sameCleanups(a: {T.Cleanup}?, b: {T.Cleanup}?): boolean
+    local left: {T.Cleanup} = a or {}
+    local right: {T.Cleanup} = b or {}
     if #left ~= #right then
         return false
     end
-    for j, name in ipairs(left) do
-        if name ~= right[j] then
+    for j, cleanup in ipairs(left) do
+        if cleanup.id ~= right[j].id then
             return false
         end
     end

@@ -41,20 +41,20 @@ type ownership.Ops = {
     --- Whether an owner may also be nil, which `with` has to see narrowed first.
     optionalOwned: function(t: Type?): boolean,
 
-    --- Checks that a value's cleanups can be called from where it is discharged.
-    requireReachableCleanups: function(valueT: Type?, cleanups: any, at: any),
-
     --- Checks that a value's declared cleanups exist and take it.
-    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?, allowUnknown: boolean?),
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?),
 
     --- The cleanups an `@owned` carries once an inherited `@dispose` has been read.
-    resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any, at: any): {string},
+    resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any, at: any, registrationNode: any?): {T.Cleanup},
+
+    --- Resolves free cleanup names once, where their contract is declared.
+    resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
 
     --- Records a `@dispose` operation as the default cleanup of what it takes.
-    registerDefaultDisposer: function(ft: Type?, path: string, at: any),
+    registerDefaultDisposer: function(ft: Type?, path: string, at: any, registrationNode: any?),
 
     --- Adds a resolved default cleanup to a nominal, idempotently across rechecks.
-    addDefaultDisposer: function(resourceT: Type?, path: string),
+    addDefaultDisposer: function(resourceT: Type?, cleanup: T.Cleanup),
 
     --- The binding an expression's ownership is recorded on, and the name it was
     --- reached through.
@@ -123,59 +123,57 @@ function ownership.install(c: state.Checker): ownership.Ops
         return own.ownershipKind(t) == "owned" and inner.tag == "union" and inner.hasNil
     end
 
-    --- Whether every cleanup this owner carries can be called from where it is being
-    --- discharged.
-    ---
-    --- A cleanup named by a bare name reaches the generated code as that name, so
-    --- `with` and `dispose` emit a call to it in whatever module they stand in. When
-    --- the owner came from elsewhere and its cleanup is private there, the name
-    --- resolves to nothing and the program fails at run time having type- checked
-    --- clean. Refusing it keeps the checker's side of the bargain: what it accepts, the
-    --- generator can emit.
-    ---
-    --- The forms that travel with the value — a `@dispose` method, a cleanup reached
-    --- through a field — need no name and are never refused. That is also the repair,
-    --- and why the help says so.
-    ---
-    --- This is a restriction rather than a rule: a cleanup is currently a spelling
-    --- rather than a resolved reference, which is what makes reachability depend on who
-    --- is reading. See plans/todo.md.
-    ---
-    --- @param valueT the owner being discharged
-    --- @param cleanups its cleanup list
-    --- @param at where to report
-    function own.requireReachableCleanups(valueT, cleanups, at)
-        for _, cleanup in ipairs(cleanups or {}) do
-            local travels = cleanup:match("^@method:") or cleanup:match("^@field|") or cleanup:match("^@dropfield|")
-            if not travels and not c.lookupVar(cleanup) then
-                c.diag(
-                    "NUPP2620",
-                    at,
-                    (
-                        "@owned cleanup %q cannot be reached from this module, so "
-                        .. "this value cannot be discharged here"
-                    ):format(cleanup),
-                    nil,
-                    {
-                        help = "give the type a @dispose method, so its cleanup "
-                        .. "travels with the value rather than being named",
-                        notes = {
-                            "the cleanup is private to the module that "
-                            .. "declared the owner, and a discharge emits a call "
-                            .. "to it by name"
-                        }
-                    }
-                )
+    local function addRegistration(node, cleanup, after)
+        if not node or cleanup.kind ~= "function" then
+            return
+        end
+        local registrations = node.cleanupRegistrations or {}
+        node.cleanupRegistrations = registrations
+        for _, current in ipairs(registrations) do
+            if current.cleanup.id == cleanup.id and current.after == after then
+                return
             end
         end
+        registrations[#registrations + 1] = {cleanup = cleanup, after = after}
     end
 
-    function own.validateCleanups(valueT, cleanups, at, code, allowUnknown)
+    local function resolvedFunctionCleanup(name, at, registrationNode, after, knownType)
+        local entry = c.lookupEntry(name)
+        local definition = entry and entry.definition or nil
+        local token = definition and definition.token or cst.firstToken(at)
+        local origin = c.result.moduleName or c.filename or "<module>"
+        local key = ("%s#%s@%d"):format(origin, name, token and token.offset or 0)
+        local cleanup = T.functionCleanup(key, name, knownType or entry and entry.t or nil)
+        addRegistration(registrationNode, cleanup, after == true)
+
+        return cleanup
+    end
+
+    function own.resolveCleanups(cleanups, at, registrationNode)
+        local resolved: {T.Cleanup} = {}
+        registrationNode = registrationNode or at and at.cleanupRegistrationNode or nil
+        for j, cleanup in ipairs(cleanups or {}) do
+            if type(cleanup) == "table" and cleanup.kind then
+                if cleanup.kind == "function" and not cleanup.functionType then
+                    resolved[j] = resolvedFunctionCleanup(cleanup.name, at, registrationNode, false)
+                else
+                    resolved[j] = cleanup
+                    addRegistration(registrationNode, cleanup, false)
+                end
+            else
+                resolved[j] = resolvedFunctionCleanup(cleanup, at, registrationNode, false)
+            end
+        end
+
+        return resolved
+    end
+
+    function own.validateCleanups(valueT, cleanups, at, code)
         code = code or "NUPP2602"
         local signature = {rawType(valueT).id}
         for _, cleanup in ipairs(cleanups or {}) do
-            local cleanupT = c.lookupVar(cleanup)
-            signature[#signature + 1] = cleanup .. ":" .. (cleanupT and cleanupT.id or "?")
+            local cleanupT = cleanup.kind == "function" and (cleanup.functionType or c.lookupVar(cleanup.name)) or nil
+            signature[#signature + 1] = cleanup.id .. ":" .. (cleanupT and cleanupT.id or "?")
         end
         local contractKey = table.concat(signature, "|")
         if c.validatedCleanupContracts[contractKey] then
@@ -183,21 +181,17 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
         c.validatedCleanupContracts[contractKey] = true
         for j, cleanup in ipairs(cleanups or {}) do
-            if cleanup:match("^@method:") or cleanup:match("^@field|") or cleanup:match("^@dropfield|") then
+            if cleanup.kind ~= "function" then
                 goto continue
             end
-            local cleanupT = c.lookupVar(cleanup)
+            local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
             local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
-            if not cleanupT and not allowUnknown then
-                -- Only a declaration reaches this now: every consuming site passes
-                -- allowUnknown, because a cleanup belongs to the module that declared
-                -- the owner. So the reader is looking at the one place the name has to
-                -- resolve, which is the thing worth telling them.
+            if not cleanupT then
                 c.diag(
                     code,
                     at,
-                    ("@owned cleanup %q is not declared"):format(cleanup),
+                    ("@owned cleanup %q is not declared"):format(cleanup.name),
                     nil,
                     {
                         notes = {
@@ -208,15 +202,19 @@ function ownership.install(c: state.Checker): ownership.Ops
                     }
                 )
             elseif cleanupT and cleanupT ~= T.any and (not firstParam or not isA(rawType(valueT), firstParam)) then
-                c.diag(code, at, ("@owned cleanup %q must accept %s"):format(cleanup, T.tostring(rawType(valueT))))
+                c.diag(
+                    code,
+                    at,
+                    ("@owned cleanup %q must accept %s"):format(cleanup.name, T.tostring(rawType(valueT)))
+                )
             elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
-                c.diag("NUPP2615", at, ("@owned cleanup %q takes before the final step"):format(cleanup))
+                c.diag("NUPP2615", at, ("@owned cleanup %q takes before the final step"):format(cleanup.name))
             end
             ::continue::
         end
     end
 
-    function own.resolvedOwnedCleanups(valueT, cleanups, opaque, at)
+    function own.resolvedOwnedCleanups(valueT, cleanups, opaque, at, registrationNode)
         local resource = rawType(valueT)
         if resource.tag == "union" then
             for _, member in ipairs(resource.members) do
@@ -230,8 +228,10 @@ function ownership.install(c: state.Checker): ownership.Ops
         if resource.tag == "nominal" then
             resource.affineResource = true
         end
-        if #(cleanups or {}) > 0 or opaque then
-            return cleanups or {}
+        if #(cleanups or {}) > 0 then
+            return own.resolveCleanups(cleanups, at, registrationNode)
+        elseif opaque then
+            return {}
         end
         local base = resource
         local defaults = base.tag == "nominal" and base.defaultDisposers or nil
@@ -255,7 +255,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         return {defaults[1]}
     end
 
-    function own.addDefaultDisposer(resourceT, path)
+    function own.addDefaultDisposer(resourceT, cleanup)
         if not resourceT then
             return
         end
@@ -266,19 +266,22 @@ function ownership.install(c: state.Checker): ownership.Ops
         local defaults = base.defaultDisposers or {}
         base.defaultDisposers = defaults
         for _, current in ipairs(defaults) do
-            if current == path then
+            if current.id == cleanup.id then
                 return
             end
         end
-        defaults[#defaults + 1] = path
+        defaults[#defaults + 1] = cleanup
     end
 
-    function own.registerDefaultDisposer(ft, path, at)
+    function own.registerDefaultDisposer(ft, path, at, registrationNode)
         if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
             c.diag("NUPP2602", at, "@dispose requires a function whose first parameter takes " .. "the resource")
             return
         end
-        own.addDefaultDisposer(ft.params[1], path)
+        own.addDefaultDisposer(
+            ft.params[1],
+            resolvedFunctionCleanup(path, at, registrationNode, true, ft)
+        )
     end
 
     function own.ownershipEntry(expr)

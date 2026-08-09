@@ -144,6 +144,49 @@ The checker verifies the body against the declared return contract, but the
 claim that the returned external resource is truly exclusive remains a
 contract. Exclusivity is not observable from a pointer value.
 
+Free cleanup functions are resolved where `@owned` is declared. A private
+cleanup therefore crosses a module boundary with the owner contract without
+becoming a public module field. The declaring module registers its function
+object under a compiler-owned key; a consuming module resolves that key on its
+first discharge and then calls the cached function directly. Loading the
+consumer before the producer is safe because resolution is lazy, and obtaining
+an owner necessarily ran the producer first.
+
+### Cleanup context is owner state
+
+A raw pointer cannot secretly carry an allocator, arena, or parent handle:
+ownership annotations erase, and cleanup later needs a runtime place from which
+to read that context. Make the pair an explicit nominal owner and put the
+context in its fields. A custom `@dispose` method can then pass every required
+argument without allocating a closure per owner:
+
+```nupp
+cdef struct allocator end
+cdef struct block end
+cdef function ctx_free(ctx: allocator*, value: block*)
+
+local record Allocation
+   ctx: allocator*
+   value: block*
+
+   @dispose
+   function close(self)
+      unsafe do
+         ctx_free(self.ctx, self.value)
+      end
+   end
+end
+
+@owned
+local function adopt(ctx: allocator*, value: block*): Allocation
+   return new Allocation {ctx = ctx, value = value}
+end
+```
+
+Use a `struct` instead when the pair itself should be fixed-layout cdata. The
+wrapper is visible in the API because the context is real runtime state; Nupp
+does not hide it in a side table, change pointer identity, or attach a finalizer.
+
 ### Transfer-only owners
 
 Use an opaque owner only when another API must accept the value and local code

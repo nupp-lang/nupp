@@ -364,11 +364,7 @@ record state.Checker
     liveSuspensionObligation: function(): string?
 
     --- Checks that a value's declared cleanups exist and take it.
-    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?, allowUnknown: boolean?)
-
-    --- Checks that a value's cleanups can be called from where it is being discharged,
-    --- so the checker only accepts what the generator can emit.
-    requireReachableCleanups: function(valueT: Type?, cleanups: any, at: any)
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?)
 
     --- Advice for an unknown name a project module is named after.
     missingRequire: function(name: string): (string?, boolean, any)

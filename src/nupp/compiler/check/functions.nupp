@@ -322,7 +322,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                     annotated[1],
                     body.ownCleanups,
                     body.ownOpaque,
-                    body.ownTok or body
+                    body.ownTok or body,
+                    body.cleanupRegistrationNode
                 )
                 annotated[1] = T.owned(annotated[1], body.ownCleanups)
                 rets[1] = annotated[1]
@@ -682,7 +683,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
         c.raises.check(stat, body)
         if body.disposeContract then
-            registerDefaultDisposer(ft, nameTok.text, body.disposeTok or stat)
+            registerDefaultDisposer(ft, nameTok.text, body.disposeTok or stat, body.cleanupRegistrationNode)
         end
     end
 
@@ -731,7 +732,12 @@ function functions.install(c: state.Checker): state.StatHandlers
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
         end
         if body.disposeContract and not owner then
-            registerDefaultDisposer(ft, fname.base and fname.base.text or "<dispose>", body.disposeTok or stat)
+            registerDefaultDisposer(
+                ft,
+                fname.base and fname.base.text or "<dispose>",
+                body.disposeTok or stat,
+                body.cleanupRegistrationNode
+            )
         end
         if owner and owner.declKind == "struct" then
             -- reified receivers get their members through ffi.metatype
@@ -781,7 +787,16 @@ function functions.install(c: state.Checker): state.StatHandlers
                 owner.writeByname[member] = ft
             end
             if body.disposeMethod then
-                c.own.addDefaultDisposer(owner, fname.method and ("@method:" .. member) or member)
+                if fname.method then
+                    c.own.addDefaultDisposer(owner, T.methodCleanup(member))
+                else
+                    registerDefaultDisposer(
+                        ft,
+                        (owner.runtimePath or ownerKey) .. "." .. member,
+                        body.disposeTok or stat,
+                        body.cleanupRegistrationNode
+                    )
+                end
             end
             if owner.fieldOrder and (fname.method or owner.declKind == "struct") then
                 owner.fieldOrder[#owner.fieldOrder + 1] = member

@@ -263,6 +263,12 @@ interface cst.Hints
     --- What an owner promised to release.
     ownerCleanups: any
 
+    --- Free cleanup bindings this node registers in the runtime linker.
+    cleanupRegistrations: any
+
+    --- The annotation node on which resolved cleanup registrations are emitted.
+    cleanupRegistrationNode: any
+
     --- The cleanup list `@owned` declared.
     ownCleanups: any
 

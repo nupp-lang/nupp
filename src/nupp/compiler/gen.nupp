@@ -420,6 +420,11 @@ function gen.generate(
     local bufferName
     local needsLayout = false
     local layoutName
+    local needsCleanupRegistry = false
+    local cleanupRegistryName
+    local cleanupResolvers = {}
+    local cleanupResolverOrder = {}
+    local cleanupRegisterValueName
     local newTabName, clearTabName, cloneTabName
     local needsWith = false
     local withPackName, withIdName, withFailureName
@@ -483,6 +488,57 @@ function gen.generate(
         clearTabName = clearTabName or reservedName("__nuppClear")
 
         return clearTabName
+    end
+
+    local function cleanupRegistry()
+        needsCleanupRegistry = true
+        cleanupRegistryName = cleanupRegistryName or reservedName("__nuppCleanups")
+
+        return cleanupRegistryName
+    end
+
+    local function cleanupFunctionName(cleanup)
+        local found = cleanupResolvers[cleanup.id]
+        if found then
+            return found
+        end
+        local name = reservedName("__nuppCleanup" .. tostring(#cleanupResolverOrder + 1))
+        cleanupResolvers[cleanup.id] = name
+        cleanupResolverOrder[#cleanupResolverOrder + 1] = {cleanup = cleanup, name = name}
+        cleanupRegistry()
+
+        return name
+    end
+
+    local function cleanupRegisterValue()
+        cleanupRegistry()
+        cleanupRegisterValueName = cleanupRegisterValueName or reservedName("__nuppRegisterOwner")
+
+        return cleanupRegisterValueName
+    end
+
+    local function cleanupCall(cleanup, value)
+        if cleanup.kind == "function" then
+            return cleanupFunctionName(cleanup) .. "(" .. value .. ")"
+        elseif cleanup.kind == "method" then
+            return value .. ":" .. cleanup.name .. "()"
+        elseif cleanup.kind == "field" then
+            return cleanupCall(cleanup.cleanup, value .. "." .. cleanup.field)
+        end
+
+        return nil
+    end
+
+    local function protectedCleanupCall(cleanup, value, pcallName)
+        if cleanup.kind == "function" then
+            return pcallName .. "(" .. cleanupFunctionName(cleanup) .. "," .. value .. ")"
+        elseif cleanup.kind == "method" then
+            return pcallName .. "(function() " .. value .. ":" .. cleanup.name .. "() end)"
+        elseif cleanup.kind == "field" then
+            return protectedCleanupCall(cleanup.cleanup, value .. "." .. cleanup.field, pcallName)
+        end
+
+        return nil
     end
 
     local function diag(tok, code, msg, help)
@@ -1437,7 +1493,23 @@ function gen.generate(
                     e("nil")
                 end
             elseif x.ownershipIntrinsic == "fromRaw" then
-                if args[1] then
+                if #(x.ownerCleanups or {}) > 0 then
+                    e(cleanupRegisterValue() .. "(", line)
+                    if args[1] then
+                        emit(args[1])
+                    else
+                        e("nil")
+                    end
+                    for j, cleanup in ipairs(x.ownerCleanups or {}) do
+                        e((",%q,"):format(cleanup.key))
+                        if args[j + 1] then
+                            emit(args[j + 1])
+                        else
+                            e("nil")
+                        end
+                    end
+                    e(")")
+                elseif args[1] then
                     emit(args[1])
                 else
                     e("nil")
@@ -1445,20 +1517,9 @@ function gen.generate(
             else -- dispose
                 e("(function(__p) if __p == nil then return end ", line)
                 for _, cleanup in ipairs(x.ownerCleanups or {}) do
-                    local method = cleanup:match("^@method:(.+)$")
-                    local field, fieldCleanup = cleanup:match("^@field|([^|]+)|(.+)$")
-                    if cleanup:match("^@dropfield|") then
-                    elseif field then
-                        local fieldMethod = fieldCleanup:match("^@method:(.+)$")
-                        if fieldMethod then
-                            e("__p." .. field .. ":" .. fieldMethod .. "(); ")
-                        else
-                            e(fieldCleanup .. "(__p." .. field .. "); ")
-                        end
-                    elseif method then
-                        e("__p:" .. method .. "(); ")
-                    else
-                        e(cleanup .. "(__p); ")
+                    local call = cleanupCall(cleanup, "__p")
+                    if call then
+                        e(call .. "; ")
                     end
                 end
                 e("end)(")
@@ -1848,34 +1909,10 @@ function gen.generate(
                 local binding = x.bindings[j]
                 e(("if %s>=%d then "):format(count, j))
                 for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    if not cleanup:match("^@dropfield|") then
+                    local call = protectedCleanupCall(cleanup, owners[j], withGlobals.pcall)
+                    if call then
                         local cok, cerr = nextTemp(), nextTemp()
-                        local method = cleanup:match("^@method:(.+)$")
-                        local field, fieldCleanup = cleanup:match("^@field|([^|]+)|(.+)$")
-                        if method then
-                            e(
-                                (
-                                    "const %s,%s=%s(function() %s:%s() end);"
-                                ):format(cok, cerr, withGlobals.pcall, owners[j], method)
-                            )
-                        elseif field then
-                            local fieldMethod = fieldCleanup:match("^@method:(.+)$")
-                            if fieldMethod then
-                                e(
-                                    (
-                                        "const %s,%s=%s(function() %s.%s:%s() end);"
-                                    ):format(cok, cerr, withGlobals.pcall, owners[j], field, fieldMethod)
-                                )
-                            else
-                                e(
-                                    (
-                                        "const %s,%s=%s(%s,%s.%s);"
-                                    ):format(cok, cerr, withGlobals.pcall, fieldCleanup, owners[j], field)
-                                )
-                            end
-                        else
-                            e(("const %s,%s=%s(%s,%s);"):format(cok, cerr, withGlobals.pcall, cleanup, owners[j]))
-                        end
+                        e(("const %s,%s=%s;"):format(cok, cerr, call))
                         e(
                             (
                                 " if not %s then %s=%s+1; %s[%s]=%s end;"
@@ -2050,8 +2087,20 @@ function gen.generate(
             emitFunctionDepth = emitFunctionDepth - 1
 
         elseif kind == "pragmaStmt" then
+            for _, registration in ipairs(x.cleanupRegistrations or {}) do
+                if not registration.after then
+                    local cleanup = registration.cleanup
+                    e(("%s[%q]=%s;"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+                end
+            end
             if x.stat then
                 emit(x.stat)
+            end
+            for _, registration in ipairs(x.cleanupRegistrations or {}) do
+                if registration.after then
+                    local cleanup = registration.cleanup
+                    e((";%s[%q]=%s"):format(cleanupRegistry(), cleanup.key, cleanup.name), sourceLine(x))
+                end
             end
 
         elseif kind == "noSuspendStmt" then
@@ -2144,6 +2193,39 @@ function gen.generate(
     raw("\n")
 
     local code = table.concat(out)
+    if needsCleanupRegistry then
+        local linked = {
+            ("local %s=_G.__nuppCleanupRegistry;"):format(cleanupRegistryName),
+            ("if %s==nil then %s={};_G.__nuppCleanupRegistry=%s end;"):format(
+                cleanupRegistryName,
+                cleanupRegistryName,
+                cleanupRegistryName
+            ),
+        }
+        for _, resolver in ipairs(cleanupResolverOrder) do
+            local cleanup = resolver.cleanup
+            linked[
+                #linked + 1
+            ] = ("local %s;%s=function(value) local cleanup=%s[%q];"):format(
+                resolver.name,
+                resolver.name,
+                cleanupRegistryName,
+                cleanup.key
+            ) .. ("if cleanup==nil then return _G.error(%q) end;"):format(
+                "Nupp cleanup provider is not loaded: " .. cleanup.key
+            ) .. ("%s=cleanup;return cleanup(value) end;"):format(resolver.name)
+        end
+        if cleanupRegisterValueName then
+            linked[
+                #linked + 1
+            ] = ("local function %s(value,...) for i=1,_G.select('#',...),2 do "):format(
+                cleanupRegisterValueName
+            ) .. ("%s[_G.select(i,...)]=_G.select(i+1,...) end return value end;"):format(
+                cleanupRegistryName
+            )
+        end
+        code = table.concat(linked) .. code
+    end
     -- `nupp` is an ambient namespace, not a module the application must require. A
     -- feature only adds its bootstrap in modules that resolved it.
     local nativeBootstrap = native.bootstrap(result.effects)

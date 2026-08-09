@@ -187,6 +187,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 if c.ownershipKind(valueT) or not c.pointerShaped(valueT) then
                     c.diag("NUPP2602", args[1] or node, "fromRaw expects an unmanaged pointer")
                 end
+                cleanups = c.own.resolveCleanups(cleanups, node)
                 node.ownershipIntrinsic = "fromRaw"
                 node.ownerCleanups = cleanups
                 return T.owned(rawType(valueT), cleanups)
@@ -214,12 +215,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         .. "to a declared takes parameter"
                     )
                 end
-                -- The contract was validated where it was written, so an unresolvable
-                -- name is not re-reported as a declaration error here. What a dispose
-                -- does have to establish is that the cleanup can be called from this
-                -- module, since that is what it emits.
-                c.validateCleanups(valueT, disposed.cleanups, args[1] or node, nil, true)
-                c.own.requireReachableCleanups(valueT, disposed.cleanups, args[1] or node)
                 node.ownershipIntrinsic = "dispose"
                 node.ownerCleanups = disposed.cleanups or {}
                 return T.nil_

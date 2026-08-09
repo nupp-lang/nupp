@@ -129,7 +129,11 @@ local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.comp
     elseif tag == "array" or tag == "ptr" then
         value = tag .. "(" .. typeFingerprint(t.elem, active) .. ")"
     elseif tag == "owned" then
-        value = tag .. "(" .. table.concat(t.cleanups or {}, ",") .. "," .. typeFingerprint(t.inner, active) .. ")"
+        local cleanupIds = {}
+        for j, cleanup in ipairs(t.cleanups or {}) do
+            cleanupIds[j] = cleanup.id
+        end
+        value = tag .. "(" .. table.concat(cleanupIds, ",") .. "," .. typeFingerprint(t.inner, active) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
         value = tag .. "(" .. typeFingerprint(t.inner, active) .. ")"
     elseif tag == "map" then

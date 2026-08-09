@@ -178,67 +178,26 @@ work makes sense in.
 
 ## Ownership and resource scopes
 
-- [ ] **A cleanup is a spelling, not a resolved reference.** `Type.cleanups` is
-      `{string}` (`src/nupp/compiler/types.nupp:110`), so every reader re-resolves it in
-      its own scope: the checker through `lookupVar`
-      (`src/nupp/compiler/check/ownership.nupp:96`), the generator as a bare identifier
-      (`src/nupp/compiler/gen.nupp:752`). They agree only inside the declaring module,
-      which is why letting an owner cross produced a program that checked clean
-      and crashed. It is a linking problem wearing a codegen costume — source
-      spellings written into object files and resolved again at each use.
-
-      Resolve it once, at the declaration, and store what it resolved to. The
-      generator already emits two such forms: `@method:` calls through the
-      owner, `@field|` through one of its fields. Both travel with the value
-      and cross boundaries free. The missing third is a free function, which
-      needs to name where it lives.
-
-      Prefer a registry over an exported path. A module-qualified reference
-      would work, but forces the cleanup public — and a cleanup is the other
-      half of a contract, not surface anyone should call. Instead let the
-      declaring module register the function object under a key it already
-      owns, and let a consumer hoist one lookup at load:
-
-          -- in nupp.resources, at load
-          __nupp_cleanup["nupp.resources#close_file"] = close_file
-
-          -- in the consumer, once per module
-          local __c1 = __nupp_cleanup["nupp.resources#close_file"]
-          ...
-          pcall(__c1, handle)
-
-      The key is the module plus the name, not a counter: separate compilation
-      has no link step to hand out globally unique integers, and two modules
-      would both mint the same one. Hoisting keeps the discharge a direct call
-      on an upvalue, so this costs one table read per consuming module rather
-      than anything per discharge — which is the only version compatible with
-      ownership lowering to nothing.
-
-      Landing this removes the NUPP2620 restriction and the `allowUnknown`
-      suppression at both discharge sites. It is also the whole of the
-      standard-library problem: a stdlib wrapper returns owners whose cleanups
-      are module-local free functions, so acquiring one reports NUPP2620 today
-      (confirmed), and `LuaFile` is a builtin so the `@dispose` repair is not
-      open to it either. Everything short of discharge already works — argument
-      and result checking, and NUPP2603 for an owner that is never discharged —
-      and `with.md`, the README and the tour all teach a locally declared
-      producer, so no page depends on it. `@dispose` should still be the
-      documented default for a type you define; the free-function form is for
-      foreign types — `LuaFile`, C pointers, cdata — that cannot carry a
-      method.
+- [x] **Cleanup functions are resolved references, not spellings.** Cleanup
+      metadata is structured and carries a deterministic module-and-definition
+      key. The producer registers its private function object; a consumer
+      resolves it lazily on first discharge and then calls the cached upvalue.
+      Lazy resolution preserves load order when a consumer module exists before
+      the producer runs. This removes NUPP2620 and lets `nupp.resources` owners,
+      C pointers, and other foreign values cross modules without publishing
+      their cleanup functions.
 - [x] **`@dispose` registration is idempotent across module rechecks.** Every
       inline, declared, external, or inherited default disposer now reaches one
       deduplicating operation. A cross-module regression runs `check`, `build`,
       and the program, proving that revisiting the exported nominal does not
       turn its one disposer into an ambiguous pair.
-- [ ] **A cleanup takes the owner and nothing else.** `@owned(cleanup)` emits
-      exactly `cleanup(__p)` (`src/nupp/compiler/gen.nupp:737`), and the annotation
-      accepts only function names (`src/nupp/compiler/check/pragma.nupp:102`), so a
-      cleanup needing context — an allocator, an arena, a parent handle,
-      `ctx_free(ctx, ptr)` — has nowhere to put it. Capturing the context would
-      mean a closure per owner, which is the allocation this model exists to
-      avoid. Real in FFI and unaddressed; worth a design before someone hits
-      it, and independent of the reference question above.
+- [x] **Cleanup context is explicit owner state.** Ownership annotations erase,
+      so a raw pointer has nowhere to retain a dynamic allocator, arena, or
+      parent handle. Model `{context, value}` as a nominal record or struct and
+      give it an `@dispose` method that calls `ctx_free(self.context,
+      self.value)`. This uses the existing affine nominal path, preserves raw
+      pointer identity, and introduces neither a hidden side table nor a closure
+      per owner. The ownership reference documents the FFI pattern.
 
 ## Editor and docs tooling
 

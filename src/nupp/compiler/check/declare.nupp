@@ -925,7 +925,7 @@ function declare.install(
                                 "@dispose member must be a function whose first " .. "parameter takes the resource"
                             )
                         else
-                            c.own.addDefaultDisposer(n, "@method:" .. e.name.text)
+                            c.own.addDefaultDisposer(n, T.methodCleanup(e.name.text))
                         end
                     end
                     local name = e.name.text
@@ -1216,7 +1216,7 @@ function declare.install(
                         )
                     end
                     if isDisposer then
-                        c.own.addDefaultDisposer(n, "@method:" .. name)
+                        c.own.addDefaultDisposer(n, T.methodCleanup(name))
                     end
                     if receiver then
                         n.fieldDefs[name] = n.fieldDefs[name] or definition
