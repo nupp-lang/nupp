@@ -370,6 +370,28 @@ that makes a third of the wrapper's allocation optional.
 What S2 must therefore avoid on the synchronous path is a **gate or retained
 park state**. "Allocate nothing" was never available and should not be the bar.
 
+The runtime built to that bar (`src/nupp/suspension.nupp`) measures, against the
+same harness and the same shape of caller:
+
+```
+ path                     ns/op  bytes/op
+ ──────────────────────   ─────  ────────
+ tecs handled-ready       348.3     568.1
+ nupp suspend, ready      150.5     304.0
+ …with the subscription   136.2     264.0
+   hoisted out of the loop
+```
+
+2.3x the speed and half the allocation, which clears parity rather than
+approaching it. The mechanism is the early return: `resume` writes upvalues, and
+a subscription that has already answered when `subscribe` returns never builds a
+park state, never reads the handler slot, and never reaches a handler at all.
+
+The third row separates the runtime's own cost from the closure a caller
+allocates per call, which both this and the baseline do. 264 bytes for one
+closure over three cells is more than it should be, so there is headroom left
+here rather than a floor.
+
 For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
 context read and then reaches the same gate, scheduler, and readiness pump it
 uses today. No handler work occurs in ordinary calls and no allocation is
