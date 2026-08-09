@@ -63,12 +63,17 @@ for the same document rendered into the site.]],
                     required = {"title", "body", "codes"},
                 },
             },
+            chapters = {
+                type = "array",
+                description = "Top-level reference chapters, each containing sections.",
+                items = {type = "object"},
+            },
             tooling = {type = "string",
             description = "How to drive the toolchain, as markdown."},
             markdown = {type = "string",
             description = "The whole document, as `--format markdown` writes it."},
         },
-        required = {"title", "sections", "tooling", "markdown"},
+        required = {"title", "sections", "chapters", "tooling", "markdown"},
     },
 }
 
@@ -92,7 +97,7 @@ local function run(parsed: any): integer
         end
         local payload = {
             title = "Nupp language reference", sections = sections,
-            tooling = reference.tooling, markdown = text,
+            chapters = reference.chapters, tooling = reference.tooling, markdown = text,
         }
         if parsed.values.output then
             local file, err = io.open(parsed.values.output, "w")

@@ -47,6 +47,15 @@ record reference.Section
     context: {[string]: string}?
 end
 
+--- One chapter groups related reference sections under a stable top-level heading.
+record reference.Chapter
+    --- The top-level heading readers use to orient themselves in the reference.
+    title: string
+
+    --- The sections inside this chapter, in their intended reading order.
+    sections: {reference.Section}
+end
+
 -- Everything the reader needs, in the order it is worth reading.
 local SECTIONS: {reference.Section} = {
 
@@ -1037,6 +1046,56 @@ local function codeRows(): {string}
     return out
 end
 
+--- Generated tables belong to the language chapter just like hand-written syntax
+--- sections do, but their source of truth remains the compiler registries.
+local function languageSections(): {reference.Section}
+    local sections: {reference.Section} = {}
+    for _, section in ipairs(reference.sections) do sections[#sections + 1] = section end
+    sections[#sections + 1] = new reference.Section {
+        title = "Built-in lints", codes = {}, body = table.concat(lintRows(), "\n"),
+    }
+    sections[#sections + 1] = new reference.Section {
+        title = "Diagnostic codes with a worked example", codes = {},
+        body = table.concat(codeRows(), "\n"),
+    }
+    return sections
+end
+
+local TOOLCHAIN_SECTIONS: {reference.Section} = {
+    new reference.Section {
+        title = "Working with the toolchain", codes = {}, body = reference.tooling,
+    },
+    new reference.Section {
+        title = "Improving test coverage", codes = {},
+        body = [=[
+Run `nupp coverage` to build a separate instrumented artifact, run the configured
+tests, and write `build/reports/coverage/index.html`. It never changes an ordinary
+build or its cache. Pass a suite name or other test arguments to focus a run.
+
+An agent can inspect an existing report without rerunning tests:
+
+```bash
+nupp coverage --report-json
+```
+
+That JSON names each file and its missed lines, functions, and branch arms. Start
+with an uncovered branch or function that represents an observable behaviour,
+read the indicated source, and add a test that establishes that behaviour. Re-run
+the focused coverage command, then `nupp test` before committing. Do not add tests
+solely to raise a percentage: prefer decisions, error paths, and boundary cases
+whose expected result a test can state clearly. The HTML report shows the same
+locations alongside highlighted Nupp and generated Lua when visual context helps.
+]=],
+    },
+}
+
+--- Chapters make the document scannable in a prompt and allow structured consumers
+--- to distinguish language rules from workflows for using the compiler.
+reference.chapters = {
+    new reference.Chapter {title = "Language", sections = languageSections()},
+    new reference.Chapter {title = "Toolchain", sections = TOOLCHAIN_SECTIONS},
+}
+
 --- The reference as markdown.
 ---
 --- @param opts `level` shifts every heading, for embedding under a page title
@@ -1050,8 +1109,10 @@ function reference.markdown(opts: {level: integer?}?): string
         .. " diagnostic codes that report getting it wrong. Generated from the"
         .. " compiler: `nupp reference`."
     out[#out + 1] = ""
+    out[#out + 1] = heading(base + 1, "Language")
+    out[#out + 1] = ""
     for _, section in ipairs(reference.sections) do
-        out[#out + 1] = heading(base + 1, section.title)
+        out[#out + 1] = heading(base + 2, section.title)
         out[#out + 1] = ""
         out[#out + 1] = (section.body:gsub("^%s+", ""):gsub("%s+$", ""))
         out[#out + 1] = ""
@@ -1086,19 +1147,25 @@ function reference.markdown(opts: {level: integer?}?): string
         end
     end
 
-    out[#out + 1] = heading(base + 1, "Built-in lints")
+    out[#out + 1] = heading(base + 2, "Built-in lints")
     out[#out + 1] = ""
     for _, row in ipairs(lintRows()) do out[#out + 1] = row end
     out[#out + 1] = ""
 
-    out[#out + 1] = heading(base + 1, "Diagnostic codes with a worked example")
+    out[#out + 1] = heading(base + 2, "Diagnostic codes with a worked example")
     out[#out + 1] = ""
     for _, row in ipairs(codeRows()) do out[#out + 1] = row end
     out[#out + 1] = ""
 
-    out[#out + 1] = heading(base + 1, "Working with the toolchain")
+    out[#out + 1] = heading(base + 1, "Toolchain")
+    out[#out + 1] = ""
+    out[#out + 1] = heading(base + 2, "Working with the toolchain")
     out[#out + 1] = ""
     out[#out + 1] = (reference.tooling:gsub("^%s+", ""):gsub("%s+$", ""))
+    out[#out + 1] = ""
+    out[#out + 1] = heading(base + 2, "Improving test coverage")
+    out[#out + 1] = ""
+    out[#out + 1] = (TOOLCHAIN_SECTIONS[2].body:gsub("^%s+", ""):gsub("%s+$", ""))
     return table.concat(out, "\n")
 end
 
@@ -1116,7 +1183,7 @@ function reference.skill(): string
     out[#out + 1] = "  superset. Load before editing any .nupp file, or when"
     out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
     out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
-    out[#out + 1] = "  check/explain/lsp commands and their JSON contracts."
+    out[#out + 1] = "  check/explain/lsp/coverage commands and their JSON contracts."
     out[#out + 1] = "---"
     out[#out + 1] = ""
     out[#out + 1] = reference.markdown()

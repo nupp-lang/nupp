@@ -121,6 +121,12 @@ function M.theSkillCarriesLoadableFrontmatter()
    assert(closing, "closes its frontmatter")
    assert(skill:find("# Nupp language reference", closing, true),
       "the document follows the frontmatter")
+   assert(skill:find("## Language", closing, true), "groups language sections")
+   assert(skill:find("## Toolchain", closing, true), "groups tool workflows")
+   assert(skill:find("### Improving test coverage", closing, true),
+      "teaches the coverage workflow")
+   assert(skill:find("nupp coverage --report-json", closing, true),
+      "makes coverage data queryable by agents")
 end
 
 -- Around four thousand tokens is the claim the help text makes. Held loosely —

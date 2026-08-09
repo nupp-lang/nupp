@@ -2,7 +2,9 @@
 
 Every construct, the shortest program that uses it, and the diagnostic codes that report getting it wrong. Generated from the compiler: `nupp reference`.
 
-## What Nupp is
+## Language
+
+### What Nupp is
 
 A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program is
 a valid Nupp program, and unannotated code checks silently — annotations are what
@@ -14,7 +16,7 @@ run time.
 
 Generated code targets LuaJIT 2.1.1784535649 or newer.
 
-## Declaring things
+### Declaring things
 
 A typed declaration says where it lives, the way an ordinary Lua definition does:
 `local` keeps it to the file, a qualified name puts it on that table, and
@@ -42,7 +44,7 @@ return models
 
 Reports: `NUPP2119`. `nupp explain <code>` says more.
 
-## Types
+### Types
 
 Primitives: `any`, `unknown`, `never`, `nil`, `boolean`, `string`, `number`,
 `integer`, `table`, `thread`, `userdata`. The C numeric tower: `float`,
@@ -83,7 +85,7 @@ return m
 
 Reports: `NUPP2101`, `NUPP2001`. `nupp explain <code>` says more.
 
-## Functions
+### Functions
 
 Parameters and results are annotated in the usual place. Several results are
 listed comma-separated; inside a function *type* a multi-result needs parentheses.
@@ -119,7 +121,7 @@ return m
 
 Reports: `NUPP2002`, `NUPP2106`. `nupp explain <code>` says more.
 
-## Generics and bounds
+### Generics and bounds
 
 Type parameters go in angle brackets after the name. `T is Bound` constrains one,
 and the bound is an ordinary type — usually an interface.
@@ -144,7 +146,7 @@ return m
 
 Reports: `NUPP2101`. `nupp explain <code>` says more.
 
-## Type packs and variadic generics
+### Type packs and variadic generics
 
 `A...` declares a heterogeneous generic value sequence. A pack may have a fixed
 head and a generic or homogeneous tail. Only a final unparenthesized call or
@@ -175,7 +177,7 @@ return m
 
 Reports: `NUPP2010`, `NUPP2121`, `NUPP2605`. `nupp explain <code>` says more.
 
-## Property capabilities
+### Property capabilities
 
 `readonly` and `writeonly` grant member access independently on shapes,
 interfaces, records, and indexers. A readonly property is covariant; a
@@ -212,7 +214,7 @@ return m
 
 Reports: `NUPP2001`, `NUPP2009`. `nupp explain <code>` says more.
 
-## Intersections and overloads
+### Intersections and overloads
 
 `A & B` is the type of values satisfying both contracts. `&` binds more tightly
 than `|`, nested intersections flatten, duplicate members disappear, and
@@ -271,7 +273,7 @@ return decimal, hexadecimal, text, number
 
 Reports: `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208`. `nupp explain <code>` says more.
 
-## Records
+### Records
 
 A record is a table with declared fields. It may carry inline methods, whose
 `self` is implicit, and it is built with `new`.
@@ -344,7 +346,7 @@ return m
 
 Reports: `NUPP2004`, `NUPP2118`, `NUPP2202`, `NUPP2206`, `NUPP2207`, `NUPP2208`. `nupp explain <code>` says more.
 
-## Interfaces
+### Interfaces
 
 An interface declares a shape without a body. `record X is Y` states that X
 includes Y, and the checker holds it to that.
@@ -366,7 +368,7 @@ return m
 
 Reports: `NUPP2001`. `nupp explain <code>` says more.
 
-## Default implementations
+### Default implementations
 
 An interface may implement what it declares, and a declaration that takes the
 contract takes the behaviour with it. The body is emitted once and referenced,
@@ -410,7 +412,7 @@ return m
 
 Reports: `NUPP2118`. `nupp explain <code>` says more.
 
-## Refinements
+### Refinements
 
 An interface may carry a `matches` block, which names the runtime test that
 decides whether a value is one of these. `x is T` compiles to it, so
@@ -455,7 +457,7 @@ return m
 
 Reports: `NUPP2122`. `nupp explain <code>` says more.
 
-## Structs
+### Structs
 
 A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
 hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
@@ -510,7 +512,7 @@ return m
 
 Reports: `NUPP2203`. `nupp explain <code>` says more.
 
-## Literal and tagged unions
+### Literal and tagged unions
 
 A union of string literals is a closed set of values — what other languages
 spell `enum`. It erases: the value at run time is the plain string, and a bare
@@ -558,7 +560,7 @@ return m
 
 Reports: `NUPP2107`. `nupp explain <code>` says more.
 
-## Narrowing
+### Narrowing
 
 `e is T` tests a type and narrows in the branch it proves. A truthiness test
 narrows an optional, including through a field path copied into a local. `e as T`
@@ -593,7 +595,7 @@ return m
 
 Reports: `NUPP2001`. `nupp explain <code>` says more.
 
-## Owned resources
+### Owned resources
 
 `@owned(cleanup)` says a result carries a cleanup obligation. An owned value must
 be discharged before it leaves scope: disposed, passed to a `takes` parameter,
@@ -635,7 +637,7 @@ return m
 
 Reports: `NUPP2603`, `NUPP2615`. `nupp explain <code>` says more.
 
-## with scopes
+### with scopes
 
 `with` is the only place Nupp closes something for you. The resource is released
 when the block ends — on fallthrough, on `return`, on loop control, on a `goto`
@@ -674,7 +676,7 @@ return m
 
 Reports: `NUPP2610`. `nupp explain <code>` says more.
 
-## C interop
+### C interop
 
 `cdef function` and `cdef struct` declare C with checked signatures. `from "lib"`
 resolves through `ffi.load`; omitting it uses the default namespace.
@@ -706,7 +708,7 @@ return m
 
 Reports: `NUPP2203`, `NUPP2101`. `nupp explain <code>` says more.
 
-## Annotations
+### Annotations
 
 An annotation is declared as a record or struct carrying `@annotation`, whose
 `targets` list says where it may be applied. Its fields are the annotation's
@@ -743,7 +745,7 @@ return m
 
 Reports: `NUPP2119`. `nupp explain <code>` says more.
 
-## Docblocks
+### Docblocks
 
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
@@ -773,7 +775,7 @@ return m
 
 Reports: `NUPP2506`. `nupp explain <code>` says more.
 
-## Modules
+### Modules
 
 Modules are Lua's: a file returns a value and `require` gets it. A module's type
 is whatever the file returned, and a declaration with a runtime value puts itself
@@ -814,7 +816,7 @@ return user
 
 Reports: `NUPP2120`, `NUPP2101`. `nupp explain <code>` says more.
 
-## LuaJIT 3.0 syntax
+### LuaJIT 3.0 syntax
 
 Nupp implements every LuaJIT 3.0 syntax extension and adds to them. Most is
 written straight through to the output, because LuaJIT 2.1 backported it.
@@ -864,7 +866,7 @@ return m
 
 Reports: `NUPP2504`. `nupp explain <code>` says more.
 
-## Lints and suppression
+### Lints and suppression
 
 A type error says the program does not mean what it says it means: nothing
 configures or silences it. A lint says the program means something you probably
@@ -892,7 +894,7 @@ return m
 
 Reports: `NUPP2108`. `nupp explain <code>` says more.
 
-## Built-in lints
+### Built-in lints
 
 | Lint | Code | Category | Default |
 | --- | --- | --- | --- |
@@ -908,7 +910,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | `discarded-result` | NUPP2508 | suspicious | warning |
 | `reifiable-record` | NUPP2509 | performance | off |
 
-## Diagnostic codes with a worked example
+### Diagnostic codes with a worked example
 
 | Code | Meaning |
 | --- | --- |
@@ -936,7 +938,9 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2605 | Adjusting a value pack would discard an affine value |
 | NUPP3001 | `is` has nothing to test against this type |
 
-## Working with the toolchain
+## Toolchain
+
+### Working with the toolchain
 
 Positions are 1-based byte line and column numbers everywhere, matching the
 compiler's own diagnostics. Colour is off whenever output is not a terminal, so
@@ -963,3 +967,23 @@ against a sample.
 
 The loop that works: run `check --json --strict`, apply a complete fix whose
 title matches the intended repair, re-run, and run `nupp test` before committing.
+
+### Improving test coverage
+
+Run `nupp coverage` to build a separate instrumented artifact, run the configured
+tests, and write `build/reports/coverage/index.html`. It never changes an ordinary
+build or its cache. Pass a suite name or other test arguments to focus a run.
+
+An agent can inspect an existing report without rerunning tests:
+
+```bash
+nupp coverage --report-json
+```
+
+That JSON names each file and its missed lines, functions, and branch arms. Start
+with an uncovered branch or function that represents an observable behaviour,
+read the indicated source, and add a test that establishes that behaviour. Re-run
+the focused coverage command, then `nupp test` before committing. Do not add tests
+solely to raise a percentage: prefer decisions, error paths, and boundary cases
+whose expected result a test can state clearly. The HTML report shows the same
+locations alongside highlighted Nupp and generated Lua when visual context helps.
