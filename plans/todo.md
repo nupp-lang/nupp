@@ -207,17 +207,28 @@ work makes sense in.
       once per process, so a repeat claim reuses what is there, which is correct
       because the tag encodes the body.
 
-- [ ] **`require("string.buffer")` is `unknown` in a project that is not the
-      compiler.** `require("ffi")` resolves there, so the bundled declarations
-      are reaching the environment; the dotted name is what fails. Reproduced in
-      `tests/acceptance/tecs`, whose manifest is `include = { "." }`: `require`
-      returns a value that indexes to nothing, so `sb.new()` is "no field new in
-      unknown" and every use is silently untyped rather than reported.
+- [x] **A project's `strict` no longer discards the compiler's own
+      declarations.** `loadBundled` drops a declaration that produces any
+      diagnostic, and strictness was inherited from the consumer's manifest --
+      so `strict = true`, the setting a careful project turns on, made every
+      consumer re-judge nupp's shipped declarations under a rule they were not
+      written to. `string.buffer` fails it, because `put` takes `...: any` and
+      strict reports that on an exported function.
 
-      The bare `buffer` global has the same shape of failure there, because it
-      resolves through `env.resolveModule` — so a user's project can neither
-      require the module nor reach the global. `tests/bulkcolumntest.lua` runs
-      through the compiler's own environment for that reason.
+      The module then resolved to `unknown`, every use was silently untyped, and
+      nothing was reported about any of it -- the worst shape a failure can
+      take, since turning strict *on* is what removed the types. Bundled
+      declarations are now checked non-strict, which is right on its own terms:
+      strictness is a project's judgement about its own source, and these are
+      not its source. `tests/bundleddeclstest.lua` walks every bundled module
+      under a strict environment, and checks that the project's own source is
+      still judged strictly.
+
+      Found through the acceptance port, and it was not what it looked like: the
+      symptom pointed at the dotted module name, since `require("ffi")` resolved
+      beside it. `ffi.d.nupp` simply passes strict and `stringbuffer.d.nupp`
+      does not.
+
 - [ ] **A struct cannot hold a fixed C array.** `reifiableField` admits
       primitives, a nested struct and pointers, so `v: float[4]` is NUPP2201.
       C structs commonly have array members, and `T[N]` already exists as a
