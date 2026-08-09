@@ -153,19 +153,27 @@ work makes sense in.
       effect. One call site parks under a scheduler and blocks without one, so
       a library that waits works inside a game frame and inside a CLI without
       knowing which it is in. The analysis half exists — `yields` is inferred
-      and propagates — and nothing consumes it yet.
+      file-locally — and nothing consumes it or transports it between modules
+      yet.
+  - [ ] S0: serialize the `yields` bit in callable summaries, retain it through
+        resolved function values, and conservatively treat an unconstrained
+        callback as may-yield. No general effect rows.
   - [ ] S1: `nosuspend` regions and `@effects(yields = false)`, with NUPP2701
         carrying the call chain. No run-time component, and worth landing
-        alone: it turns one of tecs's run-time errors into a checked one.
+        alone after S0: it turns one of tecs's run-time errors into a checked
+        one.
   - [ ] S2: the `suspend` operation, the `Suspension` handler interface
-        including its readiness `source`, `handle ... with ... do`, and the
-        built-in blocking handler.
-  - [ ] S3: the C-call boundary — implicit `nosuspend` for FFI callbacks,
-        metamethod bodies, and the callback-taking library surface, with a
-        named run-time failure for what static analysis cannot reach.
+        with typed one-shot subscriptions and readiness contexts,
+        coroutine-local handler inheritance, `handle ... with ... do`, and the
+        built-in blocking fast path. tecs must retain its ready-path and frame
+        performance.
+  - [ ] S3: the C-call boundary — implicit `nosuspend` at known non-yieldable
+        FFI and standard-library callback invocations, with safe metamethod and
+        generic-loop suspension left alone and a named run-time failure for
+        what static analysis cannot reach.
   - [ ] S4: permit handled suspension while a resource obligation is live,
-        keeping NUPP2603 for raw coroutine yields. The largest decision in that
-        plan: it trades a static guarantee for a stated handler contract.
+        keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
+        park and its shutdown cancels and unwinds all parks before succeeding.
   - [ ] S5: `nupp.io.Process`. tecs's API surface — `communicate`, the
         Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32
         platform layer, since theirs is 48 SDL calls and Nupp cannot link SDL

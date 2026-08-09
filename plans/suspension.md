@@ -1,7 +1,8 @@
 # Suspension — design record
 
-Status: unstarted design. The effect analysis this rests on is built; the
-handler, the region rules, and the resource interaction are not.
+Status: unstarted design. The file-local effect analysis this rests on is
+built; cross-module effect transport, the handler, the region rules, and the
+resource interaction are not.
 
 ## Decision
 
@@ -19,9 +20,15 @@ Concretely:
 - **A handler is installed for a dynamic extent.** The innermost handler
   answers. With no handler installed the built-in one blocks, so ordinary
   programs and the compiler's own tools behave exactly as they do now.
+- **The choice costs one context read at an actual wait.** Effect propagation
+  and `nosuspend` are compile-time only. An operation that is already ready
+  never reaches `suspend`; one that does reads the current coroutine's handler
+  slot and either calls it or takes the built-in blocking path.
 - **`yields` becomes load-bearing rather than descriptive.** The effect is
-  already inferred (`docs/effects.md`); this gives it a rule — a region may
-  forbid it, and the checker refuses a suspending call inside one.
+  already inferred ([effects.md](../docs/effects.md)); this gives it a rule — a
+  region may forbid it, and the checker refuses a suspending call inside one.
+  The fact must first cross module boundaries and resolved function values;
+  the current analysis is deliberately file-local.
 - **Handled suspension is a different thing from a raw coroutine yield**, and
   the resource model must stop treating them as one. That is the single
   largest change here and §Resources is about it.
@@ -72,10 +79,17 @@ has them, one-shot, and calls them coroutines.
 
 ### Nupp already has the analysis half
 
-`yields` is inferred, propagates through the call graph, and is declarable in an
-`@effects` contract. "This call may suspend" is therefore already a fact the
-compiler owns. What is missing is anything that consumes the fact, and anything
-that answers *who resumes me*.
+`yields` is inferred, propagates through the directly resolved file-local call
+graph, and is declarable in an `@effects` contract. "This call may suspend" is
+therefore already a fact the compiler owns. What is missing is anything that
+consumes the fact, anything that carries it through a module interface or an
+aliased function value, and anything that answers *who resumes me*.
+
+This plan does not need Koka's general effect rows. It needs one serialized bit
+on a callable summary. A resolved function value retains that bit; an
+unconstrained callback is conservatively may-yield. The first version has no
+effect variables or effect-polymorphic function types. Add those only if the
+conservative rule proves too restrictive for higher-order libraries.
 
 ## Goals
 
@@ -94,7 +108,9 @@ that answers *who resumes me*.
 
 - **General algebraic effects.** One effect with handlers covers the case. A
   language where any operation can be declared and handled is a much larger
-  language, and nothing here needs it.
+  language, and nothing here needs it. Nupp borrows the useful discipline — a
+  handler owns the continuation it accepts — without user-defined effects,
+  effect rows, or general continuation capture.
 - **A scheduler.** Nupp supplies the seam and one blocking handler. Task
   scheduling, fairness, and priority belong to whoever installs a handler.
 - **Multi-shot continuations.** LuaJIT's are one-shot; a handler resumes once.
@@ -119,8 +135,8 @@ answers because they are the right three:
 The third is where Nupp improves on the original. tecs raises
 `cannot wait while %s is active` when a task waits inside a barrier — correct,
 and found at run time, in a frame, in a game. The same fact is visible to the
-checker: the region is lexical, `yields` is inferred, and the call graph is
-already walked.
+checker once S0 transports it: the region is lexical, `yields` is inferred,
+and the directly resolved call graph is walked.
 
 ## Surface syntax
 
@@ -132,17 +148,26 @@ operation's argument is how to be resumed:
 ```nupp
 --- Waits until the pipe has bytes, or the deadline passes.
 local function awaitReadable(pipe: Pipe, deadlineMs: number): boolean
-    return suspend("process pipe read", |resume| -> do
-        local ticket = pipe:onReadable(resume)
+    return suspend("process pipe read", |resume, context| -> do
+        local ticket = pipe:onReadable(context, deadlineMs, resume)
         return || -> pipe:cancel(ticket)      -- how to unsubscribe
     end)
 end
 ```
 
 `suspend` takes an operation name and a subscription. The subscription is
-handed a `resume` callback, and answers with a cancellation. This is
-`taskruntime.awaitCallback` with the name moved to the front, deliberately: the
-name is what a stuck task reports, and tecs learned to demand it.
+handed a typed, one-shot `resume` callback and the current handler's stable
+`SuspensionContext`, and answers with a cancellation. The context is how the
+pipe registers a readiness source without learning whether it belongs to tecs
+or the built-in blocking handler. A facility with several pending operations
+retains one source per context while its count is nonzero.
+
+Synchronous completion is valid: `subscribe` may call `resume` before it
+returns. The runtime installs the one-shot state before calling `subscribe`,
+calls the returned cancellation at most once if cancellation wins, and rejects
+a second resume. If `subscribe` raises or does not answer a function, the park
+has not transferred responsibility and raises immediately. This is
+`taskruntime.awaitCallback` with the name and source capability made explicit.
 
 The operation name is not decoration. `describeWait` in tecs exists because a
 wait that never completes is otherwise anonymous, and a scheduler that can say
@@ -169,6 +194,16 @@ function taking a callback. A callback would make the extent a closure
 boundary, and the resource model has rules about closures that have nothing to
 do with this.
 
+The dynamic state is coroutine-local, never one process-global stack. Each
+coroutine has an inherited handler and its own nested override stack. A
+`coroutine.resume` temporarily supplies the resumer's effective handler as the
+target's inherited handler, restores the target's previous inherited value
+when it yields or returns, and leaves the target's local overrides intact. This
+gives a tecs task the scheduler handler around `runFrame()` without letting a
+nested handler in one parked task leak into another. `coroutine.create` and
+`coroutine.wrap` use the same context machinery; raw Lua entry points must pass
+through the runtime wrappers that implement it.
+
 ### Forbidding suspension
 
 ```nupp
@@ -193,37 +228,103 @@ which is the existing contract syntax doing the work, not a new one.
 
 ## The handler interface
 
-Small on purpose. tecs's runtime already satisfies every line of it.
+Small on purpose. A thin adapter over tecs's gates and runtime registry
+satisfies it; those data structures remain tecs's.
 
 ```nupp
---- What a host installs to answer suspensions.
+--- The handler-specific capability handed to a subscription.
+interface SuspensionContext
+    --- Registers a readiness pump while a facility has work. `priority`
+    --- orders sources; `shutdown` cancels the producer and settles its waiters.
+    --- The returned handle releases this registration.
+    source: function(
+        self: SuspensionContext,
+        name: string,
+        priority: integer,
+        poll: function(): integer,
+        shutdown: function()
+    ): Source
+end
+
+type Subscribe<T> = function(
+    resume: function(T), context: SuspensionContext
+): function()
+
+--- What a host installs to answer suspensions. A handler owns every park it
+--- accepts until that continuation returns or unwinds through cancellation.
 interface Suspension
     --- Parks the caller. `subscribe` is handed a resume callback and answers a
     --- cancellation. Returns what `resume` was given, or raises the
     --- cancellation reason.
-    park: function(self: Suspension, operation: string, subscribe: Subscribe): any
+    park: function<T>(
+        self: Suspension, operation: string, subscribe: Subscribe<T>
+    ): T
 
     --- Whether a suspension may happen here at all. A host with regions of its
     --- own — tecs's barriers — answers false inside them, and the run-time
     --- check backs up the static one for calls the checker could not see.
     canPark: function(self: Suspension): boolean
 
-    --- Registers a readiness pump the host drives. A library with pending I/O
-    --- retains one; the host calls it to settle waiters. Answers a handle the
-    --- library releases when it has nothing outstanding.
-    source: function(self: Suspension, name: string, poll: function(): integer): Source
+    --- Cancels every owned park, drives each continuation through unwinding,
+    --- invokes active source shutdowns in reverse order, and refuses to return
+    --- while either remains registered.
+    shutdown: function(self: Suspension)
 end
 ```
 
-`source` is the piece that is easy to leave out and then discover missing. A
-handler that can only park has no way to *make progress*: something has to poll
-the pipes. tecs's `runtime.register("processes", 20, pollAll, nil)` is exactly
-this, priority included, and the priority is not decoration either — it orders
-pumps within a frame.
+The context's `source` is the piece that is easy to leave out and then discover
+missing. A handler that can only park has no way to *make progress*: something
+has to poll the pipes. Passing the context to `subscribe` gives a library a
+route to that pump without exposing or naming the handler. tecs's
+`runtime.register("processes", 20, pollAll, shutdown)` maps directly; priority
+orders pumps within a frame, and shutdown is what makes ownership rather than
+eventual good behavior the resource guarantee.
 
-The built-in blocking handler implements all three: `park` waits on the
-registered sources until one settles, `canPark` is always true, and `source`
-keeps a list.
+The built-in blocking path supplies its own context, calls `subscribe`, and
+drives the registered sources until the park settles. It does not need a Lua
+handler object or a coroutine yield. Its source loop may sleep between
+nonblocking polls, while a platform source that can wait efficiently may do so
+within the deadline the blocking context supplies internally.
+
+## Cost model
+
+Effect checking is static. `yields` adds one bit to the serialized callable
+summary, `nosuspend` erases, and neither threads a dictionary or policy argument
+through ordinary calls. Libraries attempt their immediate path first, so a
+buffered read, completed process, or expired deadline does not touch suspension
+machinery at all.
+
+An actual wait lowers conceptually to:
+
+```lua
+local handler = nupp_effective_suspension_handler()
+if handler == nil then
+    return nupp_blocking_park(operation, subscribe)
+end
+return handler:park(operation, subscribe)
+```
+
+The lookup is one coroutine-context read, not a walk. Entering `handle` saves
+and sets one override; every exit restores it. A whole-program build that proves
+no handler can be installed may specialize `suspend` directly to the blocking
+path, but a reusable library retains the branch so the identical artifact also
+works under tecs.
+
+Correct inheritance does add a fixed save/switch/restore around
+`coroutine.resume` while a handler is active. With no effective handler and no
+target override, the wrapper tail-calls the raw resume fast path. A scheduler
+adapter may fuse the switch with the current-task assignment it already makes;
+tecs has exactly that point in `resumeTask`. This cost is per resumed task, not
+per ordinary function call, and it must be measured rather than described away.
+
+For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
+context read and then reaches the same gate, scheduler, and readiness pump it
+uses today. No handler work occurs in ordinary calls and no allocation is
+required beyond the gate/subscription the existing path already needs. The
+handler-aware task-resume switch above is the only new frame-path instruction
+sequence. S2 benchmarks it against tecs's hand-written path; a measurable
+regression in ready operations, frame pumping, task resumption, or cooperative
+parks fails the milestone.
 
 ## Resources: the rule that has to change
 
@@ -238,11 +339,11 @@ That reasoning is exactly right *about raw coroutines* and exactly wrong about
 handled suspension, and the difference is the whole reason to build this.
 
 A raw `coroutine.yield` has no one responsible for it. A handled suspension
-has a handler that took the resume callback and the cancellation, and a host
-that either resumes it or cancels it and unwinds. tecs relies on this: a
+transfers responsibility to a handler that owns the continuation and its
+cancellation until the park returns or unwinds. tecs relies on this: a
 cancelled gate raises, `with`-style scopes unwind, and cleanup runs. That is a
-guarantee the language can require of a handler rather than one it must prove
-about arbitrary code.
+trusted handler contract rather than a fact the checker can prove about an
+arbitrary scheduler.
 
 The proposed rule:
 
@@ -255,17 +356,26 @@ The proposed rule:
  handled suspend           no                 allowed
 ```
 
-with two conditions on the new row, both of which have to be real:
+with three conditions on the new row, all of which have to be real:
 
-1. **A handler must guarantee termination of the park.** Every parked
-   suspension is eventually resumed or cancelled. This is a contract Nupp
-   states and cannot check, in the same category as a metamethod contract
-   (`docs/metamethods.md`) — trusted, and named as trusted at the point it is
-   relied on.
-2. **Cancellation must unwind.** A cancelled park raises, so `with` cleanup and
-   every other obligation discharges on the way out. A handler that completes a
-   park by silently abandoning the task breaks the resource model rather than
-   just its own scheduling.
+1. **A handler owns every accepted park.** A wait may legitimately remain
+   pending forever while its handler is live; eventual completion is not a
+   credible contract. The invariant is instead that the continuation cannot be
+   dropped or outlive the handler that owns it.
+2. **Shutdown settles ownership.** Before a handler stops owning its scheduler,
+   it invokes source shutdowns, cancels every parked continuation, resumes each
+   with a cancellation reason, and drives it through unwinding. It refuses to
+   report successful shutdown while a source or park remains. A tecs handler
+   may therefore keep tasks parked between frame-sized `handle` extents because
+   the scheduler object, not one frame extent, owns them.
+3. **Cancellation unwinds.** A cancelled park raises, so `with` cleanup and
+   every other obligation discharges on the way out. Silently abandoning a task
+   violates the handler contract rather than merely choosing scheduling policy.
+
+The contract is trusted and named at the `handle` installation, in the same
+category as a metamethod contract ([metamethods.md](../docs/metamethods.md)).
+The built-in path owns no detached continuation: it returns or raises before
+its `suspend` call does.
 
 This is the highest-risk decision in this document. It trades a static
 guarantee for a contract, which §There is no deoptimization in
@@ -277,28 +387,37 @@ library that opens a pipe, which is every library this feature exists for.
 ## The C boundary
 
 The hard constraint, and the one that should shape the design rather than be
-discovered by it. LuaJIT cannot yield across most C frames:
+discovered by it. LuaJIT cannot yield when non-yieldable C code has called back
+into Lua. Known examples are:
 
-- an FFI callback invoked from C,
-- a metamethod,
-- a C-implemented iterator in a generic `for`,
-- `table.sort` comparators, `string.gsub` function replacements, and the rest
-  of the standard library's callback surface.
+- an FFI callback invoked from C;
+- `table.sort` comparators and `string.gsub` function replacements; and
+- the rest of the C or standard-library surface that invokes a Lua callback
+  without a yieldable continuation.
+
+The boundary belongs to the *invocation*, not to every kind of callback body.
+On Nupp's LuaJIT 2.1 baseline ordinary `__index`, `__add`, `__call`, and
+`__tostring` metamethods can yield, as can a generic-loop body using the C
+`ipairs` iterator: the iterator returns before the body runs. Neither a
+metamethod declaration nor a generic `for` is therefore an implicit
+`nosuspend` region by itself.
 
 A `suspend` reached from inside one fails at run time with
 *attempt to yield across a C-call boundary*, which is a bad error in a good
 language.
 
 Nupp can do better than the error, and this is where the effect system earns
-its place rather than merely enabling the feature. Each of those contexts is
-statically identifiable: the checker knows a function is an FFI callback, knows
-a body is a metamethod, and knows which library functions take callbacks it
-cannot see through. Treating each as an implicit `nosuspend` region turns a
-run-time failure into **NUPP2702** at the call.
+its place rather than merely enabling the feature. Known non-yieldable callback
+positions are implicit `nosuspend` regions. A visible callback contributes its
+inferred `yields`; a resolved function value contributes its serialized bit;
+an unconstrained callback is conservatively may-yield. That turns a run-time
+failure into **NUPP2702** at the C-to-Lua invocation site without rejecting a
+safe metamethod merely because it is a metamethod.
 
-Coverage will not be total — a callback stored in a table and reached
-dynamically escapes the analysis — so the run-time failure has to remain, with
-a diagnostic that names the boundary rather than repeating LuaJIT's message.
+Coverage will not be total — a callback stored in a table and reached through
+an unknown C API escapes the analysis — so `suspend` catches LuaJIT's failure
+and adds the operation name and "unknown non-yieldable C callback" context. The
+runtime cannot reliably name an intervening C frame LuaJIT does not expose.
 
 ## Determinism
 
@@ -313,9 +432,10 @@ Nothing here may reach the compiler's own answers.
   tools — see below — but a suspension may not influence what a module checks
   to. A handler is a property of a program's execution, never of its meaning.
 - **Generated code is unchanged by the presence of a handler.** `handle` lowers
-  to installing a value on a stack and restoring it; `nosuspend` erases
+  to saving and restoring one coroutine-local override; `nosuspend` erases
   entirely, being a checked region with no run-time component. Neither changes
-  what any other statement compiles to.
+  what any other statement compiles to, and handler state is never consulted
+  while checking or generating a module.
 
 ## What tecs adopts, precisely
 
@@ -329,7 +449,8 @@ runtime becomes a handler:
  taskruntime.waitMode()              supplied by the language
  checkWait(op) → "forbidden"         NUPP2701, at compile time
  enterBarrier / leaveBarrier         nosuspend do ... end
- runtime.register(name, pri, poll)   handler:source(name, poll)
+ runtime.register(name, pri, poll,   context:source(name, pri, poll,
+                  shutdown)                         shutdown)
  newGate / gate:wait / gate:complete  handler-internal; not language surface
  scheduler drives frames             unchanged, and still tecs's
 ```
@@ -345,6 +466,14 @@ Two things tecs keeps that Nupp deliberately does not take:
 What tecs gives up is the hand-rolled `waitMode` dispatch in every waiting
 library, and the run-time barrier error. What it gains is that *any* Nupp
 library that waits works inside a frame without knowing tecs exists.
+
+The speed requirement is equally strict. Immediate operations keep their
+current early return. A cooperative park performs one coroutine-context read
+and then uses tecs's existing gate; source order and frame pumping are
+unchanged. Nupp does not allocate a general effect object, capture a new
+continuation, walk a handler stack, or poll anything merely because a handler
+is installed. tecs folds handler inheritance into the `activeScheduler` and
+`scheduler.current` transition its `resumeTask` already performs.
 
 ## Porting `tecs.io.Process`
 
@@ -362,9 +491,12 @@ is 48 `C.SDL_*` calls — `SDL_CreateProcessWithProperties`, `SDL_ReadIO`,
 `SDL_KillProcess`, SDL's property and environment systems. Nupp cannot link
 SDL to run `nupp check`. The platform layer is new code:
 
-- POSIX: `posix_spawn`, `pipe2` with `CLOEXEC`, `poll`, `waitpid`, `kill`.
-- Windows: `CreateProcessW`, `CreatePipe`, `PeekNamedPipe` or overlapped I/O,
-  `WaitForSingleObject`, `TerminateProcess`.
+- POSIX: `posix_spawn`, `poll`, `waitpid`, and `kill`; Linux may use `pipe2`,
+  while the portable and macOS path uses `pipe` plus `fcntl` for `FD_CLOEXEC`
+  and `O_NONBLOCK`, with spawn file actions closing the right descriptors.
+- Windows: `CreateProcessW`, `CreatePipe` plus `PeekNamedPipe` for the polling
+  implementation, or a `CreateNamedPipeW`/`CreateFileW` pair when using
+  overlapped I/O; `WaitForSingleObject` and `TerminateProcess` settle exits.
 
 with the usual list of things that bite: partial writes, `EAGAIN`, `EINTR`,
 `SIGPIPE`, zombie reaping, and descriptor leaks across `exec`.
@@ -407,16 +539,31 @@ when a range is reserved without checking.
 
 - `NUPP2701`: a suspending call inside a `nosuspend` region
 - `NUPP2702`: a suspending call across a C-call boundary
-- `NUPP2703`: `suspend` outside any handler where one is required
-- `NUPP2704`: a handler installed inside a region that forbids suspension
-- `NUPP2705`: a subscription that does not answer a cancellation
 
 `NUPP2701` and `NUPP2702` carry the call chain from the region to the
 suspending function as related locations. A one-line "this may yield" is not
-actionable when the yield is four modules away, and the chain is already walked
-by the effect analysis.
+actionable when the yield is four modules away; S0 is what makes that chain
+available outside one file.
+
+A missing cancellation, a second resume, an unyieldable dynamic C callback, or
+a handler that finishes shutdown with live parks is a run-time contract
+violation. Its error names the operation and handler or source involved; it is
+not assigned a checker diagnostic code merely to make the ranges look full.
 
 ## Milestones
+
+### S0: the effect, transported
+
+- Serialize `yields` in the cross-module callable summary and include it in the
+  interface hash.
+- Retain the bit through resolved function-value aliases. Treat an
+  unconstrained callback as may-yield; do not add general effect rows or effect
+  polymorphism.
+- Preserve the direct-call predecessor chain needed for related locations.
+
+Exit test: direct and aliased calls propagate `yields` across a module boundary;
+a known non-yielding value stays clear; an unconstrained callback is
+conservatively may-yield; an unchanged summary is cache-stable.
 
 ### S1: the effect, checked
 
@@ -428,35 +575,43 @@ Exit test: a region rejects a transitively suspending call and names the path;
 a non-suspending one is silent; the generated code is byte-identical to the
 same file without the region.
 
-This milestone is worth landing alone. It converts one of tecs's run-time
-errors into a checked one and needs nothing else in this document.
+This milestone is worth landing alone after S0. It converts one of tecs's
+run-time errors into a checked one and needs no handler or run-time component.
 
 ### S2: the handler and the operation
 
 - `suspend(operation, subscribe)` and the built-in blocking handler.
 - `handle suspension with h do ... end`, nesting, and restoration on unwind.
-- The `Suspension` interface, `source` included.
-- NUPP2703 and NUPP2705.
+- Coroutine-local inherited handlers and overrides across `create`, `resume`,
+  and `wrap`.
+- Generic one-shot subscriptions, `SuspensionContext`, ordered sources, source
+  shutdown, and the `Suspension` interface.
+- The O(1) handler lookup and nil-to-blocking fast path in §Cost model.
 
 Exit test: one library, written once, blocks under no handler and parks under a
-test handler; a cancelled park unwinds through `with` and runs cleanup.
+test handler; synchronous completion works; a second resume fails; nested
+handlers do not leak between coroutines. Benchmarks show no measurable
+regression against tecs's ready path, frame pump, or hand-written cooperative
+park.
 
 ### S3: the C boundary
 
-- Implicit `nosuspend` for FFI callbacks, metamethod bodies, and the
-  callback-taking standard library surface.
+- Implicit `nosuspend` for known non-yieldable FFI and standard-library callback
+  invocation sites, not for metamethods or generic loops as categories.
 - NUPP2702, and a run-time failure that names the boundary for what static
   analysis cannot reach.
 
 Exit test: a suspend inside an FFI callback is refused at compile time; one
-reached dynamically fails with a diagnosable message rather than LuaJIT's.
+reached dynamically fails with a diagnosable message rather than LuaJIT's; a
+direct metamethod and an `ipairs` loop body may suspend.
 
 ### S4: resources
 
 - Permit handled suspension with a live obligation; keep NUPP2603 for raw
   yields.
-- State the handler contract — every park resumes or cancels, cancellation
-  unwinds — where it is relied on.
+- Enforce the handler contract at its checkable edges: one owner per accepted
+  park, source shutdown, cancellation through unwinding, and shutdown refusing
+  success while parks or sources remain.
 
 Exit test: `with` holding an owner across a handled suspension runs cleanup on
 resume and on cancellation; a raw yield in the same position is still refused.
@@ -472,14 +627,18 @@ module with only the import changed.
 ## Test matrix
 
 - region checking: direct, transitive, through a declared contract, through a
-  function value, and the negative case at each
+  function value and a module interface, and the negative case at each
 - handler: install, nest, restore on normal exit, restore on error, restore on
-  cancellation
+  cancellation, inherit across resume, and isolate overrides between tasks
+- subscription: generic result, synchronous completion, cancellation winning,
+  second resume, subscribe raising, and a missing cancellation
 - blocking handler: parks that settle, parks that time out, several sources
-- cancellation: unwinds `with`, runs cleanup, discharges owners, and reports
-  the operation name
-- C boundary: each identified context refused statically; the dynamic case
-  failing with the named diagnostic
+- cancellation and shutdown: unwind `with`, run cleanup, discharge owners,
+  invoke sources in reverse order, reject remaining parks, and report names
+- C boundary: each identified non-yieldable invocation refused statically; the
+  dynamic case fails with context; safe metamethod and generic-loop cases pass
+- performance: ready operations do not touch suspension machinery; a handler
+  adds no idle frame work; blocking and tecs parks meet §Cost model
 - determinism: a file's checked output, its generated Lua, and the fixpoint all
   identical with and without a handler installed in the compiling process
 - comptime: `suspend` inside a block is NUPP2411 and nothing else changes
@@ -490,16 +649,11 @@ module with only the import changed.
 - Whether `handle` should bind a name for the handler, or only install it.
   Binding invites reaching for the handler directly, which is the coupling this
   removes.
-- Whether a handler may be installed per-module rather than per-extent. Cheaper
-  for a CLI; a global handler is exactly the thing that makes libraries
-  unusable in other hosts.
-- Whether `source` priorities belong in the language interface or in the
-  handler. tecs needs them; a blocking handler does not.
 - Whether a suspending call should be visible at the call site — a sigil — or
   only in the checked effect. Visible costs colouring's readability benefit
   without its cost; invisible is what makes tecs's design work.
-- What a suspension inside a coroutine the program created itself means, when a
-  handler is also installed. Two suspension mechanisms in one stack needs a
-  stated rule.
 - Whether the blocking handler should be replaceable, so a CLI can supply a
   poll loop of its own without pretending to be a scheduler.
+- Whether the source context eventually needs a blocking deadline hint in its
+  public interface. The first process source can keep deadlines in its own
+  waiter set; adding policy before a second source needs it would be premature.

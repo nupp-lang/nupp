@@ -522,10 +522,11 @@ was exhausted.
 The evaluator should ultimately run in a worker process invoked through a
 private toolchain mode. That wants [suspension.md](suspension.md) and a process
 library under it: a worker the language server waits on must not block its
-loop, and killing a hung one needs a spawn `os.execute` cannot give. The worker accepts a serialized request and returns a
-serialized value or diagnostic. This prevents an infinite loop, evaluator
-crash, or excessive allocation from taking down the LSP. A limited Lua global
-environment by itself is not treated as a security boundary for hostile code.
+loop, and killing a hung one needs process control `os.execute` cannot give.
+The worker accepts a serialized request and returns a serialized value or
+diagnostic. This prevents an infinite loop, evaluator crash, or excessive
+allocation from taking down the LSP. A limited Lua global environment by
+itself is not treated as a security boundary for hostile code.
 
 ## Compiler pipeline
 
