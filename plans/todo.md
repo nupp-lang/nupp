@@ -120,20 +120,27 @@ work makes sense in.
       that wants a constant: those keep turning out to have cheaper answers,
       `OPT-3` having since taken `//` and the bit operators.
   - [ ] C1: `comptime do ... end` expression blocks; compile-time-known
-        literals and `const` bindings; capability-limited evaluation; canonical
-        literal/table quoting; line-count-preserving generation; in-memory
-        query caching and equal-result cutoff.
-  - [ ] C2: target-aware `sizeof`/`alignof`/`offsetof`; immutable `reflect(T)`
-        descriptors; semantic type fingerprints and module interface
-        dependencies. Blocked on a compile-time layout model, which nupp has
-        deliberately not built: `layoutof` answers the same question at run
-        time through the FFI, because sizes belong to the running platform and
-        not the compiling one. A separate project rather than the step after
-        C1.
-  - [ ] C3: file-private `@comptime` functions with ordinary type checking,
-        erased runtime output, bounded recursion, and comptime call stacks.
-  - [ ] C4: isolated evaluator worker, cancellation/resource limits, LSP
-        hardening, and eventual manifest build-cache persistence.
+        literals and `const` bindings; evaluation against a named allowlist;
+        canonical literal/table quoting; line-count-preserving generation;
+        in-memory query caching and equal-result cutoff; and minimum worker
+        isolation, so a looping block fails a request rather than the language
+        server.
+  - [ ] C2a: immutable `reflect(T)` descriptors over the checker's full
+        structural vocabulary; semantic type fingerprints and module interface
+        dependencies. Target-independent and blocked on nothing. Shared with a
+        future derive phase, so it is not shaped around comptime's convenience.
+  - [ ] C2b: target-aware `sizeof`/`alignof`/`offsetof`. Blocked on a
+        compile-time layout model, which nupp has deliberately not built:
+        `layoutof` answers the same question at run time through the FFI,
+        because sizes belong to the running platform and not the compiling one.
+        A separate project rather than the step after C1.
+  - [ ] C3: `@comptime` functions with ordinary type checking, erased runtime
+        output, bounded recursion, and comptime call stacks. File-private at
+        first, but cross-module helpers are an expected extension; helpers
+        taking a `TypeInfo` need nothing from the generic system.
+  - [ ] C4: worker hardening beyond C1's floor — remaining resource limits,
+        cancellation, LSP hardening, and eventual manifest build-cache
+        persistence.
 
 ## FFI and the C boundary
 

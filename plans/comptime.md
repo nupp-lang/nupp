@@ -61,43 +61,86 @@ the table generation that motivated it. §What folding will not absorb in
 pure library calls, interpolation, and reads of a `const` table — are cases a
 block would simply have. The other two are not comptime's to rescue: one is
 unreachable in any phase, and the layout intrinsics are blocked identically for
-both, on §The layout model is the prerequisite, and it does not exist.
+both, on §Layout intrinsics, and the model they need.
 
 ## Goals
 
 1. Compute constants using familiar nupp control flow and functions. This is
    the goal that carries the feature; the others support it.
-2. Expose target-aware `sizeof`, `alignof`, `offsetof`, and read-only type
-   reflection. Depends on a layout model nupp does not have, and is a separate
-   project reached through this one rather than a part of it — see §The layout
-   model is the prerequisite, and it does not exist.
-3. Preserve deterministic builds, the line-count invariant, incremental
+2. Expose read-only semantic type reflection: what a declaration says, which the
+   checker already knows in full and which no layout model is needed to answer.
+3. Expose target-aware `sizeof`, `alignof`, and `offsetof`. Separate from goal 2
+   and dependent on a layout model nupp does not have — see §Layout intrinsics,
+   and the model they need. Reached through this feature rather than part of it.
+4. Preserve deterministic builds, the line-count invariant, incremental
    cutoff, and responsive editor tooling.
-4. Give comptime code the same type checking and diagnostics as runtime code.
-5. Erase every comptime construct from generated Lua except its quoted result.
+5. Give comptime code the same type checking and diagnostics as runtime code.
+6. Erase every comptime construct from generated Lua except its quoted result.
 
 ## Non-goals
 
-The following are deliberately outside this feature:
+Two lists, because they are two different commitments and an earlier revision
+ran them together. Confusing them makes the plan read as though nupp had decided
+never to generate code, which is not the decision being taken here.
+
+**Excluded from the language, not merely from this feature.** These stay
+excluded whatever else is built, because each of them makes a program's meaning
+depend on text a reader cannot see:
 
 - AST or CST access
 - quoting or splicing source code
 - expression macros, templates, and `@inline`
-- user-defined derive macros
-- declaration or module generation
 - compiler lifecycle hooks
 - arbitrary `require`, filesystem, environment, clock, random, process, or
   network access
-- automatic optimization or specialization of runtime functions
 
 Consequently, comptime will not materialize metamethod declarations produced
 by another dialect's macro system. `import-tl` must eject those as explicit
 contracts or visible translation residue; see
 [metamethods.md](../docs/metamethods.md#deliberate-exclusions).
 
-If a transformation such as `@soa` proves valuable, it should be a separately
-specified, compiler-owned language feature. It must not be an escape hatch to
-a general macro system.
+**Outside comptime, and possibly a separate feature later.** These are not
+things the expression evaluator does. Saying so is an architectural boundary,
+not a refusal:
+
+- declaration or module generation
+- derives
+- automatic optimization or specialization of runtime functions
+
+Comptime does not generate declarations. Compiler-owned derives, or a future
+restricted declaration-generation facility, may be specified independently and
+may consume the same semantic reflection model, dependency tracking, cache
+fingerprints, and determinism guarantees this plan builds.
+
+### What a derive would be, and why it is not this
+
+The shape worth reserving room for:
+
+```lua
+@derive(Eq, Hash, Json)
+local record User
+    @json{name = "user_id"}
+    id: integer
+    name: string
+end
+```
+
+A derive phase would read an already-checked declaration and its annotations,
+validate that the fields support what is being asked, and synthesize a narrow
+set of methods, interfaces, or constants. It is a different phase from
+expression evaluation, reached at a different point, and producing a different
+kind of output — which is precisely why it should not be reached by making the
+evaluator able to return declarations.
+
+The first ones should be compiler-owned: `Eq`, `Hash`, `Debug`, serialization,
+ECS metadata. If user-defined derives later earn their place, the interface is a
+restricted semantic provider that accepts immutable `TypeInfo` and produces
+constrained declaration IR — structural generation under a checked contract, not
+source text and not an AST. `@soa` belongs in the same category.
+
+None of that is designed here. What this plan owes it is the semantic reflection
+model in §Semantic reflection, which is why that section is written to be
+consumed by something other than a comptime block.
 
 ## Surface syntax
 
@@ -161,14 +204,31 @@ A helper is what folding cannot reach even in principle: `OPT-3` may fold a
 whitelisted callee whose behaviour the compiler knows, and never a function the
 user wrote.
 
-The initial comptime-function implementation keeps them file-private. Exported
-comptime functions would require their checked body or an evaluator artifact to
-become part of a module interface; that is deferred until a concrete
-cross-module use case justifies the extra interface and cache complexity.
+The initial comptime-function implementation keeps them file-private, because
+exporting one means putting its checked body or an evaluator artifact into a
+module interface, with the cache complexity that implies.
 
-Comptime functions may recurse within the evaluation budget. Generic comptime
-functions are deferred until generic constraints can state what operations on
-a type parameter are valid.
+That is a staging decision and not a design position. A helper nobody else can
+call is a helper of limited use, and "reusable computation" is one of the things
+this feature is for, so **cross-module comptime functions are an expected
+extension** rather than an open question — the first version defers the interface
+representation, it does not decide against it. C1 and C3 should avoid choices
+that would make exporting one awkward later.
+
+Comptime functions may recurse within the evaluation budget.
+
+Type-driven helpers do not have to wait for generic comptime functions. A helper
+can take a `TypeInfo` as an ordinary value:
+
+```lua
+@comptime local function schema(info: TypeInfo): Schema
+```
+
+which is the reflection-consuming shape most of the interesting cases want, and
+needs nothing from the generic system. Generic comptime functions — `@comptime
+function f<T>(...)` — remain deferred until generic constraints can state what
+operations on a type parameter are valid. Separating the two matters because the
+first is reachable in C3 and the second is not.
 
 ## Compile-time-known values
 
@@ -239,25 +299,48 @@ Functions, threads, userdata, arbitrary cdata, type handles, cyclic tables,
 and tables with metatables are rejected. Sized integer cdata and other values
 that need new literal rules can be added deliberately later.
 
-The serializer is canonical:
+The serializer is canonical, and canonical here has to mean exact rather than
+tidy. A quoted value is source that will be parsed back, so any rule that is
+merely conventional is a rule the round trip can lose:
 
 - strings use escaped single-line literals;
-- array entries precede keyed entries;
-- keyed entries use a stable ordering by key kind and value;
+- an integral number in the exact range emits as an integer, matching what
+  `OPT-3` already does;
+- a non-integral number emits in a **round-trip** format — the shortest spelling
+  that reads back bit-identically, `%.17g` being the safe fallback and LuaJIT's
+  default `%.14g` being *not* good enough. A value that cannot round-trip is
+  rejected rather than approximated;
 - negative zero is emitted as `-0.0`;
 - NaN and infinities are rejected initially;
-- table identity and aliasing are not preserved.
+- a table's array part is its entries `1..n` for the largest `n` with no hole;
+  every other key, integer keys past the first hole included, is a keyed entry.
+  Sparseness therefore has one spelling rather than depending on how the
+  evaluator happened to build the table;
+- keyed entries use a stable ordering by key kind and value;
+- **a table reachable by more than one path is rejected**, with NUPP2405, rather
+  than being quoted as two independent tables. The earlier wording — "table
+  identity and aliasing are not preserved" — describes silently changing what a
+  program means, which is the one thing this plan is otherwise careful never to
+  do. Identity-preserving aggregates can be designed later; until then, sharing
+  is an error the author can see, not a fact they have to know.
 
 The scalar half of this exists. `OPT-3` already emits a folded value as source
 through one small function, with `%q` for strings and `%.0f` for integers, and
 its integer range guard is the same exactness question this list is asking. What
-is genuinely new is the table serializer and its ordering rules. Build the two as
-one component with comptime as its second caller rather than beside each other:
-`analysis.queries` records what the alternative cost when two consumers grew
-their own copies of the same reasoning.
+is genuinely new is the non-integral formatting and the table serializer. Build
+them as one component with comptime as its second caller rather than beside each
+other: `analysis.queries` records what the alternative cost when two consumers
+grew their own copies of the same reasoning.
 
 Quoting a table creates a normal fresh runtime table when the generated module
 loads. It does not embed a mutable compiler-owned object.
+
+A captured constant table is likewise a canonical snapshot of its initializer,
+not a reference to runtime table state. `const M.config = {...}` gives the block
+the value the initializer described; a later write to a non-const field of that
+table is not visible to an evaluation that already happened, and must not be,
+since evaluation order against module initialization is not something a program
+should be able to observe.
 
 The checker infers the quoted literal's type using the ordinary expression
 checker and validates it against the surrounding expected type. Comptime does
@@ -265,30 +348,85 @@ not bypass assignment, return, or field checks.
 
 ## Reflection and layout intrinsics
 
-The first public intrinsics are:
+The public intrinsics are:
 
 ```lua
-sizeof(T): integer
-alignof(T): integer
-offsetof(T, fieldName): integer
-reflect(T): TypeInfo
+reflect(T): TypeInfo             -- target-independent
+sizeof(T): integer               -- target-specific
+alignof(T): integer              -- target-specific
+offsetof(T, fieldName): integer  -- target-specific
 ```
 
 Their type arguments are parsed and resolved as type positions, so aliases,
 qualified project types, and instantiated nominal types work without a
 corresponding runtime value. `fieldName` must be a compile-time-known string.
 
+The comment column is the important thing on that list, and an earlier revision
+of this plan missed it. These are two features that happen to take the same kind
+of argument. `reflect` asks what a declaration *says*, which the checker already
+knows in full. The other three ask what a value *measures* on some machine,
+which nothing in nupp currently knows at compile time. Only the second group is
+blocked, and treating them as one milestone blocked the first group on a
+prerequisite it does not have.
+
+### Semantic reflection
+
+`reflect(T)` returns an immutable public descriptor rather than the mutable
+tables used internally by `compiler.types`. It is target-independent and needs no
+layout model: everything in it is a fact the checker established while checking
+the declaration.
+
+```lua
+{
+    kind = "record",
+    name = "User",
+    qualifiedName = "accounts.User",
+    fields = {
+        {name = "id", type = <TypeInfo>, annotations = {...}},
+        {name = "name", type = <TypeInfo>, annotations = {...}},
+    },
+}
+```
+
+It should eventually cover fields and their types, declaration order,
+annotations, generic arguments, unions, interfaces, function signatures, and
+nominal identity — the whole structural vocabulary the checker has, not the
+struct-shaped subset an earlier draft showed. Layout facts are not members of
+this descriptor. Where a target is selected and the type has a layout, they are
+available separately, so that a reader can tell which answers travel with the
+program and which travel with the machine.
+
+Field order is declaration order. Recursive types are represented by stable
+read-only handles, not recursively copied tables. A `TypeInfo` handle can be
+inspected and compared during comptime evaluation but cannot be returned as a
+quoted runtime value.
+
+Reflection is read-only data processing. It cannot add fields, methods, types,
+or declarations. Reflection of an unresolved generic type variable is rejected
+initially; reflection operates on concrete resolved types.
+
+Every reflection schema change increments a comptime API version that
+participates in cache keys.
+
+This descriptor is the shared asset of the plan. A future derive phase consumes
+exactly this (§What a derive would be), and so would a schema or serialization
+helper; designing it as comptime's private convenience would mean designing it
+twice.
+
+`reflect` does still need the evaluator, on the other axis: its only use the
+scalar intrinsics do not already cover is iterating `fields`, and iteration is
+C1. A program reading `reflect(T).size` has written `sizeof(T)` the long way.
+
+### Layout intrinsics, and the model they need
+
 `sizeof`, `alignof`, and `offsetof` accept only types with a defined runtime
 layout for the selected target. They use compiler-owned layout information,
 not ambient host `ffi.sizeof`. A request for an erased or target-unsupported
 type is a checked error.
 
-### The layout model is the prerequisite, and it does not exist
-
-That paragraph is one sentence of specification and the largest single piece of
-work in this document, so it is worth separating from the milestone that carries
-it. **Nupp has no compile-time layout model.** It has deliberately declined to
-build one.
+That is one sentence of specification and the largest single piece of work in
+this document. **Nupp has no compile-time layout model.** It has deliberately
+declined to build one.
 
 `layoutof(T)` already answers what a struct's layout is — fields in declaration
 order with offsets, sizes and padding — and answers it **at run time**, through
@@ -314,58 +452,42 @@ have to exist first:
 
 This plan already assumes all three: §Incremental query design keys evaluation on
 "the target triple and ABI/layout version". Naming them here is the correction —
-they were assumed rather than scheduled, which made C2 read as though it were
-mostly reflection plumbing.
+they were assumed rather than scheduled.
 
-Two consequences. C2 is not the cheap milestone; it is a separate project that
-happens to be consumed by comptime, and it should be sequenced as one. And the
-scalar intrinsics do **not** separate cleanly from the evaluator as a folding
-extension, which an earlier reading of this plan suggested they might: they
-separate from the evaluator, and land squarely on the layout model instead.
-
-`reflect(T)` does not separate at all. Its only use that the scalar intrinsics do
-not already cover is iterating `fields`, and iteration needs the evaluator. A
-program reading `reflect(T).size` has written `sizeof(T)` the long way.
-
-`reflect(T)` returns an immutable public descriptor rather than the mutable
-tables used internally by `compiler.types`. The initial descriptor includes:
-
-```lua
-{
-    kind = "struct",
-    name = "Vertex",
-    qualifiedName = "geometry.Vertex",
-    fields = {
-        {name = "x", type = <TypeInfo>, offset = 0},
-        {name = "y", type = <TypeInfo>, offset = 4},
-    },
-    size = 8,
-    alignment = 4,
-}
-```
-
-Field order is declaration order. Recursive types are represented by stable
-read-only handles, not recursively copied tables. A `TypeInfo` handle can be
-inspected and compared during comptime evaluation but cannot be returned as a
-quoted runtime value.
-
-Reflection is read-only data processing. It cannot add fields, methods, types,
-or declarations. Reflection of an unresolved generic type variable is rejected
-initially; reflection operates on concrete resolved types.
-
-Every reflection schema change increments a comptime API version that
-participates in cache keys.
+So these three intrinsics are a separate project that comptime consumes, and are
+sequenced as C2b below. The scalar intrinsics also do **not** separate from the
+evaluator as a folding extension, which an earlier reading of this plan suggested
+they might: they separate from the evaluator and land on the layout model
+instead.
 
 ## Evaluation environment
 
 Comptime execution receives a fresh capability-limited environment containing:
 
-- `assert`, `error`, `ipairs`, deterministic `pairs`, `select`,
-  `tonumber`, `tostring`, and `type`
-- frozen or per-evaluation copies of the pure portions of `math`, `string`,
-  `table`, and `bit`
+- `assert`, `error`, `ipairs`, deterministic `pairs`, `select`, `tonumber`,
+  and `type`
+- an explicit allowlist of deterministic functions from `math`, `string`,
+  `table`, and `bit`, as frozen or per-evaluation copies
 - the compiler-provided reflection and layout intrinsics
 - captured known constants serialized into the request
+
+**An allowlist, named function by function, not "the pure portions of" a
+library.** The phrase a previous revision used is a description rather than a
+specification, and it decides nothing at the edges — `math.random` is impure,
+`os.clock` is obviously out, but `table.sort` with a caller-supplied comparator
+is a question, `string.gsub` with a function replacement is another, and
+`math.fmod` versus `%` on negative operands is a third. Each of those has a right
+answer and the phrase supplies none of them. The list also becomes part of the
+comptime API version, so adding to it is a cache-key change and a deliberate act.
+
+`tostring` is deliberately absent from the first list. `tostring(t)` on a table
+or function yields `table: 0x...`, which is a process address: it varies between
+runs of the same compiler on the same input, so a block using it would break
+determinism and repeated-build byte identity. Comptime should provide its own
+conversion that answers only for the quotable scalars and raises on anything
+else, rather than the ambient one. The same reasoning rejects `#` on a table
+whose sparseness is unknown to it, and any other operation whose answer is the
+allocator's rather than the program's.
 
 It does not receive `io`, `os`, `package`, `require`, `ffi`, `debug`, `jit`,
 `coroutine`, `load`, `loadstring`, `dofile`, `getfenv`, `setfenv`, clocks,
@@ -548,12 +670,10 @@ through the same budgeted query and worker path as batch checking.
 
 ## Implementation milestones
 
-C1, C3 and C4 are one feature in three deliverable pieces: an evaluator, the
-helpers that make it reusable, and the isolation that makes it safe to run in an
-editor. C2 is not the fourth piece of that feature. It is a separate project —
-see §The layout model is the prerequisite, and it does not exist — and it is
-sequenced separately below
-rather than presented as the next step after C1.
+C1, C2a, C3 and C4 are one feature: an evaluator, the reflection it reads, the
+helpers that make it reusable, and the isolation that makes it safe in an editor.
+C2b is not part of that feature. It is a separate project reached through this
+one — see §Layout intrinsics, and the model they need.
 
 ### C1: expression evaluation
 
@@ -561,38 +681,59 @@ rather than presented as the next step after C1.
 - Add checker phase tracking, reading compile-time-known values off what the
   checker records rather than recomputing them.
 - Extract a block emitter from the existing generator.
-- Implement the capability-limited evaluator and canonical scalar/table
-  serializer, extending `OPT-3`'s scalar quoting rather than starting beside it.
+- Implement the capability-limited evaluator against a named allowlist, and the
+  canonical serializer, extending `OPT-3`'s scalar quoting rather than starting
+  beside it.
 - Attach and typecheck synthetic literal expansions.
 - Preserve line count and source diagnostics, following the empty-`do` shape
   `OPT-3` already uses for a branch and a loop it discards.
 - Add an in-memory `evalComptime` query and compute counters.
+- **Minimum worker isolation, if comptime is reachable from the LSP at all**:
+  evaluation out of process, an instruction budget, a wall-clock timeout, and
+  crash recovery. Not the hardened version — that is C4 — but enough that a
+  block which loops forever or dies cannot take the language server with it. A
+  feature whose first release can hang an editor is a feature that gets turned
+  off before it gets fixed, and §Tooling behavior already promises the LSP never
+  evaluates on the protocol loop. This is what makes that promise true rather
+  than aspirational.
 
 Exit test: scalar and table blocks execute, forbidden APIs fail, unchanged
-results cut off invalidation, generated code runs on plain LuaJIT, and the
-self-hosting fixpoint remains byte-identical.
+results cut off invalidation, generated code runs on plain LuaJIT, the
+self-hosting fixpoint remains byte-identical, and a non-terminating block fails
+the one request rather than the server.
 
-### C2: layout and reflection
+### C2a: semantic reflection
+
+Target-independent, and not blocked on anything. Everything here is a fact the
+checker established while checking the declaration.
+
+- Define the versioned immutable `TypeInfo` schema over the checker's full
+  structural vocabulary: fields and field types, declaration order, annotations,
+  generic arguments, unions, interfaces, function signatures, nominal identity.
+- Add semantic type fingerprints and cross-module interface dependencies, so a
+  reflected change invalidates its dependents and a body-only edit does not.
+- Add reflection hover and completion.
+- Test recursive types, declaration order, and body/interface invalidation
+  separately.
+
+Exit test: changing a reflected exported field reruns only dependent blocks;
+changing an unrelated function body does not.
+
+Design it as a shared asset. A derive phase (§What a derive would be) and any
+schema or serialization helper consume this same descriptor, so it should not be
+shaped around what a comptime block finds convenient.
+
+### C2b: layout intrinsics
 
 Blocked on a compile-time layout model, which nupp has deliberately not built.
-The first three items are that project; the rest is the milestone this section
-used to describe, and none of it starts until they land.
+The first two items are that project, and nothing after them starts first.
 
 - Define a target layout model: C ABI rules the compiler owns, rather than
   answers asked of whichever FFI is running.
 - Define target selection, since a layout is meaningless without knowing whose.
-- Add semantic type fingerprints to the module interface hash, so that changing
-  a reflected field in another module invalidates whoever folded its layout.
-  This is a correctness prerequisite and not a performance one: there is no
-  deoptimization, so a stale layout is a miscompile.
-- Then: target-aware `sizeof`, `alignof`, and `offsetof`.
-- Then: the versioned immutable `TypeInfo` schema, plus reflection hover and
-  completion.
-- Test recursive types, declaration order, target keys, and body/interface
-  invalidation separately.
-
-Exit test: changing a reflected exported field reruns only dependent blocks;
-changing an unrelated function body does not.
+- Then: target-aware `sizeof`, `alignof`, and `offsetof`, and the layout facts
+  exposed alongside `TypeInfo` rather than inside it.
+- Test target keys and layout cache separation.
 
 Decide before starting whether `layoutof` and `sizeof` should both exist. One
 answers at run time from the running platform and one at compile time from a
@@ -605,17 +746,24 @@ pair. Naming that difference is cheaper than explaining it later.
 - Give `@comptime` a checked function-declaration meaning.
 - Erase comptime functions from runtime output.
 - Add comptime call stacks, recursion limits, and direct-call checking.
-- Keep functions file-private; evaluate whether cross-module helpers have a
-  demonstrated need before designing their interface representation.
+- Support helpers taking a `TypeInfo` parameter, which is the reflection-driven
+  shape and needs nothing from the generic system.
+- Keep functions file-private for now, while avoiding decisions that would make
+  exporting one awkward: cross-module helpers are an expected extension, and
+  what is deferred is their interface representation.
 
 Exit test: helpers compose and recurse within budget, cannot escape as runtime
 values, and failures retain definition and call-site locations.
 
 ### C4: isolation and build integration
 
-- Move evaluation behind the worker protocol used by both CLI and LSP.
-- Enforce memory, instruction, recursion, and result-size limits.
-- Add worker crash/timeout recovery and cancellation.
+C1 ships the floor: out of process, an instruction budget, a timeout, crash
+recovery. This is the rest of it, and it is hardening rather than the first line
+of defence.
+
+- Generalize the worker protocol across CLI and LSP.
+- Enforce the remaining limits: memory, recursion, and result size.
+- Add cancellation, and recovery from the failure modes the floor does not cover.
 - Integrate persistent results with the manifest build cache when that cache
   lands.
 - Run adversarial evaluator and recorded LSP-session tests.
@@ -676,15 +824,32 @@ smaller, more specific, and more clearly the thing only comptime can do than the
 milestone list suggests — and that the first version should be aimed at exactly
 that, rather than at the constants that keep turning out to have cheaper answers.
 
-## Open questions intentionally deferred
+## Deferred, and the difference between the two kinds
 
-- Cross-module comptime functions
+**Expected extensions**, deferred for staging rather than doubt. Design decisions
+in C1 and C3 should keep the way clear for them:
+
+- Cross-module comptime functions. What is deferred is the interface
+  representation, not whether helpers should be reusable.
+- **Compile-time value parameters**, such as `Matrix<T, const N: integer>`. Worth
+  naming as the one significant capability ordinary type parameters do not
+  replace: nupp's parametric generics already cover what Zig reaches for
+  `comptime T: type` to express, so this is the actual gap between the two
+  models rather than a rounding error in it. Still an explicit extension to the
+  generic system, not an implicit comptime parameter.
+- Compiler-owned derives, consuming the same `TypeInfo` — see §What a derive
+  would be.
+
+**Open questions**, genuinely undecided:
+
 - Generic comptime functions and reflection over constrained type variables
-- Compile-time value parameters in generic declarations
 - Persistent cache format and eviction
-- Quotable sized-integer cdata and identity-preserving immutable aggregates
+- Quotable sized-integer cdata, and identity-preserving immutable aggregates —
+  which is the door left open by rejecting shared references rather than
+  silently duplicating them
 - Whether trusted build configuration needs an explicit file-input capability
 - Whether `layoutof` and a compile-time `sizeof` should coexist, and what a
   cross-compiled build promises when they disagree
+- Whether user-defined derives ever earn a restricted semantic provider API
 
 None of these questions requires an AST macro system or declaration splicing.
