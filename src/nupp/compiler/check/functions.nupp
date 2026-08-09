@@ -195,6 +195,14 @@ function functions.install(c: state.Checker): state.StatHandlers
     -- returns the resulting type.
     c.checkFuncbody = function(body, selfType)
         local params, rets, paramModes = {}, {}, {}
+        -- Inline methods may spell their implicit receiver as the first
+        -- parameter. It is still the receiver rather than an ordinary
+        -- argument: bind that spelling to the owner type and leave it out of
+        -- the function type that addSelf will extend below.
+        local explicitSelf = selfType and body.params and body.params[1]
+        if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
+            explicitSelf = nil
+        end
         local inferredModes, declaredModes = inferredParameterModes(body)
         local vararg = false
         local varargType = nil
@@ -213,11 +221,21 @@ function functions.install(c: state.Checker): state.StatHandlers
             typeParams, typeBounds, packParams = c.bindGenerics(body.generics, "function")
         end
         if selfType then
-            c.bindVar("self", selfType)
+            c.bindVar(
+                "self",
+                selfType,
+                explicitSelf and explicitSelf.type ~= nil,
+                explicitSelf and explicitSelf.name or nil,
+                "parameter"
+            )
         end
         local paramPackTail = nil
         for _, p in ipairs(body.params) do
-            if p.namedVararg then
+            if p == explicitSelf then
+                -- The binding above carries the owner type. The generator
+                -- likewise removes this parameter when it emits `function
+                -- Owner:method(...)`.
+            elseif p.namedVararg then
                 vararg = true
                 if p.type then
                     if p.type.kind == "tpack" then
@@ -557,6 +575,10 @@ function functions.install(c: state.Checker): state.StatHandlers
     c.signatureOf = function(body, selfType)
         local params, modes = {}, {}
         local inferredModes, declaredModes = inferredParameterModes(body or {})
+        local explicitSelf = selfType and body and body.params and body.params[1]
+        if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
+            explicitSelf = nil
+        end
         local typeParams, typeBounds, packParams
         c.pushScope()
         if body and body.generics then
@@ -566,17 +588,17 @@ function functions.install(c: state.Checker): state.StatHandlers
             params[1] = selfType
             modes[1] = "plain"
         end
-        local parameterIndex = 0
         local varargType = nil
         local paramPackTail = nil
         local vararg = body and body.varargs or false
-        for _, p in ipairs(body and body.params or {}) do
-            if p.name and not p.namedVararg then
-                parameterIndex = parameterIndex + 1
+        for sourceIndex, p in ipairs(body and body.params or {}) do
+            if p == explicitSelf then
+                -- The receiver added above is the leading `self` spelling.
+            elseif p.name and not p.namedVararg then
                 local pt = p.type and c.resolveType(p.type) or T.any
-                local mode = inferredModes[parameterIndex] or "borrows"
+                local mode = inferredModes[sourceIndex] or "borrows"
                 if not declaredModes[
-                    parameterIndex
+                    sourceIndex
                 ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
                     mode = "plain"
                 end

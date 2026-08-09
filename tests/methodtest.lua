@@ -85,6 +85,20 @@ function M.selfIsBoundInsideMethods()
    }, "\n")), "NUPP2004:5")
 end
 
+function M.explicitSelfKeepsTheReceiverType()
+   -- The leading `self` spelling is the method receiver, not an untyped
+   -- ordinary parameter. In particular, member lookup must still see R.
+   assertEq(diagsOf(table.concat({
+      "local record R",
+      "    n: number",
+      "",
+      "    function bad(self): number",
+      "        return self.nope",
+      "    end",
+      "end",
+   }, "\n")), "NUPP2004:5")
+end
+
 function M.dottedMembersTakeNoReceiver()
    assertClean(table.concat({
       "local record R",
