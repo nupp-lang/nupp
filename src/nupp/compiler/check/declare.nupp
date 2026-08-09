@@ -39,6 +39,19 @@ local function hasReceiver(body: any, declKind: string): boolean
     return first ~= nil and first.name ~= nil and first.name.text == "self"
 end
 
+--- A label written by an inherited contract is part of that call surface. An empty
+--- label promises only positional calling, so an implementation may expose a label in
+--- addition without ceasing to implement the contract.
+local function implementationLabelsFit(have: T.Func, want: T.Func): boolean
+    for j, wanted in ipairs(want.paramNames or {}) do
+        if wanted ~= "" and (have.paramNames and have.paramNames[j] or "") ~= wanted then
+            return false
+        end
+    end
+
+    return true
+end
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -1337,8 +1350,22 @@ function declare.install(
                     byMember[entry.member] = entry
                     inheritedMembers[entry.member] = entry
                 end
+                local inheritedClaims = {}
                 for _, entry in ipairs(entries) do
                     local inherited = inheritedMembers[entry.member]
+                    if not inherited then
+                        local localCallable = dropSelf(entry.signature) as T.Func
+                        local positionalKey = methodslots.unlabeledParameters(localCallable)
+                        for _, candidate in pairs(inheritedMembers) do
+                            local inheritedCallable = dropSelf(candidate.signature) as T.Func
+                            if methodslots.unlabeledParameters(
+                                inheritedCallable
+                            ) == positionalKey and implementationLabelsFit(localCallable, inheritedCallable) then
+                                inherited = candidate
+                                break
+                            end
+                        end
+                    end
                     if inherited then
                         local localCallable = dropSelf(entry.signature)
                         local inheritedCallable = dropSelf(inherited.signature)
@@ -1351,6 +1378,17 @@ function declare.install(
                                     "method %q does not satisfy its inherited " .. "overload: %s"
                                 ):format(name, why or "incompatible signature")
                             )
+                        end
+                        local priorClaim = inheritedClaims[inherited.member]
+                        if priorClaim and priorClaim ~= entry then
+                            c.diag(
+                                "NUPP2118",
+                                entry.declaration.name,
+                                ("several local overloads implement the same inherited slot of %q"):format(name)
+                            )
+                        else
+                            inheritedClaims[inherited.member] = entry
+                            entry.member = inherited.member
                         end
                     end
                     if not byMember[entry.member] then

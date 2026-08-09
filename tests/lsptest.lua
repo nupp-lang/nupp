@@ -517,7 +517,8 @@ function M.languageFeaturesAndCdefTooling()
    assert(initialize.documentFormattingProvider, "format capability")
 
    local hover = responseWithId(out, 10).result
-   assertContains(hover.contents.value, "cdef cAdd: function(int32, int32): int32",
+   assertContains(hover.contents.value,
+      "cdef cAdd: function(left: int32, right: int32): int32",
       "cdef hover type")
    assertContains(hover.contents.value, "Adds two C integers", "hover docs")
 
@@ -540,7 +541,7 @@ function M.languageFeaturesAndCdefTooling()
    local signature = responseWithId(out, 12).result
    assert(signature.activeParameter == 1, "second signature parameter active")
    assertContains(signature.signatures[1].label,
-      "cAdd: function(int32, int32): int32", "C signature")
+      "cAdd: function(left: int32, right: int32): int32", "C signature")
 
    local references = responseWithId(out, 13).result
    assert(#references == 2, "parameter declaration and reference")

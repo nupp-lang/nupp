@@ -13,6 +13,7 @@ local hash = require("nupp.compiler.build.hash")
 local interface Methodslots
     member: function(name: string, ft: any): string
     parameters: function(ft: any): string
+    unlabeledParameters: function(ft: any): string
 end
 
 local methodslots = {} as Methodslots
@@ -95,7 +96,7 @@ local function fingerprint(t: any, binders: any, active: any): string
     return out
 end
 
-local function packFingerprint(ft: any): string
+local function packFingerprint(ft: any, includeLabels: boolean): string
     local binders = {}
     local generic = {}
     for j, tv in ipairs(ft.typeParams or {}) do
@@ -113,7 +114,7 @@ local function packFingerprint(ft: any): string
         parts[
             j
         ] = tostring(
-            ft.paramNames and ft.paramNames[j] or ""
+            includeLabels and ft.paramNames and ft.paramNames[j] or ""
         ) .. "=" .. tostring(
             ft.paramPack.modes and ft.paramPack.modes[j] or "plain"
         ) .. ":" .. fingerprint(param, binders, {})
@@ -135,12 +136,18 @@ end
 --- The valid Lua identifier used as one overload's hidden runtime member. `ft` is the
 --- callable as seen at a method call, with its receiver removed.
 function methodslots.member(name: string, ft: any): string
-    return "__nupp_m_" .. hash.digest(name .. ":" .. packFingerprint(ft))
+    return "__nupp_m_" .. hash.digest(name .. ":" .. packFingerprint(ft, true))
 end
 
 --- The parameter-pack identity used to reject return-only overloads.
 function methodslots.parameters(ft: any): string
-    return packFingerprint(ft)
+    return packFingerprint(ft, true)
+end
+
+--- The positional identity used to match a labeled implementation to an inherited
+--- contract that deliberately leaves its parameter labels unspecified.
+function methodslots.unlabeledParameters(ft: any): string
+    return packFingerprint(ft, false)
 end
 
 return methodslots

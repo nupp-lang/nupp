@@ -285,6 +285,25 @@ return decoder:decode("yes") .. "," .. decoder:decode(3)
       "interface calls and record bodies agree on signature slots")
 end
 
+function M.explicitInterfaceLabelsStillSelectTheirMatchingImplementation()
+   local value = runs([[
+local interface DecoderContract
+    decode: function(self, text: string): string
+        & function(self, value: string): string
+end
+
+local record Decoder is DecoderContract
+    function decode(self, text: string): string return "text:" .. text end
+    function decode(self, value: string): string return "value:" .. value end
+end
+
+local decoder: DecoderContract = new Decoder {}
+return decoder:decode(text = "yes") .. "," .. decoder:decode(value = "yes")
+]], "labeled bodyless interface contract")
+   assertEq(value, "text:yes,value:yes",
+      "explicit labels retain distinct inherited runtime slots")
+end
+
 function M.genericMethodEntriesKeepTheirDeclaredSlots()
    local value = runs([[
 local record Codec<T>
