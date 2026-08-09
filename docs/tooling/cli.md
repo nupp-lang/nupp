@@ -4,24 +4,25 @@ One executable holds every tool. `nupp help <command>` prints the same
 reference each command's `-h` does.
 
 ```
- Command    Does
- ─────────  ────────────────────────────────────────────────
- ast        Dump a Nupp file's parsed syntax tree
- check      Type-check source without emitting Lua
- fmt        Format Nupp source
- build      Build source files or a configured project target
- clean      Remove build outputs configured in nupp.lua
- tasks      List or inspect project tasks from nupp.lua
- lints      List the lints and the level each runs at
- explain    Describe a diagnostic code, with an example either way
- reference  Print the language reference, or eject it as an agent skill
- test       Build and run the configured test command
- doc        Generate API documentation from source comments
- fixpoint   Verify a byte-identical self-hosting rebuild
- run        Compile and run a Nupp or Lua program
- import-c   Generate typed Nupp bindings from a C header
- lsp        Language-server and semantic source operations
- help       Show general or command-specific help
+ Command      Does
+ ───────────  ────────────────────────────────────────────────
+ ast          Dump a Nupp file's parsed syntax tree
+ check        Type-check source without emitting Lua
+ fmt          Format Nupp source
+ build        Build source files or a configured project target
+ clean        Remove build outputs configured in nupp.lua
+ tasks        List or inspect project tasks from nupp.lua
+ lints        List the lints and the level each runs at
+ explain      Describe a diagnostic code, with an example either way
+ reference    Print the language reference, or eject it as an agent skill
+ test         Build and run the configured test command
+ doc          Generate API documentation from source comments
+ fixpoint     Verify a byte-identical self-hosting rebuild
+ run          Compile and run a Nupp or Lua program
+ import-c     Generate typed Nupp bindings from a C header
+ lsp          Language-server and semantic source operations
+ completions  Print a shell completion script
+ help         Show general or command-specific help
 ```
 
 ## Options every command takes
@@ -43,6 +44,23 @@ whether the stream is a terminal. JSON output is never coloured.
 
 `nupp test` and the `nupp lsp` group forward their arguments, so they take only
 `-h`.
+
+## Shell completion
+
+`nupp completions bash|zsh|fish` prints a completion script generated from the
+same command grammar that parses arguments and renders help. Install it for the
+shell that runs `nupp`:
+
+```sh
+# Bash: add this to ~/.bashrc.
+eval "$(nupp completions bash)"
+
+# Zsh: write _nupp into a directory on fpath.
+nupp completions zsh > "${fpath[1]}/_nupp"
+
+# Fish
+nupp completions fish > ~/.config/fish/completions/nupp.fish
+```
 
 ## JSON and schemas
 

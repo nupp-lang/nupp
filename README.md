@@ -49,6 +49,7 @@ parameters, parameter-effect inference, and raw coroutine suspension. See
     nupp explain CODE           the rule behind a diagnostic, either way round
     nupp reference              print the whole language in ~4k tokens
     nupp reference --skill      eject the same reference as an agent skill
+    nupp completions bash|zsh|fish  print shell command completion
     nupp lsp serve [root]       LSP server over stdio
     nupp lsp <operation> ...    semantic inspect, navigation, and refactoring
 

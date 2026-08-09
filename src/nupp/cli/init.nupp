@@ -38,6 +38,7 @@ local REGISTRY: {{name: string, load: Loader}} = {
     {name = "lints", load = function(): specMod.Handler return require("nupp.cli.lints") end},
     {name = "explain", load = function(): specMod.Handler return require("nupp.cli.explain") end},
     {name = "reference", load = function(): specMod.Handler return require("nupp.cli.reference") end},
+    {name = "completions", load = function(): specMod.Handler return require("nupp.cli.completions_command") end},
     {name = "test", load = function(): specMod.Handler return require("nupp.cli.test") end},
     {name = "doc", load = function(): specMod.Handler return require("nupp.cli.doc") end},
     {name = "fixpoint", load = function(): specMod.Handler return require("nupp.cli.fixpoint") end},
@@ -202,6 +203,18 @@ function cli.names(): {string}
     for _, entry in ipairs(REGISTRY) do names[#names + 1] = entry.name end
     names[#names + 1] = "help"
     return names
+end
+
+--- The complete public command grammar, for schema-derived integrations such as shell
+--- completion. Loading the handlers here is deliberate: the one invocation that needs
+--- every command's grammar is also the one that turns it into another interface.
+function cli.commands(): {any}
+    local commands: {any} = {}
+    for _, entry in ipairs(REGISTRY) do
+        commands[#commands + 1] = {name = entry.name, spec = entry.load().spec}
+    end
+    commands[#commands + 1] = {name = HELP_COMMAND.name, spec = HELP_COMMAND}
+    return commands
 end
 
 return cli

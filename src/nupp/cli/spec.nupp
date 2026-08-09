@@ -89,6 +89,14 @@ record spec.Result
     positional: {string}
 end
 
+--- A positional slot whose values come from a closed set. Commands still own their
+--- positional validation; this describes the choices a shell can offer before one is
+--- typed.
+record spec.Positional
+    name: string
+    choices: {string}?
+end
+
 --- A command's whole grammar: what it is, how it is spelled, and what it accepts.
 record spec.Command
     name: string
@@ -103,6 +111,9 @@ record spec.Command
 
     --- Usage lines, without the "Usage:" heading.
     usage: {string}
+
+    --- Positional values with a closed vocabulary, for schema-derived integrations.
+    positionals: {spec.Positional}
 
     options: {spec.Option}
 
@@ -288,6 +299,7 @@ function spec.command(raw: any): spec.Command
         helpName = raw.helpName or raw.name,
         summary = raw.summary,
         usage = raw.usage or {},
+        positionals = raw.positionals or {},
         options = options,
         intro = raw.intro,
         detail = raw.detail,

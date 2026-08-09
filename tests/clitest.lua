@@ -182,6 +182,26 @@ function M.everyRegisteredCommandHasAGrammarAndHelp()
    end
 end
 
+function M.completionsAreRenderedFromTheRegisteredCommandGrammar()
+   local commands = cli.commands()
+   local rendered = require("nupp.cli.completions")
+   local bash = rendered.render("bash", commands)
+   assert(bash:find("completions", 1, true), "completes the command itself")
+   assert(bash:find("--strict", 1, true), "completes command options")
+   assert(bash:find("always never auto", 1, true),
+      "completes closed option values")
+   assert(bash:find("complete -F _nupp nupp", 1, true), "installs Bash completion")
+
+   local zsh = rendered.render("zsh", commands)
+   assert(zsh:find("#compdef nupp", 1, true), "installs Zsh completion")
+   assert(zsh:find("check:Type-check source", 1, true),
+      "uses the command schema's summary")
+
+   local fish = rendered.render("fish", commands)
+   assert(fish:find("complete -c nupp", 1, true), "installs Fish completion")
+   assert(fish:find("-l strict", 1, true), "includes long options")
+end
+
 function M.colourIsDecidedOncePerStreamAndOverriddenByMode()
    ansi.setMode("never")
    local plain = ansi.style(io.stdout)
@@ -261,6 +281,17 @@ function M.theBinaryHonoursColourFlagsOnRealDiagnostics()
       "asking for colour and refusing it is a contradiction: " .. both)
 
    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.binaryPrintsCompletionScripts()
+   local bash = capture("completions bash")
+   assert(bash:find("complete -F _nupp nupp", 1, true),
+      "the Bash script is available through the CLI")
+   assert(bash:find("--strict", 1, true), "the script reflects command options")
+
+   local fish = capture("completions fish")
+   assert(fish:find("complete -c nupp", 1, true),
+      "the Fish script is available through the CLI")
 end
 
 return M
