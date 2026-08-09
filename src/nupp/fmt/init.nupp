@@ -65,6 +65,7 @@ local CALLEE_KINDS = {
 -- taking a continuation indent.
 local CLOSERS = {
     ["end"] = true, ["until"] = true, ["else"] = true, ["elseif"] = true,
+    ["then"] = true,
     ["}"] = true, [")"] = true, ["]"] = true,
 }
 local BRACKET_PAIR = {["("] = ")", ["["] = "]", ["{"] = "}", ["<"] = ">"}
@@ -130,6 +131,48 @@ end
 -- `if` is always a block. Existing line breaks are otherwise respected, but these
 -- breaks are added: every arm's body opens a line, and `elseif`, `else` and `end` each
 -- start theirs, so there is no inline form to write.
+local function hasNewlineBefore(tok)
+    for _, trivia in ipairs(tok.trivia or {}) do
+        if trivia.kind == "whitespace" and trivia.text:find("\n", 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- A condition carried across source lines by `and` is easier to scan when every
+-- continuation begins with its connective and `then` closes the header by itself.
+local function breakCarriedIfCondition(clause)
+    local firstAnd, carried = nil, false
+    local function walk(node)
+        if cst.isToken(node) then
+            if node.kind == "and" then
+                firstAnd = firstAnd or node
+                carried = carried or hasNewlineBefore(node)
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(clause.cond)
+    if not firstAnd or not carried then
+        return
+    end
+
+    firstAnd.forceBreak = true
+    for _, child in ipairs(clause) do
+        if cst.isToken(child) and child.kind == "then" then
+            local tok = firstToken(child)
+            if tok then
+                tok.forceBreak = true
+            end
+            return
+        end
+    end
+end
+
 local function breakIfArms(n)
     local function breakBefore(node)
         local tok = node and firstToken(node)
@@ -138,6 +181,7 @@ local function breakIfArms(n)
         end
     end
     for idx, clause in ipairs(n.clauses or {}) do
+        breakCarriedIfCondition(clause)
         if idx > 1 then
             breakBefore(clause)
         end
@@ -486,12 +530,16 @@ local function collectItems(tokens)
                 pending = pending + n
             elseif tr.kind == "comment" then
                 local prev = items[#items]
-                if prev and prev.kind == "doc" and pending == 1
-                    and isDocComment(tr.text) then
+                if prev
+                    and prev.kind == "doc" and pending == 1
+                    and isDocComment(tr.text)
+                then
                     prev.rawLines[#prev.rawLines + 1] = tr.text
                     pending = 0
-                elseif prev and prev.kind == "plain" and pending == 1
-                    and isPlainComment(tr.text) then
+                elseif prev
+                    and prev.kind == "plain" and pending == 1
+                    and isPlainComment(tr.text)
+                then
                     prev.rawLines[#prev.rawLines + 1] = tr.text
                     pending = 0
                 elseif isDocComment(tr.text) and (pending > 0 or #items == 0) then
@@ -619,8 +667,10 @@ local function computeIndents(lines)
                 g = g.parent
             end
             depth = depth + hang
-            if hang == 0 and not tok.startsStat and not CLOSERS[tok.kind]
-                and not tok.withHeaderClose then
+            if hang == 0
+                and not tok.startsStat and not CLOSERS[tok.kind]
+                and not tok.withHeaderClose
+            then
                 depth = depth + 1 -- continuation of the previous line
             end
             line.indent = depth
@@ -810,8 +860,10 @@ local function render(lines)
         -- after it (no blank line before `end`)
         local last = line.items[#line.items]
         local next_ = lines[idx + 1]
-        if last and last.kind == "token" and last.token.blankAfter and next_
-            and next_.indent >= line.indent then
+        if last
+            and last.kind == "token" and last.token.blankAfter and next_
+            and next_.indent >= line.indent
+        then
             push("")
         end
         prevIndent = line.indent
@@ -872,7 +924,8 @@ local function canonicalizeSingleValueAnnotations(result, opts)
     -- all schemas before considering their applications.
     for _, application in ipairs(applications) do
         if application.kind == "pragmaStmt"
-            and application.name.text == "annotation" then
+            and application.name.text == "annotation"
+        then
             local target = application.stat
             while target and target.kind == "pragmaStmt" do target = target.stat end
             if target and target.kind == "recordDecl" then
@@ -916,8 +969,10 @@ local function canonicalizeSingleValueAnnotations(result, opts)
         end
         local args = application.annotationArgs or {}
         local arg = #args == 1 and args[1] or nil
-        if member and arg and arg.name and arg.name.text == member
-            and triviaIsWhitespace(arg.name) and triviaIsWhitespace(arg.eq) then
+        if member
+            and arg and arg.name and arg.name.text == member
+            and triviaIsWhitespace(arg.name) and triviaIsWhitespace(arg.eq)
+        then
             arg.name.formatOmit = true
             arg.eq.formatOmit = true
         end

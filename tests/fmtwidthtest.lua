@@ -111,6 +111,26 @@ function M.operatorFallbackWhenNoGroup()
          "    .. tail"))
 end
 
+function M.carriedIfConditionsStartWithAnd()
+   check(lines(
+      "if calleeTok and calleeTok.text == \"ipairs\" and global",
+      "    and calleeTok.definition == global.definition and operand",
+      "    and global.definition and global.definition.stable",
+      "    and operand.kind == \"name\" and operandType",
+      "    and operandType.tag == \"array\" then",
+      "    stat.builtinIpairs = {operand = operand, type = operandType}",
+      "end"), lines(
+      "if calleeTok",
+      "    and calleeTok.text == \"ipairs\" and global",
+      "    and calleeTok.definition == global.definition and operand",
+      "    and global.definition and global.definition.stable",
+      "    and operand.kind == \"name\" and operandType",
+      "    and operandType.tag == \"array\"",
+      "then",
+      "    stat.builtinIpairs = {operand = operand, type = operandType}",
+      "end"))
+end
+
 function M.unbreakableLineIsLeftLong()
    -- a single enormous string literal has nothing to break on
    local src = "local s = '" .. ("x"):rep(140) .. "'\n"
