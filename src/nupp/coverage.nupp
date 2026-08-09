@@ -50,6 +50,7 @@ local function splitLines(source)
     if source:sub(-1) == "\n" then
         lines[#lines] = nil
     end
+
     return lines
 end
 
@@ -70,6 +71,7 @@ local function fileStatus(file)
     if covered == total then
         return "covered"
     end
+
     return "partial"
 end
 
@@ -84,25 +86,21 @@ local function readShard(path)
     if not ok or type(value) ~= "table" or type(value.hits) ~= "table" then
         return nil, "invalid coverage shard " .. path
     end
+
     return value
 end
 
 --- Reads the coverage build state and turns the sites it contains into files with hit
 --- counts. The state is the source of the denominator; the shard only adds execution,
---- so an unloaded source module remains visibly uncovered.
---- The report one run produced: every file it saw, and whatever the runner could not
---- account for. `version` is the shard format, not the report's.
-type coverage.Model = {
-    version: integer,
-    files: {any},
-    warnings: {string},
+--- so an unloaded source module remains visibly uncovered. The report one run produced:
+--- every file it saw, and whatever the runner could not account for. `version` is the
+--- shard format, not the report's.
+type coverage.Model = {version: integer, files: {any}, warnings: {string},
 
     --- Filled in by `write`, which is the only thing that totals the files.
-    summary: {[string]: any}?,
-}
+    summary: {[string]: any}?,}
 
-function coverage.collect(statePath: string,
-    shardPath: string): coverage.Model
+function coverage.collect(statePath: string, shardPath: string): coverage.Model
     local state = cache.loadState(statePath)
     local shard, shardErr = readShard(shardPath)
     local hits = shard and shard.hits or {}
@@ -117,10 +115,18 @@ function coverage.collect(statePath: string,
             local file = files[path]
             if not file then
                 local source = readFile(path) or ""
-                file = {path = path, source = source, generated = record.output,
-                    sites = {}, lines = metric(), functions = metric(),
-                    branches = metric(), lineHits = {}, branchHits = {},
-                    executableLines = {}}
+                file = {
+                    path = path,
+                    source = source,
+                    generated = record.output,
+                    sites = {},
+                    lines = metric(),
+                    functions = metric(),
+                    branches = metric(),
+                    lineHits = {},
+                    branchHits = {},
+                    executableLines = {}
+                }
                 files[path] = file
             end
             local moduleHits = hits[manifest.path] or hits[path] or {}
@@ -128,8 +134,7 @@ function coverage.collect(statePath: string,
                 local id = tostring(site.id)
                 local line = tonumber(site.line) or 0
                 local count = tonumber(moduleHits[id]) or 0
-                local value = {id = site.id, kind = site.kind, line = line,
-                    count = count}
+                local value = {id = site.id, kind = site.kind, line = line, count = count}
                 file.sites[#file.sites + 1] = value
                 if site.kind == "statement" then
                     local lineKey = "L" .. line
@@ -156,22 +161,30 @@ function coverage.collect(statePath: string,
     local list = {}
     for _, file in pairs(files) do
         local executable = {}
-        for _, line in pairs(file.executableLines) do executable[#executable + 1] = line end
+        for _, line in pairs(file.executableLines) do
+            executable[#executable + 1] = line
+        end
         table.sort(executable)
         for _, line in ipairs(executable) do
             add(file.lines, (file.lineHits["L" .. line] or 0) > 0, line)
         end
-        finish(file.lines); finish(file.functions); finish(file.branches)
+        finish(file.lines)
+        ;
+        finish(file.functions)
+        ;
+        finish(file.branches)
         file.status = fileStatus(file)
         list[#list + 1] = file
     end
-    table.sort(list, function(a, b) return a.path < b.path end)
+    table.sort(list, function(a, b)
+        return a.path < b.path
+    end)
+
     return {version = 1, files = list, warnings = warnings}
 end
 
 local function aggregate(files, prefix)
-    local value = {path = prefix, lines = metric(), functions = metric(),
-        branches = metric(), files = {}}
+    local value = {path = prefix, lines = metric(), functions = metric(), branches = metric(), files = {}}
     for _, file in ipairs(files) do
         if prefix == "" or file.path:sub(1, #prefix + 1) == prefix .. "/" then
             for _, field in ipairs({"lines", "functions", "branches"}) do
@@ -181,13 +194,17 @@ local function aggregate(files, prefix)
             value.files[#value.files + 1] = file
         end
     end
-    finish(value.lines); finish(value.functions); finish(value.branches)
+    finish(value.lines)
+    ;
+    finish(value.functions)
+    ;
+    finish(value.branches)
+
     return value
 end
 
 local function escape(text)
-    return tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;")
-        :gsub(">", "&gt;"):gsub('"', "&quot;")
+    return tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
 end
 
 local STYLE = [[
@@ -215,8 +232,15 @@ local TREE_SCRIPT = [[(function(){function expand(){var route=location.hash.slic
 
 local function page(title, tree, body)
     return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        .. "<title>" .. escape(title)
-        .. " | Nupp coverage</title><style>" .. STYLE .. STYLE_OVERLAY .. BREADCRUMB_STYLE .. SPA_STYLE
+        .. "<title>"
+        .. escape(
+        title
+    )
+        .. " | Nupp coverage</title><style>"
+        .. STYLE
+        .. STYLE_OVERLAY
+        .. BREADCRUMB_STYLE
+        .. SPA_STYLE
         .. "</style><div class=shell><aside><a class=brand href='index.html'>Nupp coverage</a>"
         .. tree
         .. "</aside><div class=sidebar-resizer role=separator tabindex=0 aria-label='Resize file tree' aria-orientation=vertical aria-valuemin=220 aria-valuemax=520 aria-valuenow=290></div><main>"
@@ -248,7 +272,9 @@ local function treeHtml(files)
     local root = {dirs = {}, files = {}}
     for _, file in ipairs(files) do
         local node, parts = root, {}
-        for part in file.path:gmatch("[^/]+") do parts[#parts + 1] = part end
+        for part in file.path:gmatch("[^/]+") do
+            parts[#parts + 1] = part
+        end
         for index = 1, #parts - 1 do
             local name = parts[index]
             node.dirs[name] = node.dirs[name] or {dirs = {}, files = {}}
@@ -258,32 +284,53 @@ local function treeHtml(files)
     end
     local function render(node, prefix, depth)
         local out, names = {"<ul>"}, {}
-        for name in pairs(node.dirs) do names[#names + 1] = name end
+        for name in pairs(node.dirs) do
+            names[#names + 1] = name
+        end
         table.sort(names)
         for _, name in ipairs(names) do
             local path = prefix == "" and name or prefix .. "/" .. name
-            out[#out + 1] = "<li><details" .. (depth < 2 and " open" or "")
-                .. "><summary><a data-route='" .. escape(directoryRoute(path)) .. "' href='"
-                .. routeHref(directoryRoute(path)) .. "'><span class=folder aria-hidden=true></span>" .. escape(name)
-                .. "</a></summary>"
-                .. render(node.dirs[name], path, depth + 1) .. "</details></li>"
+            out[
+                #out + 1
+            ] = "<li><details" .. (
+                depth < 2 and " open" or ""
+            ) .. "><summary><a data-route='" .. escape(
+                directoryRoute(path)
+            ) .. "' href='" .. routeHref(
+                directoryRoute(path)
+            ) .. "'><span class=folder aria-hidden=true></span>" .. escape(
+                name
+            ) .. "</a></summary>" .. render(node.dirs[name], path, depth + 1) .. "</details></li>"
         end
-        table.sort(node.files, function(a, b) return a.path < b.path end)
+        table.sort(node.files, function(a, b)
+            return a.path < b.path
+        end)
         for _, file in ipairs(node.files) do
-            out[#out + 1] = "<li><a class='file " .. file.status .. "' data-route='"
-                .. escape(fileRoute(file.path)) .. "' href='" .. routeHref(fileRoute(file.path))
-                .. "'>"
-                .. escape(file.path:match("([^/]+)$")) .. "</a></li>"
+            out[
+                #out + 1
+            ] = "<li><a class='file " .. file.status .. "' data-route='" .. escape(
+                fileRoute(file.path)
+            ) .. "' href='" .. routeHref(
+                fileRoute(file.path)
+            ) .. "'>" .. escape(file.path:match("([^/]+)$")) .. "</a></li>"
         end
         out[#out + 1] = "</ul>"
+
         return table.concat(out)
     end
+
     return "<nav class=tree>" .. render(root, "", 0) .. "</nav>"
 end
 
 local function metricCard(label, value)
-    return "<div class=card><span>" .. label .. "</span><strong>" .. value.percent
-        .. "%</strong><span class=metric>" .. value.covered .. " / " .. value.total
+    return "<div class=card><span>"
+        .. label
+        .. "</span><strong>"
+        .. value.percent
+        .. "%</strong><span class=metric>"
+        .. value.covered
+        .. " / "
+        .. value.total
         .. " covered</span></div>"
 end
 
@@ -291,49 +338,96 @@ local function pageHeading(path)
     if path == "" or path == "All files" then
         return "<h1>All files</h1>"
     end
-    local out, parts, prefix = {"<nav class=breadcrumbs aria-label=Breadcrumb>"
-        .. "<a data-route=all href='#all'>All files</a>"}, {}, ""
-    for part in path:gmatch("[^/]+") do parts[#parts + 1] = part end
+    local out, parts, prefix = {
+        "<nav class=breadcrumbs aria-label=Breadcrumb>" .. "<a data-route=all href='#all'>All files</a>"
+    }, {}, ""
+    for part in path:gmatch("[^/]+") do
+        parts[#parts + 1] = part
+    end
     for index, part in ipairs(parts) do
         prefix = prefix == "" and part or prefix .. "/" .. part
         out[#out + 1] = "<span aria-hidden=true>/</span>"
         if index == #parts then
             out[#out + 1] = "<span aria-current=page>" .. escape(part) .. "</span>"
         else
-            out[#out + 1] = "<a data-route='" .. escape(directoryRoute(prefix))
-                .. "' href='" .. routeHref(directoryRoute(prefix)) .. "'>"
-                .. escape(part) .. "</a>"
+            out[
+                #out + 1
+            ] = "<a data-route='" .. escape(
+                directoryRoute(prefix)
+            ) .. "' href='" .. routeHref(directoryRoute(prefix)) .. "'>" .. escape(part) .. "</a>"
         end
     end
     out[#out + 1] = "</nav><h1>" .. escape(parts[#parts]) .. "</h1>"
+
     return table.concat(out)
 end
 
 local function rows(files)
     local out = {}
     for _, file in ipairs(files) do
-        out[#out + 1] = "<tr data-name='" .. escape(file.path) .. "' data-lines='"
-            .. file.lines.percent .. "' data-missed-lines='" .. #file.lines.missing
-            .. "' data-functions='" .. file.functions.percent .. "' data-missed-functions='"
-            .. #file.functions.missing .. "' data-branches='" .. file.branches.percent
-            .. "' data-missed-arms='" .. #file.branches.missing
-            .. "'><td><span class='status " .. file.status .. "'></span><a data-route='"
-            .. escape(fileRoute(file.path)) .. "' href='" .. routeHref(fileRoute(file.path))
-            .. "'>" .. escape(file.path) .. "</a></td><td>"
-            .. file.lines.covered .. " / " .. file.lines.total .. " (" .. file.lines.percent
-            .. "%)</td><td>" .. #file.lines.missing .. "</td><td>" .. file.functions.covered
-            .. " / " .. file.functions.total .. "</td><td>" .. #file.functions.missing
-            .. "</td><td>" .. file.branches.covered .. " / " .. file.branches.total
-            .. " (" .. file.branches.percent .. "%)</td><td>" .. #file.branches.missing
+        out[
+            #out + 1
+        ] = "<tr data-name='" .. escape(
+            file.path
+        )
+            .. "' data-lines='"
+            .. file.lines.percent
+            .. "' data-missed-lines='"
+            .. #file.lines.missing
+            .. "' data-functions='"
+            .. file.functions.percent
+            .. "' data-missed-functions='"
+            .. #file.functions.missing
+            .. "' data-branches='"
+            .. file.branches.percent
+            .. "' data-missed-arms='"
+            .. #file.branches.missing
+            .. "'><td><span class='status "
+            .. file.status
+            .. "'></span><a data-route='"
+            .. escape(
+            fileRoute(file.path)
+        ) .. "' href='" .. routeHref(
+            fileRoute(file.path)
+        ) .. "'>" .. escape(
+            file.path
+        )
+            .. "</a></td><td>"
+            .. file.lines.covered
+            .. " / "
+            .. file.lines.total
+            .. " ("
+            .. file.lines.percent
+            .. "%)</td><td>"
+            .. #file.lines.missing
+            .. "</td><td>"
+            .. file.functions.covered
+            .. " / "
+            .. file.functions.total
+            .. "</td><td>"
+            .. #file.functions.missing
+            .. "</td><td>"
+            .. file.branches.covered
+            .. " / "
+            .. file.branches.total
+            .. " ("
+            .. file.branches.percent
+            .. "%)</td><td>"
+            .. #file.branches.missing
             .. "</td></tr>"
     end
+
     return table.concat(out)
 end
 
 local function indexBody(summary, model, title)
-    local out = {pageHeading(title) .. "<div class=cards>",
-        metricCard("Lines", summary.lines), metricCard("Functions", summary.functions),
-        metricCard("Branches", summary.branches), "</div>"}
+    local out = {
+        pageHeading(title) .. "<div class=cards>",
+        metricCard("Lines", summary.lines),
+        metricCard("Functions", summary.functions),
+        metricCard("Branches", summary.branches),
+        "</div>"
+    }
     for _, warning in ipairs(model.warnings or {}) do
         out[#out + 1] = "<p class=warning>" .. escape(warning) .. "</p>"
     end
@@ -345,8 +439,8 @@ local function indexBody(summary, model, title)
         .. "<th><button data-key=missedArms aria-sort=none>Missed arms <span class=sort-indicator aria-hidden=true></span></button></th></tr></thead><tbody>"
         .. rows(
         summary.files
-    )
-        .. "</tbody></table>"
+    ) .. "</tbody></table>"
+
     return table.concat(out)
 end
 
@@ -354,7 +448,9 @@ local function codeRows(source, file, language)
     local out, sourceLines = {}, splitLines(source)
     local highlighted = highlight.codeLines(source, language)
     local executable = {}
-    for _, site in ipairs(file.sites) do executable[site.line] = true end
+    for _, site in ipairs(file.sites) do
+        executable[site.line] = true
+    end
     for line, text in ipairs(sourceLines) do
         local hits = file.lineHits["L" .. line] or 0
         local branch = file.branchHits["L" .. line]
@@ -371,39 +467,54 @@ local function codeRows(source, file, language)
         if branch then
             detail = detail .. " " .. branch.yes .. "/" .. branch.no
         end
-        out[#out + 1] = "<span id='L" .. line .. "' class='row " .. state
-            .. "'><span class=num>" .. line .. "</span><span class=hit>" .. detail
-            .. "</span>" .. (highlighted[line] or escape(text)) .. "</span>"
+        out[
+            #out + 1
+        ] = "<span id='L"
+            .. line
+            .. "' class='row "
+            .. state
+            .. "'><span class=num>"
+            .. line
+            .. "</span><span class=hit>"
+            .. detail
+            .. "</span>"
+            .. (
+            highlighted[line] or escape(text)
+        ) .. "</span>"
     end
+
     return table.concat(out)
 end
 
 local function fileBody(file)
     local generated = readFile(file.generated) or "-- generated Lua unavailable"
-    local out = {pageHeading(file.path) .. "<div class=cards>", metricCard("Lines", file.lines),
-        metricCard("Functions", file.functions), metricCard("Branches", file.branches),
+    local out = {
+        pageHeading(file.path) .. "<div class=cards>",
+        metricCard("Lines", file.lines),
+        metricCard("Functions", file.functions),
+        metricCard("Branches", file.branches),
         "</div><div class=tabs><button data-view=source>Nupp source</button>"
         .. "<button data-view=generated>Generated Lua</button></div>",
         "<pre data-view=source class='view code'>" .. codeRows(file.source, file, "nupp") .. "</pre>",
-        "<pre data-view=generated class='view code hidden'>" .. codeRows(generated, file, "lua")
-        .. "</pre>"}
+        "<pre data-view=generated class='view code hidden'>" .. codeRows(generated, file, "lua") .. "</pre>"
+    }
+
     return table.concat(out)
 end
 
 local function routeSection(route, body)
-    return "<section class=route data-route='" .. escape(route) .. "' hidden>" .. body
-        .. "</section>"
+    return "<section class=route data-route='" .. escape(route) .. "' hidden>" .. body .. "</section>"
 end
 
 local function reportBody(summary, model, dirs)
     local sections = {routeSection("all", indexBody(summary, model, "All files"))}
     for _, dir in ipairs(dirs) do
-        sections[#sections + 1] = routeSection(directoryRoute(dir),
-            indexBody(aggregate(model.files, dir), model, dir))
+        sections[#sections + 1] = routeSection(directoryRoute(dir), indexBody(aggregate(model.files, dir), model, dir))
     end
     for _, file in ipairs(model.files) do
         sections[#sections + 1] = routeSection(fileRoute(file.path), fileBody(file))
     end
+
     return table.concat(sections)
 end
 
@@ -423,12 +534,12 @@ local function lcov(model)
         end
         out[#out + 1] = "end_of_record"
     end
+
     return table.concat(out, "\n") .. "\n"
 end
 
 --- Writes all report formats and returns the root roll-up for terminal/JSON callers.
-function coverage.write(model: coverage.Model,
-    outDir: string): {[string]: any}
+function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
     highlight.configureScintillua(".", {})
     local summary = aggregate(model.files, "")
     model.summary = summary
@@ -437,13 +548,28 @@ function coverage.write(model: coverage.Model,
     encoder.encode_invalid_numbers(false)
     -- Source text and generated Lua belong in their HTML pages, not in the machine
     -- report. Keeping the JSON to metrics/sites makes it practical for CI to read.
-    local public = {version = model.version, warnings = model.warnings, files = {},
-        summary = {path = summary.path, lines = summary.lines,
-        functions = summary.functions, branches = summary.branches}}
+    local public = {
+        version = model.version,
+        warnings = model.warnings,
+        files = {},
+        summary = {
+            path = summary.path,
+            lines = summary.lines,
+            functions = summary.functions,
+            branches = summary.branches
+        }
+    }
     for _, file in ipairs(model.files) do
-        public.files[#public.files + 1] = {path = file.path, status = file.status,
-            lines = file.lines, functions = file.functions, branches = file.branches,
-            sites = file.sites}
+        public.files[
+            #public.files + 1
+        ] = {
+            path = file.path,
+            status = file.status,
+            lines = file.lines,
+            functions = file.functions,
+            branches = file.branches,
+            sites = file.sites
+        }
     end
     assert(writeFile(outDir .. "/coverage.json", encoder.encode(public) .. "\n"))
     assert(writeFile(outDir .. "/summary.json", encoder.encode(public.summary) .. "\n"))
@@ -451,12 +577,20 @@ function coverage.write(model: coverage.Model,
     local dirSet, dirs = {}, {}
     for _, file in ipairs(model.files) do
         local dir = parent(file.path)
-        while dir ~= "" do dirSet[dir] = true; dir = parent(dir) end
+        while dir ~= "" do
+            dirSet[dir] = true
+            ;
+            dir = parent(dir)
+        end
     end
-    for dir in pairs(dirSet) do dirs[#dirs + 1] = dir end
+    for dir in pairs(dirSet) do
+        dirs[#dirs + 1] = dir
+    end
     table.sort(dirs)
-    assert(writeFile(outDir .. "/index.html", page("All files", treeHtml(model.files),
-        reportBody(summary, model, dirs))))
+    assert(
+        writeFile(outDir .. "/index.html", page("All files", treeHtml(model.files), reportBody(summary, model, dirs)))
+    )
+
     return summary
 end
 

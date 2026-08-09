@@ -46,15 +46,7 @@ end
 
 -- Select Graphic Rendition parameters, spelled once. Bold is folded into the colour
 -- rather than emitted separately so a style is one escape, not two.
-local SGR = {
-    strong = "1",
-    faint = "2",
-    red = "1;31",
-    yellow = "1;33",
-    cyan = "1;36",
-    green = "1;32",
-    blue = "1;34",
-}
+local SGR = {strong = "1", faint = "2", red = "1;31", yellow = "1;33", cyan = "1;36", green = "1;32", blue = "1;34",}
 
 local RESET = "\27[0m"
 
@@ -76,18 +68,18 @@ end
 -- The severities a diagnostic can carry, in the colours compilers have agreed on: red
 -- stops a build, yellow does not, and the two kinds of commentary that follow a
 -- diagnostic are cooler than either so they read as subordinate.
-local SEVERITY_COLOUR = {
-    error = "red",
-    warning = "yellow",
-    note = "cyan",
-    help = "green",
-}
+local SEVERITY_COLOUR = {error = "red", warning = "yellow", note = "cyan", help = "green",}
 
 local PLAIN_SEVERITY: {[string]: function(string): string} = {}
-for name in pairs(SEVERITY_COLOUR) do PLAIN_SEVERITY[name] = plain end
+for name in pairs(SEVERITY_COLOUR) do
+    PLAIN_SEVERITY[name] = plain
+end
 
 local PLAIN: ansi.Style = new ansi.Style {
-    strong = plain, faint = plain, path = plain, gutter = plain,
+    strong = plain,
+    faint = plain,
+    path = plain,
+    gutter = plain,
     severity = PLAIN_SEVERITY,
 }
 
@@ -127,13 +119,18 @@ local function isatty(fd: integer): boolean
     -- matters is that the symbol is declared by the time it is called, not that this
     -- call is the one that declared it.
     pcall(ffi.cdef, "int isatty(int);")
-    local ok, result = pcall(function() return ffi.C.isatty(fd) end)
+    local ok, result = pcall(function()
+        return ffi.C.isatty(fd)
+    end)
     if ok then
         return result ~= 0
     end
     -- The Microsoft C runtime keeps it under the reserved-name spelling.
     pcall(ffi.cdef, "int _isatty(int);")
-    local retried, retriedResult = pcall(function() return ffi.C._isatty(fd) end)
+    local retried, retriedResult = pcall(function()
+        return ffi.C._isatty(fd)
+    end)
+
     return retried and retriedResult ~= 0
 end
 
@@ -145,10 +142,12 @@ local function capable(fd: integer): boolean
     if os.getenv("TERM") == "dumb" then
         return false
     end
-    if windows and not (requested("WT_SESSION") or requested("ANSICON")
-        or requested("ConEmuANSI") or os.getenv("TERM")) then
+    if windows and not (
+        requested("WT_SESSION") or requested("ANSICON") or requested("ConEmuANSI") or os.getenv("TERM")
+    ) then
         return false
     end
+
     return isatty(fd)
 end
 
@@ -171,16 +170,18 @@ function ansi.setMode(wanted: string): nil
     end
 end
 
---- Runs `body` with a temporary colour mode, restoring the caller's mode even
---- when `body` raises. This is for renderers and tests that need stable text
---- while the surrounding process may have made its own colour choice.
+--- Runs `body` with a temporary colour mode, restoring the caller's mode even when
+--- `body` raises. This is for renderers and tests that need stable text while the
+--- surrounding process may have made its own colour choice.
 --- @raises whatever `body` raises, after restoring the caller's mode
 function ansi.withMode(wanted: string, body: function(): nil): nil
     local before = mode
     ansi.setMode(wanted)
     local ok, err = pcall(body)
     ansi.setMode(before)
-    if not ok then error(err, 0) end
+    if not ok then
+        error(err, 0)
+    end
 end
 
 --- Whether `stream` should be written to in colour.
@@ -203,6 +204,7 @@ function ansi.enabled(stream: LuaFile): boolean
         answer = capable(DESCRIPTOR[stream] or 1)
     end
     decided[stream] = answer
+
     return answer
 end
 

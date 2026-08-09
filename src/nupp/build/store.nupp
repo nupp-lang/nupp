@@ -84,10 +84,11 @@ function store.open(path: string?, stamp: string): store.Store
             -- guarded, and every way it can go wrong lands on the same answer: no
             -- entries, recompute, overwrite.
             local ok, decoded = pcall(buffer.decode, text)
-            if ok and type(decoded) == "table"
-                and decoded.format == FORMAT and decoded.stamp == stamp
-                and type(decoded.order) == "table"
-                and type(decoded.entries) == "table" then
+            if ok and type(
+                decoded
+            ) == "table" and decoded.format == FORMAT and decoded.stamp == stamp and type(
+                decoded.order
+            ) == "table" and type(decoded.entries) == "table" then
                 entries = decoded.entries
                 for _, key in ipairs(decoded.order) do
                     if entries[key] ~= nil then
@@ -106,6 +107,7 @@ function store.open(path: string?, stamp: string): store.Store
         end
         stats.hits = (stats.hits or 0) + 1
         live[key] = true
+
         return value
     end
 
@@ -144,10 +146,10 @@ function store.open(path: string?, stamp: string): store.Store
                 keptEntries[key] = entries[key]
             end
         end
-        local ok, text = pcall(buffer.encode, {
-            format = FORMAT, stamp = stamp,
-            order = keptOrder, entries = keptEntries,
-        })
+        local ok, text = pcall(
+            buffer.encode,
+            {format = FORMAT, stamp = stamp, order = keptOrder, entries = keptEntries,}
+        )
         -- A store that cannot be encoded or written is a store that misses next time,
         -- which is what happens when there is no store at all.
         if ok then
@@ -183,8 +185,7 @@ function store.openValue(path: string?, stamp: string): store.Value
         local text = fs.readFile(path)
         if text then
             local ok, decoded = pcall(buffer.decode, text)
-            if ok and type(decoded) == "table"
-                and decoded.format == FORMAT and decoded.stamp == stamp then
+            if ok and type(decoded) == "table" and decoded.format == FORMAT and decoded.stamp == stamp then
                 self.value = decoded.value
             end
         end
@@ -193,17 +194,18 @@ function store.openValue(path: string?, stamp: string): store.Value
         self.value = value
         dirty = true
     end
+
     function self.save()
         if not path or not dirty then
             return
         end
-        local ok, text = pcall(buffer.encode,
-            {format = FORMAT, stamp = stamp, value = self.value})
+        local ok, text = pcall(buffer.encode, {format = FORMAT, stamp = stamp, value = self.value})
         if ok then
             pcall(fs.writeFile, path, text)
         end
         dirty = false
     end
+
     return self
 end
 

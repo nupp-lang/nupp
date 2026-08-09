@@ -14,10 +14,7 @@ that names it.
 local options = {}
 
 --- `--strict`, for the commands that type-check.
-options.strict = {
-    name = "--strict",
-    help = "Treat strict checker rules as errors",
-}
+options.strict = {name = "--strict", help = "Treat strict checker rules as errors",}
 
 -- The three spellings of one choice. They share a key, so giving two of them is caught
 -- as the contradiction it is, and the complaint is about the choice rather than about
@@ -28,13 +25,27 @@ local DUPLICATE_FORMAT = "output format was specified more than once"
 --- list each time so a command can splice it into its own option list.
 function options.format(): {any}
     return {
-        {name = "--format", value = "FORMAT", choices = {"text", "json"},
-        duplicate = DUPLICATE_FORMAT,
-        help = "Output format: text (default) or json"},
-        {name = "--json", key = "format", constant = "json",
-        duplicate = DUPLICATE_FORMAT, help = "Shorthand for --format json"},
-        {name = "--text", key = "format", constant = "text",
-        duplicate = DUPLICATE_FORMAT, help = "Shorthand for --format text"},
+        {
+            name = "--format",
+            value = "FORMAT",
+            choices = {"text", "json"},
+            duplicate = DUPLICATE_FORMAT,
+            help = "Output format: text (default) or json"
+        },
+        {
+            name = "--json",
+            key = "format",
+            constant = "json",
+            duplicate = DUPLICATE_FORMAT,
+            help = "Shorthand for --format json"
+        },
+        {
+            name = "--text",
+            key = "format",
+            constant = "text",
+            duplicate = DUPLICATE_FORMAT,
+            help = "Shorthand for --format text"
+        },
     }
 end
 
@@ -44,21 +55,39 @@ end
 --- optimizer can look passes up in.
 function options.optimize(): {any}
     return {
-        {name = "-O", pattern = "^%-O(%d)$", value = "n", key = "optLevel",
-        choices = {"0", "1", "2"}, display = "-O0, -O1, -O2",
-        invalid = "the optimization level is -O0, -O1 or -O2",
-        help = "Optimization level (default -O0, which rewrites nothing)"},
-        {name = "--remarks",
-        help = "Report what the optimizer did and what it declined to do"},
-        {name = "--relax", value = "GUARANTEE", form = "attached",
-        key = "relaxed", repeats = true, set = true,
-        choices = {"function-identity", "load-order", "error-site", "frames",
-        "gc-timing", "table-order"}, display = "--relax=GUARANTEE",
-        help = "Allow optimizations to change one named observable guarantee"},
-        {name = "-Zno-opt", value = "CODE", form = "attached", key = "disabled",
-        repeats = true, set = true, display = "-Zno-opt=CODE",
-        help = "Turn off one pass, named by its stable code, to bisect a "
-        .. "miscompile. Unstable: the spelling may change or go away"},
+        {
+            name = "-O",
+            pattern = "^%-O(%d)$",
+            value = "n",
+            key = "optLevel",
+            choices = {"0", "1", "2"},
+            display = "-O0, -O1, -O2",
+            invalid = "the optimization level is -O0, -O1 or -O2",
+            help = "Optimization level (default -O0, which rewrites nothing)"
+        },
+        {name = "--remarks", help = "Report what the optimizer did and what it declined to do"},
+        {
+            name = "--relax",
+            value = "GUARANTEE",
+            form = "attached",
+            key = "relaxed",
+            repeats = true,
+            set = true,
+            choices = {"function-identity", "load-order", "error-site", "frames", "gc-timing", "table-order"},
+            display = "--relax=GUARANTEE",
+            help = "Allow optimizations to change one named observable guarantee"
+        },
+        {
+            name = "-Zno-opt",
+            value = "CODE",
+            form = "attached",
+            key = "disabled",
+            repeats = true,
+            set = true,
+            display = "-Zno-opt=CODE",
+            help = "Turn off one pass, named by its stable code, to bisect a "
+            .. "miscompile. Unstable: the spelling may change or go away"
+        },
     }
 end
 
@@ -70,9 +99,12 @@ function options.join(...: any): {any}
         if group.name or group.names then
             joined[#joined + 1] = group
         else
-            for _, option in ipairs(group) do joined[#joined + 1] = option end
+            for _, option in ipairs(group) do
+                joined[#joined + 1] = option
+            end
         end
     end
+
     return joined
 end
 

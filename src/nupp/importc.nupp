@@ -26,6 +26,7 @@ local function readFile(path)
     end
     local s = f:read("*a")
     f:close()
+
     return s
 end
 
@@ -34,6 +35,7 @@ local function capture(argv)
     if code ~= 0 then
         return nil
     end
+
     return out
 end
 
@@ -53,6 +55,7 @@ local function filterToHeader(preprocessed, headerBase)
             keep[#keep + 1] = line
         end
     end
+
     return table.concat(keep, "\n")
 end
 
@@ -68,10 +71,12 @@ local function normalize(text)
     end
     text = text:gsub("__asm__%s*%b()", "")
     text = text:gsub("__asm%s*%b()", "")
-    for _, word in ipairs({"__restrict__", "__restrict", "__extension__",
-        "_Nullable", "_Nonnull", "_Null_unspecified", "__inline__"}) do
+    for _, word in ipairs(
+        {"__restrict__", "__restrict", "__extension__", "_Nullable", "_Nonnull", "_Null_unspecified", "__inline__"}
+    ) do
         text = text:gsub(word, "")
     end
+
     return text
 end
 
@@ -87,8 +92,7 @@ local function statements(text)
             depth = depth - 1
         end
         if ch == ";" and depth == 0 then
-            local stmt = table.concat(buf):gsub("%s+", " "):gsub("^%s+", "")
-                :gsub("%s+$", "")
+            local stmt = table.concat(buf):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
             if #stmt > 0 then
                 out[#out + 1] = stmt
             end
@@ -97,6 +101,7 @@ local function statements(text)
             buf[#buf + 1] = ch
         end
     end
+
     return out
 end
 
@@ -112,6 +117,7 @@ local function stripLinemarkers(text)
             out[#out + 1] = line
         end
     end
+
     return table.concat(out, "\n")
 end
 
@@ -131,28 +137,44 @@ local function collectTypedefs(stmts)
             local base, name = body:match("^(.-)%s*%f[%w_]([%a_][%w_]*)$")
             if base and name and base:match("%S") and not seen[name] then
                 seen[name] = true
-                defs[#defs + 1] = {
-                    name = name,
-                    base = (base:gsub("^%s+", ""):gsub("%s+$", "")),
-                }
+                defs[#defs + 1] = {name = name, base = (base:gsub("^%s+", ""):gsub("%s+$", "")),}
             end
         end
     end
+
     return defs
 end
 
 local INTEGER_TYPE = {
-    [8] = {"int8", "uint8"}, [16] = {"int16", "uint16"},
-    [32] = {"int32", "uint32"}, [64] = {"int64", "uint64"},
+    [8] = {"int8", "uint8"},
+    [16] = {"int16", "uint16"},
+    [32] = {"int32", "uint32"},
+    [64] = {"int64", "uint64"},
 }
 
 local RESERVED = {
-    ["and"] = true, ["break"] = true, ["do"] = true, ["else"] = true,
-    ["elseif"] = true, ["end"] = true, ["false"] = true, ["for"] = true,
-    ["function"] = true, ["goto"] = true, ["if"] = true, ["in"] = true,
-    ["local"] = true, ["nil"] = true, ["not"] = true, ["or"] = true,
-    ["repeat"] = true, ["return"] = true, ["then"] = true, ["true"] = true,
-    ["until"] = true, ["while"] = true,
+    ["and"] = true,
+    ["break"] = true,
+    ["do"] = true,
+    ["else"] = true,
+    ["elseif"] = true,
+    ["end"] = true,
+    ["false"] = true,
+    ["for"] = true,
+    ["function"] = true,
+    ["goto"] = true,
+    ["if"] = true,
+    ["in"] = true,
+    ["local"] = true,
+    ["nil"] = true,
+    ["not"] = true,
+    ["or"] = true,
+    ["repeat"] = true,
+    ["return"] = true,
+    ["then"] = true,
+    ["true"] = true,
+    ["until"] = true,
+    ["while"] = true,
 }
 
 local function identifier(name)
@@ -190,8 +212,7 @@ renderType = function(model, knownStructs, callbacks)
         return nil
     elseif kind == "pointer" then
         local pointee = model.to
-        if pointee and pointee.kind == "integer" and pointee.bits == 8
-            and model.const then
+        if pointee and pointee.kind == "integer" and pointee.bits == 8 and model.const then
             return "cstring"
         end
         if pointee and pointee.kind == "function" then
@@ -200,17 +221,21 @@ renderType = function(model, knownStructs, callbacks)
             end
             return nil
         end
-        if pointee and pointee.kind == "struct" and pointee.name
-            and knownStructs[pointee.name] then
+        if pointee and pointee.kind == "struct" and pointee.name and knownStructs[pointee.name] then
             return pointee.name .. "*"
         end
-        if pointee and (pointee.kind == "void" or pointee.kind == "integer"
-            or pointee.kind == "float" or pointee.kind == "boolean"
-            or pointee.kind == "enum") then
+        if pointee and (
+            pointee.kind == "void"
+            or pointee.kind == "integer"
+            or pointee.kind == "float"
+            or pointee.kind == "boolean"
+            or pointee.kind == "enum"
+        ) then
             return "voidptr"
         end
         return nil
     end
+
     return nil
 end
 
@@ -234,6 +259,7 @@ renderFunctionType = function(fn, knownStructs)
         end
         out = out .. ": " .. ret
     end
+
     return out
 end
 
@@ -245,6 +271,7 @@ local function headerMacroNames(rawHeader)
             names[#names + 1] = name
         end
     end
+
     return names
 end
 
@@ -253,6 +280,7 @@ local function macroValues(dmOutput)
     for name, value in dmOutput:gmatch("#define%s+([%a_][%w_]*)%s+([^\n]+)") do
         values[name] = value
     end
+
     return values
 end
 
@@ -266,25 +294,20 @@ local function constantExpr(value)
     if value:match('^"[^"]*"$') then
         return value, "string"
     end
-    if value:match("^[%d%sxXa-fA-F%.%+%-%*/%%%(%)<>|&~]+$")
-        and value:match("%d") then
+    if value:match("^[%d%sxXa-fA-F%.%+%-%*/%%%(%)<>|&~]+$") and value:match("%d") then
         return value, "number"
     end
+
     return nil
 end
 
 --- What an import was asked for: the compiler that preprocesses the header, the flags
 --- it needs to find what the header includes, and the library the generated
 --- declarations load from.
-type importc.Options = {
-    readonly cc: string?,
-    readonly cppflags: {string}?,
-    readonly lib: string?,
-}
+type importc.Options = {readonly cc: string?, readonly cppflags: {string}?, readonly lib: string?,}
 
 -- Main entry: returns the .nupp module text and a list of warnings.
-function importc.import(headerPath: string,
-    opts: importc.Options?): string?, {string}
+function importc.import(headerPath: string, opts: importc.Options?): string?, {string}
     opts = opts or {} as importc.Options
     local warnings = {}
     local raw = readFile(headerPath)
@@ -294,12 +317,16 @@ function importc.import(headerPath: string,
     local headerBase = basename(headerPath)
     local cc = opts.cc or "cc"
     local cpp = {cc, "-E"}
-    for _, flag in ipairs(opts.cppflags or {}) do cpp[#cpp + 1] = flag end
+    for _, flag in ipairs(opts.cppflags or {}) do
+        cpp[#cpp + 1] = flag
+    end
     cpp[#cpp + 1] = "-xc"
     cpp[#cpp + 1] = headerPath
     local preprocessed = capture(cpp)
     local macros = {cc, "-E", "-dM"}
-    for _, flag in ipairs(opts.cppflags or {}) do macros[#macros + 1] = flag end
+    for _, flag in ipairs(opts.cppflags or {}) do
+        macros[#macros + 1] = flag
+    end
     macros[#macros + 1] = "-xc"
     macros[#macros + 1] = headerPath
     local dm = capture(macros) or ""
@@ -322,11 +349,9 @@ function importc.import(headerPath: string,
         ownTypedefs[def.name] = true
     end
     local typedefText = {}
-    for _, def in ipairs(collectTypedefs(
-        statements(normalize(stripLinemarkers(preprocessed))))) do
+    for _, def in ipairs(collectTypedefs(statements(normalize(stripLinemarkers(preprocessed))))) do
         if not ownTypedefs[def.name] then
-            typedefText[#typedefText + 1] =
-                ("typedef %s %s;"):format(def.base, def.name)
+            typedefText[#typedefText + 1] = ("typedef %s %s;"):format(def.base, def.name)
         end
     end
 
@@ -350,7 +375,9 @@ function importc.import(headerPath: string,
     local out = {}
     local exports = {}
     local knownStructs = {}
-    local function emit(line) out[#out + 1] = line end
+    local function emit(line)
+        out[#out + 1] = line
+    end
 
     emit(("-- generated by nupp import-c from %s"):format(headerBase))
     emit("-- committed and hand-editable: fix or extend freely, re-import")
@@ -367,8 +394,9 @@ function importc.import(headerPath: string,
             emit("--   " .. reject.text:sub(1, 100))
         end
         emit("")
-        warnings[#warnings + 1] = ("%d of %d declarations skipped: %s"):format(
-            #parsed.rejected, parsed.declared, parsed.rejected[1].reason)
+        warnings[
+            #warnings + 1
+        ] = ("%d of %d declarations skipped: %s"):format(#parsed.rejected, parsed.declared, parsed.rejected[1].reason)
     end
 
     for _, declaration in ipairs(parsed.structs) do
@@ -388,14 +416,15 @@ function importc.import(headerPath: string,
         end
         if ok then
             emit("cdef struct " .. name)
-            for _, field in ipairs(fields) do emit(field) end
+            for _, field in ipairs(fields) do
+                emit(field)
+            end
             emit("end")
             emit("")
             exports[#exports + 1] = name
         else
             knownStructs[name] = nil
-            emit("-- import-c: skipped struct " .. tostring(name)
-                .. " (unsupported field type)")
+            emit("-- import-c: skipped struct " .. tostring(name) .. " (unsupported field type)")
         end
     end
 
@@ -422,8 +451,7 @@ function importc.import(headerPath: string,
             end
         end
         if ok then
-            local sig = "cdef function " .. fn.name .. "("
-                .. table.concat(params, ", ") .. ")"
+            local sig = "cdef function " .. fn.name .. "(" .. table.concat(params, ", ") .. ")"
             if ret then
                 sig = sig .. ": " .. ret
             end
@@ -433,8 +461,7 @@ function importc.import(headerPath: string,
             emit(sig)
             exports[#exports + 1] = fn.name
         else
-            emit("-- import-c: skipped function " .. tostring(fn.name)
-                .. " (unsupported C type)")
+            emit("-- import-c: skipped function " .. tostring(fn.name) .. " (unsupported C type)")
         end
     end
 
@@ -446,8 +473,7 @@ function importc.import(headerPath: string,
             return
         end
         taken[name] = true
-        constLines[#constLines + 1] = ("local %s: %s = %s")
-            :format(name, typeName, expr)
+        constLines[#constLines + 1] = ("local %s: %s = %s"):format(name, typeName, expr)
         exports[#exports + 1] = name
     end
 
@@ -473,7 +499,9 @@ function importc.import(headerPath: string,
     end
     if #constLines > 0 then
         emit("")
-        for _, line in ipairs(constLines) do emit(line) end
+        for _, line in ipairs(constLines) do
+            emit(line)
+        end
     end
 
     -- module shape

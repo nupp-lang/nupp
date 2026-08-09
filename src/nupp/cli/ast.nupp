@@ -24,11 +24,15 @@ local command = spec.command{
                 type = "array",
                 items = {
                     type = "object",
-                    properties = {code = {type = "string"},
-                    message = {type = "string"},
-                    offset = {type = "integer"}, length = {type = "integer"},
-                    line = {type = "integer"}, col = {type = "integer"},
-                    help = {type = "string"}},
+                    properties = {
+                        code = {type = "string"},
+                        message = {type = "string"},
+                        offset = {type = "integer"},
+                        length = {type = "integer"},
+                        line = {type = "integer"},
+                        col = {type = "integer"},
+                        help = {type = "string"}
+                    },
                 },
             },
         },
@@ -42,20 +46,24 @@ local command = spec.command{
                 properties = {
                     tag = {type = "string", enum = {"node", "token"}},
                     kind = {type = "string"},
-                    children = {type = "array",
-                    items = {["$ref"] = "#/definitions/node"}},
+                    children = {type = "array", items = {["$ref"] = "#/definitions/node"}},
                     text = {type = "string"},
-                    offset = {type = "integer"}, line = {type = "integer"},
+                    offset = {type = "integer"},
+                    line = {type = "integer"},
                     col = {type = "integer"},
-                    missing = {type = "boolean",
-                    description = "Inserted by error recovery; not in the "
-                    .. "source."},
+                    missing = {type = "boolean", description = "Inserted by error recovery; not in the " .. "source."},
                     trivia = {
                         type = "array",
-                        items = {type = "object", properties = {
-                            kind = {type = "string"}, text = {type = "string"},
-                            offset = {type = "integer"},
-                            line = {type = "integer"}, col = {type = "integer"}}},
+                        items = {
+                            type = "object",
+                            properties = {
+                                kind = {type = "string"},
+                                text = {type = "string"},
+                                offset = {type = "integer"},
+                                line = {type = "integer"},
+                                col = {type = "integer"}
+                            }
+                        },
                     },
                 },
                 required = {"tag", "kind"},
@@ -73,19 +81,26 @@ local function syntaxTreeValue(cst: any, value: any): any
     if cst.isToken(value) then
         local trivia: {any} = {}
         for _, item in ipairs(value.trivia) do
-            trivia[#trivia + 1] = {kind = item.kind, text = item.text,
-                offset = item.offset, line = item.line, col = item.col}
+            trivia[
+                #trivia + 1
+            ] = {kind = item.kind, text = item.text, offset = item.offset, line = item.line, col = item.col}
         end
         return {
-            tag = "token", kind = value.kind, text = value.text,
-            offset = value.offset, line = value.line, col = value.col,
-            missing = value.missing and true or nil, trivia = trivia,
+            tag = "token",
+            kind = value.kind,
+            text = value.text,
+            offset = value.offset,
+            line = value.line,
+            col = value.col,
+            missing = value.missing and true or nil,
+            trivia = trivia,
         }
     end
     local children: {any} = {}
     for _, child in ipairs(value) do
         children[#children + 1] = syntaxTreeValue(cst, child)
     end
+
     return {tag = "node", kind = value.kind, children = children}
 end
 
@@ -109,16 +124,24 @@ local function run(parsed: any): integer
     else
         local errors: {any} = {}
         for _, err in ipairs(result.errors) do
-            errors[#errors + 1] = {code = err.code, message = err.msg,
-                offset = err.offset, length = err.length, line = err.line,
-                col = err.col, help = err.help}
+            errors[
+                #errors + 1
+            ] = {
+                code = err.code,
+                message = err.msg,
+                offset = err.offset,
+                length = err.length,
+                line = err.line,
+                col = err.col,
+                help = err.help
+            }
         end
         local json = require("cjson").new()
         json.encode_empty_table_as_object(false)
         json.encode_invalid_numbers(false)
-        io.write(json.encode({file = path,
-            root = syntaxTreeValue(cst, result.root), errors = errors}) .. "\n")
+        io.write(json.encode({file = path, root = syntaxTreeValue(cst, result.root), errors = errors}) .. "\n")
     end
+
     return require("nupp.diagnostics").report(result.errors) and 1 or 0
 end
 

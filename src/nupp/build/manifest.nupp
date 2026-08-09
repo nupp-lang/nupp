@@ -35,28 +35,21 @@ type manifest.Target = {
     --- "modules", "bundle", "binary" or "docs"; absent means "modules".
     kind: string?,
 
-    description: string?,
-    outDir: string?,
-    output: string?,
+    description: string?, outDir: string?, output: string?,
 
     --- The prebuilt host a `binary` target's payload is stamped into.
     stub: string?,
 
-    entries: {string}?,
-    sources: {string}?,
-    resources: {string}?,
-    dependencies: {string}?,
-    format: string?,
-    title: string?,
+    entries: {
+        string
+    }?, sources: {string}?, resources: {string}?, dependencies: {string}?, format: string?, title: string?,
 
     --- The target's own name, filled in by `nupp.build.tasks` when it merges the
     --- build's keys with the target's. A docs target takes `targetName` instead,
     --- because `name` is already the site's.
-    name: string?,
-    targetName: string?,
+    name: string?, targetName: string?,
 
-    [string]: any,
-}
+    [string]: any,}
 
 --- What a project depends on but did not write.
 ---
@@ -69,16 +62,10 @@ type manifest.Dependency = {
 
     dependencies: {string}?,
 
-    [string]: any,
-}
+    [string]: any,}
 
 --- The build section: either one target inline, or several by name.
-type manifest.Build = {
-    outDir: string?,
-    targets: {[string]: manifest.Target}?,
-    default: string?,
-    [string]: any,
-}
+type manifest.Build = {outDir: string?, targets: {[string]: manifest.Target}?, default: string?, [string]: any,}
 
 --- The command `nupp test` runs, and what it runs with.
 type manifest.Test = {
@@ -88,37 +75,27 @@ type manifest.Test = {
     --- Which target to build first.
     build: string?,
 
-    env: {[string]: string}?,
-    [string]: any,
-}
+    env: {[string]: string}?, [string]: any,}
 
 --- Which target rebuilds the compiler, and where its stage zero lives.
-type manifest.SelfHost = {
-    target: string?,
-    bootstrap: string?,
+type manifest.SelfHost = {target: string?, bootstrap: string?,
 
     --- The `binary` target `nupp fixpoint --binary` stamps twice.
     binary: string?,
 
-    [string]: any,
-}
+    [string]: any,}
 
---- One named `tasks` entry: a command the project runs by hand often enough to want
---- a name for, and optionally a target to build before it.
-type manifest.Task = {
-    description: string?,
-    argv: {string}?,
-    build: string?,
-    env: {[string]: string}?,
+--- One named `tasks` entry: a command the project runs by hand often enough to want a
+--- name for, and optionally a target to build before it.
+type manifest.Task = {description: string?, argv: {string}?, build: string?, env: {[string]: string}?,
 
-    [string]: any,
-}
+    [string]: any,}
 
 --- A whole `nupp.lua`.
 ---
---- The underscored keys are not written by hand: `nupp.build.project` folds the
---- options a command was given into the config before it is hashed, so changing one
---- invalidates the artifacts built under the old value.
+--- The underscored keys are not written by hand: `nupp.build.project` folds the options
+--- a command was given into the config before it is hashed, so changing one invalidates
+--- the artifacts built under the old value.
 type manifest.Config = {
     include: {string}?,
     strict: boolean?,
@@ -161,6 +138,7 @@ local function validateArray(value, label, itemType, required)
     if required and count == 0 then
         return nil, label .. " must not be empty"
     end
+
     return true
 end
 
@@ -182,20 +160,13 @@ end
 -- is how `nupp doc` gets the rocks it renders with.
 local DOCS_KEYS = {
     -- read by nupp.doc
-    "sources", "format", "outDir", "title", "name", "description", "github",
-    "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages",
+    "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages",
     -- taken by any build target
-    "kind", "dependencies", "entries", "resources", "output", "stub",
-    "nativeFeatures",
-}
+    "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures",}
 
-local PAGE_KEYS = {
-    "path", "title", "source", "layout",
-    "heroTitle", "heroText", "heroImage", "heroImageAlt", "heroActions",
+local PAGE_KEYS = {"path", "title", "source", "layout", "heroTitle", "heroText", "heroImage", "heroImageAlt", "heroActions",
     -- accepted spellings of the same five
-    "hero_title", "hero_text", "hero_image", "hero_image_alt", "hero_actions",
-    "features",
-}
+    "hero_title", "hero_text", "hero_image", "hero_image_alt", "hero_actions", "features",}
 
 local HERO_ACTION_KEYS = {"text", "path", "theme"}
 local FEATURE_KEYS = {"icon", "image", "title", "details"}
@@ -206,7 +177,9 @@ local function validateKeys(value, known, label)
         return true
     end
     local allowed = {}
-    for _, name in ipairs(known) do allowed[name] = true end
+    for _, name in ipairs(known) do
+        allowed[name] = true
+    end
     local unknown = {}
     for key in pairs(value) do
         if type(key) == "string" and not allowed[key] then
@@ -220,9 +193,9 @@ local function validateKeys(value, known, label)
     end
     local suggestion = require("nupp.check.fixits").nearest(key, known)
     if suggestion then
-        return nil, ("%s has no key %q; did you mean %q?"):format(
-            label, key, suggestion)
+        return nil, ("%s has no key %q; did you mean %q?"):format(label, key, suggestion)
     end
+
     return nil, ("%s has no key %q"):format(label, key)
 end
 
@@ -244,20 +217,19 @@ local function validateDocsTarget(target, label)
             return nil, err
         end
         for actionIndex, action in ipairs(page.heroActions or page.hero_actions or {}) do
-            valid, err = validateKeys(action, HERO_ACTION_KEYS,
-                ("%s.heroActions[%d]"):format(pageLabel, actionIndex))
+            valid, err = validateKeys(action, HERO_ACTION_KEYS, ("%s.heroActions[%d]"):format(pageLabel, actionIndex))
             if not valid then
                 return nil, err
             end
         end
         for featureIndex, feature in ipairs(page.features or {}) do
-            valid, err = validateKeys(feature, FEATURE_KEYS,
-                ("%s.features[%d]"):format(pageLabel, featureIndex))
+            valid, err = validateKeys(feature, FEATURE_KEYS, ("%s.features[%d]"):format(pageLabel, featureIndex))
             if not valid then
                 return nil, err
             end
         end
     end
+
     return true
 end
 
@@ -266,13 +238,12 @@ local function validateTarget(target, label, dependencies)
         return nil, label .. " must be a table"
     end
     local kind = target.kind or "modules"
-    if kind ~= "modules" and kind ~= "docs" and kind ~= "bundle"
-        and kind ~= "binary" then
-        return nil, label
-            .. ".kind must be \"modules\", \"bundle\", \"binary\", or \"docs\""
+    if kind ~= "modules" and kind ~= "docs" and kind ~= "bundle" and kind ~= "binary" then
+        return nil, label .. ".kind must be \"modules\", \"bundle\", \"binary\", or \"docs\""
     end
     if kind == "binary" and target.stub == nil then
-        return nil, label .. ".stub is required for a binary target: it names "
+        return nil, label
+            .. ".stub is required for a binary target: it names "
             .. "the executable the payload is stamped into"
     end
     if target.stub ~= nil then
@@ -289,15 +260,15 @@ local function validateTarget(target, label, dependencies)
             return nil, label .. ".nativeFeatures must be a table"
         end
         local known = {}
-        for _, name in ipairs(native.featureNames()) do known[name] = true end
+        for _, name in ipairs(native.featureNames()) do
+            known[name] = true
+        end
         for name, enabled in pairs(target.nativeFeatures) do
             if type(name) ~= "string" or not known[name] then
-                return nil, label .. ".nativeFeatures names no feature "
-                    .. tostring(name)
+                return nil, label .. ".nativeFeatures names no feature " .. tostring(name)
             end
             if type(enabled) ~= "boolean" then
-                return nil, label .. ".nativeFeatures." .. name
-                    .. " must be true or false"
+                return nil, label .. ".nativeFeatures." .. name .. " must be true or false"
             end
         end
     end
@@ -307,8 +278,12 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
     end
-    local valid, err = validateArray(target.entries, label .. ".entries", "string",
-        kind == "modules" or kind == "bundle" or kind == "binary")
+    local valid, err = validateArray(
+        target.entries,
+        label .. ".entries",
+        "string",
+        kind == "modules" or kind == "bundle" or kind == "binary"
+    )
     if not valid then
         return nil, err
     end
@@ -318,13 +293,11 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
     end
-    valid, err = validateArray(target.sources, label .. ".sources", "string",
-        kind == "docs")
+    valid, err = validateArray(target.sources, label .. ".sources", "string", kind == "docs")
     if not valid then
         return nil, err
     end
-    if target.format ~= nil and target.format ~= "site"
-        and target.format ~= "markdown" and target.format ~= "both" then
+    if target.format ~= nil and target.format ~= "site" and target.format ~= "markdown" and target.format ~= "both" then
         return nil, label .. ".format must be \"site\", \"markdown\", or \"both\""
     end
     if target.title ~= nil and type(target.title) ~= "string" then
@@ -349,6 +322,7 @@ local function validateTarget(target, label, dependencies)
             return nil, err
         end
     end
+
     return true
 end
 
@@ -357,8 +331,7 @@ end
 -- whatever is newest is a build that means something different tomorrow -- so a rock is
 -- pinned to a version, to a rockspec, or to a directory that is already in the tree,
 -- and a manifest that pins none of the three is refused.
-local ROCK_STRINGS = {"rock", "version", "rockspec", "path", "tree",
-    "luaVersion", "server", "luaDir", "luarocks"}
+local ROCK_STRINGS = {"rock", "version", "rockspec", "path", "tree", "luaVersion", "server", "luaDir", "luarocks"}
 
 local function validateRock(dep, label)
     for _, field in ipairs(ROCK_STRINGS) do
@@ -370,8 +343,7 @@ local function validateRock(dep, label)
         end
     end
     if dep.version == nil and dep.rockspec == nil and dep.path == nil then
-        return nil, label .. " must pin the rock: give a version, a rockspec, "
-            .. "or a path to build it from"
+        return nil, label .. " must pin the rock: give a version, a rockspec, " .. "or a path to build it from"
     end
     -- What a bundle carries of this rock, as globs over the tree it installs into. A
     -- rock tree is mostly things a program never asks for, so this is a list rather
@@ -384,9 +356,9 @@ local function validateRock(dep, label)
     -- read as declaring that and mean nothing, which is the one way a configuration
     -- file can lie to the person who wrote it.
     if #(dep.dependencies or {}) > 0 then
-        return nil, label .. ".dependencies is not for a rock: LuaRocks "
-            .. "resolves what a rock depends on"
+        return nil, label .. ".dependencies is not for a rock: LuaRocks " .. "resolves what a rock depends on"
     end
+
     return true
 end
 
@@ -413,8 +385,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         if not valid then
             return nil, err
         end
-        if config.fmt.methodParens ~= nil
-            and type(config.fmt.methodParens) ~= "boolean" then
+        if config.fmt.methodParens ~= nil and type(config.fmt.methodParens) ~= "boolean" then
             return nil, "fmt.methodParens must be a boolean"
         end
     end
@@ -430,12 +401,10 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                 return nil, "lint names must be non-empty strings"
             end
             if not LINT_LEVELS[level] then
-                return nil, ("lints.%s must be off, note, warning or error")
-                    :format(key)
+                return nil, ("lints.%s must be off, note, warning or error"):format(key)
             end
             if not check.lintFor(key) and not check.lintCategories[key] then
-                return nil, ("lints.%s names no lint or category; "
-                    .. "see `nupp lints`"):format(key)
+                return nil, ("lints.%s names no lint or category; " .. "see `nupp lints`"):format(key)
             end
         end
     end
@@ -451,13 +420,10 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         if type(dep) ~= "table" then
             return nil, "dependencies." .. name .. " must be a table"
         end
-        if dep.kind ~= "c" and dep.kind ~= "cargo" and dep.kind ~= "rust"
-            and dep.kind ~= "luarocks" then
-            return nil, "dependencies." .. name
-                .. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
+        if dep.kind ~= "c" and dep.kind ~= "cargo" and dep.kind ~= "rust" and dep.kind ~= "luarocks" then
+            return nil, "dependencies." .. name .. ".kind must be \"c\", \"cargo\", \"rust\", or \"luarocks\""
         end
-        valid, err = validateArray(dep.dependencies,
-            "dependencies." .. name .. ".dependencies", "string")
+        valid, err = validateArray(dep.dependencies, "dependencies." .. name .. ".dependencies", "string")
         if not valid then
             return nil, err
         end
@@ -469,8 +435,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         end
         for _, child in ipairs(dep.dependencies or {}) do
             if type(dependencies[child]) ~= "table" then
-                return nil, "dependencies." .. name
-                    .. ".dependencies references unknown dependency " .. child
+                return nil, "dependencies." .. name .. ".dependencies references unknown dependency " .. child
             end
         end
     end
@@ -484,16 +449,17 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return true
         end
         visiting[name] = true
-        for _, child in ipairs(
-            (dependencies[name] as manifest.Dependency).dependencies or {}) do
+        for _, child in ipairs((dependencies[name] as manifest.Dependency).dependencies or {}) do
             local ok, cycleErr = visit(child)
             if not ok then
                 return nil, cycleErr
             end
         end
         visiting[name], visited[name] = nil, true
+
         return true
     end
+
     for name in pairs(dependencies) do
         valid, err = visit(name)
         if not valid then
@@ -531,9 +497,10 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                         effective[key] = value
                     end
                 end
-                for key, value in pairs(target) do effective[key] = value end
-                valid, err = validateTarget(effective,
-                    "build.targets." .. name, dependencies)
+                for key, value in pairs(target) do
+                    effective[key] = value
+                end
+                valid, err = validateTarget(effective, "build.targets." .. name, dependencies)
                 if not valid then
                     return nil, err
                 end
@@ -634,8 +601,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                     return nil, label .. ".build requires build.targets"
                 end
                 if type(build.targets[task.build]) ~= "table" then
-                    return nil, label .. ".build references unknown target "
-                        .. task.build
+                    return nil, label .. ".build references unknown target " .. task.build
                 end
             end
             if task.env ~= nil then
@@ -666,18 +632,17 @@ local function validateManifest(config: manifest.Config): boolean?, string?
                 return nil, "selfHost.target requires build.targets"
             end
             if type(build.targets[config.selfHost.target]) ~= "table" then
-                return nil, "selfHost.target references unknown target "
-                    .. config.selfHost.target
+                return nil, "selfHost.target references unknown target " .. config.selfHost.target
             end
         end
         if config.selfHost.bootstrap ~= nil then
-            valid, err = validateString(config.selfHost.bootstrap,
-                "selfHost.bootstrap")
+            valid, err = validateString(config.selfHost.bootstrap, "selfHost.bootstrap")
             if not valid then
                 return nil, err
             end
         end
     end
+
     return true
 end
 
@@ -704,6 +669,7 @@ function manifest.load(root: string?): manifest.Config?, string?
     if not valid then
         return nil, "nupp: " .. tostring(err)
     end
+
     return config
 end
 

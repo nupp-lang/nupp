@@ -6,8 +6,7 @@ local fs = require("nupp.fs")
 local command = spec.command{
     name = "coverage",
     summary = "Run tests and write a source coverage report",
-    usage = {"nupp coverage [--out DIR] [--json] [test arguments...]",
-    "nupp coverage --report-json [--out DIR]"},
+    usage = {"nupp coverage [--out DIR] [--json] [test arguments...]", "nupp coverage --report-json [--out DIR]"},
     stopAtPositional = true,
     options = {
         {name = "--out", value = "DIR", help = "Directory for the HTML, JSON, and LCOV report"},
@@ -15,11 +14,10 @@ local command = spec.command{
         {name = "--report-json", key = "reportJson", help = "Print an existing full JSON report; do not run tests"},
     },
     schema = {
-        type = "object", description = "Aggregate Nupp coverage totals.",
-        properties = {
-            lines = {type = "object"}, functions = {type = "object"},
-            branches = {type = "object"},
-        }, required = {"lines", "functions", "branches"},
+        type = "object",
+        description = "Aggregate Nupp coverage totals.",
+        properties = {lines = {type = "object"}, functions = {type = "object"}, branches = {type = "object"},},
+        required = {"lines", "functions", "branches"},
     },
     detail = [[Coverage uses a separate build/coverage artifact, so normal generated
 Lua and its cache are never instrumented. The static report opens at
@@ -38,8 +36,9 @@ local function run(parsed)
         end
         local existing, err = fs.readFile(outDir .. "/coverage.json")
         if not existing then
-            io.stderr:write("nupp: cannot read coverage report " .. outDir
-                .. "/coverage.json: " .. tostring(err) .. "\n")
+            io.stderr:write(
+                "nupp: cannot read coverage report " .. outDir .. "/coverage.json: " .. tostring(err) .. "\n"
+            )
             return 1
         end
         io.write(existing)
@@ -55,24 +54,33 @@ local function run(parsed)
         return 1
     end
     local project = require("nupp.build.project")
-    local testCode = project.test(".", parsed.positional, {coverage = true,
-        outDir = buildDir, env = {NUPP_COVERAGE = "1",
-        NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}})
+    local testCode = project.test(
+        ".",
+        parsed.positional,
+        {
+            coverage = true,
+            outDir = buildDir,
+            env = {NUPP_COVERAGE = "1", NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}
+        }
+    )
     local report = require("nupp.coverage")
     local model = report.collect(buildDir .. "/.nupp-state.json", raw)
     local summary = report.write(model, outDir)
     if parsed.values.json then
         require("nupp.cli.report").write(summary)
     else
-        io.write(("coverage: lines %.2f%%, functions %.2f%%, branches %.2f%%\n")
-            :format(summary.lines.percent, summary.functions.percent,
-            summary.branches.percent))
+        io.write(
+            (
+                "coverage: lines %.2f%%, functions %.2f%%, branches %.2f%%\n"
+            ):format(summary.lines.percent, summary.functions.percent, summary.branches.percent)
+        )
         io.write("coverage: report written to " .. outDir .. "/index.html\n")
     end
     if #model.warnings > 0 and testCode == 0 then
         io.stderr:write("nupp: coverage data is incomplete\n")
         return 1
     end
+
     return testCode
 end
 

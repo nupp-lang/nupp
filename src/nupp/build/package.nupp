@@ -39,17 +39,18 @@ local function longString(text: string): string
         level = math.max(level, #closing - 2 + 1)
     end
     local equals = ("="):rep(level)
+
     return "[" .. equals .. "[\n" .. text .. "]" .. equals .. "]"
 end
 
 --- The Lua module name a target's entry compiles to, and where its `.lua` lands.
-local function entryModule(root: string, outDir: string,
-    target: Target): string, string
+local function entryModule(root: string, outDir: string, target: Target): string, string
     local mainName = "nupp.main"
     local entries = target.entries or {}
     if entries[1] and not entries[1]:match("%.nupp$") then
         mainName = entries[1]
     end
+
     return mainName, join(root, join(outDir, mainName:gsub("%.", "/") .. ".lua"))
 end
 
@@ -77,9 +78,13 @@ end
 --- @return the chunk, or nil when one of its parts could not be read
 --- @return why not
 --- @return the resources that had no key a running program could ask for
-local function bundleText(root: string, config: Config, target: Target,
+local function bundleText(
+    root: string,
+    config: Config,
+    target: Target,
     banner: string?,
-    modules: {[string]: ModuleRecord}?): string?, string?, {string}?
+    modules: {[string]: ModuleRecord}?
+): string?, string?, {string}?
     local outDir = target.outDir or "build"
     local _, mainPath = entryModule(root, outDir, target)
     local chunks = {banner or ""}
@@ -103,15 +108,16 @@ local function bundleText(root: string, config: Config, target: Target,
         if not text then
             return nil, readErr
         end
-        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n")
-            :format(rock.name)
+        chunks[#chunks + 1] = ("package.preload[%q] = function(...)\n"):format(rock.name)
         chunks[#chunks + 1] = text
         chunks[#chunks + 1] = "\nend\n"
     end
 
     local built = modules or {}
     local names = {}
-    for name in pairs(built) do names[#names + 1] = name end
+    for name in pairs(built) do
+        names[#names + 1] = name
+    end
     table.sort(names)
     for _, name in ipairs(names) do
         local path = (built[name] as nupp.build.cache.ModuleRecord).output
@@ -130,15 +136,13 @@ local function bundleText(root: string, config: Config, target: Target,
     local resources, unreachable = {}, {}
     for _, pattern in ipairs(target.resources or {}) do
         for _, source in ipairs(expandGlob(root, pattern)) do
-            local staged = normalize(join(root,
-                join(outDir, resourceRelative(config, source, root))))
+            local staged = normalize(join(root, join(outDir, resourceRelative(config, source, root))))
             if staged:sub(1, #moduleDirPath + 1) == moduleDirPath .. "/" then
                 local text, readErr = readFile(staged)
                 if not text then
                     return nil, readErr
                 end
-                resources[#resources + 1] =
-                    {name = staged:sub(#moduleDirPath + 1), text = text}
+                resources[#resources + 1] = {name = staged:sub(#moduleDirPath + 1), text = text}
             else
                 -- A resource staged beside the entry's directory rather than under it
                 -- has no key a running program could ask for, since a program asks
@@ -149,12 +153,13 @@ local function bundleText(root: string, config: Config, target: Target,
             end
         end
     end
-    table.sort(resources, function(a, b) return a.name < b.name end)
+    table.sort(resources, function(a, b)
+        return a.name < b.name
+    end)
     chunks[#chunks + 1] = 'package.preload["nupp.embedded"] = function()\n'
     chunks[#chunks + 1] = "return {\n"
     for _, resource in ipairs(resources) do
-        chunks[#chunks + 1] = ("[%q] = %s,\n")
-            :format(resource.name, longString(resource.text))
+        chunks[#chunks + 1] = ("[%q] = %s,\n"):format(resource.name, longString(resource.text))
     end
     chunks[#chunks + 1] = "}\nend\n"
 
@@ -163,6 +168,7 @@ local function bundleText(root: string, config: Config, target: Target,
         return nil, mainErr
     end
     chunks[#chunks + 1] = mainText
+
     return table.concat(chunks), nil, unreachable
 end
 
@@ -186,6 +192,7 @@ local function littleEndian(value, width)
         bytes[index] = string.char(value % 256)
         value = math.floor(value / 256)
     end
+
     return table.concat(bytes)
 end
 
@@ -195,10 +202,10 @@ local function digestPrefix(hex, count)
     for index = 1, count do
         -- Bound before the call: `assert` hands back every argument it was given, so
         -- passing it straight to `string.char` passes the message too.
-        local byte = assert(tonumber(hex:sub(index * 2 - 1, index * 2), 16),
-            "a digest is hexadecimal")
+        local byte = assert(tonumber(hex:sub(index * 2 - 1, index * 2), 16), "a digest is hexadecimal")
         bytes[index] = string.char(byte)
     end
+
     return table.concat(bytes)
 end
 
@@ -210,14 +217,18 @@ end
 --- afterwards on the platforms that check.
 local function stampBinary(stubText, payload)
     local offset = #stubText
-    local trailer = PAYLOAD_MAGIC
-        .. littleEndian(PAYLOAD_VERSION, 4)
-        .. littleEndian(0, 4)
-        .. littleEndian(offset, 8)
-        .. littleEndian(#payload, 8)
-        .. digestPrefix(hash.sha256(payload), 8)
-        .. littleEndian(TRAILER_LENGTH, 8)
+    local trailer = PAYLOAD_MAGIC .. littleEndian(
+        PAYLOAD_VERSION,
+        4
+    ) .. littleEndian(
+        0,
+        4
+    ) .. littleEndian(
+        offset,
+        8
+    ) .. littleEndian(#payload, 8) .. digestPrefix(hash.sha256(payload), 8) .. littleEndian(TRAILER_LENGTH, 8)
     assert(#trailer == TRAILER_LENGTH, "the trailer is a fixed size")
+
     return stubText .. payload .. trailer
 end
 
@@ -234,17 +245,16 @@ end
 --- the result, and with it notarization. A binary handed to somebody else's Mac needs a
 --- signer that can sign over the payload rather than around it; see
 --- [distribution.md](../../../docs/distribution.md).
-local function stampFile(output: string, stubText: string,
-    payload: string): boolean?, string?
+local function stampFile(output: string, stubText: string, payload: string): boolean?, string?
     local written, writeErr = writeFile(output, stampBinary(stubText, payload))
     if not written then
         return nil, tostring(writeErr)
     end
     local code, chmodErr = process.capture({"chmod", "+x", output})
     if code ~= 0 then
-        return nil, "cannot make " .. output .. " executable: "
-            .. tostring(chmodErr)
+        return nil, "cannot make " .. output .. " executable: " .. tostring(chmodErr)
     end
+
     return true
 end
 

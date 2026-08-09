@@ -14,34 +14,40 @@ local command = spec.command{
     name = "explain",
     summary = "Describe a diagnostic code, with an example either way",
     usage = {"nupp explain <code> [--format text|json]", "nupp explain --list"},
-    options = optionsMod.join(
-        {name = "--list", help = "List the codes with a worked example"},
-        optionsMod.format()),
+    options = optionsMod.join({name = "--list", help = "List the codes with a worked example"}, optionsMod.format()),
     schema = {
         type = "object",
         properties = {
             code = {type = "string"},
             summary = {type = "string", description = "One line."},
-            rule = {type = "string",
-            description = "The general statement the code enforces."},
-            wrong = {type = "string",
-            description = "A program that reports the code. Absent when "
-            .. "only the family is known."},
+            rule = {type = "string", description = "The general statement the code enforces."},
+            wrong = {
+                type = "string",
+                description = "A program that reports the code. Absent when " .. "only the family is known."
+            },
             right = {type = "string", description = "The same program, corrected."},
-            related = {type = "array", items = {type = "string"},
-            description = "Codes worth reading beside it."},
-            docs = {type = "string",
-            description = "The reference section, as a path and anchor. The "
-            .. "same value every diagnostic carries under `docs`."},
-            family = {type = "boolean",
-            description = "True when this is what the code's family says "
-            .. "rather than what is known about the code itself, which "
-            .. "is when the examples are absent."},
-            strict = {type = "boolean",
-            description = "True when the rule is only reported under "
-            .. "--strict, or with strict = true in the manifest."},
-            codes = {type = "array", items = {type = "string"},
-            description = "Present for --list instead of the fields above."},
+            related = {type = "array", items = {type = "string"}, description = "Codes worth reading beside it."},
+            docs = {
+                type = "string",
+                description = "The reference section, as a path and anchor. The "
+                .. "same value every diagnostic carries under `docs`."
+            },
+            family = {
+                type = "boolean",
+                description = "True when this is what the code's family says "
+                .. "rather than what is known about the code itself, which "
+                .. "is when the examples are absent."
+            },
+            strict = {
+                type = "boolean",
+                description = "True when the rule is only reported under "
+                .. "--strict, or with strict = true in the manifest."
+            },
+            codes = {
+                type = "array",
+                items = {type = "string"},
+                description = "Present for --list instead of the fields above."
+            },
         },
     },
     detail = [[Every diagnostic written by --json carries the same `docs` anchor this
@@ -77,19 +83,28 @@ local function run(parsed: any): integer
         return command:usageError("unknown diagnostic code " .. positional[1])
     end
     if asJson then
-        require("nupp.cli.report").write({
-            code = entry.code, summary = entry.summary, rule = entry.rule,
-            wrong = entry.wrong, right = entry.right, related = entry.related,
-            docs = entry.docs, family = entry.family, strict = entry.strict,
-        })
+        require(
+            "nupp.cli.report"
+        ).write(
+            {
+                code = entry.code,
+                summary = entry.summary,
+                rule = entry.rule,
+                wrong = entry.wrong,
+                right = entry.right,
+                related = entry.related,
+                docs = entry.docs,
+                family = entry.family,
+                strict = entry.strict,
+            }
+        )
         return 0
     end
     local style = ansi.style(io.stdout)
-    local out: {string} = {
-        style.strong(entry.code) .. "  " .. entry.summary,
-        "",
-    }
-    for _, line in ipairs(spec.wrap(entry.rule, 79)) do out[#out + 1] = line end
+    local out: {string} = {style.strong(entry.code) .. "  " .. entry.summary, "",}
+    for _, line in ipairs(spec.wrap(entry.rule, 79)) do
+        out[#out + 1] = line
+    end
 
     --- The example, indented, without the trailing blank its final newline would
     --- otherwise become.
@@ -115,8 +130,9 @@ local function run(parsed: any): integer
     end
     if entry.family then
         out[#out + 1] = ""
-        out[#out + 1] = style.faint("No worked example is recorded for this code; "
-            .. "the rule above is its family's.")
+        out[
+            #out + 1
+        ] = style.faint("No worked example is recorded for this code; " .. "the rule above is its family's.")
     end
     if #entry.related > 0 then
         out[#out + 1] = ""
@@ -125,6 +141,7 @@ local function run(parsed: any): integer
     out[#out + 1] = ""
     out[#out + 1] = style.faint("Reference: ") .. entry.docs
     io.write(table.concat(out, "\n"), "\n")
+
     return 0
 end
 

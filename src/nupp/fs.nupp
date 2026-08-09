@@ -31,6 +31,7 @@ local function join(left: string?, right: string): string
     if right:sub(1, 1) == "/" then
         return normalize(right)
     end
+
     return normalize(left .. "/" .. right)
 end
 
@@ -49,6 +50,7 @@ local function readFile(path: string): string?, string?
     end
     local text = f:read("*a")
     f:close()
+
     return text
 end
 
@@ -58,6 +60,7 @@ local function exists(path: string): boolean
         return false
     end
     f:close()
+
     return true
 end
 
@@ -85,7 +88,9 @@ local function writeFile(path: string, text: string): boolean?, string?
         os.remove(backup)
         local moved, moveErr = os.rename(path, backup)
         if not moved then
-            os.remove(tmp); return nil, moveErr
+            os.remove(tmp)
+            ;
+            return nil, moveErr
         end
         ok, renameErr = os.rename(tmp, path)
         if ok then
@@ -95,8 +100,11 @@ local function writeFile(path: string, text: string): boolean?, string?
         end
     end
     if not ok then
-        os.remove(tmp); return nil, renameErr
+        os.remove(tmp)
+        ;
+        return nil, renameErr
     end
+
     return true
 end
 
@@ -105,6 +113,7 @@ local function copyFile(source: string, destination: string): boolean?, string?
     if not text then
         return nil, err
     end
+
     return writeFile(destination, text)
 end
 
@@ -119,8 +128,11 @@ local function listFiles(path: string): {string}
         return {}
     end
     local files = {}
-    for file in output:gmatch("[^\r\n]+") do files[#files + 1] = normalize(file) end
+    for file in output:gmatch("[^\r\n]+") do
+        files[#files + 1] = normalize(file)
+    end
     table.sort(files)
+
     return files
 end
 

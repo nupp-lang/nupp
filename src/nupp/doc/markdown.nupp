@@ -12,10 +12,15 @@ local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markd
 local markdown = {}
 local function sectionTitle(kind)
     local names = {
-        ["function"] = "Functions", method = "Methods", variable = "Variables",
-        type = "Types", record = "Records", interface = "Interfaces",
+        ["function"] = "Functions",
+        method = "Methods",
+        variable = "Variables",
+        type = "Types",
+        record = "Records",
+        interface = "Interfaces",
         struct = "Structs",
     }
+
     return names[kind] or (kind:sub(1, 1):upper() .. kind:sub(2) .. "s")
 end
 
@@ -28,6 +33,7 @@ local function splitMembers(members)
         local into = member.isFunction and methods or fields
         into[#into + 1] = member
     end
+
     return fields, methods
 end
 
@@ -40,9 +46,11 @@ local function markdownArguments(out, params, heading)
     out[#out + 1] = "| Name | Type | Description |"
     out[#out + 1] = "| --- | --- | --- |"
     for _, param in ipairs(params) do
-        out[#out + 1] = "| `" .. markdownEscape(param.name) .. "` | `"
-            .. markdownEscape(param.type) .. "` | "
-            .. markdownCell(param.text) .. " |"
+        out[
+            #out + 1
+        ] = "| `" .. markdownEscape(
+            param.name
+        ) .. "` | `" .. markdownEscape(param.type) .. "` | " .. markdownCell(param.text) .. " |"
     end
     out[#out + 1] = ""
 end
@@ -56,8 +64,7 @@ local function markdownReturns(out, returns, heading)
     out[#out + 1] = "| Type | Description |"
     out[#out + 1] = "| --- | --- |"
     for _, value in ipairs(returns) do
-        out[#out + 1] = "| `" .. markdownEscape(value.type) .. "` | "
-            .. markdownCell(value.text) .. " |"
+        out[#out + 1] = "| `" .. markdownEscape(value.type) .. "` | " .. markdownCell(value.text) .. " |"
     end
     out[#out + 1] = ""
 end
@@ -84,7 +91,9 @@ local function renderMarkdownItem(out, item)
     -- declaration you are looking for, and the signature answers how to call it once
     -- you know that it is.
     if item.doc.text ~= "" then
-        out[#out + 1] = item.doc.text; out[#out + 1] = ""
+        out[#out + 1] = item.doc.text
+        ;
+        out[#out + 1] = ""
     end
     out[#out + 1] = "```nupp"
     out[#out + 1] = item.signature
@@ -96,8 +105,7 @@ local function renderMarkdownItem(out, item)
         out[#out + 1] = "| Name | Description |"
         out[#out + 1] = "| --- | --- |"
         for _, typearg in ipairs(item.typeargs) do
-            out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | "
-                .. markdownCell(typearg.text) .. " |"
+            out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | " .. markdownCell(typearg.text) .. " |"
         end
         out[#out + 1] = ""
     end
@@ -131,9 +139,11 @@ local function renderMarkdownItem(out, item)
         out[#out + 1] = "| Name | Type | Description |"
         out[#out + 1] = "| --- | --- | --- |"
         for _, field in ipairs(fields) do
-            out[#out + 1] = "| `" .. markdownEscape(field.name) .. "` | `"
-                .. markdownEscape(field.type) .. "` | "
-                .. markdownCell(field.text) .. " |"
+            out[
+                #out + 1
+            ] = "| `" .. markdownEscape(
+                field.name
+            ) .. "` | `" .. markdownEscape(field.type) .. "` | " .. markdownCell(field.text) .. " |"
         end
         out[#out + 1] = ""
     end
@@ -142,13 +152,17 @@ end
 function markdown.render(modules: {nupp.doc.extract.Module}, title: string?): string
     local out = {}
     if title and title ~= "" then
-        out[#out + 1] = "# " .. title; out[#out + 1] = ""
+        out[#out + 1] = "# " .. title
+        ;
+        out[#out + 1] = ""
     end
     for moduleIndex, module in ipairs(modules) do
         out[#out + 1] = "# Module: `" .. module.name .. "`"
         out[#out + 1] = ""
         if module.text ~= "" then
-            out[#out + 1] = module.text; out[#out + 1] = ""
+            out[#out + 1] = module.text
+            ;
+            out[#out + 1] = ""
         end
         local currentKind = nil
         for _, item in ipairs(module.items) do
@@ -160,9 +174,12 @@ function markdown.render(modules: {nupp.doc.extract.Module}, title: string?): st
             renderMarkdownItem(out, item)
         end
         if moduleIndex < #modules then
-            out[#out + 1] = "---"; out[#out + 1] = ""
+            out[#out + 1] = "---"
+            ;
+            out[#out + 1] = ""
         end
     end
+
     return table.concat(out, "\n") .. "\n"
 end
 

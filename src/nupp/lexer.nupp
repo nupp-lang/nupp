@@ -37,8 +37,7 @@ type lexer.Trivia = {
     line: integer,
 
     --- 1-based column of the first character.
-    col: integer,
-}
+    col: integer,}
 
 --- One token, carrying the trivia that preceded it. The final "eof" token carries the
 --- file's trailing trivia, so every byte of the input belongs to exactly one token.
@@ -163,8 +162,7 @@ type lexer.Token = {
     --- The pipes of a short function, which hug their parameters.
     _shortfnOpen: boolean?,
 
-    _shortfnClose: boolean?,
-}
+    _shortfnClose: boolean?,}
 
 --- A lexical error. The lexer never throws: it reports and carries on, so the token
 --- stream still round-trips.
@@ -180,8 +178,10 @@ type lexer.LexError = {
 }
 
 local KEYWORDS: {[string]: boolean} = {}
-for word in ("and break do else elseif end false for function goto if in local "
-    .. "nil not or repeat return then true until while"):gmatch("%S+") do
+for word in (
+    "and break do else elseif end false for function goto if in local "
+    .. "nil not or repeat return then true until while"
+):gmatch("%S+") do
     KEYWORDS[word] = true
 end
 lexer.KEYWORDS = KEYWORDS
@@ -193,8 +193,7 @@ for op in ("~>> ... <<= >>= //= ..= ??="):gmatch("%S+") do
     OPS3[op] = true
 end
 local OPS2: {[string]: boolean} = {}
-for op in ("<< >> == ~= <= >= ?. :: // .. -> ?? += -= *= /= %= &= |= "
-    .. "&& || !="):gmatch("%S+") do
+for op in ("<< >> == ~= <= >= ?. :: // .. -> ?? += -= *= /= %= &= |= " .. "&& || !="):gmatch("%S+") do
     OPS2[op] = true
 end
 local OPS1: {[string]: boolean} = {}
@@ -211,9 +210,7 @@ end
 -- a spelling: at the start of an operand `||` can only be `|| -> e`, and in
 -- binary-operator position it can only be `or`. The parser decides, so the lexer hands
 -- it the one token either way.
-local CUSTOMARY: {[string]: string} = {
-    ["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",
-}
+local CUSTOMARY: {[string]: string} = {["!"] = "not", ["&&"] = "and", ["||"] = "or", ["!="] = "~=",}
 
 --- The classic spelling of each customary operator, keyed by the customary one. Reading
 --- a token's text through this is how anything downstream tells which form was written,
@@ -225,12 +222,15 @@ local byte, sub, find = string.byte, string.sub, string.find
 local function isDigit(c: integer?): boolean?
     return c and c >= 48 and c <= 57
 end
+
 local function isHex(c: integer?): boolean?
     return c and (isDigit(c) or (c >= 97 and c <= 102) or (c >= 65 and c <= 70))
 end
+
 local function isNameStart(c: integer?): boolean?
     return c and ((c >= 97 and c <= 122) or (c >= 65 and c <= 90) or c == 95)
 end
+
 local function isNameChar(c: integer?): boolean?
     return isNameStart(c) or isDigit(c)
 end
@@ -249,7 +249,11 @@ local function scanLongBracket(src: string, pos: integer): integer?, boolean
     end -- '['
     local level: integer = 0
     local p = pos + 1
-    while byte(src, p) == 61 do level = level + 1; p = p + 1 end -- '='
+    while byte(src, p) == 61 do
+        level = level + 1
+        ;
+        p = p + 1
+    end -- '='
     if byte(src, p) ~= 91 then
         return nil, false
     end
@@ -294,9 +298,17 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
     end
 
     local function addError(offset: integer, l: integer, c: integer, msg: string)
-        errors[#errors + 1] = {code = "NUPP1001", offset = offset,
-            length = math.max(1, pos - offset), line = l, col = c,
-            msg = msg, filename = filename}
+        errors[
+            #errors + 1
+        ] = {
+            code = "NUPP1001",
+            offset = offset,
+            length = math.max(1, pos - offset),
+            line = l,
+            col = c,
+            msg = msg,
+            filename = filename
+        }
     end
 
     -- Collect leading trivia starting at `pos`; returns the trivia list.
@@ -335,8 +347,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 break
             end
             local text = sub(source, start, pos - 1)
-            trivia[#trivia + 1] = {kind = kind, text = text,
-                offset = start, line = l, col = c}
+            trivia[#trivia + 1] = {kind = kind, text = text, offset = start, line = l, col = c}
             trackNewlines(text, start)
         end
 
@@ -412,11 +423,13 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         -- LuaJIT 3.0 ignores underscores anywhere after the initial digit, including
         -- around radix/exponent markers and inside suffixes.
         local function skipUnderscores(at: integer): integer
-            while byte(source, at) == 95 do at = at + 1 end
+            while byte(source, at) == 95 do
+                at = at + 1
+            end
             return at
         end
-        local function scanDigits(at: integer,
-            predicate: function(c: integer?): boolean?): integer, integer
+
+        local function scanDigits(at: integer, predicate: function(c: integer?): boolean?): integer, integer
             local digits: integer = 0
             while predicate(byte(source, at)) do
                 digits = digits + 1
@@ -427,9 +440,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         end
 
         local marker = byte(source, p) == 48 and skipUnderscores(p + 1) or p + 1
-        if byte(source, p) == 48
-            and (byte(source, marker) == 120 or byte(source, marker) == 88)
-        then
+        if byte(source, p) == 48 and (byte(source, marker) == 120 or byte(source, marker) == 88) then
             -- hex: 0x hexdigits [. hexdigits] [pP [+-] digits]
             p = skipUnderscores(marker + 1)
             local digits, more
@@ -493,10 +504,13 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
 
             return at
         end
+
         p = suffix("ull") or suffix("ll") or suffix("i") or p
         -- A number immediately followed by a name character is malformed (0x, 12abc).
         if isNameChar(byte(source, p)) then
-            repeat p = p + 1 until not isNameChar(byte(source, p))
+            repeat
+                p = p + 1
+            until not isNameChar(byte(source, p))
             wellformed = false
         end
 
@@ -509,8 +523,9 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             if #interp > 0 then
                 addError(pos, line, colOf(pos), "unterminated interpolated string")
             end
-            tokens[#tokens + 1] = {kind = "eof", text = "",
-                offset = pos, line = line, col = colOf(pos), trivia = trivia}
+            tokens[
+                #tokens + 1
+            ] = {kind = "eof", text = "", offset = pos, line = line, col = colOf(pos), trivia = trivia}
             break
         end
 
@@ -520,7 +535,9 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
         local kind
 
         if isNameStart(ch) then
-            repeat pos = pos + 1 until not isNameChar(byte(source, pos))
+            repeat
+                pos = pos + 1
+            until not isNameChar(byte(source, pos))
             local text = sub(source, start, pos - 1)
             kind = KEYWORDS[text] and text or "name"
         elseif isDigit(ch) or (ch == 46 and isDigit(byte(source, pos + 1))) then
@@ -592,8 +609,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
 
         local text = sub(source, start, pos - 1)
         kind = CUSTOMARY[kind] or kind
-        tokens[#tokens + 1] = {kind = kind, text = text,
-            offset = start, line = l, col = c, trivia = trivia}
+        tokens[#tokens + 1] = {kind = kind, text = text, offset = start, line = l, col = c, trivia = trivia}
         trackNewlines(text, start)
     end
 

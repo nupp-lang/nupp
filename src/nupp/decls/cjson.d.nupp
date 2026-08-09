@@ -37,11 +37,7 @@ local record cjson
 
     -- Configuration. Each call returns the setting in force after the call, so calling
     -- with no argument reads the current value.
-    encode_sparse_array: function(
-        convert: boolean?,
-        ratio: integer?,
-        safe: integer?
-    ): (boolean, integer, integer)
+    encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
     encode_max_depth: function(depth: integer?): integer
     decode_max_depth: function(depth: integer?): integer
     encode_number_precision: function(precision: integer?): integer

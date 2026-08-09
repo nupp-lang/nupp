@@ -54,20 +54,15 @@ type discard.Ops = {
     statement: function(call: any),
 
     --- Reports every registered statement whose callee turned out to be inert.
-    sweep: function(queries: any),
-}
+    sweep: function(queries: any),}
 
 -- What gives a call a reason to exist, in the spelling `nupp.analysis` answers about.
 -- `reads` and the `allocates` flag are deliberately not among them: reading state and
--- dropping the answer is the mistake being described, and an allocation nobody keeps
--- is not a reason to have called.
-local EFFECTFUL = {"yields", "raises",
-    "writes", "shapes", "metatables", "escapes", "calls"}
+-- dropping the answer is the mistake being described, and an allocation nobody keeps is
+-- not a reason to have called.
+local EFFECTFUL = {"yields", "raises", "writes", "shapes", "metatables", "escapes", "calls"}
 
-local INDEXES = {
-    dotIndex = true, bracketIndex = true,
-    safeIndex = true, safeBracket = true,
-}
+local INDEXES = {dotIndex = true, bracketIndex = true, safeIndex = true, safeBracket = true,}
 
 -- Whether the body hands anything back. Read from the source rather than from the
 -- inferred type, because a body that returns nothing and a body whose result is `any`
@@ -89,6 +84,7 @@ local function returnsAValue(body: any): boolean
             return true
         end
     end
+
     return false
 end
 
@@ -105,6 +101,7 @@ local function signatureAdmitsAValue(ft: any): boolean
             return true
         end
     end
+
     return false
 end
 
@@ -126,6 +123,7 @@ local function ownBindings(body: any): any
             own[tok.definition] = true
         end
     end
+
     local function walk(node: any)
         if not node or cst.isToken(node) then
             return
@@ -136,15 +134,23 @@ local function ownBindings(body: any): any
                 remember(param.name)
             end
         elseif kind == "localStmt" then
-            for _, name in ipairs(node.names or {}) do remember(name) end
+            for _, name in ipairs(node.names or {}) do
+                remember(name)
+            end
         elseif kind == "localFuncStmt" or kind == "fornumStmt" then
             remember(node.name)
         elseif kind == "forinStmt" then
-            for _, name in ipairs(node.names or {}) do remember(name) end
+            for _, name in ipairs(node.names or {}) do
+                remember(name)
+            end
         end
-        for _, child in ipairs(node) do walk(child) end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
+
     walk(body)
+
     return own
 end
 
@@ -159,7 +165,9 @@ local function writesOutward(body: any): boolean
             return
         end
         local base = target
-        while base and INDEXES[base.kind] do base = base.obj end
+        while base and INDEXES[base.kind] do
+            base = base.obj
+        end
         if base ~= target then
             -- A write through an index reaches whatever the base refers to, and what
             -- that is cannot be settled by looking at the base alone.
@@ -175,18 +183,25 @@ local function writesOutward(body: any): boolean
             found = true
         end
     end
+
     local function walk(node: any)
         if found or not node or cst.isToken(node) then
             return
         end
         if node.kind == "assignStmt" then
-            for _, target in ipairs(node.targets or {}) do judge(target) end
+            for _, target in ipairs(node.targets or {}) do
+                judge(target)
+            end
         elseif node.kind == "compoundAssign" then
             judge(node.target)
         end
-        for _, child in ipairs(node) do walk(child) end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
+
     walk(body)
+
     return found
 end
 
@@ -209,13 +224,10 @@ function discard.install(c: state.Checker): discard.Ops
         if not tok or not tok.definition then
             return
         end
-        candidates[#candidates + 1] = {
-            call = call,
-            tok = tok,
+        candidates[#candidates + 1] = {call = call, tok = tok,
             -- Settled here because the statement's `@allow` is in scope here and gone
             -- by the time the sweep runs.
-            allowed = c.suppressed("discarded-result"),
-        }
+            allowed = c.suppressed("discarded-result"),}
     end
 
     --- Reports every registered statement whose callee turned out to have nothing to do
@@ -229,29 +241,32 @@ function discard.install(c: state.Checker): discard.Ops
         -- One answer per body, since a helper called ten times is walked once.
         local inert = {}
         for _, candidate in ipairs(candidates) do
-            local known = queries.callee and queries.callee(candidate.call)
-                or queries.known(candidate.tok)
+            local known = queries.callee and queries.callee(candidate.call) or queries.known(candidate.tok)
             local body = known and known.body or nil
             if not candidate.allowed and body then
                 if inert[body] == nil then
                     -- A function that returns nothing discards nothing, whatever else
                     -- is true of it.
-                    inert[body] = returnsAValue(body.body)
-                        and signatureAdmitsAValue(known.definition
-                        and known.definition.type)
-                        and closed(queries, known.summary)
-                        and not writesOutward(body.body)
+                    inert[
+                        body
+                    ] = returnsAValue(
+                        body.body
+                    ) and signatureAdmitsAValue(
+                        known.definition and known.definition.type
+                    ) and closed(queries, known.summary) and not writesOutward(body.body)
                 end
                 if inert[body] then
                     local at = known.definition and known.definition.token
-                    local related = at and c.related(at,
-                        "declared here, and does nothing but return") or nil
-                    c.diag("discarded-result", candidate.tok,
-                        ("%s has no effects, so dropping its result leaves this "
-                        .. "statement doing nothing"):format(candidate.tok.text),
+                    local related = at and c.related(at, "declared here, and does nothing but return") or nil
+                    c.diag(
+                        "discarded-result",
+                        candidate.tok,
+                        (
+                            "%s has no effects, so dropping its result leaves this " .. "statement doing nothing"
+                        ):format(candidate.tok.text),
                         nil,
-                        {help = "use the result, or delete the call",
-                        related = related and {related} or nil})
+                        {help = "use the result, or delete the call", related = related and {related} or nil}
+                    )
                 end
             end
         end

@@ -33,38 +33,13 @@ local KNOWN_TARGETS = {
 
 local CATEGORIES = {
     localStmt = {declaration = true, binding = true, ["local-binding"] = true},
-    localFuncStmt = {
-        declaration = true,
-        ["function"] = true,
-        ["local-function"] = true,
-    },
-    funcStmt = {
-        declaration = true,
-        ["function"] = true,
-        ["named-function"] = true,
-    },
-    inlineMethod = {
-        declaration = true,
-        ["function"] = true,
-        ["named-function"] = true,
-    },
-    constructorDecl = {
-        declaration = true,
-        ["function"] = true,
-        ["named-function"] = true,
-    },
+    localFuncStmt = {declaration = true, ["function"] = true, ["local-function"] = true,},
+    funcStmt = {declaration = true, ["function"] = true, ["named-function"] = true,},
+    inlineMethod = {declaration = true, ["function"] = true, ["named-function"] = true,},
+    constructorDecl = {declaration = true, ["function"] = true, ["named-function"] = true,},
     typeAlias = {declaration = true, ["type-declaration"] = true, alias = true},
-    cdefFunc = {
-        declaration = true,
-        ["c-declaration"] = true,
-        ["c-function"] = true,
-    },
-    cdefStruct = {
-        declaration = true,
-        ["type-declaration"] = true,
-        struct = true,
-        ["c-declaration"] = true,
-    },
+    cdefFunc = {declaration = true, ["c-declaration"] = true, ["c-function"] = true,},
+    cdefStruct = {declaration = true, ["type-declaration"] = true, struct = true, ["c-declaration"] = true,},
     doStmt = {block = true},
     unsafeStmt = {block = true},
     withStmt = {block = true},
@@ -109,11 +84,14 @@ function Registry:define(spec)
     if previous and (not spec.source or previous.source ~= spec.source) then
         return nil, ("annotation @%s is already defined"):format(spec.name)
     end
-    if spec.arguments ~= "none" and spec.arguments ~= "names"
+    if spec.arguments ~= "none"
+        and spec.arguments ~= "names"
         and spec.arguments ~= "owned"
         and spec.arguments ~= "effects"
-        and spec.arguments ~= "warnings" and spec.arguments ~= "typed"
-        and spec.arguments ~= "definition" then
+        and spec.arguments ~= "warnings"
+        and spec.arguments ~= "typed"
+        and spec.arguments ~= "definition"
+    then
         return nil, "unknown annotation argument policy"
     end
     if spec.arguments == "warnings" and spec.name ~= "allow" then
@@ -147,6 +125,7 @@ function Registry:define(spec)
         source = spec.source,
     }
     self.byname[definition.name] = definition
+
     return definition
 end
 
@@ -168,12 +147,15 @@ local function categories(node)
         out.statement = true
     end
     local fixed = node and CATEGORIES[node.kind]
-    for name in pairs(fixed or {}) do out[name] = true end
+    for name in pairs(fixed or {}) do
+        out[name] = true
+    end
     if node and node.kind == "recordDecl" then
         out.declaration = true
         out["type-declaration"] = true
         out[node.declKind or "record"] = true
     end
+
     return out
 end
 
@@ -184,6 +166,7 @@ function Registry:accepts(definition, node)
             return true
         end
     end
+
     return false
 end
 
@@ -192,87 +175,41 @@ function Registry:describeTargets(definition)
 end
 
 local BUILTINS = {
-    {
-        name = "annotation",
-        arguments = "definition",
-        targets = {"record", "struct"},
-    },
-    {
-        name = "annotationValue",
-        arguments = "none",
-        targets = {"field"},
-    },
-    {
-        name = "ref",
-        arguments = "none",
-        targets = {"field"},
-    },
-    {
-        name = "allow",
-        arguments = "warnings",
-        targets = {"statement"},
-    },
-    {
-        name = "owned",
-        arguments = "owned",
-        targets = {"function", "c-function"},
-    },
-    {
-        name = "borrowed",
-        arguments = "owned",
-        targets = {"c-function"},
-    },
-    {
-        name = "dispose",
-        arguments = "none",
-        targets = {"function", "c-function", "field"},
-    },
-    {
-        name = "override",
-        arguments = "none",
-        targets = {"function"},
-    },
-    {
-        name = "effects",
-        arguments = "effects",
-        targets = {"function", "c-function", "local-binding"},
-    },
-    {
-        name = "relax",
-        arguments = "names",
-        targets = {"function"},
-    },
-    {
-        name = "jit",
-        arguments = "none",
-        targets = {"function"},
-        reserved = "the trace checker",
-    },
-    {
-        name = "comptime",
-        arguments = "none",
-        targets = {"local-function"},
-        reserved = "compile-time evaluation",
-    },
+    {name = "annotation", arguments = "definition", targets = {"record", "struct"},},
+    {name = "annotationValue", arguments = "none", targets = {"field"},},
+    {name = "ref", arguments = "none", targets = {"field"},},
+    {name = "allow", arguments = "warnings", targets = {"statement"},},
+    {name = "owned", arguments = "owned", targets = {"function", "c-function"},},
+    {name = "borrowed", arguments = "owned", targets = {"c-function"},},
+    {name = "dispose", arguments = "none", targets = {"function", "c-function", "field"},},
+    {name = "override", arguments = "none", targets = {"function"},},
+    {name = "effects", arguments = "effects", targets = {"function", "c-function", "local-binding"},},
+    {name = "relax", arguments = "names", targets = {"function"},},
+    {name = "jit", arguments = "none", targets = {"function"}, reserved = "the trace checker",},
+    {name = "comptime", arguments = "none", targets = {"local-function"}, reserved = "compile-time evaluation",},
 }
 
 function annotations.new(withBuiltins: boolean?): annotations.Registry
     -- Keep the methods as explicit fields as well as on __index. That makes the public
     -- shape visible to nupp's gradual checker; it deliberately does not infer
     -- structural fields through arbitrary metatables.
-    local registry = setmetatable({
-        byname = {},
-        define = Registry.define,
-        get = Registry.get,
-        accepts = Registry.accepts,
-        describeTargets = Registry.describeTargets,
-        removeSource = Registry.removeSource,
-    }, Registry)
+    local registry = setmetatable(
+        {
+            byname = {},
+            define = Registry.define,
+            get = Registry.get,
+            accepts = Registry.accepts,
+            describeTargets = Registry.describeTargets,
+            removeSource = Registry.removeSource,
+        },
+        Registry
+    )
     if withBuiltins ~= false then
         for _, spec in ipairs(BUILTINS) do
             assert(registry:define(spec))
         end
     end
+
     return registry
 end
 

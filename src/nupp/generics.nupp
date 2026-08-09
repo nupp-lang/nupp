@@ -38,8 +38,7 @@ function generics.substPack(pack: T.Pack, map: Bindings): T.Pack
     end
     local tail = pack.tail
     if tail and tail.kind == "homogeneous" then
-        tail = {kind = "homogeneous", type = generics.subst(tail.type, map),
-            mode = tail.mode}
+        tail = {kind = "homogeneous", type = generics.subst(tail.type, map), mode = tail.mode}
     elseif tail and tail.kind == "generic" then
         local replacement = map[tail.var]
         if replacement and replacement.tag == "pack" then
@@ -52,6 +51,7 @@ function generics.substPack(pack: T.Pack, map: Bindings): T.Pack
             tail = {kind = "unknown", type = T.any}
         end
     end
+
     return T.pack(head, tail, modes)
 end
 
@@ -71,38 +71,50 @@ function generics.subst(t: Type, map: Bindings): Type
     elseif tag == "array" then
         return T.array(generics.subst(t.elem, map))
     elseif tag == "map" then
-        return T.indexer(t.readable and generics.subst(t.key, map) or nil,
+        return T.indexer(
+            t.readable and generics.subst(t.key, map) or nil,
             t.readable and generics.subst(t.value, map) or nil,
             t.writeKey and generics.subst(t.writeKey, map) or nil,
-            t.writeValue and generics.subst(t.writeValue, map) or nil)
+            t.writeValue and generics.subst(t.writeValue, map) or nil
+        )
     elseif tag == "tuple" then
         local elems: {Type} = {}
-        for j, e in ipairs(t.elems) do elems[j] = generics.subst(e, map) end
+        for j, e in ipairs(t.elems) do
+            elems[j] = generics.subst(e, map)
+        end
         return T.tuple(elems)
     elseif tag == "shape" then
         local fields = {}
         for j, f in ipairs(t.fields) do
-            fields[j] = {name = f.name,
+            fields[
+                j
+            ] = {
+                name = f.name,
                 read = f.read and generics.subst(f.read, map) or nil,
-                write = f.write and generics.subst(f.write, map) or nil}
+                write = f.write and generics.subst(f.write, map) or nil
+            }
         end
-        return T.shape(fields, {
-            readKey = t.indexReadKey
-            and generics.subst(t.indexReadKey, map) or nil,
-            readValue = t.indexReadValue
-            and generics.subst(t.indexReadValue, map) or nil,
-            writeKey = t.indexWriteKey
-            and generics.subst(t.indexWriteKey, map) or nil,
-            writeValue = t.indexWriteValue
-            and generics.subst(t.indexWriteValue, map) or nil,
-        }, t.fresh)
+        return T.shape(
+            fields,
+            {
+                readKey = t.indexReadKey and generics.subst(t.indexReadKey, map) or nil,
+                readValue = t.indexReadValue and generics.subst(t.indexReadValue, map) or nil,
+                writeKey = t.indexWriteKey and generics.subst(t.indexWriteKey, map) or nil,
+                writeValue = t.indexWriteValue and generics.subst(t.indexWriteValue, map) or nil,
+            },
+            t.fresh
+        )
     elseif tag == "union" then
         local members: {Type} = {}
-        for j, m in ipairs(t.members) do members[j] = generics.subst(m, map) end
+        for j, m in ipairs(t.members) do
+            members[j] = generics.subst(m, map)
+        end
         return T.union(members)
     elseif tag == "intersection" then
         local members: {Type} = {}
-        for j, m in ipairs(t.members) do members[j] = generics.subst(m, map) end
+        for j, m in ipairs(t.members) do
+            members[j] = generics.subst(m, map)
+        end
         return T.intersection(members)
     elseif tag == "ptr" then
         return T.ptr(generics.subst(t.elem, map))
@@ -119,7 +131,8 @@ function generics.subst(t: Type, map: Bindings): Type
             generics.substPack(t.startPack, map),
             generics.substPack(t.resumePack, map),
             generics.substPack(t.yieldPack, map),
-            generics.substPack(t.returnPack, map))
+            generics.substPack(t.returnPack, map)
+        )
     elseif tag == "genericAlias" then
         return generics.subst(t.body, map)
     elseif tag == "func" then
@@ -133,14 +146,28 @@ function generics.subst(t: Type, map: Bindings): Type
                 bounds[j] = generics.subst(b, map)
             end
         end
-        return T.func(params, rets, t.vararg, t.paramModes, t.predicate,
-            t.typeParams, bounds, t.borrowsParam, t.borrowsSelf,
-            t.borrowsParams, t.ffiOut,
+        return T.func(
+            params,
+            rets,
+            t.vararg,
+            t.paramModes,
+            t.predicate,
+            t.typeParams,
+            bounds,
+            t.borrowsParam,
+            t.borrowsSelf,
+            t.borrowsParams,
+            t.ffiOut,
             t.varargType and generics.subst(t.varargType, map) or nil,
-            t.noreturn, paramPack, retPack, t.packParams,
+            t.noreturn,
+            paramPack,
+            retPack,
+            t.packParams,
             t.yieldPack and generics.substPack(t.yieldPack, map) or nil,
-            t.resumePack and generics.substPack(t.resumePack, map) or nil)
+            t.resumePack and generics.substPack(t.resumePack, map) or nil
+        )
     end
+
     return t
 end
 
@@ -152,13 +179,27 @@ function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
     if concrete.tag ~= "func" then
         return t
     end
-    return T.func(concrete.paramPack.head, concrete.retPack.head,
-        concrete.paramPack.tail ~= nil, concrete.paramPack.modes,
-        concrete.predicate, nil, nil, concrete.borrowsParam,
-        concrete.borrowsSelf, concrete.borrowsParams, concrete.ffiOut,
-        concrete.varargType, concrete.noreturn, concrete.paramPack,
-        concrete.retPack, nil, concrete.yieldPack,
-        concrete.resumePack) as T.Func
+
+    return T.func(
+        concrete.paramPack.head,
+        concrete.retPack.head,
+        concrete.paramPack.tail ~= nil,
+        concrete.paramPack.modes,
+        concrete.predicate,
+        nil,
+        nil,
+        concrete.borrowsParam,
+        concrete.borrowsSelf,
+        concrete.borrowsParams,
+        concrete.ffiOut,
+        concrete.varargType,
+        concrete.noreturn,
+        concrete.paramPack,
+        concrete.retPack,
+        nil,
+        concrete.yieldPack,
+        concrete.resumePack
+    ) as T.Func
 end
 
 --- Structurally matches an actual value sequence against a declared pack.
@@ -254,7 +295,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, entries in pairs(n.methodEntries or {}) do
         local specialized = {}
         for j, entry in ipairs(entries) do
-            specialized[j] = {
+            specialized[
+                j
+            ] = {
                 signature = generics.subst(entry.signature, map),
                 declaration = entry.declaration,
                 member = entry.member,
@@ -267,7 +310,9 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, entries in pairs(n.methodDispatchEntries or {}) do
         local specialized = {}
         for j, entry in ipairs(entries) do
-            specialized[j] = {
+            specialized[
+                j
+            ] = {
                 signature = generics.subst(entry.signature, map),
                 declaration = entry.declaration,
                 member = entry.member,
@@ -277,14 +322,10 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         end
         inst.methodDispatchEntries[name] = specialized
     end
-    inst.indexReadKey = n.indexReadKey
-        and generics.subst(n.indexReadKey, map) or nil
-    inst.indexReadValue = n.indexReadValue
-        and generics.subst(n.indexReadValue, map) or nil
-    inst.indexWriteKey = n.indexWriteKey
-        and generics.subst(n.indexWriteKey, map) or nil
-    inst.indexWriteValue = n.indexWriteValue
-        and generics.subst(n.indexWriteValue, map) or nil
+    inst.indexReadKey = n.indexReadKey and generics.subst(n.indexReadKey, map) or nil
+    inst.indexReadValue = n.indexReadValue and generics.subst(n.indexReadValue, map) or nil
+    inst.indexWriteKey = n.indexWriteKey and generics.subst(n.indexWriteKey, map) or nil
+    inst.indexWriteValue = n.indexWriteValue and generics.subst(n.indexWriteValue, map) or nil
     for name, ft in pairs(n.metamethods or {}) do
         inst.metamethods[name] = generics.subst(ft, map)
     end
@@ -294,12 +335,15 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         local specialized = generics.subst(signature, map)
         inst.constructors[j] = specialized
         local entry = n.constructorEntries and n.constructorEntries[j] or nil
-        inst.constructorEntries[j] = {
+        inst.constructorEntries[
+            j
+        ] = {
             signature = specialized,
             declaration = entry and entry.declaration or nil,
             index = entry and entry.index or j,
         }
     end
+
     return inst
 end
 
@@ -370,18 +414,18 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
             end
             generics.unify(tv, residue, map)
         end
-        for _, r in ipairs(rest) do generics.unify(r, arg, map) end
+        for _, r in ipairs(rest) do
+            generics.unify(r, arg, map)
+        end
     elseif tag == "intersection" then
-        -- Every conjunct constrains the same runtime argument. In particular this
-        -- lets `T & Bound` infer T while compatibility proves the other contracts.
+        -- Every conjunct constrains the same runtime argument. In particular this lets
+        -- `T & Bound` infer T while compatibility proves the other contracts.
         for _, member in ipairs(param.members) do
             generics.unify(member, arg, map)
         end
     elseif tag == "shape" then
-        local reads = arg.tag == "shape" and arg.byname
-            or (arg.tag == "nominal" and arg.byname)
-        local writes = arg.tag == "shape" and arg.writeByname
-            or (arg.tag == "nominal" and arg.writeByname)
+        local reads = arg.tag == "shape" and arg.byname or (arg.tag == "nominal" and arg.byname)
+        local writes = arg.tag == "shape" and arg.writeByname or (arg.tag == "nominal" and arg.writeByname)
         if reads or writes then
             for _, f in ipairs(param.fields) do
                 local read = reads and reads[f.name]
@@ -426,8 +470,7 @@ end
 --- @param owner the declaration the member belongs to
 --- @param ft the member's type
 --- @param receiver what `self` stands for here, `owner` by default
-function generics.specializeSelf(owner: Type?, ft: Type,
-    receiver: Type?): Type
+function generics.specializeSelf(owner: Type?, ft: Type, receiver: Type?): Type
     if ft.tag == "intersection" then
         local members = {}
         for j, member in ipairs(ft.members) do
@@ -438,6 +481,7 @@ function generics.specializeSelf(owner: Type?, ft: Type,
     if owner and owner.tag == "nominal" and owner.selfType then
         return generics.subst(ft, {[owner.selfType] = receiver or owner})
     end
+
     return ft
 end
 
@@ -449,22 +493,43 @@ end
 function generics.dropSelf(ft: Type): Type
     if ft.tag == "intersection" then
         local members = {}
-        for j, member in ipairs(ft.members) do members[j] = generics.dropSelf(member) end
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.dropSelf(member)
+        end
         return T.intersection(members)
     end
     if ft.tag == "func" and #ft.params >= 1 then
         local params: {Type} = {}
         local modes: {string} = {}
-        for j = 2, #ft.params do params[#params + 1] = ft.params[j] end
+        for j = 2, #ft.params do
+            params[#params + 1] = ft.params[j]
+        end
         for j = 2, #ft.params do
             modes[#modes + 1] = ft.paramModes and ft.paramModes[j] or "plain"
         end
         local paramPack = T.pack(params, ft.paramPack.tail, modes)
-        return T.func(params, ft.rets, ft.vararg, modes, nil,
-            ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf,
-            ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn,
-            paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack)
+        return T.func(
+            params,
+            ft.rets,
+            ft.vararg,
+            modes,
+            nil,
+            ft.typeParams,
+            ft.typeBounds,
+            ft.borrowsParam,
+            ft.borrowsSelf,
+            ft.borrowsParams,
+            ft.ffiOut,
+            ft.varargType,
+            ft.noreturn,
+            paramPack,
+            ft.retPack,
+            ft.packParams,
+            ft.yieldPack,
+            ft.resumePack
+        )
     end
+
     return ft
 end
 
@@ -487,13 +552,34 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
     end
     local params: {Type} = {selfType}
     local modes: {string} = {selfMode or "plain"}
-    for _, p in ipairs(ft.params) do params[#params + 1] = p end
-    for _, mode in ipairs(ft.paramModes or {}) do modes[#modes + 1] = mode end
+    for _, p in ipairs(ft.params) do
+        params[#params + 1] = p
+    end
+    for _, mode in ipairs(ft.paramModes or {}) do
+        modes[#modes + 1] = mode
+    end
     local paramPack = T.pack(params, ft.paramPack.tail, modes)
-    return T.func(params, ft.rets, ft.vararg, modes, ft.predicate,
-        ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf,
-        ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn,
-        paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack)
+
+    return T.func(
+        params,
+        ft.rets,
+        ft.vararg,
+        modes,
+        ft.predicate,
+        ft.typeParams,
+        ft.typeBounds,
+        ft.borrowsParam,
+        ft.borrowsSelf,
+        ft.borrowsParams,
+        ft.ffiOut,
+        ft.varargType,
+        ft.noreturn,
+        paramPack,
+        ft.retPack,
+        ft.packParams,
+        ft.yieldPack,
+        ft.resumePack
+    )
 end
 
 return generics

@@ -40,8 +40,7 @@ local undocumentedraise = {}
 --- the three places one is declared with a `---` run to read.
 type undocumentedraise.Ops = {
     --- Reports when a documented function raises and its documentation does not say so.
-    check: function(stat: any, body: any),
-}
+    check: function(stat: any, body: any),}
 
 -- Where this body raises on its own account, or nil if it does not. `error` is
 -- recognized by name, the way `neverReturns` already recognizes it, so that untyped
@@ -56,8 +55,7 @@ local function raisesAt(node: any): any
     end
     if kind == "call" then
         local callee = node.obj
-        if callee and callee.kind == "name" and callee.token
-            and callee.token.text == "error" then
+        if callee and callee.kind == "name" and callee.token and callee.token.text == "error" then
             return callee.token
         end
     end
@@ -67,6 +65,7 @@ local function raisesAt(node: any): any
             return at
         end
     end
+
     return nil
 end
 
@@ -95,16 +94,17 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
         if not documented or #info.raises > 0 then
             return
         end
-        local label = stat.name and (cst.textOf(stat.name):gsub("%s+", ""))
-            or "this function"
+        local label = stat.name and (cst.textOf(stat.name):gsub("%s+", "")) or "this function"
         -- The name it answers to, not the table it hangs off: `function query.Q:get` is
         -- reported at `get`, the way every other diagnostic about a member is.
         local at = stat.name and cst.lastToken(stat.name) or stat
-        c.diag("NUPP2506", at,
+        c.diag(
+            "NUPP2506",
+            at,
             ("%s raises, but its documentation does not say when"):format(label),
             nil,
-            {help = "add an @raises line saying what makes it raise",
-            related = {c.related(raiseTok, "raises here")}})
+            {help = "add an @raises line saying what makes it raise", related = {c.related(raiseTok, "raises here")}}
+        )
     end
 
     return ops

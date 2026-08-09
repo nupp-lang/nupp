@@ -29,11 +29,7 @@ local record CJsonSafe
     new: function(): CJsonSafe
 
     -- Configuration; shared surface with the raising module.
-    encode_sparse_array: function(
-        convert: boolean?,
-        ratio: integer?,
-        safe: integer?
-    ): (boolean, integer, integer)
+    encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
     encode_max_depth: function(depth: integer?): integer
     decode_max_depth: function(depth: integer?): integer
     encode_number_precision: function(precision: integer?): integer

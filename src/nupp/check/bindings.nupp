@@ -49,48 +49,48 @@ function bindings.install(c: state.Checker): state.StatHandlers
         for _, e in ipairs(initializers) do
             if e.kind == "call" and e.ffiIntrinsic == "cast" then
                 local castArgs = e.args
-                local source = castArgs and castArgs.kind == "args"
-                    and (castArgs.exprs or {})[1] or nil
+                local source = castArgs and castArgs.kind == "args" and (castArgs.exprs or {})[1] or nil
                 if source and source.kind == "string" then
-                    c.diag("NUPP2501", e,
-                        "a pointer taken from a Lua string is only valid "
-                        .. "for the call it is passed to")
+                    c.diag(
+                        "NUPP2501",
+                        e,
+                        "a pointer taken from a Lua string is only valid " .. "for the call it is passed to"
+                    )
                 end
             end
         end
         for j, nameTok in ipairs(stat.names) do
             local ann = stat.types[j] and c.resolveType(stat.types[j]) or nil
             if c.opts and c.opts.strict and ann and inferred[j] then
-                local NARROW = {
-                    int8 = 1, uint8 = 1, int16 = 2, uint16 = 2,
-                    int32 = 4, uint32 = 4,
-                }
+                local NARROW = {int8 = 1, uint8 = 1, int16 = 2, uint16 = 2, int32 = 4, uint32 = 4,}
                 local width = NARROW[ann.tag]
                 local from = inferred[j].tag
-                if width and (from == "number" or from == "integer"
-                    or from == "int64" or from == "uint64") then
-                    c.diag("NUPP2503", initializers[j] or stat,
-                        ("%s does not fit every %s; cast if the narrowing "
-                        .. "is intended"):format(T.tostring(inferred[j]),
-                        T.tostring(ann)),
-                        c.edits.castFix(initializers[j], stat.types[j]))
+                if width and (from == "number" or from == "integer" or from == "int64" or from == "uint64") then
+                    c.diag(
+                        "NUPP2503",
+                        initializers[j] or stat,
+                        (
+                            "%s does not fit every %s; cast if the narrowing " .. "is intended"
+                        ):format(T.tostring(inferred[j]), T.tostring(ann)),
+                        c.edits.castFix(initializers[j], stat.types[j])
+                    )
                 end
             end
             local init = inferred[j]
             if ann and init then
                 local ok, why = isA(init, ann)
                 if not ok then
-                    c.diag("NUPP2001", initializers[j] or stat,
-                        ("cannot initialize %s: %s"):format(nameTok.text, why))
+                    c.diag("NUPP2001", initializers[j] or stat, ("cannot initialize %s: %s"):format(nameTok.text, why))
                 end
                 -- The annotation is the target here, so it says whose metatable this is
                 -- as readily as a parameter would.
                 c.checkMetatableLiteral(initializers[j], init, ann)
-                if ownershipKind(init) and ownershipKind(init)
-                    ~= ownershipKind(ann) then
-                    c.diag("NUPP2603", initializers[j] or stat,
-                        (ownershipKind(init) as string)
-                        .. " value needs a matching ownership annotation")
+                if ownershipKind(init) and ownershipKind(init) ~= ownershipKind(ann) then
+                    c.diag(
+                        "NUPP2603",
+                        initializers[j] or stat,
+                        (ownershipKind(init) as string) .. " value needs a matching ownership annotation"
+                    )
                 end
             end
             -- Inferred types are hints, not shackles — unannotated bindings widen so
@@ -102,8 +102,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             local bound = ann or init or T.any
             -- Keep the cleanup list discovered at the initializer even when the source
             -- spells only `owned<T>`.
-            if ann and init and ownershipKind(ann) == "owned"
-                and ownershipKind(init) == "owned" then
+            if ann and init and ownershipKind(ann) == "owned" and ownershipKind(init) == "owned" then
                 bound = init
             end
             if not ann then
@@ -115,12 +114,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     if bound == T.integer then
                         bound = T.number
                     end
-                elseif bound.tag == "shape" and initNode
-                    and initNode.kind == "tableExpr" then
+                elseif bound.tag == "shape" and initNode and initNode.kind == "tableExpr" then
                     local hasConst = false
                     for _, field in ipairs(initNode.fields or {}) do
                         if field.kind == "fieldNamed" and field.isConst then
-                            hasConst = true; break
+                            hasConst = true
+                            ;
+                            break
                         end
                     end
                     if not hasConst then
@@ -130,17 +130,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     bound = T.any
                 end
             end
-            if (ownershipKind(init) == "owned"
-                or ownershipKind(init) == "pinned") and stat.exprs
-                and initializers[j] then
-                moveExpression(initializers[j], init, "local initialization",
-                    ownershipKind(init))
+            if (
+                ownershipKind(init) == "owned" or ownershipKind(init) == "pinned"
+            ) and stat.exprs and initializers[j] then
+                moveExpression(initializers[j], init, "local initialization", ownershipKind(init))
             end
             if ann and nameTok.text == c.moduleLocal then
                 c.moduleLocalAnnotated = true
             end
-            c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil,
-                stat.isConst)
+            c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
             local initNode = initializers[j]
             if boundEntry and bound.tag == "protocolThread" then
@@ -166,10 +164,8 @@ function bindings.install(c: state.Checker): state.StatHandlers
             local returnBorrowOwners = nil
             local exprCount = #initializers
             local expandedCall = exprCount > 0 and initializers[exprCount] or nil
-            if expandedCall and expandedCall.returnBorrowOwners
-                and j >= exprCount then
-                returnBorrowOwners = expandedCall.returnBorrowOwners[
-                    j - exprCount + 1]
+            if expandedCall and expandedCall.returnBorrowOwners and j >= exprCount then
+                returnBorrowOwners = expandedCall.returnBorrowOwners[j - exprCount + 1]
             end
             -- `local v: Vec2` used to construct one, which was a construction the
             -- source did not say. It no longer does, so the binding holds nil until
@@ -177,9 +173,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- error waiting to happen rather than a value of the declared type. A
             -- declaration file states what exists elsewhere and assigns nothing, so it
             -- is not making this mistake.
-            if boundEntry and ann and not initNode and not c.declarationFile
-                and ann.tag == "nominal"
-                and (ann.declKind == "record" or ann.declKind == "struct") then
+            if boundEntry and ann and not initNode and not c.declarationFile and ann.tag == "nominal" and (
+                ann.declKind == "record" or ann.declKind == "struct"
+            ) then
                 boundEntry.unassigned = true
                 boundEntry.unassignedAt = nameTok
             end
@@ -190,63 +186,54 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 -- type to be found through, and which module the name holds is the
                 -- whole of what an editor needs to find where one of them was written.
                 if boundEntry.definition then
-                    boundEntry.definition.requiredModule =
-                        initNode.requiredModule
+                    boundEntry.definition.requiredModule = initNode.requiredModule
                 end
             end
             -- `local kind = node.kind` copies a discriminant out of the value it
             -- discriminates. Remembering where it came from is what lets a later test
             -- on the copy narrow the original, which is how dispatch loops are actually
             -- written.
-            if boundEntry and initNode and not ann
-                and initNode.kind == "dotIndex" then
+            if boundEntry and initNode and not ann and initNode.kind == "dotIndex" then
                 boundEntry.aliasNode = initNode
                 boundEntry.aliasPath = pathKey(initNode)
             end
-            if boundEntry and initNode and not ann and initNode.kind == "name"
-                and initNode.token then
+            if boundEntry and initNode and not ann and initNode.kind == "name" and initNode.token then
                 local sourceEntry = c.lookupEntry(initNode.token.text)
                 if sourceEntry and sourceEntry.packCorrelation then
                     boundEntry.packCorrelation = sourceEntry.packCorrelation
-                    boundEntry.packCorrelationIndex =
-                        sourceEntry.packCorrelationIndex
+                    boundEntry.packCorrelationIndex = sourceEntry.packCorrelationIndex
                     local group = sourceEntry.packCorrelation
                     group.extraNames = group.extraNames or {}
-                    group.extraNames[#group.extraNames + 1] = {
-                        name = nameTok.text,
-                        index = sourceEntry.packCorrelationIndex,
-                    }
+                    group.extraNames[
+                        #group.extraNames + 1
+                    ] = {name = nameTok.text, index = sourceEntry.packCorrelationIndex,}
                 end
             end
-            if boundEntry and (ownershipKind(bound) == "owned"
-                or ownershipKind(bound) == "pinned")
-                and not init then
+            if boundEntry and (ownershipKind(bound) == "owned" or ownershipKind(bound) == "pinned") and not init then
                 boundEntry.moved = true -- declared storage, no live affine value
             end
             local boundKind = ownershipKind(bound)
-            if boundEntry and (boundKind == "borrowed"
-                or boundKind == "owned") and returnBorrowOwners
-                and #returnBorrowOwners == 1 then
+            if boundEntry and (
+                boundKind == "borrowed" or boundKind == "owned"
+            ) and returnBorrowOwners and #returnBorrowOwners == 1 then
                 boundEntry.borrowOwner = returnBorrowOwners[1]
-                returnBorrowOwners[1].activeBorrows =
-                    (returnBorrowOwners[1].activeBorrows or 0) + 1
-            elseif boundEntry and (boundKind == "borrowed"
-                or boundKind == "owned")
-                and initNode and initNode.borrowOwner then
+                returnBorrowOwners[1].activeBorrows = (returnBorrowOwners[1].activeBorrows or 0) + 1
+            elseif boundEntry and (
+                boundKind == "borrowed" or boundKind == "owned"
+            ) and initNode and initNode.borrowOwner then
                 boundEntry.borrowOwner = initNode.borrowOwner
-                initNode.borrowOwner.activeBorrows =
-                    (initNode.borrowOwner.activeBorrows or 0) + 1
+                initNode.borrowOwner.activeBorrows = (initNode.borrowOwner.activeBorrows or 0) + 1
             end
-            if boundEntry and (boundKind == "borrowed"
-                or boundKind == "owned") and returnBorrowOwners
-                and #returnBorrowOwners > 1 then
+            if boundEntry and (
+                boundKind == "borrowed" or boundKind == "owned"
+            ) and returnBorrowOwners and #returnBorrowOwners > 1 then
                 boundEntry.borrowOwners = returnBorrowOwners
                 for _, owner in ipairs(returnBorrowOwners) do
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
                 end
-            elseif boundEntry and (boundKind == "borrowed"
-                or boundKind == "owned") and initNode
-                and initNode.borrowOwners then
+            elseif boundEntry and (
+                boundKind == "borrowed" or boundKind == "owned"
+            ) and initNode and initNode.borrowOwners then
                 boundEntry.borrowOwners = initNode.borrowOwners
                 for _, owner in ipairs(initNode.borrowOwners) do
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
@@ -255,8 +242,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             -- Last, so the entry is complete: which module it holds decides whether an
             -- unread binding is reported as a stale require or as a stale local.
             if boundEntry then
-                c.unused.declared(nameTok, boundEntry,
-                    boundEntry.requiredModule and "require" or "variable")
+                c.unused.declared(nameTok, boundEntry, boundEntry.requiredModule and "require" or "variable")
             end
         end
         local exprCount = #initializers
@@ -294,24 +280,24 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 c.diag("NUPP2008", target, "cannot assign to const module field")
             end
             recordModuleField(target, et, stat.isConst, written)
-            local targetTok = target.kind == "name"
-                and target.token or nil
+            local targetTok = target.kind == "name" and target.token or nil
             if targetTok then
                 local targetName = targetTok.text
                 local entry = c.lookupEntry(targetName)
                 local entryState = ownershipState(entry)
-                c.markToken(targetTok, entry and entry.definition,
+                c.markToken(
+                    targetTok,
+                    entry and entry.definition,
                     entry and entry.t or T.any,
-                    entry and entry.definition and entry.definition.kind
-                    or "variable")
+                    entry and entry.definition and entry.definition.kind or "variable"
+                )
                 -- Whatever else the assignment turns out to be, the binding now holds
                 -- something. The walk is in source order, so a read that came before
                 -- this one has already been answered.
                 if entry then
                     local oldGroup = entry.packCorrelation
                     local oldIndex = entry.packCorrelationIndex
-                    if oldGroup and oldIndex
-                        and oldGroup.names[oldIndex] == targetName then
+                    if oldGroup and oldIndex and oldGroup.names[oldIndex] == targetName then
                         oldGroup.names[oldIndex] = nil
                     end
                     entry.unassigned = nil
@@ -322,8 +308,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                             entry.threadPhase = "new"
                         elseif written and written.kind == "name" and written.token then
                             local source = c.lookupEntry(written.token.text)
-                            entry.threadPhase = source and source.threadPhase
-                                or "unknown"
+                            entry.threadPhase = source and source.threadPhase or "unknown"
                             if source and source ~= entry then
                                 source.threadPhase = "unknown"
                             end
@@ -341,51 +326,44 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     end
                 end
                 if entry and entry.constant then
-                    c.diag("NUPP2008", target,
-                        ("cannot assign to const variable %s")
-                        :format(targetName))
+                    c.diag("NUPP2008", target, ("cannot assign to const variable %s"):format(targetName))
                 elseif entry and entry.withBinding then
-                    c.diag("NUPP2613", target,
-                        ("cannot assign to 'with' binding %q")
-                        :format(targetName))
+                    c.diag("NUPP2613", target, ("cannot assign to 'with' binding %q"):format(targetName))
                 elseif entry and entry.ann and et then
                     local declared = entry.decl or entry.t
                     local ok, why = isA(et, declared)
                     if not ok then
-                        c.diag("NUPP2001", written or stat,
-                            ("cannot assign to %s: %s"):format(targetName, why))
+                        c.diag("NUPP2001", written or stat, ("cannot assign to %s: %s"):format(targetName, why))
                     end
                     c.checkMetatableLiteral(written, et, declared)
                 end
                 if entryState and (entryState.activeBorrows or 0) > 0 then
-                    c.diag("NUPP2602", target,
-                        ("%q cannot be assigned while a derived borrow is live")
-                        :format(targetName))
+                    c.diag(
+                        "NUPP2602",
+                        target,
+                        ("%q cannot be assigned while a derived borrow is live"):format(targetName)
+                    )
                 end
-                if entry and et and (ownershipKind(et) == "owned"
-                    or ownershipKind(et) == "pinned") then
+                if entry and et and (ownershipKind(et) == "owned" or ownershipKind(et) == "pinned") then
                     -- The branch above is what proves it has one.
                     local incomingKind = ownershipKind(et) as string
                     if entry.ann and ownershipKind(entry.t) ~= incomingKind then
-                        c.diag("NUPP2603", written or stat,
-                            incomingKind .. " assignment needs a matching destination")
+                        c.diag("NUPP2603", written or stat, incomingKind .. " assignment needs a matching destination")
                     end
                     if entry.ownership == incomingKind and not entryState.moved then
-                        c.diag("NUPP2602", target,
-                            ("assignment overwrites live affine value %q")
-                            :format(targetName))
+                        c.diag("NUPP2602", target, ("assignment overwrites live affine value %q"):format(targetName))
                     end
                     if written then
-                        moveExpression(written, et, "assignment",
-                            incomingKind)
+                        moveExpression(written, et, "assignment", incomingKind)
                     end
                     entry.t, entry.ownership = et, incomingKind
-                    entryState.t, entryState.ownership, entryState.moved =
-                        et, incomingKind, false
+                    entryState.t, entryState.ownership, entryState.moved = et, incomingKind, false
                 elseif et and ownershipKind(et) == "borrowed" and written then
-                    c.diag(written.withBinding and "NUPP2612"
-                        or "NUPP2603", written,
-                        "borrowed value cannot escape through assignment")
+                    c.diag(
+                        written.withBinding and "NUPP2612" or "NUPP2603",
+                        written,
+                        "borrowed value cannot escape through assignment"
+                    )
                 end
             elseif not wasConstModuleField then
                 target.writeContext = true
@@ -395,46 +373,43 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 if target.usesIndexContract and et then
                     local receiver = target.indexObjectType
                     local keyType = target.indexKeyType
-                    local mm = receiver and metamethodOf(receiver,
-                        "__newindex") or nil
+                    local mm = receiver and metamethodOf(receiver, "__newindex") or nil
                     if mm then
-                        local receiverNode = target.kind == "bracketIndex"
-                            and target.obj or target
-                        local keyNode = target.kind == "bracketIndex"
-                            and target.expr or target
-                        applyContract(mm, {receiver, keyType, et},
+                        local receiverNode = target.kind == "bracketIndex" and target.obj or target
+                        local keyNode = target.kind == "bracketIndex" and target.expr or target
+                        applyContract(
+                            mm,
+                            {receiver, keyType, et},
                             {receiverNode, keyNode or target, written},
-                            target, "__newindex")
+                            target,
+                            "__newindex"
+                        )
                         contractWrite = true
                     end
                 end
                 if et and ownershipKind(et) then
-                    c.diag("NUPP2603", written or stat,
-                        (ownershipKind(et) as string)
-                        .. " value cannot be stored through a reference")
+                    c.diag(
+                        "NUPP2603",
+                        written or stat,
+                        (ownershipKind(et) as string) .. " value cannot be stored through a reference"
+                    )
                 end
                 -- Writing nil to a table entry is how Lua removes it, so an array or
                 -- map accepts nil whatever its element type says a present value holds.
                 -- A record field is not that: it is declared, and removing it would
                 -- leave the type describing something that is not there.
-                local removing = et == T.nil_
-                    and target.kind == "bracketIndex"
-                    and (target.containerTag == "array"
-                    or target.containerTag == "map"
-                    or target.containerIsSequence)
+                local removing = et == T.nil_ and target.kind == "bracketIndex" and (
+                    target.containerTag == "array" or target.containerTag == "map" or target.containerIsSequence
+                )
                 if et and tt and target.metamethodName then
                     -- The name is a contract the receiver declared, so this assignment
                     -- is the installation that fulfils it and the contract is what the
                     -- value answers to.
-                    c.checkMetamethodValue(written or stat,
-                        target.metamethodName, et, tt,
-                        target.metamethodReceiver)
-                elseif et and tt and tt ~= T.any and not removing
-                    and not contractWrite then
+                    c.checkMetamethodValue(written or stat, target.metamethodName, et, tt, target.metamethodReceiver)
+                elseif et and tt and tt ~= T.any and not removing and not contractWrite then
                     local ok, why = isA(et, tt)
                     if not ok then
-                        c.diag("NUPP2001", written or stat,
-                            ("cannot assign: %s"):format(why))
+                        c.diag("NUPP2001", written or stat, ("cannot assign: %s"):format(why))
                     end
                     c.checkMetatableLiteral(written, et, tt)
                 end
@@ -481,28 +456,22 @@ function bindings.install(c: state.Checker): state.StatHandlers
         end
         local targetT = c.infer(assignTarget)
         if constModuleField(assignTarget) then
-            c.diag("NUPP2008", assignTarget,
-                "cannot assign to const module field")
+            c.diag("NUPP2008", assignTarget, "cannot assign to const module field")
             return
         end
         assignTarget.writeContext = true
         c.infer(assignTarget) -- compound assignment needs both capabilities
         assignTarget.writeContext = nil
         local valueT = c.infer(value)
-        local targetTok = assignTarget.kind == "name"
-            and assignTarget.token or nil
+        local targetTok = assignTarget.kind == "name" and assignTarget.token or nil
         if targetTok then
             local targetName = targetTok.text
             local entry = c.lookupEntry(targetName)
             if entry and entry.withBinding then
-                c.diag("NUPP2613", assignTarget,
-                    ("cannot assign to 'with' binding %q")
-                    :format(targetName))
+                c.diag("NUPP2613", assignTarget, ("cannot assign to 'with' binding %q"):format(targetName))
             end
             if entry and entry.constant then
-                c.diag("NUPP2008", assignTarget,
-                    ("cannot assign to const variable %s")
-                    :format(targetName))
+                c.diag("NUPP2008", assignTarget, ("cannot assign to const variable %s"):format(targetName))
                 return
             end
         end
@@ -513,8 +482,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 if entry and entry.ann then
                     local ok, why = isA(valueT, entry.decl or entry.t)
                     if not ok then
-                        c.diag("NUPP2001", value,
-                            ("cannot assign: %s"):format(why))
+                        c.diag("NUPP2001", value, ("cannot assign: %s"):format(why))
                     end
                 end
             end
@@ -525,9 +493,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 if t == T.any or isA(t, T.number) or isA(t, T.string) then
                     return
                 end
-                c.diag("NUPP2003", at,
-                    ("cannot concatenate %s"):format(T.tostring(t)))
+                c.diag("NUPP2003", at, ("cannot concatenate %s"):format(T.tostring(t)))
             end
+
             concatenable(targetT, assignTarget)
             concatenable(valueT, value)
         else
@@ -560,8 +528,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
         end
         if ignoredOwner then
-            c.diag("NUPP2603", called,
-                "owned call result is ignored instead of being consumed")
+            c.diag("NUPP2603", called, "owned call result is ignored instead of being consumed")
         end
     end
 

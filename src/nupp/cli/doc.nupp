@@ -8,32 +8,32 @@ manifest already configured; the options here override it for one run.
 
 local spec = require("nupp.cli.spec")
 
-local FORMATS: {[string]: string} = {
-    site = "site", markdown = "markdown", md = "markdown", both = "both",
-}
+local FORMATS: {[string]: string} = {site = "site", markdown = "markdown", md = "markdown", both = "both",}
 
 local command = spec.command{
     name = "doc",
     summary = "Generate API documentation from source comments",
-    usage = {"nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all]"
-    .. " [--format text|json] [path...]"},
-    options = require("nupp.cli.options").join(
-        {names = {"-o", "--output"}, value = "PATH", key = "output",
-        help = "Output file or directory"},
+    usage = {"nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all]" .. " [--format text|json] [path...]"},
+    options = require(
+        "nupp.cli.options"
+    ).join(
+        {names = {"-o", "--output"}, value = "PATH", key = "output", help = "Output file or directory"},
         {name = "--title", value = "TITLE", help = "Documentation title"},
         {name = "--all", help = "Include private declarations"},
-        require("nupp.cli.options").format()),
+        require("nupp.cli.options").format()
+    ),
     schema = {
         type = "object",
         properties = {
             ok = {type = "boolean"},
-            format = {type = "string",
-            description = "The resolved format: site, markdown, or both."},
-            output = {type = "string",
-            description = "The file or directory the run was pointed at."},
-            files = {type = "array", items = {type = "string"},
-            description = "Every path written. A file whose contents did "
-            .. "not change is not rewritten and is not listed."},
+            format = {type = "string", description = "The resolved format: site, markdown, or both."},
+            output = {type = "string", description = "The file or directory the run was pointed at."},
+            files = {
+                type = "array",
+                items = {type = "string"},
+                description = "Every path written. A file whose contents did "
+                .. "not change is not rewritten and is not listed."
+            },
         },
         required = {"ok", "format", "output", "files"},
     },
@@ -58,9 +58,13 @@ local function run(parsed: any): integer
     -- lunamark as a rock gets it installed here, so `nupp doc` on a fresh checkout
     -- renders rather than reporting a library nobody was told to install.
     local deps = require("nupp.build.deps")
-    local installed, depErr = deps.build(".",
-        settings.outDir or "build", config as nupp.build.manifest.Config, {},
-        settings as nupp.build.manifest.Target)
+    local installed, depErr = deps.build(
+        ".",
+        settings.outDir or "build",
+        config as nupp.build.manifest.Config,
+        {},
+        settings as nupp.build.manifest.Target
+    )
     if not installed then
         io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
         return 1
@@ -88,13 +92,18 @@ local function run(parsed: any): integer
     if asJson then
         opts.written = written
     end
-    local code, output, resolved = doc.build(".",
+    local code, output, resolved = doc.build(
+        ".",
         config as nupp.build.manifest.Config,
-        settings as nupp.build.manifest.Target, opts)
+        settings as nupp.build.manifest.Target,
+        opts
+    )
     if asJson then
-        require("nupp.cli.report").write({ok = code == 0, files = written,
-            output = output or "", format = resolved or ""})
+        require(
+            "nupp.cli.report"
+        ).write({ok = code == 0, files = written, output = output or "", format = resolved or ""})
     end
+
     return code
 end
 

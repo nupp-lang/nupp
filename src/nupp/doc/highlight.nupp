@@ -36,48 +36,77 @@ local join, dirname, exists = filesMod.join, filesMod.dirname, filesMod.exists
 
 local highlight = {}
 
---- What the generator was configured with, of the parts that decide highlighting:
---- where the bundled Scintillua lexers were unpacked to.
-type highlight.Settings = {
-    lexers: string?,
-}
+--- What the generator was configured with, of the parts that decide highlighting: where
+--- the bundled Scintillua lexers were unpacked to.
+type highlight.Settings = {lexers: string?,}
+
 local TYPE_NAMES = {
-    any = true, boolean = true, cdata = true, integer = true, never = true,
-    metatable = true, number = true, string = true, table = true, thread = true,
-    unknown = true, userdata = true,
+    any = true,
+    boolean = true,
+    cdata = true,
+    integer = true,
+    never = true,
+    metatable = true,
+    number = true,
+    string = true,
+    table = true,
+    thread = true,
+    unknown = true,
+    userdata = true,
 }
 
 local CONTEXTUAL_KEYWORDS = {
-    ["as"] = true, borrows = true, cdef = true, constructor = true,
-    exclusive = true, takes = true,
-    const = true, global = true,
-    interface = true, ["is"] = true, matches = true, ["new"] = true,
-    own = true, record = true,
-    metamethod = true, where = true, with = true,
-    readonly = true, releases = true, retains = true, struct = true,
-    unsafe = true, writeonly = true,
+    ["as"] = true,
+    borrows = true,
+    cdef = true,
+    constructor = true,
+    exclusive = true,
+    takes = true,
+    const = true,
+    global = true,
+    interface = true,
+    ["is"] = true,
+    matches = true,
+    ["new"] = true,
+    own = true,
+    record = true,
+    metamethod = true,
+    where = true,
+    with = true,
+    readonly = true,
+    releases = true,
+    retains = true,
+    struct = true,
+    unsafe = true,
+    writeonly = true,
 }
 
 local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}
 
 local PUNCTUATION = {
-    ["("] = true, [")"] = true, ["["] = true, ["]"] = true,
-    ["{"] = true, ["}"] = true, [","] = true, [";"] = true,
-    [":"] = true, ["."] = true, ["@"] = true,
+    ["("] = true,
+    [")"] = true,
+    ["["] = true,
+    ["]"] = true,
+    ["{"] = true,
+    ["}"] = true,
+    [","] = true,
+    [";"] = true,
+    [":"] = true,
+    ["."] = true,
+    ["@"] = true,
 }
 
-local TYPE_DECLARATIONS = {
-    interface = true, record = true, struct = true, type = true,
-}
+local TYPE_DECLARATIONS = {interface = true, record = true, struct = true, type = true,}
 
 local function qualifiedName(tokens, index)
     local name = tokens[index].text
     local cursor = index - 1
-    while cursor > 1 and tokens[cursor].text == "."
-        and tokens[cursor - 1].kind == "name" do
+    while cursor > 1 and tokens[cursor].text == "." and tokens[cursor - 1].kind == "name" do
         name = tokens[cursor - 1].text .. "." .. name
         cursor = cursor - 2
     end
+
     return name
 end
 
@@ -113,14 +142,18 @@ local function tokenStyle(tokens, index)
         return "variable"
     elseif lexer.KEYWORDS[token.kind] then
         return LITERAL_KEYWORDS[token.text] and "boolean" or "keyword"
-    elseif token.kind == "string" or token.kind == "istringOpen"
-        or token.kind == "istringMid" or token.kind == "istringClose" then
+    elseif token.kind == "string"
+        or token.kind == "istringOpen"
+        or token.kind == "istringMid"
+        or token.kind == "istringClose"
+    then
         return "string"
     elseif token.kind == "number" then
         return "number"
     elseif PUNCTUATION[token.text] then
         return token.text == "@" and "meta" or "punctuation"
     end
+
     return "operator"
 end
 
@@ -132,17 +165,17 @@ local function tokenClasses(style, text)
         return "token directive nuppdoc-token-meta"
     end
     if style == "keyword" then
-        return "token keyword keyword-" .. text:gsub("[^%w%-]", "-")
-            .. " nuppdoc-token-keyword"
+        return "token keyword keyword-" .. text:gsub("[^%w%-]", "-") .. " nuppdoc-token-keyword"
     end
+
     return "token " .. style .. " nuppdoc-token-" .. style
 end
 
 local function declarationName(tokens, index)
     local previous = tokens[index - 1]
-    return previous and (previous.kind == "function"
-        or previous.text == "metamethod"
-        or TYPE_DECLARATIONS[previous.text])
+    return previous and (
+        previous.kind == "function" or previous.text == "metamethod" or TYPE_DECLARATIONS[previous.text]
+    )
 end
 
 --- Builds one valid HTML fragment per source line. Syntax tokens may cross a line
@@ -150,7 +183,8 @@ end
 --- its own element, so the span must be closed and reopened at the boundary.
 local function lineWriter(source)
     if source == "" then
-        return {lines = {}, append = function() end}
+        return {lines = {}, append = function()
+        end}
     end
     local lines = {""}
     local function append(text, class, href)
@@ -162,8 +196,12 @@ local function lineWriter(source)
             if class and piece ~= "" then
                 rendered = '<span class="' .. class .. '">' .. rendered .. "</span>"
                 if href then
-                    rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-' .. href.style
-                        .. '" href="' .. htmlEscape(href.url) .. '">' .. rendered .. "</a>"
+                    rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-'
+                        .. href.style
+                        .. '" href="'
+                        .. htmlEscape(
+                        href.url
+                    ) .. '">' .. rendered .. "</a>"
                 end
             end
             lines[#lines] = lines[#lines] .. rendered
@@ -174,6 +212,7 @@ local function lineWriter(source)
             start = finish + 1
         end
     end
+
     return {lines = lines, append = append}
 end
 
@@ -194,24 +233,28 @@ local function highlightNuppLines(source, links)
             if links and token.kind == "name" and not declarationName(tokens, index) then
                 url = links[qualifiedName(tokens, index)] or links[token.text]
             end
-            out.append(token.text, tokenClasses(style, token.text),
-                url and {url = url, style = style} or nil)
+            out.append(token.text, tokenClasses(style, token.text), url and {url = url, style = style} or nil)
         end
     end
     if source:sub(-1) == "\n" then
         out.lines[#out.lines] = nil
     end
+
     return out.lines
 end
 
-local function highlightNupp(source: string,
-    links: nupp.doc.urls.Links?): string
+local function highlightNupp(source: string, links: nupp.doc.urls.Links?): string
     return table.concat(highlightNuppLines(source, links), "\n")
 end
 
 local SCINTILLUA_ALIASES = {
-    ["c++"] = "cpp", html = "hypertext", js = "javascript",
-    md = "markdown", sh = "bash", shell = "bash", ts = "typescript",
+    ["c++"] = "cpp",
+    html = "hypertext",
+    js = "javascript",
+    md = "markdown",
+    sh = "bash",
+    shell = "bash",
+    ts = "typescript",
 }
 local scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary = nil, nil, nil
 local scintilluaBundled = false
@@ -232,6 +275,7 @@ local function bundledName(path)
     if path:sub(1, #prefix) ~= prefix then
         return nil
     end
+
     return path:sub(#prefix + 1):match("^([%w_+-]+)%.lua$")
 end
 
@@ -262,6 +306,7 @@ local function bundledLoadfile(path, mode, env)
     if env then
         setfenv(chunk, env)
     end
+
     return chunk
 end
 
@@ -278,11 +323,11 @@ local function installedLexers()
             return dirname(candidate)
         end
     end
+
     return nil
 end
 
-local function configureScintillua(root: string?,
-    settings: highlight.Settings?): nil
+local function configureScintillua(root: string?, settings: highlight.Settings?): nil
     -- `lexer.lua` itself always loads from the installed rock, found the way `require`
     -- would find it, or from the bundle when there is no rock; a project's
     -- `settings.lexers` only extends the path a loaded lexer searches for another,
@@ -291,11 +336,9 @@ local function configureScintillua(root: string?,
     if installed and not exists(join(installed, "lexer.lua")) then
         installed = nil
     end
-    local bundled = not installed
-        and package.preload[BUNDLED_MODULE .. "lexer"] ~= nil
+    local bundled = not installed and package.preload[BUNDLED_MODULE .. "lexer"] ~= nil
     if not installed and not bundled then
-        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
-            nil, nil, nil, {}
+        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers = nil, nil, nil, {}
         scintilluaBundled = false
         return
     end
@@ -309,8 +352,7 @@ local function configureScintillua(root: string?,
         end
     end
     if scintilluaSearchPath ~= searchPath then
-        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers =
-            base, searchPath, nil, {}
+        scintilluaDirectory, scintilluaSearchPath, scintilluaLibrary, scintilluaLexers = base, searchPath, nil, {}
     end
     scintilluaBundled = bundled
 end
@@ -336,8 +378,7 @@ local function loadScintillua(language)
             -- real globals; what `lexer.lua` assigns -- `lpeg`, which it requires on
             -- first use -- stays in here.
             if chunk then
-                setfenv(chunk, setmetatable({loadfile = bundledLoadfile},
-                    {__index = _G}))
+                setfenv(chunk, setmetatable({loadfile = bundledLoadfile}, {__index = _G}))
             end
         else
             chunk = loadfile(join(scintilluaDirectory, "lexer.lua"))
@@ -349,18 +390,16 @@ local function loadScintillua(language)
         if not ok or type(library) ~= "table" then
             return nil
         end
-        library.property = setmetatable({
-            ["scintillua.lexers"] = scintilluaSearchPath,
-        }, {
-            __index = function() return "" end,
-            __newindex = function(t, key, value)
-                rawset(t, key, tostring(value))
-            end,
-        })
+        library.property = setmetatable({["scintillua.lexers"] = scintilluaSearchPath,}, {__index = function()
+            return ""
+        end, __newindex = function(t, key, value)
+            rawset(t, key, tostring(value))
+        end,})
         scintilluaLibrary = library
     end
     local ok, loaded = pcall(scintilluaLibrary.load, language)
     scintilluaLexers[language] = ok and loaded or false
+
     return ok and loaded or nil
 end
 
@@ -402,6 +441,7 @@ local function scintilluaStyle(tag)
     if base == "identifier" or base == "variable" then
         return "variable"
     end
+
     return nil
 end
 
@@ -435,11 +475,11 @@ local function highlightScintilluaLines(source, language)
     if source:sub(-1) == "\n" then
         out.lines[#out.lines] = nil
     end
+
     return out.lines
 end
 
-local function codeLines(source: string, language: string?,
-    links: nupp.doc.urls.Links?): {string}
+local function codeLines(source: string, language: string?, links: nupp.doc.urls.Links?): {string}
     if language == "nupp" then
         return highlightNuppLines(source, links)
     end
@@ -452,11 +492,11 @@ local function codeLines(source: string, language: string?,
     if source:sub(-1) == "\n" then
         out.lines[#out.lines] = nil
     end
+
     return out.lines
 end
 
-local function codeHtml(source: string, language: string?,
-    links: nupp.doc.urls.Links?): string
+local function codeHtml(source: string, language: string?, links: nupp.doc.urls.Links?): string
     return table.concat(codeLines(source, language, links), "\n")
 end
 

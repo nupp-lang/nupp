@@ -37,8 +37,7 @@ type unused.Ops = {
     declared: function(tok: any, entry: any, kind: string),
 
     --- Reports every registered binding that nothing read.
-    sweep: function(),
-}
+    sweep: function(),}
 
 --- Installs the unused-binding judgement on one run.
 ---
@@ -82,13 +81,12 @@ function unused.install(c: state.Checker): unused.Ops
         if c.ownershipKind(entry.t) then
             return
         end
-        candidates[#candidates + 1] = {
-            tok = tok, definition = entry.definition, kind = kind,
-            module = entry.requiredModule,
+        candidates[
+            #candidates + 1
+        ] = {tok = tok, definition = entry.definition, kind = kind, module = entry.requiredModule,
             -- Settled here because the statement's `@allow` is in scope here and gone
             -- by the time the sweep runs.
-            allowed = c.suppressed("unused-binding"),
-        }
+            allowed = c.suppressed("unused-binding"),}
     end
 
     --- Reports every registered binding that nothing read. Runs once, after the last
@@ -99,19 +97,16 @@ function unused.install(c: state.Checker): unused.Ops
                 local name = candidate.tok.text
                 local message, help
                 if candidate.kind == "require" and candidate.module then
-                    message = ("nothing uses %s, so requiring %q does nothing here")
-                        :format(name, candidate.module)
+                    message = ("nothing uses %s, so requiring %q does nothing here"):format(name, candidate.module)
                     help = "delete the require"
                 elseif candidate.kind == "function" then
                     message = ("nothing uses %s"):format(name)
                     help = "delete it, or return it from the module"
                 else
                     message = ("nothing uses %s"):format(name)
-                    help = "delete the binding, or name it _ if it is "
-                        .. "deliberately unused"
+                    help = "delete the binding, or name it _ if it is " .. "deliberately unused"
                 end
-                c.diag("unused-binding", candidate.tok, message, nil,
-                    {help = help})
+                c.diag("unused-binding", candidate.tok, message, nil, {help = help})
             end
         end
     end

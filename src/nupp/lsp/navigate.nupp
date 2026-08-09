@@ -35,14 +35,12 @@ local navigate = {}
 
 --- What navigation reads of a session: the documents it holds open, the lex it keeps
 --- per file, and the query graph every closed file comes from.
-type navigate.Session = {
-    documents: {[string]: any},
+type navigate.Session = {documents: {[string]: any},
 
     --- The last lex of each file, so a question needing only tokens does not reparse.
     lexed: {[string]: any},
 
-    inc: any,
-}
+    inc: any,}
 
 --- What installing navigation gives the session back. The handlers reach these through
 --- the session they were installed on, so the whole set is named here.
@@ -56,8 +54,7 @@ type navigate.Api = {
     definitionSource: function(def: any): string?,
 
     --- Where `def` stands in `tokens`, or nil when it is no longer there at all.
-    declarationIndex: function(def: any, source: string,
-    tokens: {lexer.Token}): integer?,
+    declarationIndex: function(def: any, source: string, tokens: {lexer.Token}): integer?,
 
     resolveDefinition: function(def: any): (string?, {lexer.Token}?, integer?),
 
@@ -86,8 +83,7 @@ type navigate.Api = {
     referencesFor: function(def: any, includeDeclaration: boolean?): {any},
 
     --- The `function m.f` declaring a member, with the file it is in.
-    memberDeclaration: function(moduleName: string,
-    memberName: string): (any, lexer.Token?, cst.FuncStmt?),
+    memberDeclaration: function(moduleName: string, memberName: string): (any, lexer.Token?, cst.FuncStmt?),
 
     memberAt: function(doc: any, offset: integer?): tree.MemberRef?,
 
@@ -98,8 +94,7 @@ type navigate.Api = {
     memberHover: function(member: tree.MemberRef): string?,
 
     --- The type a receiver path names, plus the module it holds when it holds one.
-    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?),
-}
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?),}
 
 --- Installs the navigation questions on one session.
 ---
@@ -113,6 +108,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         end
         local tokens = lexer.lex(source)
         s.lexed[filename] = {source = source, tokens = tokens}
+
         return tokens
     end
 
@@ -124,6 +120,7 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return doc.text
             end
         end
+
         return readFile(path)
     end
 
@@ -150,6 +147,7 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return index
             end
         end
+
         return nil
     end
 
@@ -166,6 +164,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         if not index then
             return nil
         end
+
         return source, tokens, index
     end
 
@@ -175,6 +174,7 @@ function navigate.install(s: navigate.Session): navigate.Api
             return json.null
         end
         local tok = tokens[index]
+
         return {
             uri = pathToUri(def.filename),
             range = {
@@ -189,6 +189,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         if not tokens then
             return def and def.token and fromTrivia(def.token.trivia)
         end
+
         return documentationAt(tokens, index)
     end
 
@@ -203,6 +204,7 @@ function navigate.install(s: navigate.Session): navigate.Api
             return uri, doc, nil, nil
         end
         local offset = offsetAtPosition(doc.text, params.position)
+
         return uri, doc, offset and tokenAt(doc.result, offset) or nil, offset
     end
 
@@ -215,6 +217,7 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return true
             end
         end
+
         return false
     end
 
@@ -234,6 +237,7 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return true
             end
         end
+
         return false
     end
 
@@ -259,12 +263,12 @@ function navigate.install(s: navigate.Session): navigate.Api
                 if source and source:find(name, 1, true) then
                     local checked = s.inc.checkFile(path)
                     if checked and checked.result then
-                        out[#out + 1] = {uri = pathToUri(path), source = source,
-                            result = checked.result}
+                        out[#out + 1] = {uri = pathToUri(path), source = source, result = checked.result}
                     end
                 end
             end
         end
+
         return out
     end
 
@@ -282,15 +286,11 @@ function navigate.install(s: navigate.Session): navigate.Api
                 -- here and a file the index read were parsed twice, so the declaration
                 -- arrives as two tokens standing in one place.
                 local isDeclaration = declaring and tok.offset == def.token.offset
-                if symbolKey(tok.definition) == wanted
-                    and (includeDeclaration or not isDeclaration) then
+                if symbolKey(tok.definition) == wanted and (includeDeclaration or not isDeclaration) then
                     local key = entry.uri .. ":" .. tostring(tok.offset)
                     if not seen[key] then
                         seen[key] = true
-                        locations[#locations + 1] = {
-                            uri = entry.uri,
-                            range = tokenRange(entry.source, tok),
-                        }
+                        locations[#locations + 1] = {uri = entry.uri, range = tokenRange(entry.source, tok),}
                     end
                 end
             end
@@ -309,9 +309,10 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return a.uri < b.uri
             end
             local ap, bp = a.range.start, b.range.start
-            return ap.line < bp.line
-                or (ap.line == bp.line and ap.character < bp.character)
+
+            return ap.line < bp.line or (ap.line == bp.line and ap.character < bp.character)
         end)
+
         return locations
     end
 
@@ -340,6 +341,7 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return path, hit.token, hit.stat
             end
         end
+
         return nil
     end
 
@@ -357,6 +359,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         if not memberDeclaration(member.moduleName, member.name) then
             return nil
         end
+
         return member
     end
 
@@ -369,6 +372,7 @@ function navigate.install(s: navigate.Session): navigate.Api
         if not source then
             return json.null
         end
+
         return {
             uri = pathToUri(path),
             range = {
@@ -382,16 +386,12 @@ function navigate.install(s: navigate.Session): navigate.Api
         local locations = wire.array({})
         local seen = {}
         for _, entry in ipairs(documentsMentioning(member.name)) do
-            local hits = memberOccurrences(entry.result, member.moduleName,
-                member.name)
+            local hits = memberOccurrences(entry.result, member.moduleName, member.name)
             for _, hit in ipairs(hits) do
                 local key = entry.uri .. ":" .. tostring(hit.token.offset)
                 if (includeDeclaration or not hit.stat) and not seen[key] then
                     seen[key] = true
-                    locations[#locations + 1] = {
-                        uri = entry.uri,
-                        range = tokenRange(entry.source, hit.token),
-                    }
+                    locations[#locations + 1] = {uri = entry.uri, range = tokenRange(entry.source, hit.token),}
                 end
             end
         end
@@ -400,9 +400,10 @@ function navigate.install(s: navigate.Session): navigate.Api
                 return a.uri < b.uri
             end
             local ap, bp = a.range.start, b.range.start
-            return ap.line < bp.line
-                or (ap.line == bp.line and ap.character < bp.character)
+
+            return ap.line < bp.line or (ap.line == bp.line and ap.character < bp.character)
         end)
+
         return locations
     end
 
@@ -428,6 +429,7 @@ function navigate.install(s: navigate.Session): navigate.Api
                 end
             end
         end
+
         return value
     end
 
@@ -469,20 +471,30 @@ function navigate.install(s: navigate.Session): navigate.Api
         if #path > 1 then
             moduleName = nil
         end
+
         return t, moduleName
     end
 
     return {
-        fileTokens = fileTokens, sourceForPath = sourceForPath,
-        definitionSource = definitionSource, declarationIndex = declarationIndex,
-        resolveDefinition = resolveDefinition, definitionLocation = definitionLocation,
-        documentationFor = documentationFor, documentAt = documentAt,
-        symbolAt = symbolAt, isOpenDefinition = isOpenDefinition,
+        fileTokens = fileTokens,
+        sourceForPath = sourceForPath,
+        definitionSource = definitionSource,
+        declarationIndex = declarationIndex,
+        resolveDefinition = resolveDefinition,
+        definitionLocation = definitionLocation,
+        documentationFor = documentationFor,
+        documentAt = documentAt,
+        symbolAt = symbolAt,
+        isOpenDefinition = isOpenDefinition,
         isProjectDefinition = isProjectDefinition,
-        documentsMentioning = documentsMentioning, referencesFor = referencesFor,
-        memberDeclaration = memberDeclaration, memberAt = memberAt,
-        memberLocation = memberLocation, memberReferences = memberReferences,
-        memberHover = memberHover, resolveReceiver = resolveReceiver,
+        documentsMentioning = documentsMentioning,
+        referencesFor = referencesFor,
+        memberDeclaration = memberDeclaration,
+        memberAt = memberAt,
+        memberLocation = memberLocation,
+        memberReferences = memberReferences,
+        memberHover = memberHover,
+        resolveReceiver = resolveReceiver,
     }
 end
 

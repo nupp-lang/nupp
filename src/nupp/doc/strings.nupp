@@ -25,35 +25,44 @@ local function markdownCell(text: string): string
 end
 
 local function htmlEscape(text: string?): string, integer?
-    return tostring(text or ""):gsub("&", "&amp;"):gsub("<", "&lt;")
-        :gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&#39;")
+    return tostring(
+        text or ""
+    ):gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&#39;")
 end
 
 local function headingId(text: string): string
-    local id = text:lower():gsub("`", ""):gsub("<[^>]+>", "")
-        :gsub("[^%w%s_-]", ""):gsub("[%s_]+", "-"):gsub("%-+", "-")
-        :gsub("^%-", ""):gsub("%-$", "")
+    local id = text:lower():gsub(
+        "`",
+        ""
+    ):gsub("<[^>]+>", ""):gsub("[^%w%s_-]", ""):gsub("[%s_]+", "-"):gsub("%-+", "-"):gsub("^%-", ""):gsub("%-$", "")
+
     return id ~= "" and id or "section"
 end
 
 local function summaryText(text: string?): string
-    text = tostring(text or ""):gsub("```[%s%S]-```", " ")
-        :gsub("%[([^%]]+)%]%([^%)]+%)", "%1"):gsub("`([^`]*)`", "%1")
-        :gsub("[*_~#]", ""):gsub("%s+", " ")
-        :gsub("^%s+", ""):gsub("%s+$", "")
+    text = tostring(
+        text or ""
+    ):gsub(
+        "```[%s%S]-```",
+        " "
+    ):gsub(
+        "%[([^%]]+)%]%([^%)]+%)",
+        "%1"
+    ):gsub("`([^`]*)`", "%1"):gsub("[*_~#]", ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
     local sentence = text:match("^(.-[.!?])%s")
     text = sentence or text
     if #text > 120 then
         text = text:sub(1, 117):match("^(.*)%s+%S*$") or text:sub(1, 117)
         text = text .. "..."
     end
+
     return text ~= "" and text or "—"
 end
 
 local function escapeJs(text: string?): string
-    return (tostring(text or ""):gsub("\\", "\\\\")
-        :gsub('"', '\\"'):gsub("\r", "\\r"):gsub("\n", "\\n")
-        :gsub("</", "<\\/"))
+    return (
+        tostring(text or ""):gsub("\\", "\\\\"):gsub('"', '\\"'):gsub("\r", "\\r"):gsub("\n", "\\n"):gsub("</", "<\\/")
+    )
 end
 
 strings.trim = trim

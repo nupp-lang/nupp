@@ -16,8 +16,7 @@ local command = spec.command{
     usage = {"nupp tasks [--format text|json]", "nupp tasks <name> [--format text|json]"},
     options = optionsMod.format(),
     schema = {
-        description = "The task list, or one task's effective configuration when "
-        .. "a name was given.",
+        description = "The task list, or one task's effective configuration when " .. "a name was given.",
         type = "object",
         properties = {
             tasks = {
@@ -36,23 +35,26 @@ local command = spec.command{
                     kind = {type = "string"},
                     category = {type = "string"},
                     command = {type = "array", items = {type = "string"}},
-                    outDir = {type = "string",
-                    description = "Where the target writes, including the "
-                    .. "default a docs target takes from the generator "
-                    .. "rather than from the manifest."},
+                    outDir = {
+                        type = "string",
+                        description = "Where the target writes, including the "
+                        .. "default a docs target takes from the generator "
+                        .. "rather than from the manifest."
+                    },
                     buildTarget = {type = "string"},
-                    all = {type = "boolean",
-                    description = "Documentation: include declarations "
-                    .. "that are undocumented or local."},
-                    includePrivate = {type = "boolean",
-                    description = "Documentation: include `_` members and "
-                    .. "files below internal/."},
+                    all = {
+                        type = "boolean",
+                        description = "Documentation: include declarations " .. "that are undocumented or local."
+                    },
+                    includePrivate = {
+                        type = "boolean",
+                        description = "Documentation: include `_` members and " .. "files below internal/."
+                    },
                     entries = {type = "array", items = {type = "string"}},
                     sources = {type = "array", items = {type = "string"}},
                     resources = {type = "array", items = {type = "string"}},
                     dependencies = {type = "array", items = {type = "string"}},
-                    nativeFeatures = {type = "object",
-                    additionalProperties = {type = "boolean"}},
+                    nativeFeatures = {type = "object", additionalProperties = {type = "boolean"}},
                     argv = {type = "array", items = {type = "string"}},
                 },
                 required = {"name"},
@@ -69,7 +71,9 @@ local function writeItems(out: {string}, style: any, label: string, items: {stri
         out[#out + 1] = "  (none)"
         return
     end
-    for _, item in ipairs(items) do out[#out + 1] = "  - " .. item end
+    for _, item in ipairs(items) do
+        out[#out + 1] = "  - " .. item
+    end
 end
 
 --- One task's configuration, field by field. Only the fields a task actually has are
@@ -80,6 +84,7 @@ local function writeTask(out: {string}, style: any, task: any)
             out[#out + 1] = style.faint(label .. ":") .. " " .. tostring(value)
         end
     end
+
     out[#out + 1] = style.faint("Name:") .. " " .. style.strong(task.name)
     field("Default", task.default and "yes" or "no")
     field("Description", task.description)
@@ -167,6 +172,7 @@ local function run(parsed: any): integer
     if #out > 0 then
         io.write(table.concat(out, "\n"), "\n")
     end
+
     return 0
 end
 

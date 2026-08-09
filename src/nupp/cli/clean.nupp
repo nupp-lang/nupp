@@ -12,17 +12,22 @@ local command = spec.command{
     name = "clean",
     summary = "Remove build outputs configured in nupp.lua",
     usage = {"nupp clean [--target NAME] [--dry-run] [--format text|json]"},
-    options = require("nupp.cli.options").join(
-        {name = "--target", value = "NAME",
-        help = "Clean only the named build target"},
+    options = require(
+        "nupp.cli.options"
+    ).join(
+        {name = "--target", value = "NAME", help = "Clean only the named build target"},
         {name = "--dry-run", help = "Print output paths without removing them"},
-        require("nupp.cli.options").format()),
+        require("nupp.cli.options").format()
+    ),
     schema = {
         type = "object",
         properties = {
-            removed = {type = "array", items = {type = "string"},
-            description = "The output paths, removed unless dryRun is set, "
-            .. "in which case these are the paths that would be."},
+            removed = {
+                type = "array",
+                items = {type = "string"},
+                description = "The output paths, removed unless dryRun is set, "
+                .. "in which case these are the paths that would be."
+            },
             dryRun = {type = "boolean"},
             ok = {type = "boolean"},
         },
@@ -42,12 +47,14 @@ local function run(parsed: any): integer
     local dryRun = values.dryRun and true or false
     local project = require("nupp.build.project")
     local removed: {string} = {}
-    local code = project.clean(".", {target = values.target, dryRun = values.dryRun,
-        removed = asJson and removed or nil})
+    local code = project.clean(
+        ".",
+        {target = values.target, dryRun = values.dryRun, removed = asJson and removed or nil}
+    )
     if asJson then
-        require("nupp.cli.report").write({ok = code == 0, removed = removed,
-            dryRun = dryRun})
+        require("nupp.cli.report").write({ok = code == 0, removed = removed, dryRun = dryRun})
     end
+
     return code
 end
 

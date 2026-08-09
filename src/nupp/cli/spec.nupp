@@ -163,24 +163,16 @@ type spec.OptionSpec = {
 }
 
 --- A command's grammar as it is written, which `spec.command` resolves into one.
-type spec.Declaration = {
-    name: string,
-    helpName: string?,
-    summary: string,
-    usage: {string}?,
+type spec.Declaration = {name: string, helpName: string?, summary: string, usage: {string}?,
 
     --- The positional arguments the command names in its own help, if any.
-    positionals: {{name: string, choices: {string}?}}?,
-    options: {spec.OptionSpec}?,
-    intro: string?,
-    detail: string?,
-    schema: any?,
-    stopAtPositional: boolean?,
+    positionals: {
+    {name: string, choices: {string}?}
+}?, options: {spec.OptionSpec}?, intro: string?, detail: string?, schema: any?, stopAtPositional: boolean?,
 
     --- False when a command hands its arguments to something else and so cannot
     --- honestly claim to accept the options every command otherwise takes.
-    universal: boolean?,
-}
+    universal: boolean?,}
 
 --- What a command file returns: the grammar, and the work behind it.
 record spec.Handler
@@ -212,7 +204,9 @@ end
 --- repeat itself. An option whose key should differ says so.
 local function derivedKey(name: string): string
     local bare = name:gsub("^%-+", "")
-    return (bare:gsub("%-(%w)", function(ch: string): string return ch:upper() end))
+    return (bare:gsub("%-(%w)", function(ch: string): string
+        return ch:upper()
+    end))
 end
 
 --- Greedy word wrap. Long words are left over the limit rather than broken, since a
@@ -232,6 +226,7 @@ local function wrap(text: string, width: integer): {string}
     if line ~= "" then
         lines[#lines + 1] = line
     end
+
     return lines
 end
 
@@ -269,6 +264,7 @@ local function normalize(raw: any): spec.Option
             longest = name
         end
     end
+
     return new spec.Option {
         names = names,
         key = raw.key or derivedKey(longest),
@@ -290,13 +286,24 @@ end
 -- the one that forgot them. `--color` and `--no-color` share a key, so asking for
 -- colour and refusing it in the same breath is caught rather than resolved by whichever
 -- came last.
-local UNIVERSAL: {spec.OptionSpec} = {
-    {name = "--color", value = "WHEN", form = "optional", constant = "always",
-    choices = {"always", "never", "auto"},
-    help = "When to colour output: always, never, or auto (default)"},
-    {name = "--no-color", key = "color", constant = "never",
-    duplicate = "colour was both asked for and refused",
-    help = "Never colour output; the same as --color=never"},
+local UNIVERSAL: {
+    spec.OptionSpec
+} = {
+    {
+        name = "--color",
+        value = "WHEN",
+        form = "optional",
+        constant = "always",
+        choices = {"always", "never", "auto"},
+        help = "When to colour output: always, never, or auto (default)"
+    },
+    {
+        name = "--no-color",
+        key = "color",
+        constant = "never",
+        duplicate = "colour was both asked for and refused",
+        help = "Never colour output; the same as --color=never"
+    },
     {names = {"-h", "--help"}, help = "Show this help"},
 }
 
@@ -306,10 +313,7 @@ spec.helpOption = UNIVERSAL[3]
 
 -- Added only to a command that declared a schema, so `--schema` never appears on one
 -- with no JSON to describe.
-local SCHEMA_OPTION = {
-    name = "--schema",
-    help = "Print the JSON Schema of --json output and exit",
-}
+local SCHEMA_OPTION = {name = "--schema", help = "Print the JSON Schema of --json output and exit",}
 
 --- Builds a command from its declaration, resolving every spelling once.
 ---
@@ -320,12 +324,16 @@ function spec.command(raw: spec.Declaration): spec.Command
     local byName: {[string]: spec.Option} = {}
     local patterned: {spec.Option} = {}
     local declared: {any} = {}
-    for _, entry in ipairs(raw.options or {}) do declared[#declared + 1] = entry end
+    for _, entry in ipairs(raw.options or {}) do
+        declared[#declared + 1] = entry
+    end
     if raw.schema then
         declared[#declared + 1] = SCHEMA_OPTION
     end
     if raw.universal ~= false then
-        for _, entry in ipairs(UNIVERSAL) do declared[#declared + 1] = entry end
+        for _, entry in ipairs(UNIVERSAL) do
+            declared[#declared + 1] = entry
+        end
     end
     for _, entry in ipairs(declared) do
         local option = normalize(entry)
@@ -333,8 +341,11 @@ function spec.command(raw: spec.Declaration): spec.Command
         if option.pattern then
             patterned[#patterned + 1] = option
         end
-        for _, name in ipairs(option.names) do byName[name] = option end
+        for _, name in ipairs(option.names) do
+            byName[name] = option
+        end
     end
+
     return new spec.Command {
         name = raw.name,
         helpName = raw.helpName or raw.name,
@@ -352,8 +363,7 @@ function spec.command(raw: spec.Declaration): spec.Command
 end
 
 --- Records one value, refusing a second unless the option accumulates them.
-local function store(values: {[string]: any}, seen: {[string]: spec.Option},
-    option: spec.Option, value: any): string?
+local function store(values: {[string]: any}, seen: {[string]: spec.Option}, option: spec.Option, value: any): string?
     local key = option.key
     if option.repeats then
         local list = values[key]
@@ -372,11 +382,13 @@ local function store(values: {[string]: any}, seen: {[string]: spec.Option},
     if already then
         -- Options that share a key say so in their own words: three spellings of one
         -- choice cannot each claim to be the one repeated.
-        return already.duplicate or option.duplicate
-            or ("option " .. option.names[1] .. " was specified more than once")
+        return already.duplicate or option.duplicate or (
+            "option " .. option.names[1] .. " was specified more than once"
+        )
     end
     seen[key] = option
     values[key] = value
+
     return nil
 end
 
@@ -390,8 +402,10 @@ local function checkChoice(option: spec.Option, value: string): string?
             return nil
         end
     end
-    return option.invalid or ("option " .. option.names[1] .. " does not take "
-        .. value .. "; expected " .. table.concat(choices, ", "))
+
+    return option.invalid or (
+        "option " .. option.names[1] .. " does not take " .. value .. "; expected " .. table.concat(choices, ", ")
+    )
 end
 
 --- Takes an argument list apart according to the grammar. Returns the values and what
@@ -425,8 +439,9 @@ function spec.Command:parse(args: {string}): spec.Result?, string?
                         value, consumed = given, 2
                     end
                 elseif form == "attached" then
-                    failure = "option " .. current .. " requires a value; write "
-                        .. current .. "=" .. (option.value or "VALUE")
+                    failure = "option " .. current .. " requires a value; write " .. current .. "=" .. (
+                        option.value or "VALUE"
+                    )
                 else
                     -- A flag, or an optional value given bare. Either stands for
                     -- whatever the option says its bare form means.
@@ -492,6 +507,7 @@ function spec.Command:parse(args: {string}): spec.Result?, string?
             end
         end
     end
+
     return new spec.Result {values = values, positional = positional}
 end
 
@@ -501,10 +517,14 @@ function spec.Command:help(): string
     local style = ansi.style(io.stdout)
     local paint = ansi.forSeverity(style, "note")
     local out: {string} = {self.summary, "", style.strong("Usage:")}
-    for _, line in ipairs(self.usage) do out[#out + 1] = INDENT .. line end
+    for _, line in ipairs(self.usage) do
+        out[#out + 1] = INDENT .. line
+    end
     local intro = self.intro
     if intro then
-        out[#out + 1] = ""; out[#out + 1] = intro
+        out[#out + 1] = ""
+        ;
+        out[#out + 1] = intro
     end
     if #self.options > 0 then
         local labels: {string} = {}
@@ -528,10 +548,11 @@ function spec.Command:help(): string
             local head = INDENT .. paint(text)
             if #text > width then
                 out[#out + 1] = head
-                for _, line in ipairs(lines) do out[#out + 1] = padding .. line end
+                for _, line in ipairs(lines) do
+                    out[#out + 1] = padding .. line
+                end
             else
-                out[#out + 1] = head .. (" "):rep(width - #text + 2)
-                    .. (lines[1] or "")
+                out[#out + 1] = head .. (" "):rep(width - #text + 2) .. (lines[1] or "")
                 for line = 2, #lines do
                     out[#out + 1] = padding .. lines[line]
                 end
@@ -540,8 +561,11 @@ function spec.Command:help(): string
     end
     local detail = self.detail
     if detail then
-        out[#out + 1] = ""; out[#out + 1] = detail
+        out[#out + 1] = ""
+        ;
+        out[#out + 1] = detail
     end
+
     return table.concat(out, "\n") .. "\n"
 end
 
@@ -550,10 +574,17 @@ end
 --- 1, which means the work was attempted and failed.
 function spec.Command:usageError(message: string?): integer
     local style = ansi.style(io.stderr)
-    io.stderr:write(ansi.forSeverity(style, "error")("nupp:") .. " "
-        .. tostring(message) .. "\nTry '"
-        .. style.strong("nupp help " .. self.helpName)
-        .. "' for more information.\n")
+    io.stderr:write(
+        ansi.forSeverity(
+            style,
+            "error"
+        )(
+            "nupp:"
+        ) .. " " .. tostring(
+            message
+        ) .. "\nTry '" .. style.strong("nupp help " .. self.helpName) .. "' for more information.\n"
+    )
+
     return 2
 end
 

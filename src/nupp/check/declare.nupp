@@ -45,18 +45,19 @@ local type Node = cst.Node
 --- @param fix a named fix, and the edits applying it makes
 --- @param insertBefore an edit putting text in front of a token
 --- @param validateAnnotation checks one application against what it names
-function declare.install(c: state.Checker,
+function declare.install(
+    c: state.Checker,
     reifiableField: function(t: Type, isCdef: boolean?): boolean,
     fix: function(title: string, ...: any): any,
     insertBefore: function(tok: any, text: string): any,
-    validateAnnotation: function(application: any, target: any,
-    owner: any?): (any, boolean)): nil
+    validateAnnotation: function(application: any, target: any, owner: any?): (any, boolean)
+): nil
 
     --- Whether `t` reaches `target` by value, and through which declaration.
     ---
-    --- Only by value. A pointer to a struct is one pointer wide whatever it points
-    --- at, so a linked structure is written that way and is not a cycle; following
-    --- stars would refuse the shape the language expects.
+    --- Only by value. A pointer to a struct is one pointer wide whatever it points at,
+    --- so a linked structure is written that way and is not a cycle; following stars
+    --- would refuse the shape the language expects.
     ---
     --- @param t the field's type
     --- @param target the declaration being checked
@@ -64,17 +65,16 @@ function declare.install(c: state.Checker,
     local function containedByValue(t: any, target: any): string?
         local seen = {}
         local function reaches(current: any): string?
-            if not current or current.tag ~= "nominal"
-                or current.declKind ~= "struct" then
+            if not current or current.tag ~= "nominal" or current.declKind ~= "struct" then
                 return nil
             end
             if current == target then
                 return target.name
             end
             if seen[current] then
-                -- A cycle that does not pass through the declaration being checked
-                -- was reported when that one was checked; stopping keeps this walk
-                -- finite rather than saying it twice.
+                -- A cycle that does not pass through the declaration being checked was
+                -- reported when that one was checked; stopping keeps this walk finite
+                -- rather than saying it twice.
                 return nil
             end
             seen[current] = true
@@ -84,8 +84,10 @@ function declare.install(c: state.Checker,
                     return current.name
                 end
             end
+
             return nil
         end
+
         return reaches(t)
     end
 
@@ -94,9 +96,7 @@ function declare.install(c: state.Checker,
     -- their presence does not argue against the suggestion. Everything absent is
     -- refused by a struct outright (an indexer, an array part, a declaration-only
     -- metamethod, a nested declaration), and a record holding one is not a candidate.
-    local STRUCT_ENTRY = {
-        fieldDecl = true, inlineMethod = true, constructorDecl = true,
-    }
+    local STRUCT_ENTRY = {fieldDecl = true, inlineMethod = true, constructorDecl = true,}
 
     --- Says when a record's fields would all fit in C memory, so `struct` is available.
     ---
@@ -116,8 +116,7 @@ function declare.install(c: state.Checker,
     --- @param stat the record declaration
     --- @param n its resolved nominal, read for the field types already on it
     local function suggestStruct(stat: any, n: any)
-        if stat.isAnnotationDefinition or stat.generics
-            or #(stat.supertypes or {}) > 0 then
+        if stat.isAnnotationDefinition or stat.generics or #(stat.supertypes or {}) > 0 then
             return
         end
         local fields = 0
@@ -140,9 +139,9 @@ function declare.install(c: state.Checker,
         if fields == 0 then
             return
         end
-        -- The keyword itself, so the suggestion can be applied rather than only
-        -- read. It precedes the declaration's name, and the scan stops there: an
-        -- entry may be a field called `record`, and `record` is contextual.
+        -- The keyword itself, so the suggestion can be applied rather than only read.
+        -- It precedes the declaration's name, and the scan stops there: an entry may be
+        -- a field called `record`, and `record` is contextual.
         local keyword = nil
         for _, child in ipairs(stat) do
             if child == stat.name then
@@ -153,104 +152,116 @@ function declare.install(c: state.Checker,
                 break
             end
         end
-        local fixes = keyword and {c.edits.fix("change `record` to `struct`",
-            c.edits.replaceToken(keyword, "struct"))} or nil
-        c.diag("NUPP2509", stat.name,
-            ("record %s declares only fields that reify"):format(n.name), fixes,
-            {help = "declaring it `struct` puts its instances in C memory, off the "
-            .. "collector's graph, at the cost of a fixed layout: no fields added "
-            .. "after construction",
-            notes = {
-                -- The cost that actually bites, and the one a reader is least
-                -- likely to predict: an instance stops being a table at runtime.
-                -- `type` answers \"cdata\", `is` tests for cdata, `pairs` needs a
-                -- `__pairs` on the metatype, and a serializer that walks tables
-                -- refuses it outright -- `string.buffer.encode` raises \"cannot
-                -- serialize 'cdata'\" with no hook to install.
-                "an instance is cdata, not a table: `pairs` needs a `__pairs` "
-                .. "metamethod, and a serializer that walks tables will refuse it "
-                .. "unless it is converted first",
-            }})
+        local fixes = keyword and {
+            c.edits.fix("change `record` to `struct`", c.edits.replaceToken(keyword, "struct"))
+        } or nil
+        c.diag("NUPP2509", stat.name, (
+            "record %s declares only fields that reify"
+        ):format(
+            n.name
+        ), fixes, {help = "declaring it `struct` puts its instances in C memory, off the " .. "collector's graph, at the cost of a fixed layout: no fields added " .. "after construction", notes = {
+            -- The cost that actually bites, and the one a reader is least likely to
+            -- predict: an instance stops being a table at runtime. `type` answers
+            -- \"cdata\", `is` tests for cdata, `pairs` needs a `__pairs` on the
+            -- metatype, and a serializer that walks tables refuses it outright --
+            -- `string.buffer.encode` raises \"cannot serialize 'cdata'\" with no hook
+            -- to install.
+            "an instance is cdata, not a table: `pairs` needs a `__pairs` "
+            .. "metamethod, and a serializer that walks tables will refuse it "
+            .. "unless it is converted first",}})
     end
 
-    --- Reads a `where` refinement into the runtime test it names, and holds it to
-    --- the declaration it belongs to.
+    --- Reads a `where` refinement into the runtime test it names, and holds it to the
+    --- declaration it belongs to.
     ---
-    --- Three things have to be true before a refinement is worth compiling: the
-    --- subset it is written in has to be one that can run anywhere `is` is
-    --- written, the fields it reads have to exist, and it has to be capable of
-    --- answering both ways. Each failure keeps NUPP2122, which now means "this
-    --- refinement cannot be enforced" rather than "no refinement is".
+    --- Three things have to be true before a refinement is worth compiling: the subset
+    --- it is written in has to be one that can run anywhere `is` is written, the fields
+    --- it reads have to exist, and it has to be capable of answering both ways. Each
+    --- failure keeps NUPP2122, which now means "this refinement cannot be enforced"
+    --- rather than "no refinement is".
     local function checkRefinement(stat: any, n: any, clause: any)
-        local help = "a refinement tests the declaration's own fields: "
-            .. "`matches self.kind == \"circle\" end`"
+        local help = "a refinement tests the declaration's own fields: " .. "`matches self.kind == \"circle\" end`"
 
-        -- A record's identity is the metatable `new` stamps, and a struct's is
-        -- its ctype. Both already answer `is` exactly, so a refinement beside
-        -- one would be a second answer to a settled question — and which answer
-        -- `is R` gave would depend on whether a body happened to carry this.
-        -- An interface has no runtime table at all, so this is the only identity
-        -- it can have, and the only declaration that needs one.
+        -- A record's identity is the metatable `new` stamps, and a struct's is its
+        -- ctype. Both already answer `is` exactly, so a refinement beside one would be
+        -- a second answer to a settled question — and which answer `is R` gave would
+        -- depend on whether a body happened to carry this. An interface has no runtime
+        -- table at all, so this is the only identity it can have, and the only
+        -- declaration that needs one.
         if stat.declKind ~= "interface" then
-            c.diag("NUPP2122", clause,
-                ("a %s is identified by what builds it, so a refinement would "
-                .. "be a second answer to the same question")
-                :format(stat.declKind), nil,
-                {help = "put it on an interface this declares with `is`, or "
-                .. "remove it"})
+            c.diag(
+                "NUPP2122",
+                clause,
+                (
+                    "a %s is identified by what builds it, so a refinement would "
+                    .. "be a second answer to the same question"
+                ):format(stat.declKind),
+                nil,
+                {help = "put it on an interface this declares with `is`, or " .. "remove it"}
+            )
             return
         end
 
         local built, why = predicate.build(clause.expr)
         if not built then
-            c.diag("NUPP2122", clause,
-                ("a refinement cannot be %s"):format(why), nil,
-                {help = help})
+            c.diag("NUPP2122", clause, ("a refinement cannot be %s"):format(why), nil, {help = help})
             return
         end
 
         local always = predicate.constant(built)
         if always ~= nil then
-            c.diag("NUPP2122", clause, always
+            c.diag(
+                "NUPP2122",
+                clause,
+                always
                 and "this refinement is always true, so it identifies "
                 .. "every value rather than this declaration's"
                 or "this refinement is always false, so nothing can "
-                .. "ever be one of these", nil, {help = help})
+                .. "ever be one of these",
+                nil,
+                {help = help}
+            )
             return
         end
 
-        -- Every field it reads has to be one this declaration has. A refinement
-        -- naming a field that is not here would compile to a test that is simply
-        -- never true, which is the failure hardest to see from the outside.
+        -- Every field it reads has to be one this declaration has. A refinement naming
+        -- a field that is not here would compile to a test that is simply never true,
+        -- which is the failure hardest to see from the outside.
         local ok = true
         for _, path in ipairs(predicate.paths(built)) do
             local current = n
             for depth, segment in ipairs(path) do
-                local field = current and current.tag == "nominal"
-                    and current.byname and current.byname[segment] or nil
+                local field = current and current.tag == "nominal" and current.byname and current.byname[segment] or nil
                 if not field then
-                    c.diag("NUPP2122", clause,
-                        ("a refinement reads %q, which %s does not have")
-                        :format(table.concat(path, ".", 1, depth), n.name),
-                        nil, {help = help})
+                    c.diag(
+                        "NUPP2122",
+                        clause,
+                        (
+                            "a refinement reads %q, which %s does not have"
+                        ):format(table.concat(path, ".", 1, depth), n.name),
+                        nil,
+                        {help = help}
+                    )
                     ok = false
                     break
                 end
                 current = field
             end
         end
-        if not ok then return end
+        if not ok then
+            return
+        end
 
         n.predicate = built
     end
 
     --- Holds a declaration to the refinements of the interfaces it declares.
     ---
-    --- `record C is Shape` is a claim the checker proves, and Shape's refinement
-    --- is what `is Shape` runs. If C's own fields make that test fail, the two
-    --- disagree about the same value: the checker says C is a Shape and `is`
-    --- answers no. Nothing about the disagreement is visible at either site,
-    --- which is why it is worth proving here.
+    --- `record C is Shape` is a claim the checker proves, and Shape's refinement is
+    --- what `is Shape` runs. If C's own fields make that test fail, the two disagree
+    --- about the same value: the checker says C is a Shape and `is` answers no. Nothing
+    --- about the disagreement is visible at either site, which is why it is worth
+    --- proving here.
     ---
     --- Only a provable failure is reported. A refinement whose answer depends on
     --- something no declaration settles is not evidence of a mistake.
@@ -258,12 +269,15 @@ function declare.install(c: state.Checker,
         local function fieldAt(path: {string}): any
             local current: any = n
             for _, segment in ipairs(path) do
-                current = current and current.tag == "nominal"
-                    and current.byname and current.byname[segment] or nil
-                if not current then return nil end
+                current = current and current.tag == "nominal" and current.byname and current.byname[segment] or nil
+                if not current then
+                    return nil
+                end
             end
+
             return current
         end
+
         for _, super in ipairs(n.supertypes or {}) do
             if super.predicate then
                 if predicate.satisfiedBy(super.predicate, fieldAt) == false then
@@ -271,12 +285,19 @@ function declare.install(c: state.Checker,
                     for _, node in ipairs(stat.supertypes or {}) do
                         at = at or node
                     end
-                    c.diag("NUPP2122", at or stat.name,
-                        ("%s declares %s, whose refinement its own fields "
-                        .. "cannot satisfy"):format(n.name, super.name), nil,
-                        {help = ("`is %s` would answer no for every %s; change "
-                        .. "the fields or the refinement"):format(super.name,
-                        n.name)})
+                    c.diag(
+                        "NUPP2122",
+                        at or stat.name,
+                        (
+                            "%s declares %s, whose refinement its own fields " .. "cannot satisfy"
+                        ):format(n.name, super.name),
+                        nil,
+                        {
+                            help = (
+                                "`is %s` would answer no for every %s; change " .. "the fields or the refinement"
+                            ):format(super.name, n.name)
+                        }
+                    )
                 end
             end
         end
@@ -289,24 +310,24 @@ function declare.install(c: state.Checker,
                 return super.name
             end
         end
+
         return nil
     end
 
-    --- Records which defaults a declaration takes, and refuses the ones it
-    --- cannot choose between.
+    --- Records which defaults a declaration takes, and refuses the ones it cannot
+    --- choose between.
     ---
-    --- Two interfaces providing the same name are two implementations and no
-    --- reason to prefer either, so the declaration has to say which behaviour it
-    --- means by writing the member itself. The same shape as a bare `@owned`
-    --- with several inherited `@dispose` operations.
+    --- Two interfaces providing the same name are two implementations and no reason to
+    --- prefer either, so the declaration has to say which behaviour it means by writing
+    --- the member itself. The same shape as a bare `@owned` with several inherited
+    --- `@dispose` operations.
     local function checkInheritedDefaults(stat: any, n: any)
         n.inheritedDefaults = {}
         local providers: {[string]: {any}} = {}
         for _, super in ipairs(n.supertypes or {}) do
             for member, inherited in pairs(super.defaultEntries or {}) do
                 local into = providers[member] or {}
-                into[#into + 1] = {name = super.name,
-                    methodName = inherited.name, super = super}
+                into[#into + 1] = {name = super.name, methodName = inherited.name, super = super}
                 providers[member] = into
                 n.inheritedDefaults[member] = super
             end
@@ -320,15 +341,20 @@ function declare.install(c: state.Checker,
         for member, from in pairs(providers) do
             if #from > 1 and not localSlots[member] then
                 local names = {}
-                for j, provider in ipairs(from) do names[j] = provider.name end
+                for j, provider in ipairs(from) do
+                    names[j] = provider.name
+                end
                 table.sort(names)
                 local methodName = from[1].methodName
-                c.diag("NUPP2118", stat.name,
-                    ("%s inherits a default %q from %s, and cannot choose")
-                    :format(n.name, methodName,
-                    table.concat(names, " and ")), nil,
-                    {help = ("write %s in %s to say which behaviour it means")
-                    :format(methodName, n.name)})
+                c.diag(
+                    "NUPP2118",
+                    stat.name,
+                    (
+                        "%s inherits a default %q from %s, and cannot choose"
+                    ):format(n.name, methodName, table.concat(names, " and ")),
+                    nil,
+                    {help = ("write %s in %s to say which behaviour it means"):format(methodName, n.name)}
+                )
                 n.inheritedDefaults[member] = nil
             elseif localSlots[member] then
                 -- This exact overload has a local body; the other entries under the
@@ -343,15 +369,19 @@ function declare.install(c: state.Checker,
             for member, super in pairs(n.inheritedDefaults) do
                 local inherited = super.defaultEntries[member]
                 n.defaults[inherited.name] = true
-                n.defaultEntries[member] = {name = inherited.name,
-                    member = n.overloadedMethods[inherited.name]
-                    and member or inherited.member, slot = member,
-                    entry = inherited.entry}
+                n.defaultEntries[
+                    member
+                ] = {
+                    name = inherited.name,
+                    member = n.overloadedMethods[inherited.name] and member or inherited.member,
+                    slot = member,
+                    entry = inherited.entry
+                }
             end
         end
 
-        -- The generator needs the runtime spelling of the interface each default
-        -- comes from, which is on the supertype node the resolver answered.
+        -- The generator needs the runtime spelling of the interface each default comes
+        -- from, which is on the supertype node the resolver answered.
         local byNominal: {[any]: string} = {}
         for _, node in ipairs(stat.supertypes or {}) do
             local resolved = node.resolvedSupertype
@@ -364,57 +394,79 @@ function declare.install(c: state.Checker,
             local from = byNominal[super]
             if from then
                 local inherited = super.defaultEntries[member]
-                taken[#taken + 1] = {name = inherited.name,
-                    member = n.overloadedMethods[inherited.name]
-                    and member or inherited.member,
-                    fromMember = inherited.member, from = from}
+                taken[
+                    #taken + 1
+                ] = {
+                    name = inherited.name,
+                    member = n.overloadedMethods[inherited.name] and member or inherited.member,
+                    fromMember = inherited.member,
+                    from = from
+                }
             end
         end
-        table.sort(taken, function(a, b) return a.member < b.member end)
+        table.sort(taken, function(a, b)
+            return a.member < b.member
+        end)
         stat.inheritedDefaultNames = taken
     end
 
     --- Every field the body assigns through `self`, anywhere inside it.
     ---
-    --- Anywhere is deliberate. A field set in one arm of an `if` and not the
-    --- other counts as assigned, which under-reports rather than refusing a
-    --- constructor that is in fact correct — the same direction the unassigned
-    --- binding check takes, and for the same reason.
+    --- Anywhere is deliberate. A field set in one arm of an `if` and not the other
+    --- counts as assigned, which under-reports rather than refusing a constructor that
+    --- is in fact correct — the same direction the unassigned binding check takes, and
+    --- for the same reason.
     local function assignedFields(node: any, out: any): any
         out = out or {}
-        if not node or cst.isToken(node) then return out end
+        if not node or cst.isToken(node) then
+            return out
+        end
         if node.kind == "assignStmt" then
             for _, target in ipairs(node.targets or {}) do
                 local base = target.obj
-                if target.kind == "dotIndex" and base and base.kind == "name"
-                    and base.token and base.token.text == "self"
-                    and target.name then
+                if target.kind == "dotIndex"
+                    and base
+                    and base.kind == "name"
+                    and base.token
+                    and base.token.text == "self"
+                    and target.name
+                then
                     out[target.name.text] = true
                 end
             end
         end
-        for _, child in ipairs(node) do assignedFields(child, out) end
+        for _, child in ipairs(node) do
+            assignedFields(child, out)
+        end
+
         return out
     end
 
     --- Checks a `constructor(...)` body and records it on the declaration.
     ---
-    --- The instance exists before the body runs and is returned after it, so the
-    --- body has one job: put a value in every field that cannot hold nil. That
-    --- is the whole reason a constructor is worth having over a literal — a
-    --- literal may leave a declared field out, and a constructor may not.
+    --- The instance exists before the body runs and is returned after it, so the body
+    --- has one job: put a value in every field that cannot hold nil. That is the whole
+    --- reason a constructor is worth having over a literal — a literal may leave a
+    --- declared field out, and a constructor may not.
     local function checkConstructor(e: any, n: any, stat: any)
         if stat.declKind == "interface" then
-            c.diag("NUPP2208", e,
-                "an interface declares a contract and builds nothing, so it "
-                .. "cannot carry a constructor", nil,
-                {help = "put the constructor on the records that declare it"})
+            c.diag(
+                "NUPP2208",
+                e,
+                "an interface declares a contract and builds nothing, so it " .. "cannot carry a constructor",
+                nil,
+                {help = "put the constructor on the records that declare it"}
+            )
             return
         end
         if e.body and e.body.rets and #e.body.rets > 0 then
-            c.diag("NUPP2208", e.body.rets[1],
-                "a constructor returns the value it builds, so it declares no "
-                .. "return type", nil, {help = "remove the return annotation"})
+            c.diag(
+                "NUPP2208",
+                e.body.rets[1],
+                "a constructor returns the value it builds, so it declares no " .. "return type",
+                nil,
+                {help = "remove the return annotation"}
+            )
         end
         -- A funcbody's type is a function, whatever a body in general may be.
         local ft = c.checkFuncbody(e.body, n) as T.Func
@@ -422,20 +474,25 @@ function declare.install(c: state.Checker,
 
         for _, prior in ipairs(n.constructorEntries or {}) do
             if prior.signature.paramPack.id == ft.paramPack.id then
-                c.diag("NUPP2208", e,
-                    ("%s already has a constructor with parameter pack %s")
-                    :format(n.name, T.tostringPack(ft.paramPack)), nil,
-                    {help = "constructor overloads need distinguishable parameter packs"})
+                c.diag(
+                    "NUPP2208",
+                    e,
+                    (
+                        "%s already has a constructor with parameter pack %s"
+                    ):format(n.name, T.tostringPack(ft.paramPack)),
+                    nil,
+                    {help = "constructor overloads need distinguishable parameter packs"}
+                )
                 return
             end
         end
 
-        -- Every declared field that cannot hold nil has to be filled, or the
-        -- value the constructor hands back does not match its own declaration.
+        -- Every declared field that cannot hold nil has to be filled, or the value the
+        -- constructor hands back does not match its own declaration.
         local assigned = assignedFields(e.body)
-        -- Everything the declaration has, not only what it wrote: a field it
-        -- takes from an interface is as much a part of the value it hands back
-        -- as one declared here, and leaving that one out is the same nil.
+        -- Everything the declaration has, not only what it wrote: a field it takes from
+        -- an interface is as much a part of the value it hands back as one declared
+        -- here, and leaving that one out is the same nil.
         local order, seen = {}, {}
         for _, name in ipairs(n.fieldOrder or {}) do
             order[#order + 1] = name
@@ -443,34 +500,39 @@ function declare.install(c: state.Checker,
         end
         local inherited = {}
         for name in pairs(n.byname or {}) do
-            if not seen[name] then inherited[#inherited + 1] = name end
+            if not seen[name] then
+                inherited[#inherited + 1] = name
+            end
         end
         table.sort(inherited)
-        for _, name in ipairs(inherited) do order[#order + 1] = name end
+        for _, name in ipairs(inherited) do
+            order[#order + 1] = name
+        end
 
         local missing = {}
         for _, name in ipairs(order) do
             local ft2 = n.byname[name]
-            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "nominal"
-                and not assigned[name] and not isA(T.nil_, ft2) then
+            if ft2 and ft2.tag ~= "func" and ft2.tag ~= "nominal" and not assigned[name] and not isA(T.nil_, ft2) then
                 missing[#missing + 1] = name
             end
         end
         if #missing > 0 then
-            c.diag("NUPP2208", e,
-                ("this constructor leaves %s unset, and %s cannot hold nil")
-                :format(table.concat(missing, ", "),
-                #missing == 1 and "it" or "they"), nil,
-                {help = "assign every field, or declare the ones that may be "
-                .. "absent as optional"})
+            c.diag(
+                "NUPP2208",
+                e,
+                (
+                    "this constructor leaves %s unset, and %s cannot hold nil"
+                ):format(table.concat(missing, ", "), #missing == 1 and "it" or "they"),
+                nil,
+                {help = "assign every field, or declare the ones that may be " .. "absent as optional"}
+            )
         end
 
         n.constructors = n.constructors or {}
         n.constructors[#n.constructors + 1] = ft
         n.constructorEntries = n.constructorEntries or {}
         local index = #n.constructorEntries + 1
-        n.constructorEntries[index] = {signature = ft, declaration = e,
-            index = index}
+        n.constructorEntries[index] = {signature = ft, declaration = e, index = index}
         e.constructorIndex = index
         e.ownerNominal = n
     end
@@ -478,9 +540,9 @@ function declare.install(c: state.Checker,
     c.declaredNominal = function(stat, kind)
         local t, projectEntry = nil, nil
         if c.env and c.env.declarationType then
-            t, projectEntry = c.env.declarationType(c.env, c.filename,
-                stat.name.text, kind, c.visibilityOf(stat))
+            t, projectEntry = c.env.declarationType(c.env, c.filename, stat.name.text, kind, c.visibilityOf(stat))
         end
+
         return t or T.nominal(stat.name.text, kind), projectEntry
     end
 
@@ -500,56 +562,57 @@ function declare.install(c: state.Checker,
         -- is assigned to stay the same thing. Group types inside a record body rather
         -- than under a nested table.
         if stat.qualifiers and #stat.qualifiers > 1 then
-            c.diag("NUPP2119", stat.name,
-                ("declaration %q may attach to one table, not a path")
-                :format(name))
+            c.diag("NUPP2119", stat.name, ("declaration %q may attach to one table, not a path"):format(name))
         end
         -- A qualified name has already said where the declaration lives, and a modifier
         -- would say something else: `global record m.X` would promise a global whose
         -- runtime value is a field of m.
-        if stat.qualifiers and (stat.visibility == "local"
-            or stat.visibility == "global") then
+        if stat.qualifiers and (stat.visibility == "local" or stat.visibility == "global") then
             -- Dropping the modifier is the fix that keeps the name written as it reads.
             -- Dropping the table instead would move the declaration, which is a
             -- different program, so it is not offered as an edit.
             local fixes = {}
             if stat.modifier then
-                fixes[1] = fix(("drop `%s`"):format(stat.visibility),
-                    {offset = stat.modifier.offset,
-                    length = stat.keyword.offset - stat.modifier.offset,
-                    newText = ""})
+                fixes[
+                    1
+                ] = fix(
+                    ("drop `%s`"):format(stat.visibility),
+                    {offset = stat.modifier.offset, length = stat.keyword.offset - stat.modifier.offset, newText = ""}
+                )
             end
-            c.diag("NUPP2119", stat.name,
-                ("declaration %q says where it lives twice; drop `%s` or the "
-                .. "table it names"):format(name, stat.visibility), fixes)
+            c.diag(
+                "NUPP2119",
+                stat.name,
+                (
+                    "declaration %q says where it lives twice; drop `%s` or the " .. "table it names"
+                ):format(name, stat.visibility),
+                fixes
+            )
         end
-        if visibility == "module" and not stat.qualifiers
-            and not c.declarationFile and not stat.isAnnotationDefinition then
-            local suggestion = c.moduleLocal
-                and ("write it as %s.%s, or mark it local or global")
-                :format(c.moduleLocal, name)
-                or "mark it local or global, or attach it to a table"
+        if visibility == "module"
+            and not stat.qualifiers
+            and not c.declarationFile
+            and not stat.isAnnotationDefinition
+        then
+            local suggestion = c.moduleLocal and (
+                "write it as %s.%s, or mark it local or global"
+            ):format(c.moduleLocal, name) or "mark it local or global, or attach it to a table"
             local fixes = {}
             if stat.keyword then
                 if c.moduleLocal then
-                    fixes[#fixes + 1] = fix(
-                        ("attach it to %s"):format(c.moduleLocal),
-                        insertBefore(stat.name, c.moduleLocal .. "."))
+                    fixes[
+                        #fixes + 1
+                    ] = fix(("attach it to %s"):format(c.moduleLocal), insertBefore(stat.name, c.moduleLocal .. "."))
                 end
-                fixes[#fixes + 1] = fix("mark it local",
-                    insertBefore(stat.keyword, "local "))
-                fixes[#fixes + 1] = fix("mark it global",
-                    insertBefore(stat.keyword, "global "))
+                fixes[#fixes + 1] = fix("mark it local", insertBefore(stat.keyword, "local "))
+                fixes[#fixes + 1] = fix("mark it global", insertBefore(stat.keyword, "global "))
             end
-            c.diag("NUPP2119", stat.name,
-                ("declaration %q has no visibility; %s")
-                :format(name, suggestion), fixes)
+            c.diag("NUPP2119", stat.name, ("declaration %q has no visibility; %s"):format(name, suggestion), fixes)
         end
         if visibility == "module" then
             c.moduleExports.types[name] = t
             c.moduleExports.typeDefs[name] = def
-            if t.tag == "nominal" and t.declKind == "struct"
-                and not stat.isAnnotationDefinition then
+            if t.tag == "nominal" and t.declKind == "struct" and not stat.isAnnotationDefinition then
                 c.moduleExports.values[name] = t
             end
         elseif visibility == "global" and c.env then
@@ -560,9 +623,11 @@ function declare.install(c: state.Checker,
                 c.env.globalTypes[name] = t
                 c.env.globalTypeDefs[name] = def
             end
-            if not projectEntry and not stat.isAnnotationDefinition
+            if not projectEntry
+                and not stat.isAnnotationDefinition
                 and t.tag == "nominal"
-                and t.declKind == "struct" then
+                and t.declKind == "struct"
+            then
                 local entry = c.rootScope.vars[name]
                 if entry then
                     entry.globalModule = c.result.moduleName
@@ -579,8 +644,7 @@ function declare.install(c: state.Checker,
             local t = stat.hoistedAlias and stat.hoistedAlias.resolved
             if not t then
                 local owner = c.scope
-                while owner and not (owner.pending
-                    and owner.pending[name]) do
+                while owner and not (owner.pending and owner.pending[name]) do
                     owner = owner.parent
                 end
                 if owner and stat.hoistedAlias then
@@ -593,8 +657,13 @@ function declare.install(c: state.Checker,
             local projectEntry = nil
             if c.env and c.env.declarationType then
                 local ignored
-                ignored, projectEntry = c.env.declarationType(c.env, c.filename,
-                    stat.name.text, "type", c.visibilityOf(stat))
+                ignored, projectEntry = c.env.declarationType(
+                    c.env,
+                    c.filename,
+                    stat.name.text,
+                    "type",
+                    c.visibilityOf(stat)
+                )
             end
             c.publishType(stat, t, projectEntry)
         elseif kind == "recordDecl" then
@@ -627,8 +696,7 @@ function declare.install(c: state.Checker,
             end
             n.typeParams, n.typeBounds = nil, nil
             if stat.generics then
-                n.typeParams, n.typeBounds = c.bindGenerics(stat.generics,
-                    "nominal")
+                n.typeParams, n.typeBounds = c.bindGenerics(stat.generics, "nominal")
             end
             n.fieldOrder = {}
             n.fieldDefs = {}
@@ -644,16 +712,14 @@ function declare.install(c: state.Checker,
                     e.hoistedType = nested
                     -- A nested declaration's runtime table hangs off its owner's, which
                     -- is what `is` has to compare against.
-                    nested.runtimePath = (n.runtimePath or n.name)
-                        .. "." .. e.name.text
+                    nested.runtimePath = (n.runtimePath or n.name) .. "." .. e.name.text
                     c.bindType(e.name.text, nested, e.name)
                     n.nestedTypes[e.name.text] = nested
                     if nestedKind == "record" or nestedKind == "struct" then
                         -- Reaching it through the owner reaches the same value the
-                        -- owner's own name would, so a nested record is its table
-                        -- here too rather than an instance of itself.
-                        local held = nestedKind == "record"
-                            and T.metatable(nested) or nested
+                        -- owner's own name would, so a nested record is its table here
+                        -- too rather than an instance of itself.
+                        local held = nestedKind == "record" and T.metatable(nested) or nested
                         n.byname[e.name.text] = held
                         n.writeByname[e.name.text] = held
                     end
@@ -665,13 +731,15 @@ function declare.install(c: state.Checker,
             for _, superNode in ipairs(stat.supertypes or {}) do
                 local super = c.resolveType(superNode)
                 if super.tag ~= "nominal" or super.declKind ~= "interface" then
-                    c.diag("NUPP2117", superNode,
-                        ("%s may inherit contracts only from interfaces")
-                        :format(stat.declKind))
+                    c.diag(
+                        "NUPP2117",
+                        superNode,
+                        ("%s may inherit contracts only from interfaces"):format(stat.declKind)
+                    )
                 else
                     n.supertypes[#n.supertypes + 1] = super
-                    -- Which node named it, so the runtime spelling the resolver
-                    -- worked out can be found again from the nominal.
+                    -- Which node named it, so the runtime spelling the resolver worked
+                    -- out can be found again from the nominal.
                     superNode.resolvedSupertype = super
                     for _, disposer in ipairs(super.defaultDisposers or {}) do
                         local seen = false
@@ -684,8 +752,7 @@ function declare.install(c: state.Checker,
                             n.defaultDisposers[#n.defaultDisposers + 1] = disposer
                         end
                     end
-                    local selfMap = super.selfType
-                        and {[super.selfType] = n.selfType} or {}
+                    local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
                     for name, inherited in pairs(super.byname or {}) do
                         if not n.byname[name] then
                             n.byname[name] = substType(inherited, selfMap)
@@ -694,11 +761,12 @@ function declare.install(c: state.Checker,
                     for name in pairs(super.overloadedMethods or {}) do
                         n.overloadedMethods[name] = true
                     end
-                    for name, inheritedEntries in pairs(
-                        super.methodDispatchEntries or super.methodEntries or {}) do
+                    for name, inheritedEntries in pairs(super.methodDispatchEntries or super.methodEntries or {}) do
                         local into = n.methodDispatchEntries[name] or {}
                         for _, entry in ipairs(inheritedEntries) do
-                            into[#into + 1] = {
+                            into[
+                                #into + 1
+                            ] = {
                                 signature = substType(entry.signature, selfMap),
                                 declaration = entry.declaration,
                                 member = entry.member,
@@ -716,13 +784,11 @@ function declare.install(c: state.Checker,
                     -- An indexer is declared as a key and a value together, so the
                     -- value being there is what says the key is.
                     if not n.indexReadValue and super.indexReadValue then
-                        n.indexReadKey = substType(super.indexReadKey as Type,
-                            selfMap)
+                        n.indexReadKey = substType(super.indexReadKey as Type, selfMap)
                         n.indexReadValue = substType(super.indexReadValue, selfMap)
                     end
                     if not n.indexWriteValue and super.indexWriteValue then
-                        n.indexWriteKey = substType(super.indexWriteKey as Type,
-                            selfMap)
+                        n.indexWriteKey = substType(super.indexWriteKey as Type, selfMap)
                         n.indexWriteValue = substType(super.indexWriteValue, selfMap)
                     end
                     for name, inherited in pairs(super.metamethods or {}) do
@@ -769,19 +835,23 @@ function declare.install(c: state.Checker,
                 else
                     local byParameters, order = {}, {}
                     local inherited = n.byname[name]
-                    local inheritedMembers = inherited
-                        and inherited.tag == "intersection"
-                        and inherited.members or (inherited and {inherited} or {})
+                    local inheritedMembers = inherited and inherited.tag == "intersection" and inherited.members or (
+                        inherited and {inherited} or {}
+                    )
                     for _, signature in ipairs(inheritedMembers) do
                         if signature.tag == "func" then
                             local key = methodslots.parameters(dropSelf(signature))
-                            if not byParameters[key] then order[#order + 1] = key end
+                            if not byParameters[key] then
+                                order[#order + 1] = key
+                            end
                             byParameters[key] = signature
                         end
                     end
                     for _, signature in ipairs(localSignatures) do
                         local key = methodslots.parameters(dropSelf(signature))
-                        if not byParameters[key] then order[#order + 1] = key end
+                        if not byParameters[key] then
+                            order[#order + 1] = key
+                        end
                         byParameters[key] = signature
                     end
                     local members = {}
@@ -799,41 +869,40 @@ function declare.install(c: state.Checker,
                 if e.kind == "fieldDecl" then
                     local isDisposer = false
                     for _, application in ipairs(e.annotations or {}) do
-                        local definition2, valid = validateAnnotation(application,
-                            e, stat)
-                        if definition2 and valid
-                            and application.name.text == "dispose" then
+                        local definition2, valid = validateAnnotation(application, e, stat)
+                        if definition2 and valid and application.name.text == "dispose" then
                             isDisposer = true
                         end
                     end
                     local ft = c.resolveType(e.type)
-                    local capability = e.capability
-                        and e.capability.propertyCapability or nil
-                    if capability and (stat.declKind == "struct"
-                        or stat.isAnnotationDefinition) then
-                        c.diag("NUPP2118", e.capability,
+                    local capability = e.capability and e.capability.propertyCapability or nil
+                    if capability and (stat.declKind == "struct" or stat.isAnnotationDefinition) then
+                        c.diag(
+                            "NUPP2118",
+                            e.capability,
                             e.capability.text
                             .. " properties are available on records, "
                             .. "interfaces, and shapes, not "
-                            .. (stat.isAnnotationDefinition
-                            and "annotation schemas" or "structs"))
+                            .. (
+                                stat.isAnnotationDefinition and "annotation schemas" or "structs"
+                            )
+                        )
                         capability = nil
                     end
-                    if c.ownershipKind(ft) == "owned"
-                        or c.ownershipKind(ft) == "pinned" then
+                    if c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned" then
                         n.affineFields = n.affineFields or {}
                         n.affineFields[#n.affineFields + 1] = e.name.text
                         n.affineResource = true
                     end
                     if isDisposer then
-                        if ft.tag ~= "func" or not ft.params[1]
-                            or ft.paramModes[1] ~= "takes" then
-                            c.diag("NUPP2602", e,
-                                "@dispose member must be a function whose first "
-                                .. "parameter takes the resource")
+                        if ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
+                            c.diag(
+                                "NUPP2602",
+                                e,
+                                "@dispose member must be a function whose first " .. "parameter takes the resource"
+                            )
                         else
-                            n.defaultDisposers[#n.defaultDisposers + 1] =
-                                "@method:" .. e.name.text
+                            n.defaultDisposers[#n.defaultDisposers + 1] = "@method:" .. e.name.text
                         end
                     end
                     local name = e.name.text
@@ -845,10 +914,8 @@ function declare.install(c: state.Checker,
                     end
                     local grantsRead = capability ~= "write"
                     local grantsWrite = capability ~= "read"
-                    if (grantsRead and state.read)
-                        or (grantsWrite and state.write) then
-                        c.diag("NUPP2118", e.name,
-                            ("duplicate property capability for %q"):format(name))
+                    if (grantsRead and state.read) or (grantsWrite and state.write) then
+                        c.diag("NUPP2118", e.name, ("duplicate property capability for %q"):format(name))
                     end
                     local definition = c.definition(e.name, "property")
                     definition.type = ft
@@ -860,7 +927,9 @@ function declare.install(c: state.Checker,
                                 break
                             end
                             local plain = dropSelf(signature) as T.Func
-                            contracts[#contracts + 1] = {
+                            contracts[
+                                #contracts + 1
+                            ] = {
                                 signature = signature,
                                 declaration = nil,
                                 member = methodslots.member(name, plain),
@@ -884,13 +953,15 @@ function declare.install(c: state.Checker,
                         n.writeFieldDefs[name] = definition
                     end
                     c.markToken(e.name, definition, ft, "property")
-                    if stat.declKind == "struct" and not stat.isAnnotationDefinition
-                        and not reifiableField(ft) then
-                        c.diag("NUPP2201", e, ("struct field %q: %s is not reifiable "
-                            .. "(use a record for GC types, or a pointer)")
-                            :format(e.name.text, T.tostring(ft)))
-                    elseif stat.declKind == "struct"
-                        and not stat.isAnnotationDefinition then
+                    if stat.declKind == "struct" and not stat.isAnnotationDefinition and not reifiableField(ft) then
+                        c.diag(
+                            "NUPP2201",
+                            e,
+                            (
+                                "struct field %q: %s is not reifiable " .. "(use a record for GC types, or a pointer)"
+                            ):format(e.name.text, T.tostring(ft))
+                        )
+                    elseif stat.declKind == "struct" and not stat.isAnnotationDefinition then
                         -- A struct that contains itself by value has no size: the
                         -- layout would have to include a copy of the layout. C refuses
                         -- it and so does the ctype this lowers to, but the refusal
@@ -900,38 +971,48 @@ function declare.install(c: state.Checker,
                         -- is written -- so the walk follows values and stops at stars.
                         local cycle = containedByValue(ft, n)
                         if cycle then
-                            c.diag("NUPP2201", e,
-                                ("struct field %q makes %s contain itself, which has "
-                                .. "no size"):format(e.name.text, n.name), nil,
-                                {help = cycle == n.name
-                                and ("hold it by pointer instead: `%s: %s*`")
-                                :format(e.name.text, n.name)
-                                or ("the cycle runs through %s; hold one step of it "
-                                .. "by pointer"):format(cycle)})
+                            c.diag(
+                                "NUPP2201",
+                                e,
+                                (
+                                    "struct field %q makes %s contain itself, which has " .. "no size"
+                                ):format(e.name.text, n.name),
+                                nil,
+                                {
+                                    help = cycle == n.name and (
+                                        "hold it by pointer instead: `%s: %s*`"
+                                    ):format(
+                                        e.name.text,
+                                        n.name
+                                    ) or (
+                                        "the cycle runs through %s; hold one step of it " .. "by pointer"
+                                    ):format(cycle)
+                                }
+                            )
                         end
                     end
                 elseif e.kind == "indexerDecl" then
                     local key = c.resolveType(e.key)
                     local value = c.resolveType(e.value)
-                    local capability = e.capability
-                        and e.capability.propertyCapability or nil
+                    local capability = e.capability and e.capability.propertyCapability or nil
                     if stat.declKind == "struct" or stat.isAnnotationDefinition then
-                        c.diag("NUPP2118", e,
-                            "indexers are available on records and interfaces, not "
-                            .. (stat.isAnnotationDefinition
-                            and "annotation schemas" or "structs"))
+                        c.diag(
+                            "NUPP2118",
+                            e,
+                            "indexers are available on records and interfaces, not " .. (
+                                stat.isAnnotationDefinition and "annotation schemas" or "structs"
+                            )
+                        )
                     else
                         local grantsRead = capability ~= "write"
                         local grantsWrite = capability ~= "read"
                         if grantsRead and n.indexReadValue then
-                            c.diag("NUPP2118", e,
-                                "duplicate readonly indexer capability")
+                            c.diag("NUPP2118", e, "duplicate readonly indexer capability")
                         elseif grantsRead then
                             n.indexReadKey, n.indexReadValue = key, value
                         end
                         if grantsWrite and n.indexWriteValue then
-                            c.diag("NUPP2118", e,
-                                "duplicate writeonly indexer capability")
+                            c.diag("NUPP2118", e, "duplicate writeonly indexer capability")
                         elseif grantsWrite then
                             n.indexWriteKey, n.indexWriteValue = key, value
                         end
@@ -941,52 +1022,53 @@ function declare.install(c: state.Checker,
                     -- array type it stands for
                     local at = c.resolveType(e.type)
                     if stat.declKind == "struct" then
-                        c.diag("NUPP2204", e, "a struct has no Lua array part "
-                            .. "(use a fixed C array field, T[N])")
+                        c.diag("NUPP2204", e, "a struct has no Lua array part " .. "(use a fixed C array field, T[N])")
                     elseif at.tag ~= "array" then
-                        c.diag("NUPP2205", e, ("an array part is written {T}, got %s")
-                            :format(T.tostring(at)))
+                        c.diag("NUPP2205", e, ("an array part is written {T}, got %s"):format(T.tostring(at)))
                     else
                         n.arrayOf = at.elem
                     end
                 elseif e.kind == "metamethodDecl" then
                     local mt = c.resolveType(e.type)
                     if stat.declKind == "struct" then
-                        c.diag("NUPP2118", e,
+                        c.diag(
+                            "NUPP2118",
+                            e,
                             "struct metamethods need runtime ffi.metatype "
-                            .. "installation and cannot be declaration-only")
+                            .. "installation and cannot be declaration-only"
+                        )
                     elseif mt.tag ~= "func" then
-                        c.diag("NUPP2118", e,
-                            "a metamethod contract must be a function type")
+                        c.diag("NUPP2118", e, "a metamethod contract must be a function type")
                     elseif not e.name.text:match("^__[%a%d_]+$") then
-                        c.diag("NUPP2118", e.name,
+                        c.diag(
+                            "NUPP2118",
+                            e.name,
                             "a metamethod name must begin with '__'",
-                            c.edits.spellingFix(e.name,
-                            operators.contractMetamethod))
+                            c.edits.spellingFix(e.name, operators.contractMetamethod)
+                        )
                     elseif not operators.contractMetamethod[e.name.text] then
-                        local fixes = not operators.runtimeMetamethod[e.name.text]
-                            and c.edits.spellingFix(e.name,
-                            operators.contractMetamethod) or nil
-                        c.diag("NUPP2118", e.name,
-                            ("metamethod %s is not dispatched by this LuaJIT "
-                            .. "target"):format(e.name.text), fixes)
+                        local fixes = not operators.runtimeMetamethod[
+                            e.name.text
+                        ] and c.edits.spellingFix(e.name, operators.contractMetamethod) or nil
+                        c.diag(
+                            "NUPP2118",
+                            e.name,
+                            ("metamethod %s is not dispatched by this LuaJIT " .. "target"):format(e.name.text),
+                            fixes
+                        )
                     elseif localMetamethods[e.name.text] then
-                        c.diag("NUPP2118", e.name,
-                            ("duplicate metamethod contract %q")
-                            :format(e.name.text))
+                        c.diag("NUPP2118", e.name, ("duplicate metamethod contract %q"):format(e.name.text))
                     else
                         localMetamethods[e.name.text] = true
                         n.metamethods[e.name.text] = mt
-                        c.markToken(e.name, c.definition(e.name, "method"), mt,
-                            "method")
+                        c.markToken(e.name, c.definition(e.name, "method"), mt, "method")
                     end
                 elseif e.kind == "constructorDecl" then
                     checkConstructor(e, n, stat)
                 elseif e.kind == "inlineMethod" then
                     local isDisposer, isOverride = false, false
                     for _, application in ipairs(e.annotations or {}) do
-                        local definition2, valid = validateAnnotation(application,
-                            e, stat)
+                        local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid then
                             if application.name.text == "dispose" then
                                 isDisposer = true
@@ -998,8 +1080,7 @@ function declare.install(c: state.Checker,
                     local name = e.name.text
                     local state = localMembers[name]
                     if state and not state.method then
-                        c.diag("NUPP2118", e.name,
-                            ("duplicate record member %q"):format(name))
+                        c.diag("NUPP2118", e.name, ("duplicate record member %q"):format(name))
                     end
                     if not state then
                         state = {read = true, write = true, method = true}
@@ -1007,16 +1088,17 @@ function declare.install(c: state.Checker,
                     end
                     local declaredGroup = inlineSignatures[name] or {}
                     if isDisposer and #declaredGroup > 1 then
-                        c.diag("NUPP2602", e.name,
-                            "a disposal method has one resource contract and cannot "
-                            .. "be overloaded")
+                        c.diag(
+                            "NUPP2602",
+                            e.name,
+                            "a disposal method has one resource contract and cannot " .. "be overloaded"
+                        )
                     end
                     if isDisposer then
                         e.body.disposeContract = true
                         e.body.disposeMethod = true
                     end
-                    local ft = addSelf(c.checkFuncbody(e.body, n), n,
-                        isDisposer and "takes" or nil)
+                    local ft = addSelf(c.checkFuncbody(e.body, n), n, isDisposer and "takes" or nil)
                     c.raises.check(e, e.body)
                     local callable = dropSelf(ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)
@@ -1024,18 +1106,29 @@ function declare.install(c: state.Checker,
                     local entries = n.methodEntries[name] or {}
                     for _, prior in ipairs(entries) do
                         if prior.parameterKey == parameterKey then
-                            c.diag("NUPP2118", e.name,
-                                ("method %q already has an entry with parameter pack %s")
-                                :format(name, T.tostringPack(callable.paramPack)), nil,
-                                {help = "method overloads need distinguishable "
-                                .. "parameter packs; return types do not select one"})
+                            c.diag(
+                                "NUPP2118",
+                                e.name,
+                                (
+                                    "method %q already has an entry with parameter pack %s"
+                                ):format(name, T.tostringPack(callable.paramPack)),
+                                nil,
+                                {
+                                    help = "method overloads need distinguishable "
+                                    .. "parameter packs; return types do not select one"
+                                }
+                            )
                         end
                     end
                     local definition = c.definition(e.name, "method")
                     definition.type = ft
-                    local entry = {signature = ft, declaration = e,
-                        member = memberName, parameterKey = parameterKey,
-                        definition = definition}
+                    local entry = {
+                        signature = ft,
+                        declaration = e,
+                        member = memberName,
+                        parameterKey = parameterKey,
+                        definition = definition
+                    }
                     entries[#entries + 1] = entry
                     n.methodEntries[name] = entries
                     e.methodEntry = entry
@@ -1045,54 +1138,64 @@ function declare.install(c: state.Checker,
                     if stat.declKind == "interface" then
                         n.defaults = n.defaults or {}
                         n.defaults[name] = true
-                        n.defaultEntries[memberName] = {name = name,
-                            member = n.overloadedMethods[name]
-                            and memberName or name, slot = memberName,
-                            entry = entry}
+                        n.defaultEntries[
+                            memberName
+                        ] = {
+                            name = name,
+                            member = n.overloadedMethods[name] and memberName or name,
+                            slot = memberName,
+                            entry = entry
+                        }
                     end
                     e.overridesDefault = inheritedDefault(n, memberName)
                     if e.overridesDefault and not isOverride then
-                        c.diag("NUPP2118", e.name,
-                            ("%q replaces the matching default %s declares, which "
-                            .. "has to be said"):format(name,
-                            e.overridesDefault), nil,
-                            {help = "write @override above it"})
+                        c.diag(
+                            "NUPP2118",
+                            e.name,
+                            (
+                                "%q replaces the matching default %s declares, which " .. "has to be said"
+                            ):format(name, e.overridesDefault),
+                            nil,
+                            {help = "write @override above it"}
+                        )
                     elseif isOverride and not e.overridesDefault then
-                        c.diag("NUPP2118", e.name,
-                            ("%q overrides nothing: no interface this declares "
-                            .. "provides that parameter pack"):format(name), nil,
-                            {help = "remove @override, or declare the interface "
-                            .. "that provides the matching default"})
+                        c.diag(
+                            "NUPP2118",
+                            e.name,
+                            (
+                                "%q overrides nothing: no interface this declares " .. "provides that parameter pack"
+                            ):format(name),
+                            nil,
+                            {
+                                help = "remove @override, or declare the interface "
+                                .. "that provides the matching default"
+                            }
+                        )
                     end
                     if isDisposer then
-                        n.defaultDisposers[#n.defaultDisposers + 1] =
-                            "@method:" .. name
+                        n.defaultDisposers[#n.defaultDisposers + 1] = "@method:" .. name
                     end
                     n.fieldDefs[name] = n.fieldDefs[name] or definition
                     n.writeFieldDefs[name] = n.fieldDefs[name]
                     c.markToken(e.name, definition, ft, "method")
                 elseif e.kind == "recordDecl" or e.kind == "typeAlias" then
                     if stat.declKind == "struct" then
-                        c.diag("NUPP2201", e,
-                            "struct bodies hold fields only (no nested declarations)")
+                        c.diag("NUPP2201", e, "struct bodies hold fields only (no nested declarations)")
                     else
                         c.checkTypedecl(e) -- nested declarations share the scope (v0)
                         local nested = e.resolvedType or e.hoistedType
                         if nested then
                             if nested.tag == "nominal" and not nested.runtimePath then
-                                nested.runtimePath = (n.runtimePath or n.name)
-                                    .. "." .. e.name.text
+                                nested.runtimePath = (n.runtimePath or n.name) .. "." .. e.name.text
                             end
                             n.nestedTypes[e.name.text] = nested
-                            if nested.tag == "nominal"
-                                and (nested.declKind == "record"
-                                or nested.declKind == "struct") then
+                            if nested.tag == "nominal" and (
+                                nested.declKind == "record" or nested.declKind == "struct"
+                            ) then
                                 n.byname[e.name.text] = nested
                                 n.writeByname[e.name.text] = nested
-                                n.fieldDefs[e.name.text] = c.definition(e.name,
-                                    "property")
-                                n.writeFieldDefs[e.name.text] =
-                                    n.fieldDefs[e.name.text]
+                                n.fieldDefs[e.name.text] = c.definition(e.name, "property")
+                                n.writeFieldDefs[e.name.text] = n.fieldDefs[e.name.text]
                             end
                         end
                     end
@@ -1114,13 +1217,15 @@ function declare.install(c: state.Checker,
                     if inherited then
                         local localCallable = dropSelf(entry.signature)
                         local inheritedCallable = dropSelf(inherited.signature)
-                        local compatible, why = isA(localCallable,
-                            inheritedCallable)
+                        local compatible, why = isA(localCallable, inheritedCallable)
                         if not compatible then
-                            c.diag("NUPP2118", entry.declaration.name,
-                                ("method %q does not satisfy its inherited "
-                                .. "overload: %s"):format(name,
-                                why or "incompatible signature"))
+                            c.diag(
+                                "NUPP2118",
+                                entry.declaration.name,
+                                (
+                                    "method %q does not satisfy its inherited " .. "overload: %s"
+                                ):format(name, why or "incompatible signature")
+                            )
                         end
                     end
                     if not byMember[entry.member] then
@@ -1137,11 +1242,15 @@ function declare.install(c: state.Checker,
                     for _, entry in ipairs(dispatch) do
                         if not entry.declaration then
                             local plain = dropSelf(entry.signature) as T.Func
-                            c.diag("NUPP2118", stat.name,
-                                ("%s does not implement overload %s of %q")
-                                :format(n.name,
-                                T.tostringPack(plain.paramPack), name), nil,
-                                {help = "write a method body with that parameter pack"})
+                            c.diag(
+                                "NUPP2118",
+                                stat.name,
+                                (
+                                    "%s does not implement overload %s of %q"
+                                ):format(n.name, T.tostringPack(plain.paramPack), name),
+                                nil,
+                                {help = "write a method body with that parameter pack"}
+                            )
                         end
                     end
                 end
@@ -1151,47 +1260,53 @@ function declare.install(c: state.Checker,
                     end
                 end
             end
-            -- The refinement is read last, because it speaks about the fields
-            -- and they are only all here now. It is an interface's runtime
-            -- identity: a record's instances are stamped and a struct is its
-            -- ctype, but an interface has no table to stamp at all, so a
-            -- refinement is the only way one can answer `is`.
+            -- The refinement is read last, because it speaks about the fields and they
+            -- are only all here now. It is an interface's runtime identity: a record's
+            -- instances are stamped and a struct is its ctype, but an interface has no
+            -- table to stamp at all, so a refinement is the only way one can answer
+            -- `is`.
             for _, e in ipairs(stat.entries) do
                 if e.kind == "matchesDecl" then
                     if n.predicate then
-                        c.diag("NUPP2122", e,
-                            ("%s already declares how it is matched")
-                            :format(n.name), nil,
-                            {help = "combine the tests with `and`"})
+                        c.diag(
+                            "NUPP2122",
+                            e,
+                            ("%s already declares how it is matched"):format(n.name),
+                            nil,
+                            {help = "combine the tests with `and`"}
+                        )
                     else
                         checkRefinement(stat, n, e)
                     end
                 end
             end
-            -- The clause used to sit in the declaration head. It says the same
-            -- thing a `matches` block does and reads worse beside the others,
-            -- so it is answered rather than left to parse into nothing.
+            -- The clause used to sit in the declaration head. It says the same thing a
+            -- `matches` block does and reads worse beside the others, so it is answered
+            -- rather than left to parse into nothing.
             if stat.whereClause then
-                c.diag("NUPP2122", stat.whereClause,
+                c.diag(
+                    "NUPP2122",
+                    stat.whereClause,
                     "a refinement is written as a `matches` block in the body",
-                    nil, {help = "write `matches <test> end` among the fields"})
+                    nil,
+                    {help = "write `matches <test> end` among the fields"}
+                )
             end
-            -- An interface whose fields carry literal types has already said what
-            -- its test is: the field admits that value and nothing else. Reading
-            -- it off is what lets a tagged interface answer `is` for a value this
-            -- program did not build, with nothing written.
+            -- An interface whose fields carry literal types has already said what its
+            -- test is: the field admits that value and nothing else. Reading it off is
+            -- what lets a tagged interface answer `is` for a value this program did not
+            -- build, with nothing written.
             --
-            -- Interfaces only. A record and a struct already answer `is`
-            -- exactly, so a derived test beside either would be a second answer
-            -- chosen by whether the fields happened to be literals — an
-            -- interface has no identity for it to disagree with.
+            -- Interfaces only. A record and a struct already answer `is` exactly, so a
+            -- derived test beside either would be a second answer chosen by whether the
+            -- fields happened to be literals — an interface has no identity for it to
+            -- disagree with.
             if stat.declKind == "interface" and not n.predicate then
                 local derived = nil
                 for _, name in ipairs(n.fieldOrder or {}) do
                     local ft = n.byname[name]
                     if ft and ft.tag == "literal" then
-                        derived = predicate.both(derived,
-                            predicate.equals({name}, ft.constant))
+                        derived = predicate.both(derived, predicate.equals({name}, ft.constant))
                     end
                 end
                 n.predicate = derived
@@ -1207,10 +1322,10 @@ function declare.install(c: state.Checker,
                 c.bindDeclaredVar(stat, n)
             elseif stat.declKind == "record" then
                 -- A record's name also holds a value: the runtime table that carries
-                -- its members and is stamped on the instances it builds. That table
-                -- is their metatable, so it has the type of one -- which is what
-                -- keeps it from standing where an instance is wanted, and an
-                -- instance from standing where it is.
+                -- its members and is stamped on the instances it builds. That table is
+                -- their metatable, so it has the type of one -- which is what keeps it
+                -- from standing where an instance is wanted, and an instance from
+                -- standing where it is.
                 c.bindDeclaredVar(stat, T.metatable(n))
                 suggestStruct(stat, n)
             else

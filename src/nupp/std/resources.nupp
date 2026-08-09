@@ -24,6 +24,7 @@ function resources.open_file(path: string, mode: string?): LuaFile
     if not file then
         error(reason or "file open failed")
     end
+
     return file
 end
 
@@ -33,6 +34,7 @@ function resources.open_process(command: string, mode: string?): LuaFile
     if not file then
         error(reason or "process open failed")
     end
+
     return file
 end
 
@@ -42,6 +44,7 @@ function resources.temporary_file(): LuaFile
     if not file then
         error("temporary file creation failed")
     end
+
     return file
 end
 

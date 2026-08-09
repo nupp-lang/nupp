@@ -44,19 +44,28 @@ local function globPattern(glob)
     while j <= #glob do
         local ch = glob:sub(j, j)
         if ch == "*" and glob:sub(j + 1, j + 1) == "*" then
-            out[#out + 1] = ".*"; j = j + 2
+            out[#out + 1] = ".*"
+            ;
+            j = j + 2
         elseif ch == "*" then
-            out[#out + 1] = "[^/]*"; j = j + 1
+            out[#out + 1] = "[^/]*"
+            ;
+            j = j + 1
         elseif ch == "?" then
-            out[#out + 1] = "[^/]"; j = j + 1
+            out[#out + 1] = "[^/]"
+            ;
+            j = j + 1
         else
             if ch:match("[%^%$%(%)%%%.%[%]%+%-]") then
                 ch = "%" .. ch
             end
-            out[#out + 1] = ch; j = j + 1
+            out[#out + 1] = ch
+            ;
+            j = j + 1
         end
     end
     out[#out + 1] = "$"
+
     return table.concat(out)
 end
 
@@ -76,6 +85,7 @@ local function expandGlob(root: string, glob: string): {string}
             matches[#matches + 1] = path
         end
     end
+
     return matches
 end
 
@@ -88,6 +98,7 @@ local function sharedLibraryName(name)
     if osName == "osx" then
         return "lib" .. name .. ".dylib"
     end
+
     return "lib" .. name .. ".so"
 end
 
@@ -108,15 +119,14 @@ local function fetchGit(root, name, source)
     end
     local code, head = process.capture({"git", "rev-parse", "HEAD"}, {cwd = checkout})
     if code ~= 0 or normalize((head:gsub("%s+$", ""))) ~= source.rev then
-        if process.run({"git", "fetch", "--depth", "1", "origin", source.rev},
-            {cwd = checkout}) ~= 0 then
+        if process.run({"git", "fetch", "--depth", "1", "origin", source.rev}, {cwd = checkout}) ~= 0 then
             return nil, "git fetch failed for " .. name
         end
-        if process.run({"git", "checkout", "--detach", "FETCH_HEAD"},
-            {cwd = checkout}) ~= 0 then
+        if process.run({"git", "checkout", "--detach", "FETCH_HEAD"}, {cwd = checkout}) ~= 0 then
             return nil, "git checkout failed for " .. name
         end
     end
+
     return checkout
 end
 
@@ -124,9 +134,12 @@ local function dependencyFiles(base, patterns)
     local files = {}
     for _, pattern in ipairs(patterns or {}) do
         local expanded = expandGlob(base, pattern)
-        for _, path in ipairs(expanded) do files[#files + 1] = path end
+        for _, path in ipairs(expanded) do
+            files[#files + 1] = path
+        end
     end
     table.sort(files)
+
     return files
 end
 
@@ -137,11 +150,11 @@ local function bindingConfig(dep)
     if dep.header then
         return {header = dep.header}
     end
+
     return nil
 end
 
-local function generateBinding(root, outDir, name, dep, base, libraryPath,
-    extraCppflags)
+local function generateBinding(root, outDir, name, dep, base, libraryPath, extraCppflags)
     local binding = bindingConfig(dep)
     if not binding or not binding.header then
         return nil
@@ -150,11 +163,10 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath,
     if header:sub(1, 1) ~= "/" then
         header = join(base, header)
     end
-    local text, warnings = importc.import(header, {
-        lib = binding.library or dep.load or libraryPath,
-        cc = dep.cc,
-        cppflags = extraCppflags or dep.cppflags,
-    })
+    local text, warnings = importc.import(
+        header,
+        {lib = binding.library or dep.load or libraryPath, cc = dep.cc, cppflags = extraCppflags or dep.cppflags,}
+    )
     if not text then
         return nil, table.concat(warnings or {}, "; ")
     end
@@ -169,12 +181,16 @@ local function generateBinding(root, outDir, name, dep, base, libraryPath,
             return nil, err
         end
     end
+
     return output
 end
 
 local function splitFlags(text)
     local out = {}
-    for flag in text:gmatch("%S+") do out[#out + 1] = flag end
+    for flag in text:gmatch("%S+") do
+        out[#out + 1] = flag
+    end
+
     return out
 end
 
@@ -190,7 +206,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
     end
     local sources = dependencyFiles(base, dep.sources or {})
     local nativeInputs = {}
-    for _, path in ipairs(sources) do nativeInputs[#nativeInputs + 1] = path end
+    for _, path in ipairs(sources) do
+        nativeInputs[#nativeInputs + 1] = path
+    end
     for _, path in ipairs(dependencyFiles(base, dep.headers or {})) do
         nativeInputs[#nativeInputs + 1] = path
     end
@@ -213,9 +231,13 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         end
         pkgFlags = splitFlags(flags)
     end
-    local key = hash.digest(stable(dep) .. "\0" .. hashFiles(nativeInputs)
-        .. "\0" .. version .. "\0" .. stable(pkgFlags)
-        .. "\0" .. stable(childResults))
+    local key = hash.digest(
+        stable(
+            dep
+        ) .. "\0" .. hashFiles(
+            nativeInputs
+        ) .. "\0" .. version .. "\0" .. stable(pkgFlags) .. "\0" .. stable(childResults)
+    )
     local output = nil
     if #sources > 0 then
         output = join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(name)))
@@ -228,24 +250,36 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             if osName == "osx" then
                 argv[#argv + 1] = "-dynamiclib"
             elseif osName ~= "windows" then
-                argv[#argv + 1] = "-shared"; argv[#argv + 1] = "-fPIC"
+                argv[#argv + 1] = "-shared"
+                ;
+                argv[#argv + 1] = "-fPIC"
             else
                 argv[#argv + 1] = "-shared"
             end
-            argv[#argv + 1] = "-o"; argv[#argv + 1] = stagedOutput
+            argv[#argv + 1] = "-o"
+            ;
+            argv[#argv + 1] = stagedOutput
             for _, dir in ipairs(dep.includeDirs or {}) do
                 argv[#argv + 1] = "-I" .. join(base, dir)
             end
-            for _, flag in ipairs(dep.cflags or {}) do argv[#argv + 1] = flag end
-            for _, source in ipairs(sources) do argv[#argv + 1] = source end
+            for _, flag in ipairs(dep.cflags or {}) do
+                argv[#argv + 1] = flag
+            end
+            for _, source in ipairs(sources) do
+                argv[#argv + 1] = source
+            end
             for _, childName in ipairs(dep.dependencies or {}) do
                 local child = childResults and childResults[childName]
                 if child.output then
                     argv[#argv + 1] = child.output
                 end
             end
-            for _, flag in ipairs(pkgFlags) do argv[#argv + 1] = flag end
-            for _, flag in ipairs(dep.ldflags or {}) do argv[#argv + 1] = flag end
+            for _, flag in ipairs(pkgFlags) do
+                argv[#argv + 1] = flag
+            end
+            for _, flag in ipairs(dep.ldflags or {}) do
+                argv[#argv + 1] = flag
+            end
             if process.run(argv) ~= 0 then
                 os.remove(stagedOutput)
                 return nil, "C build failed for " .. name
@@ -262,7 +296,9 @@ local function buildC(root, outDir, name, dep, previous, childResults)
         end
     end
     local cppflags = {}
-    for _, flag in ipairs(dep.cppflags or {}) do cppflags[#cppflags + 1] = flag end
+    for _, flag in ipairs(dep.cppflags or {}) do
+        cppflags[#cppflags + 1] = flag
+    end
     for _, dir in ipairs(dep.includeDirs or {}) do
         cppflags[#cppflags + 1] = "-I" .. join(base, dir)
     end
@@ -271,22 +307,32 @@ local function buildC(root, outDir, name, dep, previous, childResults)
             cppflags[#cppflags + 1] = flag
         end
     end
-    local binding, bindingErr = generateBinding(root, outDir, name, dep, base,
-        dep.load or output or dep.pkgConfig, cppflags)
+    local binding, bindingErr = generateBinding(
+        root,
+        outDir,
+        name,
+        dep,
+        base,
+        dep.load or output or dep.pkgConfig,
+        cppflags
+    )
     if bindingErr then
         return nil, bindingErr
     end
+
     return {key = key, output = output, binding = binding}
 end
 
 local function cargoSourceFiles(crateDir)
     local files = {}
     for _, path in ipairs(listFiles(crateDir)) do
-        if path:match("%.rs$") or basename(path) == "Cargo.toml"
-            or basename(path) == "Cargo.lock" or path:match("build%.rs$") then
+        if path:match(
+            "%.rs$"
+        ) or basename(path) == "Cargo.toml" or basename(path) == "Cargo.lock" or path:match("build%.rs$") then
             files[#files + 1] = path
         end
     end
+
     return files
 end
 
@@ -295,25 +341,26 @@ local function buildCargo(root, outDir, name, dep, previous)
     local crateDir = dirname(manifest)
     local cargo = dep.cargo or "cargo"
     local _, version = process.capture({cargo, "--version"})
-    local key = hash.digest(stable(dep) .. "\0" .. hashFiles(cargoSourceFiles(crateDir))
-        .. "\0" .. version)
+    local key = hash.digest(stable(dep) .. "\0" .. hashFiles(cargoSourceFiles(crateDir)) .. "\0" .. version)
     local targetDir = join(root, dep.targetDir or join(outDir, "cargo/" .. name))
     local profile = dep.profile or "release"
     local crateName = (dep.library or name):gsub("%-", "_")
     local targetPart = dep.target and (dep.target .. "/") or ""
-    local artifact = dep.artifactPath or join(targetDir,
-        targetPart .. profile .. "/" .. sharedLibraryName(crateName))
+    local artifact = dep.artifactPath or join(targetDir, targetPart .. profile .. "/" .. sharedLibraryName(crateName))
     local output = join(root, dep.out or join(outDir, "lib/" .. sharedLibraryName(crateName)))
     if not previous or previous.key ~= key or not exists(output) then
-        local argv = {cargo, "build", "--manifest-path", manifest,
-            "--target-dir", targetDir}
+        local argv = {cargo, "build", "--manifest-path", manifest, "--target-dir", targetDir}
         if profile == "release" then
             argv[#argv + 1] = "--release"
         elseif profile ~= "debug" then
-            argv[#argv + 1] = "--profile"; argv[#argv + 1] = profile
+            argv[#argv + 1] = "--profile"
+            ;
+            argv[#argv + 1] = profile
         end
         if dep.target then
-            argv[#argv + 1] = "--target"; argv[#argv + 1] = dep.target
+            argv[#argv + 1] = "--target"
+            ;
+            argv[#argv + 1] = dep.target
         end
         if dep.locked ~= false then
             argv[#argv + 1] = "--locked"
@@ -334,12 +381,14 @@ local function buildCargo(root, outDir, name, dep, previous)
         if not dep.artifactPath then
             for line in cargoOutput:gmatch("[^\r\n]+") do
                 local parsed, message = pcall(json.decode, line)
-                if parsed and type(message) == "table"
-                    and message.reason == "compiler-artifact"
-                    and message.target and message.target.name:gsub("%-", "_") == crateName then
+                if parsed and type(
+                    message
+                ) == "table" and message.reason == "compiler-artifact" and message.target and message.target.name:gsub(
+                    "%-",
+                    "_"
+                ) == crateName then
                     for _, filename in ipairs(message.filenames or {}) do
-                        if filename:match("%.so$") or filename:match("%.dylib$")
-                            or filename:match("%.dll$") then
+                        if filename:match("%.so$") or filename:match("%.dylib$") or filename:match("%.dll$") then
                             artifact = filename
                         end
                     end
@@ -365,11 +414,11 @@ local function buildCargo(root, outDir, name, dep, previous)
         end
         binding.header = header
     end
-    local generated, bindingErr = generateBinding(root, outDir, name, dep,
-        crateDir, dep.load or output)
+    local generated, bindingErr = generateBinding(root, outDir, name, dep, crateDir, dep.load or output)
     if bindingErr then
         return nil, bindingErr
     end
+
     return {key = key, output = output, binding = generated}
 end
 
@@ -400,13 +449,13 @@ local function absolute(path)
         return path
     end
     if not currentDirectory then
-        local _, printed = process.capture(windows
-            and {"cmd", "/d", "/c", "cd"} or {"pwd"})
+        local _, printed = process.capture(windows and {"cmd", "/d", "/c", "cd"} or {"pwd"})
         currentDirectory = normalize(((printed or "."):gsub("%s+$", "")))
     end
     if path == "" or path == "." then
         return currentDirectory
     end
+
     return join(currentDirectory, path)
 end
 
@@ -426,11 +475,11 @@ local function luaDirectory(dep)
     end
     for entry in (package.cpath .. ";"):gmatch("([^;]*);") do
         local prefix = entry:match("^(.*)/lib/lua/")
-        if prefix and (exists(join(prefix, "include/luajit-2.1/lua.h"))
-            or exists(join(prefix, "include/lua.h"))) then
+        if prefix and (exists(join(prefix, "include/luajit-2.1/lua.h")) or exists(join(prefix, "include/lua.h"))) then
             return prefix
         end
     end
+
     return nil
 end
 
@@ -438,8 +487,7 @@ local function treePaths(tree, luaVersion)
     local share = tree .. "/share/lua/" .. luaVersion
     return {
         path = share .. "/?.lua;" .. share .. "/?/init.lua",
-        cpath = tree .. "/lib/lua/" .. luaVersion
-        .. (windows and "/?.dll" or "/?.so"),
+        cpath = tree .. "/lib/lua/" .. luaVersion .. (windows and "/?.dll" or "/?.so"),
     }
 end
 
@@ -451,20 +499,19 @@ local function prepended(current, entries)
     current = current or ""
     local fresh = {}
     for entry in (entries .. ";"):gmatch("([^;]*);") do
-        if entry ~= "" and not (";" .. current .. ";")
-            :find(";" .. entry .. ";", 1, true) then
+        if entry ~= "" and not (";" .. current .. ";"):find(";" .. entry .. ";", 1, true) then
             fresh[#fresh + 1] = entry
         end
     end
     if #fresh == 0 then
         return current
     end
+
     return table.concat(fresh, ";") .. ";" .. current
 end
 
 local function rockTree(root, dep)
-    return absolute(join(root, dep.tree or ROCK_TREE)),
-        dep.luaVersion or ROCK_LUA_VERSION
+    return absolute(join(root, dep.tree or ROCK_TREE)), dep.luaVersion or ROCK_LUA_VERSION
 end
 
 local function declaredVersion(rockspec)
@@ -472,8 +519,8 @@ local function declaredVersion(rockspec)
     if not text then
         return nil
     end
-    return text:match("[\r\n]version%s*=%s*[\"']([^\"']+)[\"']")
-        or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
+
+    return text:match("[\r\n]version%s*=%s*[\"']([^\"']+)[\"']") or text:match("^version%s*=%s*[\"']([^\"']+)[\"']")
 end
 
 -- One listing per tree per run, and one version per LuaRocks. Nothing but this process
@@ -489,6 +536,7 @@ local function toolVersion(luarocks)
         local code, printed = process.capture({luarocks, "--version"})
         toolVersions[luarocks] = code == 0 and (printed or "") or false
     end
+
     return toolVersions[luarocks]
 end
 
@@ -498,7 +546,9 @@ local function installedRocks(argv, tree, luaVersion)
         return listings[id]
     end
     local listArgv = {}
-    for _, item in ipairs(argv) do listArgv[#listArgv + 1] = item end
+    for _, item in ipairs(argv) do
+        listArgv[#listArgv + 1] = item
+    end
     listArgv[#listArgv + 1] = "list"
     listArgv[#listArgv + 1] = "--porcelain"
     local code, printed = process.capture(listArgv)
@@ -512,6 +562,7 @@ local function installedRocks(argv, tree, luaVersion)
         end
     end
     listings[id] = installed
+
     return installed
 end
 
@@ -529,6 +580,7 @@ local function rockSourceFiles(dir)
         end
     end
     table.sort(files)
+
     return files
 end
 
@@ -538,21 +590,22 @@ local function buildRock(root, outDir, name, dep, previous)
     local source = dep.path and absolute(join(root, dep.path)) or nil
     local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
     if rockspec and not exists(rockspec) then
-        return nil, "dependency " .. name .. " names a rockspec that is not "
-            .. "there: " .. dep.rockspec
+        return nil, "dependency " .. name .. " names a rockspec that is not " .. "there: " .. dep.rockspec
     end
     local declared = declaredVersion(rockspec)
     if dep.version and declared and declared ~= dep.version then
-        return nil, ("dependency %s asks for %s %s, and %s declares %s")
-            :format(name, rock, dep.version, dep.rockspec, declared)
+        return nil, (
+            "dependency %s asks for %s %s, and %s declares %s"
+        ):format(name, rock, dep.version, dep.rockspec, declared)
     end
     local wanted = dep.version or declared
 
     local luarocks = dep.luarocks or "luarocks"
     local version = toolVersion(luarocks)
     if not version then
-        return nil, ("dependency %s is a rock and %s is not on PATH; install "
-            .. "LuaRocks to build it"):format(name, luarocks)
+        return nil, (
+            "dependency %s is a rock and %s is not on PATH; install " .. "LuaRocks to build it"
+        ):format(name, luarocks)
     end
     local argv = {luarocks, "--lua-version=" .. luaVersion, "--tree=" .. tree}
     local luaDir = luaDirectory(dep)
@@ -573,13 +626,13 @@ local function buildRock(root, outDir, name, dep, previous)
         -- directory that is not there fails as the shell rather than as the dependency
         -- it was.
         if #files == 0 then
-            return nil, ("dependency %s builds from %s, which has nothing in it")
-                :format(name, dep.path)
+            return nil, ("dependency %s builds from %s, which has nothing in it"):format(name, dep.path)
         end
-        for _, path in ipairs(files) do inputs[#inputs + 1] = path end
+        for _, path in ipairs(files) do
+            inputs[#inputs + 1] = path
+        end
     end
-    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(inputs)
-        .. "\0" .. version .. "\0" .. tree)
+    local key = hash.sha256(stable(dep) .. "\0" .. hashFiles(inputs) .. "\0" .. version .. "\0" .. tree)
 
     -- What is on disk answers for a pinned rock. The version asked for is installed or
     -- it is not, and installing one that is there again costs a download to be told so
@@ -593,7 +646,9 @@ local function buildRock(root, outDir, name, dep, previous)
     local unchanged = previous ~= nil and previous.key == key
     if not satisfied or (source and not unchanged) then
         local install = {}
-        for _, item in ipairs(argv) do install[#install + 1] = item end
+        for _, item in ipairs(argv) do
+            install[#install + 1] = item
+        end
         if source then
             -- `make` builds what is already in the tree, so nothing is fetched and the
             -- rockspec's own paths are read from where it sits.
@@ -621,8 +676,16 @@ local function buildRock(root, outDir, name, dep, previous)
     local paths = treePaths(tree, luaVersion)
     package.path = prepended(package.path, paths.path)
     package.cpath = prepended(package.cpath, paths.cpath)
-    return {key = key, rock = rock, version = installed[rock], tree = tree,
-        luaVersion = luaVersion, path = paths.path, cpath = paths.cpath}
+
+    return {
+        key = key,
+        rock = rock,
+        version = installed[rock],
+        tree = tree,
+        luaVersion = luaVersion,
+        path = paths.path,
+        cpath = paths.cpath
+    }
 end
 
 --- The search-path entries the rocks a target depends on are installed under.
@@ -631,8 +694,7 @@ end
 --- starts afterwards -- the configured test command above all -- has to be told where
 --- that tree is; inside this process the provider has already said so. Returns nil when
 --- the target depends on no rocks.
-local function rockPaths(root: string, config: Config,
-    target: Target?): deps.RockPaths?
+local function rockPaths(root: string, config: Config, target: Target?): deps.RockPaths?
     local paths, cpaths, seen = {}, {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
         local dep = (config.dependencies or {})[name] as manifest.Dependency
@@ -650,6 +712,7 @@ local function rockPaths(root: string, config: Config,
     if #paths == 0 then
         return nil
     end
+
     return {path = table.concat(paths, ";"), cpath = table.concat(cpaths, ";")}
 end
 
@@ -665,8 +728,7 @@ end
 --- Only what a target names. A rock tree holds test scripts, examples and a hundred and
 --- sixty lexers nobody asked for, and a bundle that swept the tree would carry all of
 --- it.
-local function rockModules(root: string, config: Config,
-    target: Target?): {deps.RockModule}
+local function rockModules(root: string, config: Config, target: Target?): {deps.RockModule}
     local selected, seen = {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
         local dep = (config.dependencies or {})[name] as manifest.Dependency
@@ -676,8 +738,7 @@ local function rockModules(root: string, config: Config,
             for _, pattern in ipairs(dep.bundle) do
                 for _, path in ipairs(expandGlob(share, pattern)) do
                     local relative = path:sub(#share + 2)
-                    local module = relative:gsub("%.lua$", "")
-                        :gsub("/init$", ""):gsub("/", ".")
+                    local module = relative:gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
                     if not seen[module] then
                         seen[module] = true
                         selected[#selected + 1] = {name = module, path = path}
@@ -686,19 +747,25 @@ local function rockModules(root: string, config: Config,
             end
         end
     end
-    table.sort(selected, function(a, b) return a.name < b.name end)
+    table.sort(selected, function(a, b)
+        return a.name < b.name
+    end)
+
     return selected
 end
 
-local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo,
-    luarocks = buildRock}
+local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo, luarocks = buildRock}
 
 -- The target is passed rather than read off the config for the one caller that has no
 -- build to hang it on: `nupp doc` renders straight from the manifest, and the docs
 -- target's dependencies are the renderer's.
-local function buildDependencies(root: string, outDir: string, config: Config,
+local function buildDependencies(
+    root: string,
+    outDir: string,
+    config: Config,
     previous: {[string]: cache.DependencyRecord},
-    target: Target?): {[string]: cache.DependencyRecord}?, string?
+    target: Target?
+): {[string]: cache.DependencyRecord}?, string?
     local results: {[string]: cache.DependencyRecord} = {}
     local visiting = {}
     local function buildOne(name)
@@ -708,8 +775,7 @@ local function buildDependencies(root: string, outDir: string, config: Config,
         if visiting[name] then
             return nil, "dependency cycle involving " .. name
         end
-        local dep = (config.dependencies
-            and config.dependencies[name]) as Dependency
+        local dep = (config.dependencies and config.dependencies[name]) as Dependency
         if type(dep) ~= "table" then
             return nil, "unknown dependency " .. tostring(name)
         end
@@ -726,15 +792,16 @@ local function buildDependencies(root: string, outDir: string, config: Config,
             end
             childResults[child] = childResult
         end
-        local result, err = provider(root, outDir, name, dep, previous[name],
-            childResults)
+        local result, err = provider(root, outDir, name, dep, previous[name], childResults)
         visiting[name] = nil
         if not result then
             return nil, err
         end
         results[name] = result
+
         return result
     end
+
     local targetDeps = (target or config._target or {}).dependencies or {}
     for _, name in ipairs(targetDeps) do
         local _, err = buildOne(name)
@@ -742,6 +809,7 @@ local function buildDependencies(root: string, outDir: string, config: Config,
             return nil, err
         end
     end
+
     return results
 end
 

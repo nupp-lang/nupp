@@ -20,6 +20,7 @@ local function run(parsed: any): integer
     end
     local cli = require("nupp.cli") as {commands: function(): {any}}
     io.write(require("nupp.cli.completions").render(shell, cli.commands()))
+
     return 0
 end
 

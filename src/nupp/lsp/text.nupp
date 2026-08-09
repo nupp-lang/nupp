@@ -13,31 +13,22 @@ local text = {}
 
 --- A position as the protocol counts it: zero-based lines, and a character offset in
 --- UTF-16 code units rather than the bytes the lexer works in.
-type text.Position = {
-    line: integer,
-    character: integer,
-}
+type text.Position = {line: integer, character: integer,}
 
 --- A half-open span between two protocol positions. The end key is quoted because the
 --- protocol named it after a Lua keyword.
-type text.Range = {
-    start: text.Position,
-    ["end"]: text.Position,
-}
+type text.Range = {start: text.Position, ["end"]: text.Position,}
 
 --- One run of lines replaced wholesale, where `from`..`to` is a half-open span of the
 --- original's 1-based line numbers and `lines` is what takes its place.
-type text.Hunk = {
-    from: integer,
-    to: integer,
-    lines: {string},
-}
+type text.Hunk = {from: integer, to: integer, lines: {string},}
 
 function text.uriToPath(uri: string): string
     local path = uri:gsub("^file://", "")
     path = path:gsub("%%(%x%x)", function(hex)
         return string.char(tonumber(hex, 16) or 0)
     end)
+
     return path
 end
 
@@ -54,6 +45,7 @@ function text.readFile(path: string): string?
     end
     local source = f:read("*a")
     f:close()
+
     return source
 end
 
@@ -64,6 +56,7 @@ function text.utf8Char(source: string, offset: number): integer, integer
         return 1, 1
     end
     local len = first < 0xE0 and 2 or first < 0xF0 and 3 or 4
+
     return len, len == 4 and 2 or 1
 end
 
@@ -77,6 +70,7 @@ function text.positionAtOffset(source: string, offset: number): text.Position
             character, pos = character + units, pos + bytes
         end
     end
+
     return {line = line, character = character}
 end
 
@@ -91,11 +85,11 @@ function text.offsetAtPosition(source: string, target: text.Position): integer?
     if line ~= target.line then
         return nil
     end
-    while pos <= #source and source:byte(pos) ~= 10
-        and character < target.character do
+    while pos <= #source and source:byte(pos) ~= 10 and character < target.character do
         local bytes, units = text.utf8Char(source, pos)
         character, pos = character + units, pos + bytes
     end
+
     return pos
 end
 
@@ -121,6 +115,7 @@ function text.splitLines(source: string): {string}
             break
         end
     end
+
     return lines
 end
 
@@ -133,6 +128,7 @@ function text.lineStarts(source: string): {integer}
             starts[#starts + 1] = pos + 1
         end
     end
+
     return starts
 end
 
@@ -176,6 +172,7 @@ function text.lineHunks(before: {string}, after: {string}): {text.Hunk}
             i, j = i + skipBefore, j + (skipAfter as integer)
         end
     end
+
     return hunks
 end
 

@@ -50,8 +50,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             if current == "takes" or current == "plain" then
                 return
             end
-            if effect == "takes" or effect == "plain"
-                or effect == "exclusive" and current == "borrows" then
+            if effect == "takes" or effect == "plain" or effect == "exclusive" and current == "borrows" then
                 modes[at] = effect
             end
         end
@@ -73,6 +72,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                     return true
                 end
             end
+
             return false
         end
 
@@ -134,14 +134,15 @@ function functions.install(c: state.Checker): state.StatHandlers
                 for j, expr in ipairs(node.exprs or {}) do
                     local name = directName(expr)
                     local target = node.targets and node.targets[j]
-                    if name and not (target and target.kind == "name"
-                        and target.token.text == name) then
+                    if name and not (target and target.kind == "name" and target.token.text == name) then
                         raise(name, "plain")
                     else
                         walk(expr, nested)
                     end
                 end
-                for _, target in ipairs(node.targets or {}) do walk(target, nested) end
+                for _, target in ipairs(node.targets or {}) do
+                    walk(target, nested)
+                end
                 return
             elseif kind == "returnStmt" then
                 for _, expr in ipairs(node.exprs or {}) do
@@ -177,6 +178,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
         end
         walk(body.body, false)
+
         return modes, declared
     end
 
@@ -191,8 +193,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.functionDepth = c.functionDepth + 1
         c.pushScope()
         if body.generics then
-            typeParams, typeBounds, packParams = c.bindGenerics(
-                body.generics, "function")
+            typeParams, typeBounds, packParams = c.bindGenerics(body.generics, "function")
         end
         if selfType then
             c.bindVar("self", selfType)
@@ -209,30 +210,26 @@ function functions.install(c: state.Checker): state.StatHandlers
                         varargType = c.resolveType(p.type)
                     end
                 end
-                c.bindVar(p.name.text, T.table_, false, p.name,
-                    "parameter", true)
+                c.bindVar(p.name.text, T.table_, false, p.name, "parameter", true)
             elseif p.name then
                 local pt = p.type and c.resolveType(p.type) or T.any
                 params[#params + 1] = pt
                 local mode = inferredModes[#params] or "borrows"
-                if not declaredModes[#params] and mode ~= "takes"
-                    and not pointerShaped(pt)
-                    and not (pt.tag == "nominal" and pt.affineResource) then
+                if not declaredModes[
+                    #params
+                ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
                     mode = "plain"
                 end
                 paramModes[#params] = mode
                 if mode == "retains" or mode == "releases" then
-                    c.diag("NUPP2602", p,
-                        mode .. " is only valid on imported cdef parameters")
+                    c.diag("NUPP2602", p, mode .. " is only valid on imported cdef parameters")
                 end
-                if (mode == "retains" or mode == "releases")
-                    and not pointerShaped(pt) then
-                    c.diag("NUPP2602", p,
-                        mode .. " parameters must have a pointer-shaped type")
+                if (mode == "retains" or mode == "releases") and not pointerShaped(pt) then
+                    c.diag("NUPP2602", p, mode .. " parameters must have a pointer-shaped type")
                 end
-                local bound = mode == "takes" and T.owned(pt)
-                    or (mode == "borrows" or mode == "exclusive")
-                    and T.borrowed(pt) or pt
+                local bound = mode == "takes" and T.owned(
+                    pt
+                ) or (mode == "borrows" or mode == "exclusive") and T.borrowed(pt) or pt
                 c.bindVar(p.name.text, bound, p.type ~= nil, p.name, "parameter")
             else
                 vararg = true
@@ -246,9 +243,13 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
-        local paramPack = T.pack(params, paramPackTail or (vararg and {
-            kind = varargType and "homogeneous" or "unknown",
-            type = varargType or T.any} or nil), paramModes)
+        local paramPack = T.pack(
+            params,
+            paramPackTail or (
+                vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
+            ),
+            paramModes
+        )
         local annotated = nil
         local retPack
         if body.returnPack then
@@ -268,44 +269,46 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- container accessor is noise. The result stays explicitly a borrow, so a
         -- method returning a plain value is unaffected, and the body returns the value
         -- itself as it does under an explicit `borrows`.
-        local elidedSelfBorrow = selfType ~= nil and annotated ~= nil
-            and annotated[1] ~= nil and annotated[1].tag == "borrowed"
-            and not (body.rets and body.rets[1]
-            and body.rets[1].kind == "tborrows")
+        local elidedSelfBorrow = selfType ~= nil and annotated ~= nil and annotated[
+            1
+        ] ~= nil and annotated[
+            1
+        ].tag == "borrowed" and not (body.rets and body.rets[1] and body.rets[1].kind == "tborrows")
         if elidedSelfBorrow then
             annotated[1] = rawType(annotated[1])
             rets[1] = annotated[1]
         end
         if body.ownCleanups then
             if not annotated or not annotated[1] then
-                c.diag("NUPP2602", body.ownTok or body,
-                    "@owned requires an annotated return type")
+                c.diag("NUPP2602", body.ownTok or body, "@owned requires an annotated return type")
             else
-                body.ownCleanups = resolvedOwnedCleanups(annotated[1],
-                    body.ownCleanups, body.ownOpaque, body.ownTok or body)
+                body.ownCleanups = resolvedOwnedCleanups(
+                    annotated[1],
+                    body.ownCleanups,
+                    body.ownOpaque,
+                    body.ownTok or body
+                )
                 annotated[1] = T.owned(annotated[1], body.ownCleanups)
                 rets[1] = annotated[1]
-                validateCleanups(annotated[1], body.ownCleanups,
-                    body.ownTok or body, "NUPP2615")
+                validateCleanups(annotated[1], body.ownCleanups, body.ownTok or body, "NUPP2615")
             end
         end
         if body.returnPack then
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
         c.retStack[#c.retStack + 1] = annotated or false
-        c.retPackStack[#c.retPackStack + 1] = body.returnPack
-            and retPack or false
-        c.varargPackStack[#c.varargPackStack + 1] = vararg
-            and T.pack({}, paramPack.tail) or false
+        c.retPackStack[#c.retPackStack + 1] = body.returnPack and retPack or false
+        c.varargPackStack[#c.varargPackStack + 1] = vararg and T.pack({}, paramPack.tail) or false
         c.yieldPackStack[#c.yieldPackStack + 1] = yieldPack or false
         c.resumePackStack[#c.resumePackStack + 1] = resumePack or false
         local protocolContext = {yieldPacks = {}}
         c.protocolStack[#c.protocolStack + 1] = protocolContext
-        c.ownReturnStack[#c.ownReturnStack + 1] = body.ownCleanups
-            and annotated and annotated[1] and rawType(annotated[1]) or false
-        c.borrowReturnStack[#c.borrowReturnStack + 1] =
-            (body.rets and body.rets[1]
-            and body.rets[1].kind == "tborrows" and body.rets[1]) or false
+        c.ownReturnStack[
+            #c.ownReturnStack + 1
+        ] = body.ownCleanups and annotated and annotated[1] and rawType(annotated[1]) or false
+        c.borrowReturnStack[
+            #c.borrowReturnStack + 1
+        ] = (body.rets and body.rets[1] and body.rets[1].kind == "tborrows" and body.rets[1]) or false
         local disposerContext, disposeRoot
         if body.disposeContract then
             local resource, root = selfType, selfType and "self" or nil
@@ -319,8 +322,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             end
             resource = resource and rawType(resource) or nil
             disposeRoot = root
-            local affineFields = resource and resource.tag == "nominal"
-                and resource.affineFields or nil
+            local affineFields = resource and resource.tag == "nominal" and resource.affineFields or nil
             if affineFields and #affineFields > 0 then
                 local owned = {}
                 for _, field in ipairs(affineFields) do
@@ -350,6 +352,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             local function isVararg(node)
                 return node and not cst.isToken(node) and node.kind == "vararg"
             end
+
             local function walk(node)
                 if not node or cst.isToken(node) then
                     return
@@ -363,21 +366,18 @@ function functions.install(c: state.Checker): state.StatHandlers
                 elseif node.kind == "returnStmt" then
                     local exprs = node.exprs or {}
                     local last = exprs[#exprs]
-                    if isVararg(last) and retPack.tail
-                        and retPack.tail.kind == "generic"
-                        and retPack.tail.var == paramPackTail.var then
+                    if isVararg(
+                        last
+                    ) and retPack.tail and retPack.tail.kind == "generic" and retPack.tail.var == paramPackTail.var then
                         transfers = transfers + 1
                         transferred[last] = true
                     end
-                elseif node.kind == "call" or node.kind == "methodCall"
-                    or node.kind == "safeCall" then
+                elseif node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
                     local args = node.args and node.args.exprs or {}
                     local last = args[#args]
                     local signature = node.signatureType
-                    local tail = signature and signature.tag == "func"
-                        and signature.paramPack.tail or nil
-                    if isVararg(last) and tail and tail.kind == "generic"
-                        and tail.var == paramPackTail.var then
+                    local tail = signature and signature.tag == "func" and signature.paramPack.tail or nil
+                    if isVararg(last) and tail and tail.kind == "generic" and tail.var == paramPackTail.var then
                         transfers = transfers + 1
                         transferred[last] = true
                     end
@@ -388,11 +388,14 @@ function functions.install(c: state.Checker): state.StatHandlers
                     end
                 end
             end
+
             walk(body.body)
             if uses ~= 0 or transfers ~= 1 then
-                c.diag("NUPP2605", body,
-                    "a potentially affine generic argument pack must be "
-                    .. "forwarded exactly once")
+                c.diag(
+                    "NUPP2605",
+                    body,
+                    "a potentially affine generic argument pack must be " .. "forwarded exactly once"
+                )
             end
         end
         if body.disposeContract and disposeRoot and disposeRoot ~= "self" then
@@ -405,8 +408,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         if disposerContext then
             for field in pairs(disposerContext.allowed) do
                 if not disposerContext.done[field] then
-                    c.diag("NUPP2603", body.disposeTok or body,
-                        ("@dispose leaves owned field %q live"):format(field))
+                    c.diag("NUPP2603", body.disposeTok or body, ("@dispose leaves owned field %q live"):format(field))
                 end
             end
         end
@@ -430,8 +432,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- additionally forces the claim where the checker cannot see through a loop
         -- that never ends or a call it has no type for; a `return` the checker can see
         -- is caught the ordinary way, as a value that does not fit `never`.
-        local noreturn = c.alwaysRaises(body.body)
-            and not c.returnsSomewhere(body.body)
+        local noreturn = c.alwaysRaises(body.body) and not c.returnsSomewhere(body.body)
         local predicate
         local first = body.rets and body.rets[1]
         if first and first.kind == "tpredicate" then
@@ -443,14 +444,15 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
             if not at then
-                c.diag("NUPP2109", first, ("%s names no parameter of this "
-                    .. "function"):format(want))
+                c.diag("NUPP2109", first, ("%s names no parameter of this " .. "function"):format(want))
             else
                 local target = c.resolveType(first.type)
                 if not (isA(target, params[at]) or params[at] == T.any) then
-                    c.diag("NUPP2110", first, ("%s cannot be a %s, so this "
-                        .. "predicate can never hold"):format(want,
-                        T.tostring(target)))
+                    c.diag(
+                        "NUPP2110",
+                        first,
+                        ("%s cannot be a %s, so this " .. "predicate can never hold"):format(want, T.tostring(target))
+                    )
                 else
                     predicate = {param = at, type = target}
                 end
@@ -478,12 +480,13 @@ function functions.install(c: state.Checker): state.StatHandlers
                     end
                 end
                 if not found then
-                    c.diag("NUPP2109", sourceToken,
-                        ("%s names no parameter of this function"):format(want))
+                    c.diag("NUPP2109", sourceToken, ("%s names no parameter of this function"):format(want))
                 elseif type(found) == "number" and paramModes[found] == "takes" then
-                    c.diag("NUPP2618", sourceToken,
-                        ("%s is consumed by this function, so its result "
-                        .. "cannot borrow from it"):format(want))
+                    c.diag(
+                        "NUPP2618",
+                        sourceToken,
+                        ("%s is consumed by this function, so its result " .. "cannot borrow from it"):format(want)
+                    )
                 elseif type(found) == "number" then
                     borrowsParams[#borrowsParams + 1] = found
                 end
@@ -495,17 +498,33 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- An owning result that borrows keeps its owned type: it still has to be
         -- discharged, and the borrow it holds is tracked on the value rather than in
         -- the type, the way a lexical borrow is.
-        if (borrowsParam or borrowsSelf or borrowsParams) and rets[1]
-            and not body.ownCleanups then
+        if (borrowsParam or borrowsSelf or borrowsParams) and rets[1] and not body.ownCleanups then
             rets[1] = T.borrowed(rawType(rets[1]))
         end
         if body.returnPack then
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
-        return T.func(params, rets, vararg, paramModes, predicate,
-            typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams,
-            nil, varargType, noreturn, paramPack, retPack, packParams,
-            yieldPack, resumePack)
+
+        return T.func(
+            params,
+            rets,
+            vararg,
+            paramModes,
+            predicate,
+            typeParams,
+            typeBounds,
+            borrowsParam,
+            borrowsSelf,
+            borrowsParams,
+            nil,
+            varargType,
+            noreturn,
+            paramPack,
+            retPack,
+            packParams,
+            yieldPack,
+            resumePack
+        )
     end
 
     -- A function's type as its annotations give it, without checking the body. Enough
@@ -517,8 +536,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         local typeParams, typeBounds, packParams
         c.pushScope()
         if body and body.generics then
-            typeParams, typeBounds, packParams = c.bindGenerics(
-                body.generics, "function")
+            typeParams, typeBounds, packParams = c.bindGenerics(body.generics, "function")
         end
         if selfType then
             params[1] = selfType
@@ -533,9 +551,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                 parameterIndex = parameterIndex + 1
                 local pt = p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[parameterIndex] or "borrows"
-                if not declaredModes[parameterIndex] and mode ~= "takes"
-                    and not pointerShaped(pt)
-                    and not (pt.tag == "nominal" and pt.affineResource) then
+                if not declaredModes[
+                    parameterIndex
+                ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
                     mode = "plain"
                 end
                 params[#params + 1] = pt
@@ -553,20 +571,41 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
         end
-        local paramPack = T.pack(params, paramPackTail or (vararg and {
-            kind = varargType and "homogeneous" or "unknown",
-            type = varargType or T.any} or nil), modes)
-        local retPack = body and body.returnPack and c.resolvePack(body.returnPack)
-            or T.pack({}, {kind = "unknown", type = T.any})
+        local paramPack = T.pack(
+            params,
+            paramPackTail or (
+                vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
+            ),
+            modes
+        )
+        local retPack = body and body.returnPack and c.resolvePack(
+            body.returnPack
+        ) or T.pack({}, {kind = "unknown", type = T.any})
         local rets = body and body.returnPack and retPack.head or {T.any}
-        local yieldPack = body and body.yieldPack and c.resolvePack(body.yieldPack)
-            or nil
-        local resumePack = body and body.resumePack and c.resolvePack(body.resumePack)
-            or nil
+        local yieldPack = body and body.yieldPack and c.resolvePack(body.yieldPack) or nil
+        local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
         c.popScope()
-        return T.func(params, rets, vararg, modes,
-            nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, false,
-            paramPack, retPack, packParams, yieldPack, resumePack)
+
+        return T.func(
+            params,
+            rets,
+            vararg,
+            modes,
+            nil,
+            typeParams,
+            typeBounds,
+            nil,
+            nil,
+            nil,
+            nil,
+            varargType,
+            false,
+            paramPack,
+            retPack,
+            packParams,
+            yieldPack,
+            resumePack
+        )
     end
 
     c.inferredParameterModes = inferredParameterModes
@@ -579,8 +618,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             return
         end
         -- bind the name before checking for recursion; refine after
-        c.bindVar(nameTok.text, T.any, false, nameTok, "function",
-            stat.isConst)
+        c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
         local ft = c.checkFuncbody(body)
         c.bindVar(nameTok.text, ft)
         -- After the refining bind, so the entry registered is the one that survives.
@@ -589,8 +627,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
         c.raises.check(stat, body)
         if body.disposeContract then
-            registerDefaultDisposer(ft, nameTok.text,
-                body.disposeTok or stat)
+            registerDefaultDisposer(ft, nameTok.text, body.disposeTok or stat)
         end
     end
 
@@ -636,9 +673,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
         end
         if body.disposeContract and not owner then
-            registerDefaultDisposer(ft,
-                fname.base and fname.base.text or "<dispose>",
-                body.disposeTok or stat)
+            registerDefaultDisposer(ft, fname.base and fname.base.text or "<dispose>", body.disposeTok or stat)
         end
         if owner and owner.declKind == "struct" then
             -- reified receivers get their members through ffi.metatype
@@ -657,20 +692,35 @@ function functions.install(c: state.Checker): state.StatHandlers
                 for _, mode in ipairs(ft.paramModes or {}) do
                     modes[#modes + 1] = mode
                 end
-                owner.byname[member] = T.func(params, ft.rets, ft.vararg,
-                    modes, ft.predicate, ft.typeParams, ft.typeBounds,
-                    ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams,
-                    ft.ffiOut, ft.varargType, ft.noreturn,
-                    T.pack(params, ft.paramPack.tail, modes), ft.retPack,
-                    ft.packParams, ft.yieldPack, ft.resumePack)
+                owner.byname[
+                    member
+                ] = T.func(
+                    params,
+                    ft.rets,
+                    ft.vararg,
+                    modes,
+                    ft.predicate,
+                    ft.typeParams,
+                    ft.typeBounds,
+                    ft.borrowsParam,
+                    ft.borrowsSelf,
+                    ft.borrowsParams,
+                    ft.ffiOut,
+                    ft.varargType,
+                    ft.noreturn,
+                    T.pack(params, ft.paramPack.tail, modes),
+                    ft.retPack,
+                    ft.packParams,
+                    ft.yieldPack,
+                    ft.resumePack
+                )
                 owner.writeByname[member] = owner.byname[member]
             else
                 owner.byname[member] = ft
                 owner.writeByname[member] = ft
             end
             if body.disposeMethod then
-                owner.defaultDisposers[#owner.defaultDisposers + 1] =
-                    fname.method and ("@method:" .. member) or member
+                owner.defaultDisposers[#owner.defaultDisposers + 1] = fname.method and ("@method:" .. member) or member
             end
             if owner.fieldOrder then
                 owner.fieldOrder[#owner.fieldOrder + 1] = member

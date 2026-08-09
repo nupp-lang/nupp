@@ -28,31 +28,19 @@ local firstToken = cst.firstToken
 --- The passes, by stable code: the name a person uses, the lowest `-O` level that runs
 --- the pass, and one line saying what it is for.
 optimize.passes = {
-    ["OPT-1"] = {
-        name = "presize",
-        level = 1,
-        summary = "size a table built field by field when it is created",
-    },
-    ["OPT-2"] = {
-        name = "numeric-ipairs",
-        level = 1,
-        summary = "iterate a stable declared array with a numeric for loop",
-    },
-    ["OPT-3"] = {
-        name = "constant-fold",
-        level = 1,
-        summary = "fold exact primitive expressions and propagate const bindings",
-    },
-    ["OPT-4"] = {
-        name = "static-callable",
-        level = 1,
-        summary = "bind repeated immutable dotted callees at their first use",
-    },
-    ["OPT-5"] = {
-        name = "concat-buffer",
-        level = 1,
-        summary = "build a string accumulated round a loop with a string.buffer",
-    },
+    ["OPT-1"] = {name = "presize", level = 1, summary = "size a table built field by field when it is created",},
+    [
+        "OPT-2"
+    ] = {name = "numeric-ipairs", level = 1, summary = "iterate a stable declared array with a numeric for loop",},
+    [
+        "OPT-3"
+    ] = {name = "constant-fold", level = 1, summary = "fold exact primitive expressions and propagate const bindings",},
+    [
+        "OPT-4"
+    ] = {name = "static-callable", level = 1, summary = "bind repeated immutable dotted callees at their first use",},
+    [
+        "OPT-5"
+    ] = {name = "concat-buffer", level = 1, summary = "build a string accumulated round a loop with a string.buffer",},
 }
 
 -- Presizing pays from two fields up. An empty table grows its hash part by rehashing,
@@ -68,6 +56,7 @@ local function nameText(node)
     if node.kind ~= "name" then
         return nil
     end
+
     return node.token and node.token.text or nil
 end
 
@@ -86,6 +75,7 @@ local function occurrences(node, name)
     for _, child in ipairs(node) do
         total = total + occurrences(child, name)
     end
+
     return total
 end
 
@@ -99,6 +89,7 @@ local function fieldTargetBase(target)
     if target.kind ~= "dotIndex" and target.kind ~= "bracketIndex" then
         return nil
     end
+
     return nameText(target.obj)
 end
 
@@ -123,6 +114,7 @@ local function writtenKey(target)
             end
         end
     end
+
     return "opaque", nil
 end
 
@@ -137,6 +129,7 @@ local function fieldWrites(stat, name)
             writes[#writes + 1] = target
         end
     end
+
     return writes
 end
 
@@ -180,6 +173,7 @@ local function planPresize(stats, at, name)
             end
         end
     end
+
     return array, hashCount + opaque, stoppedAt
 end
 
@@ -187,13 +181,14 @@ end
 -- entries is already sized by LuaJIT from the constructor itself, so only the empty one
 -- is left needing help.
 local function isEmptyTable(node)
-    return node and not isToken(node) and node.kind == "tableExpr"
-        and #(node.fields or {}) == 0
+    return node and not isToken(node) and node.kind == "tableExpr" and #(node.fields or {}) == 0
 end
 
 local function remark(remarks, node, code, message, related)
     local token = firstToken(node)
-    remarks[#remarks + 1] = {
+    remarks[
+        #remarks + 1
+    ] = {
         code = code,
         severity = "note",
         msg = message,
@@ -207,29 +202,51 @@ end
 
 local function presizeBlock(stats, remarks)
     for i, stat in ipairs(stats) do
-        if not isToken(stat) and stat.kind == "localStmt"
-            and stat.names and #stat.names == 1
-            and stat.exprs and #stat.exprs == 1
-            and isEmptyTable(stat.exprs[1]) then
+        if not isToken(
+            stat
+        )
+            and stat.kind == "localStmt"
+            and stat.names
+            and #stat.names == 1
+            and stat.exprs
+            and #stat.exprs == 1
+            and isEmptyTable(
+            stat.exprs[1]
+        ) then
             local name = stat.names[1].text
             local constructor = stat.exprs[1]
             local array, hash, stoppedAt = planPresize(stats, i, name)
             if array + hash >= PRESIZE_MIN then
                 constructor.presize = {narr = array, nhash = hash}
-                remark(remarks, constructor, "OPT-1",
-                    ("presize: %s is created with room for %d array and %d "
-                    .. "hash entries"):format(name, array, hash))
+                remark(
+                    remarks,
+                    constructor,
+                    "OPT-1",
+                    (
+                        "presize: %s is created with room for %d array and %d " .. "hash entries"
+                    ):format(name, array, hash)
+                )
             elseif stoppedAt then
                 local token = firstToken(stoppedAt)
-                remark(remarks, constructor, "OPT-1",
-                    ("presize: %s is not presized, because it is used for "
-                    .. "something other than a field assignment before its "
-                    .. "fields are known"):format(name),
-                    token and {{
-                    line = token.line, col = token.col,
-                    offset = token.offset, length = #token.text,
-                    message = "used here",
-                }} or nil)
+                remark(
+                    remarks,
+                    constructor,
+                    "OPT-1",
+                    (
+                        "presize: %s is not presized, because it is used for "
+                        .. "something other than a field assignment before its "
+                        .. "fields are known"
+                    ):format(name),
+                    token and {
+                        {
+                            line = token.line,
+                            col = token.col,
+                            offset = token.offset,
+                            length = #token.text,
+                            message = "used here",
+                        }
+                    } or nil
+                )
             end
         end
     end
@@ -242,15 +259,14 @@ local function walk(node, remarks)
     if node.stats then
         presizeBlock(node.stats, remarks)
     end
-    for _, child in ipairs(node) do walk(child, remarks) end
+    for _, child in ipairs(node) do
+        walk(child, remarks)
+    end
 end
 
 -- Nodes that own their own body, which this pass does not follow into: a loop written
 -- inside a function written inside this body is that function's body's question.
-local NESTED_FUNCTION = {
-    localFuncStmt = true, funcStmt = true, inlineMethod = true,
-    funcExpr = true, shortfn = true,
-}
+local NESTED_FUNCTION = {localFuncStmt = true, funcStmt = true, inlineMethod = true, funcExpr = true, shortfn = true,}
 
 -- A dense table literal is the only bound this pass accepts, and how long it is is
 -- policy rather than a fact about effects: another pass could take its bound from a
@@ -280,9 +296,13 @@ local function denseLiteralLengths(body)
                 end
             end
         end
-        for _, child in ipairs(node) do collect(child) end
+        for _, child in ipairs(node) do
+            collect(child)
+        end
     end
+
     collect(body)
+
     return lengths
 end
 
@@ -306,56 +326,67 @@ local function numericIpairsBody(body, facts, remarks)
             local length = token and lengths[token.definition] or nil
             local ok, reason, related = true, nil, nil
             if length == nil then
-                ok, reason, related = false,
-                    "the array's dense entry length is not statically known", operand
+                ok, reason, related = false, "the array's dense entry length is not statically known", operand
             elseif asked.uses(token.definition) > 2 then
-                ok, reason, related = false,
-                    "the literal array has another use that may alias or expose it",
-                    operand
+                ok, reason, related = false, "the literal array has another use that may alias or expose it", operand
             else
                 -- The literal establishes density. Asking about the whole containing
                 -- body, not just the loop, rules out a hole or an append before entry
                 -- as well as a changing bound during traversal. The loop's own header
                 -- is skipped, or its `ipairs` call answers the question against itself.
-                ok, reason, related = asked.shapeStable(body,
-                    asked.aliasOf(token),
-                    function(value) return value == node and node.body or nil end)
+                ok, reason, related = asked.shapeStable(body, asked.aliasOf(token), function(value)
+                    return value == node and node.body or nil
+                end)
             end
             if ok then
                 node.numericIpairs = {operand = operand, length = length}
-                remark(remarks, node, "OPT-2",
-                    "numeric-ipairs: the declared array has a stable shape in this "
-                    .. "loop")
+                remark(
+                    remarks,
+                    node,
+                    "OPT-2",
+                    "numeric-ipairs: the declared array has a stable shape in this " .. "loop"
+                )
             else
                 local at = related and firstToken(related) or nil
-                remark(remarks, node, "OPT-2",
+                remark(
+                    remarks,
+                    node,
+                    "OPT-2",
                     "numeric-ipairs: not rewritten because " .. reason,
-                    at and {{
-                    line = at.line, col = at.col, offset = at.offset,
-                    length = #at.text, message = "proof stopped here",
-                }} or nil)
+                    at and {
+                        {
+                            line = at.line,
+                            col = at.col,
+                            offset = at.offset,
+                            length = #at.text,
+                            message = "proof stopped here",
+                        }
+                    } or nil
+                )
             end
         end
-        for _, child in ipairs(node) do walk(child) end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
+
     walk(body)
 end
 
 -- The loops a string may be accumulated round. `repeat` is included: what matters is
 -- that the body runs an unknown number of times, not how it decides to stop.
-local LOOPS = {
-    fornumStmt = true, forinStmt = true, whileStmt = true, repeatStmt = true,
-}
+local LOOPS = {fornumStmt = true, forinStmt = true, whileStmt = true, repeatStmt = true,}
 
--- An empty string literal, which is the only initialiser this pass accepts. A
--- non-empty one would have to be put into the buffer before the loop to survive zero
--- iterations, which is easy and is not what makes the pass worth having.
+-- An empty string literal, which is the only initialiser this pass accepts. A non-empty
+-- one would have to be put into the buffer before the loop to survive zero iterations,
+-- which is easy and is not what makes the pass worth having.
 local function emptyString(node)
     if not node or isToken(node) or node.kind ~= "string" then
         return false
     end
     local token = firstToken(node)
     local text = token and token.text or ""
+
     return text == "\"\"" or text == "''" or text == "[[]]"
 end
 
@@ -372,14 +403,12 @@ local function appendedPieces(expr, definition)
         return nil
     end
     local left = expr.lhs
-    if not left or isToken(left) or left.kind ~= "name"
-        or not left.token or left.token.definition ~= definition then
+    if not left or isToken(left) or left.kind ~= "name" or not left.token or left.token.definition ~= definition then
         return nil
     end
     local pieces = {}
     local rest = expr.rhs
-    while rest and not isToken(rest) and rest.kind == "binop"
-        and rest.op and rest.op.text == ".." do
+    while rest and not isToken(rest) and rest.kind == "binop" and rest.op and rest.op.text == ".." do
         if not rest.plainConcat then
             return nil
         end
@@ -390,6 +419,7 @@ local function appendedPieces(expr, definition)
         return nil
     end
     pieces[#pieces + 1] = rest
+
     return pieces
 end
 
@@ -402,11 +432,11 @@ local function soleAccumulation(loop, definition, asked)
         if not node or isToken(node) or other then
             return
         end
-        if node.kind == "assignStmt" and #(node.targets or {}) == 1
-            and #(node.exprs or {}) == 1 then
+        if node.kind == "assignStmt" and #(node.targets or {}) == 1 and #(node.exprs or {}) == 1 then
             local target = node.targets[1]
-            if target and not isToken(target) and target.kind == "name"
-                and target.token and target.token.definition == definition then
+            if target and not isToken(
+                target
+            ) and target.kind == "name" and target.token and target.token.definition == definition then
                 local pieces = appendedPieces(node.exprs[1], definition)
                 if pieces and not found then
                     found = {stat = node, pieces = pieces}
@@ -423,8 +453,11 @@ local function soleAccumulation(loop, definition, asked)
                 return
             end
         end
-        for _, child in ipairs(node) do walk(child) end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
+
     walk(loop)
     if other or not found then
         return nil
@@ -433,16 +466,17 @@ local function soleAccumulation(loop, definition, asked)
     if asked.uses(definition, loop) ~= 2 then
         return nil
     end
+
     return found
 end
 
 --- Lowers a string accumulated round a loop to a `string.buffer`.
 ---
 --- `s = s .. piece` in a loop is O(n^2): each round allocates a string holding
---- everything so far and interns it, so the work grows with the length rather than
---- with the count. A trace compiler makes each of those steps fast and cannot make
---- there be fewer of them, which is what separates this from the lookups the JIT
---- already folds. `bench/concat.lua` measures it.
+--- everything so far and interns it, so the work grows with the length rather than with
+--- the count. A trace compiler makes each of those steps fast and cannot make there be
+--- fewer of them, which is what separates this from the lookups the JIT already folds.
+--- `bench/concat.lua` measures it.
 ---
 --- The buffer is created where the accumulator was and dropped after, rather than
 --- pooled at module scope. Pooling is faster throughout and is only correct where the
@@ -459,20 +493,20 @@ local function concatBufferWalk(result, remarks)
     for _, body in ipairs(result.analysis.bodies or {}) do
         local asked = facts.body(body)
         local function blocks(node)
-            -- A function written in this body is its own body in `bodies`, and
-            -- walking into it here would judge the same statement twice.
+            -- A function written in this body is its own body in `bodies`, and walking
+            -- into it here would judge the same statement twice.
             if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
                 return
             end
             local stats = node.kind == "block" and node.stats or nil
             for i, stat in ipairs(stats or {}) do
-                if stat.kind == "localStmt" and #(stat.names or {}) == 1
-                    and #(stat.exprs or {}) == 1 and emptyString(stat.exprs[1])
-                    and stat.names[1].definition then
+                if stat.kind == "localStmt" and #(
+                    stat.names or {}
+                ) == 1 and #(stat.exprs or {}) == 1 and emptyString(stat.exprs[1]) and stat.names[1].definition then
                     local definition = stat.names[1].definition
                     -- The loop this accumulator is built by, if the statements in
-                    -- between leave it alone. One that is read or reassigned before
-                    -- the loop is not an accumulator being started here.
+                    -- between leave it alone. One that is read or reassigned before the
+                    -- loop is not an accumulator being started here.
                     local loop, untouched = nil, true
                     for j = i + 1, #stats do
                         local next = stats[j]
@@ -485,25 +519,30 @@ local function concatBufferWalk(result, remarks)
                             break
                         end
                     end
-                    local accumulation = untouched and loop
-                        and soleAccumulation(loop, definition, asked) or nil
+                    local accumulation = untouched and loop and soleAccumulation(loop, definition, asked) or nil
                     if accumulation then
                         counter = counter + 1
                         local name = ("__nuppBuf_%d"):format(counter)
                         stat.concatBuffer = {name = name}
-                        accumulation.stat.concatBuffer = {name = name,
-                            pieces = accumulation.pieces}
-                        loop.concatBuffer = {name = name,
-                            target = stat.names[1].text}
-                        remark(remarks, stat, "OPT-5",
-                            ("concat-buffer: %s is built with a string.buffer, "
-                            .. "which appends instead of rebuilding")
-                            :format(stat.names[1].text))
+                        accumulation.stat.concatBuffer = {name = name, pieces = accumulation.pieces}
+                        loop.concatBuffer = {name = name, target = stat.names[1].text}
+                        remark(
+                            remarks,
+                            stat,
+                            "OPT-5",
+                            (
+                                "concat-buffer: %s is built with a string.buffer, "
+                                .. "which appends instead of rebuilding"
+                            ):format(stat.names[1].text)
+                        )
                     end
                 end
             end
-            for _, child in ipairs(node) do blocks(child) end
+            for _, child in ipairs(node) do
+                blocks(child)
+            end
         end
+
         blocks(body)
     end
 end
@@ -539,10 +578,12 @@ local function integerLiteral(node)
         return nil
     end
     local value = tonumber((text:gsub("_", "")))
-    if not value or value ~= value or value == math.huge or value == -math.huge
-        or value ~= math.floor(value) or math.abs(value) > MAX_EXACT_INTEGER then
+    if not value or value ~= value or value == math.huge or value == -math.huge or value ~= math.floor(
+        value
+    ) or math.abs(value) > MAX_EXACT_INTEGER then
         return nil
     end
+
     return literal("number", value, ("%.0f"):format(value))
 end
 
@@ -558,6 +599,7 @@ local function stringLiteral(node)
     if not ok or type(value) ~= "string" then
         return nil
     end
+
     return literal("string", value, string.format("%q", value))
 end
 
@@ -577,6 +619,7 @@ local function lookupConstant(current, name)
         end
         current = current.parent
     end
+
     return nil
 end
 
@@ -591,14 +634,15 @@ local function textPath(node)
         local base = textPath(node.obj)
         return base and (base .. "." .. node.name.text) or nil
     end
+
     return nil
 end
 
 local function lookupPath(current, path)
     -- `textPath` answers nil for anything that is not a dotted run of names, so
-    -- `make().x` and `t[k].y` arrive here with nothing to look up. There is no
-    -- constant path to find, and indexing the nil crashed the compiler on an
-    -- expression as ordinary as indexing a call's result.
+    -- `make().x` and `t[k].y` arrive here with nothing to look up. There is no constant
+    -- path to find, and indexing the nil crashed the compiler on an expression as
+    -- ordinary as indexing a call's result.
     if not path then
         return nil
     end
@@ -617,6 +661,7 @@ local function lookupPath(current, path)
         end
         current = current.parent
     end
+
     return nil
 end
 
@@ -650,16 +695,18 @@ local function resolvedLiteral(node)
     if not node or not node.immutablePath or not t or t.tag ~= "literal" then
         return nil
     end
-    if t.base and (t.base.tag == "number" or t.base.tag == "integer")
-        and type(t.constant) == "number"
-        and t.constant == math.floor(t.constant)
-        and math.abs(t.constant) <= MAX_EXACT_INTEGER then
+    if t.base and (
+        t.base.tag == "number" or t.base.tag == "integer"
+    ) and type(
+        t.constant
+    ) == "number" and t.constant == math.floor(t.constant) and math.abs(t.constant) <= MAX_EXACT_INTEGER then
         return literal("number", t.constant, ("%.0f"):format(t.constant))
     elseif t.base and t.base.tag == "string" and type(t.constant) == "string" then
         return literal("string", t.constant, string.format("%q", t.constant))
     elseif t.base and t.base.tag == "boolean" and type(t.constant) == "boolean" then
         return literal("boolean", t.constant, tostring(t.constant))
     end
+
     return nil
 end
 
@@ -708,8 +755,7 @@ local function foldExpr(node, current)
         end
         local op = node.op.kind
         if op == "not" then
-            local answer = literal("boolean", not truthy(value),
-                tostring(not truthy(value)))
+            local answer = literal("boolean", not truthy(value), tostring(not truthy(value)))
             node.folded = answer.code
             return answer
         elseif op == "-" and value.kind == "number" and value.value ~= 0 then
@@ -760,22 +806,24 @@ local function foldExpr(node, current)
                 return folded
             end
         elseif op == ".." and left.kind == "string" and right.kind == "string" then
-            local folded = literal("string", left.value .. right.value,
-                string.format("%q", left.value .. right.value))
+            local folded = literal("string", left.value .. right.value, string.format("%q", left.value .. right.value))
             node.folded = folded.code
             return folded
         end
-        local comparable = left.kind == right.kind
-            or (left.kind == "nil" or right.kind == "nil")
+        local comparable = left.kind == right.kind or (left.kind == "nil" or right.kind == "nil")
         if comparable and (op == "==" or op == "~=") then
             local equal = left.value == right.value
-            local folded = literal("boolean", op == "==" and equal or not equal,
-                tostring(op == "==" and equal or not equal))
+            local folded = literal(
+                "boolean",
+                op == "==" and equal or not equal,
+                tostring(op == "==" and equal or not equal)
+            )
             node.folded = folded.code
             return folded
         end
-        if left.kind == right.kind and (left.kind == "number" or left.kind == "string")
-            and (op == "<" or op == ">" or op == "<=" or op == ">=") then
+        if left.kind == right.kind and (
+            left.kind == "number" or left.kind == "string"
+        ) and (op == "<" or op == ">" or op == "<=" or op == ">=") then
             local answer
             if op == "<" then
                 answer = left.value < right.value
@@ -793,10 +841,14 @@ local function foldExpr(node, current)
         return nil
     elseif kind == "call" or kind == "safeCall" then
         foldExpr(node.obj, current)
-        for _, arg in ipairs(node.args and node.args.exprs or {}) do foldExpr(arg, current) end
+        for _, arg in ipairs(node.args and node.args.exprs or {}) do
+            foldExpr(arg, current)
+        end
     elseif kind == "methodCall" then
         foldExpr(node.obj, current)
-        for _, arg in ipairs(node.args and node.args.exprs or {}) do foldExpr(arg, current) end
+        for _, arg in ipairs(node.args and node.args.exprs or {}) do
+            foldExpr(arg, current)
+        end
     elseif kind == "dotIndex" or kind == "safeIndex" then
         foldExpr(node.obj, current)
         local value = resolvedLiteral(node) or lookupPath(current, textPath(node))
@@ -812,8 +864,7 @@ local function foldExpr(node, current)
         for _, field in ipairs(node.fields or {}) do
             foldExpr(field.key, current)
             local value = foldExpr(field.value, current)
-            if field.kind == "fieldNamed" and field.isConst and field.name
-                and value then
+            if field.kind == "fieldNamed" and field.isConst and field.name and value then
                 fields[field.name.text] = value
             end
         end
@@ -821,7 +872,9 @@ local function foldExpr(node, current)
             return {kind = "table", fields = fields}
         end
     elseif kind == "istring" then
-        for _, part in ipairs(node.parts or {}) do foldExpr(part, current) end
+        for _, part in ipairs(node.parts or {}) do
+            foldExpr(part, current)
+        end
     elseif kind == "funcExpr" then
         if node.body then
             foldFunction(node.body, current)
@@ -840,6 +893,7 @@ local function foldExpr(node, current)
             foldBlock(node.body, inner)
         end
     end
+
     return nil
 end
 
@@ -859,7 +913,9 @@ local function foldStatement(stat, current)
     local kind = stat.kind
     if kind == "localStmt" then
         local values = {}
-        for i, expr in ipairs(stat.exprs or {}) do values[i] = foldExpr(expr, current) end
+        for i, expr in ipairs(stat.exprs or {}) do
+            values[i] = foldExpr(expr, current)
+        end
         for i, name in ipairs(stat.names or {}) do
             current.constants[name.text] = stat.isConst and values[i] or false
             if stat.isConst and values[i] and values[i].kind == "table" then
@@ -869,7 +925,9 @@ local function foldStatement(stat, current)
             end
         end
     elseif kind == "assignStmt" then
-        for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
+        for _, expr in ipairs(stat.exprs or {}) do
+            foldExpr(expr, current)
+        end
         for i, target in ipairs(stat.targets or {}) do
             local path = textPath(target)
             if target.kind == "name" and target.token then
@@ -888,7 +946,9 @@ local function foldStatement(stat, current)
             end
         end
     elseif kind == "returnStmt" then
-        for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
+        for _, expr in ipairs(stat.exprs or {}) do
+            foldExpr(expr, current)
+        end
     elseif kind == "callStmt" then
         foldExpr(stat.expr, current)
     elseif kind == "compoundAssign" then
@@ -944,9 +1004,13 @@ local function foldStatement(stat, current)
             foldBlock(stat.body, inner)
         end
     elseif kind == "forinStmt" then
-        for _, expr in ipairs(stat.exprs or {}) do foldExpr(expr, current) end
+        for _, expr in ipairs(stat.exprs or {}) do
+            foldExpr(expr, current)
+        end
         local inner = scope(current)
-        for _, name in ipairs(stat.names or {}) do inner.constants[name.text] = false end
+        for _, name in ipairs(stat.names or {}) do
+            inner.constants[name.text] = false
+        end
         if stat.body then
             foldBlock(stat.body, inner)
         end
@@ -967,7 +1031,9 @@ local function foldStatement(stat, current)
 end
 
 foldBlock = function(block, current)
-    for _, stat in ipairs(block.stats or {}) do foldStatement(stat, current) end
+    for _, stat in ipairs(block.stats or {}) do
+        foldStatement(stat, current)
+    end
 end
 
 local function constantFoldWalk(node)
@@ -978,7 +1044,9 @@ local function constantFoldWalk(node)
         foldBlock(node, scope(nil))
         return
     end
-    for _, child in ipairs(node) do constantFoldWalk(child) end
+    for _, child in ipairs(node) do
+        constantFoldWalk(child)
+    end
 end
 
 local function hasJumpScope(block)
@@ -987,6 +1055,7 @@ local function hasJumpScope(block)
             return true
         end
     end
+
     return false
 end
 
@@ -998,17 +1067,23 @@ local function directImmutableCall(stat)
     if not call or call.kind ~= "call" then
         return nil
     end
-    if call.ffiOutContracts or call.ffiIntrinsic or call.carrayElem
-        or call.cheaderCdef or call.recordConstruct or call.ownershipIntrinsic
-        or call.cdefCall or call.tableIntrinsic then
+    if call.ffiOutContracts
+        or call.ffiIntrinsic
+        or call.carrayElem
+        or call.cheaderCdef
+        or call.recordConstruct
+        or call.ownershipIntrinsic
+        or call.cdefCall
+        or call.tableIntrinsic
+    then
         return nil
     end
     local callee = call.obj
     local t = callee and callee.resolvedType
-    if not callee or callee.kind ~= "dotIndex" or not callee.immutablePath
-        or not t or t.tag ~= "func" then
+    if not callee or callee.kind ~= "dotIndex" or not callee.immutablePath or not t or t.tag ~= "func" then
         return nil
     end
+
     return textPath(callee), call, callee
 end
 
@@ -1037,6 +1112,7 @@ local function staticCallableWalk(root, remarks)
         until not usedNames["__nupp_call_" .. nextAlias]
         local name = "__nupp_call_" .. nextAlias
         usedNames[name] = true
+
         return name
     end
 
@@ -1062,26 +1138,27 @@ local function staticCallableWalk(root, remarks)
                         alias = aliasName()
                         aliases[path] = alias
                         stat.callableBindings = {{name = alias, value = callee}}
-                        remark(remarks, callee, "OPT-4",
-                            ("static-callable: binds immutable callee %s once")
-                            :format(path))
+                        remark(
+                            remarks,
+                            callee,
+                            "OPT-4",
+                            ("static-callable: binds immutable callee %s once"):format(path)
+                        )
                     end
                     call.staticCallee = alias
                 end
             end
         end
-        for _, child in ipairs(node) do visit(child) end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
     end
     visit(root)
 end
 
 --- What a pass works on: the tree it rewrites in place, the analysis the checker left
 --- beside it, and the name a remark is filed under.
-type optimize.Checked = {
-    readonly root: cst.Chunk,
-    readonly filename: string?,
-    readonly analysis: any?,
-}
+type optimize.Checked = {readonly root: cst.Chunk, readonly filename: string?, readonly analysis: any?,}
 
 --- What the passes were asked for.
 type optimize.Options = {
@@ -1097,8 +1174,7 @@ type optimize.Options = {
 --- @param result the parse result, whose `root` is rewritten
 --- @param opts `level` is the `-O` level; `disabled` is a set of codes to skip
 --- @return the remarks the passes produced, in source order
-function optimize.run(result: optimize.Checked,
-    opts: optimize.Options?): {any}
+function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
     opts = opts or {} as optimize.Options
     local level = opts.level or 0
     local disabled = opts.disabled or {}
@@ -1121,6 +1197,7 @@ function optimize.run(result: optimize.Checked,
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename
     end
+
     return remarks
 end
 

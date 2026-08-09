@@ -81,9 +81,18 @@ checkMod.lintFor = lints.get
 -- The closed reifiable field set: numerics, bool, structs by value, pointers, nullable
 -- pointers. Everything GC-managed is out.
 local REIFIABLE_PRIM = {
-    number = true, float = true, boolean = true, integer = true,
-    int8 = true, int16 = true, int32 = true, int64 = true,
-    uint8 = true, uint16 = true, uint32 = true, uint64 = true,
+    number = true,
+    float = true,
+    boolean = true,
+    integer = true,
+    int8 = true,
+    int16 = true,
+    int32 = true,
+    int64 = true,
+    uint8 = true,
+    uint16 = true,
+    uint32 = true,
+    uint64 = true,
 }
 
 --- Whether a field of this type can live in reified C memory.
@@ -100,9 +109,9 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
         return true
     end
     -- A fixed C array, `T[N]`, is laid out inline: N elements, no indirection, and a
-    -- size the struct can be told at compile time. `T[?]` is not -- a struct whose
-    -- own size depends on a count nobody has written cannot be laid out at all --
-    -- which is the whole of the difference between the two here.
+    -- size the struct can be told at compile time. `T[?]` is not -- a struct whose own
+    -- size depends on a count nobody has written cannot be laid out at all -- which is
+    -- the whole of the difference between the two here.
     if t.tag == "carray" and t.count then
         return reifiableField(t.elem, isCdef)
     end
@@ -121,6 +130,7 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
         end
         return false
     end
+
     return false
 end
 
@@ -131,7 +141,7 @@ end
 -- } — shared across files. opts may provide declareGlobals (prelude/declaration files),
 -- moduleName, an annotation registry, and a seeded module export interface for
 -- recursive project declarations.
---
+
 --- Whether a file is held to the strict floor when nothing said otherwise.
 ---
 --- The extension is the answer, so a file says what it wants where anyone reading it
@@ -145,24 +155,35 @@ function checkMod.strictByDefault(filename: string?): boolean
     if not filename then
         return true
     end
-    return not (filename:match("%.g%.nupp$") or filename:match("%.d%.nupp$")
-        or filename:match("%.lua$"))
+    return not (filename:match("%.g%.nupp$") or filename:match("%.d%.nupp$") or filename:match("%.lua$"))
 end
 
 --- Every node the typed layer is written with: the type productions themselves, the
 --- declarations that introduce a type, and the cast that names one.
-local TYPED_LAYER: {[string]: string} = {
-    recordDecl = "a type declaration", typeAlias = "a type alias",
+local TYPED_LAYER: {
+    [string]: string
+} = {
+    recordDecl = "a type declaration",
+    typeAlias = "a type alias",
     castExpr = "an `as` cast",
-    tname = "a type annotation", tarray = "a type annotation",
-    tmap = "a type annotation", tshape = "a type annotation",
-    ttuple = "a type annotation", tunion = "a type annotation",
-    tintersection = "a type annotation", topt = "a type annotation",
-    tfunc = "a type annotation", tpack = "a type annotation",
-    tparen = "a type annotation", tptr = "a type annotation",
-    tcarray = "a type annotation", tconst = "a type annotation",
-    tliteral = "a type annotation", tborrows = "a type annotation",
-    tpredicate = "a type annotation", ternary = "a type annotation",
+    tname = "a type annotation",
+    tarray = "a type annotation",
+    tmap = "a type annotation",
+    tshape = "a type annotation",
+    ttuple = "a type annotation",
+    tunion = "a type annotation",
+    tintersection = "a type annotation",
+    topt = "a type annotation",
+    tfunc = "a type annotation",
+    tpack = "a type annotation",
+    tparen = "a type annotation",
+    tptr = "a type annotation",
+    tcarray = "a type annotation",
+    tconst = "a type annotation",
+    tliteral = "a type annotation",
+    tborrows = "a type annotation",
+    tpredicate = "a type annotation",
+    ternary = "a type annotation",
 }
 
 --- Reports the typed layer wherever it appears in a plain Lua file.
@@ -173,8 +194,8 @@ local TYPED_LAYER: {[string]: string} = {
 --- annotation governs nothing, and the next person to read it has to work out that it
 --- never did. Better to say so where it was written.
 ---
---- Reported at the outermost node and not below it, so one annotation is one
---- diagnostic however deeply its type nests.
+--- Reported at the outermost node and not below it, so one annotation is one diagnostic
+--- however deeply its type nests.
 local function reportTypedLayer(c: state.Checker, node: any)
     if type(node) ~= "table" or cst.isToken(node) then
         return
@@ -191,69 +212,68 @@ end
 
 -- Returns diags, moduleType (top-level return plus runtime declaration exports), and
 -- the module's exported type/value interface.
-function checkMod.check(result: state.Parse, filename: string?,
-    env: state.Env?, opts: state.Options?
+function checkMod.check(
+    result: state.Parse,
+    filename: string?,
+    env: state.Env?,
+    opts: state.Options?
 ): {checkMod.Diagnostic}, Type?, state.ModuleExports
     opts = opts or {} as state.Options
     if opts.strict == nil then
         -- A bundled declaration is checked under its module name rather than a path, so
         -- the flag rather than the extension is what identifies one here.
-        opts.strict = not opts.declarationFile
-            and checkMod.strictByDefault(filename)
+        opts.strict = not opts.declarationFile and checkMod.strictByDefault(filename)
     end
     result.symbols = {}
     result.implicitSideEffects = {}
-    -- Effects are compiler-recognized runtime requirements.  They are not
-    -- manifest switches: the build derives its native feature set from them.
+    -- Effects are compiler-recognized runtime requirements. They are not manifest
+    -- switches: the build derives its native feature set from them.
     result.effects = {}
-    result.moduleName = opts and opts.moduleName
-        or env and env.moduleNameForPath
-        and env.moduleNameForPath(env, filename) or nil
-    local registry = opts and opts.annotations
-        or env and env.annotations or annotationMod.default()
+    result.moduleName = opts and opts.moduleName or env and env.moduleNameForPath and env.moduleNameForPath(
+        env,
+        filename
+    ) or nil
+    local registry = opts and opts.annotations or env and env.annotations or annotationMod.default()
     registry:removeSource(filename)
 
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.check.state.
-    local c = new state.Checker {
-        result = result, filename = filename, env = env, opts = opts,
+    local c = new state.Checker {result = result, filename = filename, env = env, opts = opts,
         -- A declaration file describes an interface it does not own, so its bare
         -- declarations are that interface and have no table of the file's own to attach
         -- to. Bundled declarations are checked under their module name rather than a
         -- path, so they say so directly.
-        declarationFile = (opts and (opts.declarationFile
-        or opts.declareGlobals)) and true
-        or (filename and filename:match("%.d%.nupp$")) and true or false,
+        declarationFile = (
+        opts and (opts.declarationFile or opts.declareGlobals)
+    ) and true or (filename and filename:match("%.d%.nupp$")) and true or false,
         -- The table qualified declarations attach to, so `record M.Point` in a file
         -- that returns M exports Point while `record Other.Point` does not.
-        moduleLocal = cst.returnedLocal(result.root),
-        annotationRegistry = registry,
-        annotationDefinitions = {},
-        lintConfig = opts and opts.lints
-        or env and env.config and env.config.lints or nil,
+        moduleLocal = cst.returnedLocal(
+        result.root
+    ), annotationRegistry = registry, annotationDefinitions = {}, lintConfig = opts
+        and opts.lints
+        or env
+        and env.config
+        and env.config.lints
+        or nil,
         -- Fixes and the missing-require advice read the parse and the project index
         -- rather than anything the walk builds, so they are made once here and asked.
         -- See nupp.check.fixits.
-        edits = fixits.new(result, env),
-        diags = {},
-        moduleType = nil,
-        moduleExports = opts and opts.initialExports
-        or {types = {}, typeDefs = {}, values = {}},
-        seenDefinitions = {},
-        scope = {vars = {}, types = {}, packTypes = {}, typeDefs = {},
-        pending = {}, parent = nil},
-        retStack = {}, retPackStack = {}, ownReturnStack = {},
-        borrowReturnStack = {},
-        varargPackStack = {}, yieldPackStack = {}, resumePackStack = {},
-        protocolStack = {},
-        disposerFieldStack = {}, validatedCleanupContracts = {},
-        unsafeDepth = 0, functionDepth = 0,
-        captureWatches = {}, allowed = {}, hoisting = false,
-        resolvingAlias = {}, lastCallRets = nil,
-        moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {},
-        constModulePaths = {},
-        moduleLocalAnnotated = false,
-    }
+        edits = fixits.new(
+        result,
+        env
+    ), diags = {}, moduleType = nil, moduleExports = opts and opts.initialExports or {
+        types = {},
+        typeDefs = {},
+        values = {}
+    }, seenDefinitions = {}, scope = {
+        vars = {},
+        types = {},
+        packTypes = {},
+        typeDefs = {},
+        pending = {},
+        parent = nil
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
@@ -301,6 +321,7 @@ function checkMod.check(result: state.Parse, filename: string?,
                 return true
             end
         end
+
         return false
     end
 
@@ -328,9 +349,15 @@ function checkMod.check(result: state.Parse, filename: string?,
         if not at then
             return nil
         end
-        return {message = message, filename = atFilename or filename,
-            line = at.line, col = at.col, offset = at.offset,
-            length = #at.text}
+
+        return {
+            message = message,
+            filename = atFilename or filename,
+            line = at.line,
+            col = at.col,
+            offset = at.offset,
+            length = #at.text
+        }
     end
 
     c.diag = function(code, nodeOrTok, msg, fixes, details)
@@ -346,10 +373,16 @@ function checkMod.check(result: state.Parse, filename: string?,
             return
         end
         local at = cst.firstToken(nodeOrTok)
-        c.diags[#c.diags + 1] = {
-            code = lint and lint.code or code, lint = lint and lint.name or nil,
-            msg = msg, filename = filename, severity = severity,
-            line = at and at.line or 0, col = at and at.col or 0,
+        c.diags[
+            #c.diags + 1
+        ] = {
+            code = lint and lint.code or code,
+            lint = lint and lint.name or nil,
+            msg = msg,
+            filename = filename,
+            severity = severity,
+            line = at and at.line or 0,
+            col = at and at.col or 0,
             offset = at and at.offset or 0,
             length = at and #at.text or 0,
             fixes = fixes and #fixes > 0 and fixes or nil,
@@ -365,40 +398,52 @@ function checkMod.check(result: state.Parse, filename: string?,
     -- there is enough; the stack keeps nested scopes independent, and an inner capture
     -- is recorded for every enclosing scope it also escapes.
     c.pushScope = function()
-        c.scope = {vars = {}, types = {}, packTypes = {}, typeDefs = {},
-            pending = {}, parent = c.scope,
-            depth = (c.scope and c.scope.depth or 0) + 1}
+        c.scope = {
+            vars = {},
+            types = {},
+            packTypes = {},
+            typeDefs = {},
+            pending = {},
+            parent = c.scope,
+            depth = (c.scope and c.scope.depth or 0) + 1
+        }
     end
 
     local function auditScope(s)
         for name, entry in pairs(s.vars or {}) do
             local state = entry.ownershipOrigin or entry
-            if not entry.ownershipOrigin
-                and ownershipKind and ownershipKind(state.t) == "owned"
-                and not state.moved then
-                c.diag("NUPP2603", entry.definition and entry.definition.token,
-                    ("owned value %q leaves scope without being consumed, "
-                    .. "disposed, returned, or converted with intoRaw")
-                    :format(name))
-            elseif not entry.ownershipOrigin
-                and state.retained and not state.moved then
-                c.diag("NUPP2603", entry.definition and entry.definition.token,
-                    ("pinned handle %q is still retained by C; pass it to a "
-                    .. "declared releases parameter before it leaves scope")
-                    :format(name))
+            if not entry.ownershipOrigin and ownershipKind and ownershipKind(
+                state.t
+            ) == "owned" and not state.moved then
+                c.diag(
+                    "NUPP2603",
+                    entry.definition and entry.definition.token,
+                    (
+                        "owned value %q leaves scope without being consumed, "
+                        .. "disposed, returned, or converted with intoRaw"
+                    ):format(name)
+                )
+            elseif not entry.ownershipOrigin and state.retained and not state.moved then
+                c.diag(
+                    "NUPP2603",
+                    entry.definition and entry.definition.token,
+                    (
+                        "pinned handle %q is still retained by C; pass it to a "
+                        .. "declared releases parameter before it leaves scope"
+                    ):format(name)
+                )
             end
         end
     end
+
     c.popScope = function()
         auditScope(c.scope)
         for _, entry in pairs(c.scope.vars or {}) do
             if entry.borrowOwner then
-                entry.borrowOwner.activeBorrows = math.max(0,
-                    (entry.borrowOwner.activeBorrows or 1) - 1)
+                entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
             end
             for _, owner in ipairs(entry.borrowOwners or {}) do
-                owner.activeBorrows = math.max(0,
-                    (owner.activeBorrows or 1) - 1)
+                owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
             end
         end
         c.scope = c.scope.parent
@@ -435,6 +480,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         if env and env.globals then
             return env.globals[name]
         end
+
         return nil
     end
 
@@ -472,6 +518,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         if env and env.resolveProjectType then
             return env.resolveProjectType(env, filename, name)
         end
+
         return nil
     end
     c.lookupPack = function(name)
@@ -483,6 +530,7 @@ function checkMod.check(result: state.Parse, filename: string?,
             end
             s = s.parent
         end
+
         return nil
     end
     c.definition = function(tok, kind)
@@ -501,6 +549,7 @@ function checkMod.check(result: state.Parse, filename: string?,
             def.kind = kind
         end
         tok.definition = def
+
         return def
     end
     c.markToken = function(tok, def, t, kind)
@@ -518,8 +567,7 @@ function checkMod.check(result: state.Parse, filename: string?,
             while s do
                 local existing = s.vars[name]
                 if existing and existing.constant then
-                    c.diag("NUPP2008", tok,
-                        ("cannot re-declare const variable %s"):format(name))
+                    c.diag("NUPP2008", tok, ("cannot re-declare const variable %s"):format(name))
                     break
                 end
                 s = s.parent
@@ -529,20 +577,19 @@ function checkMod.check(result: state.Parse, filename: string?,
         local def = tok and c.definition(tok, kind) or old and old.definition or nil
         if def then
             def.type = t
-            def.constant = constant == true
-                or (tok == nil and old and old.constant) or false
+            def.constant = constant == true or (tok == nil and old and old.constant) or false
             if not def.kind or def.kind == "variable" then
                 def.kind = kind
             end
         end
-        c.scope.vars[name] = {
+        c.scope.vars[
+            name
+        ] = {
             t = t,
             ann = annotated ~= nil and annotated or old and old.ann or false,
-            constant = constant == true
-            or (tok == nil and old and old.constant) or false,
+            constant = constant == true or (tok == nil and old and old.constant) or false,
             definition = def,
-            ownership = t and (t.tag == "owned" or t.tag == "borrowed"
-            or t.tag == "pinned") and t.tag or nil,
+            ownership = t and (t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil,
             moved = false,
             functionDepth = c.functionDepth,
         }
@@ -566,8 +613,7 @@ function checkMod.check(result: state.Parse, filename: string?,
     end
     c.bindPack = function(name, p, tok)
         c.scope.packTypes[name] = p
-        local def = tok and c.definition(tok, "typeParameter")
-            or c.scope.typeDefs[name]
+        local def = tok and c.definition(tok, "typeParameter") or c.scope.typeDefs[name]
         if def then
             def.type, def.kind = p, "typeParameter"
         end
@@ -592,6 +638,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         if not qualifier then
             return stat.name.text
         end
+
         return qualifier .. "." .. stat.name.text
     end
 
@@ -632,12 +679,13 @@ function checkMod.check(result: state.Parse, filename: string?,
     -- written in is part of it. Every caller that resolves an annotation names the file
     -- it is checking.
     c.typevarAt = function(tok, role)
-        return T.typevar(tok.text, (filename as string) .. ":"
-            .. tostring(tok.offset) .. ":" .. (role or "generic"))
+        return T.typevar(tok.text, (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic"))
     end
     c.packvarAt = function(tok, role)
-        return T.packvar(tok.text, (filename as string) .. ":"
-            .. tostring(tok.offset) .. ":" .. (role or "generic-pack"))
+        return T.packvar(
+            tok.text,
+            (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic-pack")
+        )
     end
 
     -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
@@ -654,8 +702,7 @@ function checkMod.check(result: state.Parse, filename: string?,
                 c.bindPack(nameTok.text, pv, nameTok)
             else
                 if sawPack then
-                    c.diag("NUPP2121", nameTok,
-                        "an ordinary type parameter cannot follow a pack parameter")
+                    c.diag("NUPP2121", nameTok, "an ordinary type parameter cannot follow a pack parameter")
                 end
                 local tv = c.typevarAt(nameTok, role)
                 params[#params + 1] = tv
@@ -664,14 +711,14 @@ function checkMod.check(result: state.Parse, filename: string?,
             local boundNode = generics.bounds and generics.bounds[j]
             if boundNode then
                 if isPack then
-                    c.diag("NUPP2121", boundNode,
-                        "generic pack bounds are not supported")
+                    c.diag("NUPP2121", boundNode, "generic pack bounds are not supported")
                 else
                     bounds[#params] = c.resolveType(boundNode)
                     params[#params].bound = bounds[#params]
                 end
             end
         end
+
         return params, bounds, packParams
     end
 
@@ -689,6 +736,7 @@ function checkMod.check(result: state.Parse, filename: string?,
             if found and found.tag == "nominal" then
                 return found
             end
+
             return nil
         end)
         local fields = {}
@@ -698,6 +746,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         if #fields == 0 then
             return T.any
         end
+
         return T.shape(fields)
     end
 
@@ -719,6 +768,7 @@ function checkMod.check(result: state.Parse, filename: string?,
                 end
             end
         end
+
         return false
     end
 
@@ -732,6 +782,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         if t.tag == "borrowed" then
             return "borrows"
         end
+
         return "plain"
     end
 
@@ -751,14 +802,13 @@ function checkMod.check(result: state.Parse, filename: string?,
                 discarded = true
             end
         end
-        if pack.tail and (pack.tail.kind == "generic"
-            or affineType(pack.tail.type)) then
+        if pack.tail and (pack.tail.kind == "generic" or affineType(pack.tail.type)) then
             discarded = true
         end
         if discarded then
-            c.diag("NUPP2605", at,
-                "an affine value in this result pack would be discarded")
+            c.diag("NUPP2605", at, "an affine value in this result pack would be discarded")
         end
+
         return discarded
     end
 
@@ -781,19 +831,16 @@ function checkMod.check(result: state.Parse, filename: string?,
                         for k, resultT in ipairs(arm.head) do
                             armHead[#armHead + 1] = resultT
                             local mode = arm.modes[k]
-                            armModes[#armModes + 1] = mode
-                                and mode ~= "plain" and mode or valueMode(resultT)
+                            armModes[#armModes + 1] = mode and mode ~= "plain" and mode or valueMode(resultT)
                         end
-                        alternatives[armIndex] = T.pack(armHead, arm.tail,
-                            armModes)
+                        alternatives[armIndex] = T.pack(armHead, arm.tail, armModes)
                     end
                     return T.packUnion(alternatives)
                 end
                 for k, resultT in ipairs(pack.head) do
                     head[#head + 1] = resultT
                     local mode = pack.modes[k]
-                    modes[#modes + 1] = mode and mode ~= "plain" and mode
-                        or valueMode(resultT)
+                    modes[#modes + 1] = mode and mode ~= "plain" and mode or valueMode(resultT)
                 end
                 tail = pack.tail
             else
@@ -804,6 +851,7 @@ function checkMod.check(result: state.Parse, filename: string?,
                 end
             end
         end
+
         return T.pack(head, tail, modes)
     end
 
@@ -811,15 +859,14 @@ function checkMod.check(result: state.Parse, filename: string?,
         local pack = inferListPack(exprs)
         local out = {}
         local hasExpressions = exprs and #exprs > 0
-        local limit = count and hasExpressions and count
-            or math.min(count or #pack.head, #pack.head)
+        local limit = count and hasExpressions and count or math.min(count or #pack.head, #pack.head)
         for j = 1, limit do
             out[j] = T.packAt(pack, j) or T.nil_
         end
         if count then
-            checkPackDiscard(pack, count + 1,
-                exprs and exprs[#exprs] or nil)
+            checkPackDiscard(pack, count + 1, exprs and exprs[#exprs] or nil)
         end
+
         return out
     end
 
@@ -861,6 +908,7 @@ function checkMod.check(result: state.Parse, filename: string?,
                 end
             end
         end
+
         return false
     end
 
@@ -874,13 +922,13 @@ function checkMod.check(result: state.Parse, filename: string?,
             return false
         end
         local kind = last.kind
-        if kind == "returnStmt" or kind == "breakStmt"
-            or kind == "continueStmt" then
+        if kind == "returnStmt" or kind == "breakStmt" or kind == "continueStmt" then
             return true
         end
         if kind == "callStmt" then
             return neverReturns(last.expr)
         end
+
         return false
     end
 
@@ -921,6 +969,7 @@ function checkMod.check(result: state.Parse, filename: string?,
             end
             return alwaysRaises(otherwise.body)
         end
+
         return false
     end
 
@@ -940,6 +989,7 @@ function checkMod.check(result: state.Parse, filename: string?,
                 return true
             end
         end
+
         return false
     end
 
@@ -983,6 +1033,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         if key:sub(1, #c.moduleLocal + 1) ~= c.moduleLocal .. "." then
             return nil
         end
+
         return key
     end
 
@@ -999,8 +1050,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         end
     end
 
-    local function recordModuleField(target: Node, t: Type?, constant: boolean?,
-        value: Node?)
+    local function recordModuleField(target: Node, t: Type?, constant: boolean?, value: Node?)
         if not c.moduleLocal or target.kind ~= "dotIndex" then
             return
         end
@@ -1044,11 +1094,18 @@ function checkMod.check(result: state.Parse, filename: string?,
     -- table. A kind with no handler is a statement with nothing to check: empty, break,
     -- goto, label, and the error nodes recovery leaves behind.
     local statHandlers = {}
-    for _, installed in ipairs({
-        bindings.install(c), control.install(c), functions.install(c),
-        cdef.install(c, reifiableField), pragma.install(c),
-    }) do
-        for kind, handle in pairs(installed) do statHandlers[kind] = handle end
+    for _, installed in ipairs(
+        {
+            bindings.install(c),
+            control.install(c),
+            functions.install(c),
+            cdef.install(c, reifiableField),
+            pragma.install(c),
+        }
+    ) do
+        for kind, handle in pairs(installed) do
+            statHandlers[kind] = handle
+        end
     end
     statHandlers.recordDecl = c.checkTypedecl
     statHandlers.typeAlias = c.checkTypedecl
@@ -1069,7 +1126,9 @@ function checkMod.check(result: state.Parse, filename: string?,
     local function hoistDeclarations(block)
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
-            while decl and decl.kind == "pragmaStmt" do decl = decl.stat end
+            while decl and decl.kind == "pragmaStmt" do
+                decl = decl.stat
+            end
             local k = decl and decl.kind
             if k == "recordDecl" and decl.name then
                 local n, entry = c.declaredNominal(decl, decl.declKind)
@@ -1093,7 +1152,9 @@ function checkMod.check(result: state.Parse, filename: string?,
         c.hoisting = true
         for _, stat in ipairs(block.stats or {}) do
             local decl = stat
-            while decl and decl.kind == "pragmaStmt" do decl = decl.stat end
+            while decl and decl.kind == "pragmaStmt" do
+                decl = decl.stat
+            end
             local fname = decl and decl.kind == "funcStmt" and decl.name
             local ownerKey, memberTok = nil, nil
             if fname then
@@ -1102,10 +1163,8 @@ function checkMod.check(result: state.Parse, filename: string?,
             if ownerKey then
                 local owner = c.lookupType(ownerKey)
                 local member = memberTok and memberTok.text
-                if owner and owner.tag == "nominal" and owner.byname
-                    and member and not owner.byname[member] then
-                    local signature = c.signatureOf(decl.body,
-                        fname.method and owner or nil)
+                if owner and owner.tag == "nominal" and owner.byname and member and not owner.byname[member] then
+                    local signature = c.signatureOf(decl.body, fname.method and owner or nil)
                     owner.byname[member] = signature
                     owner.writeByname[member] = signature
                 end
@@ -1156,19 +1215,21 @@ function checkMod.check(result: state.Parse, filename: string?,
             local active = regions
             if node.kind == "withStmt" then
                 active = {}
-                for region in pairs(regions) do active[region] = true end
+                for region in pairs(regions) do
+                    active[region] = true
+                end
                 active[node] = true
             elseif node.kind == "labelStmt" and node.name then
                 labels[node.name.text] = labels[node.name.text] or {}
-                labels[node.name.text][#labels[node.name.text] + 1] = {
-                    node = node,
-                    regions = active,
-                }
+                labels[node.name.text][#labels[node.name.text] + 1] = {node = node, regions = active,}
             elseif node.kind == "gotoStmt" and node.name then
                 gotos[#gotos + 1] = {node = node, regions = active}
             end
-            for _, child in ipairs(node) do walk(child, active) end
+            for _, child in ipairs(node) do
+                walk(child, active)
+            end
         end
+
         walk(block, {})
         for _, jump in ipairs(gotos) do
             local targets = labels[jump.node.name.text]
@@ -1176,8 +1237,7 @@ function checkMod.check(result: state.Parse, filename: string?,
             if target then
                 for region in pairs(target.regions) do
                     if not jump.regions[region] then
-                        c.diag("NUPP2617", jump.node,
-                            "goto cannot enter a 'with' resource scope")
+                        c.diag("NUPP2617", jump.node, "goto cannot enter a 'with' resource scope")
                         break
                     end
                 end
@@ -1225,8 +1285,11 @@ function checkMod.check(result: state.Parse, filename: string?,
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()
     c.discard.sweep(analysis.queries(facts))
-    table.sort(c.diags, function(a, b) return a.offset < b.offset end)
+    table.sort(c.diags, function(a, b)
+        return a.offset < b.offset
+    end)
     result.moduleExports = c.moduleExports
+
     return c.diags, c.moduleType, c.moduleExports
 end
 

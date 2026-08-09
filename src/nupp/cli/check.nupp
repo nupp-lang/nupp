@@ -16,7 +16,8 @@ local command = spec.command{
     options = optionsMod.join(
         optionsMod.strict,
         {name = "--target", value = "NAME", help = "Check a named manifest target"},
-        optionsMod.format()),
+        optionsMod.format()
+    ),
     schema = {
         type = "object",
         properties = {diagnostics = require("nupp.cli.report").DIAGNOSTICS},
@@ -37,8 +38,10 @@ local function run(parsed: any): integer
     local diagnostics: {any} = {}
     if #paths == 0 then
         local project = require("nupp.build.project")
-        local code = project.check(".", {strict = values.strict, target = target,
-            diagnostics = asJson and diagnostics or nil})
+        local code = project.check(
+            ".",
+            {strict = values.strict, target = target, diagnostics = asJson and diagnostics or nil}
+        )
         if asJson then
             reportMod.json(diagnostics)
         end
@@ -54,9 +57,18 @@ local function run(parsed: any): integer
         local source, err = fs.readFile(path)
         if not source then
             if asJson then
-                diagnostics[#diagnostics + 1] = {filename = path, line = 0,
-                    col = 0, offset = 0, length = 0, code = "NUPP0001",
-                    msg = err, help = "check that the path exists and is readable"}
+                diagnostics[
+                    #diagnostics + 1
+                ] = {
+                    filename = path,
+                    line = 0,
+                    col = 0,
+                    offset = 0,
+                    length = 0,
+                    code = "NUPP0001",
+                    msg = err,
+                    help = "check that the path exists and is readable"
+                }
             else
                 io.stderr:write("nupp: " .. tostring(err) .. "\n")
             end
@@ -73,8 +85,7 @@ local function run(parsed: any): integer
                 end
                 failed = true
             else
-                local diags = check.check(result, path,
-                    env as {[string]: any}, {strict = values.strict})
+                local diags = check.check(result, path, env as {[string]: any}, {strict = values.strict})
                 if asJson then
                     for _, diagnostic in ipairs(diags) do
                         diagnostics[#diagnostics + 1] = diagnostic
@@ -95,6 +106,7 @@ local function run(parsed: any): integer
     if asJson then
         reportMod.json(diagnostics)
     end
+
     return failed and 1 or 0
 end
 

@@ -24,9 +24,16 @@ end
 
 -- LSP SymbolKind, by the names this compiler uses for the same things.
 symbols.SYMBOL_KINDS = {
-    record = 5, class = 5, struct = 23, interface = 11,
-    type = 5, field = 8, ["function"] = 12, method = 6,
-    variable = 13, constant = 14,
+    record = 5,
+    class = 5,
+    struct = 23,
+    interface = 11,
+    type = 5,
+    field = 8,
+    ["function"] = 12,
+    method = 6,
+    variable = 13,
+    constant = 14,
 }
 
 --- The members a declaration body holds, as outline children.
@@ -41,7 +48,9 @@ local function declarationChildren(stat, source)
             return
         end
         -- Bounds are found together, so the test above settles the end as well.
-        children[#children + 1] = {
+        children[
+            #children + 1
+        ] = {
             name = nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.field,
             range = {
@@ -52,6 +61,7 @@ local function declarationChildren(stat, source)
             children = wire.array({}),
         }
     end
+
     for _, entry in ipairs(stat.entries or {}) do
         if entry.kind == "fieldDecl" then
             child(entry.name, "field", entry)
@@ -61,6 +71,7 @@ local function declarationChildren(stat, source)
             child(entry.name, "method", entry)
         end
     end
+
     return wire.array(children)
 end
 
@@ -78,7 +89,9 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
             return
         end
         -- Bounds are found together, so the test above settles the end as well.
-        found[#found + 1] = {
+        found[
+            #found + 1
+        ] = {
             name = path or nameTok.text,
             kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.variable,
             range = {
@@ -89,18 +102,23 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
             children = declarationChildren(stat, source),
         }
     end
+
     local function qualified(stat)
         local parts = {}
         for _, tok in ipairs(stat.qualifiers or {}) do
             parts[#parts + 1] = tok.text
         end
         parts[#parts + 1] = stat.name and stat.name.text or "?"
+
         return table.concat(parts, ".")
     end
+
     for _, block in ipairs(result.root.blocks or {}) do
         for _, raw in ipairs(block.stats or {}) do
             local stat = raw
-            while stat and stat.kind == "pragmaStmt" do stat = stat.stat end
+            while stat and stat.kind == "pragmaStmt" do
+                stat = stat.stat
+            end
             if not stat then
             -- nothing to outline
             elseif stat.kind == "recordDecl" then
@@ -116,14 +134,13 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
                 local nameTok = member or (fname and named.base)
                 local path = nil
                 if holder and member then
-                    path = holder.text .. (named.method and ":" or ".")
-                        .. member.text
+                    path = holder.text .. (named.method and ":" or ".") .. member.text
                 end
-                emit(stat, nameTok, fname and named.method and "method"
-                    or "function", path)
+                emit(stat, nameTok, fname and named.method and "method" or "function", path)
             end
         end
     end
+
     return found
 end
 
@@ -144,6 +161,7 @@ function symbols.foldableSpans(result: tree.Parse): {{integer}}
             spans[#spans + 1] = {from, to}
         end
     end)
+
     return spans
 end
 

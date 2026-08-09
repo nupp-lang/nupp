@@ -45,12 +45,10 @@ function control.install(c: state.Checker): state.StatHandlers
         local ts = returnedPack.head
         c.loops.setReturning(wasReturning)
         for j, valueT in ipairs(ts) do
-            local borrowContract = j == 1
-                and c.borrowReturnStack[#c.borrowReturnStack] or nil
+            local borrowContract = j == 1 and c.borrowReturnStack[#c.borrowReturnStack] or nil
             if borrowContract then
                 local expected, missing = {}, nil
-                for _, sourceToken in ipairs(borrowContract.params
-                    or {borrowContract.param}) do
+                for _, sourceToken in ipairs(borrowContract.params or {borrowContract.param}) do
                     local source = ownershipState(c.lookupEntry(sourceToken.text))
                     if source then
                         expected[#expected + 1] = borrowRoot(source)
@@ -69,39 +67,41 @@ function control.install(c: state.Checker): state.StatHandlers
                     end
                 end
                 if missing then
-                    c.diag("NUPP2619", stat.exprs[j] or stat,
-                        "cannot prove all declared borrowed-result sources")
+                    c.diag("NUPP2619", stat.exprs[j] or stat, "cannot prove all declared borrowed-result sources")
                 end
             end
-            if ownershipKind(valueT) == "borrowed"
-                and not (j == 1 and c.borrowReturnStack[#c.borrowReturnStack]
-                and not (stat.exprs[j] or stat).withBinding) then
+            if ownershipKind(
+                valueT
+            ) == "borrowed" and not (
+                j == 1 and c.borrowReturnStack[#c.borrowReturnStack] and not (stat.exprs[j] or stat).withBinding
+            ) then
                 local expr = stat.exprs[j] or stat
-                local ownCode = c.ownReturnStack[#c.ownReturnStack]
-                    and "NUPP2616" or nil
-                c.diag(expr.withBinding and "NUPP2612" or ownCode or "NUPP2603",
-                    expr, expr.withBinding
+                local ownCode = c.ownReturnStack[#c.ownReturnStack] and "NUPP2616" or nil
+                c.diag(
+                    expr.withBinding and "NUPP2612" or ownCode or "NUPP2603",
+                    expr,
+                    expr.withBinding
                     and "a visible 'with' borrow cannot be returned"
-                    or ownCode and "an owning result cannot retain an input borrow"
-                    or "borrowed value cannot be returned")
-            elseif ownershipKind(valueT) == "owned"
-                or ownershipKind(valueT) == "pinned" then
+                    or ownCode
+                    and "an owning result cannot retain an input borrow"
+                    or "borrowed value cannot be returned"
+                )
+            elseif ownershipKind(valueT) == "owned" or ownershipKind(valueT) == "pinned" then
                 -- The branch above is what proves it has one.
                 local valueKind = ownershipKind(valueT) as string
-                local expected = annotatedPack and T.packAt(annotatedPack, j)
-                    or (c.retStack[#c.retStack]
-                    and c.retStack[#c.retStack][j] or nil)
+                local expected = annotatedPack and T.packAt(
+                    annotatedPack,
+                    j
+                ) or (c.retStack[#c.retStack] and c.retStack[#c.retStack][j] or nil)
                 if #c.retStack == 0 then
-                    c.diag("NUPP2603", stat.exprs[j] or stat,
-                        valueKind .. " value cannot be exported as module state")
+                    c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " value cannot be exported as module state")
                 elseif not expected or ownershipKind(expected) ~= valueKind then
-                    c.diag("NUPP2603", stat.exprs[j] or stat,
-                        valueKind .. " return needs a matching annotation")
+                    c.diag("NUPP2603", stat.exprs[j] or stat, valueKind .. " return needs a matching annotation")
                 else
                     local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
-                    local promoted = j == 1
-                        and c.ownReturnStack[#c.ownReturnStack]
-                        and source and ownershipKind(source.t) ~= valueKind
+                    local promoted = j == 1 and c.ownReturnStack[
+                        #c.ownReturnStack
+                    ] and source and ownershipKind(source.t) ~= valueKind
                     if not promoted then
                         moveExpression(stat.exprs[j], valueT, "return", valueKind)
                     end
@@ -115,10 +115,12 @@ function control.install(c: state.Checker): state.StatHandlers
             -- added is what a caller reaches, so the surface replaces it. An annotated
             -- table said its own surface and is left alone.
             local returned = stat.exprs and stat.exprs[1]
-            local returnedName = returned and returned.kind == "name"
-                and returned.token or nil
-            if c.moduleType == T.table_ and not c.moduleLocalAnnotated
-                and returnedName and returnedName.text == c.moduleLocal then
+            local returnedName = returned and returned.kind == "name" and returned.token or nil
+            if c.moduleType == T.table_
+                and not c.moduleLocalAnnotated
+                and returnedName
+                and returnedName.text == c.moduleLocal
+            then
                 local fields = {}
                 for name, ft in pairs(c.moduleFields) do
                     if c.moduleFieldConst[name] then
@@ -153,21 +155,23 @@ function control.install(c: state.Checker): state.StatHandlers
                             end
                         end
                     end
+
                     return false
                 end
+
                 local shape = c.moduleType
                 if shape.tag == "shape" then
                     for _, field in ipairs(shape.fields) do
                         if untyped(field.read or field.type) then
-                            c.diag("NUPP2106",
+                            c.diag(
+                                "NUPP2106",
                                 c.moduleFieldTokens[field.name] or stat,
-                                ("exported %q needs a type annotation")
-                                :format(field.name))
+                                ("exported %q needs a type annotation"):format(field.name)
+                            )
                         end
                     end
                 elseif untyped(shape) then
-                    c.diag("NUPP2106", stat,
-                        "the module's exported value needs a type annotation")
+                    c.diag("NUPP2106", stat, "the module's exported value needs a type annotation")
                 end
             end
         end
@@ -175,64 +179,59 @@ function control.install(c: state.Checker): state.StatHandlers
             for j, rt in ipairs(annotated) do
                 local got = ts[j] or T.nil_
                 local expected = rt
-                if j == 1 and c.ownReturnStack[#c.ownReturnStack]
-                    and ownershipKind(got) ~= "owned" then
+                if j == 1 and c.ownReturnStack[#c.ownReturnStack] and ownershipKind(got) ~= "owned" then
                     expected = c.ownReturnStack[#c.ownReturnStack]
                 end
                 local ok, why = isA(got, expected)
                 if not ok then
-                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat,
-                        ("return %d: %s"):format(j, why))
+                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
             end
             if #ts > #annotated then
-                c.diag("NUPP2002", stat, ("too many return values (expected %d, got %d)")
-                    :format(#annotated, #ts))
+                c.diag("NUPP2002", stat, ("too many return values (expected %d, got %d)"):format(#annotated, #ts))
             end
         end
         if annotatedPack and annotatedPack.id ~= returnedPack.id then
             if annotatedPack.alternatives then
                 local ok, why = packIsA(returnedPack, annotatedPack)
                 if not ok then
-                    c.diag("NUPP2010", stat,
-                        "returned pack does not match a declared alternative: "
-                        .. (why or "incompatible packs"))
+                    c.diag(
+                        "NUPP2010",
+                        stat,
+                        "returned pack does not match a declared alternative: " .. (why or "incompatible packs")
+                    )
                 end
                 return
             end
             for j, expected in ipairs(annotatedPack.head) do
                 local got = T.packAt(returnedPack, j) or T.nil_
-                if j == 1 and c.ownReturnStack[#c.ownReturnStack]
-                    and ownershipKind(got) ~= "owned" then
+                if j == 1 and c.ownReturnStack[#c.ownReturnStack] and ownershipKind(got) ~= "owned" then
                     expected = c.ownReturnStack[#c.ownReturnStack]
                 end
                 local ok, why = isA(got, expected)
                 if not ok then
-                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat,
-                        ("return %d: %s"):format(j, why))
+                    c.diag("NUPP2002", stat.exprs and stat.exprs[j] or stat, ("return %d: %s"):format(j, why))
                 end
             end
-            if not annotatedPack.tail and not returnedPack.tail
-                and #returnedPack.head > #annotatedPack.head then
-                c.diag("NUPP2002", stat,
-                    ("too many return values (expected %d, got %d)")
-                    :format(#annotatedPack.head, #returnedPack.head))
-            elseif annotatedPack.tail
-                and annotatedPack.tail.kind == "homogeneous" then
+            if not annotatedPack.tail and not returnedPack.tail and #returnedPack.head > #annotatedPack.head then
+                c.diag(
+                    "NUPP2002",
+                    stat,
+                    ("too many return values (expected %d, got %d)"):format(#annotatedPack.head, #returnedPack.head)
+                )
+            elseif annotatedPack.tail and annotatedPack.tail.kind == "homogeneous" then
                 for j = #annotatedPack.head + 1, #returnedPack.head do
-                    local ok, why = isA(returnedPack.head[j],
-                        annotatedPack.tail.type)
+                    local ok, why = isA(returnedPack.head[j], annotatedPack.tail.type)
                     if not ok then
-                        c.diag("NUPP2002", stat,
-                            ("return %d: %s"):format(j, why))
+                        c.diag("NUPP2002", stat, ("return %d: %s"):format(j, why))
                     end
                 end
-            elseif annotatedPack.tail and annotatedPack.tail.kind == "generic"
-                and (not returnedPack.tail
+            elseif annotatedPack.tail and annotatedPack.tail.kind == "generic" and (
+                not returnedPack.tail
                 or returnedPack.tail.kind ~= "generic"
-                or returnedPack.tail.var ~= annotatedPack.tail.var) then
-                c.diag("NUPP2010", stat,
-                    "returned values do not preserve the declared generic pack")
+                or returnedPack.tail.var ~= annotatedPack.tail.var
+            ) then
+                c.diag("NUPP2010", stat, "returned values do not preserve the declared generic pack")
             end
         end
     end
@@ -245,26 +244,29 @@ function control.install(c: state.Checker): state.StatHandlers
             -- which has nothing to be called, is skipped.
             local nameTok = binding.name
             local acquired = c.infer(binding.expr as cst.Node)
-            local cleanups = acquired.tag == "owned" and acquired.cleanups
-                or {}
+            local cleanups = acquired.tag == "owned" and acquired.cleanups or {}
             binding.acquiredType = acquired
             binding.ownerCleanups = cleanups
             if ownershipKind(acquired) ~= "owned" or optionalOwned(acquired) then
-                c.diag("NUPP2610", binding.expr,
-                    "a 'with' acquisition must be a non-optional owned value")
+                c.diag("NUPP2610", binding.expr, "a 'with' acquisition must be a non-optional owned value")
             elseif #cleanups == 0 then
-                c.diag("NUPP2611", binding.expr,
-                    "a 'with' acquisition needs @owned cleanup functions", nil,
-                    {help = "declare an inherited @dispose operation or name "
-                    .. "the cleanup in @owned(cleanup)"})
+                c.diag(
+                    "NUPP2611",
+                    binding.expr,
+                    "a 'with' acquisition needs @owned cleanup functions",
+                    nil,
+                    {help = "declare an inherited @dispose operation or name " .. "the cleanup in @owned(cleanup)"}
+                )
             end
             if binding.type then
                 local declared = c.resolveType(binding.type)
                 local ok, why = isA(rawType(acquired), declared)
                 if not ok then
-                    c.diag("NUPP2001", binding.expr,
-                        ("cannot initialize %s: %s")
-                        :format(nameTok and nameTok.text or "acquisition", why))
+                    c.diag(
+                        "NUPP2001",
+                        binding.expr,
+                        ("cannot initialize %s: %s"):format(nameTok and nameTok.text or "acquisition", why)
+                    )
                 end
             end
             -- The contract itself was validated where it was written, which is the only
@@ -277,8 +279,7 @@ function control.install(c: state.Checker): state.StatHandlers
             if ownershipKind(acquired) == "owned" then
                 moveExpression(binding.expr, acquired, "with acquisition")
             end
-            local visible = ownershipKind(acquired) == "owned"
-                and T.borrowed(rawType(acquired)) or T.any
+            local visible = ownershipKind(acquired) == "owned" and T.borrowed(rawType(acquired)) or T.any
             if nameTok then
                 c.bindVar(nameTok.text, visible, binding.type ~= nil, nameTok)
                 local entry = c.scope.vars[nameTok.text]
@@ -289,11 +290,9 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         -- The bindings live in this scope, so a body reference to one of them resolves
         -- at this depth and is not a capture: the generator passes them as parameters.
-        c.captureWatches[#c.captureWatches + 1] =
-            {depth = c.scope.depth, captured = false}
+        c.captureWatches[#c.captureWatches + 1] = {depth = c.scope.depth, captured = false}
         c.checkBlock(stat.body, true)
-        stat.capturesEnclosing =
-            c.captureWatches[#c.captureWatches].captured
+        stat.capturesEnclosing = c.captureWatches[#c.captureWatches].captured
         c.captureWatches[#c.captureWatches] = nil
         c.popScope()
     end
@@ -335,14 +334,17 @@ function control.install(c: state.Checker): state.StatHandlers
             accumulatedElse = mergeFacts(accumulatedElse, facts.f)
             if cond then
                 local key, seen = nil, 0
-                for k in pairs(facts.t) do key = k; seen = seen + 1 end
+                for k in pairs(facts.t) do
+                    key = k
+                    ;
+                    seen = seen + 1
+                end
                 if seen == 1 and (dispatchKey == nil or dispatchKey == key) then
                     if not dispatchKey then
                         dispatchKey = key
                         local test = cond
                         if test.kind == "binop" then
-                            dispatchStart = (test.lhs and c.refType(test.lhs))
-                                or (test.rhs and c.refType(test.rhs))
+                            dispatchStart = (test.lhs and c.refType(test.lhs)) or (test.rhs and c.refType(test.rhs))
                         end
                     end
                     if facts.exhausted == key then
@@ -356,30 +358,36 @@ function control.install(c: state.Checker): state.StatHandlers
                 allBranchesLeave = false
             end
         end
-        if dispatchKey and dispatchKey ~= false and not stat.elseClause
-            and allBranchesLeave and not dispatchTotal
-            and memberSet(dispatchStart) then
+        if dispatchKey
+            and dispatchKey ~= false
+            and not stat.elseClause
+            and allBranchesLeave
+            and not dispatchTotal
+            and memberSet(
+            dispatchStart
+        ) then
             local remaining = accumulatedElse[dispatchKey]
             local missing = remaining and memberSet(remaining) or nil
             if missing and #missing > 0 then
                 local names = {}
                 for j, m in ipairs(missing) do
-                    names[j] = ("%q"):format(
-                        m.tag == "literal" and m.constant or "?")
+                    names[j] = ("%q"):format(m.tag == "literal" and m.constant or "?")
                 end
                 table.sort(names)
-                c.diag("NUPP2107", stat,
-                    ("every branch returns, so this handles %s and leaves "
-                    .. "%s unhandled"):format(T.tostring(dispatchStart),
-                    table.concat(names, ", ")), nil,
-                    {help = "add branches for " .. table.concat(names, ", ")
-                    .. " or add an else clause"})
+                c.diag(
+                    "NUPP2107",
+                    stat,
+                    (
+                        "every branch returns, so this handles %s and leaves " .. "%s unhandled"
+                    ):format(T.tostring(dispatchStart), table.concat(names, ", ")),
+                    nil,
+                    {help = "add branches for " .. table.concat(names, ", ") .. " or add an else clause"}
+                )
             end
         end
         local otherwise = stat.elseClause
         if otherwise then
-            local elseBody = otherwise.kind == "elseClause"
-                and otherwise.body or nil
+            local elseBody = otherwise.kind == "elseClause" and otherwise.body or nil
             c.pushScope()
             applyFacts(accumulatedElse)
             c.checkBlock(elseBody, true)
@@ -445,12 +453,20 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.doStmt = function(stat: cst.DoStmt)
-        c.pushScope(); c.checkBlock(stat.body, true); c.popScope()
+        c.pushScope()
+        ;
+        c.checkBlock(stat.body, true)
+        ;
+        c.popScope()
     end
 
     handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
         c.unsafeDepth = c.unsafeDepth + 1
-        c.pushScope(); c.checkBlock(stat.body, true); c.popScope()
+        c.pushScope()
+        ;
+        c.checkBlock(stat.body, true)
+        ;
+        c.popScope()
         c.unsafeDepth = c.unsafeDepth - 1
     end
 
@@ -467,9 +483,7 @@ function control.install(c: state.Checker): state.StatHandlers
         c.numericOperand(st, from, "for")
         c.numericOperand(et, to, "for")
         c.pushScope()
-        c.bindVar(var.text,
-            (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number,
-            false, var)
+        c.bindVar(var.text, (isA(st, T.integer) and isA(et, T.integer)) and T.integer or T.number, false, var)
         c.loops.push(stat.body)
         c.checkBlock(stat.body, true)
         c.loops.pop()
@@ -497,11 +511,17 @@ function control.install(c: state.Checker): state.StatHandlers
         local operands = args and args.kind == "args" and args.exprs or {}
         local operand = #operands == 1 and operands[1] or nil
         local operandType = operand and c.refType(operand) or nil
-        if calleeTok and calleeTok.text == "ipairs" and global
-            and calleeTok.definition == global.definition and operand
-            and global.definition and global.definition.constant
-            and operand.kind == "name" and operandType
-            and operandType.tag == "array" then
+        if calleeTok
+            and calleeTok.text == "ipairs"
+            and global
+            and calleeTok.definition == global.definition
+            and operand
+            and global.definition
+            and global.definition.constant
+            and operand.kind == "name"
+            and operandType
+            and operandType.tag == "array"
+        then
             stat.builtinIpairs = {operand = operand, type = operandType}
         end
         c.pushScope()

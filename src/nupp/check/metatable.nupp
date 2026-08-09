@@ -36,12 +36,10 @@ local type Node = cst.Node
 --- onto the run, since a metatable is written in more places than one pass reaches.
 type metatable.Ops = {
     --- Checks one metamethod value against the contract its receiver declares.
-    checkContract: function(at: any, name: string, valueT: Type, contract: Type,
-    of: Type?),
+    checkContract: function(at: any, name: string, valueT: Type, contract: Type, of: Type?),
 
     --- Checks a table literal standing where a metatable is expected.
-    checkLiteral: function(node: Node?, literalType: Type?, target: Type?),
-}
+    checkLiteral: function(node: Node?, literalType: Type?, target: Type?),}
 
 --- Installs the metatable literal checks on one run.
 ---
@@ -68,6 +66,7 @@ function metatable.install(c: state.Checker): metatable.Ops
                 end
             end
         end
+
         return nil
     end
 
@@ -79,6 +78,7 @@ function metatable.install(c: state.Checker): metatable.Ops
         if bare and bare.tag == "shape" then
             return bare.byname[name]
         end
+
         return nil
     end
 
@@ -97,19 +97,24 @@ function metatable.install(c: state.Checker): metatable.Ops
             end
             return #bare.members > 0
         end
+
         return false
     end
 
-    function ops.checkContract(at: any, name: string, valueT: Type,
-        contract: Type, of: Type?)
+    function ops.checkContract(at: any, name: string, valueT: Type, contract: Type, of: Type?)
         local ok, why = isA(valueT, contract)
         if ok then
             return
         end
-        c.diag("NUPP2123", at,
-            ("%s does not fulfil the contract %s declares: %s")
-            :format(name, of and T.tostring(of) or "the receiver", why), nil,
-            {help = ("the contract is %s"):format(T.tostring(contract))})
+        c.diag(
+            "NUPP2123",
+            at,
+            (
+                "%s does not fulfil the contract %s declares: %s"
+            ):format(name, of and T.tostring(of) or "the receiver", why),
+            nil,
+            {help = ("the contract is %s"):format(T.tostring(contract))}
+        )
     end
 
     --- Checks an `__index` table against the receiver its instances will read through.
@@ -126,18 +131,20 @@ function metatable.install(c: state.Checker): metatable.Ops
                 if declared and written then
                     local ok, why = isA(written, declared)
                     if not ok then
-                        c.diag("NUPP2123", field.value or field,
-                            ("__index %s: %s"):format(name, why), nil,
-                            {help = ("%s declares it as %s")
-                            :format(T.tostring(of), T.tostring(declared))})
+                        c.diag(
+                            "NUPP2123",
+                            field.value or field,
+                            ("__index %s: %s"):format(name, why),
+                            nil,
+                            {help = ("%s declares it as %s"):format(T.tostring(of), T.tostring(declared))}
+                        )
                     end
                 end
             end
         end
     end
 
-    local function checkField(field: cst.FieldNamed, of: Type,
-        literalType: Type?)
+    local function checkField(field: cst.FieldNamed, of: Type, literalType: Type?)
         local key = field.name
         if not key then
             return
@@ -157,9 +164,12 @@ function metatable.install(c: state.Checker): metatable.Ops
             return
         end
         if not operators.runtimeMetamethod[name] then
-            c.diag("NUPP2118", key,
+            c.diag(
+                "NUPP2118",
+                key,
                 ("unknown metatable key %q"):format(name),
-                c.edits.spellingFix(key, operators.runtimeMetamethod))
+                c.edits.spellingFix(key, operators.runtimeMetamethod)
+            )
             return
         end
         if not valueT then
@@ -169,22 +179,24 @@ function metatable.install(c: state.Checker): metatable.Ops
         -- Whatever the program wants handed out in place of the real one.
         elseif name == "__mode" then
             if not isA(valueT, T.string) then
-                c.diag("NUPP2123", at,
-                    ("__mode is read as a string, not %s")
-                    :format(T.tostring(valueT)))
+                c.diag("NUPP2123", at, ("__mode is read as a string, not %s"):format(T.tostring(valueT)))
             end
         elseif name == "__index" or name == "__newindex" then
             if not callable(valueT) and not isA(valueT, T.table_) then
-                c.diag("NUPP2123", at,
-                    ("%s is a table to defer to or a function to run, not %s")
-                    :format(name, T.tostring(valueT)))
-            elseif name == "__index" and value
-                and value.kind == "tableExpr" then
+                c.diag(
+                    "NUPP2123",
+                    at,
+                    ("%s is a table to defer to or a function to run, not %s"):format(name, T.tostring(valueT))
+                )
+            elseif name == "__index" and value and value.kind == "tableExpr" then
                 checkIndexTable(value, valueT, of)
             end
         elseif not callable(valueT) then
-            c.diag("NUPP2123", at, ("%s is called, so it holds a function, "
-                .. "not %s"):format(name, T.tostring(valueT)))
+            c.diag(
+                "NUPP2123",
+                at,
+                ("%s is called, so it holds a function, " .. "not %s"):format(name, T.tostring(valueT))
+            )
         end
     end
 
@@ -210,6 +222,7 @@ function metatable.install(c: state.Checker): metatable.Ops
 
     c.checkMetatableLiteral = ops.checkLiteral
     c.checkMetamethodValue = ops.checkContract
+
     return ops
 end
 

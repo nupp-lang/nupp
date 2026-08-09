@@ -43,11 +43,7 @@ type state.Options = {[string]: any}
 
 --- The interface a file publishes to the project: what each exported name means, where
 --- it was declared, and the subset that also carries a runtime value.
-type state.ModuleExports = {
-    types: {[string]: Type},
-    typeDefs: {[string]: any},
-    values: {[string]: Type},
-}
+type state.ModuleExports = {types: {[string]: Type}, typeDefs: {[string]: any}, values: {[string]: Type},}
 
 --- One thing to report about a file.
 type state.Diagnostic = {
@@ -55,30 +51,17 @@ type state.Diagnostic = {
     code: string,
 
     --- What to tell the reader.
-    msg: string,
-    filename: string?,
+    msg: string, filename: string?,
 
     --- "error" stops the build; "warning" is advice and does not.
-    severity: string,
-    line: integer,
-    col: integer,
-    offset: integer,
-    length: integer,
-    help: string?,
-    notes: {string}?,
-    related: {any}?,
-    lint: string?,
-    fixes: {any}?,
-}
+    severity: string, line: integer, col: integer, offset: integer, length: integer, help: string?, notes: {
+        string
+    }?, related: {any}?, lint: string?, fixes: {any}?,}
 
 --- What a condition proves, on each side of it. `t` holds for the branch where the
 --- condition is true and `f` where it is false, each keyed by the reference it speaks
 --- about. `exhausted` names a subject a comparison chain has now covered completely.
-type state.Facts = {
-    t: {[string]: Type},
-    f: {[string]: Type},
-    exhausted: string?,
-}
+type state.Facts = {t: {[string]: Type}, f: {[string]: Type}, exhausted: string?,}
 
 --- Everything one run of the checker carries: what it is checking, what it has found,
 --- and where it currently is. Declaring it is what lets the walk be split across
@@ -281,19 +264,16 @@ record state.Checker
 
     --- Checks one declared operation contract against arguments already inferred, which
     --- is what an operator has and a call does not.
-    applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any,
-        operation: string): Type
+    applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any, operation: string): Type
 
     --- Checks a call against its callee: the first result, all of them, and the pack.
-    inferCall: function(node: any, calleeT: Type, argsNode: any,
-        knownAts: {Type}?): (Type, {Type}?, any)
+    inferCall: function(node: any, calleeT: Type, argsNode: any, knownAts: {Type}?): (Type, {Type}?, any)
 
     --- Checks a table literal standing where a metatable is expected, and one value
     --- against the contract its receiver declares. See nupp.check.metatable.
     checkMetatableLiteral: function(node: Node?, literalType: Type?, target: Type?)
 
-    checkMetamethodValue: function(at: any, name: string, valueT: Type,
-        contract: Type, of: Type?)
+    checkMetamethodValue: function(at: any, name: string, valueT: Type, contract: Type, of: Type?)
 
     --- Splits `function a.b:m` into the key naming its owner and the member token.
     funcOwner: function(fname: any): (string?, any)
@@ -309,8 +289,7 @@ record state.Checker
     pointerShaped: function(t: Type): boolean
 
     --- Records that an expression's owner has been handed over.
-    moveExpression: function(node: any, t: Type?, why: string,
-        kind: string?): boolean
+    moveExpression: function(node: any, t: Type?, why: string, kind: string?): boolean
 
     --- The binding an expression's ownership is recorded on, and the owner a borrow
     --- ultimately came from.
@@ -328,8 +307,7 @@ record state.Checker
     validateTypeBounds: function(params: any, bounds: any, map: any, node: any)
 
     --- Binds a name in the current scope.
-    bindVar: function(name: string, t: Type?, ann: boolean?, tok: any?,
-        kind: string?, constant: boolean?)
+    bindVar: function(name: string, t: Type?, ann: boolean?, tok: any?, kind: string?, constant: boolean?)
 
     --- Checks a block, and a function body.
     checkBlock: function(block: Node?, scopeManaged: boolean?)
@@ -352,8 +330,7 @@ record state.Checker
     liveSuspensionObligation: function(): string?
 
     --- Checks that a value's declared cleanups exist and take it.
-    validateCleanups: function(valueT: Type?, cleanups: any, at: any,
-        code: string?, allowUnknown: boolean?)
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?, allowUnknown: boolean?)
 
     --- Checks that a value's cleanups can be called from where it is being discharged,
     --- so the checker only accepts what the generator can emit.
@@ -462,8 +439,8 @@ record state.Checker
     checkPackDiscard: function(pack: any, first: integer, at: any): boolean
 
     --- Records a `function m.f` or `m.x = v` as a member of the returned module.
-    recordModuleField: function(target: Node, t: Type?, constant: boolean?,
-        value: Node?)
+    recordModuleField: function(target: Node, t: Type?, constant: boolean?, value: Node?)
+
     constModuleField: function(target: Node): boolean
 
     --- Whether every path out of a block leaves it, and whether every path raises.

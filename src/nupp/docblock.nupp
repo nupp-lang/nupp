@@ -58,6 +58,7 @@ local function firstToken(node: cst.Child?)
             return token
         end
     end
+
     return nil
 end
 
@@ -85,7 +86,10 @@ function docblock.linesOf(node: cst.Child?): {string}
             end
         end
     end
-    for _, line in ipairs(pending) do lines[#lines + 1] = line end
+    for _, line in ipairs(pending) do
+        lines[#lines + 1] = line
+    end
+
     return lines
 end
 
@@ -107,10 +111,8 @@ function docblock.parse(lines: {string}): docblock.Doc
     -- A tag is routed by where its value goes rather than by its own name. `@raises`
     -- already ends in the letter that pluralizing `@return` adds, so deriving the
     -- destination from the spelling is what would have to be special-cased.
-    local named: {[string]: {[string]: string}} =
-        {param = params, field = fields, typearg = typeargs}
-    local listed: {[string]: {string}} =
-        {["return"] = returns, returns = returns, raises = raises}
+    local named: {[string]: {[string]: string}} = {param = params, field = fields, typearg = typeargs}
+    local listed: {[string]: {string}} = {["return"] = returns, returns = returns, raises = raises}
 
     local body: {string} = {}
     local active: string? = nil
@@ -139,8 +141,7 @@ function docblock.parse(lines: {string}): docblock.Doc
                 local index = #list
                 list[index] = trim((list[index] or "") .. " " .. continuation)
             elseif into and activeName then
-                into[activeName] = trim((into[activeName] or "")
-                    .. " " .. continuation)
+                into[activeName] = trim((into[activeName] or "") .. " " .. continuation)
             else
                 body[#body + 1] = line
             end
@@ -149,12 +150,21 @@ function docblock.parse(lines: {string}): docblock.Doc
             body[#body + 1] = line
         end
     end
-    while #body > 0 and trim(body[1]) == "" do table.remove(body, 1) end
-    while #body > 0 and trim(body[#body]) == "" do table.remove(body) end
+    while #body > 0 and trim(body[1]) == "" do
+        table.remove(body, 1)
+    end
+    while #body > 0 and trim(body[#body]) == "" do
+        table.remove(body)
+    end
+
     return new docblock.Doc {
         text = table.concat(body, "\n"),
-        params = params, returns = returns, raises = raises,
-        fields = fields, typeargs = typeargs, tags = tags,
+        params = params,
+        returns = returns,
+        raises = raises,
+        fields = fields,
+        typeargs = typeargs,
+        tags = tags,
     }
 end
 

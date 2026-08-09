@@ -81,8 +81,7 @@ local next: function(t: table, k: any?): (any, any)
 --- @param n the 1-based index to select from, or the string "#"
 --- @param ... the arguments to select from
 --- @return the selected arguments, or their count
-local select: function<A...>(n: '#', A...): integer
-    & function<A...>(n: number, A...): A...
+local select: function<A...>(n: '#', A...): integer & function<A...>(n: number, A...): A...
 
 --- Reads `t[k]` without consulting an `__index` metamethod.
 ---
@@ -150,8 +149,7 @@ local error: function(msg: any, level: number?): never
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the error value
-local pcall: function<A..., R...>(f: function(A...): R..., A...):
-    ((true, R...) | (false, any))
+local pcall: function<A..., R...>(f: function(A...): R..., A...): ((true, R...) | (false, any))
 
 --- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
 --- still collect a traceback.
@@ -161,8 +159,11 @@ local pcall: function<A..., R...>(f: function(A...): R..., A...):
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the handler's result
-local xpcall: function<E, A..., R...>(f: function(A...): R...,
-    handler: function(any): E, A...): ((true, R...) | (false, E))
+local xpcall: function<
+    E,
+    A...,
+    R...
+    >(f: function(A...): R..., handler: function(any): E, A...): ((true, R...) | (false, E))
 
 --- Returns the elements of `t` from index `i` through `j` as separate values.
 ---
@@ -183,12 +184,16 @@ local require: function(name: string): any
 record NuppRegexMatch
     --- Bytes copied from the matched range.
     value: string
+
     --- The first matched byte using a 1-based index.
     first: integer
+
     --- The inclusive last matched byte, or `first - 1` for an empty match.
     last: integer
+
     --- The capture-group index, with zero for the whole match.
     index: integer
+
     --- The capture name, or nil for an unnamed group.
     name: string?
 end
@@ -197,17 +202,20 @@ end
 record NuppRegexCaptures
     --- Group zero, which covers the whole match.
     whole: NuppRegexMatch
+
     --- Explicit groups by 1-based index. An unmatched group leaves a hole.
     groups: {NuppRegexMatch}
+
     --- The number of explicit groups, including groups that did not match.
     groupCount: integer
-    -- Capture names are pattern-defined, so dot access cannot be enumerated
-    -- statically. It remains gradual while numbered groups stay precise.
+
+    -- Capture names are pattern-defined, so dot access cannot be enumerated statically.
+    -- It remains gradual while numbered groups stay precise.
     named: any
 end
 
---- A compiled Rust regular expression. Positions are 1-based inclusive byte
---- indexes, matching Lua's string functions.
+--- A compiled Rust regular expression. Positions are 1-based inclusive byte indexes,
+--- matching Lua's string functions.
 record NuppRegex
     --- The source pattern unchanged.
     pattern: string
@@ -232,8 +240,8 @@ record NuppRegex
     --- @return the whole match, numbered groups, and named aliases, or nil
     captures: function(self: NuppRegex, subject: string, init: integer?): NuppRegexCaptures?
 
-    --- Replaces the first match, expanding `$0`, `$1`, `$name`, `${name}`,
-    --- and `$$` capture references in the replacement.
+    --- Replaces the first match, expanding `$0`, `$1`, `$name`, `${name}`, and `$$`
+    --- capture references in the replacement.
     replace: function(self: NuppRegex, subject: string, replacement: string): string
 
     --- Replaces every non-overlapping match using `replace`'s capture syntax.
@@ -244,16 +252,16 @@ end
 record NuppRegexLibrary
     --- Compiles a UTF-8 pattern using Rust regex syntax.
     ---
-    --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse
-    --- the result; the Lua collector releases its native allocation.
+    --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
+    --- result; the Lua collector releases its native allocation.
     ---
     --- @param pattern Rust regex syntax
     --- @return a reusable compiled expression
     compile: function(pattern: string): NuppRegex
 end
 
---- Compiler-provided facilities. The namespace is always present; native
---- members are linked automatically when source reaches them.
+--- Compiler-provided facilities. The namespace is always present; native members are
+--- linked automatically when source reaches them.
 local nupp: {regex: NuppRegexLibrary}
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
@@ -263,10 +271,10 @@ local nupp: {regex: NuppRegexLibrary}
 --- @param arg the step size or parameter that the operation takes
 --- @return what the operation reports: "count" gives the kilobytes in use, while
 ---     "step" and "isrunning" answer a boolean
-local collectgarbage: function(): number
-    & function(opt: 'collect' | 'stop' | 'restart' | 'count'
-    | 'setpause' | 'setstepmul', arg: number?): number
-    & function(opt: 'step' | 'isrunning', arg: number?): boolean
+local collectgarbage: function(): number & function(
+    opt: 'collect' | 'stop' | 'restart' | 'count' | 'setpause' | 'setstepmul',
+    arg: number?
+): number & function(opt: 'step' | 'isrunning', arg: number?): boolean
 
 --- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
 --- of source, without running it.
@@ -450,8 +458,7 @@ local string: {
     ---
     --- @param s the string to fold
     --- @return the uppercased string
-    upper: function(s: string): string,
-}
+    upper: function(s: string): string,}
 
 --- Table manipulation. These functions work on the array part of a table: the integer
 --- keys 1 through `#t`.
@@ -511,8 +518,7 @@ const table: {
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    readonly clear: function(t: table),
-}
+    readonly clear: function(t: table),}
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua
 --- numbers are.
@@ -669,9 +675,7 @@ local math: {
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
     --- @return the generated number
-    random: function(): number
-    & function(m: number): number
-    & function(m: number, n: number): number,
+    random: function(): number & function(m: number): number & function(m: number, n: number): number,
 
     --- Seeds the pseudo-random generator, which starts from a fixed state.
     ---
@@ -697,8 +701,7 @@ local math: {
     pi: number,
 
     --- Positive infinity, which compares greater than any other number.
-    huge: number,
-}
+    huge: number,}
 
 --- Operating-system facilities: clocks and calendars, the environment, processes and
 --- file names.
@@ -770,8 +773,7 @@ local os: {
     --- created nor removed for you.
     ---
     --- @return the temporary file name
-    tmpname: function(): string,
-}
+    tmpname: function(): string,}
 
 --- Lua's module-loader configuration.
 local package: {
@@ -788,16 +790,14 @@ local package: {
     preload: {[string]: function(...: any): any},
 
     --- Lua 5.1 and Lua 5.2 names for the module-loader chain.
-    loaders: {function(string): any},
-    searchers: {function(string): any}?,
-}
+    loaders: {function(string): any}, searchers: {function(string): any}?,}
 
 --- One field of a reified `struct`, as it is actually laid out in C memory.
 ---
 --- `size` is the field's own, from its C type. `padding` is what follows it before the
 --- next field starts, or before the struct ends. They are separate because they answer
---- different questions: a reader wants the size, and a writer walking bytes has to
---- know about the gap. An `int8` before a `number` has size 1 and padding 7.
+--- different questions: a reader wants the size, and a writer walking bytes has to know
+--- about the gap. An `int8` before a `number` has size 1 and padding 7.
 local interface LayoutField
     --- The field's name, as the declaration spells it.
     name: string
@@ -828,8 +828,8 @@ local interface Layout
     --- Bytes one instance occupies, padding included.
     size: integer
 
-    --- A canonical description of the fields and the size, for detecting drift
-    --- between the layout that wrote data and the layout reading it.
+    --- A canonical description of the fields and the size, for detecting drift between
+    --- the layout that wrote data and the layout reading it.
     fingerprint: string
 
     --- The fields, in declaration order.
@@ -843,10 +843,8 @@ local interface LuaFile
     flush: function(self: LuaFile): (boolean?, string?)
     lines: function(self: LuaFile, ...: any): function(): any
     read: function(self: LuaFile, ...: any): any
-    seek: function(self: LuaFile, whence: string?, offset: number?):
-        (number?, string?)
-    setvbuf: function(self: LuaFile, mode: string, size: number?):
-        (boolean?, string?)
+    seek: function(self: LuaFile, whence: string?, offset: number?): (number?, string?)
+    setvbuf: function(self: LuaFile, mode: string, size: number?): (boolean?, string?)
     write: function(self: LuaFile, ...: any): (LuaFile?, string?)
 end
 
@@ -924,8 +922,7 @@ local io: {
     stderr: LuaFile,
 
     --- The standard input stream.
-    stdin: LuaFile,
-}
+    stdin: LuaFile,}
 
 --- Cooperative multitasking. A callback with typed start, yield, resume, and return
 --- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
@@ -978,8 +975,7 @@ local coroutine: {
     --- coroutine.
     ---
     --- @return whether a `yield` would succeed here
-    isyieldable: function(): boolean,
-}
+    isyieldable: function(): boolean,}
 
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
@@ -1062,8 +1058,7 @@ local bit: {
     ---
     --- @param x the number to byte-swap
     --- @return the swapped value
-    bswap: function(x: number): integer,
-}
+    bswap: function(x: number): integer,}
 
 --- Control and introspection for the JIT compiler itself.
 local jit: {
@@ -1133,17 +1128,14 @@ local jit: {
 
     --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
     --- or `"-fold"`, each as its own argument.
-    opt: {
-        start: function(...: any),
-    },
+    opt: {start: function(...: any),},
 
     --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
     --- or `"strhash"`.
     ---
     --- @param param the parameter to report on
     --- @return the setting in force
-    security: function(param: string): any,
-}
+    security: function(param: string): any,}
 
 -- `jit.util` is deliberately absent: LuaJIT registers it under package.loaded only, so
 -- `jit.util` is nil at runtime and reaching through it is a nil index rather than
@@ -1227,8 +1219,7 @@ local debug: {
     --- Returns the registry, the table where C code anchors its references.
     ---
     --- @return the registry table
-    getregistry: function(): table,
-}
+    getregistry: function(): table,}
 
 --- The command-line arguments of the running script, where `arg[1]` is the first one.
 --- Index 0 holds the script name, and negative indices hold the interpreter and the

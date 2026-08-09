@@ -55,20 +55,20 @@ interface cst.Hints
     --- A branch whose preceding conditions the optimizer proved false.
     constantBranch: cst.Node?
 
-    --- A `..` the checker resolved to Lua's primitive concatenation: no
-    --- `__concat` was reached, and neither side was `any`. False or absent means
-    --- a rewrite may not assume the operands are strings and numbers.
+    --- A `..` the checker resolved to Lua's primitive concatenation: no `__concat` was
+    --- reached, and neither side was `any`. False or absent means a rewrite may not
+    --- assume the operands are strings and numbers.
     plainConcat: boolean?
 
     --- A string accumulator lowered to a `string.buffer` by `OPT-5`.
     concatBuffer: any
 
-    --- A bare `buffer` the checker resolved to the string.buffer module, which
-    --- codegen emits as the binding it requires once per module.
+    --- A bare `buffer` the checker resolved to the string.buffer module, which codegen
+    --- emits as the binding it requires once per module.
     bufferIntrinsic: boolean?
 
-    --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type
-    --- spec, and the nested struct ctypes the spec's `$` placeholders consume.
+    --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type spec,
+    --- and the nested struct ctypes the spec's `$` placeholders consume.
     layoutOf: any
 
     constantBranchNone: boolean?
@@ -310,7 +310,8 @@ interface cst.Hints
 end
 
 --- A parsed file: its top-level blocks and the eof token that ends it.
-record cst.Chunk is cst.Hints
+record cst.Chunk is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -327,7 +328,8 @@ record cst.Chunk is cst.Hints
 end
 
 --- A sequence of statements.
-record cst.Block is cst.Hints
+record cst.Block is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -338,7 +340,8 @@ record cst.Block is cst.Hints
 end
 
 --- A lone `;`.
-record cst.EmptyStmt is cst.Hints
+record cst.EmptyStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -346,7 +349,8 @@ record cst.EmptyStmt is cst.Hints
 end
 
 --- An explicit resource scope, `with r = acquire() do ... end`.
-record cst.WithStmt is cst.Hints
+record cst.WithStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -369,7 +373,8 @@ record cst.WithStmt is cst.Hints
 end
 
 --- One acquisition of a `with` scope.
-record cst.WithBinding is cst.Hints
+record cst.WithBinding is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -389,7 +394,8 @@ record cst.WithBinding is cst.Hints
 end
 
 --- An `if` and everything that belongs to it.
-record cst.IfStmt is cst.Hints
+record cst.IfStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -403,7 +409,8 @@ record cst.IfStmt is cst.Hints
 end
 
 --- The leading `if cond then ...` arm.
-record cst.IfClause is cst.Hints
+record cst.IfClause is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -417,7 +424,8 @@ record cst.IfClause is cst.Hints
 end
 
 --- An `elseif cond then ...` arm.
-record cst.ElseifClause is cst.Hints
+record cst.ElseifClause is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -431,7 +439,8 @@ record cst.ElseifClause is cst.Hints
 end
 
 --- The `else` arm.
-record cst.ElseClause is cst.Hints
+record cst.ElseClause is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -442,7 +451,8 @@ record cst.ElseClause is cst.Hints
 end
 
 --- `while cond do ... end`.
-record cst.WhileStmt is cst.Hints
+record cst.WhileStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -456,7 +466,8 @@ record cst.WhileStmt is cst.Hints
 end
 
 --- A bare `do ... end` block.
-record cst.DoStmt is cst.Hints
+record cst.DoStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -467,7 +478,8 @@ record cst.DoStmt is cst.Hints
 end
 
 --- `unsafe do ... end`, where raw pointer use is permitted.
-record cst.UnsafeStmt is cst.Hints
+record cst.UnsafeStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -487,7 +499,8 @@ record cst.UnsafeStmt is cst.Hints
 end
 
 --- A numeric `for`.
-record cst.FornumStmt is cst.Hints
+record cst.FornumStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -510,7 +523,8 @@ record cst.FornumStmt is cst.Hints
 end
 
 --- A generic `for ... in ...`.
-record cst.ForinStmt is cst.Hints
+record cst.ForinStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -527,7 +541,8 @@ record cst.ForinStmt is cst.Hints
 end
 
 --- `repeat ... until cond`.
-record cst.RepeatStmt is cst.Hints
+record cst.RepeatStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -541,7 +556,8 @@ record cst.RepeatStmt is cst.Hints
 end
 
 --- `function a.b:c(...) ... end`.
-record cst.FuncStmt is cst.Hints
+record cst.FuncStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -555,7 +571,8 @@ record cst.FuncStmt is cst.Hints
 end
 
 --- The dotted, optionally method-qualified name of a function statement.
-record cst.Funcname is cst.Hints
+record cst.Funcname is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -569,7 +586,8 @@ record cst.Funcname is cst.Hints
 end
 
 --- `local function f(...) ... end`, and its `const` spelling.
-record cst.LocalFuncStmt is cst.Hints
+record cst.LocalFuncStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -586,7 +604,8 @@ record cst.LocalFuncStmt is cst.Hints
 end
 
 --- `local a, b: T = ...`, and its `const` spelling.
-record cst.LocalStmt is cst.Hints
+record cst.LocalStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -607,7 +626,8 @@ record cst.LocalStmt is cst.Hints
 end
 
 --- `::name::`.
-record cst.LabelStmt is cst.Hints
+record cst.LabelStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -618,7 +638,8 @@ record cst.LabelStmt is cst.Hints
 end
 
 --- `goto name`.
-record cst.GotoStmt is cst.Hints
+record cst.GotoStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -629,7 +650,8 @@ record cst.GotoStmt is cst.Hints
 end
 
 --- `break`.
-record cst.BreakStmt is cst.Hints
+record cst.BreakStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -637,7 +659,8 @@ record cst.BreakStmt is cst.Hints
 end
 
 --- `continue`.
-record cst.ContinueStmt is cst.Hints
+record cst.ContinueStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -645,7 +668,8 @@ record cst.ContinueStmt is cst.Hints
 end
 
 --- `return` and its expression list.
-record cst.ReturnStmt is cst.Hints
+record cst.ReturnStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -656,7 +680,8 @@ record cst.ReturnStmt is cst.Hints
 end
 
 --- `x += e` and the rest of the compound assignments.
-record cst.CompoundAssign is cst.Hints
+record cst.CompoundAssign is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -673,7 +698,8 @@ record cst.CompoundAssign is cst.Hints
 end
 
 --- `a, b = e1, e2`.
-record cst.AssignStmt is cst.Hints
+record cst.AssignStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -693,7 +719,8 @@ record cst.AssignStmt is cst.Hints
 end
 
 --- A call in statement position.
-record cst.CallStmt is cst.Hints
+record cst.CallStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -704,7 +731,8 @@ record cst.CallStmt is cst.Hints
 end
 
 --- A statement the parser could not make sense of. It still owns its tokens.
-record cst.ErrorStmt is cst.Hints
+record cst.ErrorStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -715,7 +743,8 @@ record cst.ErrorStmt is cst.Hints
 end
 
 --- `@name(...)` decorating the statement that follows it.
-record cst.PragmaStmt is cst.Hints
+record cst.PragmaStmt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -738,7 +767,8 @@ record cst.PragmaStmt is cst.Hints
 end
 
 --- `@name(...)` attached to a declaration member rather than a statement.
-record cst.AnnotationApply is cst.Hints
+record cst.AnnotationApply is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -758,7 +788,8 @@ record cst.AnnotationApply is cst.Hints
 end
 
 --- One argument of an annotation: `value` or `name = value`.
-record cst.AnnotationArg is cst.Hints
+record cst.AnnotationArg is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -775,7 +806,8 @@ record cst.AnnotationArg is cst.Hints
 end
 
 --- `type Name = Type`.
-record cst.TypeAlias is cst.Hints
+record cst.TypeAlias is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -804,7 +836,8 @@ record cst.TypeAlias is cst.Hints
 end
 
 --- A `record`, `interface` or `struct` declaration.
-record cst.RecordDecl is cst.Hints
+record cst.RecordDecl is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -842,7 +875,8 @@ record cst.RecordDecl is cst.Hints
 end
 
 --- A declaration refinement introduced by `where`.
-record cst.WhereClause is cst.Hints
+record cst.WhereClause is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -853,7 +887,8 @@ record cst.WhereClause is cst.Hints
 end
 
 --- `name: T` inside a declaration body.
-record cst.FieldDecl is cst.Hints
+record cst.FieldDecl is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -873,7 +908,8 @@ record cst.FieldDecl is cst.Hints
 end
 
 --- `[K]: V`, optionally prefixed by `readonly` or `writeonly`, in a declaration.
-record cst.IndexerDecl is cst.Hints
+record cst.IndexerDecl is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     kind: 'indexerDecl'
@@ -888,7 +924,8 @@ record cst.IndexerDecl is cst.Hints
 end
 
 --- A record's array part, written as the array type it is.
-record cst.ArrayPart is cst.Hints
+record cst.ArrayPart is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -902,7 +939,8 @@ record cst.ArrayPart is cst.Hints
 end
 
 --- An ordinary method written inside a declaration body.
-record cst.InlineMethod is cst.Hints
+record cst.InlineMethod is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -919,7 +957,8 @@ record cst.InlineMethod is cst.Hints
 end
 
 --- A bodyless `metamethod __name: function(...)` contract.
-record cst.MetamethodDecl is cst.Hints
+record cst.MetamethodDecl is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -936,7 +975,8 @@ record cst.MetamethodDecl is cst.Hints
 end
 
 --- `cdef function f(...): T from "lib"`.
-record cst.CdefFunc is cst.Hints
+record cst.CdefFunc is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -959,7 +999,8 @@ record cst.CdefFunc is cst.Hints
 end
 
 --- `cdef struct Name ... end`.
-record cst.CdefStruct is cst.Hints
+record cst.CdefStruct is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -973,7 +1014,8 @@ record cst.CdefStruct is cst.Hints
 end
 
 --- A generic parameter clause, `<K, V is Bound>`.
-record cst.Generics is cst.Hints
+record cst.Generics is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -990,7 +1032,8 @@ record cst.Generics is cst.Hints
 end
 
 --- One parameter of a function body, a short function, or a cdef.
-record cst.Param is cst.Hints
+record cst.Param is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1010,7 +1053,8 @@ record cst.Param is cst.Hints
 end
 
 --- The parameters, return annotation and block of a function.
-record cst.Funcbody is cst.Hints
+record cst.Funcbody is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1039,7 +1083,8 @@ record cst.Funcbody is cst.Hints
 end
 
 --- A reference to a name.
-record cst.NameExpr is cst.Hints
+record cst.NameExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1050,7 +1095,8 @@ record cst.NameExpr is cst.Hints
 end
 
 --- A numeric literal.
-record cst.NumberLit is cst.Hints
+record cst.NumberLit is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1061,7 +1107,8 @@ record cst.NumberLit is cst.Hints
 end
 
 --- A string literal.
-record cst.StringLit is cst.Hints
+record cst.StringLit is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1072,7 +1119,8 @@ record cst.StringLit is cst.Hints
 end
 
 --- `nil`.
-record cst.NilExpr is cst.Hints
+record cst.NilExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1083,7 +1131,8 @@ record cst.NilExpr is cst.Hints
 end
 
 --- `true`.
-record cst.TrueExpr is cst.Hints
+record cst.TrueExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1094,7 +1143,8 @@ record cst.TrueExpr is cst.Hints
 end
 
 --- `false`.
-record cst.FalseExpr is cst.Hints
+record cst.FalseExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1105,7 +1155,8 @@ record cst.FalseExpr is cst.Hints
 end
 
 --- `...` in expression position.
-record cst.Vararg is cst.Hints
+record cst.Vararg is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1116,7 +1167,8 @@ record cst.Vararg is cst.Hints
 end
 
 --- A parenthesized expression, which also truncates a multi-value one.
-record cst.Paren is cst.Hints
+record cst.Paren is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1133,7 +1185,8 @@ end
 --- parsing everything else uses. `new` installs nothing at run time: it lowers to the
 --- stamp or the ctype call directly, which is what leaves `__call` and `__new` to the
 --- program.
-record cst.NewExpr is cst.Hints
+record cst.NewExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1152,7 +1205,8 @@ end
 --- An interface has no table to stamp, so this is the only identity it can have. The
 --- expression reads the declaration's own fields through `self`, in a subset small
 --- enough to inline wherever `is` is written.
-record cst.MatchesDecl is cst.Hints
+record cst.MatchesDecl is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1165,7 +1219,8 @@ record cst.MatchesDecl is cst.Hints
     annotations: {cst.Node}?
 end
 
-record cst.ConstructorDecl is cst.Hints
+record cst.ConstructorDecl is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1182,7 +1237,8 @@ record cst.ConstructorDecl is cst.Hints
 end
 
 --- An expression the parser could not make sense of.
-record cst.ErrorExpr is cst.Hints
+record cst.ErrorExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1193,7 +1249,8 @@ record cst.ErrorExpr is cst.Hints
 end
 
 --- `obj.name`.
-record cst.DotIndex is cst.Hints
+record cst.DotIndex is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1210,7 +1267,8 @@ record cst.DotIndex is cst.Hints
 end
 
 --- `obj[e]`.
-record cst.BracketIndex is cst.Hints
+record cst.BracketIndex is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1224,7 +1282,8 @@ record cst.BracketIndex is cst.Hints
 end
 
 --- `obj:name(...)`, and its two safe-navigation spellings.
-record cst.MethodCall is cst.Hints
+record cst.MethodCall is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1247,12 +1306,14 @@ record cst.MethodCall is cst.Hints
 
     --- Intersection-overload selection and its direct runtime target.
     overloadWinner: any
+
     overloadMember: string?
     methodEntry: any
 end
 
 --- `obj?.name`, which yields nil rather than raising on a nil receiver.
-record cst.SafeIndex is cst.Hints
+record cst.SafeIndex is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1266,7 +1327,8 @@ record cst.SafeIndex is cst.Hints
 end
 
 --- `obj?.[e]`.
-record cst.SafeBracket is cst.Hints
+record cst.SafeBracket is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1280,7 +1342,8 @@ record cst.SafeBracket is cst.Hints
 end
 
 --- `obj?.(...)`.
-record cst.SafeCall is cst.Hints
+record cst.SafeCall is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1294,7 +1357,8 @@ record cst.SafeCall is cst.Hints
 end
 
 --- `f(...)`, `f"..."` and `f{...}`.
-record cst.Call is cst.Hints
+record cst.Call is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1308,7 +1372,8 @@ record cst.Call is cst.Hints
 end
 
 --- A call's arguments, however they were written.
-record cst.Args is cst.Hints
+record cst.Args is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1325,7 +1390,8 @@ record cst.Args is cst.Hints
 end
 
 --- A table constructor.
-record cst.TableExpr is cst.Hints
+record cst.TableExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1336,7 +1402,8 @@ record cst.TableExpr is cst.Hints
 end
 
 --- `[k] = v` in a table constructor.
-record cst.FieldBracket is cst.Hints
+record cst.FieldBracket is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1350,7 +1417,8 @@ record cst.FieldBracket is cst.Hints
 end
 
 --- `name = v` in a table constructor.
-record cst.FieldNamed is cst.Hints
+record cst.FieldNamed is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1367,7 +1435,8 @@ record cst.FieldNamed is cst.Hints
 end
 
 --- A positional entry of a table constructor.
-record cst.FieldItem is cst.Hints
+record cst.FieldItem is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1378,7 +1447,8 @@ record cst.FieldItem is cst.Hints
 end
 
 --- A short function, `|a, b| -> e` or `x -> do ... end`.
-record cst.Shortfn is cst.Hints
+record cst.Shortfn is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1398,7 +1468,8 @@ record cst.Shortfn is cst.Hints
 end
 
 --- An interpolated string.
-record cst.Istring is cst.Hints
+record cst.Istring is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1409,7 +1480,8 @@ record cst.Istring is cst.Hints
 end
 
 --- `function(...) ... end` in expression position.
-record cst.FuncExpr is cst.Hints
+record cst.FuncExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1420,7 +1492,8 @@ record cst.FuncExpr is cst.Hints
 end
 
 --- A unary operator applied to one operand.
-record cst.Unop is cst.Hints
+record cst.Unop is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1434,7 +1507,8 @@ record cst.Unop is cst.Hints
 end
 
 --- A binary operator and its two sides.
-record cst.Binop is cst.Hints
+record cst.Binop is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1451,7 +1525,8 @@ record cst.Binop is cst.Hints
 end
 
 --- `e as T`, which asserts a type rather than checking one.
-record cst.CastExpr is cst.Hints
+record cst.CastExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1465,7 +1540,8 @@ record cst.CastExpr is cst.Hints
 end
 
 --- `e is T`, which tests a type and narrows on the result.
-record cst.IsExpr is cst.Hints
+record cst.IsExpr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1479,7 +1555,8 @@ record cst.IsExpr is cst.Hints
 end
 
 --- `cond ? a : b`.
-record cst.Ternary is cst.Hints
+record cst.Ternary is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1496,7 +1573,8 @@ record cst.Ternary is cst.Hints
 end
 
 --- `const T`, a read-only view.
-record cst.Tconst is cst.Hints
+record cst.Tconst is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1507,7 +1585,8 @@ record cst.Tconst is cst.Hints
 end
 
 --- A literal type: the set containing exactly one value.
-record cst.Tliteral is cst.Hints
+record cst.Tliteral is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1518,7 +1597,8 @@ record cst.Tliteral is cst.Hints
 end
 
 --- A named type, possibly dotted and possibly applied.
-record cst.Tname is cst.Hints
+record cst.Tname is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1532,7 +1612,8 @@ record cst.Tname is cst.Hints
 end
 
 --- A parenthesized type.
-record cst.Tparen is cst.Hints
+record cst.Tparen is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1543,7 +1624,8 @@ record cst.Tparen is cst.Hints
 end
 
 --- `{[K]: V}`.
-record cst.Tmap is cst.Hints
+record cst.Tmap is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1560,7 +1642,8 @@ record cst.Tmap is cst.Hints
 end
 
 --- `{x: T, y: U}`, a table known by its fields.
-record cst.Tshape is cst.Hints
+record cst.Tshape is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1571,7 +1654,8 @@ record cst.Tshape is cst.Hints
 end
 
 --- One field of a shape type.
-record cst.TshapeField is cst.Hints
+record cst.TshapeField is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1588,7 +1672,8 @@ record cst.TshapeField is cst.Hints
 end
 
 --- `{T, U}`, a fixed sequence.
-record cst.Ttuple is cst.Hints
+record cst.Ttuple is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1599,7 +1684,8 @@ record cst.Ttuple is cst.Hints
 end
 
 --- A value sequence in type position, `(T, U, R...)`, `R...`, or `...T`.
-record cst.Tpack is cst.Hints
+record cst.Tpack is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     kind: 'tpack'
@@ -1615,7 +1701,8 @@ record cst.Tpack is cst.Hints
 end
 
 --- Alternative complete value sequences, `(Pack | Pack)`.
-record cst.TpackUnion is cst.Hints
+record cst.TpackUnion is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     kind: 'tpackUnion'
@@ -1624,7 +1711,8 @@ record cst.TpackUnion is cst.Hints
 end
 
 --- `{T}`, a one-based Lua array.
-record cst.Tarray is cst.Hints
+record cst.Tarray is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1635,7 +1723,8 @@ record cst.Tarray is cst.Hints
 end
 
 --- A function type.
-record cst.Tfunc is cst.Hints
+record cst.Tfunc is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1660,7 +1749,8 @@ record cst.Tfunc is cst.Hints
 end
 
 --- One parameter of a function type.
-record cst.TfuncParam is cst.Hints
+record cst.TfuncParam is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1679,7 +1769,8 @@ record cst.TfuncParam is cst.Hints
 end
 
 --- `T?`, which admits nil.
-record cst.Topt is cst.Hints
+record cst.Topt is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1690,7 +1781,8 @@ record cst.Topt is cst.Hints
 end
 
 --- `T*`, a pointer.
-record cst.Tptr is cst.Hints
+record cst.Tptr is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1701,7 +1793,8 @@ record cst.Tptr is cst.Hints
 end
 
 --- `T[?]` and `T[N]`, contiguous zero-based C arrays.
-record cst.Tcarray is cst.Hints
+record cst.Tcarray is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1715,7 +1808,8 @@ record cst.Tcarray is cst.Hints
 end
 
 --- `A | B`.
-record cst.Tunion is cst.Hints
+record cst.Tunion is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1726,7 +1820,8 @@ record cst.Tunion is cst.Hints
 end
 
 --- `A & B`.
-record cst.Tintersection is cst.Hints
+record cst.Tintersection is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1737,7 +1832,8 @@ record cst.Tintersection is cst.Hints
 end
 
 --- A type the parser could not make sense of.
-record cst.ErrorType is cst.Hints
+record cst.ErrorType is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1745,7 +1841,8 @@ record cst.ErrorType is cst.Hints
 end
 
 --- `x is T` as a return type: calling it proves something about `x`.
-record cst.Tpredicate is cst.Hints
+record cst.Tpredicate is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1759,7 +1856,8 @@ record cst.Tpredicate is cst.Hints
 end
 
 --- `T borrows p`: the result may not outlive its sources.
-record cst.Tborrows is cst.Hints
+record cst.Tborrows is
+    cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
@@ -1778,29 +1876,7 @@ end
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
-    | cst.WithBinding | cst.IfStmt | cst.IfClause | cst.ElseifClause
-    | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.FornumStmt
-    | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname
-    | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt
-    | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign
-    | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt
-    | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias
-    | cst.RecordDecl | cst.WhereClause | cst.FieldDecl
-    | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc
-    | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr
-    | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
-    | cst.Vararg | cst.Paren | cst.NewExpr | cst.ConstructorDecl
-    | cst.MatchesDecl | cst.ErrorExpr
-    | cst.DotIndex | cst.BracketIndex
-    | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call
-    | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem
-    | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr
-    | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen
-    | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc
-    | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion
-    | cst.Tintersection
-    | cst.ErrorType | cst.Tpredicate | cst.Tborrows
+type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
@@ -1814,9 +1890,7 @@ type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
 
 --- What a `with` scope, an `unsafe do` and the loops and blocks have in common: a body
 --- block the pass walks into.
-type cst.Bodied = cst.WithStmt | cst.UnsafeStmt | cst.DoStmt | cst.WhileStmt
-    | cst.RepeatStmt | cst.FornumStmt | cst.ForinStmt | cst.IfClause
-    | cst.ElseifClause | cst.ElseClause | cst.Funcbody | cst.Shortfn
+type cst.Bodied = cst.WithStmt | cst.UnsafeStmt | cst.DoStmt | cst.WhileStmt | cst.RepeatStmt | cst.FornumStmt | cst.ForinStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.Funcbody | cst.Shortfn
 
 --- True when `x` is a token rather than a node, which narrows it for the caller. Tokens
 --- are told apart by carrying trivia; this is the one place that test is asserted
@@ -1853,7 +1927,10 @@ end
 --- @param x the node or token to descend into
 function cst.firstToken(x: cst.Child?): lexer.Token?
     local at = x
-    while at and not isToken(at) do at = at[1] end
+    while at and not isToken(at) do
+        at = at[1]
+    end
+
     return at as lexer.Token?
 end
 
@@ -1862,7 +1939,10 @@ end
 --- @param x the node or token to descend into
 function cst.lastToken(x: cst.Child?): lexer.Token?
     local at = x
-    while at and not isToken(at) do at = at[#at] end
+    while at and not isToken(at) do
+        at = at[#at]
+    end
+
     return at as lexer.Token?
 end
 
@@ -1884,7 +1964,9 @@ function cst.textOf(x: cst.Child): string
             end
         end
     end
+
     walk(x)
+
     return table.concat(parts)
 end
 
@@ -1924,8 +2006,7 @@ function cst.returnedLocal(root: cst.Chunk): string?
             return nil
         end
         local argsNode = returned.args
-        local args = argsNode and argsNode.kind == "args"
-            and argsNode.exprs or {}
+        local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
         returned = args[1]
         if not returned then
             return nil
@@ -1938,6 +2019,7 @@ function cst.returnedLocal(root: cst.Chunk): string?
     if not token then
         return nil
     end
+
     return token.text
 end
 
@@ -1948,8 +2030,7 @@ end
 --- @param declaration the typeAlias or recordDecl node
 --- @param moduleLocal the name from cst.returnedLocal, when the file has one
 --- @return "local", "module", "global" or "nested"
-function cst.declVisibility(declaration: cst.Declaration,
-    moduleLocal: string?): string
+function cst.declVisibility(declaration: cst.Declaration, moduleLocal: string?): string
     local written = declaration.visibility
     if written == "local" or written == "global" or written == "nested" then
         return written
@@ -1962,6 +2043,7 @@ function cst.declVisibility(declaration: cst.Declaration,
         end
         return "local"
     end
+
     return written or "local"
 end
 
@@ -1982,6 +2064,7 @@ function cst.dump(x: cst.Child): string
         parts[#parts + 1] = cst.dump(child)
     end
     parts[#parts + 1] = ")"
+
     return table.concat(parts)
 end
 
@@ -2006,7 +2089,9 @@ function cst.pretty(x: cst.Child): string
             walk(child, depth + 1)
         end
     end
+
     walk(x, 0)
+
     return table.concat(lines, "\n")
 end
 

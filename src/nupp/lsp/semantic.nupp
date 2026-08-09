@@ -17,23 +17,17 @@ local semantic = {}
 --- One coloured span, before the protocol's relative encoding flattens it. A token that
 --- spans lines contributes one of these per line, because the protocol has no way to
 --- say a span crosses one.
-type semantic.Entry = {
-    line: integer,
-    character: integer,
-    length: integer,
+type semantic.Entry = {line: integer, character: integer, length: integer,
 
     --- Index into `semanticTypes`, or absent when nothing names this kind.
     kind: integer?,
 
     --- The modifier bitmask: 1 declaration, 2 readonly.
-    modifiers: integer,
-}
+    modifiers: integer,}
 
 --- What semantic tokens read of a session, which is nothing: the session is taken so
 --- the shape matches the other installs.
-type semantic.Session = {
-    documents: {[string]: any},
-}
+type semantic.Session = {documents: {[string]: any},}
 
 --- What installing semantic tokens gives the session back.
 type semantic.Api = {
@@ -51,35 +45,64 @@ type semantic.Api = {
     tokenEdits: function(before: {integer}, after: {integer}): {any},
 
     --- The answer last given for `uri`, which a delta is computed against.
-    lastSent: function(uri: string): any,
-}
+    lastSent: function(uri: string): any,}
 
-semantic.semanticTypes = wire.array({
-    "namespace", "type", "class", "enum", "interface", "struct",
-    "typeParameter", "parameter", "variable", "property", "enumMember",
-    "function", "method", "keyword", "comment", "string", "number",
-    "operator", "decorator", "label",
-})
+semantic.semanticTypes = wire.array(
+    {
+        "namespace",
+        "type",
+        "class",
+        "enum",
+        "interface",
+        "struct",
+        "typeParameter",
+        "parameter",
+        "variable",
+        "property",
+        "enumMember",
+        "function",
+        "method",
+        "keyword",
+        "comment",
+        "string",
+        "number",
+        "operator",
+        "decorator",
+        "label",
+    }
+)
 
 semantic.semanticModifiers = wire.array({"declaration", "readonly"})
 
 semantic.semanticIndex = {}
-for index, name in ipairs(semantic.semanticTypes) do semantic.semanticIndex[name] = index - 1 end
+for index, name in ipairs(semantic.semanticTypes) do
+    semantic.semanticIndex[name] = index - 1
+end
 
 semantic.semanticKindMap = {
     namespace = "namespace",
-    type = "type", struct = "struct",
-    interface = "interface", typeParameter = "typeParameter",
-    parameter = "parameter", variable = "variable", property = "property",
-    ["function"] = "function", method = "method", decorator = "decorator",
+    type = "type",
+    struct = "struct",
+    interface = "interface",
+    typeParameter = "typeParameter",
+    parameter = "parameter",
+    variable = "variable",
+    property = "property",
+    ["function"] = "function",
+    method = "method",
+    decorator = "decorator",
     label = "label",
 }
 
 -- The keywords that can open a type, so a type position still offers them while
 -- refusing the rest.
 semantic.TYPE_WORDS = {
-    ["function"] = true, ["metatable"] = true, ["is"] = true,
-    ["owned"] = true, ["borrowed"] = true, ["pinned"] = true,
+    ["function"] = true,
+    ["metatable"] = true,
+    ["is"] = true,
+    ["owned"] = true,
+    ["borrowed"] = true,
+    ["pinned"] = true,
     ["const"] = true,
 }
 
@@ -90,6 +113,7 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
             kinds[tok] = kind
         end
     end
+
     tree.walkNodes(result.root, function(node)
         local kind = node.kind
         if kind == "cdefFunc" or kind == "cdefStruct" then
@@ -97,25 +121,26 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
             mark(node[2], "keyword")
         elseif kind == "typeAlias" or kind == "recordDecl" then
             for _, child in ipairs(node) do
-                if cst.isToken(child) and child.kind == "name"
-                    and child ~= node.name then
-                    if child.text == "type" or child.text == "record"
-                        or child.text == "interface" or child.text == "struct"
+                if cst.isToken(child) and child.kind == "name" and child ~= node.name then
+                    if child.text == "type"
+                        or child.text == "record"
+                        or child.text == "interface"
+                        or child.text == "struct"
                         or child.text == "global"
-                        or child.text == "is" or child.text == "where" then
+                        or child.text == "is"
+                        or child.text == "where"
+                    then
                         mark(child, "keyword")
                     end
                 end
             end
         elseif kind == "generics" then
             for _, child in ipairs(node) do
-                if cst.isToken(child) and child.kind == "name"
-                    and child.text == "is" then
+                if cst.isToken(child) and child.kind == "name" and child.text == "is" then
                     mark(child, "keyword")
                 end
             end
-        elseif kind == "newExpr" or kind == "constructorDecl"
-            or kind == "matchesDecl" then
+        elseif kind == "newExpr" or kind == "constructorDecl" or kind == "matchesDecl" then
             mark(node[1], "keyword")
         elseif kind == "whereClause" then
             mark(node[1], "keyword")
@@ -152,8 +177,7 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
             for _, binding in ipairs(node.bindings or {}) do
                 mark(binding.name, "variable")
             end
-        elseif (kind == "localStmt" or kind == "localFuncStmt")
-            and node.isConst then
+        elseif (kind == "localStmt" or kind == "localFuncStmt") and node.isConst then
             mark(node[1], "keyword")
         elseif kind == "continueStmt" then
             mark(node[1], "keyword")
@@ -176,14 +200,23 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
                 mark(node.capability, "keyword")
             end
         elseif kind == "generics" then
-            for _, tok in ipairs(node.names or {}) do mark(tok, "typeParameter") end
+            for _, tok in ipairs(node.names or {}) do
+                mark(tok, "typeParameter")
+            end
         end
     end)
+
     return kinds
 end
 
-function semantic.addSemanticSpan(entries: {semantic.Entry}, source: string,
-    offset: integer, spanText: string?, kind: string, modifiers: integer?): nil
+function semantic.addSemanticSpan(
+    entries: {semantic.Entry},
+    source: string,
+    offset: integer,
+    spanText: string?,
+    kind: string,
+    modifiers: integer?
+): nil
     if not spanText or spanText == "" then
         return
     end
@@ -197,10 +230,14 @@ function semantic.addSemanticSpan(entries: {semantic.Entry}, source: string,
             local startPos = text.positionAtOffset(source, startOffset)
             local endPos = text.positionAtOffset(source, endOffset)
             if endPos.character > startPos.character then
-                entries[#entries + 1] = {
-                    line = startPos.line, character = startPos.character,
+                entries[
+                    #entries + 1
+                ] = {
+                    line = startPos.line,
+                    character = startPos.character,
                     length = endPos.character - startPos.character,
-                    kind = semantic.semanticIndex[kind], modifiers = modifiers or 0,
+                    kind = semantic.semanticIndex[kind],
+                    modifiers = modifiers or 0,
                 }
             end
         end
@@ -236,37 +273,47 @@ function semantic.install(s: semantic.Session): semantic.Api
         local syntax = syntaxKinds(doc.result)
         for _, tok in ipairs(doc.result.tokens or {}) do
             for _, trivia in ipairs(tok.trivia or {}) do
-                local docComment = trivia.kind == "comment"
-                    and trivia.text:sub(1, 3) == "---"
-                    and trivia.text:sub(4, 4) ~= "-"
+                local docComment = trivia.kind == "comment" and trivia.text:sub(
+                    1,
+                    3
+                ) == "---" and trivia.text:sub(4, 4) ~= "-"
                 -- Doc comments contain finer TextMate scopes for tags and fenced NUPP.
                 -- A semantic token covering the whole line would override those scopes
                 -- in VS Code, so leave doc comments to the grammar while retaining
                 -- semantic tokens for ordinary comments and hashbangs.
-                if not docComment and (trivia.kind == "comment"
-                    or trivia.kind == "hashbang") then
-                    addSemanticSpan(entries, doc.text, trivia.offset, trivia.text,
-                        "comment")
+                if not docComment and (trivia.kind == "comment" or trivia.kind == "hashbang") then
+                    addSemanticSpan(entries, doc.text, trivia.offset, trivia.text, "comment")
                 end
             end
             local kind = nil
             if tok.kind == "number" then
                 kind = "number"
-            elseif tok.kind == "string" or tok.kind == "istringOpen"
-                or tok.kind == "istringMid" or tok.kind == "istringClose" then
+            elseif tok.kind == "string"
+                or tok.kind == "istringOpen"
+                or tok.kind == "istringMid"
+                or tok.kind == "istringClose"
+            then
                 kind = "string"
             elseif lexer.KEYWORDS[tok.kind] then
                 kind = "keyword"
             elseif tok.kind == "name" then
-                kind = syntax[tok]
-                    or semanticKindMap[tok.semanticKind]
-                    or (T.builtins[tok.text] and "type") or "variable"
+                kind = syntax[
+                    tok
+                ] or semanticKindMap[tok.semanticKind] or (T.builtins[tok.text] and "type") or "variable"
             elseif semanticIndex[syntax[tok]] then
                 kind = syntax[tok]
-            elseif tok.kind ~= "eof" and tok.kind ~= "error"
-                and tok.kind ~= "(" and tok.kind ~= ")" and tok.kind ~= "["
-                and tok.kind ~= "]" and tok.kind ~= "{" and tok.kind ~= "}"
-                and tok.kind ~= "," and tok.kind ~= ";" and tok.kind ~= "." then
+            elseif tok.kind ~= "eof"
+                and tok.kind ~= "error"
+                and tok.kind ~= "("
+                and tok.kind ~= ")"
+                and tok.kind ~= "["
+                and tok.kind ~= "]"
+                and tok.kind ~= "{"
+                and tok.kind ~= "}"
+                and tok.kind ~= ","
+                and tok.kind ~= ";"
+                and tok.kind ~= "."
+            then
                 kind = "operator"
             end
             if kind then
@@ -277,21 +324,20 @@ function semantic.install(s: semantic.Session): semantic.Api
                 -- and never the same table. Within one file an offset names one token,
                 -- which is what identity was standing in for.
                 local def = tok.definition
-                local declaration = def ~= nil and def.token ~= nil
-                    and def.token.offset == tok.offset
-                    and (def.filename == nil or def.filename == doc.path)
+                local declaration = def ~= nil and def.token ~= nil and def.token.offset == tok.offset and (
+                    def.filename == nil or def.filename == doc.path
+                )
                 local modifiers = declaration and 1 or 0
                 if tok.definition and tok.definition.constant then
                     modifiers = modifiers + 2
                 end
-                addSemanticSpan(entries, doc.text, tok.offset, tok.text, kind,
-                    modifiers)
+                addSemanticSpan(entries, doc.text, tok.offset, tok.text, kind, modifiers)
             end
         end
         table.sort(entries, function(a, b)
-            return a.line < b.line
-                or (a.line == b.line and a.character < b.character)
+            return a.line < b.line or (a.line == b.line and a.character < b.character)
         end)
+
         return entries
     end
 
@@ -303,8 +349,7 @@ function semantic.install(s: semantic.Session): semantic.Api
         local lastLine, lastCharacter = 0, 0
         for _, entry in ipairs(entries) do
             local deltaLine = entry.line - lastLine
-            local deltaCharacter = deltaLine == 0
-                and entry.character - lastCharacter or entry.character
+            local deltaCharacter = deltaLine == 0 and entry.character - lastCharacter or entry.character
             data[#data + 1] = deltaLine
             data[#data + 1] = deltaCharacter
             data[#data + 1] = entry.length
@@ -312,6 +357,7 @@ function semantic.install(s: semantic.Session): semantic.Api
             data[#data + 1] = entry.modifiers
             lastLine, lastCharacter = entry.line, entry.character
         end
+
         return data
     end
 
@@ -351,8 +397,7 @@ function semantic.install(s: semantic.Session): semantic.Api
         while prefix + suffix + 5 <= #before and prefix + suffix + 5 <= #after do
             local same = true
             for offset = 1, 5 do
-                if before[#before - suffix - 5 + offset]
-                    ~= after[#after - suffix - 5 + offset] then
+                if before[#before - suffix - 5 + offset] ~= after[#after - suffix - 5 + offset] then
                     same = false
                     break
                 end
@@ -370,19 +415,16 @@ function semantic.install(s: semantic.Session): semantic.Api
         if deleteCount == 0 and #inserted == 0 then
             return wire.array({})
         end
-        return wire.array({{
-            start = prefix, deleteCount = deleteCount, data = inserted,
-        }})
+
+        return wire.array({{start = prefix, deleteCount = deleteCount, data = inserted,}})
     end
 
-    return {
-        semanticEntries = semanticEntries,
-        encodeSemanticEntries = encodeSemanticEntries,
-        rememberTokens = rememberTokens, tokenEdits = tokenEdits,
+    return {semanticEntries = semanticEntries, encodeSemanticEntries = encodeSemanticEntries, rememberTokens = rememberTokens, tokenEdits = tokenEdits,
 
         --- The answer last given for `uri`, which a delta is computed against.
-        lastSent = function(uri) return sentTokens[uri] end,
-    }
+        lastSent = function(uri)
+        return sentTokens[uri]
+    end,}
 end
 
 return semantic

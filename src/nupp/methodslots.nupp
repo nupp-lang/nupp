@@ -18,25 +18,35 @@ end
 local methodslots = {} as Methodslots
 
 local function fingerprint(t: any, binders: any, active: any): string
-    if not t then return "nil" end
+    if not t then
+        return "nil"
+    end
     local binder = binders[t]
-    if binder then return binder end
-    if active[t] then return "@" .. (t.runtimePath or t.name or t.tag) end
+    if binder then
+        return binder
+    end
+    if active[t] then
+        return "@" .. (t.runtimePath or t.name or t.tag)
+    end
     active[t] = true
     local tag = t.tag
     local out
     if tag == "nominal" then
-        out = "nominal(" .. tostring(t.declKind) .. ":"
-            .. tostring(t.runtimePath or t.name) .. ")"
+        out = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.runtimePath or t.name) .. ")"
     elseif tag == "array" or tag == "ptr" or tag == "const" then
         out = tag .. "(" .. fingerprint(t.elem or t.inner, binders, active) .. ")"
     elseif tag == "owned" or tag == "borrowed" or tag == "pinned" then
         out = tag .. "(" .. fingerprint(t.inner, binders, active) .. ")"
     elseif tag == "map" then
-        out = "map(" .. fingerprint(t.key, binders, active) .. ":"
-            .. fingerprint(t.value, binders, active) .. ":"
-            .. fingerprint(t.writeKey, binders, active) .. ":"
-            .. fingerprint(t.writeValue, binders, active) .. ")"
+        out = "map(" .. fingerprint(
+            t.key,
+            binders,
+            active
+        ) .. ":" .. fingerprint(
+            t.value,
+            binders,
+            active
+        ) .. ":" .. fingerprint(t.writeKey, binders, active) .. ":" .. fingerprint(t.writeValue, binders, active) .. ")"
     elseif tag == "tuple" then
         local parts = {}
         for j, item in ipairs(t.elems or {}) do
@@ -49,31 +59,35 @@ local function fingerprint(t: any, binders: any, active: any): string
             parts[j] = fingerprint(item, binders, active)
         end
         table.sort(parts)
-        out = tag .. "(" .. table.concat(parts,
-            tag == "union" and "|" or "&") .. ")"
+        out = tag .. "(" .. table.concat(parts, tag == "union" and "|" or "&") .. ")"
     elseif tag == "shape" then
         local parts = {}
         for _, field in ipairs(t.fields or {}) do
-            parts[#parts + 1] = field.name .. ":"
-                .. fingerprint(field.read, binders, active) .. ":"
-                .. fingerprint(field.write, binders, active)
+            parts[
+                #parts + 1
+            ] = field.name .. ":" .. fingerprint(
+                field.read,
+                binders,
+                active
+            ) .. ":" .. fingerprint(field.write, binders, active)
         end
         table.sort(parts)
         out = "shape(" .. table.concat(parts, ",") .. ")"
     elseif tag == "literal" then
-        out = "literal(" .. tostring(t.constant) .. ":"
-            .. fingerprint(t.base, binders, active) .. ")"
+        out = "literal(" .. tostring(t.constant) .. ":" .. fingerprint(t.base, binders, active) .. ")"
     elseif tag == "func" then
         local params = {}
         for j, param in ipairs(t.params or {}) do
-            params[j] = tostring(t.paramModes and t.paramModes[j] or "plain")
-                .. ":" .. fingerprint(param, binders, active)
+            params[
+                j
+            ] = tostring(t.paramModes and t.paramModes[j] or "plain") .. ":" .. fingerprint(param, binders, active)
         end
         out = "fn(" .. table.concat(params, ",") .. ")"
     else
         out = tag or tostring(t)
     end
     active[t] = nil
+
     return out
 end
 
@@ -88,14 +102,13 @@ local function packFingerprint(ft: any): string
     end
     for j, tv in ipairs(ft.typeParams or {}) do
         local bound = ft.typeBounds and ft.typeBounds[j] or nil
-        generic[j] = binders[tv] .. "<:"
-            .. fingerprint(bound, binders, {})
+        generic[j] = binders[tv] .. "<:" .. fingerprint(bound, binders, {})
     end
     local parts = {}
     for j, param in ipairs(ft.paramPack.head or {}) do
-        parts[j] = tostring(ft.paramPack.modes
-            and ft.paramPack.modes[j] or "plain") .. ":"
-            .. fingerprint(param, binders, {})
+        parts[
+            j
+        ] = tostring(ft.paramPack.modes and ft.paramPack.modes[j] or "plain") .. ":" .. fingerprint(param, binders, {})
     end
     local tail = ft.paramPack.tail
     if tail then
@@ -107,12 +120,12 @@ local function packFingerprint(ft: any): string
             parts[#parts + 1] = "...:unknown"
         end
     end
-    return "<" .. table.concat(generic, ",") .. ">(" .. table.concat(parts,
-        ",") .. ")"
+
+    return "<" .. table.concat(generic, ",") .. ">(" .. table.concat(parts, ",") .. ")"
 end
 
---- The valid Lua identifier used as one overload's hidden runtime member.
---- `ft` is the callable as seen at a method call, with its receiver removed.
+--- The valid Lua identifier used as one overload's hidden runtime member. `ft` is the
+--- callable as seen at a method call, with its receiver removed.
 function methodslots.member(name: string, ft: any): string
     return "__nupp_m_" .. hash.digest(name .. ":" .. packFingerprint(ft))
 end

@@ -15,11 +15,7 @@ local actions = {}
 --- speak: a byte offset, how much of the source it covers, and what takes its place.
 --- Offsets never account for each other, so a whole action converts to protocol edits
 --- in one place.
-type actions.Edit = {
-    offset: integer,
-    length: integer,
-    newText: string,
-}
+type actions.Edit = {offset: integer, length: integer, newText: string,}
 
 actions.QUICKFIX = "quickfix"
 
@@ -30,7 +26,9 @@ actions.REFACTOR = "refactor.rewrite"
 local INDENT = "    "
 
 local function lineStart(source, offset)
-    while offset > 1 and source:byte(offset - 1) ~= 10 do offset = offset - 1 end
+    while offset > 1 and source:byte(offset - 1) ~= 10 do
+        offset = offset - 1
+    end
     return offset
 end
 
@@ -66,15 +64,14 @@ local function reindentEdits(source, from, to, remove)
         end
         at = newline + 1
     end
+
     return edits
 end
 
 -- Statements whose meaning depends on which scope encloses them. `with` closes its
 -- owners on every one of these paths; a manual `dispose` written after the body does
 -- not, so unwrapping past one would silently change what the program does on that path.
-local ESCAPING_STATS: {[string]: boolean} = {
-    returnStmt = true, breakStmt = true, continueStmt = true, gotoStmt = true,
-}
+local ESCAPING_STATS: {[string]: boolean} = {returnStmt = true, breakStmt = true, continueStmt = true, gotoStmt = true,}
 
 --- Whether `node` leaves its enclosing block by a path a rewrite would have to account
 --- for. A nested function body is not descended into: its `return` leaves that
@@ -89,11 +86,17 @@ local function escapesScope(node)
             return
         end
         if ESCAPING_STATS[value.kind] then
-            found = true; return
+            found = true
+            ;
+            return
         end
-        for _, child in ipairs(value) do walk(child) end
+        for _, child in ipairs(value) do
+            walk(child)
+        end
     end
+
     walk(node)
+
     return found
 end
 
@@ -114,30 +117,30 @@ local function ownedLocal(stat)
     if not t or t.tag ~= "owned" or #(t.cleanups or {}) == 0 then
         return nil
     end
+
     return def
 end
 
 --- The `dispose(<name>)` statement discharging `def`, searched forward from `from` in
 --- `block`. It is where the owner's life already ends, so it is where the `with` scope
 --- ends too.
-local function disposeOf(block: cst.Block, from: integer,
-    def: tree.Definition): integer?
+local function disposeOf(block: cst.Block, from: integer, def: tree.Definition): integer?
     for i = from, #(block.stats or {}) do
         local stat = block.stats[i]
         local call = stat.kind == "callStmt" and stat.expr or nil
         local callee = call and call.kind == "call" and call.obj or nil
         -- A call holds its argument list as a plain node, so reaching the expressions
         -- inside it says which two productions those nodes are.
-        local args = call and (call as cst.Call).args
-            and ((call as cst.Call).args as cst.Args).exprs or {}
-        if callee and callee.kind == "name" and callee.token
-            and callee.token.text == "dispose" and #args == 1
-            and args[1].kind == "name"
-            and (args[1] as cst.NameExpr).token
-            and ((args[1] as cst.NameExpr).token as nupp.lexer.Token).definition == def then
+        local args = call and (call as cst.Call).args and ((call as cst.Call).args as cst.Args).exprs or {}
+        if callee and callee.kind == "name" and callee.token and callee.token.text == "dispose" and #args == 1 and args[
+            1
+        ].kind == "name" and (
+            args[1] as cst.NameExpr
+        ).token and ((args[1] as cst.NameExpr).token as nupp.lexer.Token).definition == def then
             return i
         end
     end
+
     return nil
 end
 
@@ -147,8 +150,7 @@ end
 --- the acquisition expression survive exactly as written. The scope closes at the
 --- `dispose` when there is one, and otherwise at the end of the enclosing block, which
 --- is the same place the owner's obligation currently comes due.
-function actions.wrapInWith(source: string, root: cst.Child,
-    stat: tree.Kinded): {actions.Edit}?
+function actions.wrapInWith(source: string, root: cst.Child, stat: tree.Kinded): {actions.Edit}?
     local def = ownedLocal(stat)
     if not def then
         return nil
@@ -177,14 +179,12 @@ function actions.wrapInWith(source: string, root: cst.Child,
     end
     local indent = indentAt(source, localTok.offset)
     local edits = {}
-    edits[#edits + 1] = {offset = localTok.offset, length = #localTok.text,
-        newText = "with"}
+    edits[#edits + 1] = {offset = localTok.offset, length = #localTok.text, newText = "with"}
     if not closeAt and lastBody < (index as integer) + 1 then
         -- An owner acquired and never touched again: opening and closing the scope land
         -- on the same offset, so they are one edit rather than two zero-width inserts
         -- whose order would decide which came first.
-        edits[#edits + 1] = {offset = headEnd as integer, length = 0,
-            newText = " do\n" .. indent .. "end"}
+        edits[#edits + 1] = {offset = headEnd as integer, length = 0, newText = " do\n" .. indent .. "end"}
         return edits
     end
     edits[#edits + 1] = {offset = headEnd as integer, length = 0, newText = " do"}
@@ -205,13 +205,12 @@ function actions.wrapInWith(source: string, root: cst.Child,
     end
     if closeAt then
         local from, to = tree.nodeBounds(block.stats[closeAt])
-        edits[#edits + 1] = {offset = from as integer,
-            length = (to as integer) - (from as integer), newText = "end"}
+        edits[#edits + 1] = {offset = from as integer, length = (to as integer) - (from as integer), newText = "end"}
     else
         local _, to = tree.nodeBounds(block.stats[lastBody])
-        edits[#edits + 1] = {offset = to as integer, length = 0,
-            newText = "\n" .. indent .. "end"}
+        edits[#edits + 1] = {offset = to as integer, length = 0, newText = "\n" .. indent .. "end"}
     end
+
     return edits
 end
 
@@ -221,8 +220,7 @@ end
 --- left. The body may not leave the scope by `return`, `break`, `continue` or `goto`,
 --- because `with` closes its owners on those paths and a trailing `dispose` would not.
 function actions.unwrapWith(source: string, stat: tree.Kinded): {actions.Edit}?
-    if stat.kind ~= "withStmt" or not stat.withTok or not stat.doTok
-        or not stat.endTok then
+    if stat.kind ~= "withStmt" or not stat.withTok or not stat.doTok or not stat.endTok then
         return nil
     end
     if stat.body and escapesScope(stat.body) then
@@ -244,7 +242,9 @@ function actions.unwrapWith(source: string, stat: tree.Kinded): {actions.Edit}?
     end
     local separator = "\n" .. indent
     local edits = {}
-    edits[1] = {
+    edits[
+        1
+    ] = {
         offset = stat.withTok.offset,
         length = stat.doTok.offset + #stat.doTok.text - stat.withTok.offset,
         newText = table.concat(declarations, separator),
@@ -260,10 +260,10 @@ function actions.unwrapWith(source: string, stat: tree.Kinded): {actions.Edit}?
             end
         end
     end
-    edits[#edits + 1] = {
-        offset = stat.endTok.offset, length = #stat.endTok.text,
-        newText = table.concat(disposals, separator),
-    }
+    edits[
+        #edits + 1
+    ] = {offset = stat.endTok.offset, length = #stat.endTok.text, newText = table.concat(disposals, separator),}
+
     return edits
 end
 

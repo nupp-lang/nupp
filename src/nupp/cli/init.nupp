@@ -28,26 +28,43 @@ local type Loader = function(): specMod.Handler
 -- The commands, in the order `nupp help` lists them. Each is loaded through a function
 -- holding a literal `require`, which keeps the dependency visible to the build while
 -- still only loading what a run actually reaches.
-local REGISTRY: {{name: string, load: Loader}} = {
-    {name = "ast", load = function(): specMod.Handler return require("nupp.cli.ast") end},
-    {name = "check", load = function(): specMod.Handler return require("nupp.cli.check") end},
-    {name = "fmt", load = function(): specMod.Handler return require("nupp.cli.fmt") end},
-    {name = "build", load = function(): specMod.Handler return require("nupp.cli.build") end},
-    {name = "clean", load = function(): specMod.Handler return require("nupp.cli.clean") end},
-    {name = "tasks", load = function(): specMod.Handler return require("nupp.cli.tasks") end},
-    {name = "lints", load = function(): specMod.Handler return require("nupp.cli.lints") end},
-    {name = "explain", load = function(): specMod.Handler return require("nupp.cli.explain") end},
-    {name = "reference", load = function(): specMod.Handler return require("nupp.cli.reference") end},
-    {name = "completions", load = function(): specMod.Handler return require("nupp.cli.completions_command") end},
-    {name = "test", load = function(): specMod.Handler return require("nupp.cli.test") end},
-    {name = "coverage", load = function(): specMod.Handler return require("nupp.cli.coverage") end},
-    {name = "task", load = function(): specMod.Handler return require("nupp.cli.task") end},
-    {name = "doc", load = function(): specMod.Handler return require("nupp.cli.doc") end},
-    {name = "fixpoint", load = function(): specMod.Handler return require("nupp.cli.fixpoint") end},
-    {name = "run", load = function(): specMod.Handler return require("nupp.cli.run") end},
-    {name = "import-c", load = function(): specMod.Handler return require("nupp.cli.importc") end},
-    {name = "lsp", load = function(): specMod.Handler return require("nupp.cli.lsp") end},
-}
+local REGISTRY: {{name: string, load: Loader}} = {{name = "ast", load = function(): specMod.Handler
+    return require("nupp.cli.ast")
+end}, {name = "check", load = function(): specMod.Handler
+    return require("nupp.cli.check")
+end}, {name = "fmt", load = function(): specMod.Handler
+    return require("nupp.cli.fmt")
+end}, {name = "build", load = function(): specMod.Handler
+    return require("nupp.cli.build")
+end}, {name = "clean", load = function(): specMod.Handler
+    return require("nupp.cli.clean")
+end}, {name = "tasks", load = function(): specMod.Handler
+    return require("nupp.cli.tasks")
+end}, {name = "lints", load = function(): specMod.Handler
+    return require("nupp.cli.lints")
+end}, {name = "explain", load = function(): specMod.Handler
+    return require("nupp.cli.explain")
+end}, {name = "reference", load = function(): specMod.Handler
+    return require("nupp.cli.reference")
+end}, {name = "completions", load = function(): specMod.Handler
+    return require("nupp.cli.completions_command")
+end}, {name = "test", load = function(): specMod.Handler
+    return require("nupp.cli.test")
+end}, {name = "coverage", load = function(): specMod.Handler
+    return require("nupp.cli.coverage")
+end}, {name = "task", load = function(): specMod.Handler
+    return require("nupp.cli.task")
+end}, {name = "doc", load = function(): specMod.Handler
+    return require("nupp.cli.doc")
+end}, {name = "fixpoint", load = function(): specMod.Handler
+    return require("nupp.cli.fixpoint")
+end}, {name = "run", load = function(): specMod.Handler
+    return require("nupp.cli.run")
+end}, {name = "import-c", load = function(): specMod.Handler
+    return require("nupp.cli.importc")
+end}, {name = "lsp", load = function(): specMod.Handler
+    return require("nupp.cli.lsp")
+end},}
 
 -- `help` is a command in the list and in the help, but there is no work behind it, so
 -- it is answered here rather than being a file of its own.
@@ -59,7 +76,9 @@ local HELP_COMMAND = specMod.command{
 }
 
 local byName: {[string]: Loader} = {}
-for _, entry in ipairs(REGISTRY) do byName[entry.name] = entry.load end
+for _, entry in ipairs(REGISTRY) do
+    byName[entry.name] = entry.load
+end
 
 --- The named command, or nil when nothing is spelled that way.
 local function lookup(name: string): specMod.Handler?
@@ -71,7 +90,9 @@ end
 --- `nupp help` reaches it.
 local function mainHelp(): string
     local style = ansi.style(io.stdout)
-    local out: {string} = {
+    local out: {
+        string
+    } = {
         "Nupp compiler and project tool",
         "",
         style.strong("Usage:"),
@@ -83,28 +104,25 @@ local function mainHelp(): string
     local width: integer = #"import-c"
     local summaries: {{name: string, summary: string}} = {}
     for _, entry in ipairs(REGISTRY) do
-        summaries[#summaries + 1] = {name = entry.name,
-            summary = entry.load().spec.summary}
+        summaries[#summaries + 1] = {name = entry.name, summary = entry.load().spec.summary}
         if #entry.name > width then
             width = #entry.name
         end
     end
-    summaries[#summaries + 1] = {name = HELP_COMMAND.name,
-        summary = HELP_COMMAND.summary}
+    summaries[#summaries + 1] = {name = HELP_COMMAND.name, summary = HELP_COMMAND.summary}
     local paint = ansi.forSeverity(style, "note")
     for _, entry in ipairs(summaries) do
-        out[#out + 1] = "  " .. paint(entry.name)
-            .. (" "):rep(width - #entry.name + 2) .. entry.summary
+        out[#out + 1] = "  " .. paint(entry.name) .. (" "):rep(width - #entry.name + 2) .. entry.summary
     end
     out[#out + 1] = ""
     out[#out + 1] = "Run 'nupp help <command>' for command-specific options."
+
     return table.concat(out, "\n") .. "\n"
 end
 
 local function fail(message: string, hint: string): integer
     local style = ansi.style(io.stderr)
-    io.stderr:write(ansi.forSeverity(style, "error")("nupp:") .. " " .. message
-        .. "\n" .. hint .. "\n")
+    io.stderr:write(ansi.forSeverity(style, "error")("nupp:") .. " " .. message .. "\n" .. hint .. "\n")
     return 2
 end
 
@@ -112,8 +130,7 @@ end
 local function runHelp(args: {string}): integer
     local name = args[1]
     if args[2] then
-        return fail("help accepts at most one command name",
-            "Try 'nupp help' for a list of commands.")
+        return fail("help accepts at most one command name", "Try 'nupp help' for a list of commands.")
     end
     if not name then
         io.write(mainHelp())
@@ -129,10 +146,10 @@ local function runHelp(args: {string}): integer
     end
     local command = lookup(name)
     if not command then
-        return fail("unknown command " .. name,
-            "Try 'nupp help' for a list of commands.")
+        return fail("unknown command " .. name, "Try 'nupp help' for a list of commands.")
     end
     io.write(command.spec:help())
+
     return 0
 end
 
@@ -156,14 +173,15 @@ function cli.main(argv: {string}): integer
         return 0
     end
     local rest: {string} = {}
-    for index = 2, #argv do rest[#rest + 1] = argv[index] end
+    for index = 2, #argv do
+        rest[#rest + 1] = argv[index]
+    end
     if name == "help" then
         return runHelp(rest)
     end
     local command = lookup(name)
     if not command then
-        return fail("unknown command " .. name,
-            "Try 'nupp help' for a list of commands.")
+        return fail("unknown command " .. name, "Try 'nupp help' for a list of commands.")
     end
     if command.raw then
         -- A raw command's arguments are not this parser's to read, so these are only
@@ -193,6 +211,7 @@ function cli.main(argv: {string}): integer
         require("nupp.cli.report").write(command.spec.schema)
         return 0
     end
+
     return command.run(parsed)
 end
 
@@ -202,8 +221,11 @@ cli.options = optionsMod
 --- Every command's name, for the tests that check the list is complete.
 function cli.names(): {string}
     local names: {string} = {}
-    for _, entry in ipairs(REGISTRY) do names[#names + 1] = entry.name end
+    for _, entry in ipairs(REGISTRY) do
+        names[#names + 1] = entry.name
+    end
     names[#names + 1] = "help"
+
     return names
 end
 
@@ -216,6 +238,7 @@ function cli.commands(): {any}
         commands[#commands + 1] = {name = entry.name, spec = entry.load().spec}
     end
     commands[#commands + 1] = {name = HELP_COMMAND.name, spec = HELP_COMMAND}
+
     return commands
 end
 

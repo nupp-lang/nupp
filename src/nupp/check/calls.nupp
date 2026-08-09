@@ -31,20 +31,23 @@ local dropSelf = generics.dropSelf
 local type Type = T.Type
 
 local function callableMembers(t: Type): {T.Func}?
-    if t.tag ~= "intersection" then return nil end
+    if t.tag ~= "intersection" then
+        return nil
+    end
     local members: {T.Func} = {}
     for _, member in ipairs(t.members) do
-        if member.tag ~= "func" then return nil end
+        if member.tag ~= "func" then
+            return nil
+        end
         members[#members + 1] = member
     end
+
     return members
 end
 
-local function probeArm(ft: T.Func, argPack: T.Pack,
-    cdefCall: boolean?): T.Func?, string?
+local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func?, string?
     local map = {}
-    if T.hasTypevar(ft) and (#(ft.typeParams or {}) > 0
-        or #(ft.packParams or {}) > 0) then
+    if T.hasTypevar(ft) and (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0) then
         unifyPack(ft.paramPack, argPack, map)
         for j, tv in ipairs(ft.typeParams or {}) do
             local bound = ft.typeBounds and ft.typeBounds[j]
@@ -53,19 +56,18 @@ local function probeArm(ft: T.Func, argPack: T.Pack,
                 local expected = substType(bound, map)
                 local ok, why = isA(actual, expected)
                 if not ok then
-                    return nil, ("generic bound for %s: %s"):format(tv.name,
-                        why or "not satisfied")
+                    return nil, ("generic bound for %s: %s"):format(tv.name, why or "not satisfied")
                 end
             end
         end
     end
-    local specialized = (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0)
-        and generics.instantiateFunction(ft, map) or ft
+    local specialized = (
+        #(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0
+    ) and generics.instantiateFunction(ft, map) or ft
     local params = specialized.paramPack
     local actualCount = #argPack.head
     if not argPack.tail and actualCount > #params.head and not params.tail then
-        return nil, ("too many arguments (expected %d, got %d)")
-            :format(#params.head, actualCount)
+        return nil, ("too many arguments (expected %d, got %d)"):format(#params.head, actualCount)
     end
     for j = 1, math.min(actualCount, #params.head) do
         local actual = argPack.head[j]
@@ -73,14 +75,15 @@ local function probeArm(ft: T.Func, argPack: T.Pack,
             actual = rawType(actual)
         end
         local ok, why = isA(actual, params.head[j])
-        if not ok then return nil, ("argument %d: %s"):format(j, why or "mismatch") end
+        if not ok then
+            return nil, ("argument %d: %s"):format(j, why or "mismatch")
+        end
     end
     if not argPack.tail and actualCount < #params.head then
         for j = actualCount + 1, #params.head do
             local ok = isA(T.nil_, params.head[j])
             if not ok then
-                return nil, ("omitted argument %d supplies nil, not %s")
-                    :format(j, T.tostring(params.head[j]))
+                return nil, ("omitted argument %d supplies nil, not %s"):format(j, T.tostring(params.head[j]))
             end
         end
     end
@@ -89,41 +92,47 @@ local function probeArm(ft: T.Func, argPack: T.Pack,
         for j = #params.head + 1, actualCount do
             local ok, why = isA(argPack.head[j], tail.type)
             if not ok then
-                return nil, ("argument %d in pack tail: %s")
-                    :format(j, why or "mismatch")
+                return nil, ("argument %d in pack tail: %s"):format(j, why or "mismatch")
             end
         end
         if argPack.tail and argPack.tail.kind == "homogeneous" then
             local ok, why = isA(argPack.tail.type, tail.type)
-            if not ok then return nil, "pack tail: " .. (why or "mismatch") end
+            if not ok then
+                return nil, "pack tail: " .. (why or "mismatch")
+            end
         end
     elseif not tail and argPack.tail and argPack.tail.kind == "homogeneous" then
         return nil, "an expanding argument tail may supply surplus values"
     end
+
     return specialized
 end
 
-local function probeSignature(ft: T.Func, argPack: T.Pack,
-    cdefCall: boolean?): T.Func?, string?
-    if not argPack.alternatives then return probeArm(ft, argPack, cdefCall) end
+local function probeSignature(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func?, string?
+    if not argPack.alternatives then
+        return probeArm(ft, argPack, cdefCall)
+    end
     local selected: T.Func? = nil
     for armIndex, arm in ipairs(argPack.alternatives) do
         local specialized, why = probeArm(ft, arm, cdefCall)
         if not specialized then
-            return nil, ("argument-pack alternative %d: %s")
-                :format(armIndex, why or "mismatch")
+            return nil, ("argument-pack alternative %d: %s"):format(armIndex, why or "mismatch")
         end
         if selected and selected.id ~= specialized.id then
             return nil, "argument-pack alternatives require different generic specializations"
         end
         selected = specialized
     end
+
     return selected or ft
 end
 
 local function signaturesText(signatures: {T.Func}): string
     local parts = {}
-    for j, signature in ipairs(signatures) do parts[j] = T.tostring(signature) end
+    for j, signature in ipairs(signatures) do
+        parts[j] = T.tostring(signature)
+    end
+
     return table.concat(parts, "; ")
 end
 
@@ -139,13 +148,10 @@ type calls.Ops = {
 
     --- Checks one declared operation contract against arguments already inferred.
     --- Unlike `inferCall` this never evaluates an expression again.
-    applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any,
-    operation: string): Type,
+    applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any, operation: string): Type,
 
     --- Checks a call against its callee: the first result, all of them, and the pack.
-    inferCall: function(node: any, calleeT: Type, argsNode: any,
-    knownAts: {Type}?): (Type, {Type}?, any),
-}
+    inferCall: function(node: any, calleeT: Type, argsNode: any, knownAts: {Type}?): (Type, {Type}?, any),}
 
 --- Installs the call machinery on one run.
 ---
@@ -158,10 +164,9 @@ function calls.install(c: state.Checker): calls.Ops
         local callee = node and node.obj
         local token = callee and (callee.token or callee.name)
         local definition = token and token.definition
-        local related = definition and c.related(definition,
-            "called function is declared here") or nil
-        return {related = related and {related} or nil,
-            help = "compare the call with the declared parameter list"}
+        local related = definition and c.related(definition, "called function is declared here") or nil
+
+        return {related = related and {related} or nil, help = "compare the call with the declared parameter list"}
     end
 
     c.fieldType = function(t, name)
@@ -207,7 +212,9 @@ function calls.install(c: state.Checker): calls.Ops
                 local ft, definition = c.fieldType(m, name)
                 if ft then
                     parts[#parts + 1] = ft
-                    if definition then definitions[#definitions + 1] = definition end
+                    if definition then
+                        definitions[#definitions + 1] = definition
+                    end
                 end
             end
             if #parts > 0 then
@@ -227,22 +234,20 @@ function calls.install(c: state.Checker): calls.Ops
         elseif t.tag == "nominal" and t.byname then
             local ft = t.byname[name]
             local indexKey, indexValue = t.indexReadKey, t.indexReadValue
-            if not ft and indexKey and indexValue
-                and isA(T.string, indexKey) then
+            if not ft and indexKey and indexValue and isA(T.string, indexKey) then
                 return T.optional(indexValue)
             end
-            return ft and specializeSelf(t, ft, t) or nil,
-                t.fieldDefs and t.fieldDefs[name] or nil
+            return ft and specializeSelf(t, ft, t) or nil, t.fieldDefs and t.fieldDefs[name] or nil
         elseif t.tag == "map" then
             if not t.readable or not isA(T.string, t.key) then
                 return nil
             end
             return T.optional(t.value)
-        elseif t == T.string and c.env and c.env.stringLib
-            and c.env.stringLib.tag == "shape" then
+        elseif t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
             -- string values carry the string library as methods
             return c.env.stringLib.byname[name]
         end
+
         return nil
     end
 
@@ -283,7 +288,9 @@ function calls.install(c: state.Checker): calls.Ops
                 local ft, definition = c.fieldWriteType(m, name)
                 if ft then
                     accepted[#accepted + 1] = ft
-                    if definition then definitions[#definitions + 1] = definition end
+                    if definition then
+                        definitions[#definitions + 1] = definition
+                    end
                 end
             end
             if #accepted > 0 then
@@ -301,18 +308,17 @@ function calls.install(c: state.Checker): calls.Ops
             end
         elseif t.tag == "nominal" and t.writeByname then
             local ft = t.writeByname[name]
-            if not ft and t.indexWriteKey
-                and isA(T.string, t.indexWriteKey) then
+            if not ft and t.indexWriteKey and isA(T.string, t.indexWriteKey) then
                 return t.indexWriteValue
             end
-            return ft and specializeSelf(t, ft, t) or nil,
-                t.writeFieldDefs and t.writeFieldDefs[name] or nil
+            return ft and specializeSelf(t, ft, t) or nil, t.writeFieldDefs and t.writeFieldDefs[name] or nil
         elseif t.tag == "map" then
             if not t.writeKey or not isA(T.string, t.writeKey) then
                 return nil
             end
             return t.writeValue
         end
+
         return nil
     end
 
@@ -346,18 +352,24 @@ function calls.install(c: state.Checker): calls.Ops
         if t.tag == "intersection" then
             local names = {}
             for _, member in ipairs(t.members) do
-                for name in pairs(c.fieldNames(member, writing)) do names[name] = true end
+                for name in pairs(c.fieldNames(member, writing)) do
+                    names[name] = true
+                end
             end
             return names
         end
         local names = {}
         if (t.tag == "shape" or t.tag == "nominal") and t.byname then
             local members = writing and t.writeByname or t.byname
-            for name in pairs(members or {}) do names[name] = true end
-        elseif t == T.string and c.env and c.env.stringLib
-            and c.env.stringLib.tag == "shape" then
-            for name in pairs(c.env.stringLib.byname) do names[name] = true end
+            for name in pairs(members or {}) do
+                names[name] = true
+            end
+        elseif t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
+            for name in pairs(c.env.stringLib.byname) do
+                names[name] = true
+            end
         end
+
         return names
     end
 
@@ -377,14 +389,19 @@ function calls.install(c: state.Checker): calls.Ops
         if t.tag == "intersection" then
             local names = {}
             for _, member in ipairs(t.members) do
-                for name in pairs(c.metamethodNames(member)) do names[name] = true end
+                for name in pairs(c.metamethodNames(member)) do
+                    names[name] = true
+                end
             end
             return names
         end
         local names = {}
         if t.tag == "nominal" then
-            for name in pairs(t.metamethods or {}) do names[name] = true end
+            for name in pairs(t.metamethods or {}) do
+                names[name] = true
+            end
         end
+
         return names
     end
 
@@ -407,7 +424,9 @@ function calls.install(c: state.Checker): calls.Ops
             local contracts = {}
             for _, member in ipairs(t.members) do
                 local ft = ops.metamethodOf(member, name)
-                if ft then contracts[#contracts + 1] = ft end
+                if ft then
+                    contracts[#contracts + 1] = ft
+                end
             end
             return #contracts > 0 and T.intersection(contracts) or nil
         end
@@ -415,6 +434,7 @@ function calls.install(c: state.Checker): calls.Ops
             local ft = t.metamethods[name]
             return ft and specializeSelf(t, ft, t) or nil
         end
+
         return nil
     end
 
@@ -436,9 +456,7 @@ function calls.install(c: state.Checker): calls.Ops
             if bound and actual and actual ~= T.any then
                 local ok, why = isA(actual, substType(bound, map))
                 if not ok then
-                    c.diag("NUPP2116", node,
-                        ("type argument %s for %s: %s")
-                        :format(T.tostring(actual), tv.name, why))
+                    c.diag("NUPP2116", node, ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why))
                 end
             end
         end
@@ -456,19 +474,22 @@ function calls.install(c: state.Checker): calls.Ops
                 if specialized then
                     survivors[#survivors + 1] = specialized
                 else
-                    rejections[#rejections + 1] = T.tostring(candidate) .. ": "
-                        .. (why or "rejected")
+                    rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "rejected")
                 end
             end
             if #survivors == 0 then
-                c.diag("NUPP2125", site,
-                    ("no %s overload accepts this call: %s")
-                    :format(operation, table.concat(rejections, "; ")))
+                c.diag(
+                    "NUPP2125",
+                    site,
+                    ("no %s overload accepts this call: %s"):format(operation, table.concat(rejections, "; "))
+                )
                 return T.any
             elseif #survivors > 1 then
-                c.diag("NUPP2126", site,
-                    ("several %s overloads accept this call: %s")
-                    :format(operation, signaturesText(survivors)))
+                c.diag(
+                    "NUPP2126",
+                    site,
+                    ("several %s overloads accept this call: %s"):format(operation, signaturesText(survivors))
+                )
                 return T.any
             end
             ft = survivors[1]
@@ -481,9 +502,13 @@ function calls.install(c: state.Checker): calls.Ops
         local varargType = ft.varargType
         if T.hasTypevar(ft) then
             local map = {}
-            for j = 1, math.min(#ats, #params) do unify(params[j], ats[j], map) end
+            for j = 1, math.min(#ats, #params) do
+                unify(params[j], ats[j], map)
+            end
             if varargType then
-                for j = #params + 1, #ats do unify(varargType, ats[j], map) end
+                for j = #params + 1, #ats do
+                    unify(varargType, ats[j], map)
+                end
             end
             for j, tv in ipairs(ft.typeParams or {}) do
                 local bound = ft.typeBounds and ft.typeBounds[j]
@@ -491,15 +516,21 @@ function calls.install(c: state.Checker): calls.Ops
                 if bound and actual then
                     local ok, why = isA(actual, substType(bound, map))
                     if not ok then
-                        c.diag("NUPP2116", site,
-                            ("type argument %s for %s: %s")
-                            :format(T.tostring(actual), tv.name, why))
+                        c.diag(
+                            "NUPP2116",
+                            site,
+                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why)
+                        )
                     end
                 end
             end
             local p2, r2 = {}, {}
-            for j, p in ipairs(params) do p2[j] = substType(p, map) end
-            for j, r in ipairs(rets) do r2[j] = substType(r, map) end
+            for j, p in ipairs(params) do
+                p2[j] = substType(p, map)
+            end
+            for j, r in ipairs(rets) do
+                r2[j] = substType(r, map)
+            end
             params, rets = p2, r2
             if varargType then
                 varargType = substType(varargType, map)
@@ -509,23 +540,20 @@ function calls.install(c: state.Checker): calls.Ops
             for j = #params + 1, #ats do
                 local ok, why = isA(ats[j], varargType)
                 if not ok then
-                    c.diag("NUPP2006", argNodes[j] or site,
-                        ("%s argument %d: %s"):format(operation, j, why))
+                    c.diag("NUPP2006", argNodes[j] or site, ("%s argument %d: %s"):format(operation, j, why))
                 end
             end
         end
         if #ats > #params and not ft.vararg then
-            c.diag("NUPP2007", site,
-                ("%s takes %d arguments, got %d"):format(operation,
-                #params, #ats))
+            c.diag("NUPP2007", site, ("%s takes %d arguments, got %d"):format(operation, #params, #ats))
         end
         for j = 1, math.min(#ats, #params) do
             local ok, why = isA(ats[j], params[j])
             if not ok then
-                c.diag("NUPP2006", argNodes[j] or site,
-                    ("%s argument %d: %s"):format(operation, j, why))
+                c.diag("NUPP2006", argNodes[j] or site, ("%s argument %d: %s"):format(operation, j, why))
             end
         end
+
         return rets[1] or T.nil_
     end
 
@@ -545,23 +573,26 @@ function calls.install(c: state.Checker): calls.Ops
         -- table is for, so the wrapper comes off before asking what is being called.
         -- Reaching a `metatable<R>` any other way -- a hand-built one under an
         -- annotation -- is not a declaration and is left alone.
-        if calleeT.tag == "metatable" and calleeT.of.tag == "nominal"
-            and calleeT.of.declKind == "record" then
+        if calleeT.tag == "metatable" and calleeT.of.tag == "nominal" and calleeT.of.declKind == "record" then
             calleeT = calleeT.of
             node.signatureType = calleeT
         end
         -- struct construction: S{...} named or S(...) positional
-        local constructible = calleeT.tag == "nominal"
-            and (calleeT.declKind == "struct" or calleeT.declKind == "record")
+        local constructible = calleeT.tag == "nominal" and (
+            calleeT.declKind == "struct" or calleeT.declKind == "record"
+        )
         -- An operand naming a declared type was already answered as one. What is left
         -- is a value that is not a type at all, and `any` -- an unknown name under
         -- gradual typing -- is deliberately not one of them.
-        if node.isNew and not constructible and not node.newReported
-            and calleeT ~= T.any then
+        if node.isNew and not constructible and not node.newReported and calleeT ~= T.any then
             local named = node.obj and c.pathKey(node.obj)
-            c.diag("NUPP2206", node.obj or node,
+            c.diag(
+                "NUPP2206",
+                node.obj or node,
                 ("%s cannot be constructed"):format(named or T.tostring(calleeT)),
-                nil, {help = "`new` builds a record or a struct"})
+                nil,
+                {help = "`new` builds a record or a struct"}
+            )
             node.newReported = true
         end
         -- Calling a declaration is no longer how it is built, so the call belongs to
@@ -576,10 +607,13 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             local named = c.pathKey(node.obj) or calleeT.name
-            c.diag("NUPP2202", node,
-                ("%s is constructed with `new`"):format(named), nil,
-                {help = ("write new %s%s"):format(named,
-                (argsNode and argsNode.table) and "{...}" or "(...)")})
+            c.diag(
+                "NUPP2202",
+                node,
+                ("%s is constructed with `new`"):format(named),
+                nil,
+                {help = ("write new %s%s"):format(named, (argsNode and argsNode.table) and "{...}" or "(...)")}
+            )
             for _, arg in ipairs(args) do
                 if not cst.isToken(arg) then
                     c.infer(arg)
@@ -592,8 +626,7 @@ function calls.install(c: state.Checker): calls.Ops
             local tbl = nil
             if argsNode and argsNode.table then
                 tbl = argsNode.table
-            elseif #args == 1 and not cst.isToken(args[1])
-                and args[1].kind == "tableExpr" then
+            elseif #args == 1 and not cst.isToken(args[1]) and args[1].kind == "tableExpr" then
                 tbl = args[1]
             end
             -- A declaration that states how it is built is built that way and no other.
@@ -604,11 +637,13 @@ function calls.install(c: state.Checker): calls.Ops
             if constructors and #constructors > 0 then
                 local named = c.pathKey(node.obj) or calleeT.name
                 if tbl then
-                    c.diag("NUPP2208", node,
-                        ("%s declares a constructor, so it is built by calling "
-                        .. "it"):format(named), nil,
-                        {help = ("write new %s(...) with the constructor's "
-                        .. "arguments"):format(named)})
+                    c.diag(
+                        "NUPP2208",
+                        node,
+                        ("%s declares a constructor, so it is built by calling " .. "it"):format(named),
+                        nil,
+                        {help = ("write new %s(...) with the constructor's " .. "arguments"):format(named)}
+                    )
                     -- The fields were the wrong shape of argument, not a wrong one;
                     -- holding them to the constructor's parameters as well would say
                     -- the same thing twice.
@@ -627,33 +662,42 @@ function calls.install(c: state.Checker): calls.Ops
                     local typeParams, typeBounds, anyBound = {}, {}, false
                     for j, tv in ipairs(signature.typeParams or {}) do
                         typeParams[#typeParams + 1] = tv
-                        local bound = signature.typeBounds
-                            and signature.typeBounds[j] or nil
+                        local bound = signature.typeBounds and signature.typeBounds[j] or nil
                         typeBounds[#typeParams] = bound
                         anyBound = anyBound or bound ~= nil
                     end
                     for j, tv in ipairs(calleeT.typeParams or {}) do
                         typeParams[#typeParams + 1] = tv
-                        local bound = calleeT.typeBounds
-                            and calleeT.typeBounds[j] or nil
+                        local bound = calleeT.typeBounds and calleeT.typeBounds[j] or nil
                         typeBounds[#typeParams] = bound
                         anyBound = anyBound or bound ~= nil
                     end
-                    local built = T.func(signature.params, {calleeT},
-                        signature.vararg, signature.paramModes, nil,
+                    local built = T.func(
+                        signature.params,
+                        {calleeT},
+                        signature.vararg,
+                        signature.paramModes,
+                        nil,
                         #typeParams > 0 and typeParams or nil,
-                        anyBound and typeBounds or nil, nil, nil, nil,
-                        nil, signature.varargType, nil, signature.paramPack,
-                        T.pack({calleeT}), signature.packParams,
-                        signature.yieldPack, signature.resumePack)
+                        anyBound and typeBounds or nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        signature.varargType,
+                        nil,
+                        signature.paramPack,
+                        T.pack({calleeT}),
+                        signature.packParams,
+                        signature.yieldPack,
+                        signature.resumePack
+                    )
                     builtSignatures[#builtSignatures + 1] = built
-                    bySignature[built] = entries[index] or {index = index,
-                        signature = signature}
+                    bySignature[built] = entries[index] or {index = index, signature = signature}
                 end
                 local callable = T.intersection(builtSignatures)
                 local first, rets, pack = ops.inferCall(node, callable, argsNode)
-                local selected = node.overloadWinner or (#builtSignatures == 1
-                    and builtSignatures[1] or nil)
+                local selected = node.overloadWinner or (#builtSignatures == 1 and builtSignatures[1] or nil)
                 local entry = selected and bySignature[selected] or nil
                 if entry then
                     node.constructorIndex = entry.index
@@ -662,24 +706,31 @@ function calls.install(c: state.Checker): calls.Ops
                 if entry and calleeT.typeParams and node.argumentPack then
                     local map = {}
                     unifyPack(entry.signature.paramPack, node.argumentPack, map)
-                    ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds,
-                        map, node)
+                    ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, map, node)
                     local instance = instantiateNominal(calleeT, map)
                     first, rets, pack = instance, {instance}, T.pack({instance})
                     if node.signatureType and node.signatureType.tag == "func" then
                         local selectedSignature = node.signatureType
-                        node.signatureType = T.func(selectedSignature.params,
-                            {instance}, selectedSignature.vararg,
-                            selectedSignature.paramModes, selectedSignature.predicate,
-                            nil, nil, selectedSignature.borrowsParam,
+                        node.signatureType = T.func(
+                            selectedSignature.params,
+                            {instance},
+                            selectedSignature.vararg,
+                            selectedSignature.paramModes,
+                            selectedSignature.predicate,
+                            nil,
+                            nil,
+                            selectedSignature.borrowsParam,
                             selectedSignature.borrowsSelf,
                             selectedSignature.borrowsParams,
                             selectedSignature.ffiOut,
                             selectedSignature.varargType,
                             selectedSignature.noreturn,
-                            selectedSignature.paramPack, T.pack({instance}), nil,
+                            selectedSignature.paramPack,
+                            T.pack({instance}),
+                            nil,
                             selectedSignature.yieldPack,
-                            selectedSignature.resumePack)
+                            selectedSignature.resumePack
+                        )
                     end
                     node.valuePack = pack
                     c.lastCallRets = rets
@@ -691,43 +742,38 @@ function calls.install(c: state.Checker): calls.Ops
                 -- tell the generator to stamp the metatable
                 node.recordConstruct = c.pathKey(node.obj) or calleeT.name
             elseif calleeT.declKind == "record" then
-                c.diag("NUPP2202", node,
-                    ("record %s is constructed with named fields: new %s{...}")
-                    :format(calleeT.name, calleeT.name))
+                c.diag(
+                    "NUPP2202",
+                    node,
+                    ("record %s is constructed with named fields: new %s{...}"):format(calleeT.name, calleeT.name)
+                )
             end
             if tbl then
                 for _, f in ipairs(tbl.fields) do
                     if f.kind == "fieldNamed" then
-                        local ft = calleeT.writeByname[f.name.text]
-                            or calleeT.byname[f.name.text]
-                        local fieldDef = calleeT.writeFieldDefs
-                            and calleeT.writeFieldDefs[f.name.text]
-                            or (calleeT.fieldDefs
-                            and calleeT.fieldDefs[f.name.text] or nil)
+                        local ft = calleeT.writeByname[f.name.text] or calleeT.byname[f.name.text]
+                        local fieldDef = calleeT.writeFieldDefs and calleeT.writeFieldDefs[
+                            f.name.text
+                        ] or (calleeT.fieldDefs and calleeT.fieldDefs[f.name.text] or nil)
                         c.markToken(f.name, fieldDef, ft, "property")
                         if not ft then
-                            c.diag("NUPP2202", f, ("no field %q in struct %s")
-                                :format(f.name.text, calleeT.name))
+                            c.diag("NUPP2202", f, ("no field %q in struct %s"):format(f.name.text, calleeT.name))
                         else
                             local vt = c.infer(f.value)
-                            if c.ownershipKind(vt) == "owned"
-                                or c.ownershipKind(vt) == "pinned" then
+                            if c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned" then
                                 affineValues[f.name.text] = vt
-                                c.moveExpression(f.value, vt,
-                                    "affine record construction", c.ownershipKind(vt))
+                                c.moveExpression(f.value, vt, "affine record construction", c.ownershipKind(vt))
                             end
                             if genericMap then
                                 unify(ft, vt, genericMap)
                             end
                             local ok, why = isA(vt, ft)
                             if not ok then
-                                c.diag("NUPP2202", f, ("field %q: %s")
-                                    :format(f.name.text, why))
+                                c.diag("NUPP2202", f, ("field %q: %s"):format(f.name.text, why))
                             end
                         end
                     else
-                        c.diag("NUPP2202", f,
-                            "struct construction takes named fields only")
+                        c.diag("NUPP2202", f, "struct construction takes named fields only")
                         if f.value then
                             c.infer(f.value)
                         end
@@ -737,26 +783,21 @@ function calls.install(c: state.Checker): calls.Ops
                 -- positional: values fill fields in declaration order
                 local order = calleeT.fieldOrder or {}
                 if #args > #order then
-                    c.diag("NUPP2202", node, ("too many values (struct %s has %d fields)")
-                        :format(calleeT.name, #order))
+                    c.diag("NUPP2202", node, ("too many values (struct %s has %d fields)"):format(calleeT.name, #order))
                 end
                 for j, arg in ipairs(args) do
                     if not cst.isToken(arg) then
                         local at = c.infer(arg)
                         local fname = order[j]
-                        local ft = fname and (calleeT.writeByname[fname]
-                            or calleeT.byname[fname])
-                        if fname and (c.ownershipKind(at) == "owned"
-                            or c.ownershipKind(at) == "pinned") then
+                        local ft = fname and (calleeT.writeByname[fname] or calleeT.byname[fname])
+                        if fname and (c.ownershipKind(at) == "owned" or c.ownershipKind(at) == "pinned") then
                             affineValues[fname] = at
-                            c.moveExpression(arg, at, "affine record construction",
-                                c.ownershipKind(at))
+                            c.moveExpression(arg, at, "affine record construction", c.ownershipKind(at))
                         end
                         if ft then
                             local ok, why = isA(at, ft)
                             if not ok then
-                                c.diag("NUPP2202", arg, ("value %d (field %q): %s")
-                                    :format(j, fname, why))
+                                c.diag("NUPP2202", arg, ("value %d (field %q): %s"):format(j, fname, why))
                             end
                         end
                     end
@@ -764,15 +805,13 @@ function calls.install(c: state.Checker): calls.Ops
             end
             if genericMap then
                 -- the type arguments follow from the values supplied
-                ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds,
-                    genericMap, node)
+                ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)
                 local inst = instantiateNominal(calleeT, genericMap)
                 return inst, {inst}
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, opaque = {}, false
-                if calleeT.defaultDisposers
-                    and #calleeT.defaultDisposers == 1 then
+                if calleeT.defaultDisposers and #calleeT.defaultDisposers == 1 then
                     cleanups[1] = calleeT.defaultDisposers[1]
                 else
                     for j = #calleeT.affineFields, 1, -1 do
@@ -783,8 +822,7 @@ function calls.install(c: state.Checker): calls.Ops
                                 opaque = true
                             else
                                 for _, cleanup in ipairs(valueT.cleanups) do
-                                    cleanups[#cleanups + 1] =
-                                        "@field|" .. name .. "|" .. cleanup
+                                    cleanups[#cleanups + 1] = "@field|" .. name .. "|" .. cleanup
                                 end
                             end
                         elseif c.ownershipKind(valueT) == "pinned" then
@@ -815,17 +853,19 @@ function calls.install(c: state.Checker): calls.Ops
             -- A `new` whose operand was already refused is not also a bad call: the
             -- program said what it meant, and one diagnostic says why it cannot be met.
             if calleeT ~= T.any and not node.newReported then
-                c.diag("NUPP2005", node,
-                    ("%s is not callable"):format(T.tostring(calleeT)))
+                c.diag("NUPP2005", node, ("%s is not callable"):format(T.tostring(calleeT)))
             end
             -- still check the argument expressions themselves
             for _, arg in ipairs(args) do
                 if not cst.isToken(arg) then
                     local argumentType = c.infer(arg)
                     if c.ownershipKind(argumentType) then
-                        c.diag("NUPP2603", arg,
+                        c.diag(
+                            "NUPP2603",
+                            arg,
                             "an owner or borrow cannot cross an untyped call; "
-                            .. "use intoRaw explicitly to abandon tracking")
+                            .. "use intoRaw explicitly to abandon tracking"
+                        )
                     end
                 end
             end
@@ -855,7 +895,9 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
             ats = {}
-            for j = 1, maxHead do ats[j] = T.packAt(argPack, j) or T.nil_ end
+            for j = 1, maxHead do
+                ats[j] = T.packAt(argPack, j) or T.nil_
+            end
             argPack = T.pack(ats)
         end
         local argNodes = {}
@@ -866,26 +908,32 @@ function calls.install(c: state.Checker): calls.Ops
         if overloads then
             local survivors, originals, rejections = {}, {}, {}
             for _, candidate in ipairs(overloads) do
-                local specialized, why = probeSignature(candidate, selectionPack,
-                    node.cdefCall)
+                local specialized, why = probeSignature(candidate, selectionPack, node.cdefCall)
                 if specialized then
                     survivors[#survivors + 1] = specialized
                     originals[#originals + 1] = candidate
                 else
-                    rejections[#rejections + 1] = T.tostring(candidate) .. ": "
-                        .. (why or "rejected")
+                    rejections[#rejections + 1] = T.tostring(candidate) .. ": " .. (why or "rejected")
                 end
             end
             node.overloadCandidates = overloads
             if #survivors == 0 then
-                c.diag("NUPP2125", node,
-                    "no overload accepts this call: "
-                    .. table.concat(rejections, "; "), nil, callDetails(node))
+                c.diag(
+                    "NUPP2125",
+                    node,
+                    "no overload accepts this call: " .. table.concat(rejections, "; "),
+                    nil,
+                    callDetails(node)
+                )
                 return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
             elseif #survivors > 1 then
-                c.diag("NUPP2126", node,
-                    "several overloads accept this call: "
-                    .. signaturesText(survivors), nil, callDetails(node))
+                c.diag(
+                    "NUPP2126",
+                    node,
+                    "several overloads accept this call: " .. signaturesText(survivors),
+                    nil,
+                    callDetails(node)
+                )
                 return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
             end
             calleeT = survivors[1]
@@ -905,8 +953,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if #args > 0 and source == args[#args] and j >= #args then
                     expandedIndex = j - #args + 1
                 end
-                local owners = source.returnBorrowOwners
-                    and source.returnBorrowOwners[expandedIndex] or nil
+                local owners = source.returnBorrowOwners and source.returnBorrowOwners[expandedIndex] or nil
                 if not owners and source.borrowOwner then
                     owners = {source.borrowOwner}
                 elseif not owners and source.borrowOwners then
@@ -927,14 +974,15 @@ function calls.install(c: state.Checker): calls.Ops
         -- binders, but calling that callback must preserve those symbolic packs rather
         -- than treating them as a fresh generic signature and replacing an unbound
         -- result pack with `...any`.
-        if T.hasTypevar(calleeT) and (#(calleeT.typeParams or {}) > 0
-            or #(calleeT.packParams or {}) > 0) then
+        if T.hasTypevar(calleeT) and (#(calleeT.typeParams or {}) > 0 or #(calleeT.packParams or {}) > 0) then
             local map = {}
             unifyPack(paramPack, argPack, map)
             -- The extra arguments bind the element type too, which is what makes
             -- `math.min(a, b)` over integers stay an integer.
             if varargType then
-                for j = #params + 1, #ats do unify(varargType, ats[j], map) end
+                for j = #params + 1, #ats do
+                    unify(varargType, ats[j], map)
+                end
             end
             for j, tv in ipairs(calleeT.typeParams or {}) do
                 local bound = calleeT.typeBounds and calleeT.typeBounds[j]
@@ -943,15 +991,21 @@ function calls.install(c: state.Checker): calls.Ops
                     local expected = substType(bound, map)
                     local ok, why = isA(actual, expected)
                     if not ok then
-                        c.diag("NUPP2116", node,
-                            ("type argument %s for %s: %s")
-                            :format(T.tostring(actual), tv.name, why))
+                        c.diag(
+                            "NUPP2116",
+                            node,
+                            ("type argument %s for %s: %s"):format(T.tostring(actual), tv.name, why)
+                        )
                     end
                 end
             end
             local p2, r2 = {}, {}
-            for j, p in ipairs(params) do p2[j] = substType(p, map) end
-            for j, r in ipairs(rets) do r2[j] = substType(r, map) end
+            for j, p in ipairs(params) do
+                p2[j] = substType(p, map)
+            end
+            for j, r in ipairs(rets) do
+                r2[j] = substType(r, map)
+            end
             params, rets = p2, r2
             paramPack, retPack = substPack(paramPack, map), substPack(retPack, map)
             params, rets = paramPack.head, retPack.head
@@ -964,8 +1018,13 @@ function calls.install(c: state.Checker): calls.Ops
         local nparams = #params
         local actualCount = #argPack.head
         if not argPack.tail and actualCount > nparams and not calleeT.vararg then
-            c.diag("NUPP2007", node, ("too many arguments (expected %d, got %d)")
-                :format(nparams, actualCount), nil, callDetails(node))
+            c.diag(
+                "NUPP2007",
+                node,
+                ("too many arguments (expected %d, got %d)"):format(nparams, actualCount),
+                nil,
+                callDetails(node)
+            )
             c.checkPackDiscard(argPack, nparams + 1, node)
         end
         -- A declared element type applies to every argument past the last named
@@ -974,10 +1033,13 @@ function calls.install(c: state.Checker): calls.Ops
             for j = nparams + 1, actualCount do
                 local ok, why = isA(ats[j] or T.any, varargType)
                 if not ok then
-                    c.diag("NUPP2006", cst.isToken(argNodes[j])
-                        and node or argNodes[j],
-                        ("argument %d: %s"):format(j, why), nil,
-                        callDetails(node))
+                    c.diag(
+                        "NUPP2006",
+                        cst.isToken(argNodes[j]) and node or argNodes[j],
+                        ("argument %d: %s"):format(j, why),
+                        nil,
+                        callDetails(node)
+                    )
                 end
             end
         end
@@ -992,10 +1054,13 @@ function calls.install(c: state.Checker): calls.Ops
             end
             local ok, why = isA(actualForCheck, params[j])
             if not ok then
-                c.diag("NUPP2006", cst.isToken(argNodes[j])
-                    and node or argNodes[j],
-                    ("argument %d: %s"):format(j, why), nil,
-                    callDetails(node))
+                c.diag(
+                    "NUPP2006",
+                    cst.isToken(argNodes[j]) and node or argNodes[j],
+                    ("argument %d: %s"):format(j, why),
+                    nil,
+                    callDetails(node)
+                )
             end
             -- The parameter is fully substituted by now, so a `metatable<T>` says whose
             -- metatable this argument is. That is how `setmetatable` and any registrar
@@ -1004,59 +1069,67 @@ function calls.install(c: state.Checker): calls.Ops
                 c.checkMetatableLiteral(argNodes[j], ats[j], params[j])
             end
             if mode == "takes" then
-                local withBorrow = c.ownershipKind(ats[j]) == "borrowed"
-                    and not cst.isToken(argNodes[j]) and argNodes[j].withBinding
+                local withBorrow = c.ownershipKind(
+                    ats[j]
+                ) == "borrowed" and not cst.isToken(argNodes[j]) and argNodes[j].withBinding
                 if withBorrow then
-                    c.diag("NUPP2614", argNodes[j],
-                        "a visible 'with' borrow cannot be consumed")
+                    c.diag("NUPP2614", argNodes[j], "a visible 'with' borrow cannot be consumed")
                 end
                 if not withBorrow then
-                    c.moveExpression(cst.isToken(argNodes[j])
-                        and node or argNodes[j],
-                        ats[j], ("argument %d"):format(j))
+                    c.moveExpression(
+                        cst.isToken(argNodes[j]) and node or argNodes[j],
+                        ats[j],
+                        ("argument %d"):format(j)
+                    )
                 end
             elseif mode == "exclusive" then
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 if c.ownershipKind(ats[j]) == "borrowed" then
-                    c.diag("NUPP2602", argNodes[j] or node,
-                        "an exclusive parameter needs sole access, not a shared borrow")
+                    c.diag(
+                        "NUPP2602",
+                        argNodes[j] or node,
+                        "an exclusive parameter needs sole access, not a shared borrow"
+                    )
                 elseif entry and (entry.activeBorrows or 0) > 0 then
-                    c.diag("NUPP2602", nameNode or argNodes[j],
-                        "an exclusive parameter cannot invalidate a value while a "
-                        .. "derived borrow is live")
+                    c.diag(
+                        "NUPP2602",
+                        nameNode or argNodes[j],
+                        "an exclusive parameter cannot invalidate a value while a " .. "derived borrow is live"
+                    )
                 end
             elseif mode == "borrows" and c.ownershipKind(ats[j]) == "borrowed" then
             -- Reborrowing is valid and does not alter either lifetime.
             elseif mode == "plain" and c.ownershipKind(ats[j]) then
-                c.diag("NUPP2603", argNodes[j] or node,
-                    "an owner or borrow needs a borrows, exclusive, or takes contract")
-            elseif mode == "plain" and node.cdefCall
-                and c.pointerShaped(ats[j]) and c.unsafeDepth == 0 then
-                c.diag("NUPP2604", argNodes[j] or node,
+                c.diag(
+                    "NUPP2603",
+                    argNodes[j] or node,
+                    "an owner or borrow needs a borrows, exclusive, or takes contract"
+                )
+            elseif mode == "plain" and node.cdefCall and c.pointerShaped(ats[j]) and c.unsafeDepth == 0 then
+                c.diag(
+                    "NUPP2604",
+                    argNodes[j] or node,
                     "passing a raw pointer to C requires unsafe do or a "
-                    .. "borrows, exclusive, takes, retains, or releases contract")
+                    .. "borrows, exclusive, takes, retains, or releases contract"
+                )
             elseif mode == "retains" or mode == "releases" then
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 if not node.cdefCall then
-                    c.diag("NUPP2602", argNodes[j] or node,
-                        mode .. " is an imported C-function contract")
+                    c.diag("NUPP2602", argNodes[j] or node, mode .. " is an imported C-function contract")
                 elseif c.ownershipKind(ats[j]) ~= "pinned" or not entry then
-                    c.diag("NUPP2602", argNodes[j] or node,
-                        mode .. " argument requires a named pinned<T> handle")
+                    c.diag("NUPP2602", argNodes[j] or node, mode .. " argument requires a named pinned<T> handle")
                 elseif entry.moved then
                 -- The name expression already emitted the use-after-move.
                 elseif mode == "retains" then
                     if entry.retained then
-                        c.diag("NUPP2602", nameNode or argNodes[j],
-                            "C already retains this pinned handle")
+                        c.diag("NUPP2602", nameNode or argNodes[j], "C already retains this pinned handle")
                     else
                         entry.retained = true
                     end
                 elseif not entry.retained then
-                    c.diag("NUPP2602", nameNode or argNodes[j],
-                        "releases argument is not currently retained by C")
+                    c.diag("NUPP2602", nameNode or argNodes[j], "releases argument is not currently retained by C")
                 else
                     entry.retained = false
                 end
@@ -1067,9 +1140,9 @@ function calls.install(c: state.Checker): calls.Ops
         -- expression would. Everything downstream — binding it, blocking a move of the
         -- owner, releasing at scope exit — is the machinery lexical borrows already
         -- use.
-        if calleeT and calleeT.tag == "func"
-            and (calleeT.borrowsParam or calleeT.borrowsSelf
-            or calleeT.borrowsParams) then
+        if calleeT and calleeT.tag == "func" and (
+            calleeT.borrowsParam or calleeT.borrowsSelf or calleeT.borrowsParams
+        ) then
             local sources = {}
             if calleeT.borrowsSelf then
                 sources[#sources + 1] = node.obj
@@ -1086,8 +1159,7 @@ function calls.install(c: state.Checker): calls.Ops
                 if entry then
                     owners[#owners + 1] = c.borrowRoot(entry)
                 elseif source then
-                    c.diag("NUPP2619", source,
-                        "a borrowed result needs named arguments to borrow from")
+                    c.diag("NUPP2619", source, "a borrowed result needs named arguments to borrow from")
                 end
             end
             if #owners == 1 then
@@ -1106,8 +1178,7 @@ function calls.install(c: state.Checker): calls.Ops
         if resultTail and resultTail.kind == "generic" then
             local inputStart: integer? = nil
             local inputTail = declaredParamPack.tail
-            if inputTail and inputTail.kind == "generic"
-                and inputTail.var == resultTail.var then
+            if inputTail and inputTail.kind == "generic" and inputTail.var == resultTail.var then
                 inputStart = #declaredParamPack.head + 1
             end
             if inputStart then
@@ -1127,21 +1198,33 @@ function calls.install(c: state.Checker): calls.Ops
                 local entry = source and c.ownershipEntry(source)
                 if entry then
                     node.returnBorrowOwners = node.returnBorrowOwners or {}
-                    node.returnBorrowOwners[output.returnIndex] = {
-                        c.borrowRoot(entry),
-                    }
+                    node.returnBorrowOwners[output.returnIndex] = {c.borrowRoot(entry),}
                 elseif source then
-                    c.diag("NUPP2619", source,
-                        "a borrowed C output needs a named lifetime source")
+                    c.diag("NUPP2619", source, "a borrowed C output needs a named lifetime source")
                 end
             end
         end
-        node.signatureType = T.func(params, rets, calleeT.vararg,
-            paramModes, calleeT.predicate, calleeT.typeParams,
-            calleeT.typeBounds, calleeT.borrowsParam, calleeT.borrowsSelf,
-            calleeT.borrowsParams, calleeT.ffiOut, varargType,
-            calleeT.noreturn, paramPack, retPack, calleeT.packParams,
-            calleeT.yieldPack, calleeT.resumePack)
+        node.signatureType = T.func(
+            params,
+            rets,
+            calleeT.vararg,
+            paramModes,
+            calleeT.predicate,
+            calleeT.typeParams,
+            calleeT.typeBounds,
+            calleeT.borrowsParam,
+            calleeT.borrowsSelf,
+            calleeT.borrowsParams,
+            calleeT.ffiOut,
+            varargType,
+            calleeT.noreturn,
+            paramPack,
+            retPack,
+            calleeT.packParams,
+            calleeT.yieldPack,
+            calleeT.resumePack
+        )
+
         return T.packAt(retPack, 1) or T.nil_, retPack.head, retPack
     end
 
@@ -1149,6 +1232,7 @@ function calls.install(c: state.Checker): calls.Ops
     c.validateTypeBounds = ops.validateTypeBounds
     c.applyContract = ops.applyContract
     c.inferCall = ops.inferCall
+
     return ops
 end
 

@@ -40,6 +40,7 @@ local function readFile(path)
     end
     local source = file:read("*a")
     file:close()
+
     return source
 end
 
@@ -56,6 +57,7 @@ local function lineText(source, wanted)
         start, line = newline + 1, line + 1
     end
     local finish = source:find("\n", start, true) or (#source + 1)
+
     return source:sub(start, finish - 1):gsub("\r$", "")
 end
 
@@ -77,8 +79,7 @@ local function writeSourceMark(out, style, paint, source, diagnostic)
     local rail = style.gutter(" " .. number .. " |")
     local blank = style.gutter(" " .. (" "):rep(#number) .. " |")
     out[#out + 1] = rail .. " " .. shown .. "\n"
-    out[#out + 1] = blank .. " " .. prefix
-        .. paint("^" .. ("~"):rep(length - 1)) .. "\n"
+    out[#out + 1] = blank .. " " .. prefix .. paint("^" .. ("~"):rep(length - 1)) .. "\n"
 end
 
 --- Writes diagnostics and returns whether an error was present.
@@ -97,8 +98,10 @@ function diagnostics.report(values: {any}): boolean
         if sources[path] == nil then
             sources[path] = readFile(path) or false
         end
+
         return sources[path] or nil
     end
+
     for _, diagnostic in ipairs(values) do
         local severity = REPORTED[diagnostic.severity] or "error"
         if severity == "error" then
@@ -109,37 +112,37 @@ function diagnostics.report(values: {any}): boolean
         if diagnostic.lint then
             -- The name is what a suppression or a config entry writes, so it is said
             -- beside the code rather than instead of it.
-            code = code ~= "" and (code .. " " .. diagnostic.lint)
-                or diagnostic.lint
+            code = code ~= "" and (code .. " " .. diagnostic.lint) or diagnostic.lint
         end
         if code ~= "" then
             code = style.faint(code .. ":") .. " "
         end
-        out[#out + 1] = style.path(("%s:%d:%d:"):format(
-            diagnostic.filename or "?", diagnostic.line or 0,
-            diagnostic.col or 0)) .. " " .. paint(severity) .. ": " .. code
-            .. style.strong(diagnostic.msg or "error") .. "\n"
-        writeSourceMark(out, style, paint, sourceFor(diagnostic.filename),
-            diagnostic)
+        out[
+            #out + 1
+        ] = style.path(
+            ("%s:%d:%d:"):format(diagnostic.filename or "?", diagnostic.line or 0, diagnostic.col or 0)
+        ) .. " " .. paint(severity) .. ": " .. code .. style.strong(diagnostic.msg or "error") .. "\n"
+        writeSourceMark(out, style, paint, sourceFor(diagnostic.filename), diagnostic)
         local notePaint = ansi.forSeverity(style, "note")
         for _, related in ipairs(diagnostic.related or {}) do
-            out[#out + 1] = style.path(("%s:%d:%d:"):format(
-                related.filename or diagnostic.filename or "?",
-                related.line or 0, related.col or 0)) .. " "
-                .. notePaint("note") .. ": "
-                .. (related.message or "related location") .. "\n"
-            writeSourceMark(out, style, notePaint,
-                sourceFor(related.filename or diagnostic.filename), related)
+            out[
+                #out + 1
+            ] = style.path(
+                (
+                    "%s:%d:%d:"
+                ):format(related.filename or diagnostic.filename or "?", related.line or 0, related.col or 0)
+            ) .. " " .. notePaint("note") .. ": " .. (related.message or "related location") .. "\n"
+            writeSourceMark(out, style, notePaint, sourceFor(related.filename or diagnostic.filename), related)
         end
         for _, note in ipairs(diagnostic.notes or {}) do
             out[#out + 1] = notePaint("note") .. ": " .. note .. "\n"
         end
         if diagnostic.help then
-            out[#out + 1] = ansi.forSeverity(style, "help")("help") .. ": "
-                .. diagnostic.help .. "\n"
+            out[#out + 1] = ansi.forSeverity(style, "help")("help") .. ": " .. diagnostic.help .. "\n"
         end
     end
     io.stderr:write(table.concat(out))
+
     return failed
 end
 

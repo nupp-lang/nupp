@@ -34,40 +34,92 @@ type parser.ParseResult = {
     tokens: {Token},
 
     --- Syntax errors, in source order. Parsing continued past all of them.
-    errors: {lexer.LexError},
-}
+    errors: {lexer.LexError},}
 
 local add = cst.add
 
 -- Binary operator priorities {left, right}; right < left means right-assoc. Layering
 -- follows docs/grammar.abnf (Lua 5.3-style placement of bit ops).
-local BINPRI = {
-    ["or"] = {1, 1},
-    ["??"] = {1, 1}, -- nil-coalescing, alongside `or`
-    ["and"] = {2, 2},
-    ["<"] = {3, 3}, [">"] = {3, 3}, ["<="] = {3, 3}, [">="] = {3, 3},
-    ["~="] = {3, 3}, ["=="] = {3, 3},
-    ["|"] = {4, 4},
-    ["~"] = {5, 5},
-    ["&"] = {6, 6},
-    ["<<"] = {7, 7}, [">>"] = {7, 7}, ["~>>"] = {7, 7},
-    [".."] = {9, 8},
-    ["+"] = {10, 10}, ["-"] = {10, 10},
-    ["*"] = {11, 11}, ["/"] = {11, 11}, ["//"] = {11, 11}, ["%"] = {11, 11},
-    ["^"] = {14, 13},
-}
+local BINPRI = {["or"] = {1, 1}, ["??"] = {1, 1}, -- nil-coalescing, alongside `or`
+    [
+    "and"
+] = {
+    2,
+    2
+}, [
+    "<"
+] = {
+    3,
+    3
+}, [
+    ">"
+] = {
+    3,
+    3
+}, [
+    "<="
+] = {
+    3,
+    3
+}, [
+    ">="
+] = {
+    3,
+    3
+}, [
+    "~="
+] = {
+    3,
+    3
+}, [
+    "=="
+] = {
+    3,
+    3
+}, [
+    "|"
+] = {
+    4,
+    4
+}, [
+    "~"
+] = {
+    5,
+    5
+}, [
+    "&"
+] = {
+    6,
+    6
+}, [
+    "<<"
+] = {
+    7,
+    7
+}, [
+    ">>"
+] = {
+    7,
+    7
+}, ["~>>"] = {7, 7}, [".."] = {9, 8}, ["+"] = {10, 10}, ["-"] = {10, 10}, ["*"] = {11, 11}, ["/"] = {11, 11}, ["//"] = {11, 11}, ["%"] = {11, 11}, ["^"] = {14, 13},}
 local UNARY_PRI = 12
 local UNOPS = {["not"] = true, ["#"] = true, ["-"] = true, ["~"] = true}
 
-local BLOCK_FOLLOW = {
-    ["eof"] = true, ["end"] = true, ["else"] = true,
-    ["elseif"] = true, ["until"] = true,
-}
+local BLOCK_FOLLOW = {["eof"] = true, ["end"] = true, ["else"] = true, ["elseif"] = true, ["until"] = true,}
 
 local EXPR_START = {
-    ["number"] = true, ["string"] = true, ["nil"] = true, ["true"] = true,
-    ["false"] = true, ["..."] = true, ["function"] = true, ["{"] = true,
-    ["name"] = true, ["("] = true, ["|"] = true, ["istringOpen"] = true,
+    ["number"] = true,
+    ["string"] = true,
+    ["nil"] = true,
+    ["true"] = true,
+    ["false"] = true,
+    ["..."] = true,
+    ["function"] = true,
+    ["{"] = true,
+    ["name"] = true,
+    ["("] = true,
+    ["|"] = true,
+    ["istringOpen"] = true,
 }
 
 --- Parses one file into a lossless tree.
@@ -107,8 +159,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- True when an expression could begin at the cursor.
     local function atExprStart(): boolean
         local kind = tokens[i].kind
-        return EXPR_START[kind] or UNOPS[kind] or kind == "error"
-            or atEmptyPipes()
+        return EXPR_START[kind] or UNOPS[kind] or kind == "error" or atEmptyPipes()
     end
 
     --- Consumes the current token and returns it.
@@ -117,6 +168,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if tok.kind ~= "eof" then
             i = i + 1
         end
+
         return tok
     end
 
@@ -135,6 +187,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if tok.text == "" then
             return tok.kind
         end
+
         return ("%q"):format(tok.text)
     end
 
@@ -144,18 +197,25 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif msg == "unexpected symbol" then
             msg = msg .. "; found " .. found(tok)
         end
-        errors[#errors + 1] = {code = code or "NUPP1005",
-            offset = tok.offset, length = #tok.text,
-            line = tok.line, col = tok.col, msg = msg,
-            filename = filename, help = help}
+        errors[
+            #errors + 1
+        ] = {
+            code = code or "NUPP1005",
+            offset = tok.offset,
+            length = #tok.text,
+            line = tok.line,
+            col = tok.col,
+            msg = msg,
+            filename = filename,
+            help = help
+        }
     end
 
     --- A zero-width stand-in for a token that should have been there. It prints as
     --- nothing, so recovery does not disturb the round trip.
     local function missing(kind: string): Token
         local at = cur()
-        return {kind = kind, text = "", missing = true, trivia = {},
-            offset = at.offset, line = at.line, col = at.col}
+        return {kind = kind, text = "", missing = true, trivia = {}, offset = at.offset, line = at.line, col = at.col}
     end
 
     --- Consumes the expected token, or reports and inserts a missing one.
@@ -163,8 +223,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == kind then
             return advance()
         end
-        errAt(cur(), ("'%s' expected%s; found %s"):format(kind,
-            what and (" " .. what) or "", found(cur())), "NUPP1002")
+        errAt(cur(), ("'%s' expected%s; found %s"):format(kind, what and (" " .. what) or "", found(cur())), "NUPP1002")
+
         return missing(kind)
     end
 
@@ -173,8 +233,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == "name" then
             return advance()
         end
-        errAt(cur(), ("name expected%s; found %s"):format(
-            what and (" " .. what) or "", found(cur())), "NUPP1003")
+        errAt(cur(), ("name expected%s; found %s"):format(what and (" " .. what) or "", found(cur())), "NUPP1003")
+
         return missing("name")
     end
 
@@ -187,39 +247,55 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         noMethod = 0
         local r = fn(...)
         noMethod = saved
+
         return r
     end
 
-    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor,
-        parseFuncbody, parseType, parseTypePack, parseStatement, parseReturnType
+    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parseTypePack, parseStatement, parseReturnType
 
     -- Tokens that can begin a type expression.
     local TYPE_START = {
-        ["name"] = true, ["nil"] = true, ["{"] = true,
-        ["function"] = true, ["("] = true,
-        ["string"] = true, ["true"] = true, ["false"] = true,
+        ["name"] = true,
+        ["nil"] = true,
+        ["{"] = true,
+        ["function"] = true,
+        ["("] = true,
+        ["string"] = true,
+        ["true"] = true,
+        ["false"] = true,
     }
 
     -- FFI operations that take a type rather than a value, so the checker can give them
     -- a return type that depends on it.
     local FFI_INTRINSIC = {
-        ["new"] = true, ["cast"] = true, ["istype"] = true,
-        ["typeof"] = true, ["sizeof"] = true, ["alignof"] = true,
+        ["new"] = true,
+        ["cast"] = true,
+        ["istype"] = true,
+        ["typeof"] = true,
+        ["sizeof"] = true,
+        ["alignof"] = true,
     }
 
     -- Compound assignment: statement-only, so there is no ambiguity with the expression
     -- operators they are built from. That is also what lets `~=` mean xor-assign here
     -- while it stays inequality in an expression: Lua has no assignment expression, so
     -- the two never meet.
-    local COMPOUND_ASSIGN = {
-        ["+="] = "+", ["-="] = "-", ["*="] = "*", ["/="] = "/",
-        ["//="] = "//", ["%="] = "%", ["&="] = "&", ["|="] = "|",
-        ["<<="] = "<<", [">>="] = ">>", ["~>>="] = "~>>", ["..="] = "..",
-        ["~="] = "~",
+    local COMPOUND_ASSIGN = {[
+        "+="
+    ] = "+", [
+        "-="
+    ] = "-", [
+        "*="
+    ] = "*", [
+        "/="
+    ] = "/", [
+        "//="
+    ] = "//", [
+        "%="
+    ] = "%", ["&="] = "&", ["|="] = "|", ["<<="] = "<<", [">>="] = ">>", ["~>>="] = "~>>", ["..="] = "..", ["~="] = "~",
         -- `??=` is a Nupp extension: LuaJIT lists it among the extensions it has not
         -- taken, so it is lowered rather than passed through.
-        ["??="] = "??",
-    }
+        ["??="] = "??",}
 
     --- The binary operator a compound assignment at the cursor is built from, or nil
     --- when there is no compound assignment there. Only `~=` needs the second look:
@@ -230,14 +306,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if tok.kind == "~=" and tok.text ~= "~=" then
             return nil
         end
+
         return COMPOUND_ASSIGN[tok.kind]
     end
 
     -- Contextual declaration introducers at statement position [CS-5].
-    local TYPEDECL_KW = {
-        ["type"] = true, ["record"] = true, ["interface"] = true,
-        ["struct"] = true,
-    }
+    local TYPEDECL_KW = {["type"] = true, ["record"] = true, ["interface"] = true, ["struct"] = true,}
     -- `type` names a type alias and takes `= <type>`; the others open a body.
     local ALIAS_KW = {["type"] = true}
 
@@ -262,6 +336,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             j = j + 2
         end
+
         return j
     end
 
@@ -294,15 +369,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if ALIAS_KW[kw.text] then
             return after.kind == "=" or after.kind == "<"
         end
+
         return after.kind ~= "=" and after.kind ~= ","
     end
 
     --- Whether a contextual `with` begins an explicit resource scope here.
     local function startsWith(at: integer): boolean
         local kw, name, after = tokens[at], tokens[at + 1], tokens[at + 2]
-        return kw and kw.kind == "name" and kw.text == "with"
-            and name and name.kind == "name"
-            and after and (after.kind == "=" or after.kind == ":")
+        return kw and kw.kind == "name" and kw.text == "with" and name and name.kind == "name" and after and (
+            after.kind == "=" or after.kind == ":"
+        )
     end
 
     -- Consumes ':' as a type-annotation colon (formatted as "x: T").
@@ -344,6 +420,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         until false
         add(g, expect(">", "to close generic parameter list")).generic = true
         n.generics = add(n, g)
+
         return g
     end
 
@@ -356,8 +433,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return false
         end
         local k = tok.kind
-        return k == "name" or k == "nil" or k == "{" or k == "function"
-            or k == "(" or k == "string"
+
+        return k == "name" or k == "nil" or k == "{" or k == "function" or k == "(" or k == "string"
     end
 
     --- A type without its postfixes.
@@ -366,8 +443,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- `const T` is a read-only view of T. `const` is only a modifier when a type
         -- follows it; on its own it is a type name like any other, which is what keeps
         -- `local x: const` meaning what it did.
-        if kind == "name" and cur().text == "const"
-            and startsType(tokens[i + 1]) then
+        if kind == "name" and cur().text == "const" and startsType(tokens[i + 1]) then
             local n = new cst.Tconst {kind = "tconst"}
             add(n, advance())
             n.inner = add(n, parseTypePrimary())
@@ -392,12 +468,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == "<" then
                 add(n, advance()).generic = true
                 local packArgs = n.base and n.base.text == "thread"
-                n.typeArgs = {add(n, packArgs
-                    and parseTypePack(false) or parseType())}
+                n.typeArgs = {add(n, packArgs and parseTypePack(false) or parseType())}
                 while cur().kind == "," do
                     add(n, advance())
-                    n.typeArgs[#n.typeArgs + 1] = add(n, packArgs
-                        and parseTypePack(false) or parseType())
+                    n.typeArgs[#n.typeArgs + 1] = add(n, packArgs and parseTypePack(false) or parseType())
                 end
                 add(n, expect(">", "to close type arguments")).generic = true
             end
@@ -426,14 +500,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local addOpen = advance()
             local function shapeMember(): Node
                 local capability = nil
-                if cur().kind == "name"
-                    and (cur().text == "readonly" or cur().text == "writeonly")
-                    and tokens[i + 1]
-                    and (tokens[i + 1].kind == "name"
-                    or tokens[i + 1].kind == "[") then
+                if cur().kind == "name" and (
+                    cur().text == "readonly" or cur().text == "writeonly"
+                ) and tokens[i + 1] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "[") then
                     capability = advance()
-                    capability.propertyCapability = capability.text == "readonly"
-                        and "read" or "write"
+                    capability.propertyCapability = capability.text == "readonly" and "read" or "write"
                 end
                 local member
                 if cur().kind == "[" then
@@ -447,8 +518,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     annotationColon(member, "in indexer type")
                     member.value = add(member, parseType())
                 else
-                    member = new cst.TshapeField {kind = "tshapeField",
-                        capability = capability}
+                    member = new cst.TshapeField {kind = "tshapeField", capability = capability}
                     if capability then
                         add(member, capability)
                     end
@@ -456,8 +526,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     annotationColon(member, "in shape field")
                     member.type = add(member, parseType())
                 end
+
                 return member
             end
+
             if cur().kind == "[" then
                 -- map: { [K]: V } [CS-8]
                 local first = shapeMember()
@@ -473,11 +545,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     n = first
                     table.insert(n, 1, addOpen)
                 end
-            elseif cur().kind == "name" and tokens[i + 1]
-                and (tokens[i + 1].kind == ":"
-                or ((cur().text == "readonly" or cur().text == "writeonly")
-                and (tokens[i + 1].kind == "name"
-                or tokens[i + 1].kind == "["))) then
+            elseif cur().kind == "name" and tokens[
+                i + 1
+            ] and (
+                tokens[
+                    i + 1
+                ].kind == ":" or (
+                    (
+                        cur().text == "readonly" or cur().text == "writeonly"
+                    ) and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "[")
+                )
+            ) then
                 -- Inline shape members and capability indexers. `readonly` and
                 -- `writeonly` remain contextual: `{readonly: T}` is still a field.
                 n = new cst.Tshape {kind = "tshape"}
@@ -523,8 +601,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         add(p, advance())
                         if cur().kind == ":" then
                             annotationColon(p, "in vararg type")
-                            if cur().kind == "name" and tokens[i + 1]
-                                and tokens[i + 1].kind == "..." then
+                            if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
                                 p.type = add(p, parseTypePack())
                                 p.pack = true
                             else
@@ -533,8 +610,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         end
                         n.params[#n.params + 1] = add(n, p)
                         break
-                    elseif cur().kind == "name" and tokens[i + 1]
-                        and tokens[i + 1].kind == "..." then
+                    elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
                         local pack = new cst.Tpack {kind = "tpack", types = {}}
                         local tail = new cst.Tname {kind = "tname"}
                         tail.base = add(tail, advance())
@@ -544,18 +620,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         p.type, p.pack = add(p, pack), true
                         n.params[#n.params + 1] = add(n, p)
                         break
-                    elseif cur().kind == "name"
-                        and (cur().text == "takes" or cur().text == "borrows"
+                    elseif cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
                         or cur().text == "exclusive"
-                        or cur().text == "retains" or cur().text == "releases")
-                        and tokens[i + 1] and tokens[i + 1].kind == "name"
-                        and tokens[i + 2] and tokens[i + 2].kind == ":" then
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                    ) and tokens[
+                        i + 1
+                    ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
                         p.modeTok = add(p, advance())
                         p.name = add(p, advance())
                         annotationColon(p, "in parameter type")
                         p.type = add(p, parseType())
-                    elseif cur().kind == "name" and tokens[i + 1]
-                        and tokens[i + 1].kind == ":" then
+                    elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == ":" then
                         p.name = add(p, advance())
                         annotationColon(p, "in parameter type")
                         p.type = add(p, parseType())
@@ -573,12 +651,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             if cur().kind == ":" then
                 annotationColon(n, "before return type")
                 -- `function(...): R & function(...)` is a callable intersection. A
-                -- return type that itself intersects with a function remains
-                -- available by parenthesizing it.
+                -- return type that itself intersects with a function remains available
+                -- by parenthesizing it.
                 local returnPack = parseTypePack(false, true)
                 n.returnPack = returnPack
                 if returnPack.kind == "tpack" and not returnPack.tail then
-                    for _, child in ipairs(returnPack) do add(n, child) end
+                    for _, child in ipairs(returnPack) do
+                        add(n, child)
+                    end
                 else
                     add(n, returnPack)
                 end
@@ -599,6 +679,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         errAt(cur(), "type expected")
         local n = new cst.ErrorType {kind = "errorType"}
         add(n, missing("type"))
+
         return n
     end
 
@@ -630,8 +711,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 elseif cur().kind == "number" then
                     n.count = add(n, advance())
                 else
-                    errAt(cur(), "C array length: write T[?] for a "
-                        .. "variable-length array or T[N] for a fixed one")
+                    errAt(cur(), "C array length: write T[?] for a " .. "variable-length array or T[N] for a fixed one")
                 end
                 add(n, expect("]", "to close a C array type")).typePostfix = true
                 t = n
@@ -644,17 +724,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- A type intersection. `&` binds more tightly than `|`.
     local function parseIntersection(stopAtFunctionMember: boolean?): Node
         local t = parsePosttype()
-        if cur().kind ~= "&" or (stopAtFunctionMember and tokens[i + 1]
-            and tokens[i + 1].kind == "function") then
+        if cur().kind ~= "&" or (stopAtFunctionMember and tokens[i + 1] and tokens[i + 1].kind == "function") then
             return t
         end
         local n = new cst.Tintersection {kind = "tintersection"}
         n.types = {add(n, t)}
-        while cur().kind == "&" and not (stopAtFunctionMember and tokens[i + 1]
-            and tokens[i + 1].kind == "function") do
+        while cur().kind == "&" and not (stopAtFunctionMember and tokens[i + 1] and tokens[i + 1].kind == "function") do
             add(n, advance())
             n.types[#n.types + 1] = add(n, parsePosttype())
         end
+
         return n
     end
 
@@ -673,24 +752,21 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             n.types[#n.types + 1] = add(n, parseIntersection(stopAtFunctionMember))
         end
+
         return n
     end
 
     --- A complete value sequence in a function signature.
-    parseTypePack = function(allowBareList: boolean?,
-        stopAtFunctionMember: boolean?): Node
+    parseTypePack = function(allowBareList: boolean?, stopAtFunctionMember: boolean?): Node
         if cur().kind == "..." then
-            local n = new cst.Tpack {kind = "tpack", types = {},
-                tailKind = "homogeneous"}
+            local n = new cst.Tpack {kind = "tpack", types = {}, tailKind = "homogeneous"}
             local dots = add(n, advance())
             dots.generic, dots.homogeneousPack = true, true
             n.tail = add(n, parseType(nil, stopAtFunctionMember))
             return n
         end
-        if cur().kind == "name" and tokens[i + 1]
-            and tokens[i + 1].kind == "..." then
-            local n = new cst.Tpack {kind = "tpack", types = {},
-                tailKind = "generic"}
+        if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+            local n = new cst.Tpack {kind = "tpack", types = {}, tailKind = "generic"}
             local tail = new cst.Tname {kind = "tname"}
             tail.base = add(tail, advance())
             n.tail = add(n, tail)
@@ -700,29 +776,29 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind ~= "(" then
             local n = new cst.Tpack {kind = "tpack", types = {}}
             n.types[1] = add(n, parseReturnType(stopAtFunctionMember))
-            while allowBareList and cur().kind == "," and tokens[i + 1]
-                and TYPE_START[tokens[i + 1].kind] do
+            while allowBareList and cur().kind == "," and tokens[i + 1] and TYPE_START[tokens[i + 1].kind] do
                 add(n, advance()).typeSeparator = true
-                n.types[#n.types + 1] = add(n,
-                    parseType(nil, stopAtFunctionMember))
+                n.types[#n.types + 1] = add(n, parseType(nil, stopAtFunctionMember))
             end
             return n
         end
         local n = new cst.Tpack {kind = "tpack", types = {}}
         add(n, advance())
         if cur().kind == ")" then
-            add(n, advance()); return n
+            add(n, advance())
+            ;
+            return n
         end
         if cur().kind == "(" then
             local first = add(n, parseTypePack(false))
             if cur().kind == "|" then
-                local union = new cst.TpackUnion {kind = "tpackUnion",
-                    packs = {first}}
-                for _, child in ipairs(n) do add(union, child) end
+                local union = new cst.TpackUnion {kind = "tpackUnion", packs = {first}}
+                for _, child in ipairs(n) do
+                    add(union, child)
+                end
                 while cur().kind == "|" do
                     add(union, advance())
-                    union.packs[#union.packs + 1] = add(union,
-                        parseTypePack(false))
+                    union.packs[#union.packs + 1] = add(union, parseTypePack(false))
                 end
                 add(union, expect(")", "to close pack union"))
                 return union
@@ -754,6 +830,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
         end
         add(n, expect(")", "to close type pack"))
+
         return n
     end
 
@@ -765,6 +842,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             exprs[#exprs + 1] = add(n, parseExp())
         end
+
         return exprs
     end
 
@@ -790,6 +868,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.str = add(n, advance())
             return n
         end
+
         return nil
     end
 
@@ -815,6 +894,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             errAt(cur(), "function arguments expected")
             add(n, missing("args"))
         end
+
         return n
     end
 
@@ -836,10 +916,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             return n
         end
-        errAt(cur(), ("expression expected; found %s"):format(found(cur())),
-            "NUPP1004")
+        errAt(cur(), ("expression expected; found %s"):format(found(cur())), "NUPP1004")
         local n = new cst.ErrorExpr {kind = "errorExpr"}
         add(n, missing("expr"))
+
         return n
     end
 
@@ -860,8 +940,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 local member = n.name
                 local base = n.obj
                 local baseTok = base and base.kind == "name" and base.token
-                if cur().kind == "<" and member and baseTok
-                    and FFI_INTRINSIC[member.text] and baseTok.text == "ffi" then
+                if cur().kind == "<" and member and baseTok and FFI_INTRINSIC[
+                    member.text
+                ] and baseTok.text == "ffi" then
                     add(n, advance()).generic = true
                     n.ffiTypeArg = add(n, parseType())
                     add(n, expect(">", "to close a type argument")).generic = true
@@ -887,8 +968,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     -- never looked up when it is nil.
                     if noMethod > 0 then
                         -- [CS-2]: this ':' belongs to an enclosing ternary.
-                        errAt(qtok, "a safe method call cannot appear in the "
-                            .. "second arm of a ternary; parenthesize it")
+                        errAt(
+                            qtok,
+                            "a safe method call cannot appear in the " .. "second arm of a ternary; parenthesize it"
+                        )
                     end
                     e = parseMethodCall(e, qtok)
                 elseif nk == "name" then
@@ -949,9 +1032,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(f, expect("]", "to close field key"))
                 add(f, expect("=", "in table field"))
                 f.value = add(f, resetNoMethod(parseExp))
-            elseif cur().kind == "name" and cur().text == "const"
-                and tokens[i + 1] and tokens[i + 1].kind == "name"
-                and tokens[i + 2] and tokens[i + 2].kind == "=" then
+            elseif cur().kind == "name" and cur().text == "const" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == "=" then
                 f = new cst.FieldNamed {kind = "fieldNamed"}
                 f.isConst = true
                 add(f, advance())
@@ -979,6 +1062,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
         end
         add(n, expect("}", "to close table constructor"))
+
         return n
     end
 
@@ -1003,8 +1087,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     local p = new cst.Param {kind = "param"}
                     if cur().kind == "..." then
                         local dots = add(p, advance())
-                        if cur().kind == "name"
-                            and cur().offset == dots.offset + #dots.text then
+                        if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
                             local nameTok = advance()
                             p.name = add(p, nameTok)
                             p.namedVararg = true
@@ -1049,6 +1132,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         else
             n.expr = add(n, parseExp())
         end
+
         return n
     end
 
@@ -1087,6 +1171,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return false
         end
         local after = tokens[i + 1]
+
         return after ~= nil and after.kind == "name" and after.line == tok.line
     end
 
@@ -1112,10 +1197,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
         end
         if call.kind ~= "call" and call.kind ~= "safeCall" then
-            errAt(kw, "'new' needs a construction; write new T(...) or new T {...}",
+            errAt(
+                kw,
+                "'new' needs a construction; write new T(...) or new T {...}",
                 "NUPP1004",
-                "add the constructor arguments, or `()` when there are none")
+                "add the constructor arguments, or `()` when there are none"
+            )
         end
+
         return n
     end
 
@@ -1131,8 +1220,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             n.token = add(n, advance())
             return n
-        elseif kind == "|" or atEmptyPipes() or (kind == "name" and tokens[i + 1]
-            and tokens[i + 1].kind == "->") then
+        elseif kind == "|" or atEmptyPipes() or (kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "->") then
             return parseShortfn()
         elseif kind == "istringOpen" then
             return parseIstring()
@@ -1170,10 +1258,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     --- Which contextual operator (`as`, `is`) is at the cursor, if any.
     local function contextualOp(prevLine: integer): string?
         local tok = cur()
-        if tok.kind == "name" and tok.line == prevLine
-            and (tok.text == "as" or tok.text == "is") then
+        if tok.kind == "name" and tok.line == prevLine and (tok.text == "as" or tok.text == "is") then
             return tok.text
         end
+
         return nil
     end
 
@@ -1215,6 +1303,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 left = n
             end
         end
+
         return left
     end
 
@@ -1232,6 +1321,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.ifFalse = add(n, parseExp()) -- right-associative
             return n
         end
+
         return e
     end
 
@@ -1246,8 +1336,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 local p = new cst.Param {kind = "param"}
                 if cur().kind == "..." then
                     local dots = add(p, advance())
-                    if cur().kind == "name"
-                        and cur().offset == dots.offset + #dots.text then
+                    if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
                         local nameTok = advance()
                         p.name = add(p, nameTok)
                         p.namedVararg = true
@@ -1256,8 +1345,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     if cur().kind == ":" then
                         annotationColon(p, "in vararg annotation")
-                        if cur().kind == "name" and tokens[i + 1]
-                            and tokens[i + 1].kind == "..." then
+                        if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
                             p.type = add(p, parseTypePack())
                         else
                             p.type = add(p, parseType())
@@ -1269,11 +1357,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     break
                 end
-                if cur().kind == "name"
-                    and (cur().text == "takes" or cur().text == "borrows"
+                if cur().kind == "name" and (
+                    cur().text == "takes"
+                    or cur().text == "borrows"
                     or cur().text == "exclusive"
-                    or cur().text == "retains" or cur().text == "releases")
-                    and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                    or cur().text == "retains"
+                    or cur().text == "releases"
+                ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
                     p.modeTok = add(p, advance())
                 end
                 p.name = add(p, expectName("as parameter"))
@@ -1295,7 +1385,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             local returnPack = parseTypePack(true)
             n.returnPack = returnPack
             if returnPack.kind == "tpack" and not returnPack.tail then
-                for _, child in ipairs(returnPack) do add(n, child) end
+                for _, child in ipairs(returnPack) do
+                    add(n, child)
+                end
             else
                 add(n, returnPack)
             end
@@ -1316,6 +1408,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         n.body = add(n, parseBlock())
         loopDepth = savedLoopDepth
         add(n, expect("end", "to close function"))
+
         return n
     end
 
@@ -1328,8 +1421,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- is what keeps casts out of code that dispatches on a union. [CS-13]
     parseReturnType = function(stopAtFunctionMember: boolean?): Node
         local after = tokens[i + 1]
-        if cur().kind == "name" and after and after.kind == "name"
-            and after.text == "is" then
+        if cur().kind == "name" and after and after.kind == "name" and after.text == "is" then
             local n = new cst.Tpredicate {kind = "tpredicate"}
             n.param = add(n, advance())
             add(n, advance()) -- 'is'
@@ -1340,9 +1432,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- `T borrows p`: the result is a borrow of parameter `p` and cannot outlive it.
         -- `borrows` stays contextual — it opens this form only directly after a return
         -- type and directly before a name, and no statement can begin that way. [CS-18]
-        if cur().kind == "name" and cur().text == "borrows"
-            and tokens[i + 1]
-            and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "(") then
+        if cur().kind == "name" and cur().text == "borrows" and tokens[
+            i + 1
+        ] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "(") then
             local n = new cst.Tborrows {kind = "tborrows"}
             n.type = add(n, result)
             add(n, advance()) -- 'borrows'
@@ -1364,6 +1456,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.param = n.params[1]
             return n
         end
+
         return result
     end
 
@@ -1384,8 +1477,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind ~= ")" then
             repeat
                 local arg = new cst.AnnotationArg {kind = "annotationArg"}
-                if cur().kind == "name" and tokens[i + 1]
-                    and tokens[i + 1].kind == "=" then
+                if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
                     arg.name = add(arg, advance())
                     arg.eq = add(arg, advance())
                 end
@@ -1398,6 +1490,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             until false
         end
         n.close = add(n, expect(")", "to close annotation arguments"))
+
         return n
     end
 
@@ -1406,8 +1499,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         while cur().kind ~= "end" and cur().kind ~= "eof" do
             local attached = {}
             while cur().kind == "@" do
-                local application = parseAnnotationApplication(
-                    new cst.AnnotationApply {kind = "annotationApply"})
+                local application = parseAnnotationApplication(new cst.AnnotationApply {kind = "annotationApply"})
                 attached[#attached + 1] = add(n, application)
             end
             local e
@@ -1418,23 +1510,24 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(e, advance())
                 e.name = add(e, expectName("after 'function' in declaration"))
                 e.body = add(e, parseFuncbody())
-            elseif cur().kind == "name" and cur().text == "constructor"
-                and tokens[i + 1] and tokens[i + 1].kind == "(" then
+            elseif cur().kind == "name" and cur().text == "constructor" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "(" then
                 -- Contextual, like every other word this grammar adds: a field named
                 -- `constructor` is followed by a colon, never a paren.
                 e = new cst.ConstructorDecl {kind = "constructorDecl"}
                 add(e, advance())
                 e.body = add(e, parseFuncbody())
-            elseif cur().kind == "name" and cur().text == "matches"
-                and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
+            elseif cur().kind == "name" and cur().text == "matches" and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
                 -- Contextual: a field named `matches` is followed by a colon, because
                 -- every field states its own type.
                 e = new cst.MatchesDecl {kind = "matchesDecl"}
                 add(e, advance())
                 e.expr = add(e, parseExp())
                 add(e, expect("end", "to close 'matches'"))
-            elseif cur().kind == "name" and cur().text == "metamethod"
-                and tokens[i + 1] and tokens[i + 1].kind == "name" then
+            elseif cur().kind == "name" and cur().text == "metamethod" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "name" then
                 e = new cst.MetamethodDecl {kind = "metamethodDecl"}
                 add(e, advance())
                 e.name = add(e, expectName("after 'metamethod'"))
@@ -1445,15 +1538,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 -- also a sequence declares `{T}` among its fields
                 e = new cst.ArrayPart {kind = "arrayPart"}
                 e.type = add(e, parseType())
-            elseif cur().kind == "["
-                or (cur().kind == "name"
-                and (cur().text == "readonly" or cur().text == "writeonly")
-                and tokens[i + 1] and tokens[i + 1].kind == "[") then
+            elseif cur().kind == "[" or (
+                cur().kind == "name" and (
+                    cur().text == "readonly" or cur().text == "writeonly"
+                ) and tokens[i + 1] and tokens[i + 1].kind == "["
+            ) then
                 e = new cst.IndexerDecl {kind = "indexerDecl"}
                 if cur().kind == "name" then
                     e.capability = add(e, advance())
-                    e.capability.propertyCapability =
-                        e.capability.text == "readonly" and "read" or "write"
+                    e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
                 end
                 add(e, expect("[", "to open indexer key type"))
                 e.key = add(e, parseType())
@@ -1462,19 +1555,22 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.value = add(e, parseType())
             elseif cur().kind == "name" then
                 e = new cst.FieldDecl {kind = "fieldDecl"}
-                if (cur().text == "readonly" or cur().text == "writeonly")
-                    and tokens[i + 1] and tokens[i + 1].kind == "name"
-                    and tokens[i + 2] and tokens[i + 2].kind == ":" then
+                if (
+                    cur().text == "readonly" or cur().text == "writeonly"
+                ) and tokens[
+                    i + 1
+                ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
                     e.capability = add(e, advance())
-                    e.capability.propertyCapability =
-                        e.capability.text == "readonly" and "read" or "write"
+                    e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
                 end
                 e.name = add(e, advance())
                 if cur().kind == "," then
                     -- grouped fields ("x, y: float") are deliberately not part of the
                     -- grammar: every field states its own type
-                    errAt(cur(), "each field needs its own explicit type "
-                        .. "annotation (grouped fields are not supported)")
+                    errAt(
+                        cur(),
+                        "each field needs its own explicit type " .. "annotation (grouped fields are not supported)"
+                    )
                 end
                 annotationColon(e, "in field declaration")
                 e.type = add(e, parseType())
@@ -1518,8 +1614,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, modifierTok)
             end
             add(n, kw)
+
             return n
         end
+
         if which == "type" then
             local n = introduce(new cst.TypeAlias {kind = "typeAlias"})
             parseDeclName(n, "after '" .. which .. "'")
@@ -1578,12 +1676,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         n.params[#n.params + 1] = add(n, p)
                         break
                     end
-                    if cur().kind == "name"
-                        and (cur().text == "takes" or cur().text == "borrows"
+                    if cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
                         or cur().text == "exclusive"
-                        or cur().text == "retains" or cur().text == "releases"
-                        or cur().text == "out")
-                        and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                        or cur().text == "out"
+                    ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
                         p.modeTok = add(p, advance())
                     end
                     p.name = add(p, expectName("as cdef parameter"))
@@ -1602,8 +1702,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.ret = add(n, parseType())
             end
             -- optional library clause [CS-10]: cdef function f(...) from "z"
-            if cur().kind == "name" and cur().text == "from" and tokens[i + 1]
-                and tokens[i + 1].kind == "string" then
+            if cur().kind == "name" and cur().text == "from" and tokens[i + 1] and tokens[i + 1].kind == "string" then
                 add(n, advance())
                 n.fromLib = add(n, advance())
             end
@@ -1614,6 +1713,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         add(n, advance()) -- the contextual 'struct' name token
         n.name = add(n, expectName("after 'cdef struct'"))
         parseRecordBody(n)
+
         return n
     end
 
@@ -1621,10 +1721,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     parseStatement = function(): Node
         local kind = cur().kind
 
-        if kind == "name" and cur().text == "cdef" and tokens[i + 1]
-            and (tokens[i + 1].kind == "function"
-            or (tokens[i + 1].kind == "name" and tokens[i + 1].text == "struct"
-            and tokens[i + 2] and tokens[i + 2].kind == "name")) then
+        if kind == "name" and cur().text == "cdef" and tokens[
+            i + 1
+        ] and (
+            tokens[
+                i + 1
+            ].kind == "function" or (
+                tokens[
+                    i + 1
+                ].kind == "name" and tokens[i + 1].text == "struct" and tokens[i + 2] and tokens[i + 2].kind == "name"
+            )
+        ) then
             return parseCdef()
         end
 
@@ -1655,6 +1762,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 b.expr = add(b, parseExp())
                 n.bindings[#n.bindings + 1] = add(n, b)
             end
+
             binding()
             while cur().kind == "," do
                 add(n, advance())
@@ -1758,8 +1866,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.cond = add(n, parseExp())
             return n
 
-        elseif kind == "name" and cur().text == "unsafe"
-            and tokens[i + 1] and tokens[i + 1].kind == "do" then
+        elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then
             local n = new cst.UnsafeStmt {kind = "unsafeStmt"}
             n.unsafeTok = add(n, advance())
             n.doTok = add(n, advance())
@@ -1770,8 +1877,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif startsTypedecl(i) then
             return parseTypedecl(nil, "module")
 
-        elseif kind == "name" and cur().text == "global"
-            and startsTypedecl(i + 1) then
+        elseif kind == "name" and cur().text == "global" and startsTypedecl(i + 1) then
             local globalTok = advance()
             return parseTypedecl(globalTok, "global")
 
@@ -1792,14 +1898,21 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.body = add(n, parseFuncbody())
             return n
 
-        elseif kind == "name" and cur().text == "const"
-            and tokens[i + 1] and (tokens[i + 1].kind == "..."
-            or tokens[i + 1].kind == "name")
-            and ((tokens[i + 1].kind == "name" and tokens[i + 2]
-            and tokens[i + 2].kind == ".")
-            or (tokens[i + 1].kind == "..." and tokens[i + 2]
-            and tokens[i + 2].kind == "name" and tokens[i + 3]
-            and tokens[i + 3].kind == ".")) then
+        elseif kind == "name" and cur().text == "const" and tokens[
+            i + 1
+        ] and (
+            tokens[i + 1].kind == "..." or tokens[i + 1].kind == "name"
+        ) and (
+            (
+                tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == "."
+            ) or (
+                tokens[
+                    i + 1
+                ].kind == "..." and tokens[
+                    i + 2
+                ] and tokens[i + 2].kind == "name" and tokens[i + 3] and tokens[i + 3].kind == "."
+            )
+        ) then
             local n = new cst.AssignStmt {kind = "assignStmt"}
             n.isConst = true
             add(n, advance())
@@ -1813,11 +1926,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     return false
                 end
                 local base = target.obj
+
                 return base and (base.kind == "name" or plainFieldPath(base))
             end
+
             if not plainFieldPath(n.targets[1]) then
-                errAt(cst.firstToken(n.targets[1]) or cur(),
-                    "const field declaration needs a dotted field path")
+                errAt(cst.firstToken(n.targets[1]) or cur(), "const field declaration needs a dotted field path")
             end
             add(n, expect("=", "in const field declaration"))
             n.exprs = parseExplist(n)
@@ -1830,21 +1944,25 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         if field.kind == "fieldNamed" then
                             field.isConst = true
                         else
-                            errAt(cst.firstToken(field) or cur(),
-                                "const... table requires named fields")
+                            errAt(cst.firstToken(field) or cur(), "const... table requires named fields")
                         end
                         if field.value then
                             markDeep(field.value)
                         end
                     end
                 end
-                for _, value in ipairs(n.exprs) do markDeep(value) end
+
+                for _, value in ipairs(n.exprs) do
+                    markDeep(value)
+                end
             end
             return n
 
-        elseif kind == "local" or (kind == "name" and cur().text == "const"
-            and tokens[i + 1] and (tokens[i + 1].kind == "name"
-            or tokens[i + 1].kind == "function")) then
+        elseif kind == "local" or (
+            kind == "name" and cur().text == "const" and tokens[
+                i + 1
+            ] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "function")
+        ) then
             -- LuaJIT's `const` declaration is a soft-keyword form of `local`. Keep it
             -- lexed as a name so `local const`, `const = value`, and `const(...)`
             -- retain their ordinary identifier meanings.
@@ -1855,8 +1973,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.isConst = isConst
                 add(n, loctok)
                 add(n, advance())
-                n.name = add(n, expectName(isConst
-                    and "after 'const function'" or "after 'local function'"))
+                n.name = add(n, expectName(isConst and "after 'const function'" or "after 'local function'"))
                 n.body = add(n, parseFuncbody())
                 return n
             end
@@ -1872,13 +1989,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.names = {}
             n.types = {}
             local function bind()
-                n.names[#n.names + 1] = add(n, expectName(isConst
-                    and "after 'const'" or "after 'local'"))
+                n.names[#n.names + 1] = add(n, expectName(isConst and "after 'const'" or "after 'local'"))
                 if cur().kind == ":" then
                     annotationColon(n, "in variable annotation")
                     n.types[#n.names] = add(n, parseType())
                 end
             end
+
             bind()
             while cur().kind == "," do
                 add(n, advance())
@@ -1908,8 +2025,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             return n
 
-        elseif kind == "name" and cur().text == "continue"
-            and tokens[i + 1] and BLOCK_FOLLOW[tokens[i + 1].kind] then
+        elseif kind == "name" and cur().text == "continue" and tokens[i + 1] and BLOCK_FOLLOW[tokens[i + 1].kind] then
             local n = new cst.ContinueStmt {kind = "continueStmt"}
             local tok = add(n, advance())
             if loopDepth == 0 then
@@ -1939,9 +2055,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.op = add(n, advance())
             n.value = add(n, parseExp())
             local tk = e.kind
-            if not (tk == "name" or tk == "dotIndex" or tk == "bracketIndex"
-                or tk == "safeIndex" or tk == "safeBracket"
-                or tk == "errorExpr") then
+            if not (
+                tk == "name"
+                or tk == "dotIndex"
+                or tk == "bracketIndex"
+                or tk == "safeIndex"
+                or tk == "safeBracket"
+                or tk == "errorExpr"
+            ) then
                 errAt(cur(), "cannot assign to this expression")
             end
             return n
@@ -1957,8 +2078,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.exprs = parseExplist(n)
             for _, target in ipairs(n.targets) do
                 local tk = target.kind
-                if not (tk == "name" or tk == "dotIndex" or tk == "bracketIndex"
-                    or tk == "safeIndex" or tk == "safeBracket" or tk == "errorExpr") then
+                if not (
+                    tk == "name"
+                    or tk == "dotIndex"
+                    or tk == "bracketIndex"
+                    or tk == "safeIndex"
+                    or tk == "safeBracket"
+                    or tk == "errorExpr"
+                ) then
                     errAt(cur(), "cannot assign to this expression")
                 end
             end
@@ -1973,6 +2100,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         errAt(cur(), "syntax error: expression is not a statement")
         local n = new cst.ErrorStmt {kind = "errorStmt"}
         add(n, e)
+
         return n
     end
 
@@ -1986,9 +2114,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- is reported once and then parsed as usual, so the rest of the block still
             -- checks and the tree still round-trips.
             if returned then
-                errAt(cur(), "'return' must be the last statement in a block",
-                    nil, "move the 'return' below the statements that follow "
-                    .. "it, or delete them")
+                errAt(
+                    cur(),
+                    "'return' must be the last statement in a block",
+                    nil,
+                    "move the 'return' below the statements that follow " .. "it, or delete them"
+                )
                 returned = false
             end
             local start = i
@@ -2007,19 +2138,27 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 n.stats[#n.stats + 1] = add(n, e)
             end
         end
+
         return n
     end
 
     local root = new cst.Chunk {kind = "chunk"}
     root.blocks = {}
-    if cur().kind == "@" and tokens[i + 1] and tokens[i + 1].kind == "not"
-        and tokens[i + 1].text == "!"
-        and tokens[i + 2] and tokens[i + 2].kind == "name"
-        and tokens[i + 2].text == "nofmt" then
+    if cur().kind == "@" and tokens[
+        i + 1
+    ] and tokens[
+        i + 1
+    ].kind == "not" and tokens[
+        i + 1
+    ].text == "!" and tokens[i + 2] and tokens[i + 2].kind == "name" and tokens[i + 2].text == "nofmt" then
         -- An inner annotation belongs to the file rather than a statement. It is
         -- deliberately absent from the tree's array part, so compilation ignores it.
         root.formatDisabled = true
-        advance(); advance(); advance()
+        advance()
+        ;
+        advance()
+        ;
+        advance()
     end
     while true do
         root.blocks[#root.blocks + 1] = add(root, parseBlock())
@@ -2029,8 +2168,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         -- Stray block terminator at top level ('end', 'else', ...): report, consume,
         -- keep parsing.
         local e = new cst.ErrorStmt {kind = "errorStmt"}
-        errAt(cur(), ("unexpected '%s' at top level")
-            :format(spelling(cur())))
+        errAt(cur(), ("unexpected '%s' at top level"):format(spelling(cur())))
         add(e, advance())
         add(root, e)
     end

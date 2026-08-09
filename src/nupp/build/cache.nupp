@@ -33,23 +33,17 @@ local cache = {}
 --- Every field is optional because the state is read back from a file: this version
 --- writes all of them, and a file that turns out to be missing one is a cache miss
 --- rather than a crash.
-type cache.ModuleRecord = {
-    sourceHash: string?,
-    interfaceHash: string?,
-    artifactHash: string?,
-    dependencies: {string}?,
+type cache.ModuleRecord = {sourceHash: string?, interfaceHash: string?, artifactHash: string?, dependencies: {string}?,
 
     --- The compiler-recognized runtime features this module needs staging for.
     effects: {[string]: any}?,
 
     --- Where the module's coverage sites were recorded, on a coverage build.
-    coverage: {path: string?, sites: {any}}?,
-    output: string?,
+    coverage: {path: string?, sites: {any}}?, output: string?,
 
     --- What checking the module had to say, kept so that reusing the record says it
     --- again rather than reporting a clean file.
-    diags: {any}?,
-}
+    diags: {any}?,}
 
 --- What one dependency's last build produced, as its provider described it.
 ---
@@ -72,20 +66,15 @@ type cache.DependencyRecord = {
 ---
 --- `compilerHash`, `configHash` and `projectIndexHash` are absent from a state that has
 --- just been emptied and filled in by the run that is about to compare them.
-type cache.State = {
-    version: integer,
-    modules: {[string]: cache.ModuleRecord},
-    dependencies: {[string]: cache.DependencyRecord},
-    outputs: {[string]: boolean},
+type cache.State = {version: integer, modules: {
+    [string]: cache.ModuleRecord
+}, dependencies: {[string]: cache.DependencyRecord}, outputs: {[string]: boolean},
 
     --- Target name -> the outputs that target produced, so each can remove its own
     --- leftovers without removing another's.
     targets: {[string]: {string}},
 
-    compilerHash: string?,
-    configHash: string?,
-    projectIndexHash: string?,
-}
+    compilerHash: string?, configHash: string?, projectIndexHash: string?,}
 
 local function jsonArray<T>(items: {T}): {T}
     return setmetatable(items, json.array_mt) as {T}
@@ -114,13 +103,18 @@ local function stable(value: unknown, seen: {[unknown]: boolean}?): string
     end
     seen[value] = true
     local keys = {}
-    for key in pairs(entries) do keys[#keys + 1] = key end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    for key in pairs(entries) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
     local parts = {}
     for _, key in ipairs(keys) do
         parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
     end
     seen[value] = nil
+
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
@@ -134,6 +128,7 @@ local function hashFiles(files: {string}): string
     for _, path in ipairs(files) do
         parts[#parts + 1] = path .. "\0" .. (hashFile(path) or "missing")
     end
+
     return hash.digest(table.concat(parts, "\0"))
 end
 
@@ -183,6 +178,7 @@ local function toolFingerprint(): string
     end
     table.sort(parts)
     toolFingerprintMemo = hash.digest(table.concat(parts, "\0"))
+
     return toolFingerprintMemo
 end
 
@@ -192,8 +188,7 @@ end
 local STATE_VERSION: integer = 2
 
 local function emptyState(): cache.State
-    return {version = STATE_VERSION, modules = {}, dependencies = {},
-        outputs = {}, targets = {}} as cache.State
+    return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State
 end
 
 local function loadState(path: string): cache.State
@@ -212,6 +207,7 @@ local function loadState(path: string): cache.State
     -- directory — a bundle and the binary stamped from it naturally do — and each has
     -- to be able to remove its own leftovers without removing the other's.
     state.targets = state.targets or {}
+
     return state
 end
 

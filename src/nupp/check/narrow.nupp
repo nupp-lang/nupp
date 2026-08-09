@@ -35,11 +35,7 @@ local type Node = cst.Node
 --- What a condition proves, on each side of it. `t` holds where the condition is true
 --- and `f` where it is false, each keyed by the reference it speaks about; `exhausted`
 --- names a subject a comparison chain has now covered completely.
-type narrow.Facts = {
-    t: {[string]: Type},
-    f: {[string]: Type},
-    exhausted: string?,
-}
+type narrow.Facts = {t: {[string]: Type}, f: {[string]: Type}, exhausted: string?,}
 
 --- What the walk and the statement families ask narrowing. Four of these are promoted
 --- onto the run, since every family applies facts; the rest are reached through
@@ -68,8 +64,7 @@ type narrow.Ops = {
     snapshotNarrowed: function(): {[string]: Type},
 
     --- Applies a narrowing map inside the current scope.
-    applyFacts: function(facts: {[string]: Type}),
-}
+    applyFacts: function(facts: {[string]: Type}),}
 
 --- Installs the narrowing on one run.
 ---
@@ -80,8 +75,13 @@ function narrow.install(c: state.Checker): narrow.Ops
 
     function facts.mergeFacts(a, b)
         local out = {}
-        for k, v in pairs(a) do out[k] = v end
-        for k, v in pairs(b) do out[k] = v end
+        for k, v in pairs(a) do
+            out[k] = v
+        end
+        for k, v in pairs(b) do
+            out[k] = v
+        end
+
         return out
     end
 
@@ -101,6 +101,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                 return base .. "." .. node.name.text
             end
         end
+
         return nil
     end
 
@@ -123,7 +124,9 @@ function narrow.install(c: state.Checker): narrow.Ops
                 return nil, nil
             end
             local parts = {}
-            for j, tok in ipairs(names) do parts[j] = tok.text end
+            for j, tok in ipairs(names) do
+                parts[j] = tok.text
+            end
             return table.concat(parts, "."), fname.method
         end
         if #names < 2 then
@@ -131,7 +134,10 @@ function narrow.install(c: state.Checker): narrow.Ops
         end
         local member = table.remove(names)
         local parts = {}
-        for j, tok in ipairs(names) do parts[j] = tok.text end
+        for j, tok in ipairs(names) do
+            parts[j] = tok.text
+        end
+
         return table.concat(parts, "."), member
     end
 
@@ -148,6 +154,7 @@ function narrow.install(c: state.Checker): narrow.Ops
             end
             sc = sc.parent
         end
+
         return nil
     end
 
@@ -189,6 +196,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                 return c.fieldType(baseT, node.name.text)
             end
         end
+
         return nil
     end
 
@@ -204,8 +212,7 @@ function narrow.install(c: state.Checker): narrow.Ops
         while sc do
             for name, entry in pairs(sc.vars) do
                 local from = entry.aliasPath
-                if name == key or (from and (from == key
-                    or from:sub(1, #key + 1) == key .. ".")) then
+                if name == key or (from and (from == key or from:sub(1, #key + 1) == key .. ".")) then
                     entry.aliasNode, entry.aliasPath = nil, nil
                 end
             end
@@ -257,8 +264,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                         for index, sibling in pairs(group.names) do
                             local members = {}
                             for _, arm in ipairs(arms) do
-                                members[#members + 1] = T.packAt(arm, index)
-                                    or T.nil_
+                                members[#members + 1] = T.packAt(arm, index) or T.nil_
                             end
                             if #members > 0 then
                                 into[sibling] = T.union(members)
@@ -267,14 +273,14 @@ function narrow.install(c: state.Checker): narrow.Ops
                         for _, copy in ipairs(group.extraNames or {}) do
                             local members = {}
                             for _, arm in ipairs(arms) do
-                                members[#members + 1] = T.packAt(arm, copy.index)
-                                    or T.nil_
+                                members[#members + 1] = T.packAt(arm, copy.index) or T.nil_
                             end
                             if #members > 0 then
                                 into[copy.name] = T.union(members)
                             end
                         end
                     end
+
                     correlate(out.t, trueArms)
                     correlate(out.f, falseArms)
                 end
@@ -300,8 +306,7 @@ function narrow.install(c: state.Checker): narrow.Ops
             return none
         elseif kind == "call" then
             local argsNode = cond.args
-            local args = argsNode and argsNode.kind == "args"
-                and argsNode.exprs or {}
+            local args = argsNode and argsNode.kind == "args" and argsNode.exprs or {}
             -- `ffi.istype<T>(v)` is a type test spelled as a call
             local callee = cond.obj
             if callee and callee.kind == "dotIndex" then
@@ -355,8 +360,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                 return out
             end
             return none
-        elseif kind == "unop" and cond.op and cond.op.kind == "not"
-            and cond.operand then
+        elseif kind == "unop" and cond.op and cond.op.kind == "not" and cond.operand then
             local inner = facts.analyzeCond(cond.operand)
             return {t = inner.f, f = inner.t}
         elseif kind == "binop" then
@@ -391,11 +395,17 @@ function narrow.install(c: state.Checker): narrow.Ops
                 -- and, when the base is a union, keeps only the members whose field
                 -- could hold it.
                 local refNode, litNode
-                if rhs.kind == "string" or rhs.kind == "number"
-                    or rhs.kind == "trueExpr" or rhs.kind == "falseExpr" then
+                if rhs.kind == "string"
+                    or rhs.kind == "number"
+                    or rhs.kind == "trueExpr"
+                    or rhs.kind == "falseExpr"
+                then
                     refNode, litNode = lhs, rhs
-                elseif lhs.kind == "string" or lhs.kind == "number"
-                    or lhs.kind == "trueExpr" or lhs.kind == "falseExpr" then
+                elseif lhs.kind == "string"
+                    or lhs.kind == "number"
+                    or lhs.kind == "trueExpr"
+                    or lhs.kind == "falseExpr"
+                then
                     refNode, litNode = rhs, lhs
                 end
                 -- a test on a copied discriminant is a test on the field it was copied
@@ -415,8 +425,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                         if aliasKey then
                             out.t[aliasKey] = litT
                             local aliasT = c.refType(aliasNode)
-                            local rest = aliasT
-                                and withoutMember(aliasT, litT) or nil
+                            local rest = aliasT and withoutMember(aliasT, litT) or nil
                             if rest then
                                 out.f[aliasKey] = rest
                             end
@@ -425,9 +434,9 @@ function narrow.install(c: state.Checker): narrow.Ops
                     out.t[key] = litT
                     if refNode.kind == "name" and refNode.token then
                         local entry = c.lookupEntry(refNode.token.text)
-                        if entry and entry.coroutineStatusName
-                            and litT.tag == "literal"
-                            and type(litT.constant) == "string" then
+                        if entry and entry.coroutineStatusName and litT.tag == "literal" and type(
+                            litT.constant
+                        ) == "string" then
                             out.t["@coroutine:" .. entry.coroutineStatusName] = litT
                         end
                         local group = entry and entry.packCorrelation
@@ -446,8 +455,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                                 for index, sibling in pairs(group.names) do
                                     local members = {}
                                     for _, arm in ipairs(arms) do
-                                        members[#members + 1] =
-                                            T.packAt(arm, index) or T.nil_
+                                        members[#members + 1] = T.packAt(arm, index) or T.nil_
                                     end
                                     if #members > 0 then
                                         into[sibling] = T.union(members)
@@ -456,14 +464,14 @@ function narrow.install(c: state.Checker): narrow.Ops
                                 for _, copy in ipairs(group.extraNames or {}) do
                                     local members = {}
                                     for _, arm in ipairs(arms) do
-                                        members[#members + 1] =
-                                            T.packAt(arm, copy.index) or T.nil_
+                                        members[#members + 1] = T.packAt(arm, copy.index) or T.nil_
                                     end
                                     if #members > 0 then
                                         into[copy.name] = T.union(members)
                                     end
                                 end
                             end
+
                             addCorrelated(out.t, selected)
                             addCorrelated(out.f, rejected)
                         end
@@ -476,8 +484,7 @@ function narrow.install(c: state.Checker): narrow.Ops
                     elseif emptied then
                         out.exhausted = key
                     end
-                    local discNode = refNode.kind == "dotIndex" and refNode
-                        or aliasNode
+                    local discNode = refNode.kind == "dotIndex" and refNode or aliasNode
                     if discNode and discNode.obj then
                         local baseKey = facts.pathKey(discNode.obj)
                         local baseT = c.refType(discNode.obj)
@@ -540,12 +547,10 @@ function narrow.install(c: state.Checker): narrow.Ops
                     local rf = r.f[key]
                     if rf then
                         local keep, seen = {}, {}
-                        for _, m in ipairs(lf.tag == "union"
-                            and lf.members or {lf}) do
+                        for _, m in ipairs(lf.tag == "union" and lf.members or {lf}) do
                             seen[m] = true
                         end
-                        for _, m in ipairs(rf.tag == "union"
-                            and rf.members or {rf}) do
+                        for _, m in ipairs(rf.tag == "union" and rf.members or {rf}) do
                             if seen[m] then
                                 keep[#keep + 1] = m
                             end
@@ -559,6 +564,7 @@ function narrow.install(c: state.Checker): narrow.Ops
             end
             return none
         end
+
         return none
     end
 
@@ -588,6 +594,7 @@ function narrow.install(c: state.Checker): narrow.Ops
             end
             sc = sc.parent
         end
+
         return out
     end
 
@@ -602,10 +609,12 @@ function narrow.install(c: state.Checker): narrow.Ops
             if coroutineName then
                 local entry = c.lookupEntry(coroutineName)
                 if entry then
-                    local phase = t.tag == "literal" and t.constant == "dead"
-                        and "dead" or entry.threadPhase
-                    c.scope.vars[coroutineName] = {
-                        t = entry.t, narrowing = true,
+                    local phase = t.tag == "literal" and t.constant == "dead" and "dead" or entry.threadPhase
+                    c.scope.vars[
+                        coroutineName
+                    ] = {
+                        t = entry.t,
+                        narrowing = true,
                         ann = entry.ann or false,
                         constant = entry.constant or false,
                         decl = entry.decl or entry.t,
@@ -622,24 +631,27 @@ function narrow.install(c: state.Checker): narrow.Ops
                 c.scope.narrowed[name] = t
             else
                 local entry = c.lookupEntry(name)
-                local conditionalOwnership = entry and entry.packCorrelation
-                    and c.ownershipKind(t) or nil
+                local conditionalOwnership = entry and entry.packCorrelation and c.ownershipKind(t) or nil
                 local moved = entry and c.ownershipState(entry).moved or false
                 local ownershipOrigin = entry and c.ownershipState(entry) or nil
                 if conditionalOwnership then
                     moved, ownershipOrigin = false, nil
                 end
-                c.scope.vars[name] = {
-                    t = t,
-                    narrowing = true, -- shadows a declaration; not one itself
+                c.scope.vars[name] = {t = t, narrowing = true, -- shadows a declaration; not one itself
                     -- a narrowed copy still came from where it came from, or the second
                     -- arm of a chain would forget
-                    aliasNode = entry and entry.aliasNode or nil,
-                    aliasPath = entry and entry.aliasPath or nil,
-                    ann = entry and entry.ann or false,
-                    constant = entry and entry.constant or false,
-                    decl = entry and (entry.decl or entry.t) or t,
-                    definition = entry and entry.definition or nil,
+                    aliasNode = entry
+                    and entry.aliasNode
+                    or nil, aliasPath = entry
+                    and entry.aliasPath
+                    or nil, ann = entry
+                    and entry.ann
+                    or false, constant = entry
+                    and entry.constant
+                    or false, decl = entry
+                    and (
+                    entry.decl or entry.t
+                ) or t, definition = entry and entry.definition or nil,
                     -- A correlated result can carry an owner on only one arm (pcall's
                     -- success arm is the important case). It is not a live obligation
                     -- before the discriminator is selected. Once narrowed into that arm
@@ -647,15 +659,17 @@ function narrow.install(c: state.Checker): narrow.Ops
                     -- branch scope closes; other narrowed values continue to share
                     -- their declaration's ordinary ownership state.
                     ownership = conditionalOwnership
-                    or entry and entry.ownership or nil,
-                    moved = moved,
-                    ownershipOrigin = ownershipOrigin,
-                    functionDepth = entry and entry.functionDepth
-                    or c.functionDepth,
-                    threadPhase = entry and entry.threadPhase or nil,
-                    wrappedProtocol = entry and entry.wrappedProtocol or nil,
-                    wrappedPhase = entry and entry.wrappedPhase or nil,
-                }
+                    or entry
+                    and entry.ownership
+                    or nil, moved = moved, ownershipOrigin = ownershipOrigin, functionDepth = entry
+                    and entry.functionDepth
+                    or c.functionDepth, threadPhase = entry
+                    and entry.threadPhase
+                    or nil, wrappedProtocol = entry
+                    and entry.wrappedProtocol
+                    or nil, wrappedPhase = entry
+                    and entry.wrappedPhase
+                    or nil,}
             end
         end
     end
@@ -666,6 +680,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     c.applyFacts = facts.applyFacts
     c.analyzeCond = facts.analyzeCond
     c.lookupNarrowed = facts.lookupNarrowed
+
     return facts
 end
 

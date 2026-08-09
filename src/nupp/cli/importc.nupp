@@ -11,25 +11,29 @@ local spec = require("nupp.cli.spec")
 local command = spec.command{
     name = "import-c",
     summary = "Generate typed Nupp bindings from a C header",
-    usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]"
-    .. " <header.h>"},
-    options = require("nupp.cli.options").join(
-        {name = "-o", value = "FILE", key = "out",
-        help = "Write the generated module to FILE"},
-        {names = {"-l", "--lib"}, value = "NAME", key = "lib",
-        help = "Name the native library loaded by the bindings"},
-        require("nupp.cli.options").format()),
+    usage = {"nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]" .. " <header.h>"},
+    options = require(
+        "nupp.cli.options"
+    ).join(
+        {name = "-o", value = "FILE", key = "out", help = "Write the generated module to FILE"},
+        {names = {"-l", "--lib"}, value = "NAME", key = "lib", help = "Name the native library loaded by the bindings"},
+        require("nupp.cli.options").format()
+    ),
     schema = {
         type = "object",
         properties = {
             ok = {type = "boolean"},
-            output = {type = "string",
-            description = "Where the generated module was written. Absent "
-            .. "when nothing was generated."},
-            warnings = {type = "array", items = {type = "string"},
-            description = "What the header contained that the bindings "
-            .. "could not represent. Present whether or not it "
-            .. "succeeded; a warning is not a failure."},
+            output = {
+                type = "string",
+                description = "Where the generated module was written. Absent " .. "when nothing was generated."
+            },
+            warnings = {
+                type = "array",
+                items = {type = "string"},
+                description = "What the header contained that the bindings "
+                .. "could not represent. Present whether or not it "
+                .. "succeeded; a warning is not a failure."
+            },
         },
         required = {"ok", "warnings"},
     },
@@ -53,8 +57,10 @@ local function run(parsed: any): integer
                 io.stderr:write("nupp: " .. warning .. "\n")
             end
         end
+
         return 1
     end
+
     if not text then
         return fail()
     end
@@ -63,8 +69,7 @@ local function run(parsed: any): integer
             io.stderr:write("nupp: warning: " .. warning .. "\n")
         end
     end
-    local out = parsed.values.out
-        or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
+    local out = parsed.values.out or ((header:match("([^/\\]+)%.h$") or "out") .. ".nupp")
     local handle, writeErr = io.open(out, "wb")
     if not handle then
         if asJson then
@@ -81,6 +86,7 @@ local function run(parsed: any): integer
     else
         io.write(out .. "\n")
     end
+
     return 0
 end
 

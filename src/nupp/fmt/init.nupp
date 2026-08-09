@@ -45,35 +45,58 @@ local DOC_WIDTH = 88
 local MAX_PASSES = 24
 
 local NO_SPACE_BEFORE = {
-    [","] = true, [";"] = true, [")"] = true, ["]"] = true, ["}"] = true,
-    ["."] = true, [":"] = true, ["?."] = true,
-    ["istringMid"] = true, ["istringClose"] = true,
+    [","] = true,
+    [";"] = true,
+    [")"] = true,
+    ["]"] = true,
+    ["}"] = true,
+    ["."] = true,
+    [":"] = true,
+    ["?."] = true,
+    ["istringMid"] = true,
+    ["istringClose"] = true,
 }
 -- After these, never a space.
 local NO_SPACE_AFTER = {
-    ["("] = true, ["["] = true, ["{"] = true, ["."] = true, [":"] = true,
-    ["::"] = true, ["?."] = true, ["#"] = true, ["@"] = true,
-    ["istringOpen"] = true, ["istringMid"] = true,
+    ["("] = true,
+    ["["] = true,
+    ["{"] = true,
+    ["."] = true,
+    [":"] = true,
+    ["::"] = true,
+    ["?."] = true,
+    ["#"] = true,
+    ["@"] = true,
+    ["istringOpen"] = true,
+    ["istringMid"] = true,
 }
 -- Prev kinds that hug a following "(" or "[". Most make a call/index; `function`
 -- introduces a parameter list or function type.
-local CALLEE_KINDS = {
-    ["name"] = true, [")"] = true, ["]"] = true, ["string"] = true,
-    ["function"] = true,
-}
+local CALLEE_KINDS = {["name"] = true, [")"] = true, ["]"] = true, ["string"] = true, ["function"] = true,}
 -- Line-leading tokens that close a construct sit at the construct's depth rather than
 -- taking a continuation indent.
 local CLOSERS = {
-    ["end"] = true, ["until"] = true, ["else"] = true, ["elseif"] = true,
+    ["end"] = true,
+    ["until"] = true,
+    ["else"] = true,
+    ["elseif"] = true,
     ["then"] = true,
-    ["}"] = true, [")"] = true, ["]"] = true,
+    ["}"] = true,
+    [")"] = true,
+    ["]"] = true,
 }
 local BRACKET_PAIR = {["("] = ")", ["["] = "]", ["{"] = "}", ["<"] = ">"}
 -- Operators a line may break before when it has no breakable group.
 local BREAK_OPS = {
-    ["and"] = true, ["or"] = true, [".."] = true,
-    ["+"] = true, ["-"] = true, ["*"] = true, ["/"] = true,
-    ["&"] = true, ["|"] = true,
+    ["and"] = true,
+    ["or"] = true,
+    [".."] = true,
+    ["+"] = true,
+    ["-"] = true,
+    ["*"] = true,
+    ["/"] = true,
+    ["&"] = true,
+    ["|"] = true,
 }
 
 ---------------------------------------------------------------------------
@@ -176,8 +199,8 @@ local function markFinalFunctionReturn(n)
     end
 end
 
--- Ordinary functions are always blocks. Short-function syntax (`|| ->`) has no
--- funcbody node and therefore remains the only one-line function spelling.
+-- Ordinary functions are always blocks. Short-function syntax (`|| ->`) has no funcbody
+-- node and therefore remains the only one-line function spelling.
 local function breakFunctionBody(n)
     local body = n.body
     local first = body and firstToken(body)
@@ -230,8 +253,7 @@ local function annotate(root)
         elseif kind == "funcbody" then
             markFinalFunctionReturn(n)
             breakFunctionBody(n)
-        elseif kind == "funcStmt" or kind == "localFuncStmt"
-            or kind == "inlineMethod" then
+        elseif kind == "funcStmt" or kind == "localFuncStmt" or kind == "inlineMethod" then
             markFunctionEnd(n)
         end
 
@@ -470,7 +492,9 @@ local function parseDoc(rawLines)
         end
     end
     -- drop leading and trailing blanks
-    while blocks[1] and blocks[1].kind == "blank" do table.remove(blocks, 1) end
+    while blocks[1] and blocks[1].kind == "blank" do
+        table.remove(blocks, 1)
+    end
     while blocks[#blocks] and blocks[#blocks].kind == "blank" do
         table.remove(blocks)
     end
@@ -521,8 +545,7 @@ local function renderDoc(rawLines, indentStr)
 end
 
 local function isPlainComment(text)
-    return text:sub(1, 2) == "--" and text:sub(3, 3) ~= "-"
-        and not text:match("^%-%-%[=*%[")
+    return text:sub(1, 2) == "--" and text:sub(3, 3) ~= "-" and not text:match("^%-%-%[=*%[")
 end
 
 ---------------------------------------------------------------------------
@@ -547,16 +570,10 @@ local function collectItems(tokens)
                 pending = pending + n
             elseif tr.kind == "comment" then
                 local prev = items[#items]
-                if prev
-                    and prev.kind == "doc" and pending == 1
-                    and isDocComment(tr.text)
-                then
+                if prev and prev.kind == "doc" and pending == 1 and isDocComment(tr.text) then
                     prev.rawLines[#prev.rawLines + 1] = tr.text
                     pending = 0
-                elseif prev
-                    and prev.kind == "plain" and pending == 1
-                    and isPlainComment(tr.text)
-                then
+                elseif prev and prev.kind == "plain" and pending == 1 and isPlainComment(tr.text) then
                     prev.rawLines[#prev.rawLines + 1] = tr.text
                     pending = 0
                 elseif isDocComment(tr.text) and (pending > 0 or #items == 0) then
@@ -599,12 +616,13 @@ local function buildLines(items)
     local cur = nil
     for _, item in ipairs(items) do
         local forced = item.kind == "token" and item.token.forceBreak
-        local standalone = item.kind == "doc" or item.kind == "plain"
-            or item.kind == "raw" or (item.kind == "comment" and item.nl > 0)
+        local standalone = item.kind == "doc" or item.kind == "plain" or item.kind == "raw" or (
+            item.kind == "comment" and item.nl > 0
+        )
         local previous = cur and cur.items[#cur.items]
-        local afterComment = item.nl > 0 and previous
-            and (previous.kind == "comment" or previous.kind == "doc"
-            or previous.kind == "plain" or previous.kind == "raw")
+        local afterComment = item.nl > 0 and previous and (
+            previous.kind == "comment" or previous.kind == "doc" or previous.kind == "plain" or previous.kind == "raw"
+        )
         if not cur or item.nl >= 2 or forced or standalone or afterComment then
             cur = {items = {}, indent = 0, blankBefore = item.nl >= 2 and #lines > 0}
             lines[#lines + 1] = cur
@@ -694,10 +712,7 @@ local function computeIndents(lines)
                 g = g.parent
             end
             depth = depth + hang
-            if hang == 0
-                and not tok.startsStat and not CLOSERS[tok.kind]
-                and not tok.withHeaderClose
-            then
+            if hang == 0 and not tok.startsStat and not CLOSERS[tok.kind] and not tok.withHeaderClose then
                 depth = depth + 1 -- continuation of the previous line
             end
             line.indent = depth
@@ -755,14 +770,19 @@ local function splitLine(line)
 
     local function slice(from, to)
         local part = {}
-        for j = from, to do part[#part + 1] = line.items[j] end
+        for j = from, to do
+            part[#part + 1] = line.items[j]
+        end
+
         return part
     end
 
     if group then
         emit(slice(1, openIdx), line.indent)
         local isSep = {}
-        for _, s in ipairs(group.seps) do isSep[s] = true end
+        for _, s in ipairs(group.seps) do
+            isSep[s] = true
+        end
         local start = openIdx + 1
         for j = openIdx + 1, closeIdx - 1 do
             local item = line.items[j]
@@ -856,10 +876,7 @@ local function breakLines(lines)
     for _, line in ipairs(lines) do
         local tok = lineFirstToken(line)
         local first = tok and tok.functionBodyFirstTok
-        if tok
-            and tok.finalFunctionReturn and first
-            and tok.lineIdx - first.lineIdx >= 4
-        then
+        if tok and tok.finalFunctionReturn and first and tok.lineIdx - first.lineIdx >= 4 then
             line.blankBefore = true
         end
     end
@@ -874,7 +891,9 @@ end
 local function render(lines)
     local out = {}
     local prevIndent = 0
-    local function push(text) out[#out + 1] = text end
+    local function push(text)
+        out[#out + 1] = text
+    end
 
     for idx, line in ipairs(lines) do
         local indentStr = INDENT:rep(line.indent)
@@ -891,13 +910,17 @@ local function render(lines)
             push("")
         end
         if doc or plain then
-            local commentLines = doc and renderDoc(doc.rawLines, indentStr)
-                or renderComment(plain.rawLines, indentStr, "--")
+            local commentLines = doc and renderDoc(
+                doc.rawLines,
+                indentStr
+            ) or renderComment(plain.rawLines, indentStr, "--")
             for _, commentLine in ipairs(commentLines) do
                 push(commentLine)
             end
             local rest = {}
-            for j = 2, #line.items do rest[#rest + 1] = line.items[j] end
+            for j = 2, #line.items do
+                rest[#rest + 1] = line.items[j]
+            end
             if #rest > 0 then
                 push(((indentStr .. renderItems(rest)):gsub("%s+$", "")))
             end
@@ -911,10 +934,7 @@ local function render(lines)
         -- after it (no blank line before `end`)
         local last = line.items[#line.items]
         local next_ = lines[idx + 1]
-        if last
-            and last.kind == "token" and last.token.blankAfter and next_
-            and next_.indent >= line.indent
-        then
+        if last and last.kind == "token" and last.token.blankAfter and next_ and next_.indent >= line.indent then
             push("")
         end
         prevIndent = line.indent
@@ -977,11 +997,11 @@ local function canonicalizeSingleValueAnnotations(result, opts)
     -- Annotation declarations in the file are order-independent for formatting: collect
     -- all schemas before considering their applications.
     for _, application in ipairs(applications) do
-        if application.kind == "pragmaStmt"
-            and application.name.text == "annotation"
-        then
+        if application.kind == "pragmaStmt" and application.name.text == "annotation" then
             local target = application.stat
-            while target and target.kind == "pragmaStmt" do target = target.stat end
+            while target and target.kind == "pragmaStmt" do
+                target = target.stat
+            end
             if target and target.kind == "recordDecl" then
                 local marked = nil
                 local duplicate = false
@@ -1025,10 +1045,9 @@ local function canonicalizeSingleValueAnnotations(result, opts)
         end
         local args = application.annotationArgs or {}
         local arg = #args == 1 and args[1] or nil
-        if member
-            and arg and arg.name and arg.name.text == member
-            and triviaIsWhitespace(arg.name) and triviaIsWhitespace(arg.eq)
-        then
+        if member and arg and arg.name and arg.name.text == member and triviaIsWhitespace(
+            arg.name
+        ) and triviaIsWhitespace(arg.eq) then
             arg.name.formatOmit = true
             arg.eq.formatOmit = true
         end
@@ -1059,10 +1078,22 @@ local function parenthesizeMethodCalls(result, opts)
                 local sugar = args.table or args.str
                 local first, last = cst.firstToken(sugar), cst.lastToken(sugar)
                 if first and last then
-                    local open = {kind = "(", text = "(", offset = first.offset,
-                        line = first.line, col = first.col, trivia = first.trivia}
-                    local close = {kind = ")", text = ")", offset = last.offset,
-                        line = last.line, col = last.col, trivia = {}}
+                    local open = {
+                        kind = "(",
+                        text = "(",
+                        offset = first.offset,
+                        line = first.line,
+                        col = first.col,
+                        trivia = first.trivia
+                    }
+                    local close = {
+                        kind = ")",
+                        text = ")",
+                        offset = last.offset,
+                        line = last.line,
+                        col = last.col,
+                        trivia = {}
+                    }
                     first.trivia = {}
                     args[1], args[2], args[3] = open, sugar, close
                     before[first], after[last] = open, close
@@ -1104,8 +1135,7 @@ type fmt.Options = {
 
 --- Formats one file. Returns the source unchanged, with what stopped it, when the file
 --- does not parse or the result would not be the same program.
-function fmt.format(source: string, filename: string?,
-    opts: fmt.Options?): string, {any}
+function fmt.format(source: string, filename: string?, opts: fmt.Options?): string, {any}
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return source, result.errors
@@ -1126,12 +1156,18 @@ function fmt.format(source: string, filename: string?,
     -- sugar-form arguments.
     local outputTokens = lexer.lex(text)
     if fingerprintTokens(outputTokens) ~= fingerprintTokens(result.tokens, true) then
-        return source, {{
-            code = "NUPP4001",
-            msg = "internal error: formatting would change the token stream; "
-            .. "the file was left unchanged (please report this input)",
-            filename = filename, line = 1, col = 1, offset = 1, length = 1,
-        }}
+        return source, {
+            {
+                code = "NUPP4001",
+                msg = "internal error: formatting would change the token stream; "
+                .. "the file was left unchanged (please report this input)",
+                filename = filename,
+                line = 1,
+                col = 1,
+                offset = 1,
+                length = 1,
+            }
+        }
     end
 
     return text, {}

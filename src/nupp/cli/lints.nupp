@@ -28,26 +28,30 @@ A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
                 items = {
                     type = "object",
                     properties = {
-                        name = {type = "string",
-                        description = "What an @allow suppression writes."},
-                        code = {type = "string",
-                        description = "The diagnostic code it reports under, "
-                        .. "which survives the name being reconsidered."},
+                        name = {type = "string", description = "What an @allow suppression writes."},
+                        code = {
+                            type = "string",
+                            description = "The diagnostic code it reports under, "
+                            .. "which survives the name being reconsidered."
+                        },
                         category = {type = "string"},
-                        level = {type = "string",
-                        enum = {"off", "note", "warning", "error"},
-                        description = "The level this project runs it at."},
-                        default = {type = "string",
-                        enum = {"off", "note", "warning", "error"},
-                        description = "The level it runs at when a project "
-                        .. "says nothing."},
-                        moved = {type = "boolean",
-                        description = "Whether this project moved it off "
-                        .. "its default."},
+                        level = {
+                            type = "string",
+                            enum = {"off", "note", "warning", "error"},
+                            description = "The level this project runs it at."
+                        },
+                        default = {
+                            type = "string",
+                            enum = {"off", "note", "warning", "error"},
+                            description = "The level it runs at when a project " .. "says nothing."
+                        },
+                        moved = {
+                            type = "boolean",
+                            description = "Whether this project moved it off " .. "its default."
+                        },
                         summary = {type = "string"},
                     },
-                    required = {"name", "code", "category", "level", "default",
-                    "moved", "summary"},
+                    required = {"name", "code", "category", "level", "default", "moved", "summary"},
                 },
             },
         },
@@ -57,9 +61,7 @@ A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
 
 -- A level is a severity in everything but name, so it is painted like one; the two
 -- levels that are not severities are the two that do not report anything.
-local LEVEL_SEVERITY = {
-    error = "error", warning = "warning", note = "note",
-}
+local LEVEL_SEVERITY = {error = "error", warning = "warning", note = "note",}
 
 local function run(parsed: any): integer
     local lints = require("nupp.lints")
@@ -77,9 +79,15 @@ local function run(parsed: any): integer
     local nameWidth: integer, categoryWidth: integer = 4, 8
     for _, lint in ipairs(lints.all) do
         local level = lints.level(lint, lintConfig)
-        rows[#rows + 1] = {
-            name = lint.name, code = lint.code, category = lint.category,
-            level = level, summary = lint.summary, default = lint.level,
+        rows[
+            #rows + 1
+        ] = {
+            name = lint.name,
+            code = lint.code,
+            category = lint.category,
+            level = level,
+            summary = lint.summary,
+            default = lint.level,
             moved = level ~= lint.level,
         }
         if #lint.name > nameWidth then
@@ -89,7 +97,9 @@ local function run(parsed: any): integer
             categoryWidth = #lint.category
         end
     end
-    table.sort(rows, function(a: any, b: any): boolean return a.name < b.name end)
+    table.sort(rows, function(a: any, b: any): boolean
+        return a.name < b.name
+    end)
     if parsed.values.format == "json" then
         require("nupp.cli.report").write({lints = rows})
         return 0
@@ -100,9 +110,12 @@ local function run(parsed: any): integer
     local function pad(text: string, width: integer): string
         return text .. (" "):rep(width - #text)
     end
-    out[#out + 1] = style.faint(pad("lint", nameWidth) .. "  "
-        .. pad("category", categoryWidth) .. "  " .. pad("level", 7)
-        .. "  summary")
+
+    out[
+        #out + 1
+    ] = style.faint(
+        pad("lint", nameWidth) .. "  " .. pad("category", categoryWidth) .. "  " .. pad("level", 7) .. "  summary"
+    )
     for _, row in ipairs(rows) do
         local summary = row.summary
         if row.moved then
@@ -113,11 +126,14 @@ local function run(parsed: any): integer
         if severity then
             level = ansi.forSeverity(style, severity)(level)
         end
-        out[#out + 1] = style.strong(pad(row.name, nameWidth)) .. "  "
-            .. style.faint(pad(row.category, categoryWidth)) .. "  " .. level
-            .. "  " .. summary
+        out[
+            #out + 1
+        ] = style.strong(
+            pad(row.name, nameWidth)
+        ) .. "  " .. style.faint(pad(row.category, categoryWidth)) .. "  " .. level .. "  " .. summary
     end
     io.write(table.concat(out, "\n"), "\n")
+
     return 0
 end
 

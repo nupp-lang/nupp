@@ -82,9 +82,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if baseName == "coroutine" and memberName == "yield" then
             local obligation = c.liveSuspensionObligation()
             if obligation then
-                c.diag("NUPP2603", node,
-                    ("cannot suspend while temporal obligation %q is live")
-                    :format(obligation))
+                c.diag("NUPP2603", node, ("cannot suspend while temporal obligation %q is live"):format(obligation))
             end
         end
         if calleeName ~= "" and not c.lookupEntry(calleeName) then
@@ -96,8 +94,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2602", node, "intoRaw expects one owned value")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node,
-                        "intoRaw requires an unsafe do block")
+                    c.diag("NUPP2604", node, "intoRaw requires an unsafe do block")
                 end
                 c.moveExpression(args[1] or node, valueT, "intoRaw")
                 node.ownershipIntrinsic = "intoRaw"
@@ -116,14 +113,11 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.infer(args[2])
                 end
                 local source = args[2] and c.ownershipEntry(args[2]) or nil
-                if #args ~= 2 or c.ownershipKind(valueT)
-                    or not c.pointerShaped(valueT) or not source then
-                    c.diag("NUPP2602", node,
-                        "borrowFrom expects a raw pointer and a named source")
+                if #args ~= 2 or c.ownershipKind(valueT) or not c.pointerShaped(valueT) or not source then
+                    c.diag("NUPP2602", node, "borrowFrom expects a raw pointer and a named source")
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node,
-                        "borrowFrom requires an unsafe do block")
+                    c.diag("NUPP2604", node, "borrowFrom requires an unsafe do block")
                 end
                 node.ownershipIntrinsic = "borrowFrom"
                 node.borrowOwner = c.borrowRoot(source)
@@ -134,17 +128,18 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.infer(args[2])
                 end
                 if #args ~= 2 or not c.pointerShaped(pointerT) then
-                    c.diag("NUPP2602", node,
-                        "pin expects a pointer and its managed anchor")
+                    c.diag("NUPP2602", node, "pin expects a pointer and its managed anchor")
                 end
                 if c.unsafeDepth == 0 then
                     local pointerOwner = args[1] and args[1].borrowOwner
                     local anchorEntry = args[2] and c.ownershipEntry(args[2])
-                    if c.ownershipKind(pointerT) ~= "borrowed"
-                        or not pointerOwner or pointerOwner ~= anchorEntry then
-                        c.diag("NUPP2604", node,
+                    if c.ownershipKind(pointerT) ~= "borrowed" or not pointerOwner or pointerOwner ~= anchorEntry then
+                        c.diag(
+                            "NUPP2604",
+                            node,
                             "pin must prove the pointer derives from its anchor; "
-                            .. "use unsafe do for an opaque derivation")
+                            .. "use unsafe do for an opaque derivation"
+                        )
                     end
                 end
                 node.ownershipIntrinsic = "pin"
@@ -155,28 +150,23 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 for j = 2, #args do
                     local cleanupT = c.infer(args[j])
                     local cleanupNode = args[j]
-                    local cleanupTok = cleanupNode.kind == "name"
-                        and cleanupNode.token or nil
+                    local cleanupTok = cleanupNode.kind == "name" and cleanupNode.token or nil
                     if not cleanupTok then
-                        c.diag("NUPP2602", args[j],
-                            "fromRaw cleanup arguments must be function names")
+                        c.diag("NUPP2602", args[j], "fromRaw cleanup arguments must be function names")
                     else
                         cleanups[#cleanups + 1] = cleanupTok.text
                     end
-                    if cleanupT ~= T.any and (cleanupT.tag ~= "func"
-                        or not cleanupT.params[1]
-                        or not isA(rawType(valueT), cleanupT.params[1])) then
-                        c.diag("NUPP2602", args[j],
-                            "fromRaw cleanup must accept the pointer type")
+                    if cleanupT ~= T.any and (
+                        cleanupT.tag ~= "func" or not cleanupT.params[1] or not isA(rawType(valueT), cleanupT.params[1])
+                    ) then
+                        c.diag("NUPP2602", args[j], "fromRaw cleanup must accept the pointer type")
                     end
                 end
                 if c.unsafeDepth == 0 then
-                    c.diag("NUPP2604", node,
-                        "fromRaw requires an unsafe do block")
+                    c.diag("NUPP2604", node, "fromRaw requires an unsafe do block")
                 end
                 if c.ownershipKind(valueT) or not c.pointerShaped(valueT) then
-                    c.diag("NUPP2602", args[1] or node,
-                        "fromRaw expects an unmanaged pointer")
+                    c.diag("NUPP2602", args[1] or node, "fromRaw expects an unmanaged pointer")
                 end
                 node.ownershipIntrinsic = "fromRaw"
                 node.ownerCleanups = cleanups
@@ -192,26 +182,25 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 local withBorrow = args[1] and args[1].withBinding
                 if withBorrow then
-                    c.diag("NUPP2614", args[1],
-                        "a visible 'with' borrow cannot be disposed")
+                    c.diag("NUPP2614", args[1], "a visible 'with' borrow cannot be disposed")
                 end
                 if not withBorrow then
                     c.moveExpression(args[1] or node, valueT, "dispose")
                 end
-                if c.ownershipKind(valueT) == "owned"
-                    and #(disposed.cleanups or {}) == 0 then
-                    c.diag("NUPP2602", args[1] or node,
+                if c.ownershipKind(valueT) == "owned" and #(disposed.cleanups or {}) == 0 then
+                    c.diag(
+                        "NUPP2602",
+                        args[1] or node,
                         "dispose needs @owned cleanup functions; transfer this owner "
-                        .. "to a declared takes parameter")
+                        .. "to a declared takes parameter"
+                    )
                 end
                 -- The contract was validated where it was written, so an unresolvable
                 -- name is not re-reported as a declaration error here. What a dispose
                 -- does have to establish is that the cleanup can be called from this
                 -- module, since that is what it emits.
-                c.validateCleanups(valueT, disposed.cleanups,
-                    args[1] or node, nil, true)
-                c.own.requireReachableCleanups(valueT, disposed.cleanups,
-                    args[1] or node)
+                c.validateCleanups(valueT, disposed.cleanups, args[1] or node, nil, true)
+                c.own.requireReachableCleanups(valueT, disposed.cleanups, args[1] or node)
                 node.ownershipIntrinsic = "dispose"
                 node.ownerCleanups = disposed.cleanups or {}
                 return T.nil_
@@ -219,19 +208,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         if calleeName ~= "" then
             local entry = c.lookupEntry(calleeName)
-            node.cdefCall = entry and entry.definition
-                and entry.definition.cdef or false
+            node.cdefCall = entry and entry.definition and entry.definition.cdef or false
         end
         -- require("mod") resolves to the module's type when the module can be found. An
         -- undeclared Lua module stays gradual by default, but strict checking exposes
         -- that untyped boundary as unknown so it must be narrowed or cast.
         local requireGlobal = c.env and c.env.globals and c.env.globals.require
-        local requireEntry = calleeName == "require" and c.lookupEntry("require")
-            or nil
-        local stableRequire = requireGlobal and requireEntry
-            and requireGlobal.definition == requireEntry.definition
-        if calleeName == "require" and stableRequire
-            and c.env and c.env.resolveModule then
+        local requireEntry = calleeName == "require" and c.lookupEntry("require") or nil
+        local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
+        if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
             local tok = nil
             if argsNode then
                 local e1 = argExprs[1]
@@ -248,7 +233,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 if modname then
                     node.requiredModule = modname
                     local effect = native.forModule(modname)
-                    if effect and c.recordEffect then c.recordEffect(effect) end
+                    if effect and c.recordEffect then
+                        c.recordEffect(effect)
+                    end
                     local mt = c.env.resolveModule(c.env, modname)
                     if mt then
                         return mt
@@ -261,8 +248,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- constant type string is read by the compiler, so existing FFI code gets types
         -- without being rewritten. A string built at run time yields cdata rather than
         -- any, which keeps leaving the typed path visible.
-        local intrinsic = inferFfiIntrinsic(node, calleeName, baseName,
-            memberName, typeArg, argExprs, argStr)
+        local intrinsic = inferFfiIntrinsic(node, calleeName, baseName, memberName, typeArg, argExprs, argStr)
         if intrinsic then
             return intrinsic
         end
@@ -271,13 +257,25 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
         if wrappedEntry and wrappedEntry.wrappedProtocol then
             local protocol = wrappedEntry.wrappedProtocol
-            local input = wrappedEntry.wrappedPhase == "new"
-                and protocol.startPack or protocol.resumePack
-            local output = T.packUnion({protocol.yieldPack,
-                protocol.returnPack})
-            calleeT = T.func(input.head, output.head, input.tail ~= nil,
-                input.modes, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-                input, output)
+            local input = wrappedEntry.wrappedPhase == "new" and protocol.startPack or protocol.resumePack
+            local output = T.packUnion({protocol.yieldPack, protocol.returnPack})
+            calleeT = T.func(
+                input.head,
+                output.head,
+                input.tail ~= nil,
+                input.modes,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                input,
+                output
+            )
             node.calleeType = calleeT
         end
         -- LuaJIT exposes these functions through builtin modules rather than before
@@ -285,12 +283,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- a local named `table` remains an ordinary call.
         local tableGlobal = c.env and c.env.globals and c.env.globals.table or nil
         local tableBase = callee and callee.kind == "dotIndex" and callee.obj or nil
-        local tableToken = tableBase and tableBase.kind == "name"
-            and tableBase.token or nil
-        if node.kind == "call" and callee and callee.kind == "dotIndex"
-            and callee.immutablePath and tableToken and tableGlobal
+        local tableToken = tableBase and tableBase.kind == "name" and tableBase.token or nil
+        if node.kind == "call"
+            and callee
+            and callee.kind == "dotIndex"
+            and callee.immutablePath
+            and tableToken
+            and tableGlobal
             and tableToken.definition == tableGlobal.definition
-            and (memberName == "new" or memberName == "clear") then
+            and (
+            memberName == "new" or memberName == "clear"
+        ) then
             node.tableIntrinsic = memberName
         end
         local knownAts = nil
@@ -299,16 +302,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- iterator contract for records.
         local pairParams = calleeT.tag == "func" and calleeT.typeParams
         local pairMap = calleeT.tag == "func" and calleeT.params[1]
-        local isPairsContract = calleeName == "pairs" and pairParams
-            and #pairParams == 2 and pairMap and pairMap.tag == "map"
-            and pairMap.key == pairParams[1]
-            and pairMap.value == pairParams[2]
+        local isPairsContract = calleeName == "pairs"
+            and pairParams
+            and #pairParams == 2
+            and pairMap
+            and pairMap.tag == "map"
+            and pairMap.key == pairParams[
+            1
+        ] and pairMap.value == pairParams[2]
         if isPairsContract then
             local args = argExprs
             if #args == 1 then
                 local at = c.infer(args[1])
-                if at.tag == "nominal" or (at.tag == "typevar"
-                    and at.bound and at.bound.tag == "nominal") then
+                if at.tag == "nominal" or (at.tag == "typevar" and at.bound and at.bound.tag == "nominal") then
                     local iterator = T.func({}, {T.any, T.any}, false)
                     c.lastCallRets = {iterator}
                     return iterator
@@ -328,19 +334,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if wrappedEntry and wrappedEntry.wrappedProtocol then
             wrappedEntry.wrappedPhase = "started"
         end
-        local globalEntry = calleeName ~= "" and c.env and c.env.globals
-            and c.env.globals[calleeName] or nil
+        local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
         local localEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
-        local stableGlobal = globalEntry and localEntry
-            and globalEntry.definition == localEntry.definition
+        local stableGlobal = globalEntry and localEntry and globalEntry.definition == localEntry.definition
         if stableGlobal and calleeName == "select" and node.argumentPack then
             local source = node.argumentPack
             local selector = argExprs[1]
-            local selectorToken = selector and (selector.kind == "string"
-                or selector.kind == "number") and selector.token or nil
+            local selectorToken = selector and (
+                selector.kind == "string" or selector.kind == "number"
+            ) and selector.token or nil
             local selectorText = selectorToken and selectorToken.text or ""
-            if selector and selector.kind == "string"
-                and (selectorText == '"#"' or selectorText == "'#'") then
+            if selector and selector.kind == "string" and (selectorText == '"#"' or selectorText == "'#'") then
                 pack = T.pack({T.integer})
                 local discarded = {}
                 for j = 2, #source.head do
@@ -351,31 +355,35 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local selected: integer? = nil
                 if selector and selector.kind == "number" then
                     selected = tonumber((selectorText:gsub("_", ""))) as integer
-                elseif selector and selector.kind == "unop" and selector.op
-                    and selector.op.kind == "-" and selector.operand
+                elseif selector
+                    and selector.kind == "unop"
+                    and selector.op
+                    and selector.op.kind == "-"
+                    and selector.operand
                     and selector.operand.kind == "number"
-                    and selector.operand.token then
-                    selected = -(assert(tonumber((selector.operand.token.text
-                        :gsub("_", "")))) as integer)
+                    and selector.operand.token
+                then
+                    selected = -(assert(tonumber((selector.operand.token.text:gsub("_", "")))) as integer)
                 end
                 local values = {}
-                for j = 2, #source.head do values[#values + 1] = source.head[j] end
+                for j = 2, #source.head do
+                    values[#values + 1] = source.head[j]
+                end
                 local valuePack = T.pack(values, source.tail)
                 if selected then
-                    local start = selected < 0 and #values + selected + 1
-                        or selected
-                    if not source.tail and (selected == 0 or start < 1
-                        or start > #values) then
-                        c.diag("NUPP2010", selector,
-                            "select index is outside its statically known argument pack")
+                    local start = selected < 0 and #values + selected + 1 or selected
+                    if not source.tail and (selected == 0 or start < 1 or start > #values) then
+                        c.diag("NUPP2010", selector, "select index is outside its statically known argument pack")
                     end
                     local discarded = {}
                     for j = 1, math.max(start - 1, 0) do
                         discarded[#discarded + 1] = values[j]
                     end
-                    c.checkPackDiscard(T.pack(discarded,
-                        source.tail and start > #values and source.tail or nil),
-                        1, selector or node)
+                    c.checkPackDiscard(
+                        T.pack(discarded, source.tail and start > #values and source.tail or nil),
+                        1,
+                        selector or node
+                    )
                     local sliced = {}
                     for j = math.max(start, 1), #values do
                         sliced[#sliced + 1] = values[j]
@@ -383,12 +391,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     pack = T.pack(sliced, valuePack.tail)
                 else
                     local members = {}
-                    for _, value in ipairs(values) do members[#members + 1] = value end
+                    for _, value in ipairs(values) do
+                        members[#members + 1] = value
+                    end
                     if source.tail and source.tail.type then
                         members[#members + 1] = source.tail.type
                     end
-                    pack = T.pack({}, {kind = "homogeneous",
-                        type = #members > 0 and T.union(members) or T.any})
+                    pack = T.pack({}, {kind = "homogeneous", type = #members > 0 and T.union(members) or T.any})
                     c.checkPackDiscard(valuePack, 1, selector or node)
                 end
             end
@@ -398,7 +407,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             local tableType = T.packAt(node.argumentPack, 1)
             local elements, elementType = {}, nil
             if tableType and tableType.tag == "tuple" then
-                for j, value in ipairs(tableType.elems) do elements[j] = value end
+                for j, value in ipairs(tableType.elems) do
+                    elements[j] = value
+                end
             elseif tableType and tableType.tag == "array" then
                 elementType = tableType.elem
             end
@@ -408,13 +419,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     if not tok then
                         return nil
                     end
+
                     return tonumber((tok.text:gsub("_", ""))) as integer
                 end
+
                 local from = integerLiteral(argExprs[2]) or 1
                 local through = integerLiteral(argExprs[3])
-                if #elements > 0 and (not argExprs[2]
-                    or integerLiteral(argExprs[2]))
-                    and (not argExprs[3] or through) then
+                if #elements > 0 and (
+                    not argExprs[2] or integerLiteral(argExprs[2])
+                ) and (not argExprs[3] or through) then
                     through = through or #elements
                     local sliced = {}
                     for j = from, through do
@@ -424,23 +437,21 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 elseif elementType then
                     pack = T.pack({}, {kind = "homogeneous", type = elementType})
                 else
-                    pack = T.pack({}, {kind = "homogeneous",
-                        type = T.union(elements)})
+                    pack = T.pack({}, {kind = "homogeneous", type = T.union(elements)})
                 end
                 first, rets = T.packAt(pack, 1) or T.nil_, pack.head
             end
         end
-        local tableEntry = baseName ~= "" and c.env and c.env.globals
-            and c.env.globals[baseName] or nil
+        local tableEntry = baseName ~= "" and c.env and c.env.globals and c.env.globals[baseName] or nil
         local baseEntry = baseName ~= "" and c.lookupEntry(baseName) or nil
-        local stableMember = tableEntry and baseEntry
-            and tableEntry.definition == baseEntry.definition
+        local stableMember = tableEntry and baseEntry and tableEntry.definition == baseEntry.definition
         if stableMember and baseName == "coroutine" then
             node.coroutineIntrinsic = memberName
             local actual = node.argumentPack or T.pack({})
             local function unknownPack()
                 return T.pack({}, {kind = "unknown", type = T.any})
             end
+
             local function checkProtocol(expected, offset: integer)
                 local head = {}
                 for j = offset + 1, #actual.head do
@@ -448,43 +459,54 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 local supplied = T.pack(head, actual.tail)
                 local ok, why = packIsA(supplied, expected)
-                local exact = expected.alternatives or expected.tail
-                    or not supplied.tail and #supplied.head == #expected.head
+                local exact = expected.alternatives
+                    or expected.tail
+                    or not supplied.tail
+                    and #supplied.head == #expected.head
                 if not ok or not exact then
-                    c.diag("NUPP2010", argExprs[offset + 1] or node,
-                        why or ("coroutine pack has %d values, expected %d")
-                        :format(#supplied.head, #expected.head))
+                    c.diag(
+                        "NUPP2010",
+                        argExprs[offset + 1] or node,
+                        why or ("coroutine pack has %d values, expected %d"):format(#supplied.head, #expected.head)
+                    )
                 end
             end
+
             if memberName == "create" then
                 local bodyType = T.packAt(actual, 1)
                 if bodyType and bodyType.tag == "func" then
-                    first = T.protocolThread(bodyType.paramPack,
+                    first = T.protocolThread(
+                        bodyType.paramPack,
                         bodyType.resumePack or unknownPack(),
-                        bodyType.yieldPack or unknownPack(), bodyType.retPack)
+                        bodyType.yieldPack or unknownPack(),
+                        bodyType.retPack
+                    )
                     pack, rets = T.pack({first}), {first}
                 end
             elseif memberName == "resume" then
                 local threadType = T.packAt(actual, 1)
                 if threadType and threadType.tag == "protocolThread" then
                     local threadArg = argExprs[1]
-                    local threadEntry = threadArg and threadArg.kind == "name"
-                        and threadArg.token
-                        and c.lookupEntry(threadArg.token.text) or nil
+                    local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
+                        threadArg.token.text
+                    ) or nil
                     -- A local handle starts with the callback's Start pack. After the
                     -- first transfer it can no longer be new, even when control later
                     -- joins and its suspended/dead phase is unknown, so subsequent
                     -- transfers use Resume. Escaped or erased handles accept either.
                     local phase = threadEntry and threadEntry.threadPhase or "unknown"
                     if phase == "dead" then
-                        c.diag("NUPP2010", threadArg or node,
-                            "a coroutine narrowed to dead cannot be resumed")
+                        c.diag("NUPP2010", threadArg or node, "a coroutine narrowed to dead cannot be resumed")
                     end
-                    local accepted = phase == "new" and threadType.startPack
-                        or phase == "started" and threadType.resumePack
-                        or phase == "dead" and threadType.resumePack
-                        or T.packUnion({threadType.startPack,
-                        threadType.resumePack})
+                    local accepted = phase == "new"
+                        and threadType.startPack
+                        or phase == "started"
+                        and threadType.resumePack
+                        or phase == "dead"
+                        and threadType.resumePack
+                        or T.packUnion(
+                        {threadType.startPack, threadType.resumePack}
+                    )
                     if accepted.alternatives then
                         local fits = false
                         local suppliedHead = {}
@@ -493,9 +515,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         end
                         local supplied = T.pack(suppliedHead, actual.tail)
                         for _, arm in ipairs(accepted.alternatives) do
-                            local armFits = packIsA(supplied, arm)
-                                and (arm.tail ~= nil or not supplied.tail
-                                and #supplied.head == #arm.head)
+                            local armFits = packIsA(
+                                supplied,
+                                arm
+                            ) and (arm.tail ~= nil or not supplied.tail and #supplied.head == #arm.head)
                             fits = fits or armFits
                         end
                         if not fits then
@@ -512,11 +535,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         for _, value in ipairs(values.head) do
                             head[#head + 1] = value
                         end
+
                         return T.pack(head, values.tail)
                     end
-                    pack = T.packUnion({successful(threadType.yieldPack),
-                        successful(threadType.returnPack),
-                        T.pack({T.literal(false, T.boolean), T.any})})
+
+                    pack = T.packUnion(
+                        {
+                            successful(threadType.yieldPack),
+                            successful(threadType.returnPack),
+                            T.pack({T.literal(false, T.boolean), T.any})
+                        }
+                    )
                     first, rets = T.packAt(pack, 1) or T.boolean, pack.head
                 end
             elseif memberName == "yield" then
@@ -535,9 +564,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             elseif memberName == "status" then
                 local threadArg = argExprs[1]
-                local threadEntry = threadArg and threadArg.kind == "name"
-                    and threadArg.token
-                    and c.lookupEntry(threadArg.token.text) or nil
+                local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
+                    threadArg.token.text
+                ) or nil
                 if threadArg and threadArg.kind == "name" and threadArg.token then
                     node.coroutineStatusName = threadArg.token.text
                 end
@@ -548,35 +577,51 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 elseif phase == "dead" then
                     statuses[1] = T.literal("dead", T.string)
                 elseif phase == "started" then
-                    statuses = {T.literal("suspended", T.string),
-                        T.literal("dead", T.string)}
+                    statuses = {T.literal("suspended", T.string), T.literal("dead", T.string)}
                 else
-                    statuses = {T.literal("suspended", T.string),
+                    statuses = {
+                        T.literal("suspended", T.string),
                         T.literal("running", T.string),
                         T.literal("normal", T.string),
-                        T.literal("dead", T.string)}
+                        T.literal("dead", T.string)
+                    }
                 end
                 first = T.union(statuses)
                 pack, rets = T.pack({first}), {first}
             elseif memberName == "wrap" then
                 local bodyType = T.packAt(actual, 1)
                 if bodyType and bodyType.tag == "func" then
-                    local wrappedReturns = T.packUnion({bodyType.yieldPack
-                        or unknownPack(), bodyType.retPack})
-                    first = T.func(bodyType.paramPack.head,
-                        wrappedReturns.head, bodyType.paramPack.tail ~= nil,
-                        bodyType.paramPack.modes, nil, nil, nil, nil, nil,
-                        nil, nil, nil, nil, bodyType.paramPack, wrappedReturns)
-                    node.wrappedProtocol = T.protocolThread(bodyType.paramPack,
+                    local wrappedReturns = T.packUnion({bodyType.yieldPack or unknownPack(), bodyType.retPack})
+                    first = T.func(
+                        bodyType.paramPack.head,
+                        wrappedReturns.head,
+                        bodyType.paramPack.tail ~= nil,
+                        bodyType.paramPack.modes,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        bodyType.paramPack,
+                        wrappedReturns
+                    )
+                    node.wrappedProtocol = T.protocolThread(
+                        bodyType.paramPack,
                         bodyType.resumePack or unknownPack(),
-                        bodyType.yieldPack or unknownPack(), bodyType.retPack)
+                        bodyType.yieldPack or unknownPack(),
+                        bodyType.retPack
+                    )
                     pack, rets = T.pack({first}), {first}
                 end
             end
         end
         c.lastCallRets = rets
-        node.valuePack = pack or (rets and T.pack(rets)
-            or T.pack({}, {kind = "unknown", type = T.any}))
+        node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+
         return first
     end
     handlers.safeCall = handlers.call
@@ -601,8 +646,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     nonnil[#nonnil + 1] = m
                 end
             end
+
             return T.union(nonnil)
         end
+
         if node.safeObj then
             ot = withoutNil(ot)
         end
@@ -621,51 +668,48 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                 end
             end
-            c.markToken(member, fieldDef, mt,
-                callable and "method" or "property")
+            c.markToken(member, fieldDef, mt, callable and "method" or "property")
             member.additionalDefinitions = fieldDefs
             -- o:m(...) desugars to m(o, ...): drop the self parameter
-            local first, rets, pack = c.inferCall(node,
-                callable and dropSelf(mt) or mt, node.args)
+            local first, rets, pack = c.inferCall(node, callable and dropSelf(mt) or mt, node.args)
             local owner = rawType(ot)
-            if owner.tag == "nominal" and owner.overloadedMethods
-                and owner.overloadedMethods[member.text]
-                and node.overloadWinner then
-                local selectedMember = methodslots.member(member.text,
-                    node.overloadWinner)
-                local dispatch = owner.methodDispatchEntries
-                    and owner.methodDispatchEntries[member.text]
-                    or (owner.methodEntries and owner.methodEntries[member.text])
-                    or {}
+            if owner.tag == "nominal" and owner.overloadedMethods and owner.overloadedMethods[
+                member.text
+            ] and node.overloadWinner then
+                local selectedMember = methodslots.member(member.text, node.overloadWinner)
+                local dispatch = owner.methodDispatchEntries and owner.methodDispatchEntries[
+                    member.text
+                ] or (owner.methodEntries and owner.methodEntries[member.text]) or {}
                 for _, entry in ipairs(dispatch) do
-                    local candidate = dropSelf(specializeSelf(owner,
-                        entry.signature, owner))
-                    if candidate.id == node.overloadWinner.id
-                        or entry.member == selectedMember then
+                    local candidate = dropSelf(specializeSelf(owner, entry.signature, owner))
+                    if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
                         node.overloadMember = entry.member
                         node.methodEntry = entry
-                        c.markToken(member, entry.definition,
-                            specializeSelf(owner, entry.signature, owner), "method")
+                        c.markToken(member, entry.definition, specializeSelf(owner, entry.signature, owner), "method")
                         member.additionalDefinitions = nil
                         break
                     end
                 end
-                node.overloadMember = node.overloadMember
-                    or selectedMember
+                node.overloadMember = node.overloadMember or selectedMember
             end
             c.lastCallRets = rets
-            node.valuePack = pack or (rets and T.pack(rets)
-                or T.pack({}, {kind = "unknown", type = T.any}))
+            node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
             return optional and T.optional(first) or first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
             if ot.tag == "shape" or ot.tag == "nominal" then
-                local fixes = c.edits.nameSpellingFix(member,
-                    c.fieldNames(ot))
-                c.diag("NUPP2004", member, ("no method %q in %s")
-                    :format(member.text, T.tostring(ot)), fixes,
-                    {help = fixes and "use the suggested method spelling"
-                    or "check the receiver type and available methods"})
+                local fixes = c.edits.nameSpellingFix(member, c.fieldNames(ot))
+                c.diag(
+                    "NUPP2004",
+                    member,
+                    ("no method %q in %s"):format(member.text, T.tostring(ot)),
+                    fixes,
+                    {
+                        help = fixes
+                        and "use the suggested method spelling"
+                        or "check the receiver type and available methods"
+                    }
+                )
             end
         end
         if node.args then
@@ -676,8 +720,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- untyped call's does.
         c.lastCallRets = nil
         node.valuePack = T.pack({}, {kind = "unknown", type = T.any})
+
         return T.any
     end
+
     return handlers
 end
 

@@ -30,6 +30,7 @@ local function positionAtByte(source: string?, offset: number?): any
         end
         cursor = cursor + 1
     end
+
     return {line = line, column = offset - lineStart + 1, offset = offset}
 end
 
@@ -43,6 +44,7 @@ local function sourceReader(): function(string?): string?
         if sources[path] == nil then
             sources[path] = fs.readFile(path) or false
         end
+
         return sources[path] or nil
     end
 end
@@ -51,13 +53,13 @@ local function rangeAt(source: string?, offset: number?, length: number?): any
     local start = positionAtByte(source, offset or 1)
     local span = length or 0
     if source then
-        return {start = start,
-            ["end"] = positionAtByte(source,
-            math.min(#source + 1, (offset or 1) + span))}
+        return {start = start, ["end"] = positionAtByte(source, math.min(#source + 1, (offset or 1) + span))}
     end
-    return {start = start, ["end"] = {line = start.line,
-        column = start.column + (length or 1),
-        offset = start.offset + (length or 1)}}
+
+    return {
+        start = start,
+        ["end"] = {line = start.line, column = start.column + (length or 1), offset = start.offset + (length or 1)}
+    }
 end
 
 --- Encodes a value the way every `--json` command encodes one. An empty table becomes
@@ -88,11 +90,14 @@ function report.diagnosticValues(diagnostics: {any}): {any}
         for _, fix in ipairs(e.fixes or {}) do
             local edits: {any} = {}
             for _, edit in ipairs(fix.edits or {}) do
-                edits[#edits + 1] = {
+                edits[
+                    #edits + 1
+                ] = {
                     file = e.filename,
-                    range = {start = positionAtByte(source, edit.offset),
-                    ["end"] = positionAtByte(source,
-                    edit.offset + edit.length)},
+                    range = {
+                        start = positionAtByte(source, edit.offset),
+                        ["end"] = positionAtByte(source, edit.offset + edit.length)
+                    },
                     newText = edit.newText,
                 }
             end
@@ -101,26 +106,29 @@ function report.diagnosticValues(diagnostics: {any}): {any}
         local related: {any} = {}
         for _, item in ipairs(e.related or {}) do
             local relatedFile = item.filename or e.filename
-            related[#related + 1] = {file = relatedFile, message = item.message,
-                range = rangeAt(read(relatedFile), item.offset, item.length)}
+            related[
+                #related + 1
+            ] = {
+                file = relatedFile,
+                message = item.message,
+                range = rangeAt(read(relatedFile), item.offset, item.length)
+            }
         end
-        values[#values + 1] = {
-            file = e.filename,
-            severity = REPORTED[e.severity] or "error",
-            code = e.code,
-            lint = e.lint,
+        values[
+            #values + 1
+        ] = {file = e.filename, severity = REPORTED[e.severity] or "error", code = e.code, lint = e.lint,
             -- Derived from the code rather than carried on every diagnostic: one code
             -- always means one section, so storing it at each of the hundreds of places
             -- a diagnostic is raised would only be a way for them to disagree.
-            docs = explain.anchor(e.code),
-            message = e.msg,
-            range = rangeAt(source, e.offset, e.length),
-            fixes = fixes,
-            help = e.help,
-            notes = e.notes or {},
-            related = related,
-        }
+            docs = explain.anchor(
+            e.code
+        ), message = e.msg, range = rangeAt(
+            source,
+            e.offset,
+            e.length
+        ), fixes = fixes, help = e.help, notes = e.notes or {}, related = related,}
     end
+
     return values
 end
 
@@ -142,19 +150,11 @@ end
 local POSITION = {
     type = "object",
     description = "A 1-based byte position.",
-    properties = {
-        line = {type = "integer"},
-        column = {type = "integer"},
-        offset = {type = "integer"},
-    },
+    properties = {line = {type = "integer"}, column = {type = "integer"}, offset = {type = "integer"},},
     required = {"line", "column", "offset"},
 }
 
-local RANGE = {
-    type = "object",
-    properties = {start = POSITION, ["end"] = POSITION},
-    required = {"start", "end"},
-}
+local RANGE = {type = "object", properties = {start = POSITION, ["end"] = POSITION}, required = {"start", "end"},}
 
 --- A 1-based byte position, and a span of them. Shared so that everything which reports
 --- a source location reports it in the same shape.
@@ -171,11 +171,7 @@ report.LOCATION = {
 
 local EDIT = {
     type = "object",
-    properties = {
-        file = {type = "string"},
-        range = RANGE,
-        newText = {type = "string"},
-    },
+    properties = {file = {type = "string"}, range = RANGE, newText = {type = "string"},},
     required = {"range", "newText"},
 }
 
@@ -185,15 +181,20 @@ report.DIAGNOSTIC = {
     properties = {
         file = {type = "string"},
         severity = {type = "string", enum = {"error", "warning", "note"}},
-        code = {type = "string",
-        description = "A stable code such as NUPP2004, or OPT-n for an "
-        .. "optimizer remark."},
-        lint = {type = "string",
-        description = "The lint name, when the diagnostic came from one. "
-        .. "This is what an @allow suppression writes."},
-        docs = {type = "string",
-        description = "The reference section covering this code, as a path "
-        .. "and anchor. 'nupp explain <code>' says more."},
+        code = {
+            type = "string",
+            description = "A stable code such as NUPP2004, or OPT-n for an " .. "optimizer remark."
+        },
+        lint = {
+            type = "string",
+            description = "The lint name, when the diagnostic came from one. "
+            .. "This is what an @allow suppression writes."
+        },
+        docs = {
+            type = "string",
+            description = "The reference section covering this code, as a path "
+            .. "and anchor. 'nupp explain <code>' says more."
+        },
         message = {type = "string"},
         range = RANGE,
         help = {type = "string", description = "A concrete repair direction."},
@@ -202,19 +203,16 @@ report.DIAGNOSTIC = {
             type = "array",
             items = {
                 type = "object",
-                properties = {file = {type = "string"},
-                message = {type = "string"}, range = RANGE},
+                properties = {file = {type = "string"}, message = {type = "string"}, range = RANGE},
                 required = {"range"},
             },
         },
         fixes = {
             type = "array",
-            description = "Machine-applicable repairs. A fix is all-or-nothing: "
-            .. "apply every edit in it or none.",
+            description = "Machine-applicable repairs. A fix is all-or-nothing: " .. "apply every edit in it or none.",
             items = {
                 type = "object",
-                properties = {title = {type = "string"},
-                edits = {type = "array", items = EDIT}},
+                properties = {title = {type = "string"}, edits = {type = "array", items = EDIT}},
                 required = {"title", "edits"},
             },
         },

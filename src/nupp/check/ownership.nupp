@@ -45,12 +45,10 @@ type ownership.Ops = {
     requireReachableCleanups: function(valueT: Type?, cleanups: any, at: any),
 
     --- Checks that a value's declared cleanups exist and take it.
-    validateCleanups: function(valueT: Type?, cleanups: any, at: any,
-    code: string?, allowUnknown: boolean?),
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?, allowUnknown: boolean?),
 
     --- The cleanups an `@owned` carries once an inherited `@dispose` has been read.
-    resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any,
-    at: any): {string},
+    resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any, at: any): {string},
 
     --- Records a `@dispose` operation as the default cleanup of what it takes.
     registerDefaultDisposer: function(ft: Type?, path: string, at: any),
@@ -68,9 +66,7 @@ type ownership.Ops = {
     liveSuspensionObligation: function(): string?,
 
     --- Records that an expression's owner has been handed over.
-    moveExpression: function(expr: any, t: Type?, reason: string,
-    expectedKind: string?): boolean,
-}
+    moveExpression: function(expr: any, t: Type?, reason: string, expectedKind: string?): boolean,}
 
 --- Installs the ownership bookkeeping on one run.
 ---
@@ -80,8 +76,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
 
     function own.ownershipKind(t)
-        return t and (t.tag == "owned" or t.tag == "borrowed"
-            or t.tag == "pinned") and t.tag or nil
+        return t and (t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned") and t.tag or nil
     end
 
     function own.ownershipState(entry)
@@ -95,6 +90,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             seen[entry] = true
             entry = own.ownershipState(entry.borrowOwner)
         end
+
         return entry
     end
 
@@ -114,13 +110,13 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             return true
         end
+
         return false
     end
 
     function own.optionalOwned(t)
         local inner = rawType(t)
-        return own.ownershipKind(t) == "owned" and inner.tag == "union"
-            and inner.hasNil
+        return own.ownershipKind(t) == "owned" and inner.tag == "union" and inner.hasNil
     end
 
     --- Whether every cleanup this owner carries can be called from where it is being
@@ -146,18 +142,26 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- @param at where to report
     function own.requireReachableCleanups(valueT, cleanups, at)
         for _, cleanup in ipairs(cleanups or {}) do
-            local travels = cleanup:match("^@method:") or cleanup:match("^@field|")
-                or cleanup:match("^@dropfield|")
+            local travels = cleanup:match("^@method:") or cleanup:match("^@field|") or cleanup:match("^@dropfield|")
             if not travels and not c.lookupVar(cleanup) then
-                c.diag("NUPP2620", at,
-                    ("@owned cleanup %q cannot be reached from this module, so "
-                    .. "this value cannot be discharged here"):format(cleanup),
+                c.diag(
+                    "NUPP2620",
+                    at,
+                    (
+                        "@owned cleanup %q cannot be reached from this module, so "
+                        .. "this value cannot be discharged here"
+                    ):format(cleanup),
                     nil,
-                    {help = "give the type a @dispose method, so its cleanup "
-                    .. "travels with the value rather than being named",
-                    notes = {"the cleanup is private to the module that "
-                    .. "declared the owner, and a discharge emits a call "
-                    .. "to it by name"}})
+                    {
+                        help = "give the type a @dispose method, so its cleanup "
+                        .. "travels with the value rather than being named",
+                        notes = {
+                            "the cleanup is private to the module that "
+                            .. "declared the owner, and a discharge emits a call "
+                            .. "to it by name"
+                        }
+                    }
+                )
             end
         end
     end
@@ -167,8 +171,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         local signature = {rawType(valueT).id}
         for _, cleanup in ipairs(cleanups or {}) do
             local cleanupT = c.lookupVar(cleanup)
-            signature[#signature + 1] = cleanup .. ":"
-                .. (cleanupT and cleanupT.id or "?")
+            signature[#signature + 1] = cleanup .. ":" .. (cleanupT and cleanupT.id or "?")
         end
         local contractKey = table.concat(signature, "|")
         if c.validatedCleanupContracts[contractKey] then
@@ -176,32 +179,34 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
         c.validatedCleanupContracts[contractKey] = true
         for j, cleanup in ipairs(cleanups or {}) do
-            if cleanup:match("^@method:") or cleanup:match("^@field|")
-                or cleanup:match("^@dropfield|") then
+            if cleanup:match("^@method:") or cleanup:match("^@field|") or cleanup:match("^@dropfield|") then
                 goto continue
             end
             local cleanupT = c.lookupVar(cleanup)
-            local cleanupFunc = cleanupT and cleanupT.tag == "func"
-                and cleanupT or nil
+            local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
             if not cleanupT and not allowUnknown then
                 -- Only a declaration reaches this now: every consuming site passes
                 -- allowUnknown, because a cleanup belongs to the module that declared
                 -- the owner. So the reader is looking at the one place the name has to
                 -- resolve, which is the thing worth telling them.
-                c.diag(code, at, ("@owned cleanup %q is not declared"):format(cleanup),
-                    nil, {notes = {"a cleanup is resolved here, where the owner "
-                    .. "is declared, so it has to name a function this file "
-                    .. "can see"}})
-            elseif cleanupT and cleanupT ~= T.any and (not firstParam
-                or not isA(rawType(valueT), firstParam)) then
-                c.diag(code, at, ("@owned cleanup %q must accept %s"):format(
-                    cleanup, T.tostring(rawType(valueT))))
-            elseif cleanupFunc and j < #(cleanups or {})
-                and cleanupFunc.paramModes[1] == "takes" then
-                c.diag("NUPP2615", at,
-                    ("@owned cleanup %q takes before the final step")
-                    :format(cleanup))
+                c.diag(
+                    code,
+                    at,
+                    ("@owned cleanup %q is not declared"):format(cleanup),
+                    nil,
+                    {
+                        notes = {
+                            "a cleanup is resolved here, where the owner "
+                            .. "is declared, so it has to name a function this file "
+                            .. "can see"
+                        }
+                    }
+                )
+            elseif cleanupT and cleanupT ~= T.any and (not firstParam or not isA(rawType(valueT), firstParam)) then
+                c.diag(code, at, ("@owned cleanup %q must accept %s"):format(cleanup, T.tostring(rawType(valueT))))
+            elseif cleanupFunc and j < #(cleanups or {}) and cleanupFunc.paramModes[1] == "takes" then
+                c.diag("NUPP2615", at, ("@owned cleanup %q takes before the final step"):format(cleanup))
             end
             ::continue::
         end
@@ -212,7 +217,9 @@ function ownership.install(c: state.Checker): ownership.Ops
         if resource.tag == "union" then
             for _, member in ipairs(resource.members) do
                 if member ~= T.nil_ then
-                    resource = member; break
+                    resource = member
+                    ;
+                    break
                 end
             end
         end
@@ -225,25 +232,28 @@ function ownership.install(c: state.Checker): ownership.Ops
         local base = resource
         local defaults = base.tag == "nominal" and base.defaultDisposers or nil
         if not defaults or #defaults == 0 then
-            c.diag("NUPP2602", at,
+            c.diag(
+                "NUPP2602",
+                at,
                 "bare @owned needs exactly one inherited @dispose operation; "
-                .. "use @owned(cleanup) or @owned(opaque = true)")
+                .. "use @owned(cleanup) or @owned(opaque = true)"
+            )
             return {}
         elseif #defaults > 1 then
-            c.diag("NUPP2602", at,
-                "bare @owned has multiple inherited @dispose operations; "
-                .. "choose one with @owned(cleanup)")
+            c.diag(
+                "NUPP2602",
+                at,
+                "bare @owned has multiple inherited @dispose operations; " .. "choose one with @owned(cleanup)"
+            )
             return {}
         end
+
         return {defaults[1]}
     end
 
     function own.registerDefaultDisposer(ft, path, at)
-        if not ft or ft.tag ~= "func" or not ft.params[1]
-            or ft.paramModes[1] ~= "takes" then
-            c.diag("NUPP2602", at,
-                "@dispose requires a function whose first parameter takes "
-                .. "the resource")
+        if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
+            c.diag("NUPP2602", at, "@dispose requires a function whose first parameter takes " .. "the resource")
             return
         end
         local base = rawType(ft.params[1])
@@ -267,15 +277,15 @@ function ownership.install(c: state.Checker): ownership.Ops
         if expr and expr.kind == "name" then
             return own.ownershipState(c.lookupEntry(expr.token.text)), expr
         end
+
         return nil, expr
     end
 
     function own.provenanceOwner(expr)
-        -- `new` wraps the construction it decides, and provenance is about where
-        -- a value came from rather than how it was written, so it reads through
-        -- the word exactly as it reads through a paren or a cast.
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr"
-            or expr.kind == "newExpr") do
+        -- `new` wraps the construction it decides, and provenance is about where a
+        -- value came from rather than how it was written, so it reads through the word
+        -- exactly as it reads through a paren or a cast.
+        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr") do
             expr = expr.kind == "newExpr" and expr.call or expr.expr
         end
         if not expr then
@@ -287,8 +297,11 @@ function ownership.install(c: state.Checker): ownership.Ops
         if expr.kind == "name" then
             local entry = own.ownershipState(c.lookupEntry(expr.token.text))
             return own.borrowRoot(entry and (entry.borrowOwner or entry))
-        elseif expr.kind == "dotIndex" or expr.kind == "safeIndex"
-            or expr.kind == "bracketIndex" or expr.kind == "safeBracket" then
+        elseif expr.kind == "dotIndex"
+            or expr.kind == "safeIndex"
+            or expr.kind == "bracketIndex"
+            or expr.kind == "safeBracket"
+        then
             return own.provenanceOwner(expr.obj)
         elseif expr.kind == "tableExpr" then
             for _, field in ipairs(expr.fields or {}) do
@@ -309,6 +322,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                 end
             end
         end
+
         return nil
     end
 
@@ -346,6 +360,7 @@ function ownership.install(c: state.Checker): ownership.Ops
                 own.provenanceOwners(argument, out, seen)
             end
         end
+
         return out
     end
 
@@ -354,32 +369,34 @@ function ownership.install(c: state.Checker): ownership.Ops
         while current do
             for name, entry in pairs(current.vars or {}) do
                 local state = own.ownershipState(entry)
-                if state and not seen[state]
-                    and (state.functionDepth or 0) == c.functionDepth
-                    and not state.moved then
+                if state and not seen[state] and (state.functionDepth or 0) == c.functionDepth and not state.moved then
                     seen[state] = true
-                    if own.ownershipKind(state.t) or state.retained
-                        or (state.activeBorrows or 0) > 0 then
+                    if own.ownershipKind(state.t) or state.retained or (state.activeBorrows or 0) > 0 then
                         return name
                     end
                 end
             end
             current = current.parent
         end
+
         return nil
     end
 
     function own.moveExpression(expr, t, reason, expectedKind)
         expectedKind = expectedKind or "owned"
         local disposer = c.disposerFieldStack[#c.disposerFieldStack]
-        if disposer and expectedKind == "owned" and expr
-            and expr.kind == "dotIndex" and expr.obj
-            and expr.obj.kind == "name" and expr.obj.token.text == disposer.root then
+        if disposer
+            and expectedKind == "owned"
+            and expr
+            and expr.kind == "dotIndex"
+            and expr.obj
+            and expr.obj.kind == "name"
+            and expr.obj.token.text == disposer.root
+        then
             local field = expr.name.text
             if disposer.allowed[field] then
                 if disposer.done[field] then
-                    c.diag("NUPP2602", expr,
-                        ("owned field %q is disposed more than once"):format(field))
+                    c.diag("NUPP2602", expr, ("owned field %q is disposed more than once"):format(field))
                     return false
                 end
                 disposer.done[field] = true
@@ -389,47 +406,48 @@ function ownership.install(c: state.Checker): ownership.Ops
         local entry, nameNode = own.ownershipEntry(expr)
         entry = own.ownershipState(entry)
         if own.ownershipKind(t) ~= expectedKind then
-            c.diag("NUPP2602", expr,
-                (reason or "ownership transfer") .. " requires a "
-                .. expectedKind .. " value")
+            c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
             return false
         end
-        if expr and (expr.kind == "dotIndex" or expr.kind == "bracketIndex")
-            and expectedKind == "owned" then
-            c.diag("NUPP2602", expr,
-                "partial moves from affine records are not supported; "
-                .. "move or dispose the whole record")
+        if expr and (expr.kind == "dotIndex" or expr.kind == "bracketIndex") and expectedKind == "owned" then
+            c.diag(
+                "NUPP2602",
+                expr,
+                "partial moves from affine records are not supported; " .. "move or dispose the whole record"
+            )
             return false
         end
         if entry then
             if own.ownershipKind(entry.t) ~= expectedKind then
-                c.diag("NUPP2602", expr,
-                    (reason or "ownership transfer") .. " requires a "
-                    .. expectedKind .. " value")
+                c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
                 return false
             end
             if entry.moved then
                 if not nameNode.ownershipUseReported then
-                    local related = entry.movedAt and c.related(entry.movedAt,
-                        "owner was moved here") or nil
-                    c.diag("NUPP2601", nameNode,
+                    local related = entry.movedAt and c.related(entry.movedAt, "owner was moved here") or nil
+                    c.diag(
+                        "NUPP2601",
+                        nameNode,
                         ("owner %q was already moved"):format(nameNode.token.text),
-                        nil, {related = related and {related} or nil,
-                        help = "use the owner before this transfer, or borrow it "
-                        .. "instead of moving it"})
+                        nil,
+                        {
+                            related = related and {related} or nil,
+                            help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
+                        }
+                    )
                 end
                 return false
             end
             if (entry.activeBorrows or 0) > 0 then
-                c.diag("NUPP2602", nameNode,
-                    ("owner %q cannot move while it is borrowed")
-                    :format(nameNode.token.text))
+                c.diag("NUPP2602", nameNode, ("owner %q cannot move while it is borrowed"):format(nameNode.token.text))
                 return false
             end
             if expectedKind == "pinned" and entry.retained then
-                c.diag("NUPP2602", nameNode,
-                    ("pinned handle %q cannot move while C retains it")
-                    :format(nameNode.token.text))
+                c.diag(
+                    "NUPP2602",
+                    nameNode,
+                    ("pinned handle %q cannot move while C retains it"):format(nameNode.token.text)
+                )
                 return false
             end
             entry.moved = true
@@ -437,18 +455,17 @@ function ownership.install(c: state.Checker): ownership.Ops
             -- An owner that retained a borrow releases it when it is discharged, so the
             -- source becomes free at that point rather than at the end of the scope.
             if entry.borrowOwner then
-                entry.borrowOwner.activeBorrows =
-                    math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
+                entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
                 entry.borrowOwner = nil
             end
             for _, owner in ipairs(entry.borrowOwners or {}) do
-                owner.activeBorrows = math.max(0,
-                    (owner.activeBorrows or 1) - 1)
+                owner.activeBorrows = math.max(0, (owner.activeBorrows or 1) - 1)
             end
             entry.borrowOwners = nil
         end
         -- Owned temporaries (principally calls returning `own`) transfer directly and
         -- need no variable state update.
+
         return true
     end
 
@@ -462,6 +479,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     c.ownershipEntry = own.ownershipEntry
     c.liveSuspensionObligation = own.liveSuspensionObligation
     c.validateCleanups = own.validateCleanups
+
     return own
 end
 

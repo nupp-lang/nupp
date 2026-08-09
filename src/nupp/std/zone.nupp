@@ -54,7 +54,9 @@ function zone.acquire(): nil
         return
     end
 
-    for index = #stack, 1, -1 do stack[index] = nil end
+    for index = #stack, 1, -1 do
+        stack[index] = nil
+    end
     depth = 0
     version = version + 1
     generation = generation + 1
@@ -73,7 +75,9 @@ function zone.release(): nil
         return
     end
 
-    for index = #stack, 1, -1 do stack[index] = nil end
+    for index = #stack, 1, -1 do
+        stack[index] = nil
+    end
     depth = 0
     version = version + 1
     active = false
@@ -102,6 +106,7 @@ function zone.pop(): string?
     stack[depth] = nil
     depth = depth - 1
     version = version + 1
+
     return name
 end
 
@@ -128,10 +133,13 @@ function zone.path(): string
     if depth == 0 then
         pathText = ""
     else
-        for index = 1, depth do pathBuffer[index] = stack[index] end
+        for index = 1, depth do
+            pathBuffer[index] = stack[index]
+        end
         pathText = table.concat(pathBuffer, "/", 1, depth)
     end
     pathVersion = version
+
     return pathText
 end
 
@@ -148,6 +156,7 @@ function zone.enter(name: string): integer
     depth = depth + 1
     stack[depth] = name
     version = version + 1
+
     return generation
 end
 

@@ -16,8 +16,7 @@ local narrowing = {}
 -- `relations` reaches `generics`, which reaches this file, so the require graph loops
 -- and a whole-project check hands this edge back untyped. The cast restates the one
 -- signature taken from it, which `nupp.relations` declares in those words.
-local isA = (relations as {isA: function(a: T.Type, b: T.Type):
-    (boolean, string?)}).isA
+local isA = (relations as {isA: function(a: T.Type, b: T.Type): (boolean, string?)}).isA
 
 --- A type, as nupp.types builds them.
 local type Type = T.Type
@@ -60,8 +59,10 @@ function narrowing.subtract(t: Type, rem: Type): Type
         if isA(m, rem) then
             return nil
         end
+
         return m
     end
+
     if t.tag ~= "union" then
         return without(t) or t
     end
@@ -83,6 +84,7 @@ function narrowing.subtract(t: Type, rem: Type): Type
     if not changed then
         return t
     end
+
     return T.union(out)
 end
 
@@ -109,6 +111,7 @@ function narrowing.memberSet(t: Type?): {Type}?
         end
         return out
     end
+
     return nil
 end
 
@@ -134,6 +137,7 @@ function narrowing.withoutMember(t: Type?, litT: Type): Type?, boolean?
     if #rest == 0 then
         return nil, true
     end -- nothing left to hold
+
     return T.union(rest), false
 end
 
@@ -167,6 +171,7 @@ function narrowing.truthiness(vt: Type): Type?, Type?
     if #falsy == 0 then
         return truthy, nil
     end
+
     return truthy, T.union(falsy)
 end
 

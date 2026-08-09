@@ -10,51 +10,49 @@ rather than resolved.
 local spec = require("nupp.cli.spec")
 local optionsMod = require("nupp.cli.options")
 
-local command = spec.command{
-    name = "build",
-    summary = "Build source files or a configured project target",
-    usage = {
-        "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]"
-        .. " [--format text|json]",
-        "nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>",
-    },
-    options = optionsMod.join(
-        {name = "--target", value = "NAME", help = "Build a named manifest target"},
-        -- Two directories, not two spellings of one: --out-dir moves a manifest
-        -- target's output, -o says where a named file's Lua goes. Distinct keys, so
-        -- giving both is a contradiction the command can see.
-        {name = "--out-dir", value = "DIR", key = "projectOutDir",
-        help = "Override the manifest target's output directory"},
-        {name = "-o", value = "DIR", key = "outDir",
-        help = "Output directory for explicit source-file builds"},
-        optionsMod.strict,
-        optionsMod.optimize(),
-        optionsMod.format()),
-    schema = {
-        type = "object",
-        description = "What a build reported and what it produced.",
-        properties = {
-            diagnostics = require("nupp.cli.report").DIAGNOSTICS,
-            target = {type = "string",
+local command = spec.command{name = "build", summary = "Build source files or a configured project target", usage = {
+    "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [--format text|json]",
+    "nupp build [--strict] [-O<n>] [-o DIR] [--format text|json] <file...>",
+}, options = optionsMod.join({name = "--target", value = "NAME", help = "Build a named manifest target"},
+    -- Two directories, not two spellings of one: --out-dir moves a manifest target's
+    -- output, -o says where a named file's Lua goes. Distinct keys, so giving both is a
+    -- contradiction the command can see.
+    {
+    name = "--out-dir",
+    value = "DIR",
+    key = "projectOutDir",
+    help = "Override the manifest target's output directory"
+}, {
+    name = "-o",
+    value = "DIR",
+    key = "outDir",
+    help = "Output directory for explicit source-file builds"
+}, optionsMod.strict, optionsMod.optimize(), optionsMod.format()), schema = {
+    type = "object",
+    description = "What a build reported and what it produced.",
+    properties = {
+        diagnostics = require("nupp.cli.report").DIAGNOSTICS,
+        target = {
+            type = "string",
             description = "The manifest target that was built. Absent for a "
-            .. "build of explicitly named source files."},
-            written = {type = "array", items = {type = "string"},
-            description = "Every output path the build produced, sorted."},
-            ok = {type = "boolean",
-            description = "Whether the build completed. False when a "
-            .. "diagnostic stopped it."},
+            .. "build of explicitly named source files."
         },
-        required = {"ok", "diagnostics", "written"},
+        written = {
+            type = "array",
+            items = {type = "string"},
+            description = "Every output path the build produced, sorted."
+        },
+        ok = {type = "boolean", description = "Whether the build completed. False when a " .. "diagnostic stopped it."},
     },
-    detail = [[Manifest target options cannot be combined with explicit source files.
+    required = {"ok", "diagnostics", "written"},
+}, detail = [[Manifest target options cannot be combined with explicit source files.
 Use 'nupp tasks' to discover target names and configuration.
 
 The level is part of the build key, so changing it rebuilds rather than
 mixing artifacts compiled at two different levels. See plans/optimizations.md.
 
 --json reports the same diagnostics as 'nupp check --json' alongside what the
-build wrote, so one call answers both what went wrong and what landed.]],
-}
+build wrote, so one call answers both what went wrong and what landed.]],}
 
 local function run(parsed: any): integer
     local values = parsed.values
@@ -64,8 +62,7 @@ local function run(parsed: any): integer
     local outDir, projectOutDir = values.outDir, values.projectOutDir
     local target = values.target
     if #paths > 0 and (projectOutDir or target) then
-        return command:usageError(
-            "--target and --out-dir cannot be used with explicit source files")
+        return command:usageError("--target and --out-dir cannot be used with explicit source files")
     end
     if #paths == 0 and outDir then
         return command:usageError("-o requires at least one explicit source file")
@@ -79,21 +76,36 @@ local function run(parsed: any): integer
     local settings = compile.settings(values, asJson and diagnostics or nil)
     local function finish(code: integer, builtTarget: any, outputs: {string}): integer
         if asJson then
-            reportMod.write({ok = code == 0,
-                diagnostics = reportMod.diagnosticValues(diagnostics),
-                target = builtTarget, written = outputs})
+            reportMod.write(
+                {
+                    ok = code == 0,
+                    diagnostics = reportMod.diagnosticValues(diagnostics),
+                    target = builtTarget,
+                    written = outputs
+                }
+            )
         end
+
         return code
     end
+
     if #paths == 0 then
         local project = require("nupp.build.project")
         local produced: {[string]: any} = {}
-        local code = project.build(".", {outDir = projectOutDir, target = target,
-            strict = settings.strict, optLevel = settings.optLevel,
-            remarks = settings.remarks, disabled = settings.disabled,
-            relaxed = settings.relaxed,
-            diagnostics = asJson and diagnostics or nil,
-            produced = asJson and produced or nil})
+        local code = project.build(
+            ".",
+            {
+                outDir = projectOutDir,
+                target = target,
+                strict = settings.strict,
+                optLevel = settings.optLevel,
+                remarks = settings.remarks,
+                disabled = settings.disabled,
+                relaxed = settings.relaxed,
+                diagnostics = asJson and diagnostics or nil,
+                produced = asJson and produced or nil
+            }
+        )
         return finish(code, produced.target, produced.outputs or {})
     end
     local process = require("nupp.build.process")
@@ -116,8 +128,7 @@ local function run(parsed: any): integer
         end
         local outPath: string
         if outDir then
-            local base = path:match("([^/\\]+)%.g%.nupp$")
-                or path:match("([^/\\]+)%.nupp$") or path
+            local base = path:match("([^/\\]+)%.g%.nupp$") or path:match("([^/\\]+)%.nupp$") or path
             outPath = outDir .. "/" .. base .. ".lua"
         else
             outPath = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
@@ -130,6 +141,7 @@ local function run(parsed: any): integer
         out:write(code)
         out:close()
         outputs[#outputs + 1] = outPath
+
         return true
     end
 
@@ -154,8 +166,7 @@ local function run(parsed: any): integer
         end
         table.sort(reached)
         for _, path in ipairs(reached) do
-            if path:match("%.nupp$") and not path:match("%.d%.nupp$")
-                and not written[path] then
+            if path:match("%.nupp$") and not path:match("%.d%.nupp$") and not written[path] then
                 pending = true
                 if not emitModule(path) then
                     failed = true
@@ -164,6 +175,7 @@ local function run(parsed: any): integer
         end
     end
     table.sort(outputs)
+
     return finish(failed and 1 or 0, nil, outputs)
 end
 

@@ -42,8 +42,8 @@ local type Token = lexer.Token
 --- while `local a, b = g` takes g and nothing. Inferring anything else may still have
 --- run a call — a function expression whose body calls something does — so the
 --- expansion asks what the expression is rather than what ran last.
-local EXPANDS: {[string]: boolean} = {call = true, methodCall = true,
-    safeCall = true, vararg = true}
+local EXPANDS: {[string]: boolean} = {call = true, methodCall = true, safeCall = true, vararg = true}
+
 expr.EXPANDS = EXPANDS
 
 --- Installs the expression walk on one run. It answers through `c.infer`, which is what
@@ -56,10 +56,15 @@ function expr.install(c: state.Checker): nil
         local names = {}
         local scope = c.scope
         while scope do
-            for name in pairs(scope.vars or {}) do names[name] = true end
+            for name in pairs(scope.vars or {}) do
+                names[name] = true
+            end
             scope = scope.parent
         end
-        for name in pairs(c.env and c.env.globals or {}) do names[name] = true end
+        for name in pairs(c.env and c.env.globals or {}) do
+            names[name] = true
+        end
+
         return names
     end
 
@@ -67,8 +72,8 @@ function expr.install(c: state.Checker): nil
         if t == T.any or isA(t, T.number) then
             return true
         end
-        c.diag("NUPP2003", node,
-            ("cannot apply '%s' to %s"):format(op, T.tostring(t)))
+        c.diag("NUPP2003", node, ("cannot apply '%s' to %s"):format(op, T.tostring(t)))
+
         return false
     end
 
@@ -102,6 +107,7 @@ function expr.install(c: state.Checker): nil
             end
             return family
         end
+
         return nil
     end
 
@@ -126,6 +132,7 @@ function expr.install(c: state.Checker): nil
         if lower:find("%.") or lower:find("e") then
             return T.number
         end
+
         return T.integer
     end
 
@@ -135,10 +142,10 @@ function expr.install(c: state.Checker): nil
     -- table. What is left in this file is the syntax whose type is the syntax itself:
     -- the literals, a name, and the forms built directly out of other expressions.
     local handlers = {}
-    for _, installed in ipairs({
-        operators.install(c), index.install(c), callexpr.install(c),
-    }) do
-        for kind, handle in pairs(installed) do handlers[kind] = handle end
+    for _, installed in ipairs({operators.install(c), index.install(c), callexpr.install(c),}) do
+        for kind, handle in pairs(installed) do
+            handlers[kind] = handle
+        end
     end
 
     -- The type of one expression, before the pack an expanding expression owes its
@@ -205,31 +212,37 @@ function expr.install(c: state.Checker): nil
             if entry then
                 local state = c.ownershipState(entry)
                 if state.moved then
-                    local related = state.movedAt and c.related(state.movedAt,
-                        "owner was moved here") or nil
-                    c.diag("NUPP2601", node,
-                        ("owner %q was moved and cannot be used")
-                        :format(nameText), nil,
-                        {related = related and {related} or nil,
-                        help = "use the owner before this transfer, or borrow it "
-                        .. "instead of moving it"})
+                    local related = state.movedAt and c.related(state.movedAt, "owner was moved here") or nil
+                    c.diag(
+                        "NUPP2601",
+                        node,
+                        ("owner %q was moved and cannot be used"):format(nameText),
+                        nil,
+                        {
+                            related = related and {related} or nil,
+                            help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
+                        }
+                    )
                     node.ownershipUseReported = true
-                elseif c.ownershipKind(entry.t)
-                    and (entry.functionDepth or 0) < c.functionDepth then
+                elseif c.ownershipKind(entry.t) and (entry.functionDepth or 0) < c.functionDepth then
                     -- The branch above is what proves it has one.
                     local capturedKind = c.ownershipKind(entry.t) as string
-                    c.diag(entry.withBinding and "NUPP2612" or "NUPP2603", node,
-                        ("%s value %q cannot be captured by a closure")
-                        :format(capturedKind, nameText))
+                    c.diag(
+                        entry.withBinding and "NUPP2612" or "NUPP2603",
+                        node,
+                        ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
+                    )
                 end
             end
-            if entry and entry.globalModule
-                and entry.globalModule ~= c.result.moduleName then
+            if entry and entry.globalModule and entry.globalModule ~= c.result.moduleName then
                 c.result.implicitSideEffects[entry.globalModule] = true
             end
             if not entry and c.env and c.env.resolveProjectValue then
-                local valueType, valueDef, valueErr, sideEffectModule, conflicts
-                    = c.env.resolveProjectValue(c.env, c.filename, nameText)
+                local valueType, valueDef, valueErr, sideEffectModule, conflicts = c.env.resolveProjectValue(
+                    c.env,
+                    c.filename,
+                    nameText
+                )
                 if valueType then
                     -- A global struct's ctype is created by the module that declares
                     -- it, so reaching the name means that module has to have been
@@ -237,30 +250,35 @@ function expr.install(c: state.Checker): nil
                     if sideEffectModule then
                         c.result.implicitSideEffects[sideEffectModule] = true
                     end
-                    c.markToken(nameTok, valueDef, valueType,
-                        valueDef and valueDef.kind or "variable")
+                    c.markToken(nameTok, valueDef, valueType, valueDef and valueDef.kind or "variable")
                     return valueType
                 elseif valueErr then
                     local related, seen = {}, {}
                     for _, conflict in ipairs(conflicts or {}) do
                         local definition = conflict.definition
-                        local key = definition and (tostring(definition.filename)
-                            .. ":" .. tostring(definition.token
-                            and definition.token.offset)) or tostring(conflict)
+                        local key = definition and (
+                            tostring(
+                                definition.filename
+                            ) .. ":" .. tostring(definition.token and definition.token.offset)
+                        ) or tostring(conflict)
                         if not seen[key] then
                             seen[key] = true
-                            local item = c.related(definition,
-                                "conflicting global value declared here")
+                            local item = c.related(definition, "conflicting global value declared here")
                             if item then
                                 related[#related + 1] = item
                             end
                         end
                     end
-                    c.diag("NUPP2104", node,
-                        ("ambiguous global %q; a project global must be unique")
-                        :format(nameText), nil, {related = related,
-                        help = "make all but one declaration local or attach "
-                        .. "them to their module tables"})
+                    c.diag(
+                        "NUPP2104",
+                        node,
+                        ("ambiguous global %q; a project global must be unique"):format(nameText),
+                        nil,
+                        {
+                            related = related,
+                            help = "make all but one declaration local or attach " .. "them to their module tables"
+                        }
+                    )
                     return T.any
                 end
             end
@@ -274,8 +292,7 @@ function expr.install(c: state.Checker): nil
             --
             -- Last, so anything actually named `buffer` wins: a local, a global, a
             -- project value. Only a name nothing else claims becomes the module.
-            if not entry and nameText == "buffer" and c.env
-                and c.env.resolveModule then
+            if not entry and nameText == "buffer" and c.env and c.env.resolveModule then
                 local moduleType = c.env.resolveModule(c.env, "string.buffer")
                 if moduleType then
                     node.bufferIntrinsic = true
@@ -283,9 +300,12 @@ function expr.install(c: state.Checker): nil
                     return moduleType
                 end
             end
-            c.markToken(nameTok, entry and entry.definition,
+            c.markToken(
+                nameTok,
+                entry and entry.definition,
                 entry and entry.t or T.any,
-                entry and entry.definition and entry.definition.kind or "variable")
+                entry and entry.definition and entry.definition.kind or "variable"
+            )
             if not entry then
                 -- An unknown name is `any` and says nothing, which is right for a name
                 -- nobody has heard of. When a project file is named after it, the
@@ -296,22 +316,38 @@ function expr.install(c: state.Checker): nil
                     c.diag("missing-require", node, advice, fixes)
                 elseif not isModule and c.opts and c.opts.strict then
                     fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
-                    c.diag("NUPP2105", nameTok,
-                        ("unknown variable %q"):format(nameText), fixes,
-                        {help = fixes and "use the suggested visible name"
-                        or "declare the value, require its module, or correct "
-                        .. "the spelling"})
+                    c.diag(
+                        "NUPP2105",
+                        nameTok,
+                        ("unknown variable %q"):format(nameText),
+                        fixes,
+                        {
+                            help = fixes
+                            and "use the suggested visible name"
+                            or "declare the value, require its module, or correct "
+                            .. "the spelling"
+                        }
+                    )
                 end
             end
             if entry and entry.unassigned then
-                c.diag("NUPP2207", nameTok,
+                c.diag(
+                    "NUPP2207",
+                    nameTok,
                     ("%s is read before it holds a value"):format(nameText),
-                    nil, {related = entry.unassignedAt
-                    and {c.related({filename = c.filename,
-                    token = entry.unassignedAt, name = nameText},
-                    "declared here, with no value")} or nil,
-                    help = ("assign it first, or declare it as %s? if it is "
-                    .. "meant to start empty"):format(T.tostring(entry.t))})
+                    nil,
+                    {
+                        related = entry.unassignedAt and {
+                            c.related(
+                                {filename = c.filename, token = entry.unassignedAt, name = nameText},
+                                "declared here, with no value"
+                            )
+                        } or nil,
+                        help = (
+                            "assign it first, or declare it as %s? if it is " .. "meant to start empty"
+                        ):format(T.tostring(entry.t))
+                    }
+                )
                 -- Said once. A binding nobody assigned is usually read more than once,
                 -- and the second report adds nothing to the first.
                 entry.unassigned = nil
@@ -339,23 +375,19 @@ function expr.install(c: state.Checker): nil
             -- binds none -- with `any`, and say nothing.
             local named = call.obj and c.pathKey(call.obj) or nil
             local declared = named and c.lookupType(named) or nil
-            local buildable = declared and declared.tag == "nominal"
-                and (declared.declKind == "record"
-                or declared.declKind == "struct")
+            local buildable = declared and declared.tag == "nominal" and (
+                declared.declKind == "record" or declared.declKind == "struct"
+            )
             if declared and not buildable then
                 local why = "`new` builds a record or a struct"
-                if declared.tag == "nominal"
-                    and declared.declKind == "interface" then
+                if declared.tag == "nominal" and declared.declKind == "interface" then
                     why = "an interface declares a contract and has no runtime "
                         .. "table to stamp; construct a record that declares it "
                         .. "with `is`"
                 elseif declared.tag == "union" then
-                    why = "a union is one of its members, and a value of it is "
-                        .. "written as one of them"
+                    why = "a union is one of its members, and a value of it is " .. "written as one of them"
                 end
-                c.diag("NUPP2206", call.obj or node,
-                    ("%s cannot be constructed"):format(named), nil,
-                    {help = why})
+                c.diag("NUPP2206", call.obj or node, ("%s cannot be constructed"):format(named), nil, {help = why})
                 call.newReported = true
             end
             return c.infer(call)
@@ -383,10 +415,8 @@ function expr.install(c: state.Checker): nil
             local source = c.infer(cast)
             local target = c.resolveType(node.type)
             if c.ownershipKind(target) then
-                if c.ownershipKind(target) == "pinned"
-                    and c.ownershipKind(source) ~= "pinned" then
-                    c.diag("NUPP2604", node,
-                        "a pinned<T> value must be constructed with pin(pointer, anchor)")
+                if c.ownershipKind(target) == "pinned" and c.ownershipKind(source) ~= "pinned" then
+                    c.diag("NUPP2604", node, "a pinned<T> value must be constructed with pin(pointer, anchor)")
                 end
                 return target
             end
@@ -412,24 +442,22 @@ function expr.install(c: state.Checker): nil
             -- Only a subject that is a name or a path of them: anything computed has to
             -- run whether or not its answer was already known, and a test that stands
             -- in for a call is not the place to decide that.
-            if from and target and subject and c.pathKey(subject)
-                and from ~= T.any and from.tag ~= "typevar"
-                and from ~= T.never and target ~= T.any then
+            if from and target and subject and c.pathKey(
+                subject
+            ) and from ~= T.any and from.tag ~= "typevar" and from ~= T.never and target ~= T.any then
                 -- The nil an optional admits is the only part its declaration does not
                 -- settle, so it is taken off before asking and put back as the one
                 -- question left.
                 local admitsNil = isA(T.nil_, from)
                 local present = admitsNil and subtract(from, T.nil_) or from
-                if present ~= T.never and present.tag ~= "typevar"
-                    and isA(present, target) then
+                if present ~= T.never and present.tag ~= "typevar" and isA(present, target) then
                     node.provenStatically = true
                     node.provenNeedsNil = admitsNil
                 -- A declaration's own table is not one of the values it stamps, so this
                 -- pairing is settled the other way and the test would spend a metatable
                 -- lookup to say false. The only pairing answered so: `as` stays the way
                 -- to override what the checker decided.
-                elseif rawType(present).tag == "metatable"
-                    and target.tag == "nominal" then
+                elseif rawType(present).tag == "metatable" and target.tag == "nominal" then
                     node.refutedStatically = true
                 end
             end
@@ -448,14 +476,12 @@ function expr.install(c: state.Checker): nil
                     if p.namedVararg then
                         vararg = true
                         if pname then
-                            c.bindVar(pname.text, T.table_, false, pname,
-                                "parameter", true)
+                            c.bindVar(pname.text, T.table_, false, pname, "parameter", true)
                         end
                     else
                         params[#params + 1] = pt
                         if pname then
-                            c.bindVar(pname.text, pt, p.type ~= nil, pname,
-                                "parameter")
+                            c.bindVar(pname.text, pt, p.type ~= nil, pname, "parameter")
                         end
                     end
                 end
@@ -482,12 +508,28 @@ function expr.install(c: state.Checker): nil
             c.loops.setReturning(wasReturning)
             c.loops.finish(loopClosure, node)
             c.popScope()
-            return T.func(params, rets, vararg, nil, nil, nil, nil, nil,
-                nil, nil, nil, nil, nil, T.pack(params,
-                vararg and {kind = "unknown", type = T.any} or nil), retPack)
+            return T.func(
+                params,
+                rets,
+                vararg,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                T.pack(params, vararg and {kind = "unknown", type = T.any} or nil),
+                retPack
+            )
         elseif kind == "istring" then
             -- every ${...} part is tostring-ed; the whole literal is a string
-            for _, e in ipairs(node.parts) do c.infer(e) end
+            for _, e in ipairs(node.parts) do
+                c.infer(e)
+            end
             return T.string
         elseif kind == "tableExpr" then
             local positional, named = {}, {}
@@ -503,16 +545,20 @@ function expr.install(c: state.Checker): nil
                 end
                 return t
             end
+
             -- An owner stored in a table escapes the checking that tracks it, whichever
             -- way the entry was written.
             local function refuseOwner(value: Node, valueT: Type)
                 if not c.ownershipKind(valueT) then
                     return
                 end
-                c.diag(value.withBinding and "NUPP2612" or "NUPP2603", value,
-                    (c.ownershipKind(valueT) as string)
-                    .. " value cannot be stored in a table")
+                c.diag(
+                    value.withBinding and "NUPP2612" or "NUPP2603",
+                    value,
+                    (c.ownershipKind(valueT) as string) .. " value cannot be stored in a table"
+                )
             end
+
             for _, f in ipairs(node.fields) do
                 if f.kind == "fieldItem" then
                     local value = f.value
@@ -530,8 +576,7 @@ function expr.install(c: state.Checker): nil
                         -- discriminant is written, and keeping it is the only way to
                         -- build a value of a discriminated union. Numbers widen, since
                         -- a counter initialized to 1 is not a value of the type 1.
-                        local keep = valueT.tag == "literal"
-                            and (f.isConst or valueT.base == T.string)
+                        local keep = valueT.tag == "literal" and (f.isConst or valueT.base == T.string)
                         local fieldT = keep and valueT or widened(valueT)
                         local field = {name = fieldName.text, read = fieldT}
                         if not f.isConst then
@@ -561,6 +606,7 @@ function expr.install(c: state.Checker): nil
         elseif kind == "errorExpr" then
             return T.any
         end
+
         return T.any
     end
 
@@ -584,6 +630,7 @@ function expr.install(c: state.Checker): nil
         -- without a pack of their own the reader would take whichever call ran last
         -- while the arguments were inferred, which is one of this call's own arguments.
         node.valuePack = node.valuePack or T.pack({first})
+
         return first
     end
 end

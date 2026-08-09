@@ -37,6 +37,7 @@ local function run(args: any): integer
         return command:usageError("a task name is required; see `nupp tasks`")
     end
     local project = require("nupp.build.project")
+
     return project.runTask(".", name, args)
 end
 

@@ -33,43 +33,53 @@ function pragma.install(c: state.Checker): state.StatHandlers
 
     local handlers = {}
     local RELAXATIONS = {
-        ["function-identity"] = true, ["load-order"] = true,
-        ["error-site"] = true, frames = true, ["gc-timing"] = true,
+        ["function-identity"] = true,
+        ["load-order"] = true,
+        ["error-site"] = true,
+        frames = true,
+        ["gc-timing"] = true,
         ["table-order"] = true,
     }
 
     local function effectContract(application)
         local listMembers = {
-            reads = true, writes = true, shapes = true, metatables = true,
-            escapes = true, calls = true, returns = true,
+            reads = true,
+            writes = true,
+            shapes = true,
+            metatables = true,
+            escapes = true,
+            calls = true,
+            returns = true,
         }
-        local boolMembers = {
-            allocates = true, yields = true, raises = true, external = true,
-        }
+        local boolMembers = {allocates = true, yields = true, raises = true, external = true,}
         local contract = {
-            reads = {}, writes = {}, shapes = {}, metatables = {},
-            escapes = {}, calls = {}, returns = {},
-            allocates = false, yields = false, raises = false, external = false,
+            reads = {},
+            writes = {},
+            shapes = {},
+            metatables = {},
+            escapes = {},
+            calls = {},
+            returns = {},
+            allocates = false,
+            yields = false,
+            raises = false,
+            external = false,
         }
         local seen = {}
         for _, arg in ipairs(application.annotationArgs or {}) do
             local name = arg.name and arg.name.text or nil
             if not name or seen[name] or not (listMembers[name] or boolMembers[name]) then
-                c.diag("NUPP2112", arg,
-                    "@effects arguments must be unique named effect members")
+                c.diag("NUPP2112", arg, "@effects arguments must be unique named effect members")
             elseif listMembers[name] then
                 seen[name] = true
                 local expr = arg.expr
                 if not expr or expr.kind ~= "tableExpr" then
-                    c.diag("NUPP2112", arg,
-                        ("@effects.%s must be an array of strings"):format(name))
+                    c.diag("NUPP2112", arg, ("@effects.%s must be an array of strings"):format(name))
                 else
                     for _, field in ipairs(expr.fields or {}) do
-                        local value = field.kind == "fieldItem"
-                            and stringValue(field.value) or nil
+                        local value = field.kind == "fieldItem" and stringValue(field.value) or nil
                         if not value then
-                            c.diag("NUPP2112", field,
-                                ("@effects.%s entries must be strings"):format(name))
+                            c.diag("NUPP2112", field, ("@effects.%s entries must be strings"):format(name))
                         else
                             contract[name][#contract[name] + 1] = value
                         end
@@ -78,15 +88,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
             else
                 seen[name] = true
                 local expr = arg.expr
-                if not expr or (expr.kind ~= "trueExpr"
-                    and expr.kind ~= "falseExpr") then
-                    c.diag("NUPP2112", arg,
-                        ("@effects.%s must be true or false"):format(name))
+                if not expr or (expr.kind ~= "trueExpr" and expr.kind ~= "falseExpr") then
+                    c.diag("NUPP2112", arg, ("@effects.%s must be true or false"):format(name))
                 else
                     contract[name] = expr.kind == "trueExpr"
                 end
             end
         end
+
         return contract
     end
 
@@ -106,14 +115,15 @@ function pragma.install(c: state.Checker): state.StatHandlers
         local targetKind = target and target.kind or ""
         local targetBody: Node? = nil
         if target then
-            if target.kind == "funcStmt" or target.kind == "localFuncStmt"
+            if target.kind == "funcStmt"
+                or target.kind == "localFuncStmt"
                 or target.kind == "inlineMethod"
-                or target.kind == "constructorDecl" then
+                or target.kind == "constructorDecl"
+            then
                 targetBody = target.body
             end
         end
-        if written == "annotation" and target
-            and targetKind == "recordDecl" then
+        if written == "annotation" and target and targetKind == "recordDecl" then
             target.isAnnotationDefinition = true
         end
         local annotation, valid = validateAnnotation(stat, target)
@@ -145,8 +155,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
             if stat.stat then
                 c.checkStat(stat.stat)
             end
-            if valid and target and target.kind == "localStmt"
-                and target.effectContract then
+            if valid and target and target.kind == "localStmt" and target.effectContract then
                 for _, name in ipairs(target.names or {}) do
                     if name.definition then
                         name.definition.effectContract = target.effectContract
@@ -162,9 +171,12 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 local expr = arg.expr
                 local value = nameText(expr) or stringValue(expr)
                 if not value or not RELAXATIONS[value] then
-                    c.diag("NUPP2112", arg,
+                    c.diag(
+                        "NUPP2112",
+                        arg,
                         "@relax names function-identity, load-order, error-site, "
-                        .. "frames, gc-timing, or table-order")
+                        .. "frames, gc-timing, or table-order"
+                    )
                 else
                     relaxed[value] = true
                 end
@@ -188,13 +200,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 local expr = arg.expr
                 local argName = arg.name and arg.name.text or nil
                 local named = nameText(expr)
-                if argName == "opaque"
-                    and expr and expr.kind == "trueExpr" then
+                if argName == "opaque" and expr and expr.kind == "trueExpr" then
                     opaque = true
                 elseif argName == "out" and named then
                     outName = named
-                elseif argName == "success" and (named == "always"
-                    or named == "zero" or named == "nonzero") then
+                elseif argName == "success" and (named == "always" or named == "zero" or named == "nonzero") then
                     success = named
                 elseif argName == "success" and literalText(expr) then
                     success = "equals:" .. tostring(literalText(expr))
@@ -208,48 +218,44 @@ function pragma.install(c: state.Checker): state.StatHandlers
                         end
                     end
                     if #cleanupExprs == 0 then
-                        c.diag("NUPP2602", arg,
-                            "@owned cleanup must name one or more functions")
+                        c.diag("NUPP2602", arg, "@owned cleanup must name one or more functions")
                     end
                     for _, cleanupExpr in ipairs(cleanupExprs) do
                         local cleanupName = nameText(cleanupExpr)
                         if not cleanupName then
-                            c.diag("NUPP2602", arg,
-                                "@owned cleanup entries must be function names")
+                            c.diag("NUPP2602", arg, "@owned cleanup entries must be function names")
                         else
                             cleanups[#cleanups + 1] = cleanupName
                         end
                     end
                 elseif argName or not named then
-                    c.diag("NUPP2602", arg,
-                        "invalid @owned argument")
+                    c.diag("NUPP2602", arg, "invalid @owned argument")
                 else
                     local entry = c.lookupEntry(named)
                     if entry and expr and expr.kind == "name" then
-                        c.markToken(expr.token, entry.definition, entry.t,
-                            entry.definition and entry.definition.kind
-                            or "function")
+                        c.markToken(
+                            expr.token,
+                            entry.definition,
+                            entry.t,
+                            entry.definition and entry.definition.kind or "function"
+                        )
                     end
                     cleanups[#cleanups + 1] = named
                 end
             end
             if opaque and #cleanups > 0 then
-                c.diag("NUPP2602", stat,
-                    "@owned(opaque = true) cannot also declare cleanup functions")
+                c.diag("NUPP2602", stat, "@owned(opaque = true) cannot also declare cleanup functions")
             end
             if outName then
                 if not valid or targetKind ~= "cdefFunc" or not target then
-                    c.diag("NUPP2602", stat,
-                        "@owned(out = ...) applies only to cdef functions")
+                    c.diag("NUPP2602", stat, "@owned(out = ...) applies only to cdef functions")
                 elseif opaque or #cleanups == 0 then
-                    c.diag("NUPP2602", stat,
-                        "an owned output needs an explicit cleanup")
+                    c.diag("NUPP2602", stat, "an owned output needs an explicit cleanup")
                 else
                     target.ownedOuts = target.ownedOuts or {}
-                    target.ownedOuts[#target.ownedOuts + 1] = {
-                        name = outName, cleanups = cleanups,
-                        success = success, at = stat.name,
-                    }
+                    target.ownedOuts[
+                        #target.ownedOuts + 1
+                    ] = {name = outName, cleanups = cleanups, success = success, at = stat.name,}
                 end
             elseif valid and target and targetKind == "cdefFunc" then
                 target.ownCleanups = cleanups
@@ -276,8 +282,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
                     outName = named
                 elseif argName == "from" and named then
                     sourceName = named
-                elseif argName == "success" and (named == "always"
-                    or named == "zero" or named == "nonzero") then
+                elseif argName == "success" and (named == "always" or named == "zero" or named == "nonzero") then
                     success = named
                 elseif argName == "success" and literalText(expr) then
                     success = "equals:" .. tostring(literalText(expr))
@@ -286,17 +291,14 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 end
             end
             if not valid or targetKind ~= "cdefFunc" or not target then
-                c.diag("NUPP2602", stat,
-                    "@borrowed applies only to cdef functions")
+                c.diag("NUPP2602", stat, "@borrowed applies only to cdef functions")
             elseif not outName or not sourceName then
-                c.diag("NUPP2602", stat,
-                    "@borrowed requires out and from parameter names")
+                c.diag("NUPP2602", stat, "@borrowed requires out and from parameter names")
             else
                 target.borrowedOuts = target.borrowedOuts or {}
-                target.borrowedOuts[#target.borrowedOuts + 1] = {
-                    name = outName, source = sourceName,
-                    success = success, at = stat.name,
-                }
+                target.borrowedOuts[
+                    #target.borrowedOuts + 1
+                ] = {name = outName, source = sourceName, success = success, at = stat.name,}
             end
             if stat.stat then
                 c.checkStat(stat.stat)
@@ -354,14 +356,11 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 end
                 local name = spelled or stringValue(expr)
                 if named or not name then
-                    c.diag("NUPP2112", arg,
-                        "@allow arguments must be lint names or codes")
+                    c.diag("NUPP2112", arg, "@allow arguments must be lint names or codes")
                 elseif not lints.get(name) then
                     -- A type error is not a judgement to disagree with, so there is
                     -- nothing here to allow.
-                    c.diag("NUPP2108", arg,
-                        ("%s is not a lint, so it cannot be allowed")
-                        :format(name))
+                    c.diag("NUPP2108", arg, ("%s is not a lint, so it cannot be allowed"):format(name))
                 end
                 if name then
                     set[name] = true

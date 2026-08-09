@@ -103,8 +103,12 @@ type doc.BuildOptions = {
 
 --- Reads one source file as its documented declarations. Returns the module, or nil and
 --- the parse errors that stopped it.
-function doc.extract(source: string, path: string?, name: string,
-    opts: extractMod.Options?): extractMod.Module?, {nupp.lexer.LexError}?
+function doc.extract(
+    source: string,
+    path: string?,
+    name: string,
+    opts: extractMod.Options?
+): extractMod.Module?, {nupp.lexer.LexError}?
     return extractMod.extract(source, path, name, opts)
 end
 
@@ -115,21 +119,20 @@ end
 
 local function sourceFiles(root, config, settings, requested)
     local paths, seen = {}, {}
-    local sources = requested and #requested > 0 and requested
-        or settings.sources or config.include or {"."}
+    local sources = requested and #requested > 0 and requested or settings.sources or config.include or {"."}
     for _, source in ipairs(sources) do
         local path = join(root, source)
         local candidates = path:match("%.nupp$") and {path} or listFiles(path)
         for _, candidate in ipairs(candidates) do
             candidate = normalize(candidate)
-            if not seen[candidate]
-                and (settings.includePrivate or not privateSource(root, candidate)) then
+            if not seen[candidate] and (settings.includePrivate or not privateSource(root, candidate)) then
                 seen[candidate] = true
                 paths[#paths + 1] = candidate
             end
         end
     end
     table.sort(paths)
+
     return paths
 end
 
@@ -138,13 +141,15 @@ local function loadModules(root, config, settings, requested)
     for _, path in ipairs(sourceFiles(root, config, settings, requested)) do
         local source, readErr = readFile(path)
         if not source then
-            errors[#errors + 1] = {filename = path, line = 1, col = 1,
-                msg = tostring(readErr)}
+            errors[#errors + 1] = {filename = path, line = 1, col = 1, msg = tostring(readErr)}
         else
             local name = moduleName(path, root, config.include or {})
-            local module, parseErrors = doc.extract(source, path, name,
-                {includeAll = settings.all,
-                includePrivate = settings.includePrivate})
+            local module, parseErrors = doc.extract(
+                source,
+                path,
+                name,
+                {includeAll = settings.all, includePrivate = settings.includePrivate}
+            )
             if module then
                 modules[#modules + 1] = module
             else
@@ -154,7 +159,10 @@ local function loadModules(root, config, settings, requested)
             end
         end
     end
-    table.sort(modules, function(left, right) return left.name < right.name end)
+    table.sort(modules, function(left, right)
+        return left.name < right.name
+    end)
+
     return modules, errors
 end
 
@@ -178,6 +186,7 @@ local function embedFiles(root, markdown)
             out[#out + 1] = line
         end
     end
+
     return table.concat(out, "\n")
 end
 
@@ -196,7 +205,9 @@ local function configuredPages(root, settings, title)
         end
         seen[route], home = true, home or route == ""
         local candidate = {}
-        for key, value in pairs(configured) do candidate[key] = value end
+        for key, value in pairs(configured) do
+            candidate[key] = value
+        end
         candidate.heroTitle = candidate.heroTitle or candidate.hero_title
         candidate.heroText = candidate.heroText or candidate.hero_text
         candidate.heroImage = candidate.heroImage or candidate.hero_image
@@ -225,29 +236,42 @@ local function configuredPages(root, settings, title)
         pages[#pages + 1] = candidate
     end
     if not home then
-        table.insert(pages, 1, {path = "", title = title, layout = "home",
-            heroTitle = title,
-            heroText = settings.description or "API reference generated directly from Nupp source.",
-            markdown = ""})
+        table.insert(
+            pages,
+            1,
+            {
+                path = "",
+                title = title,
+                layout = "home",
+                heroTitle = title,
+                heroText = settings.description or "API reference generated directly from Nupp source.",
+                markdown = ""
+            }
+        )
     end
+
     return pages
 end
 
 local function redirectHtml(target)
-    return '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url='
-        .. htmlEscape(target) .. '"><link rel="canonical" href="'
-        .. htmlEscape(target) .. '"><a href="' .. htmlEscape(target)
-        .. '">Documentation moved</a>\n'
+    return '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=' .. htmlEscape(
+        target
+    ) .. '"><link rel="canonical" href="' .. htmlEscape(
+        target
+    ) .. '"><a href="' .. htmlEscape(target) .. '">Documentation moved</a>\n'
 end
 
 local function searchIndexJs(entries)
     local out = {"window.NUPP_SEARCH_INDEX = [\n"}
     for _, entry in ipairs(entries) do
-        out[#out + 1] = '  {title:"' .. escapeJs(entry.title)
-            .. '",url:"' .. escapeJs(entry.url) .. '",text:"'
-            .. escapeJs(entry.text) .. '"},\n'
+        out[
+            #out + 1
+        ] = '  {title:"' .. escapeJs(
+            entry.title
+        ) .. '",url:"' .. escapeJs(entry.url) .. '",text:"' .. escapeJs(entry.text) .. '"},\n'
     end
     out[#out + 1] = "];\n"
+
     return table.concat(out)
 end
 
@@ -255,35 +279,39 @@ local function appendSearchEntries(entries, candidate, file, markdown)
     local url = "../" .. file
     if candidate.module then
         local module = candidate.module
-        entries[#entries + 1] = {title = "Module › " .. module.name,
-            url = url, text = module.name .. " " .. (module.text or "")}
+        entries[
+            #entries + 1
+        ] = {title = "Module › " .. module.name, url = url, text = module.name .. " " .. (module.text or "")}
         for _, item in ipairs(module.items) do
             local itemText = {item.name, item.signature, item.doc.text or ""}
             for _, param in ipairs(item.params) do
-                itemText[#itemText + 1] = param.name .. " " .. param.type
-                    .. " " .. (param.text or "")
+                itemText[#itemText + 1] = param.name .. " " .. param.type .. " " .. (param.text or "")
             end
             for _, value in ipairs(item.returns) do
                 itemText[#itemText + 1] = value.type .. " " .. (value.text or "")
             end
-            entries[#entries + 1] = {title = "API › " .. item.name,
-                url = url .. "#" .. item.path,
-                text = table.concat(itemText, " ")}
+            entries[
+                #entries + 1
+            ] = {title = "API › " .. item.name, url = url .. "#" .. item.path, text = table.concat(itemText, " ")}
             for _, member in ipairs(item.members) do
-                entries[#entries + 1] = {
+                entries[
+                    #entries + 1
+                ] = {
                     title = "API › " .. item.name .. "." .. member.name,
                     url = url .. "#" .. member.path,
-                    text = member.name .. " " .. (member.type or "") .. " "
-                    .. (member.text or ""),
+                    text = member.name .. " " .. (member.type or "") .. " " .. (member.text or ""),
                 }
             end
         end
     else
-        entries[#entries + 1] = {title = candidate.title, url = url,
-            text = (candidate.heroText or "") .. " " .. markdown}
+        entries[
+            #entries + 1
+        ] = {title = candidate.title, url = url, text = (candidate.heroText or "") .. " " .. markdown}
         for _, heading in ipairs(markdownOutline(markdown)) do
             if heading.level ~= 1 then
-                entries[#entries + 1] = {
+                entries[
+                    #entries + 1
+                ] = {
                     title = candidate.title .. " › " .. heading.name,
                     url = url .. "#" .. heading.path,
                     text = heading.name .. " " .. candidate.title,
@@ -322,15 +350,16 @@ local function renderSite(root, outDir, modules, title, settings)
         return nil, err
     end
     local claimedRoutes = {}
-    for _, candidate in ipairs(pages) do claimedRoutes[candidate.path] = true end
+    for _, candidate in ipairs(pages) do
+        claimedRoutes[candidate.path] = true
+    end
     for _, module in ipairs(modules) do
         local route = moduleFile(module.name):gsub("/index%.html$", "")
         if claimedRoutes[route] then
             return nil, "documentation page path collides with module: " .. route
         end
         claimedRoutes[route] = true
-        pages[#pages + 1] = {path = route, title = "Module: " .. module.name,
-            module = module}
+        pages[#pages + 1] = {path = route, title = "Module: " .. module.name, module = module}
     end
 
     local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
@@ -343,7 +372,9 @@ local function renderSite(root, outDir, modules, title, settings)
             if #module.items > 0 then
                 items[#items + 1] = {path = "module-contents", name = "Module contents"}
             end
-            for _, item in ipairs(module.items) do items[#items + 1] = item end
+            for _, item in ipairs(module.items) do
+                items[#items + 1] = item
+            end
             markdown = doc.markdown({module})
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[#body + 1] = '<h1>Module: <code>' .. htmlEscape(module.name) .. '</code></h1>'
@@ -354,28 +385,45 @@ local function renderSite(root, outDir, modules, title, settings)
                 body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
             else
                 body[#body + 1] = moduleSummary(module)
-                for _, item in ipairs(module.items) do renderHtmlItem(body, item, links) end
+                for _, item in ipairs(module.items) do
+                    renderHtmlItem(body, item, links)
+                end
             end
         else
             local links = symbolLinks(linkIndex, nil, relativePrefix(file))
             items = markdownOutline(markdown)
             body[#body + 1] = homeHero(candidate, links)
-            local renderedMarkdown = rewriteConfiguredPageLinks(
-                markdown, candidate, pages, file)
+            local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
             body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
             if candidate.path == "" then
                 body[#body + 1] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
                 for _, module in ipairs(modules) do
-                    body[#body + 1] = '<a class="nuppdoc-module-card" href="'
-                        .. moduleFile(module.name) .. '"><code>' .. htmlEscape(module.name)
-                        .. '</code><span>' .. #module.items .. ' documented declaration'
-                        .. (#module.items == 1 and "" or "s") .. '</span></a>'
+                    body[
+                        #body + 1
+                    ] = '<a class="nuppdoc-module-card" href="' .. moduleFile(
+                        module.name
+                    ) .. '"><code>' .. htmlEscape(
+                        module.name
+                    ) .. '</code><span>' .. #module.items .. ' documented declaration' .. (
+                        #module.items == 1 and "" or "s"
+                    ) .. '</span></a>'
                 end
                 body[#body + 1] = '</div>'
             end
         end
-        local html = renderPage(candidate.title, title, table.concat(body, "\n"), modules,
-            current, items, file, settings, pages, candidate.path, candidate.layout)
+        local html = renderPage(
+            candidate.title,
+            title,
+            table.concat(body, "\n"),
+            modules,
+            current,
+            items,
+            file,
+            settings,
+            pages,
+            candidate.path,
+            candidate.layout
+        )
         appendSearchEntries(searchEntries, candidate, file, markdown)
         ok, err = writeFile(join(outDir, file), html)
         if not ok then
@@ -394,11 +442,17 @@ local function renderSite(root, outDir, modules, title, settings)
         end
         allMarkdown[#allMarkdown + 1] = {page = candidate, text = markdown}
         if candidate.module then
-            local legacy = "modules/" .. candidate.module.name:gsub("[^%w._-]", "-")
-                :gsub("%.", "/") .. ".html"
-            ok, err = writeFile(join(outDir, legacy), redirectHtml(
-                candidate.module.name:match("%.") and candidate.module.name:match("([^.]+)$")
-                .. "/index.html" or candidate.module.name .. "/index.html"))
+            local legacy = "modules/" .. candidate.module.name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. ".html"
+            ok, err = writeFile(
+                join(outDir, legacy),
+                redirectHtml(
+                    candidate.module.name:match(
+                        "%."
+                    ) and candidate.module.name:match(
+                        "([^.]+)$"
+                    ) .. "/index.html" or candidate.module.name .. "/index.html"
+                )
+            )
             if not ok then
                 return nil, err
             end
@@ -412,8 +466,7 @@ local function renderSite(root, outDir, modules, title, settings)
     end
     llms[#llms + 1] = "## Documentation"
     for _, entry in ipairs(allMarkdown) do
-        local target = entry.page.path == "" and "index.md"
-            or entry.page.path .. "/llms.txt"
+        local target = entry.page.path == "" and "index.md" or entry.page.path .. "/llms.txt"
         llms[#llms + 1] = "- [" .. entry.page.title .. "](" .. target .. ")"
     end
     llms[#llms + 1] = ""
@@ -424,25 +477,27 @@ local function renderSite(root, outDir, modules, title, settings)
     end
     local full = {"# " .. (settings.name or title)}
     for _, entry in ipairs(allMarkdown) do
-        full[#full + 1] = "\n---\n\n## " .. entry.page.title .. "\n\n"
-            .. trim(entry.text) .. "\n"
+        full[#full + 1] = "\n---\n\n## " .. entry.page.title .. "\n\n" .. trim(entry.text) .. "\n"
     end
     ok, err = writeFile(join(outDir, "llms-full.txt"), table.concat(full, "\n"))
     if not ok then
         return nil, err
     end
-    ok, err = writeFile(join(outDir, "assets/search-index.js"),
-        searchIndexJs(searchEntries))
+    ok, err = writeFile(join(outDir, "assets/search-index.js"), searchIndexJs(searchEntries))
     if not ok then
         return nil, err
     end
+
     return true
 end
 
 local function report(errors)
     for _, err in ipairs(errors) do
-        io.stderr:write(("%s:%d:%d: error: %s\n"):format(err.filename or "?",
-            err.line or 1, err.col or 1, err.msg or "documentation error"))
+        io.stderr:write(
+            (
+                "%s:%d:%d: error: %s\n"
+            ):format(err.filename or "?", err.line or 1, err.col or 1, err.msg or "documentation error")
+        )
     end
 end
 
@@ -467,24 +522,28 @@ end
 --- whatever it validated, and a docs target is an ordinary build target with the
 --- generator's keys on it. They arrive as those types and are read as the richer ones
 --- declared above, which describe the same tables in the detail this module needs.
-function doc.build(root: string?, config: nupp.build.manifest.Config,
+function doc.build(
+    root: string?,
+    config: nupp.build.manifest.Config,
     settings: nupp.build.manifest.Target?,
-    opts: table?): integer, string?, string?
+    opts: table?
+): integer, string?, string?
     root = root or "."
     local config = config as doc.Config
     local settings = (settings or {}) as doc.Settings
     local opts = opts as doc.BuildOptions or {} as doc.BuildOptions
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
     if #errors > 0 then
-        report(errors); return 1
+        report(errors)
+        ;
+        return 1
     end
     if opts.checkOnly then
         return 0
     end
     local format = opts.format or settings.format or "site"
     local title = opts.title or settings.title or config.name or "Nupp API"
-    local output = normalize(opts.output or settings.outDir
-        or doc.defaultOutDir(format))
+    local output = normalize(opts.output or settings.outDir or doc.defaultOutDir(format))
     output = join(root, output)
     -- Recording is on for the writes below and off again before returning, so a later
     -- caller without a collector cannot inherit this one's.
@@ -516,6 +575,7 @@ function doc.build(root: string?, config: nupp.build.manifest.Config,
     if message then
         io.stderr:write("nupp: " .. message .. "\n")
     end
+
     return code, output, format
 end
 
@@ -529,11 +589,14 @@ function doc.manifestSettings(config: doc.Config): doc.Settings
     for name, target in pairs(config.build and config.build.targets or {}) do
         if type(target) == "table" and target.kind == "docs" then
             local copy = {}
-            for key, value in pairs(target) do copy[key] = value end
+            for key, value in pairs(target) do
+                copy[key] = value
+            end
             copy.targetName = name
             return copy
         end
     end
+
     return {}
 end
 
@@ -548,6 +611,7 @@ function doc.loadConfig(root: string?): doc.Config?, string?
     if not ok then
         return nil, tostring(loaded)
     end
+
     return type(loaded) == "table" and loaded or {}
 end
 

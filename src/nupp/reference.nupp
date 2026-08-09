@@ -347,8 +347,7 @@ return decimal, hexadecimal, text, number
 
     new reference.Section {
         title = "Records",
-        codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206", "NUPP2207",
-        "NUPP2208"},
+        codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206", "NUPP2207", "NUPP2208"},
         body = [=[
 A record is a table with declared fields. It may carry inline methods, whose
 `self` is implicit, and it is built with `new`.
@@ -1031,9 +1030,9 @@ local function lintRows(): {string}
     out[#out + 1] = "| Lint | Code | Category | Default |"
     out[#out + 1] = "| --- | --- | --- | --- |"
     for _, lint in ipairs(lints.all) do
-        out[#out + 1] = ("| `%s` | %s | %s | %s |")
-            :format(lint.name, lint.code, lint.category, lint.level)
+        out[#out + 1] = ("| `%s` | %s | %s | %s |"):format(lint.name, lint.code, lint.category, lint.level)
     end
+
     return out
 end
 
@@ -1049,6 +1048,7 @@ local function codeRows(): {string}
             out[#out + 1] = ("| %s | %s |"):format(entry.code, entry.summary)
         end
     end
+
     return out
 end
 
@@ -1056,20 +1056,29 @@ end
 --- sections do, but their source of truth remains the compiler registries.
 local function languageSections(): {reference.Section}
     local sections: {reference.Section} = {}
-    for _, section in ipairs(reference.sections) do sections[#sections + 1] = section end
-    sections[#sections + 1] = new reference.Section {
-        title = "Built-in lints", codes = {}, body = table.concat(lintRows(), "\n"),
-    }
-    sections[#sections + 1] = new reference.Section {
-        title = "Diagnostic codes with a worked example", codes = {},
+    for _, section in ipairs(reference.sections) do
+        sections[#sections + 1] = section
+    end
+    sections[
+        #sections + 1
+    ] = new reference.Section {title = "Built-in lints", codes = {}, body = table.concat(lintRows(), "\n"),}
+    sections[
+        #sections + 1
+    ] = new reference.Section {
+        title = "Diagnostic codes with a worked example",
+        codes = {},
         body = table.concat(codeRows(), "\n"),
     }
+
     return sections
 end
 
-local TOOLCHAIN_SECTIONS: {reference.Section} = {
+local TOOLCHAIN_SECTIONS: {
+    reference.Section
+} = {
     new reference.Section {
-        title = "CLI commands", codes = {},
+        title = "CLI commands",
+        codes = {},
         body = [=[
 `nupp help <command>` is the authoritative argument reference for one command;
 `nupp help` lists every command. Use it when a focused skill names a command but
@@ -1088,11 +1097,10 @@ JSON contract. Use the schema before automating against a command rather than
 inferring fields from an example. The CLI uses 1-based byte lines and columns.
 ]=],
     },
+    new reference.Section {title = "Working with the toolchain", codes = {}, body = reference.tooling,},
     new reference.Section {
-        title = "Working with the toolchain", codes = {}, body = reference.tooling,
-    },
-    new reference.Section {
-        title = "Improving test coverage", codes = {},
+        title = "Improving test coverage",
+        codes = {},
         body = [=[
 Run `nupp coverage` to build a separate instrumented artifact, run the configured
 tests, and write `build/reports/coverage/index.html`. It never changes an ordinary
@@ -1115,27 +1123,32 @@ locations alongside highlighted Nupp and generated Lua when visual context helps
     },
 }
 
---- Chapters make the document scannable in a prompt and allow structured consumers
---- to distinguish language rules from workflows for using the compiler.
+--- Chapters make the document scannable in a prompt and allow structured consumers to
+--- distinguish language rules from workflows for using the compiler.
 reference.chapters = {
     new reference.Chapter {
-        name = "language", title = "Language",
+        name = "language",
+        title = "Language",
         summary = "Nupp syntax, types, runtime constructs, lints, and diagnostics.",
         sections = languageSections(),
     },
     new reference.Chapter {
-        name = "cli", title = "CLI",
+        name = "cli",
+        title = "CLI",
         summary = "Nupp commands, JSON contracts, testing, and coverage workflows.",
         sections = TOOLCHAIN_SECTIONS,
     },
 }
 
---- Finds the chapter named by the CLI, without making callers know how the chapters
---- are stored or what their display headings are.
+--- Finds the chapter named by the CLI, without making callers know how the chapters are
+--- stored or what their display headings are.
 function reference.chapter(name: string): reference.Chapter?
     for _, chapter in ipairs(reference.chapters) do
-        if chapter.name == name then return chapter end
+        if chapter.name == name then
+            return chapter
+        end
     end
+
     return nil
 end
 
@@ -1147,8 +1160,10 @@ function reference.catalog(): string
         out[#out + 1] = ("  %-10s %s"):format(chapter.name, chapter.summary)
     end
     out[#out + 1] = ""
-    out[#out + 1] = "Run `nupp reference <chapter>` for one chapter, or "
-        .. "`nupp reference all` for the complete reference."
+    out[
+        #out + 1
+    ] = "Run `nupp reference <chapter>` for one chapter, or " .. "`nupp reference all` for the complete reference."
+
     return table.concat(out, "\n")
 end
 
@@ -1160,7 +1175,9 @@ local function renderSection(out: {string}, section: reference.Section, level: i
     out[#out + 1] = (section.body:gsub("^%s+", ""):gsub("%s+$", ""))
     out[#out + 1] = ""
     local names: {string} = {}
-    for name in pairs(section.context or {}) do names[#names + 1] = name end
+    for name in pairs(section.context or {}) do
+        names[#names + 1] = name
+    end
     table.sort(names)
     for _, name in ipairs(names) do
         local source = (section.context as {[string]: string})[name]
@@ -1179,15 +1196,18 @@ local function renderSection(out: {string}, section: reference.Section, level: i
     end
     if #section.codes > 0 then
         local cited: {string} = {}
-        for _, code in ipairs(section.codes) do cited[#cited + 1] = "`" .. code .. "`" end
-        out[#out + 1] = "Reports: " .. table.concat(cited, ", ")
-            .. ". `nupp explain <code>` says more."
+        for _, code in ipairs(section.codes) do
+            cited[#cited + 1] = "`" .. code .. "`"
+        end
+        out[#out + 1] = "Reports: " .. table.concat(cited, ", ") .. ". `nupp explain <code>` says more."
         out[#out + 1] = ""
     end
 end
 
 local function renderChapter(out: {string}, chapter: reference.Chapter, level: integer)
-    for _, section in ipairs(chapter.sections) do renderSection(out, section, level) end
+    for _, section in ipairs(chapter.sections) do
+        renderSection(out, section, level)
+    end
 end
 
 --- The reference as markdown.
@@ -1199,7 +1219,9 @@ function reference.markdown(opts: {level: integer?}?): string
     local out: {string} = {}
     out[#out + 1] = heading(base, "Nupp language reference")
     out[#out + 1] = ""
-    out[#out + 1] = "Every construct, the shortest program that uses it, and the"
+    out[
+        #out + 1
+    ] = "Every construct, the shortest program that uses it, and the"
         .. " diagnostic codes that report getting it wrong. Generated from the"
         .. " compiler: `nupp reference`."
     out[#out + 1] = ""
@@ -1208,6 +1230,7 @@ function reference.markdown(opts: {level: integer?}?): string
         out[#out + 1] = ""
         renderChapter(out, chapter, base + 2)
     end
+
     return (table.concat(out, "\n"):gsub("\n+$", ""))
 end
 
@@ -1242,6 +1265,7 @@ function reference.skill(chapter: reference.Chapter?): string
     out[#out + 1] = "---"
     out[#out + 1] = ""
     out[#out + 1] = chapter and reference.chapterMarkdown(chapter) or reference.markdown()
+
     return table.concat(out, "\n")
 end
 

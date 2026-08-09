@@ -49,8 +49,7 @@ local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
 
 --- Reads the settings out of a parse. Every command that compiles takes the same
 --- options, so every one of them reads them the same way.
-function compile.settings(values: {[string]: any},
-    collected: {any}?): compile.Settings
+function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
     return new compile.Settings {
         strict = values.strict,
         optLevel = LEVELS[values.optLevel] or 0,
@@ -64,8 +63,7 @@ end
 
 --- Compiles one file to Lua source. Returns the generated code, or nil and a short
 --- reason after having reported the diagnostics that stopped it.
-function compile.module(path: string, env: table,
-    settings: compile.Settings): string?, string?
+function compile.module(path: string, env: table, settings: compile.Settings): string?, string?
     local collected = settings.diagnostics
     -- Says each diagnostic, or puts it by for the caller to say later, and either way
     -- answers whether an error was among them.
@@ -80,14 +78,25 @@ function compile.module(path: string, env: table,
                 fatal = true
             end
         end
+
         return fatal
     end
+
     local source, readErr = fs.readFile(path)
     if not source then
         if collected then
-            collected[#collected + 1] = {filename = path, line = 0, col = 0,
-                offset = 0, length = 0, code = "NUPP0001", msg = readErr,
-                help = "check that the path exists and is readable"}
+            collected[
+                #collected + 1
+            ] = {
+                filename = path,
+                line = 0,
+                col = 0,
+                offset = 0,
+                length = 0,
+                code = "NUPP0001",
+                msg = readErr,
+                help = "check that the path exists and is readable"
+            }
         else
             io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
         end
@@ -104,18 +113,22 @@ function compile.module(path: string, env: table,
     if say(diags) then
         return nil, "type errors"
     end
-    local remarks = require("nupp.optimize").run(result, {level = settings.optLevel,
-        filename = path, disabled = settings.disabled, relaxed = settings.relaxed})
+    local remarks = require(
+        "nupp.optimize"
+    ).run(
+        result,
+        {level = settings.optLevel, filename = path, disabled = settings.disabled, relaxed = settings.relaxed}
+    )
     if settings.remarks then
         say(remarks)
     end
     local gen = require("nupp.gen")
-    local code, genDiags = gen.generate(result, path,
-        settings.coverage and {path = path} or nil)
+    local code, genDiags = gen.generate(result, path, settings.coverage and {path = path} or nil)
     if #genDiags > 0 then
         say(genDiags)
         return nil, "code generation errors"
     end
+
     return code
 end
 

@@ -27,12 +27,20 @@ local command = spec.command{
     options = optionsMod.join(
         optionsMod.strict,
         optionsMod.optimize(),
-        {name = "--profile", value = "MS", form = "optional",
-        help = "Sample the program every MS milliseconds (default 10)"},
-        {name = "--profile-out", value = "PATH",
-        help = "Where the samples go (default profile.out)"},
-        {name = "--jit-aborts", value = "PATH", form = "optional",
-        help = "Record where the JIT gave up (default jit-aborts.csv)"}),
+        {
+            name = "--profile",
+            value = "MS",
+            form = "optional",
+            help = "Sample the program every MS milliseconds (default 10)"
+        },
+        {name = "--profile-out", value = "PATH", help = "Where the samples go (default profile.out)"},
+        {
+            name = "--jit-aborts",
+            value = "PATH",
+            form = "optional",
+            help = "Record where the JIT gave up (default jit-aborts.csv)"
+        }
+    ),
     detail = [[Program arguments are passed to the loaded chunk. Use '--' before a file name
 that starts with a dash.
 
@@ -63,8 +71,7 @@ local function run(parsed: any): integer
     if type(values.profile) == "string" then
         local given = tonumber(values.profile)
         if not given or given < 1 or given ~= math.floor(given) then
-            return command:usageError("--profile takes a whole number of "
-                .. "milliseconds, not " .. values.profile)
+            return command:usageError("--profile takes a whole number of " .. "milliseconds, not " .. values.profile)
         end
         intervalMs = math.floor(given)
     end
@@ -72,16 +79,14 @@ local function run(parsed: any): integer
     -- is missing beats accepting it quietly and leaving someone waiting on a file that
     -- was never going to be written.
     if values.profileOut and not profiling then
-        return command:usageError("--profile-out names where --profile writes, "
-            .. "which was not asked for")
+        return command:usageError("--profile-out names where --profile writes, " .. "which was not asked for")
     end
     local profileOut = values.profileOut or "profile.out"
     local tracingAborts = values.jitAborts ~= nil
     if values.jitAborts == "" then
         return command:usageError("--jit-aborts= requires a file name")
     end
-    local abortsOut = type(values.jitAborts) == "string" and values.jitAborts
-        or "jit-aborts.csv"
+    local abortsOut = type(values.jitAborts) == "string" and values.jitAborts or "jit-aborts.csv"
 
     local path = positional[1]
     if not path then
@@ -126,8 +131,7 @@ local function run(parsed: any): integer
     end
 
     local runtime = require("nupp.runtime")
-    local removeLoader = runtime.install(projectEnv, function(modulePath: string,
-        env: any): string?, string?
+    local removeLoader = runtime.install(projectEnv, function(modulePath: string, env: any): string?, string?
         return compile.module(modulePath, env, settings)
     end)
     local ok, runErr = pcall(chunk, unpack(programArgs))
@@ -138,21 +142,26 @@ local function run(parsed: any): integer
     -- the samples.
     if sampling then
         local summary = sampling:stop(profileOut)
-        io.stderr:write(("nupp: %d samples on %d stacks every %dms, written to "
-            .. "%s\n"):format(summary.samples, summary.stacks,
-            summary.intervalMs, profileOut))
+        io.stderr:write(
+            (
+                "nupp: %d samples on %d stacks every %dms, written to " .. "%s\n"
+            ):format(summary.samples, summary.stacks, summary.intervalMs, profileOut)
+        )
     end
     if tracing then
         local summary = tracing:stop(abortsOut)
-        io.stderr:write(("nupp: %d trace aborts, %d blacklisted, written to "
-            .. "%s\n"):format(summary.totalAborts, summary.blacklisted,
-            abortsOut))
+        io.stderr:write(
+            (
+                "nupp: %d trace aborts, %d blacklisted, written to " .. "%s\n"
+            ):format(summary.totalAborts, summary.blacklisted, abortsOut)
+        )
     end
 
     if not ok then
         io.stderr:write("nupp: " .. tostring(runErr) .. "\n")
         return 1
     end
+
     return 0
 end
 

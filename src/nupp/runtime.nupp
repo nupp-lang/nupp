@@ -17,9 +17,10 @@ local runtime = {}
 -- (path, env) and returns generated Lua source or nil plus an error. The returned
 -- function removes this exact loader, even if other loaders were added while the
 -- program was running.
-function runtime.install(env: envMod.Env,
-    compile: function(path: string, env: envMod.Env): (string?, string?)):
-    function(): nil
+function runtime.install(
+    env: envMod.Env,
+    compile: function(path: string, env: envMod.Env): (string?, string?)
+): function(): nil
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
     assert(type(compile) == "function", "compile callback must be a function")
@@ -34,17 +35,21 @@ function runtime.install(env: envMod.Env,
         if path:match("%.nupp$") then
             local code, compileErr = compile(path, env)
             if not code then
-                error(("error compiling nupp module '%s' from '%s': %s")
-                    :format(name, path, compileErr or "compilation failed"), 0)
+                error(
+                    (
+                        "error compiling nupp module '%s' from '%s': %s"
+                    ):format(name, path, compileErr or "compilation failed"),
+                    0
+                )
             end
             chunk, loadErr = loadstring(code, "@" .. path)
         else
             chunk, loadErr = loadfile(path)
         end
         if not chunk then
-            error(("error loading project module '%s' "
-                .. "from '%s': %s"):format(name, path, tostring(loadErr)), 0)
+            error(("error loading project module '%s' " .. "from '%s': %s"):format(name, path, tostring(loadErr)), 0)
         end
+
         return chunk
     end
 
@@ -52,6 +57,7 @@ function runtime.install(env: envMod.Env,
     table.insert(loaders, 2, loadLjppModule)
 
     local installed = true
+
     return function()
         if not installed then
             return

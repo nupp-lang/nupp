@@ -32,8 +32,7 @@ type diagnostics.Session = {
     inc: any,
 
     --- How the session speaks to the client unprompted.
-    notify: function(method: string, params: any): nil,
-}
+    notify: function(method: string, params: any): nil,}
 
 --- What installing diagnostics gives the session back.
 type diagnostics.Api = {
@@ -44,8 +43,7 @@ type diagnostics.Api = {
     checkAndPublish: function(uri: string, force: boolean?): boolean,
 
     --- Rechecks every open document, the named one first and unconditionally.
-    refreshOpenDocuments: function(changedUri: string?): nil,
-}
+    refreshOpenDocuments: function(changedUri: string?): nil,}
 
 -- Diagnostics a build enforces but an editor should not shout about, because a file
 -- being typed into is half-written by definition and the missing half is usually the
@@ -53,13 +51,11 @@ type diagnostics.Api = {
 -- whose first reader has not been typed yet is the same thing one line later, and stays
 -- visible without being coloured like a mistake. This is the only place the two levels
 -- differ, so it is the only place that knows they can.
-local EDITOR_ADVICE = {
-    ["NUPP2120"] = "warning", -- a project module used without requiring it
+local EDITOR_ADVICE = {["NUPP2120"] = "warning", -- a project module used without requiring it
     ["NUPP2507"] = "note", -- a binding whose reader may be the next line written
 }
 
-local PROTOCOL_SEVERITY = {
-    error = 1, warning = 2, note = 3, -- 3 is Information
+local PROTOCOL_SEVERITY = {error = 1, warning = 2, note = 3, -- 3 is Information
 }
 
 --- Installs diagnostic publication on one session.
@@ -71,32 +67,35 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
     local function toLspDiagnostics(errors, source)
         local out = wire.array({})
         for _, e in ipairs(errors) do
-            local start = source and positionAtOffset(source, e.offset or 1)
-                or {line = math.max(0, (e.line or 1) - 1),
-                character = math.max(0, (e.col or 1) - 1)}
-            local finish = source and positionAtOffset(source,
-                (e.offset or 1) + (e.length or 0))
-                or {line = start.line,
-                character = start.character + (e.length or 1)}
+            local start = source and positionAtOffset(
+                source,
+                e.offset or 1
+            ) or {line = math.max(0, (e.line or 1) - 1), character = math.max(0, (e.col or 1) - 1)}
+            local finish = source and positionAtOffset(
+                source,
+                (e.offset or 1) + (e.length or 0)
+            ) or {line = start.line, character = start.character + (e.length or 1)}
             local related = wire.array({})
             for _, item in ipairs(e.related or {}) do
                 local path = item.filename or e.filename
                 local uri = path and pathToUri(path) or nil
                 local relatedDoc = uri and s.documents[uri] or nil
-                local relatedSource = relatedDoc and relatedDoc.text
-                    or (path and s.inc.fileText(path)) or (path and readFile(path))
+                local relatedSource = relatedDoc and relatedDoc.text or (
+                    path and s.inc.fileText(path)
+                ) or (path and readFile(path))
                 local relatedStart = relatedSource and positionAtOffset(
-                    relatedSource, item.offset or 1)
-                    or {line = math.max(0, (item.line or 1) - 1),
-                    character = math.max(0, (item.col or 1) - 1)}
+                    relatedSource,
+                    item.offset or 1
+                ) or {line = math.max(0, (item.line or 1) - 1), character = math.max(0, (item.col or 1) - 1)}
                 local relatedFinish = relatedSource and positionAtOffset(
-                    relatedSource, (item.offset or 1) + (item.length or 0))
-                    or {line = relatedStart.line, character =
-                    relatedStart.character + (item.length or 1)}
+                    relatedSource,
+                    (item.offset or 1) + (item.length or 0)
+                ) or {line = relatedStart.line, character = relatedStart.character + (item.length or 1)}
                 if uri then
-                    related[#related + 1] = {
-                        location = {uri = uri, range = {start = relatedStart,
-                        ["end"] = relatedFinish}},
+                    related[
+                        #related + 1
+                    ] = {
+                        location = {uri = uri, range = {start = relatedStart, ["end"] = relatedFinish}},
                         message = item.message or "related location",
                     }
                 end
@@ -108,22 +107,19 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
             if e.help then
                 message = message .. "\n\nhelp: " .. e.help
             end
-            out[#out + 1] = {
-                range = {
-                    start = start,
-                    ["end"] = finish,
-                },
-                severity = PROTOCOL_SEVERITY[
-                    EDITOR_ADVICE[e.code] or e.severity] or 1,
+            out[
+                #out + 1
+            ] = {
+                range = {start = start, ["end"] = finish,},
+                severity = PROTOCOL_SEVERITY[EDITOR_ADVICE[e.code] or e.severity] or 1,
                 code = e.code or "NUPP1001",
                 source = "nupp",
                 message = message,
                 relatedInformation = #related > 0 and related or nil,
-                data = (e.help or e.notes or e.lint) and {
-                    help = e.help, notes = e.notes, lint = e.lint,
-                } or nil,
+                data = (e.help or e.notes or e.lint) and {help = e.help, notes = e.notes, lint = e.lint,} or nil,
             }
         end
+
         return out
     end
 
@@ -148,11 +144,9 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
             doc.checked = r.result
         end
         if force or changed then
-            notify("textDocument/publishDiagnostics", {
-                uri = uri,
-                diagnostics = toLspDiagnostics(r.diags, doc.text),
-            })
+            notify("textDocument/publishDiagnostics", {uri = uri, diagnostics = toLspDiagnostics(r.diags, doc.text),})
         end
+
         return changed
     end
 
@@ -170,7 +164,9 @@ function diagnostics.install(s: diagnostics.Session): diagnostics.Api
             end
         end
         table.sort(uris)
-        for _, uri in ipairs(uris) do checkAndPublish(uri, false) end
+        for _, uri in ipairs(uris) do
+            checkAndPublish(uri, false)
+        end
     end
 
     return {

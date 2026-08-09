@@ -63,53 +63,57 @@ function index.install(c: state.Checker): state.ExprHandlers
             local declared = key and c.lookupEntry(key)
             if declared then
                 c.infer(target)
-                c.markToken(member, declared.definition, declared.t,
-                    declared.definition and declared.definition.kind
-                    or "variable")
+                c.markToken(
+                    member,
+                    declared.definition,
+                    declared.t,
+                    declared.definition and declared.definition.kind or "variable"
+                )
                 return declared.t
             end
         end
         local trackedObject = c.infer(target)
-        -- Native facilities are effects of the resolved global, never a text
-        -- match.  A local named `nupp` remains an ordinary table.
+        -- Native facilities are effects of the resolved global, never a text match. A
+        -- local named `nupp` remains an ordinary table.
         local global = c.env and c.env.globals and c.env.globals[holderName]
-        if target.kind == "name" and global and target.token
-            and target.token.definition == global.definition then
+        if target.kind == "name" and global and target.token and target.token.definition == global.definition then
             local effect = native.forGlobal(holderName, memberName)
-            if effect and c.recordEffect then c.recordEffect(effect) end
+            if effect and c.recordEffect then
+                c.recordEffect(effect)
+            end
         end
         local ot = trackedObject
-        local base = kind == "safeIndex" and ot.tag == "union"
-            and T.union(ot.members) or ot
+        local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
         base = rawType(base)
-        if base.tag == "ptr" and not c.ownershipKind(trackedObject)
-            and c.unsafeDepth == 0 then
-            c.diag("NUPP2604", node,
-                "dereferencing a raw pointer requires unsafe do; use an "
-                .. "owned or borrowed value in checked code")
+        if base.tag == "ptr" and not c.ownershipKind(trackedObject) and c.unsafeDepth == 0 then
+            c.diag(
+                "NUPP2604",
+                node,
+                "dereferencing a raw pointer requires unsafe do; use an " .. "owned or borrowed value in checked code"
+            )
         end
         -- A required module's exported records and structs are values as well as types:
         -- `geom.Point` both names the type and stamps instances. A declaration is not a
         -- field of the module's table, so it is never among the members its surface
         -- records, and this is the only place the pairing is known.
         local function exportedValue(): Type?
-            local holder = holderName ~= ""
-                and c.lookupEntry(holderName) or nil
+            local holder = holderName ~= "" and c.lookupEntry(holderName) or nil
             local exporting = holder and holder.requiredModule
             if not exporting or not c.env or not c.env.exportedNominal then
                 return nil
             end
             local t, def = c.env.exportedNominal(c.env, exporting, memberName)
-            if t and t.tag == "nominal"
-                and (t.declKind == "record" or t.declKind == "struct") then
+            if t and t.tag == "nominal" and (t.declKind == "record" or t.declKind == "struct") then
                 -- The same value the declaring module bound, so a record arrives as the
                 -- metatable its table is rather than as an instance of it.
                 local held = t.declKind == "record" and T.metatable(t) or t
                 c.markToken(member, def, held, def and def.kind or "variable")
                 return held
             end
+
             return nil
         end
+
         if base == T.any or base == T.table_ then
             local exported = exportedValue()
             if exported then
@@ -141,14 +145,19 @@ function index.install(c: state.Checker): state.ExprHandlers
             ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
         end
         if not ft then
-            local opposite = writing and c.fieldType(base, memberName)
-                or c.fieldWriteType(base, memberName)
+            local opposite = writing and c.fieldType(base, memberName) or c.fieldWriteType(base, memberName)
             if opposite then
-                c.diag("NUPP2009", member,
-                    ("property %q is %s-only")
-                    :format(memberName, writing and "read" or "write"), nil,
-                    {help = writing and "assign through a view that grants write access"
-                    or "read through a view that grants read access"})
+                c.diag(
+                    "NUPP2009",
+                    member,
+                    ("property %q is %s-only"):format(memberName, writing and "read" or "write"),
+                    nil,
+                    {
+                        help = writing
+                        and "assign through a view that grants write access"
+                        or "read through a view that grants read access"
+                    }
+                )
                 return T.any
             end
             -- A declared metamethod is a name on the metatable, so reaching one through
@@ -160,18 +169,23 @@ function index.install(c: state.Checker): state.ExprHandlers
                 node.metamethodName = memberName
                 node.metamethodReceiver = base
                 c.markToken(member, nil, contract, "property")
-                local installed = kind == "safeIndex"
-                    and T.optional(contract) or contract
+                local installed = kind == "safeIndex" and T.optional(contract) or contract
                 node.resolvedType = installed
                 return installed
             elseif contract then
                 -- On an instance the same name is an ordinary field, and writing it
                 -- puts a function somewhere the operator never looks.
-                c.diag("NUPP2004", member,
-                    ("%s is a metamethod of %s, not a field of one")
-                    :format(memberName, T.tostring(base)), nil,
-                    {help = ("write it on the declaration's own table, which is "
-                    .. "the metatable an instance carries")})
+                c.diag(
+                    "NUPP2004",
+                    member,
+                    ("%s is a metamethod of %s, not a field of one"):format(memberName, T.tostring(base)),
+                    nil,
+                    {
+                        help = (
+                            "write it on the declaration's own table, which is " .. "the metatable an instance carries"
+                        )
+                    }
+                )
                 return T.any
             end
             local contractName = writing and "__newindex" or "__index"
@@ -183,16 +197,14 @@ function index.install(c: state.Checker): state.ExprHandlers
                 if writing then
                     return T.any
                 end
-                local out = c.applyContract(mm, {base, keyType},
-                    {target, node}, node, contractName)
+                local out = c.applyContract(mm, {base, keyType}, {target, node}, node, contractName)
                 return kind == "safeIndex" and T.optional(out) or out
             end
             local exported = exportedValue()
             if exported then
                 return exported
             end
-            local fixes = c.edits.nameSpellingFix(member,
-                c.fieldNames(base, writing))
+            local fixes = c.edits.nameSpellingFix(member, c.fieldNames(base, writing))
             -- A double-underscore name is reaching for a contract rather than a field,
             -- so it is spelled against the ones the receiver declares. Without this the
             -- misspelling and the absence read alike.
@@ -200,28 +212,37 @@ function index.install(c: state.Checker): state.ExprHandlers
             if not fixes and contracted then
                 fixes = c.edits.spellingFix(member, c.metamethodNames(base))
             end
-            c.diag("NUPP2004", member, ("no field %q in %s")
-                :format(memberName, T.tostring(base)), fixes,
-                {help = fixes and (contracted
-                and "use the suggested contract spelling"
-                or "use the suggested field spelling")
-                or "check the receiver type and available fields"})
+            c.diag(
+                "NUPP2004",
+                member,
+                ("no field %q in %s"):format(memberName, T.tostring(base)),
+                fixes,
+                {
+                    help = fixes and (
+                        contracted and "use the suggested contract spelling" or "use the suggested field spelling"
+                    ) or "check the receiver type and available fields"
+                }
+            )
             return T.any
         end
-        if not writing and base.tag == "nominal" and base.overloadedMethods
-            and base.overloadedMethods[memberName] then
-            c.diag("NUPP2126", member,
-                ("overloaded method %q has no single field value")
-                :format(memberName), nil,
-                {help = "call it with `:` so the arguments select one body"})
+        if not writing and base.tag == "nominal" and base.overloadedMethods and base.overloadedMethods[memberName] then
+            c.diag(
+                "NUPP2126",
+                member,
+                ("overloaded method %q has no single field value"):format(memberName),
+                nil,
+                {help = "call it with `:` so the arguments select one body"}
+            )
         end
         c.markToken(member, fieldDef, ft, "property")
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
         node.resolvedType = out
-        node.immutablePath = kind == "dotIndex"
-            and target.immutablePath == true
-            and c.fieldWriteType(base, memberName) == nil
+        node.immutablePath = kind == "dotIndex" and target.immutablePath == true and c.fieldWriteType(
+            base,
+            memberName
+        ) == nil
+
         return out
     end
     handlers.safeIndex = handlers.dotIndex
@@ -235,11 +256,12 @@ function index.install(c: state.Checker): state.ExprHandlers
         local trackedObject = c.infer(target)
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
-        if ot.tag == "ptr" and not c.ownershipKind(trackedObject)
-            and c.unsafeDepth == 0 then
-            c.diag("NUPP2604", node,
-                "indexing a raw pointer requires unsafe do; use an owned "
-                .. "or borrowed value in checked code")
+        if ot.tag == "ptr" and not c.ownershipKind(trackedObject) and c.unsafeDepth == 0 then
+            c.diag(
+                "NUPP2604",
+                node,
+                "indexing a raw pointer requires unsafe do; use an owned " .. "or borrowed value in checked code"
+            )
         end
         local it = c.infer(key)
         if ot == T.any or ot == T.table_ then
@@ -248,8 +270,7 @@ function index.install(c: state.Checker): state.ExprHandlers
         -- remembered for the assignment rule: only a real container may have an entry
         -- removed by writing nil
         node.containerTag = ot.tag
-        node.containerIsSequence = ot.tag == "nominal"
-            and ot.arrayOf ~= nil
+        node.containerIsSequence = ot.tag == "nominal" and ot.arrayOf ~= nil
         if ot.tag == "union" then
             -- Indexing a union indexes every member, which is what makes the `xs or {}`
             -- default usable: the empty table contributes `table`, and reading it
@@ -274,11 +295,9 @@ function index.install(c: state.Checker): state.ExprHandlers
                     outs[#outs + 1] = T.union(mt.elems)
                 elseif mt.tag == "nominal" and mt.arrayOf then
                     outs[#outs + 1] = mt.arrayOf
-                elseif (mt.tag == "shape" or mt.tag == "nominal")
-                    and writing and mt.indexWriteValue then
+                elseif (mt.tag == "shape" or mt.tag == "nominal") and writing and mt.indexWriteValue then
                     outs[#outs + 1] = mt.indexWriteValue
-                elseif (mt.tag == "shape" or mt.tag == "nominal")
-                    and not writing and mt.indexReadValue then
+                elseif (mt.tag == "shape" or mt.tag == "nominal") and not writing and mt.indexReadValue then
                     outs[#outs + 1] = T.optional(mt.indexReadValue)
                 else
                     outs = nil
@@ -311,8 +330,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                     keyType, valueType = T.integer, T.union(mt.elems)
                 elseif mt.tag == "map" then
                     keyType = writing and mt.writeKey or (mt.readable and mt.key or nil)
-                    valueType = writing and mt.writeValue
-                        or (mt.readable and mt.value or nil)
+                    valueType = writing and mt.writeValue or (mt.readable and mt.value or nil)
                     optional = not writing
                 elseif mt.tag == "nominal" and mt.arrayOf then
                     keyType, valueType = T.integer, mt.arrayOf
@@ -324,8 +342,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 if keyType and valueType then
                     sawCapability = true
                     if isA(it, keyType) then
-                        outs[#outs + 1] = optional and T.optional(valueType)
-                            or valueType
+                        outs[#outs + 1] = optional and T.optional(valueType) or valueType
                     end
                 end
             end
@@ -336,8 +353,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 end
                 return T.intersection(outs)
             elseif sawCapability then
-                c.diag("NUPP2004", key,
-                    ("no intersection indexer accepts %s"):format(T.tostring(it)))
+                c.diag("NUPP2004", key, ("no intersection indexer accepts %s"):format(T.tostring(it)))
                 return T.any
             end
         end
@@ -345,36 +361,41 @@ function index.install(c: state.Checker): state.ExprHandlers
             -- numeric, not strictly integer: `integer` here is advisory, and ordinary
             -- arithmetic on an index yields `number`
             if not (it == T.any or isA(it, T.number)) then
-                c.diag("NUPP2004", key,
-                    ("carray index must be numeric, got %s"):format(
-                    T.tostring(it)))
+                c.diag("NUPP2004", key, ("carray index must be numeric, got %s"):format(T.tostring(it)))
             end
             -- zero-based, and always present: no optional here
             return ot.elem
         end
         if ot.tag == "nominal" and ot.arrayOf then
             if not (it == T.any or isA(it, T.integer)) then
-                c.diag("NUPP2004", key,
-                    ("array index must be integer, got %s"):format(
-                    T.tostring(it)))
+                c.diag("NUPP2004", key, ("array index must be integer, got %s"):format(T.tostring(it)))
             end
             return ot.arrayOf or T.any
         elseif ot.tag == "array" then
             if not (it == T.any or isA(it, T.integer)) then
-                c.diag("NUPP2004", key, ("array index must be integer, got %s")
-                    :format(T.tostring(it)))
+                c.diag("NUPP2004", key, ("array index must be integer, got %s"):format(T.tostring(it)))
             end
             -- pragmatic: dense-array reads yield T, not T? — maps keep the optional,
             -- where absent keys are expected
             return ot.elem
         elseif ot.tag == "map" then
             if writing and not ot.writeValue then
-                c.diag("NUPP2009", node, "indexer is read-only", nil,
-                    {help = "assign through a view that grants write access"})
+                c.diag(
+                    "NUPP2009",
+                    node,
+                    "indexer is read-only",
+                    nil,
+                    {help = "assign through a view that grants write access"}
+                )
                 return T.any
             elseif not writing and not ot.readable then
-                c.diag("NUPP2009", node, "indexer is write-only", nil,
-                    {help = "read through a view that grants read access"})
+                c.diag(
+                    "NUPP2009",
+                    node,
+                    "indexer is write-only",
+                    nil,
+                    {help = "read through a view that grants read access"}
+                )
                 return T.any
             end
             local keyType = writing and ot.writeKey or ot.key
@@ -415,8 +436,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             end
             local opposite = writing and ot.indexReadValue or ot.indexWriteValue
             if opposite then
-                c.diag("NUPP2009", node,
-                    writing and "indexer is read-only" or "indexer is write-only")
+                c.diag("NUPP2009", node, writing and "indexer is read-only" or "indexer is write-only")
                 return T.any
             end
         end
@@ -428,14 +448,15 @@ function index.install(c: state.Checker): state.ExprHandlers
             if writing then
                 return T.any
             end
-            local out = c.applyContract(mm, {ot, it}, {target, key},
-                node, contractName)
+            local out = c.applyContract(mm, {ot, it}, {target, key}, node, contractName)
             return kind == "safeBracket" and T.optional(out) or out
         end
         c.diag("NUPP2004", node, ("cannot index %s"):format(T.tostring(ot)))
+
         return T.any
     end
     handlers.safeBracket = handlers.bracketIndex
+
     return handlers
 end
 

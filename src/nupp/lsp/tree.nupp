@@ -16,33 +16,24 @@ local tree = {}
 --- module facts the checker writes back onto the parse it was given. A parse reaches
 --- the server through the query graph, which carries it untyped, so the shape is stated
 --- where it is read rather than where it happens to be built.
-type tree.Parse = {
-    root: cst.Chunk,
-    tokens: {lexer.Token},
+type tree.Parse = {root: cst.Chunk, tokens: {lexer.Token},
 
     --- The module this file is, once the checker has said so.
     moduleName: string?,
 
     --- The local the file returns, which its qualified declarations attach to.
-    moduleLocal: string?,
-}
+    moduleLocal: string?,}
 
 --- A statement a caller picked out by kind. The kinds are a table read at run time, so
 --- which production came back is a fact about the call rather than about this
 --- declaration; what stands here is what the callers read off one.
-type tree.Kinded = {
-    kind: string,
+type tree.Kinded = {kind: string,
 
     --- The names a `local` binds, one of which a `with` scope would wrap.
     names: any,
 
     --- The parts of a `with` scope an unwrap takes apart.
-    withTok: any,
-    doTok: any,
-    endTok: any,
-    bindings: any,
-    body: any,
-}
+    withTok: any, doTok: any, endTok: any, bindings: any, body: any,}
 
 --- Where a name was declared, as the checker leaves it on every token that spells it.
 --- Nothing declares this shape: it is built field by field while checking, so the
@@ -61,35 +52,20 @@ type tree.Definition = {
     kind: string?,
 
     --- The module a `require` bound to this name.
-    requiredModule: string?,
-}
+    requiredModule: string?,}
 
 --- One use of a module member, with the statement that declares it when this use is the
 --- declaration.
-type tree.Occurrence = {
-    token: lexer.Token,
-    stat: cst.FuncStmt?,
-}
+type tree.Occurrence = {token: lexer.Token, stat: cst.FuncStmt?,}
 
 --- One plain member a module declares, and where.
-type tree.MemberDeclaration = {
-    name: string,
-    token: lexer.Token,
-    stat: cst.FuncStmt,
-}
+type tree.MemberDeclaration = {name: string, token: lexer.Token, stat: cst.FuncStmt,}
 
 --- The (module, member) pair a position names.
-type tree.MemberRef = {
-    moduleName: string,
-    name: string,
-    token: lexer.Token,
-}
+type tree.MemberRef = {moduleName: string, name: string, token: lexer.Token,}
 
 --- A half-open byte span of the source.
-type tree.Span = {
-    from: integer,
-    to: integer,
-}
+type tree.Span = {from: integer, to: integer,}
 
 function tree.tokenAt(result: tree.Parse?, offset: number): lexer.Token?
     if not result then
@@ -106,6 +82,7 @@ function tree.tokenAt(result: tree.Parse?, offset: number): lexer.Token?
             end
         end
     end
+
     return previous
 end
 
@@ -125,11 +102,11 @@ function tree.fromTrivia(triviaList: {lexer.Trivia}?): string?
             text = text:gsub("^%-%-%[=*%[", "")
             text = text:gsub("%]=*%]$", "")
             lines[#lines + 1] = text
-        elseif trivia.kind == "whitespace"
-            and trivia.text:find("\n%s*\n") then
+        elseif trivia.kind == "whitespace" and trivia.text:find("\n%s*\n") then
             lines = {}
         end
     end
+
     return #lines > 0 and table.concat(lines, "\n") or nil
 end
 
@@ -157,14 +134,20 @@ function tree.documentationAt(tokens: {lexer.Token}, index: integer): string?
             return docs
         end
     end
+
     return nil
 end
 
 -- Keywords that introduce a name, so a name that follows one is being declared rather
 -- than used.
 local DECLARING = {
-    ["local"] = true, ["global"] = true, ["function"] = true, ["type"] = true,
-    ["record"] = true, ["struct"] = true, ["interface"] = true,
+    ["local"] = true,
+    ["global"] = true,
+    ["function"] = true,
+    ["type"] = true,
+    ["record"] = true,
+    ["struct"] = true,
+    ["interface"] = true,
     ["cdef"] = true,
 }
 
@@ -173,26 +156,22 @@ local DECLARING = {
 -- mod.name`, or one that opens its own line ahead of a `:`, which is how typed bindings
 -- and record fields are written. The candidate nearest `near` wins, so a file that has
 -- only shifted still resolves to the declaration it used to.
-function tree.findDeclaration(tokens: {lexer.Token}, name: string,
-    near: number): lexer.Token?
+function tree.findDeclaration(tokens: {lexer.Token}, name: string, near: number): lexer.Token?
     local best, bestDistance
     for index, tok in ipairs(tokens) do
         if tok.kind == "name" and tok.text == name then
             local previous, following = tokens[index - 1], tokens[index + 1]
             local declared = previous ~= nil and DECLARING[previous.kind] or false
-            if not declared and previous
-                and (previous.kind == "." or previous.kind == ":") then
+            if not declared and previous and (previous.kind == "." or previous.kind == ":") then
                 local cursor = index - 1
-                while tokens[cursor] and (tokens[cursor].kind == "."
-                    or tokens[cursor].kind == ":"
-                    or tokens[cursor].kind == "name") do
+                while tokens[
+                    cursor
+                ] and (tokens[cursor].kind == "." or tokens[cursor].kind == ":" or tokens[cursor].kind == "name") do
                     cursor = cursor - 1
                 end
-                declared = tokens[cursor] ~= nil
-                    and DECLARING[tokens[cursor].kind] or false
+                declared = tokens[cursor] ~= nil and DECLARING[tokens[cursor].kind] or false
             end
-            if not declared and following and following.kind == ":"
-                and (not previous or previous.line ~= tok.line) then
+            if not declared and following and following.kind == ":" and (not previous or previous.line ~= tok.line) then
                 declared = true
             end
             if declared then
@@ -203,6 +182,7 @@ function tree.findDeclaration(tokens: {lexer.Token}, name: string,
             end
         end
     end
+
     return best
 end
 
@@ -235,10 +215,14 @@ function tree.nodeBounds(node: cst.Child): integer?, integer?
                 last = value.offset + #value.text
             end
         else
-            for _, child in ipairs(value) do walk(child) end
+            for _, child in ipairs(value) do
+                walk(child)
+            end
         end
     end
+
     walk(node)
+
     return first, last
 end
 
@@ -263,8 +247,7 @@ end
 --- A `funcname` is read through the statement that owns it, so a declaration arrives
 --- once and arrives with its signature still in reach.
 function tree.memberHolder(node: cst.Node): lexer.Token?, lexer.Token?
-    if node.kind == "dotIndex" or node.kind == "methodCall"
-        or node.kind == "safeIndex" then
+    if node.kind == "dotIndex" or node.kind == "methodCall" or node.kind == "safeIndex" then
         local obj = node.obj
         if obj and obj.kind == "name" then
             return obj.token, node.name
@@ -289,6 +272,7 @@ function tree.memberHolder(node: cst.Node): lexer.Token?, lexer.Token?
         end
         return names[1], names[2]
     end
+
     return nil
 end
 
@@ -306,7 +290,8 @@ function tree.functionSignature(stat: cst.FuncStmt): string
             return
         end
         if node == block then
-            done = true return
+            done = true
+            return
         end
         if cst.isToken(node) then
             if not first then
@@ -318,9 +303,13 @@ function tree.functionSignature(stat: cst.FuncStmt): string
             parts[#parts + 1] = node.text
             return
         end
-        for _, child in ipairs(node) do walk(child) end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
+
     walk(stat)
+
     return (table.concat(parts):gsub("%s+$", ""))
 end
 
@@ -337,14 +326,14 @@ function tree.moduleHeld(result: tree.Parse, tok: lexer.Token?): string?
     if result.moduleName and result.moduleLocal == tok.text then
         return result.moduleName
     end
+
     return nil
 end
 
 --- Every `m.f` in `result` naming `memberName` of `moduleName`, as {token, stat}.
 --- `stat` is set on the `function m.f` that writes it, which is the one place a
 --- definition points at and the one a rename has to reach even when nothing uses it.
-function tree.memberOccurrences(result: tree.Parse, moduleName: string,
-    memberName: string): {tree.Occurrence}
+function tree.memberOccurrences(result: tree.Parse, moduleName: string, memberName: string): {tree.Occurrence}
     local found = {}
     tree.walkNodes(result.root, function(node)
         local holder, member = tree.memberHolder(node)
@@ -354,18 +343,17 @@ function tree.memberOccurrences(result: tree.Parse, moduleName: string,
         if tree.moduleHeld(result, holder) ~= moduleName then
             return
         end
-        found[#found + 1] = {
-            token = member,
-            stat = node.kind == "funcStmt" and node or nil,
-        }
+        found[#found + 1] = {token = member, stat = node.kind == "funcStmt" and node or nil,}
     end)
-    table.sort(found, function(a, b) return a.token.offset < b.token.offset end)
+    table.sort(found, function(a, b)
+        return a.token.offset < b.token.offset
+    end)
+
     return found
 end
 
 --- Every plain member `moduleName` declares, as {name, stat}, in source order.
-function tree.moduleMemberDeclarations(result: tree.Parse,
-    moduleName: string): {tree.MemberDeclaration}
+function tree.moduleMemberDeclarations(result: tree.Parse, moduleName: string): {tree.MemberDeclaration}
     local found = {}
     tree.walkNodes(result.root, function(node)
         if node.kind ~= "funcStmt" then
@@ -377,7 +365,10 @@ function tree.moduleMemberDeclarations(result: tree.Parse,
         end
         found[#found + 1] = {name = member.text, token = member, stat = node}
     end)
-    table.sort(found, function(a, b) return a.token.offset < b.token.offset end)
+    table.sort(found, function(a, b)
+        return a.token.offset < b.token.offset
+    end)
+
     return found
 end
 
@@ -389,8 +380,7 @@ function tree.moduleMemberAt(result: tree.Parse, offset: number): tree.MemberRef
         if not member or not holder then
             return
         end
-        if offset < member.offset
-            or offset >= member.offset + #member.text then
+        if offset < member.offset or offset >= member.offset + #member.text then
             return
         end
         local moduleName = tree.moduleHeld(result, holder)
@@ -398,6 +388,7 @@ function tree.moduleMemberAt(result: tree.Parse, offset: number): tree.MemberRef
             best = {moduleName = moduleName, name = member.text, token = member}
         end
     end)
+
     return best
 end
 
@@ -420,9 +411,13 @@ function tree.enclosingChain(result: tree.Parse, offset: number): {tree.Span}
             return
         end
         chain[#chain + 1] = {from = from, to = to}
-        for _, child in ipairs(node) do walk(child) end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
     end
+
     walk(result.root)
+
     return chain
 end
 
@@ -448,12 +443,12 @@ function tree.enclosingBlock(root: cst.Child, stat: cst.Node): cst.Block?, integ
             end
         end
     end)
+
     return block, index
 end
 
 --- The innermost node of `kinds` whose source range covers [from, to].
-function tree.innermostAt(root: cst.Child, kinds: {[string]: boolean}, from: number,
-    to: number?): tree.Kinded?
+function tree.innermostAt(root: cst.Child, kinds: {[string]: boolean}, from: number, to: number?): tree.Kinded?
     local best, bestSize
     tree.walkNodes(root, function(node)
         if kinds[node.kind] then
@@ -468,6 +463,7 @@ function tree.innermostAt(root: cst.Child, kinds: {[string]: boolean}, from: num
             end
         end
     end)
+
     return best as tree.Kinded?
 end
 
@@ -483,10 +479,14 @@ function tree.mentions(node: cst.Child, def: tree.Definition): boolean
                 found = true
             end
         else
-            for _, child in ipairs(value) do walk(child) end
+            for _, child in ipairs(value) do
+                walk(child)
+            end
         end
     end
+
     walk(node)
+
     return found
 end
 

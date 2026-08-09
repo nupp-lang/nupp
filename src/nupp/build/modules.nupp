@@ -38,26 +38,18 @@ local type State = nupp.build.cache.State
 --- The three are set before anything is compiled, so a caller passes an empty table and
 --- reads it back filled in. A check counts the same way a build does, which is what
 --- lets a test say "this edit rechecked one module".
-type modules.Stats = {
-    checkedModules: number,
-    generatedModules: number,
-    reusedModules: number,
-    [string]: any,
-}
+type modules.Stats = {checkedModules: number, generatedModules: number, reusedModules: number, [string]: any,}
 
 --- What a modules build wrote, as a set of paths.
 ---
 --- A check produces none of them and says so with an empty one, which is what lets the
 --- caller treat both the same way.
-type modules.Result = {
-    outputs: {[string]: boolean},
+type modules.Result = {outputs: {[string]: boolean},
 
     --- Every native feature the built modules asked for, merged.
-    effects: {[string]: any}?,
-}
+    effects: {[string]: any}?,}
 
-local function typeFingerprint(t: nupp.types.Type?,
-    active: {[nupp.types.Type]: boolean}?): string
+local function typeFingerprint(t: nupp.types.Type?, active: {[nupp.types.Type]: boolean}?): string
     if not t then
         return "nil"
     end
@@ -84,46 +76,53 @@ local function typeFingerprint(t: nupp.types.Type?,
         -- This loop used to read `t.fields`, which nominals stopped having when the
         -- member map was renamed to `byname`, so it had been contributing nothing for
         -- some time. Saying so is the fix; putting the members back in is not.
-        value = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.name)
-            .. ")"
+        value = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.name) .. ")"
     elseif tag == "shape" then
         local fields = {}
         for _, field in ipairs(t.fields or {}) do
-            fields[#fields + 1] = field.name .. ":r="
-                .. typeFingerprint(field.read, active) .. ":w="
-                .. typeFingerprint(field.write, active)
+            fields[
+                #fields + 1
+            ] = field.name .. ":r=" .. typeFingerprint(
+                field.read,
+                active
+            ) .. ":w=" .. typeFingerprint(field.write, active)
         end
-        fields[#fields + 1] = "index:r="
-            .. typeFingerprint(t.indexReadKey, active) .. ":"
-            .. typeFingerprint(t.indexReadValue, active) .. ":w="
-            .. typeFingerprint(t.indexWriteKey, active) .. ":"
-            .. typeFingerprint(t.indexWriteValue, active)
+        fields[
+            #fields + 1
+        ] = "index:r=" .. typeFingerprint(
+            t.indexReadKey,
+            active
+        ) .. ":" .. typeFingerprint(
+            t.indexReadValue,
+            active
+        ) .. ":w=" .. typeFingerprint(t.indexWriteKey, active) .. ":" .. typeFingerprint(t.indexWriteValue, active)
         value = "shape(" .. table.concat(fields, ",") .. ")"
     elseif tag == "func" then
         local params, returns = {}, {}
         for index, item in ipairs(t.params or {}) do
-            params[#params + 1] = tostring(t.paramModes
-                and t.paramModes[index] or "plain") .. ":"
-                .. typeFingerprint(item, active)
+            params[
+                #params + 1
+            ] = tostring(t.paramModes and t.paramModes[index] or "plain") .. ":" .. typeFingerprint(item, active)
         end
         for _, item in ipairs(t.rets or {}) do
             returns[#returns + 1] = typeFingerprint(item, active)
         end
-        value = "fn(" .. table.concat(params, ",") .. (t.vararg and ",..." or "")
-            .. ")->(" .. table.concat(returns, ",") .. ")"
+        value = "fn(" .. table.concat(
+            params,
+            ","
+        ) .. (t.vararg and ",..." or "") .. ")->(" .. table.concat(returns, ",") .. ")"
     elseif tag == "array" or tag == "ptr" then
         value = tag .. "(" .. typeFingerprint(t.elem, active) .. ")"
     elseif tag == "owned" then
-        value = tag .. "(" .. table.concat(t.cleanups or {}, ",") .. ","
-            .. typeFingerprint(t.inner, active) .. ")"
+        value = tag .. "(" .. table.concat(t.cleanups or {}, ",") .. "," .. typeFingerprint(t.inner, active) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
         value = tag .. "(" .. typeFingerprint(t.inner, active) .. ")"
     elseif tag == "map" then
-        value = "map(r="
-            .. (t.readable and typeFingerprint(t.key, active) or "nil")
-            .. ":" .. (t.readable and typeFingerprint(t.value, active) or "nil")
-            .. ",w=" .. typeFingerprint(t.writeKey, active) .. ":"
-            .. typeFingerprint(t.writeValue, active) .. ")"
+        value = "map(r=" .. (
+            t.readable and typeFingerprint(t.key, active) or "nil"
+        ) .. ":" .. (
+            t.readable and typeFingerprint(t.value, active) or "nil"
+        ) .. ",w=" .. typeFingerprint(t.writeKey, active) .. ":" .. typeFingerprint(t.writeValue, active) .. ")"
     elseif tag == "tuple" then
         local items = {}
         for _, item in ipairs(t.elems or {}) do
@@ -135,17 +134,18 @@ local function typeFingerprint(t: nupp.types.Type?,
         for _, item in ipairs(t.members or {}) do
             items[#items + 1] = typeFingerprint(item, active)
         end
-        table.sort(items); value = tag .. "(" .. table.concat(items,
-            tag == "union" and "|" or "&") .. ")"
+        table.sort(items)
+        ;
+        value = tag .. "(" .. table.concat(items, tag == "union" and "|" or "&") .. ")"
     elseif tag == "literal" then
-        value = "literal(" .. stable(t.constant) .. ":"
-            .. typeFingerprint(t.base, active) .. ")"
+        value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active) .. ")"
     elseif tag == "typevar" then
         value = "typevar(" .. t.name .. ")"
     else
         value = tag or tostring(t)
     end
     active[t] = nil
+
     return value
 end
 
@@ -165,6 +165,7 @@ local function resourceRelative(config: Config, path: string, root: string): str
             end
         end
     end
+
     return best
 end
 
@@ -174,7 +175,9 @@ local function projectIndexFingerprint(inc)
         local header = inc.projectHeader(path)
         local declarations = {}
         for _, declaration in ipairs(header.declarations or {}) do
-            declarations[#declarations + 1] = {
+            declarations[
+                #declarations + 1
+            ] = {
                 name = declaration.name,
                 kind = declaration.kind,
                 statKind = declaration.statKind,
@@ -182,12 +185,9 @@ local function projectIndexFingerprint(inc)
                 signature = declaration.signature,
             }
         end
-        headers[#headers + 1] = {
-            path = header.path,
-            moduleName = header.moduleName,
-            declarations = declarations,
-        }
+        headers[#headers + 1] = {path = header.path, moduleName = header.moduleName, declarations = declarations,}
     end
+
     return hash.digest(stable(headers))
 end
 
@@ -200,6 +200,7 @@ local function copyModuleRecord(record)
     for _, effect in ipairs(record.effects or {}) do
         effects[#effects + 1] = effect
     end
+
     return {
         sourceHash = record.sourceHash,
         interfaceHash = record.interfaceHash,
@@ -212,12 +213,23 @@ local function copyModuleRecord(record)
     }
 end
 
-local function buildModules(root: string, outDir: string, config: Config,
-    target: Target, oldState: State, newState: State, checkOnly: boolean?,
-    strict: boolean?, stats: modules.Stats?, diagnostics: {any}?,
-    checkState: nupp.build.store.Value?): modules.Result?, string?
+local function buildModules(
+    root: string,
+    outDir: string,
+    config: Config,
+    target: Target,
+    oldState: State,
+    newState: State,
+    checkOnly: boolean?,
+    strict: boolean?,
+    stats: modules.Stats?,
+    diagnostics: {any}?,
+    checkState: nupp.build.store.Value?
+): modules.Result?, string?
     local envConfig = {}
-    for key, value in pairs(config) do envConfig[key] = value end
+    for key, value in pairs(config) do
+        envConfig[key] = value
+    end
     envConfig.include = {}
     for _, include in ipairs(config.include or {}) do
         envConfig.include[#envConfig.include + 1] = include
@@ -319,6 +331,7 @@ local function buildModules(root: string, outDir: string, config: Config,
                 return true
             end
         end
+
         return false
     end
 
@@ -326,7 +339,9 @@ local function buildModules(root: string, outDir: string, config: Config,
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
         local mine = {}
-        for _, diag in ipairs(result.diags or {}) do mine[#mine + 1] = diag end
+        for _, diag in ipairs(result.diags or {}) do
+            mine[#mine + 1] = diag
+        end
         local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
         local effectNames = {}
@@ -338,17 +353,21 @@ local function buildModules(root: string, outDir: string, config: Config,
         local artifactHash, code, coverage
         if not fatal and not checkOnly then
             local genDiags
-            local remarks = optimize.run(result.result,
-                {level = config._optLevel or 0, filename = path,
-                disabled = config._disabledPasses,
-                relaxed = config._relaxedGuarantees})
+            local remarks = optimize.run(
+                result.result,
+                {
+                    level = config._optLevel or 0,
+                    filename = path,
+                    disabled = config._disabledPasses,
+                    relaxed = config._relaxedGuarantees
+                }
+            )
             if config._remarks then
                 for _, note in ipairs(remarks) do
                     mine[#mine + 1] = note
                 end
             end
-            code, genDiags, coverage = gen.generate(result.result, path,
-                config._coverage and {path = path} or nil)
+            code, genDiags, coverage = gen.generate(result.result, path, config._coverage and {path = path} or nil)
             stats.generatedModules = stats.generatedModules + 1
             for _, diag in ipairs(genDiags or {}) do
                 mine[#mine + 1] = diag
@@ -358,22 +377,22 @@ local function buildModules(root: string, outDir: string, config: Config,
             end
         end
         said[name] = mine
-        records[name] = {
-            sourceHash = sourceHash,
-            interfaceHash = hash.digest(typeFingerprint(result.moduleType)),
-            artifactHash = artifactHash,
-            dependencies = jsonArray(depNames),
-            effects = jsonArray(effectNames),
-            output = output,
+        records[
+            name
+        ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
+            typeFingerprint(result.moduleType)
+        ), artifactHash = artifactHash, dependencies = jsonArray(
+            depNames
+        ), effects = jsonArray(effectNames), output = output,
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
-            diags = jsonArray(result.diags or {}),
-            coverage = coverage,
-        }
+            diags = jsonArray(result.diags or {}), coverage = coverage,}
         codeFor[name] = code
         reused[name] = nil
-        for _, depName in ipairs(depNames) do enqueue(depName) end
+        for _, depName in ipairs(depNames) do
+            enqueue(depName)
+        end
     end
 
     local function processQueue()
@@ -387,20 +406,19 @@ local function buildModules(root: string, outDir: string, config: Config,
                 order[#order + 1] = item.name
                 local sourceHash = hashFile(path)
                 local previous = oldState.modules[item.name]
-                local output = join(root, join(outDir,
-                    item.name:gsub("%.", "/") .. ".lua"))
+                local output = join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
                 -- A build has to find the artifact it would have written still sitting
                 -- there and still what it wrote; a check writes no artifact and so has
                 -- nothing to confirm but the record.
-                local usable = cacheCompatible and previous
+                local usable = cacheCompatible
+                    and previous
                     and previous.sourceHash == sourceHash
                     and previous.interfaceHash
-                    and type(previous.dependencies) == "table"
-                    and type(previous.effects) == "table"
-                    and type(previous.diags) == "table"
+                    and type(
+                    previous.dependencies
+                ) == "table" and type(previous.effects) == "table" and type(previous.diags) == "table"
                 if usable and previous and not checkOnly then
-                    usable = previous.artifactHash
-                        and hashFile(output) == previous.artifactHash
+                    usable = previous.artifactHash and hashFile(output) == previous.artifactHash
                 end
                 if usable and previous then
                     records[item.name] = copyModuleRecord(previous)
@@ -434,8 +452,7 @@ local function buildModules(root: string, outDir: string, config: Config,
                     if depPath then
                         local current = records[depName]
                         local previous = oldState.modules[depName]
-                        if not current or not previous
-                            or current.interfaceHash ~= previous.interfaceHash then
+                        if not current or not previous or current.interfaceHash ~= previous.interfaceHash then
                             dependencyChanged = true
                             break
                         end
@@ -468,7 +485,9 @@ local function buildModules(root: string, outDir: string, config: Config,
     inc.persist()
     if checkOnly and checkState then
         local checked = {}
-        for _, name in ipairs(order) do checked[name] = records[name] end
+        for _, name in ipairs(order) do
+            checked[name] = records[name]
+        end
         newState.modules = checked
         checkState.set(newState)
         checkState.save()
@@ -518,7 +537,9 @@ local function buildModules(root: string, outDir: string, config: Config,
     for _, name in ipairs(order) do
         local record = records[name]
         newState.modules[name] = record
-        for _, effect in ipairs(record.effects or {}) do effects[effect] = true end
+        for _, effect in ipairs(record.effects or {}) do
+            effects[effect] = true
+        end
         outputs[record.output] = true
         if not reused[name] then
             local code = codeFor[name]
@@ -553,6 +574,7 @@ local function buildModules(root: string, outDir: string, config: Config,
             return nil, err
         end
     end
+
     return {outputs = outputs, effects = effects}
 end
 

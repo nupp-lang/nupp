@@ -15,11 +15,8 @@ local command = spec.command{
     usage = {"nupp test [args...]"},
     universal = false,
     options = {
-        {name = "--json",
-        help = "Ask the test command for one JSON document instead of "
-        .. "progress text"},
-        {name = "--verbose",
-        help = "Ask the test command to show output from passing tests"},
+        {name = "--json", help = "Ask the test command for one JSON document instead of " .. "progress text"},
+        {name = "--verbose", help = "Ask the test command to show output from passing tests"},
         spec.helpOption,
     },
     schema = {
@@ -33,44 +30,40 @@ local command = spec.command{
             passed = {type = "integer"},
             skipped = {type = "integer"},
             failed = {type = "integer"},
-            durationMs = {type = "number",
-            description = "Wall-clock milliseconds for the whole run."},
+            durationMs = {type = "number", description = "Wall-clock milliseconds for the whole run."},
             tests = {
                 type = "array",
                 items = {
                     type = "object",
                     properties = {
-                        suite = {type = "string",
-                        description = "The test file, without its extension."},
+                        suite = {type = "string", description = "The test file, without its extension."},
                         name = {type = "string"},
                         status = {type = "string", enum = {"passed", "skipped", "failed"}},
                         durationMs = {type = "number"},
-                        file = {type = "string",
-                        description = "Where the test is defined."},
-                        line = {type = "integer",
-                        description = "1-based, as everywhere else."},
+                        file = {type = "string", description = "Where the test is defined."},
+                        line = {type = "integer", description = "1-based, as everywhere else."},
                         failure = {
                             type = "object",
                             description = "Absent when the test passed.",
                             properties = {
                                 message = {type = "string"},
-                                file = {type = "string",
-                                description = "Where the error came from, "
-                                .. "which is often not where the test "
-                                .. "is defined."},
-                                line = {type = "integer",
-                                description = "1-based. A Lua error carries "
-                                .. "no column, so none is reported."},
+                                file = {
+                                    type = "string",
+                                    description = "Where the error came from, "
+                                    .. "which is often not where the test "
+                                    .. "is defined."
+                                },
+                                line = {
+                                    type = "integer",
+                                    description = "1-based. A Lua error carries " .. "no column, so none is reported."
+                                },
                             },
                             required = {"message"},
                         },
                         output = {
                             type = "object",
                             description = "Captured output from a failed test.",
-                            properties = {
-                                stdout = {type = "string"},
-                                stderr = {type = "string"},
-                            },
+                            properties = {stdout = {type = "string"}, stderr = {type = "string"},},
                             required = {"stdout", "stderr"},
                         },
                         skip = {
@@ -84,7 +77,7 @@ local command = spec.command{
                 },
             },
         },
-            required = {"ok", "total", "passed", "skipped", "failed", "tests"},
+        required = {"ok", "total", "passed", "skipped", "failed", "tests"},
     },
     detail = [[Additional arguments are appended to test.argv from nupp.lua. Use '--' before
 a test argument named --help.
@@ -101,6 +94,7 @@ local function run(args: any): integer
         table.remove(args, 1)
     end
     local project = require("nupp.build.project")
+
     return project.test(".", args)
 end
 

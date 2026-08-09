@@ -13,11 +13,14 @@ local files = {}
 -- `nupp.fs` carries no annotations, so these arrive untyped. They are re-exported
 -- below, and a module boundary is where a type has to be written down, so each one's
 -- shape is spelled out here instead.
-local normalize: (function(path: string): string),
-    join: (function(left: string?, right: string): string),
-    dirname: (function(path: string): string) = fs.normalize, fs.join, fs.dirname
-local readFile: (function(path: string): (string?, string?)),
-    exists: (function(path: string): boolean) = fs.readFile, fs.exists
+local normalize: (
+    function(path: string): string
+), join: (
+    function(left: string?, right: string): string
+), dirname: (function(path: string): string) = fs.normalize, fs.join, fs.dirname
+local readFile: (
+    function(path: string): (string?, string?)
+), exists: (function(path: string): boolean) = fs.readFile, fs.exists
 
 -- `nupp doc --json` reports the paths a run wrote, and a site is written from a dozen
 -- places — pages, assets, redirects, the copied public tree. Recording at the one
@@ -30,6 +33,7 @@ local function writeFile(path: string, contents: string): boolean?, string?
     if ok and collector then
         collector[#collector + 1] = normalize(path)
     end
+
     return ok, err
 end
 
@@ -46,6 +50,7 @@ local function hiddenBelow(root, candidate)
     if candidate:sub(1, #root + 1) == root .. "/" then
         relative = candidate:sub(#root + 2)
     end
+
     return relative:match("^%.[^/]") ~= nil or relative:match("/%.[^/]") ~= nil
 end
 
@@ -58,9 +63,8 @@ local function privateSource(root: string, candidate: string): boolean
         relative = candidate:sub(#root + 2)
     end
     local filename = relative:match("([^/]+)$") or relative
-    return filename:sub(1, 1) == "_"
-        or relative:match("^internal/") ~= nil
-        or relative:match("/internal/") ~= nil
+
+    return filename:sub(1, 1) == "_" or relative:match("^internal/") ~= nil or relative:match("/internal/") ~= nil
 end
 
 local function listDirectoryFiles(path)
@@ -81,6 +85,7 @@ local function listDirectoryFiles(path)
         end
     end
     table.sort(paths)
+
     return paths
 end
 
@@ -91,11 +96,11 @@ local function listFiles(path: string): {string}
             paths[#paths + 1] = candidate
         end
     end
+
     return paths
 end
 
-local function copyPublicFiles(root: string, outDir: string,
-    public: string?): boolean?, string?
+local function copyPublicFiles(root: string, outDir: string, public: string?): boolean?, string?
     if not public or public == "" then
         return true
     end
@@ -112,6 +117,7 @@ local function copyPublicFiles(root: string, outDir: string,
             return nil, err
         end
     end
+
     return true
 end
 

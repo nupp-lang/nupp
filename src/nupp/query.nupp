@@ -23,8 +23,7 @@ type query.Dep = {
     name: string,
 
     --- The key it was asked for.
-    key: any,
-}
+    key: any,}
 
 --- A value set from outside, with the revision at which it last changed.
 type query.Input = {value: any, changedAt: integer}
@@ -42,8 +41,7 @@ type query.Memo = {
     verifiedAt: integer,
 
     --- Everything it read while computing, in order.
-    deps: {query.Dep},
-}
+    deps: {query.Dep},}
 
 --- A running computation, collecting what it reads.
 type query.Frame = {deps: {query.Dep}}
@@ -58,8 +56,7 @@ type query.Def = {
 
     --- Decides whether a recomputed value counts as unchanged. Optional: plain equality
     --- is right for interned types and scalars.
-    eq: (function(a: any, b: any): boolean)?,
-}
+    eq: (function(a: any, b: any): boolean)?,}
 
 --- A query database: definitions, inputs, and everything memoized so far.
 record query.Q
@@ -88,15 +85,7 @@ end
 
 --- A new, empty query database.
 function query.new(): query.Q
-    return new query.Q {
-        revision = 1,
-        inputs = {},
-        defs = {},
-        memo = {},
-        stack = {},
-        active = {},
-        stats = {},
-    }
+    return new query.Q {revision = 1, inputs = {}, defs = {}, memo = {}, stack = {}, active = {}, stats = {},}
 end
 
 --- Registers how to compute a derived query.
@@ -104,8 +93,7 @@ end
 --- @param name what to call it
 --- @param fn computes the value for a key
 --- @param eq decides "did the value really change", for the early cutoff
-function query.Q:define(name: string, fn: function(q: any, key: any): any,
-    eq: (function(a: any, b: any): boolean)?)
+function query.Q:define(name: string, fn: function(q: any, key: any): any, eq: (function(a: any, b: any): boolean)?)
     self.defs[name] = {fn = fn, eq = eq}
 end
 
@@ -218,9 +206,9 @@ function query.Q:get(name: string, key: any): any
             value = entry.value
         end
     end
-    m[key] = {value = value, changedAt = changedAt,
-        verifiedAt = self.revision, deps = frame.deps}
+    m[key] = {value = value, changedAt = changedAt, verifiedAt = self.revision, deps = frame.deps}
     record(self, name, key)
+
     return value
 end
 
@@ -235,6 +223,7 @@ depChangedAt = function(self: query.Q, name: string, key: any): integer
     self:get(name, key)
     local m = self.memo[name]
     local entry = m and m[key]
+
     return entry and entry.changedAt or self.revision
 end
 

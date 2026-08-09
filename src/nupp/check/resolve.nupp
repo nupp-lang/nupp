@@ -54,33 +54,41 @@ function resolve.install(c: state.Checker): nil
             if moduleName ~= c.result.moduleName then
                 local bound = requiredAs(moduleName)
                 if bound then
-                    fixes[#fixes + 1] = fix(("use %s.%s"):format(bound, name),
-                        insertBefore(base, bound .. "."))
+                    fixes[#fixes + 1] = fix(("use %s.%s"):format(bound, name), insertBefore(base, bound .. "."))
                 else
                     local short = moduleName:match("([^.]+)$")
-                    local edit = short and not c.lookupEntry(short)
-                        and not requireBindsName(short)
-                        and requireEdit(short, moduleName)
+                    local edit = short and not c.lookupEntry(
+                        short
+                    ) and not requireBindsName(short) and requireEdit(short, moduleName)
                     if edit then
-                        fixes[#fixes + 1] = fix(
-                            ("require(%q) and use %s.%s")
-                            :format(moduleName, short, name),
-                            edit, insertBefore(base, short .. "."))
+                        fixes[
+                            #fixes + 1
+                        ] = fix(
+                            ("require(%q) and use %s.%s"):format(moduleName, short, name),
+                            edit,
+                            insertBefore(base, short .. ".")
+                        )
                     end
                 end
             end
         end
+
         return fixes
     end
 
     local function visibleTypeNames(): {[string]: boolean}
         local names = {}
-        for name in pairs(T.builtins) do names[name] = true end
+        for name in pairs(T.builtins) do
+            names[name] = true
+        end
         local scope = c.scope
         while scope do
-            for name in pairs(scope.types or {}) do names[name] = true end
+            for name in pairs(scope.types or {}) do
+                names[name] = true
+            end
             scope = scope.parent
         end
+
         return names
     end
 
@@ -96,13 +104,14 @@ function resolve.install(c: state.Checker): nil
         if t and t.tag == "genericAlias" then
             local map, ordinaryAt, packAt = {}, 1, 1
             for _, arg in ipairs(node.typeArgs or {}) do
-                if arg.kind == "tpack" or arg.kind == "tpackUnion"
-                    or arg.kind == "tparen" and packAt <= #t.packParams
-                    and ordinaryAt > #t.typeParams then
+                if arg.kind == "tpack"
+                    or arg.kind == "tpackUnion"
+                    or arg.kind == "tparen"
+                    and packAt <= #t.packParams
+                    and ordinaryAt > #t.typeParams
+                then
                     local packNode = arg
-                    local pack = arg.kind == "tparen"
-                        and T.pack({c.resolveType(arg.inner)})
-                        or c.resolvePack(packNode)
+                    local pack = arg.kind == "tparen" and T.pack({c.resolveType(arg.inner)}) or c.resolvePack(packNode)
                     local pv = t.packParams[packAt]
                     if pv then
                         map[pv], packAt = pack, packAt + 1
@@ -112,8 +121,7 @@ function resolve.install(c: state.Checker): nil
                     if tv then
                         map[tv], ordinaryAt = c.resolveType(arg), ordinaryAt + 1
                     else
-                        c.diag("NUPP2121", arg,
-                            "ambiguous or surplus generic alias argument")
+                        c.diag("NUPP2121", arg, "ambiguous or surplus generic alias argument")
                     end
                 end
             end
@@ -125,10 +133,10 @@ function resolve.install(c: state.Checker): nil
         end
         local map = {}
         for j, tv in ipairs(t.typeParams) do
-            map[tv] = node.typeArgs[j]
-                and c.resolveType(node.typeArgs[j]) or T.any
+            map[tv] = node.typeArgs[j] and c.resolveType(node.typeArgs[j]) or T.any
         end
         c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
+
         return instantiateNominal(t, map)
     end
 
@@ -165,16 +173,12 @@ function resolve.install(c: state.Checker): nil
                     local key = moduleName .. "." .. typeName
                     local declared, declaredDef = c.lookupType(key)
                     if declared then
-                        c.markToken(lastTok, declaredDef, declared,
-                            declaredDef and declaredDef.kind or "type")
-                        if declared.tag == "nominal"
-                            and declared.declKind == "struct" then
+                        c.markToken(lastTok, declaredDef, declared, declaredDef and declaredDef.kind or "type")
+                        if declared.tag == "nominal" and declared.declKind == "struct" then
                             node.reified = declared.runtimePath or key
-                        elseif declared.tag == "nominal"
-                            and declared.declKind == "record" then
+                        elseif declared.tag == "nominal" and declared.declKind == "record" then
                             node.recordName = declared.runtimePath or key
-                        elseif declared.tag == "nominal"
-                            and declared.declKind == "interface" then
+                        elseif declared.tag == "nominal" and declared.declKind == "interface" then
                             node.interfaceName = declared.runtimePath or key
                         end
                         return applyTypeArgs(declared, node)
@@ -197,14 +201,16 @@ function resolve.install(c: state.Checker): nil
                 end
                 if lexical then
                     for j = walkFrom, #names do
-                        lexical = lexical.tag == "nominal" and lexical.nestedTypes
-                            and lexical.nestedTypes[names[j]] or nil
+                        lexical = lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
+                            names[j]
+                        ] or nil
                         if not lexical then
                             break
                         end
                     end
-                    lexical = lexical and lexical.tag == "nominal"
-                        and lexical.nestedTypes and lexical.nestedTypes[typeName] or nil
+                    lexical = lexical and lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[
+                        typeName
+                    ] or nil
                     if lexical then
                         c.markToken(lastTok, nil, lexical, "type")
                         if lexical.runtimePath then
@@ -227,33 +233,27 @@ function resolve.install(c: state.Checker): nil
                     elseif not holder and names[1] == "buffer" then
                         -- The bare `buffer` global reaches string.buffer as a value
                         -- (nupp.check.expr); a type has to reach it too, or a program
-                        -- can build a buffer and cannot write down what it built.
-                        -- Last, like the value side, so an actual binding wins.
+                        -- can build a buffer and cannot write down what it built. Last,
+                        -- like the value side, so an actual binding wins.
                         moduleName = "string.buffer"
                     end
                 end
                 local t, def, resolvedModule = nil, nil, nil
                 if c.env and c.env.resolveQualifiedType then
-                    t, def, resolvedModule = c.env.resolveQualifiedType(
-                        c.env, c.filename, moduleName, typeName)
+                    t, def, resolvedModule = c.env.resolveQualifiedType(c.env, c.filename, moduleName, typeName)
                 end
                 c.markToken(lastTok, def, t, def and def.kind or "type")
                 if t then
                     if t.tag == "nominal" and t.declKind == "struct" then
-                        node.reified = ("require(%q).%s")
-                            :format(resolvedModule, typeName)
+                        node.reified = ("require(%q).%s"):format(resolvedModule, typeName)
                     elseif t.tag == "nominal" and t.declKind == "record" then
-                        node.recordName = ("require(%q).%s")
-                            :format(resolvedModule, typeName)
+                        node.recordName = ("require(%q).%s"):format(resolvedModule, typeName)
                     elseif t.tag == "nominal" and t.declKind == "interface" then
-                        node.interfaceName = ("require(%q).%s")
-                            :format(resolvedModule, typeName)
+                        node.interfaceName = ("require(%q).%s"):format(resolvedModule, typeName)
                     end
                     return applyTypeArgs(t, node)
                 end
-                c.diag("NUPP2101", node,
-                    ("unknown exported type %q in module %q")
-                    :format(typeName, moduleName))
+                c.diag("NUPP2101", node, ("unknown exported type %q in module %q"):format(typeName, moduleName))
                 return T.any
             end
             local name = base.text
@@ -265,22 +265,21 @@ function resolve.install(c: state.Checker): nil
             end
             if name == "thread" and node.typeArgs then
                 if #node.typeArgs ~= 4 then
-                    c.diag("NUPP2121", node,
-                        "thread protocol needs start, resume, yield, and return packs")
+                    c.diag("NUPP2121", node, "thread protocol needs start, resume, yield, and return packs")
                 end
                 return T.protocolThread(
                     c.resolvePack(node.typeArgs[1]),
                     c.resolvePack(node.typeArgs[2]),
                     c.resolvePack(node.typeArgs[3]),
-                    c.resolvePack(node.typeArgs[4]))
+                    c.resolvePack(node.typeArgs[4])
+                )
             end
-            if (name == "owned" or name == "borrowed" or name == "pinned")
-                and node.typeArgs
-                and node.typeArgs[1] and not c.lookupType(name) then
+            if (
+                name == "owned" or name == "borrowed" or name == "pinned"
+            ) and node.typeArgs and node.typeArgs[1] and not c.lookupType(name) then
                 local inner = c.resolveType(node.typeArgs[1])
                 if name == "pinned" and not pointerShaped(inner) then
-                    c.diag("NUPP2602", node,
-                        "pinned<T> requires a pointer-shaped T")
+                    c.diag("NUPP2602", node, "pinned<T> requires a pointer-shaped T")
                 end
                 if name == "owned" then
                     return T.owned(inner)
@@ -291,11 +290,9 @@ function resolve.install(c: state.Checker): nil
                 return T.pinned(inner)
             end
 
-            local t, def, lookupErr, moduleName, visibility, conflicts
-                = T.builtins[name], nil
+            local t, def, lookupErr, moduleName, visibility, conflicts = T.builtins[name], nil
             if not t then
-                t, def, lookupErr, moduleName, visibility, conflicts
-                    = c.lookupType(name)
+                t, def, lookupErr, moduleName, visibility, conflicts = c.lookupType(name)
             end
             c.markToken(base, def, t, def and def.kind or "type")
             t = applyTypeArgs(t, node)
@@ -324,8 +321,7 @@ function resolve.install(c: state.Checker): nil
                     -- An interface has a table only when it carries defaults, and then
                     -- only so a declaration taking one can reach the body.
                     if moduleName and visibility ~= "global" then
-                        node.interfaceName = ("require(%q).%s")
-                            :format(moduleName, name)
+                        node.interfaceName = ("require(%q).%s"):format(moduleName, name)
                     else
                         node.interfaceName = name
                     end
@@ -336,23 +332,27 @@ function resolve.install(c: state.Checker): nil
                 local related, seen = {}, {}
                 for _, entry in ipairs(conflicts or {}) do
                     local definition = entry.definition
-                    local key = definition and (tostring(definition.filename)
-                        .. ":" .. tostring(definition.token
-                        and definition.token.offset)) or tostring(entry)
+                    local key = definition and (
+                        tostring(definition.filename) .. ":" .. tostring(definition.token and definition.token.offset)
+                    ) or tostring(entry)
                     if not seen[key] then
                         seen[key] = true
-                        local item = c.related(definition,
-                            "conflicting global type declared here")
+                        local item = c.related(definition, "conflicting global type declared here")
                         if item then
                             related[#related + 1] = item
                         end
                     end
                 end
-                c.diag("NUPP2102", node,
-                    ("ambiguous global type %q; a project global must be unique")
-                    :format(name), nil, {related = related,
-                    help = "make all but one declaration local or attach them "
-                    .. "to their module tables"})
+                c.diag(
+                    "NUPP2102",
+                    node,
+                    ("ambiguous global type %q; a project global must be unique"):format(name),
+                    nil,
+                    {
+                        related = related,
+                        help = "make all but one declaration local or attach them " .. "to their module tables"
+                    }
+                )
                 return T.any
             end
             local fixes = exportingModuleFixes(name, base)
@@ -360,9 +360,17 @@ function resolve.install(c: state.Checker): nil
             for _, candidate in ipairs(spelling or {}) do
                 fixes[#fixes + 1] = candidate
             end
-            c.diag("NUPP2101", base, ("unknown type name %q"):format(name),
-                fixes, {help = #fixes > 0 and "use one of the suggested type names"
-                or "declare the type, qualify its module, or correct the spelling"})
+            c.diag(
+                "NUPP2101",
+                base,
+                ("unknown type name %q"):format(name),
+                fixes,
+                {
+                    help = #fixes > 0
+                    and "use one of the suggested type names"
+                    or "declare the type, qualify its module, or correct the spelling"
+                }
+            )
             return T.any
         elseif kind == "tliteral" then
             local literal = node.token
@@ -405,11 +413,15 @@ function resolve.install(c: state.Checker): nil
             return T.ptr(c.resolveType(node.inner))
         elseif kind == "tunion" then
             local members = {}
-            for j, m in ipairs(node.types) do members[j] = c.resolveType(m) end
+            for j, m in ipairs(node.types) do
+                members[j] = c.resolveType(m)
+            end
             return T.union(members)
         elseif kind == "tintersection" then
             local members = {}
-            for j, m in ipairs(node.types) do members[j] = c.resolveType(m) end
+            for j, m in ipairs(node.types) do
+                members[j] = c.resolveType(m)
+            end
             for j = 1, #members do
                 for k = j + 1, #members do
                     local why = relations.disjoint(members[j], members[k])
@@ -421,9 +433,13 @@ function resolve.install(c: state.Checker): nil
                                 break
                             end
                         end
-                        c.diag("NUPP2124", at,
-                            ("intersection of %s and %s is uninhabited: %s")
-                            :format(T.tostring(members[j]), T.tostring(members[k]), why))
+                        c.diag(
+                            "NUPP2124",
+                            at,
+                            (
+                                "intersection of %s and %s is uninhabited: %s"
+                            ):format(T.tostring(members[j]), T.tostring(members[k]), why)
+                        )
                         return T.never
                     end
                 end
@@ -434,8 +450,7 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "tmap" then
             local key = c.resolveType(node.key)
             local value = c.resolveType(node.value)
-            local capability = node.capability
-                and node.capability.propertyCapability or nil
+            local capability = node.capability and node.capability.propertyCapability or nil
             if capability == "read" then
                 return T.indexer(key, value, nil, nil)
             elseif capability == "write" then
@@ -444,11 +459,12 @@ function resolve.install(c: state.Checker): nil
             return T.map(key, value)
         elseif kind == "ttuple" then
             local elems = {}
-            for j, e in ipairs(node.types) do elems[j] = c.resolveType(e) end
+            for j, e in ipairs(node.types) do
+                elems[j] = c.resolveType(e)
+            end
             return T.tuple(elems)
         elseif kind == "tpack" or kind == "tpackUnion" then
-            c.diag("NUPP2121", node,
-                "a type pack may only appear in a value-sequence position")
+            c.diag("NUPP2121", node, "a type pack may only appear in a value-sequence position")
             return T.any
         elseif kind == "tshape" then
             local fields, order, byname = {}, {}, {}
@@ -465,29 +481,34 @@ function resolve.install(c: state.Checker): nil
                             order[#order + 1] = name
                         end
                         local ft = c.resolveType(f.type)
-                        local capability = f.capability
-                            and f.capability.propertyCapability or nil
+                        local capability = f.capability and f.capability.propertyCapability or nil
                         if capability == "read" then
                             if entry.read then
-                                c.diag("NUPP2118", fieldName,
-                                    ("duplicate readonly capability for property %q")
-                                    :format(name))
+                                c.diag(
+                                    "NUPP2118",
+                                    fieldName,
+                                    ("duplicate readonly capability for property %q"):format(name)
+                                )
                             else
                                 entry.read = ft
                             end
                         elseif capability == "write" then
                             if entry.write then
-                                c.diag("NUPP2118", fieldName,
-                                    ("duplicate writeonly capability for property %q")
-                                    :format(name))
+                                c.diag(
+                                    "NUPP2118",
+                                    fieldName,
+                                    ("duplicate writeonly capability for property %q"):format(name)
+                                )
                             else
                                 entry.write = ft
                             end
                         else
                             if entry.read or entry.write then
-                                c.diag("NUPP2118", fieldName,
-                                    ("ordinary property %q already has a capability")
-                                    :format(name))
+                                c.diag(
+                                    "NUPP2118",
+                                    fieldName,
+                                    ("ordinary property %q already has a capability"):format(name)
+                                )
                             else
                                 entry.read, entry.write = ft, ft
                             end
@@ -495,20 +516,18 @@ function resolve.install(c: state.Checker): nil
                     end
                 elseif f.kind == "tmap" then
                     local key, value = c.resolveType(f.key), c.resolveType(f.value)
-                    local capability = f.capability
-                        and f.capability.propertyCapability or nil
+                    local capability = f.capability and f.capability.propertyCapability or nil
                     local function setIndexer(which)
                         local keyName = which .. "Key"
                         local valueName = which .. "Value"
                         if indexer[valueName] then
-                            local spelling = which == "read"
-                                and "readonly" or "writeonly"
-                            c.diag("NUPP2118", f,
-                                "duplicate " .. spelling .. " indexer capability")
+                            local spelling = which == "read" and "readonly" or "writeonly"
+                            c.diag("NUPP2118", f, "duplicate " .. spelling .. " indexer capability")
                         else
                             indexer[keyName], indexer[valueName] = key, value
                         end
                     end
+
                     if capability == "read" then
                         setIndexer("read")
                     elseif capability == "write" then
@@ -519,10 +538,11 @@ function resolve.install(c: state.Checker): nil
                     end
                 end
             end
-            for _, name in ipairs(order) do fields[#fields + 1] = byname[name] end
+            for _, name in ipairs(order) do
+                fields[#fields + 1] = byname[name]
+            end
             if #fields == 0 and (indexer.readValue or indexer.writeValue) then
-                return T.indexer(indexer.readKey, indexer.readValue,
-                    indexer.writeKey, indexer.writeValue)
+                return T.indexer(indexer.readKey, indexer.readValue, indexer.writeKey, indexer.writeValue)
             end
             return T.shape(fields, indexer)
         elseif kind == "tfunc" then
@@ -532,8 +552,7 @@ function resolve.install(c: state.Checker): nil
             local typeParams, typeBounds, packParams
             if node.generics then
                 c.pushScope()
-                typeParams, typeBounds, packParams = c.bindGenerics(
-                    node.generics, "type-function")
+                typeParams, typeBounds, packParams = c.bindGenerics(node.generics, "type-function")
             end
             local paramPackTail = nil
             for _, p in ipairs(node.params) do
@@ -549,30 +568,50 @@ function resolve.install(c: state.Checker): nil
                             varargType = c.resolveType(p.type)
                         end
                     else
-                        params[#params + 1] = p.type and c.resolveType(p.type)
-                            or T.any
+                        params[#params + 1] = p.type and c.resolveType(p.type) or T.any
                         local mode = p.modeTok
                         paramModes[#params] = mode and mode.text or "plain"
                     end
                 end
             end
-            local paramPack = T.pack(params, paramPackTail or (vararg and {
-                kind = varargType and "homogeneous" or "unknown",
-                type = varargType or T.any} or nil), paramModes)
-            local retPack = node.returnPack and c.resolvePack(node.returnPack)
-                or T.pack({})
+            local paramPack = T.pack(
+                params,
+                paramPackTail or (
+                    vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or T.any} or nil
+                ),
+                paramModes
+            )
+            local retPack = node.returnPack and c.resolvePack(node.returnPack) or T.pack({})
             rets = retPack.head
             local yieldPack = node.yieldPack and c.resolvePack(node.yieldPack) or nil
             local resumePack = node.resumePack and c.resolvePack(node.resumePack) or nil
             if node.generics then
                 c.popScope()
             end
-            return T.func(params, rets, vararg, paramModes, nil,
-                typeParams, typeBounds, nil, nil, nil, nil, varargType, nil,
-                paramPack, retPack, packParams, yieldPack, resumePack)
+            return T.func(
+                params,
+                rets,
+                vararg,
+                paramModes,
+                nil,
+                typeParams,
+                typeBounds,
+                nil,
+                nil,
+                nil,
+                nil,
+                varargType,
+                nil,
+                paramPack,
+                retPack,
+                packParams,
+                yieldPack,
+                resumePack
+            )
         elseif kind == "tparen" then
             return c.resolveType(node.inner)
         end
+
         return T.any
     end
 
@@ -582,7 +621,9 @@ function resolve.install(c: state.Checker): nil
         end
         if node.kind == "tpackUnion" then
             local arms = {}
-            for j, arm in ipairs(node.packs or {}) do arms[j] = c.resolvePack(arm) end
+            for j, arm in ipairs(node.packs or {}) do
+                arms[j] = c.resolvePack(arm)
+            end
             return T.packUnion(arms)
         end
         if node.kind ~= "tpack" then
@@ -607,15 +648,18 @@ function resolve.install(c: state.Checker): nil
                 pv, def = c.lookupPack(base.text)
             end
             if not pv then
-                c.diag("NUPP2121", node.tail or node,
-                    "unknown generic pack " .. string.format("%q",
-                    base and base.text or ""))
+                c.diag(
+                    "NUPP2121",
+                    node.tail or node,
+                    "unknown generic pack " .. string.format("%q", base and base.text or "")
+                )
                 tail = {kind = "unknown", type = T.any}
             else
                 c.markToken(base, def, nil, "typeParameter")
                 tail = {kind = "generic", var = pv}
             end
         end
+
         return T.pack(head, tail)
     end
 
@@ -626,8 +670,7 @@ function resolve.install(c: state.Checker): nil
     -- is wanted.
     c.resolvePendingAlias = function(name, waiting, owner)
         if c.resolvingAlias[name] then
-            c.diag("NUPP2115", waiting.tok,
-                ("type %q is defined in terms of itself"):format(name))
+            c.diag("NUPP2115", waiting.tok, ("type %q is defined in terms of itself"):format(name))
             owner.pending[name] = nil
             owner.types[name] = T.any
             return T.any
@@ -639,8 +682,7 @@ function resolve.install(c: state.Checker): nil
         local decl = waiting.decl
         if decl and decl.generics then
             c.pushScope()
-            local typeParams, typeBounds, packParams = c.bindGenerics(
-                decl.generics, "type-alias")
+            local typeParams, typeBounds, packParams = c.bindGenerics(decl.generics, "type-alias")
             local body = c.resolveType(waiting.node)
             c.popScope()
             t = T.genericAlias(name, body, typeParams, typeBounds, packParams)
@@ -652,6 +694,7 @@ function resolve.install(c: state.Checker): nil
         owner.pending[name] = nil
         owner.types[name] = t
         waiting.resolved = t
+
         return t
     end
 end
