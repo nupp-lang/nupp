@@ -1536,7 +1536,7 @@ function checkMod.check(result, filename, env, opts)
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()
-    c.discard.sweep(facts and facts.byDefinition or nil)
+    c.discard.sweep(analysis.queries(facts))
     table.sort(c.diags, function(a, b) return a.offset < b.offset end)
     result.moduleExports = c.moduleExports
     return c.diags, c.moduleType, c.moduleExports

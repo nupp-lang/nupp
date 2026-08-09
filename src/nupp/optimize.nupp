@@ -240,27 +240,110 @@ local function walk(node, remarks)
     for _, child in ipairs(node) do walk(child, remarks) end
 end
 
-local function numericIpairsWalk(node, remarks)
-    if not node or isToken(node) then
-        return
-    end
-    if node.kind == "forinStmt" and node.builtinIpairs then
-        if node.numericIpairsProof then
-            node.numericIpairs = node.numericIpairsProof
-            remark(remarks, node, "OPT-2",
-                "numeric-ipairs: the declared array has a stable shape in this loop")
-        elseif node.numericIpairsDeclined then
-            local declined = node.numericIpairsDeclined
-            local token = declined.related and firstToken(declined.related) or nil
-            remark(remarks, node, "OPT-2",
-                "numeric-ipairs: not rewritten because " .. declined.message,
-                token and {{
-                line = token.line, col = token.col, offset = token.offset,
-                length = #token.text, message = "proof stopped here",
-            }} or nil)
+-- Nodes that own their own body, which this pass does not follow into: a loop written
+-- inside a function written inside this body is that function's body's question.
+local NESTED_FUNCTION = {
+    localFuncStmt = true, funcStmt = true, inlineMethod = true,
+    funcExpr = true, shortfn = true,
+}
+
+-- A dense table literal is the only bound this pass accepts, and how long it is is
+-- policy rather than a fact about effects: another pass could take its bound from a
+-- declared C array without changing what `nupp.analysis` knows. So it is collected
+-- here, beside the decision it serves.
+local function denseLiteralLengths(body)
+    local lengths = {}
+    local function collect(node)
+        if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+            return
         end
+        if node.kind == "localStmt" then
+            for j, name in ipairs(node.names or {}) do
+                local value = node.exprs and node.exprs[j]
+                if value and value.kind == "tableExpr" then
+                    local length, dense = 0, true
+                    for _, field in ipairs(value.fields or {}) do
+                        if field.kind == "fieldItem" then
+                            length = length + 1
+                        else
+                            dense = false
+                        end
+                    end
+                    if dense and name.definition then
+                        lengths[name.definition] = length
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node) do collect(child) end
     end
-    for _, child in ipairs(node) do numericIpairsWalk(child, remarks) end
+    collect(body)
+    return lengths
+end
+
+--- Proves the loops in one body, and rewrites the ones that hold.
+---
+--- The proof used to live in `nupp.analysis`, which meant the analysis knew what this
+--- pass wanted. It asks now instead: the shape question goes to the query surface, and
+--- what stays here is the part that is this pass's opinion -- that a dense literal is
+--- an acceptable bound, and that a second mention of the array is reason enough to
+--- stop.
+local function numericIpairsBody(body, facts, remarks)
+    local asked = facts.body(body)
+    local lengths = denseLiteralLengths(body)
+    local function walk(node)
+        if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+            return
+        end
+        if node.kind == "forinStmt" and node.builtinIpairs then
+            local operand = node.builtinIpairs.operand
+            local token = operand.token
+            local length = token and lengths[token.definition] or nil
+            local ok, reason, related = true, nil, nil
+            if length == nil then
+                ok, reason, related = false,
+                    "the array's dense entry length is not statically known", operand
+            elseif asked.uses(token.definition) > 2 then
+                ok, reason, related = false,
+                    "the literal array has another use that may alias or expose it",
+                    operand
+            else
+                -- The literal establishes density. Asking about the whole containing
+                -- body, not just the loop, rules out a hole or an append before entry
+                -- as well as a changing bound during traversal. The loop's own header
+                -- is skipped, or its `ipairs` call answers the question against itself.
+                ok, reason, related = asked.shapeStable(body,
+                    asked.aliasOf(token),
+                    function(value) return value == node and node.body or nil end)
+            end
+            if ok then
+                node.numericIpairs = {operand = operand, length = length}
+                remark(remarks, node, "OPT-2",
+                    "numeric-ipairs: the declared array has a stable shape in this "
+                    .. "loop")
+            else
+                local at = related and firstToken(related) or nil
+                remark(remarks, node, "OPT-2",
+                    "numeric-ipairs: not rewritten because " .. reason,
+                    at and {{
+                    line = at.line, col = at.col, offset = at.offset,
+                    length = #at.text, message = "proof stopped here",
+                }} or nil)
+            end
+        end
+        for _, child in ipairs(node) do walk(child) end
+    end
+    walk(body)
+end
+
+local function numericIpairsWalk(result, remarks)
+    local facts = require("nupp.analysis").queries(result.analysis)
+    if not facts then
+        return -- nothing was analysed, so nothing can be proved
+    end
+    for _, body in ipairs(result.analysis.bodies or {}) do
+        numericIpairsBody(body, facts, remarks)
+    end
 end
 
 -- A folded value is deliberately smaller than Lua's constant vocabulary. In particular,
@@ -828,7 +911,7 @@ function optimize.run(result: any, opts: any): {any}
         walk(result.root, remarks)
     end
     if level >= optimize.passes["OPT-2"].level and not disabled["OPT-2"] then
-        numericIpairsWalk(result.root, remarks)
+        numericIpairsWalk(result, remarks)
     end
     if level >= optimize.passes["OPT-3"].level and not disabled["OPT-3"] then
         constantFoldWalk(result.root)

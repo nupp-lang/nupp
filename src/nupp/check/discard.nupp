@@ -46,9 +46,12 @@ local cst = require("nupp.cst")
 
 local discard = {}
 
--- Effect lists that give a call a reason to exist. `reads` and the `allocates` flag are
--- deliberately not among them.
-local EFFECTFUL = {"writes", "shapes", "metatables", "escapes", "calls"}
+-- What gives a call a reason to exist, in the spelling `nupp.analysis` answers about.
+-- `reads` and the `allocates` flag are deliberately not among them: reading state and
+-- dropping the answer is the mistake being described, and an allocation nobody keeps
+-- is not a reason to have called.
+local EFFECTFUL = {"yields", "raises",
+    "writes", "shapes", "metatables", "escapes", "calls"}
 
 local INDEXES = {
     dotIndex = true, bracketIndex = true,
@@ -94,22 +97,13 @@ local function signatureAdmitsAValue(ft: any): boolean
     return false
 end
 
--- Whether a summary describes a function that reaches nothing the compiler cannot see.
--- Unknown is not inert: `top` means the summary gave up, and `external` means the body
--- is somebody else's.
-local function closed(summary: any): boolean
-    if not summary or summary.top or summary.external then
-        return false
-    end
-    if summary.yields or summary.raises then
-        return false
-    end
-    for _, list in ipairs(EFFECTFUL) do
-        if next(summary[list] or {}) then
-            return false
-        end
-    end
-    return true
+-- Whether a summary describes a function that reaches nothing at all.
+--
+-- Both halves are asked of `nupp.analysis` rather than restated here. Unknown is not
+-- inert, which is the first half: `top` is the analysis giving up and `external` is a
+-- body belonging to somebody else, and neither is a promise that nothing happens.
+local function closed(queries: any, summary: any): boolean
+    return queries.visible(summary) and queries.free(summary, EFFECTFUL)
 end
 
 -- Every definition the body binds itself, parameters included. Assigning to one of
@@ -215,15 +209,15 @@ function discard.install(c: any): any
     --- Reports every registered statement whose callee turned out to have nothing to do
     --- but return a value the statement then dropped.
     ---
-    --- @param byDefinition what `nupp.analysis` resolved, definition to summary
-    function ops.sweep(byDefinition: any)
-        if not byDefinition then
+    --- @param queries the question surface `nupp.analysis` returns, or nil
+    function ops.sweep(queries: any)
+        if not queries then
             return
         end
         -- One answer per body, since a helper called ten times is walked once.
         local inert = {}
         for _, candidate in ipairs(candidates) do
-            local known = byDefinition[candidate.tok.definition]
+            local known = queries.known(candidate.tok)
             local body = known and known.body or nil
             if not candidate.allowed and body then
                 if inert[body] == nil then
@@ -232,7 +226,7 @@ function discard.install(c: any): any
                     inert[body] = returnsAValue(body.body)
                         and signatureAdmitsAValue(known.definition
                         and known.definition.type)
-                        and closed(known.summary)
+                        and closed(queries, known.summary)
                         and not writesOutward(body.body)
                 end
                 if inert[body] then
