@@ -250,6 +250,12 @@ function bindings.install(c: any): any
                     owner.activeBorrows = (owner.activeBorrows or 0) + 1
                 end
             end
+            -- Last, so the entry is complete: which module it holds decides whether an
+            -- unread binding is reported as a stale require or as a stale local.
+            if boundEntry then
+                c.unused.declared(nameTok, boundEntry,
+                    boundEntry.requiredModule and "require" or "variable")
+            end
         end
         local exprCount = #initializers
         local expanded = exprCount > 0 and initializers[exprCount] or nil
@@ -533,6 +539,11 @@ function bindings.install(c: any): any
             return
         end
         local resultT = c.infer(called)
+        -- Registered here, where an `@allow` on the statement is still in scope, and
+        -- judged once every effect summary in the file has settled. Ahead of the pack
+        -- discard, which leaves early and asks a different question about the same
+        -- statement.
+        c.discard.statement(called)
         if called.valuePack then
             c.checkPackDiscard(called.valuePack, 1, called)
             return

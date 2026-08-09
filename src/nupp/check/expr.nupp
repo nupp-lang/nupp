@@ -14,9 +14,7 @@ with are read the same way, so existing code types without being rewritten.
 local T = require("nupp.types")
 local relations = require("nupp.relations")
 local narrowing = require("nupp.narrowing")
-local generics = require("nupp.generics")
 local cst = require("nupp.cst")
-local cheader = require("nupp.cheader")
 local lexer = require("nupp.lexer")
 local operators = require("nupp.check.operators")
 local index = require("nupp.check.index")
@@ -27,7 +25,6 @@ local expr = {}
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 local subtract = narrowing.subtract
-local dropSelf = generics.dropSelf
 
 --- A type, as nupp.types builds them.
 local type Type = T.Type

@@ -1,7 +1,7 @@
 -- `@raises`, and the lint that asks a documented function to write one.
 
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local envMod = require("nupp.env")
 local docblock = require("nupp.docblock")
 

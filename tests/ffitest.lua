@@ -1,7 +1,7 @@
 -- FFI operations the checker knows about: their return type follows the
 -- type they are given, rather than collapsing to any.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local gen = require("nupp.gen")
 local envMod = require("nupp.env")
 

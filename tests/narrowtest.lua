@@ -1,5 +1,5 @@
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local narrowing = require("nupp.narrowing")
 local T = require("nupp.types")
 

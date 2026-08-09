@@ -19,19 +19,18 @@ reference for their shape and their families.
 ]]
 
 local T = require("nupp.types")
-local relations = require("nupp.relations")
-local narrowing = require("nupp.narrowing")
 local lints = require("nupp.lints")
 local fixits = require("nupp.check.fixits")
 local annotate = require("nupp.check.annotate")
 local ownership = require("nupp.check.ownership")
 local loopclosure = require("nupp.check.loopclosure")
 local undocumentedraise = require("nupp.check.undocumentedraise")
+local unused = require("nupp.check.unused")
+local discard = require("nupp.check.discard")
 local analysis = require("nupp.analysis")
 local narrow = require("nupp.check.narrow")
 local calls = require("nupp.check.calls")
 local expr = require("nupp.check.expr")
-local operators = require("nupp.check.operators")
 local declare = require("nupp.check.declare")
 local resolve = require("nupp.check.resolve")
 local bindings = require("nupp.check.bindings")
@@ -40,7 +39,6 @@ local functions = require("nupp.check.functions")
 local cdef = require("nupp.check.cdef")
 local pragma = require("nupp.check.pragma")
 local metatable = require("nupp.check.metatable")
-local generics = require("nupp.generics")
 local cst = require("nupp.cst")
 local annotationMod = require("nupp.annotations")
 local lexer = require("nupp.lexer")
@@ -193,6 +191,17 @@ record checkMod.Checker
     --- nupp.check.undocumentedraise.
     raises: any
 
+    --- Whether anything reads the locals this file introduces. See nupp.check.unused.
+    unused: any
+
+    --- Whether a call written as a statement had a reason to be. See
+    --- nupp.check.discard.
+    discard: any
+
+    --- The definitions something has read, so an unread binding can be told from a used
+    --- one. Written by `lookupEntry`; owned by nupp.check.unused.
+    reads: any
+
     --- The lint codes surrounding `@allow` pragmas have asked not to hear about.
     allowed: {any}
 
@@ -221,6 +230,11 @@ record checkMod.Checker
 
     --- Makes a labeled secondary source location for a diagnostic.
     related: function(at: any, message: string, filename: string?): any?
+
+    --- Whether a surrounding `@allow` has asked not to hear a lint. A lint reported
+    --- somewhere other than where the walk is asks this where the walk is, because the
+    --- stack that carries an `@allow` only exists while its statement is being checked.
+    suppressed: function(code: string): boolean
 
     --- The scope entry a name resolves to, narrowing included, or nil.
     lookupEntry: function(name: string): any
@@ -445,21 +459,8 @@ record checkMod.Checker
     inferredParameterModes: function(body: any): any
 end
 
-local isA = relations.isA
-
 -- The type algebra and the generic machinery moved out of this file; the names the
 -- checker calls them by are kept, since they read as vocabulary here.
-local subtract = narrowing.subtract
-local memberSet = narrowing.memberSet
-local withoutMember = narrowing.withoutMember
-local truthiness = narrowing.truthiness
-local substType = generics.subst
-local unify = generics.unify
-local instantiateNominal = generics.instantiate
-local specializeSelf = generics.specializeSelf
-local dropSelf = generics.dropSelf
-local addSelf = generics.addSelf
-local rawType = T.unwrapOwnership
 
 -- The lint registry lives in nupp.lints, which `nupp lints` reads too. The checker
 -- keeps the re-exports so a caller that already had them still works.
@@ -585,10 +586,6 @@ function checkMod.check(result, filename, env, opts)
 
     local fix = c.edits.fix
     local insertBefore = c.edits.insertBefore
-    local missingRequire = c.edits.missingRequire
-    local requiredAs = c.edits.requiredAs
-    local requireBindsName = c.edits.requireBindsName
-    local requireEdit = c.edits.requireEdit
     c.missingRequire = c.edits.missingRequire
 
     -- Owners, borrows and pins are tracked on their own; the walk asks where a value
@@ -600,20 +597,13 @@ function checkMod.check(result, filename, env, opts)
     -- nupp.check.loopclosure.
     c.loops = loopclosure.install(c)
     c.raises = undocumentedraise.install(c)
+    -- Two judgements that need the whole file: whether anything read a binding, and
+    -- whether a discarded call had a reason to be made. Both register candidates as the
+    -- walk passes and sweep at the end. See nupp.check.unused and nupp.check.discard.
+    c.unused = unused.install(c)
+    c.discard = discard.install(c)
     resolve.install(c)
     local ownershipKind = own.ownershipKind
-    local ownershipState = own.ownershipState
-    local borrowRoot = own.borrowRoot
-    local pointerShaped = own.pointerShaped
-    local optionalOwned = own.optionalOwned
-    local validateCleanups = own.validateCleanups
-    local resolvedOwnedCleanups = own.resolvedOwnedCleanups
-    local registerDefaultDisposer = own.registerDefaultDisposer
-    local ownershipEntry = own.ownershipEntry
-    local provenanceOwner = own.provenanceOwner
-    local provenanceOwners = own.provenanceOwners
-    local liveSuspensionObligation = own.liveSuspensionObligation
-    local moveExpression = own.moveExpression
 
     --- Whether a surrounding @allow asked not to hear this lint. A lint is a judgement,
     --- so a statement may disagree with it at any level; a type error is not a
@@ -629,6 +619,19 @@ function checkMod.check(result, filename, env, opts)
             end
         end
         return false
+    end
+
+    --- Whether a surrounding `@allow` has asked not to hear a lint, by name or code. A
+    --- lint whose judgement needs the whole file asks this at the statement it is
+    --- about, because `c.allowed` is unwound by the time such a lint reports.
+    ---
+    --- @param code the lint's name or its code
+    c.suppressed = function(code: string): boolean
+        -- `isAllowed` matches the lint's name and whichever spelling it is handed, so
+        -- asking with the registry's own code is what makes an `@allow` written either
+        -- way reach a lint raised by either.
+        local lint = lints.get(code)
+        return isAllowed(lint, lint and lint.code or code)
     end
 
     c.related = function(nodeOrTok, message, relatedFilename)
@@ -725,6 +728,11 @@ function checkMod.check(result, filename, env, opts)
         while s do
             local v = s.vars[name]
             if v then
+                -- Every name resolution arrives here, which makes this the one place a
+                -- read has to be recorded from. See nupp.check.unused.
+                if v.definition then
+                    c.reads[v.definition] = true
+                end
                 for i = #c.captureWatches, 1, -1 do
                     -- A watch asks about the scopes between its floor and itself.
                     -- `with` sets no floor and so hears about every outward resolution;
@@ -1144,14 +1152,7 @@ function checkMod.check(result, filename, env, opts)
     -- what it is told. See nupp.check.narrow.
     local facts = narrow.install(c)
     c.facts = facts
-    local mergeFacts = facts.mergeFacts
     local pathKey = facts.pathKey
-    local lookupNarrowed = facts.lookupNarrowed
-    local clearNarrowed = facts.clearNarrowed
-    local clearAliases = facts.clearAliases
-    local analyzeCond = facts.analyzeCond
-    local snapshotNarrowed = facts.snapshotNarrowed
-    local applyFacts = facts.applyFacts
 
     --- Whether calling this expression never comes back. `error` is recognized by name
     --- so that untyped code keeps the behaviour it always had; anything else has to say
@@ -1265,10 +1266,6 @@ function checkMod.check(result, filename, env, opts)
     -- nupp.check.calls.
     local apply = calls.install(c)
     c.apply = apply
-    local metamethodOf = apply.metamethodOf
-    local validateTypeBounds = apply.validateTypeBounds
-    local applyContract = apply.applyContract
-    local inferCall = apply.inferCall
 
     -- A metatable literal is where a declared contract is fulfilled, so what it puts
     -- under each key is checked wherever one is written. See nupp.check.metatable.
@@ -1285,9 +1282,7 @@ function checkMod.check(result, filename, env, opts)
     -- walk only asks. See nupp.check.annotate.
     local marks = annotate.install(c)
     c.marks = marks
-    local stringValue = marks.stringValue
     local validateAnnotation = marks.validateAnnotation
-    local defineAnnotation = marks.defineAnnotation
 
     -- Checking a declaration and publishing what it declares. See nupp.check.declare.
     declare.install(c, reifiableField, fix, insertBefore, validateAnnotation)
@@ -1536,7 +1531,11 @@ function checkMod.check(result, filename, env, opts)
         end
     end
 
-    analysis.run(result, c)
+    local facts = analysis.run(result, c)
+    -- Both of these needed the whole file before they could answer, so they answer here
+    -- and their diagnostics are put back in source order with everything else.
+    c.unused.sweep()
+    c.discard.sweep(facts and facts.byDefinition or nil)
     table.sort(c.diags, function(a, b) return a.offset < b.offset end)
     result.moduleExports = c.moduleExports
     return c.diags, c.moduleType, c.moduleExports

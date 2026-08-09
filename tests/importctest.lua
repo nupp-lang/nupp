@@ -1,6 +1,6 @@
 local importc = require("nupp.importc")
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local envMod = require("nupp.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

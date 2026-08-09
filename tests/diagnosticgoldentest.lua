@@ -1,7 +1,7 @@
 -- Curated diagnostic messages are reviewed as one artifact. Codes alone catch
 -- behavior; this corpus catches wording, spans, help, and fix titles.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local envMod = require("nupp.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

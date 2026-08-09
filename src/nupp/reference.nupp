@@ -333,7 +333,7 @@ end
 
 local corner = new m.Diagonal(3)
 local origin = new m.Point {x = 0, y = 0}
-local d = origin:lengthSquared()
+print(corner.x, origin:lengthSquared())
 
 return m
 ]=],
@@ -498,7 +498,7 @@ local m = {}
 
 type m.Color = "red" | "green" | "blue"
 
-local function describe(c: m.Color): string
+function m.describe(c: m.Color): string
     if c == "red" then return "warm"
     elseif c == "green" then return "cool"
     else return "cool" end
@@ -546,8 +546,8 @@ local function isString(v: any): v is string
     return type(v) == "string"
 end
 
-local function describe(value: string | integer): string
-    if value is string then
+function m.describe(value: string | integer): string
+    if isString(value) then
         return "text of " .. #value .. " bytes"
     end
     return "number " .. value

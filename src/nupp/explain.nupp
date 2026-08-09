@@ -193,6 +193,38 @@ local ENTRIES: {any} = {
         docs = "docs/lints.md",
     },
     {
+        code = "NUPP2507",
+        summary = "A local is declared and nothing reads it",
+        rule = "A binding nothing reads is a leftover from an edit, or a use "
+        .. "that went to another name. Delete it, or name it `_` when the "
+        .. "value is deliberately not wanted. A parameter and a loop variable "
+        .. "are bound by a signature and an iterator rather than by their "
+        .. "author, so neither is judged.",
+        wrong = "local function shout(text: string): string\n"
+        .. "    local prefix = \"> \"\n    return text .. \"!\"\nend\n\n"
+        .. "return shout\n",
+        right = "local function shout(text: string): string\n"
+        .. "    local prefix = \"> \"\n    return prefix .. text .. \"!\"\nend\n\n"
+        .. "return shout\n",
+        related = {"NUPP2120", "NUPP2603"},
+        docs = "docs/lints.md",
+    },
+    {
+        code = "NUPP2508",
+        summary = "A call that does nothing but return had its result dropped",
+        rule = "A call written as a statement is made for what it does. When "
+        .. "the callee is proved to do nothing but produce a value, and the "
+        .. "statement drops that value, the whole statement does nothing. "
+        .. "Use the result, or delete the call.",
+        wrong = "local function double(value: number): number\n"
+        .. "    return value * 2\nend\n\ndouble(21)\n\nreturn double\n",
+        right = "local function double(value: number): number\n"
+        .. "    return value * 2\nend\n\nlocal answer = double(21)\n"
+        .. "print(answer)\n\nreturn double\n",
+        related = {"NUPP2112", "NUPP2603"},
+        docs = "docs/lints.md",
+    },
+    {
         code = "NUPP2119",
         summary = "A declaration does not say where it lives",
         rule = "A declaration is file-local (`local`), a member of a table "

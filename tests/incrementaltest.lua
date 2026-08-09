@@ -70,6 +70,7 @@ function M.interfaceCutoffAcrossModules()
    write(mainPath, table.concat({
       "local dep = require('dep')",
       "local x: number = dep.scale(21)",
+      "return x",
    }, "\n"))
 
    local inc = incremental.new(dir)
@@ -121,6 +122,7 @@ function M.publicPackChangesInvalidateTypeDependents()
       "local n, s = dep.pair()",
       "local exactNumber: number = n",
       "local exactString: string = s",
+      "return exactNumber, exactString",
    }, "\n"))
 
    local inc = incremental.new(dir)
@@ -147,7 +149,7 @@ function M.overlayClearRevertsToDisk()
 
    local inc = incremental.new(dir)
    assertEq(#inc.checkFile(path).diags, 0)
-   inc.changeDocument(path, "local x: number = 'broken'")
+   inc.changeDocument(path, "local x: number = 'broken'\nreturn x")
    assertEq(inc.checkFile(path).diags[1].code, "NUPP2001", "overlay wins")
    inc.closeDocument(path)
    assertEq(#inc.checkFile(path).diags, 0, "disk content restored")
@@ -165,7 +167,7 @@ function M.diskWatcherChangesInvalidateQueriesAndProjectFiles()
       f:write(text)
       f:close()
    end
-   write(mainPath, "local value: Watched = 1\n")
+   write(mainPath, "local value: Watched = 1\nreturn value\n")
 
    local inc = incremental.new(dir)
    assertEq(inc.checkFile(mainPath).diags[1].code, "NUPP2101",
@@ -197,10 +199,10 @@ function M.diskWatcherPreservesOpenOverlay()
       f:write(text)
       f:close()
    end
-   write("local value: number = 1\n")
+   write("local value: number = 1\nreturn value\n")
    local inc = incremental.new(dir)
-   inc.openDocument(path, "local value: number = 2\n")
-   write("local value: number = 'disk error'\n")
+   inc.openDocument(path, "local value: number = 2\nreturn value\n")
+   write("local value: number = 'disk error'\nreturn value\n")
    inc.diskChanged(path, 2)
    assertEq(#inc.checkFile(path).diags, 0,
       "disk event does not replace an editor overlay")
@@ -223,6 +225,7 @@ function M.projectIndexTracksOverlaysAndDependents()
    mainFile:write(table.concat({
       "local item: Shared = new Shared {}",
       "local value: number = item.value",
+      "return value",
    }, "\n"))
    mainFile:close()
 
@@ -250,7 +253,7 @@ function M.newOverlayFilesJoinProjectIndex()
    os.execute("mkdir -p '" .. dir .. "'")
    local mainPath = dir .. "/main.nupp"
    local mainFile = assert(io.open(mainPath, "wb"))
-   mainFile:write("local value: Added\n")
+   mainFile:write("local value: Added?\nreturn value\n")
    mainFile:close()
 
    local inc = incremental.new(dir)
@@ -276,7 +279,7 @@ function M.removingGlobalOverlayInvalidatesDependents()
    globalsFile:write("global type SharedId = number\n")
    globalsFile:close()
    local mainFile = assert(io.open(mainPath, "wb"))
-   mainFile:write("local value: SharedId = 1\n")
+   mainFile:write("local value: SharedId = 1\nreturn value\n")
    mainFile:close()
 
    local inc = incremental.new(dir)
@@ -296,6 +299,8 @@ end
 -- the miss is what an ordinary unresolved name hits on every lookup.
 function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
    local envMod = require("nupp.env")
+   -- The engine calls the checker module itself, so counting what it checks means
+   -- replacing the function there rather than on the tests' fragment wrapper.
    local check = require("nupp.check")
    local checked = {}
    local original = check.check

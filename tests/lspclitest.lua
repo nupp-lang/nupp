@@ -224,7 +224,7 @@ function M.jsonDiagnosticsCarryCrossFileRelatedRanges()
 ]],
       ["a.nupp"] = "global record Shared end\n",
       ["b.nupp"] = "global record Shared end\n",
-      ["use.nupp"] = "local value: Shared\n",
+      ["use.nupp"] = "local value: Shared?\nreturn value\n",
    })
    local checked = json.decode(capture(dir, "check --json"))
    local diagnostic = checked.diagnostics[1]

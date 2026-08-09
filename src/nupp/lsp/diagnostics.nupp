@@ -12,7 +12,6 @@ name whose type just changed is wrong in the files that use it, not in the one
 that defines it.
 ]]
 
-local incremental = require("nupp.incremental")
 local text = require("nupp.lsp.text")
 local wire = require("nupp.lsp.wire")
 
@@ -22,13 +21,15 @@ local readFile = text.readFile
 
 local diagnostics = {}
 
--- Diagnostics a build refuses but an editor should not shout about. They are errors
--- because the program does not work; they are warnings here because a file being typed
--- into is half-written by definition, and the missing half is usually the next thing
--- the author writes. This is the only place the two levels differ, so it is the only
--- place that knows they can.
+-- Diagnostics a build enforces but an editor should not shout about, because a file
+-- being typed into is half-written by definition and the missing half is usually the
+-- next thing the author writes. A module used before it is required is one; a binding
+-- whose first reader has not been typed yet is the same thing one line later, and stays
+-- visible without being coloured like a mistake. This is the only place the two levels
+-- differ, so it is the only place that knows they can.
 local EDITOR_ADVICE = {
     ["NUPP2120"] = "warning", -- a project module used without requiring it
+    ["NUPP2507"] = "note", -- a binding whose reader may be the next line written
 }
 
 local PROTOCOL_SEVERITY = {

@@ -272,7 +272,7 @@ end
 
 local corner = new m.Diagonal(3)
 local origin = new m.Point {x = 0, y = 0}
-local d = origin:lengthSquared()
+print(corner.x, origin:lengthSquared())
 
 return m
 ```
@@ -432,7 +432,7 @@ local m = {}
 
 type m.Color = "red" | "green" | "blue"
 
-local function describe(c: m.Color): string
+function m.describe(c: m.Color): string
     if c == "red" then return "warm"
     elseif c == "green" then return "cool"
     else return "cool" end
@@ -479,8 +479,8 @@ local function isString(v: any): v is string
     return type(v) == "string"
 end
 
-local function describe(value: string | integer): string
-    if value is string then
+function m.describe(value: string | integer): string
+    if isString(value) then
         return "text of " .. #value .. " bytes"
     end
     return "number " .. value
@@ -808,6 +808,8 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | `customary-operator` | NUPP2504 | style | warning |
 | `loop-invariant-closure` | NUPP2505 | suspicious | warning |
 | `undocumented-raise` | NUPP2506 | suspicious | warning |
+| `unused-binding` | NUPP2507 | suspicious | warning |
+| `discarded-result` | NUPP2508 | suspicious | warning |
 
 ## Diagnostic codes with a worked example
 
@@ -829,6 +831,8 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |
 | NUPP2208 | A constructor does not hold up its declaration |
+| NUPP2507 | A local is declared and nothing reads it |
+| NUPP2508 | A call that does nothing but return had its result dropped |
 | NUPP2605 | Adjusting a value pack would discard an affine value |
 | NUPP3001 | `is` has nothing to test against this type |
 

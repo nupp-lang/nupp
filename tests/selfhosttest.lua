@@ -2,7 +2,7 @@
 -- Each of these came out of typing nupp.cst and nupp.lexer: what the CST and
 -- the token stream actually are could not be said without them.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local gen = require("nupp.gen")
 local envMod = require("nupp.env")
 

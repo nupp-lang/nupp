@@ -73,6 +73,16 @@ lints.all = {
         category = "suspicious", level = "warning",
         summary = "a documented function raises without saying so",
     },
+    new lints.Lint {
+        name = "unused-binding", code = "NUPP2507",
+        category = "suspicious", level = "warning",
+        summary = "a local is declared and nothing reads it",
+    },
+    new lints.Lint {
+        name = "discarded-result", code = "NUPP2508",
+        category = "suspicious", level = "warning",
+        summary = "a call with nothing to do but return has its result dropped",
+    },
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

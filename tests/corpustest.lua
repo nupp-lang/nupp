@@ -4,7 +4,7 @@
 -- that keeps that true, and it is the reason contextual keywords need more
 -- than a two-token lookahead.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local cst = require("nupp.cst")
 local envMod = require("nupp.env")
 

@@ -2,7 +2,7 @@
 -- types are read back out of the FFI rather than translated by us.
 local cheaderMod = require("nupp.cheader")
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local gen = require("nupp.gen")
 local envMod = require("nupp.env")
 local T = require("nupp.types")

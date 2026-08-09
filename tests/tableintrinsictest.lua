@@ -1,5 +1,5 @@
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local optimize = require("nupp.optimize")
 local gen = require("nupp.gen")
 local envMod = require("nupp.env")

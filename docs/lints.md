@@ -49,6 +49,8 @@ Every lint has a name and a stable code:
  customary-operator       NUPP2504   style         warning
  loop-invariant-closure   NUPP2505   suspicious    warning
  undocumented-raise       NUPP2506   suspicious    warning
+ unused-binding           NUPP2507   suspicious    warning
+ discarded-result         NUPP2508   suspicious    warning
 ```
 
 The name is what you write in configuration and suppressions; the code is what
@@ -231,6 +233,93 @@ Only functions with a `---` documentation run are judged. `error` counts but
 `assert` does not, nested functions own their raises, and the lint does not
 propagate through calls. `nupp lsp inspect` shows a callee's documented
 `@raises` at its use site.
+
+### `unused-binding`
+
+A `local` nothing reads is a leftover, and a `require` nothing reads is the
+other half of `missing-require`. This project also contains `src/strutil.nupp`.
+
+::: code-group
+```nupp [src/unused-binding.nupp]
+local strutil = require("strutil")
+
+local function shout(text: string): string
+    local prefix = "> "
+    return text .. "!"
+end
+
+return shout
+```
+
+```text [nupp check output]
+src/unused-binding.nupp:1:7: warning: NUPP2507 unused-binding: nothing uses strutil, so requiring "strutil" does nothing here
+ 1 | local strutil = require("strutil")
+   |       ^~~~~~~
+help: delete the require
+src/unused-binding.nupp:4:11: warning: NUPP2507 unused-binding: nothing uses prefix
+ 4 |     local prefix = "> "
+   |           ^~~~~~
+help: delete the binding, or name it _ if it is deliberately unused
+```
+:::
+
+Three kinds of binding are left alone. A parameter's presence is dictated by the
+signature it implements and a loop variable's by the iterator, so neither is a
+mistake its author is free to correct; a name beginning with `_` says the
+binding is deliberate and the value is not wanted. An owned value nothing reads
+is `NUPP2603` instead, which is the rule with something to say about it.
+
+Writing counts as reading, because both resolve the name the same way. A binding
+only ever assigned to is a separate question, asked flow-sensitively, and this
+lint does not answer it. Nor does it unpick a function that only calls itself.
+Both are silences rather than false reports, which is the direction to be wrong
+in.
+
+### `discarded-result`
+
+A call written as a statement is made for what it does. A callee that does
+nothing but return, called for a value that is then dropped, does nothing at
+all.
+
+::: code-group
+```nupp [src/discarded-result.nupp]
+local function double(value: number): number
+    return value * 2
+end
+
+double(21)
+
+return double
+```
+
+```text [nupp check output]
+src/discarded-result.nupp:5:1: warning: NUPP2508 discarded-result: double has no effects, so dropping its result leaves this statement doing nothing
+ 5 | double(21)
+   | ^~~~~~
+src/discarded-result.nupp:1:16: note: declared here, and does nothing but return
+ 1 | local function double(value: number): number
+   |                ^~~~~~
+help: use the result, or delete the call
+```
+:::
+
+Rust needs `#[must_use]` on each function to say this. Nupp does not: effects
+are inferred for every visible function already, so being nothing but a result
+is proved rather than declared. Nothing has to be annotated.
+
+The proof is two questions. Whether the callee reaches anything the compiler
+cannot see is answered by its effect summary, which is file-local — a callee
+that reaches another module, or makes an unresolved call, widens to `top` and is
+left alone. Whether it writes is answered separately and syntactically, because
+a summary treats a write through a non-parameter local as staying local, and a
+local read out of a parameter is not scratch. See
+[effects](effects.md#calls-and-fixed-point-propagation).
+
+Reads and allocation are not reasons to call: reading state and dropping the
+answer is the mistake being described. Writes, shape and metatable changes,
+escapes, declared callees, yielding and raising all are. A function returning
+nothing — including one returning only `nil` — discards nothing and is not
+judged.
 
 ## Categories
 

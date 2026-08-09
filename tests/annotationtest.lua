@@ -1,7 +1,7 @@
 -- Statement annotations are an extensible, checked language surface. The
 -- parser accepts their general shape; the registry decides what exists.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local envMod = require("nupp.env")
 local annotations = require("nupp.annotations")
 local fmt = require("nupp.fmt")

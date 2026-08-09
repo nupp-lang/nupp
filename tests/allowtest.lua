@@ -2,7 +2,7 @@
 -- lint, at any level, because a lint is a judgement a project may disagree
 -- with. It does not reach a type error, which is not a judgement.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local envMod = require("nupp.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -15,11 +15,25 @@ local function assertEq(got, want, label)
    end
 end
 
+-- These cases are about how a level resolves, so a fixture carries one lint on
+-- purpose and is read as `[1]`. A fragment also binds names it never reads, and
+-- that lint reports before the one under test, so the fragment defaults go
+-- underneath whatever a case asked for. A case about one of them says so and
+-- wins, since its own entry is merged over these.
+local function withFragmentDefaults(lints)
+   local merged = {["unused-binding"] = "off", ["discarded-result"] = "off"}
+   for key, value in pairs(lints or {}) do merged[key] = value end
+   return merged
+end
+
 local function checkOf(src, opts)
    local result = parser.parse(src, "test")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
-   return check.check(result, "test", env, opts)
+   local merged = {}
+   for key, value in pairs(opts or {}) do merged[key] = value end
+   merged.lints = withFragmentDefaults(merged.lints)
+   return check.check(result, "test", env, merged)
 end
 
 local function diagsOf(src, opts)

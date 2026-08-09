@@ -581,6 +581,10 @@ function functions.install(c: any): any
             stat.isConst)
         local ft = c.checkFuncbody(body)
         c.bindVar(nameTok.text, ft)
+        -- After the refining bind, so the entry registered is the one that survives.
+        -- The body has already been checked, so a function that only calls itself has
+        -- recorded that read and is not mistaken for one nothing uses.
+        c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
         c.raises.check(stat, body)
         if body.disposeContract then
             registerDefaultDisposer(ft, nameTok.text,

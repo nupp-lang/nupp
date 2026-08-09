@@ -1,5 +1,5 @@
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local gen = require("nupp.gen")
 
 local function assertEq(got, want, label)

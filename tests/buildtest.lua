@@ -123,7 +123,7 @@ function M.declarationFilesEmitNoArtifact()
       ["shape.d.nupp"] = "local area: function(r: number): number\n"
          .. "return {area = area}\n",
       ["main.nupp"] = "local shape = require('shape')\n"
-         .. "local n: number = shape.area(2)\n",
+         .. "local n: number = shape.area(2)\nreturn n\n",
    })
    local out = capture(("cd '%s' && '%s' build main.nupp"):format(dir, NUPP))
    assertEq(out, "", "declaration-backed build succeeds: " .. out)

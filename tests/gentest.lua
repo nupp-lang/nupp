@@ -325,7 +325,7 @@ function M.exampleProgramRuns()
    local result = parser.parse(src, "todo.nupp")
    assertEq(#result.errors, 0, "example must parse")
    -- checking first supplies reified-struct hints to the generator
-   local check = require("nupp.check")
+   local check = require("fragment")
    local checkDiags = check.check(result, "todo.nupp")
    assertEq(#checkDiags, 0, "example must check")
    local code, diags = gen.generate(result, "todo.nupp")

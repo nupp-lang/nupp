@@ -1,7 +1,7 @@
 -- Reified arrays: the contiguous layout that makes reifying a struct worth
 -- it, and the checking that keeps it honest.
 local parser = require("nupp.parser")
-local check = require("nupp.check")
+local check = require("fragment")
 local gen = require("nupp.gen")
 local envMod = require("nupp.env")
 

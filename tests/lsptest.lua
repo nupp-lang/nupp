@@ -252,6 +252,7 @@ function M.republishesDependentDiagnostics()
    local consumer = table.concat({
       "local item: Shared = new Shared {}",
       "local value: number = item.value",
+      "return value",
    }, "\n")
    local out = runSession({
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
@@ -329,11 +330,11 @@ function M.diagnosticsLifecycle()
          textDocument = {
             uri = "file:///tmp/demo.nupp",
             languageId = "nupp", version = 1,
-            text = "local x: number = 'oops'\n",
+            text = "local x: number = 'oops'\nreturn x\n",
          } } },
       { jsonrpc = "2.0", method = "textDocument/didChange", params = {
          textDocument = { uri = "file:///tmp/demo.nupp", version = 2 },
-         contentChanges = { { text = "local x: number = 42\n" } } } },
+         contentChanges = { { text = "local x: number = 42\nreturn x\n" } } } },
       { jsonrpc = "2.0", id = 2, method = "shutdown" },
       { jsonrpc = "2.0", method = "exit" },
    })
@@ -371,7 +372,7 @@ function M.crossFileDiagnosticsPublishRelatedInformation()
    writeInto(projectDir, "nupp.lua", 'return {include = {"."}}\n')
    writeInto(projectDir, "a.nupp", "global record Shared end\n")
    writeInto(projectDir, "b.nupp", "global record Shared end\n")
-   local source = "local value: Shared\n"
+   local source = "local value: Shared?\nreturn value\n"
    writeInto(projectDir, "use.nupp", source)
    local uri = "file://" .. projectDir .. "/use.nupp"
    local out = runSession({
@@ -1005,7 +1006,7 @@ function M.reportsAMissingRequireGentlyWhileEditing()
       { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
       { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
          textDocument = { uri = uri, languageId = "nupp", version = 1,
-            text = "local a: number = mathutil.double(21)\n" } } },
+            text = "local a: number = mathutil.double(21)\nreturn a\n" } } },
       { jsonrpc = "2.0", id = 2, method = "shutdown" },
       { jsonrpc = "2.0", method = "exit" },
    }, projectDir)
@@ -1599,7 +1600,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
       "local shared = {}\n\nrecord shared.Token\n   id: uint32\nend\n\n"
       .. "return shared\n")
 
-   local use = 'local shared = require("shared")\n\nlocal t: shared.Token\n'
+   local use = 'local shared = require("shared")\n\nlocal t: shared.Token?\nreturn t\n'
    writeInto(rootDir, "use.nupp", use)
    local uri = "file://" .. rootDir .. "/use.nupp"
    local out = runSession({
@@ -1639,7 +1640,7 @@ function M.workspaceFolderChangesAreAppliedToTheOpenSession()
    writeInto(otherDir, "shared.nupp",
       "local shared = {}\n\nrecord shared.Token\n   id: uint32\nend\n\n"
       .. "return shared\n")
-   local use = 'local shared = require("shared")\n\nlocal t: shared.Token\n'
+   local use = 'local shared = require("shared")\n\nlocal t: shared.Token?\nreturn t\n'
    writeInto(rootDir, "use.nupp", use)
    local uri = "file://" .. rootDir .. "/use.nupp"
 
@@ -1744,7 +1745,7 @@ function M.watchedFileChangeRechecksOpenDependents()
          .. typeName .. "\n   x: number\nend\n\nreturn model\n")
    end
    writeModel("Point")
-   local use = 'local model = require("model")\n\nlocal p: model.Point\n'
+   local use = 'local model = require("model")\n\nlocal p: model.Point?\nreturn p\n'
    writeInto(rootDir, "use.nupp", use)
    local uri = "file://" .. rootDir .. "/use.nupp"
 
@@ -1777,7 +1778,7 @@ function M.watchedFileDeletionLeavesTheProject()
    writeInto(rootDir, "model.nupp",
       "local model = {}\n\nrecord model.Point\n   x: number\nend\n\n"
       .. "return model\n")
-   local use = 'local model = require("model")\n\nlocal p: model.Point\n'
+   local use = 'local model = require("model")\n\nlocal p: model.Point?\nreturn p\n'
    writeInto(rootDir, "use.nupp", use)
    local uri = "file://" .. rootDir .. "/use.nupp"
 
@@ -1805,7 +1806,7 @@ end
 -- server cannot read, is ignored rather than crashing the session.
 function M.watchedFileEventsOutsideTheProjectAreIgnored()
    local rootDir = makeDir()
-   local use = "local x: number = 1\n"
+   local use = "local x: number = 1\nreturn x\n"
    writeInto(rootDir, "use.nupp", use)
    local uri = "file://" .. rootDir .. "/use.nupp"
    local out = runSession({
@@ -2421,7 +2422,7 @@ function M.codeActionAddsTheMissingRequire()
       .. "function mathutil.double(v: number): number return v * 2 end\n"
       .. "return mathutil\n")
    local source = "--- Uses the math helpers.\nlocal helper = require(\"mathutil\")\n\n"
-      .. "local a: number = mathutil.double(21)\n"
+      .. "local a: number = mathutil.double(21)\nreturn a, helper\n"
    local actions, _, rewritten, diagnostics = codeActionSession(projectDir,
       "use.nupp", source, { line = 3, character = 20 }, "require(\"mathutil\")")
    os.execute("rm -rf '" .. projectDir .. "'")
@@ -2444,7 +2445,8 @@ function M.codeActionQualifiesATypeThroughItsModule()
    writeFile(projectDir .. "/shapes.nupp",
       "local shapes = {}\n\nrecord shapes.Point\n    x: number\nend\n\n"
       .. "return shapes\n")
-   local source = "local geometry = require(\"shapes\")\n\nlocal p: Point\n"
+   local source = "local geometry = require(\"shapes\")\n\n"
+      .. "local p: Point?\nreturn geometry, p\n"
    local actions, _, rewritten, diagnostics = codeActionSession(projectDir,
       "use.nupp", source, { line = 2, character = 10 }, "use geometry.Point")
    os.execute("rm -rf '" .. projectDir .. "'")
@@ -2464,7 +2466,7 @@ function M.codeActionRequiresAndQualifiesTogether()
    writeFile(projectDir .. "/shapes.nupp",
       "local shapes = {}\n\nrecord shapes.Point\n    x: number\nend\n\n"
       .. "return shapes\n")
-   local source = "local p: Point\n"
+   local source = "local p: Point?\nreturn p\n"
    local actions, uri, rewritten, diagnostics = codeActionSession(projectDir,
       "use.nupp", source, { line = 0, character = 10 },
       "require(\"shapes\") and use shapes.Point")
@@ -2568,6 +2570,9 @@ function M.codeActionWrapsAnOwnerNothingElseUses()
       "end",
       "",
       "work()",
+      "",
+      -- this case is the one that never calls the prelude's helper
+      "return use",
       "",
    }, "\n")
    local actions, uri, rewritten, diagnostics = codeActionSession(projectDir,
