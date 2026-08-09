@@ -23,9 +23,17 @@ const NUPP_TYPES = new Set([
 const NUPP_OPERATOR = /^(?:~>>=|\.\.\.|<<=|>>=|\/\/=|\.\.=|\?\?=|~>>|<<|>>|==|~=|<=|>=|!=|&&|\|\||\?\?|\?\.|::|\/\/|\.\.|->|\+=|-=|\*=|\/=|%=|&=|\|=|[+\-*/%^#&~|<>=?:!@])/;
 
 const baseToken = lua.token;
+const normalTokenizer = lua.startState().cur;
 const nuppMode = {
   ...lua,
   token(stream, state) {
+    // Let Lua retain control while it is inside a multiline string or
+    // comment. At top level it must also see both dashes together: otherwise
+    // NUPP_OPERATOR consumes them one at a time and the comment body is
+    // highlighted as live code.
+    if (state.cur !== normalTokenizer || stream.match(/^--/, false)) {
+      return baseToken(stream, state);
+    }
     // Annotations: @allow(...), @dispose, etc. Lua's mode has no notion of
     // these, so catch the sigil before falling through to it.
     if (stream.match(/^@!?[A-Za-z_][A-Za-z0-9_]*/)) return "meta";
