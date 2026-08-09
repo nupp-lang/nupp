@@ -55,6 +55,13 @@
   font-weight: 700;
 }
 
+.nuppdoc-hero-content {
+  max-width: 40rem;
+  margin: 0.85rem 0 0;
+  color: var(--nuppdoc-text-muted);
+  font-size: 1.08rem;
+}
+
 .nuppdoc-content pre {
   padding: 1rem 1.1rem;
 }

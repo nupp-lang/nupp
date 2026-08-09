@@ -336,8 +336,8 @@ include them explicitly.
 Page paths become directory-style routes such as `guide/index.html`. Module
 pages live below `modules/`, and compatibility redirects preserve the former
 `modules/name.html` URLs. A page source is Markdown relative to `nupp.lua`.
-Home pages additionally accept `heroTitle`, `heroText`, `heroImage`,
-`heroImageAlt`, `heroActions`, and `features`. Each feature has a `title` and
+Home pages additionally accept `heroTitle`, `heroText`, `heroContent`,
+`heroImage`, `heroImageAlt`, `heroActions`, and `features`. Each feature has a `title` and
 `details`, and may supply an `icon`, an `image` with `imageAlt`, or a `code`
 sample with an optional `codeLanguage`. Features render as an alternating
 showcase after the home page's Markdown content. Add

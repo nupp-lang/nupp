@@ -51,6 +51,7 @@ type page.Feature = {
 type page.Hero = {
     features: {page.Feature}?,
     heroActions: {page.HeroAction}?,
+    heroContent: string?,
     heroImage: string?,
     heroImageAlt: string?,
     heroText: string?,
@@ -344,6 +345,9 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?): string
     if config.heroText then
         out[#out + 1] = '<p class="nuppdoc-hero-text">' .. htmlEscape(config.heroText) .. '</p>'
     end
+    if config.heroContent then
+        out[#out + 1] = '<p class="nuppdoc-hero-content">' .. htmlEscape(config.heroContent) .. '</p>'
+    end
     if #(config.heroActions or {}) > 0 then
         out[#out + 1] = '<div class="nuppdoc-hero-actions">'
         -- The length test above already ruled out a hero that configured none of these,
@@ -364,17 +368,7 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?): string
         out[#out + 1] = '</div>'
     end
 
-    return table.concat(out)
-end
-
---- Finish a home hero after its Markdown content, keeping that content directly beneath
---- the tagline while the illustration holds the other column.
-local function homeHeroEnd(config: page.Hero): string
-    if config.layout ~= "home" then
-        return ""
-    end
-
-    local out = {'</div>'}
+    out[#out + 1] = '</div>'
     if config.heroImage then
         out[
             #out + 1
@@ -563,7 +557,6 @@ function page.render(
 end
 
 page.homeHero = homeHero
-page.homeHeroEnd = homeHeroEnd
 page.homeFeatures = homeFeatures
 
 return page

@@ -463,6 +463,7 @@ function M.siteMatchesTheNuppdocPageModel()
             {path = "", title = "Example", source = "docs/index.md",
                layout = "home", heroTitle = "Build with Nupp",
                heroText = "Typed LuaJIT programs without ceremony.",
+               heroContent = "A brief welcome.",
                heroImage = "images/project.svg",
                heroImageAlt = "Example project icon",
                heroActions = {
@@ -585,9 +586,11 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(home:find("nuppdoc%-home%-hero"), home)
    assert(home:find("Build with Nupp", 1, true), home)
    assert(home:find("Typed LuaJIT programs", 1, true) < home:find(
-      "Welcome to the project", 1, true), "home Markdown must follow the tagline")
-   assert(home:find("Welcome to the project", 1, true) < home:find(
-      'class="nuppdoc-hero-image"', 1, true), "home Markdown must remain in the hero copy")
+      "A brief welcome.", 1, true), "hero content must follow the tagline")
+   assert(home:find("A brief welcome.", 1, true) < home:find(
+      'class="nuppdoc-hero-image"', 1, true), "hero content must remain beside the image")
+   assert(home:find('class="nuppdoc-hero-image"', 1, true) < home:find(
+      "Welcome to the project", 1, true), "home Markdown must follow the hero")
    assert(home:find("nuppdoc%-feature%-showcase"), home)
    assert(home:find("language%-nupp"), home)
    assert(home:find("nuppdoc%-feature%-showcase") < home:find(

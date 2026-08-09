@@ -36,7 +36,7 @@ local symbolLinkIndex, symbolLinks = urlsMod.symbolLinkIndex, urlsMod.symbolLink
 local rewriteConfiguredPageLinks = urlsMod.rewriteConfiguredPageLinks
 local moduleSummary, renderHtmlItem = apiMod.moduleSummary, apiMod.renderHtmlItem
 local nestedModules = apiMod.nestedModules
-local renderPage, homeHero, homeHeroEnd, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeHeroEnd, pageMod.homeFeatures
+local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
 
 local doc = {}
 
@@ -46,11 +46,13 @@ local doc = {}
 type doc.Page = {
     features: {pageMod.Feature}?,
     heroActions: {pageMod.HeroAction}?,
+    heroContent: string?,
     heroImage: string?,
     heroImageAlt: string?,
     heroText: string?,
     heroTitle: string?,
     hero_actions: {pageMod.HeroAction}?,
+    hero_content: string?,
     hero_image: string?,
     hero_image_alt: string?,
     hero_text: string?,
@@ -251,6 +253,7 @@ local function configuredPages(root, settings, title)
         end
         candidate.heroTitle = candidate.heroTitle or candidate.hero_title
         candidate.heroText = candidate.heroText or candidate.hero_text
+        candidate.heroContent = candidate.heroContent or candidate.hero_content
         candidate.heroImage = candidate.heroImage or candidate.hero_image
         candidate.heroImageAlt = candidate.heroImageAlt or candidate.hero_image_alt
         candidate.heroActions = candidate.heroActions or candidate.hero_actions
@@ -459,12 +462,10 @@ local function renderSite(root, outDir, modules, title, settings)
                 )
                 local remainder = rewriteConfiguredPageLinks(markdown:sub(featureEnd + 1), candidate, pages, file)
                 body[#body + 1] = markdownHtml(introduction, links, 0)
-                body[#body + 1] = homeHeroEnd(candidate)
                 body[#body + 1] = homeFeatures(candidate, links)
                 body[#body + 1] = markdownHtml(remainder, links, 0)
             else
                 body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
-                body[#body + 1] = homeHeroEnd(candidate)
             end
             if candidate.path == "" then
                 if not featureStart then
