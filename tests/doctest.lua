@@ -392,7 +392,8 @@ function M.siteMatchesTheNuppdocPageModel()
                   {text = "Get started", path = "guide", theme = "brand"},
                },
                features = {
-                  {icon = "⚡", title = "Fast", details = "Parse-only docs."},
+                  {title = "Fast", details = "Parse-only docs.",
+                     code = "local speed: number = 1"},
                }},
             {path = "guide", title = "Guide", source = "docs/guide.md"},
             {path = "reference/details", title = "Details",
@@ -469,6 +470,10 @@ function M.siteMatchesTheNuppdocPageModel()
    local home = readFile(dir .. "/site/index.html")
    assert(home:find("nuppdoc%-home%-hero"), home)
    assert(home:find("Build with Nupp", 1, true), home)
+   assert(home:find("nuppdoc%-feature%-showcase"), home)
+   assert(home:find("language%-nupp"), home)
+   assert(home:find("Welcome to the project", 1, true) < home:find(
+      "nuppdoc%-feature%-showcase"), "features must follow the home Markdown")
    assert(home:find('class="nuppdoc-logo" src="images/project.svg"',
       1, true), home)
    assert(home:find('src="images/project.svg"', 1, true), home)

@@ -1,4 +1,4 @@
-## Try it
+## Try Nupp
 
 This is the real compiler, running in your browser: `bootstrap/nupp.lua` in a
 Lua VM, not a round-trip to a server. It re-checks on every edit, so breaking a

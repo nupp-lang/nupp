@@ -50,6 +50,113 @@
   padding: 1rem 1.1rem;
 }
 
+/* The home page's long-form feature tour appears after the playground. Each
+ * feature keeps its code beside its explanation, then reverses in the next row
+ * so the page has a clear reading rhythm without a grid of badges. */
+.nuppdoc-feature-showcase {
+  display: grid;
+  gap: clamp(3.5rem, 9vw, 7rem);
+  margin: clamp(4rem, 10vw, 8rem) 0;
+}
+
+.nuppdoc-showcase-feature {
+  display: grid;
+  align-items: center;
+  gap: clamp(2rem, 7vw, 6rem);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+}
+
+.nuppdoc-showcase-feature:nth-child(even) {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+}
+
+.nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-visual {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-copy {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.nuppdoc-showcase-visual {
+  min-width: 0;
+}
+
+.nuppdoc-showcase-visual pre {
+  margin: 0;
+  padding: 1.2rem 1.35rem;
+  border-radius: 14px;
+  box-shadow: 0 18px 46px rgb(23 51 51 / 11%);
+}
+
+.nuppdoc-showcase-visual img {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+}
+
+.nuppdoc-showcase-icon {
+  display: grid;
+  min-height: 13rem;
+  place-items: center;
+  color: var(--nuppdoc-accent);
+  border: 1px solid var(--nuppdoc-border);
+  border-radius: 14px;
+  background: var(--nuppdoc-background-alt);
+  font-size: 4rem;
+}
+
+.nuppdoc-showcase-copy h2 {
+  margin: 0 0 0.8rem;
+  padding: 0;
+  border: 0;
+  color: var(--nuppdoc-text);
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+  line-height: 1.08;
+}
+
+.nuppdoc-showcase-details {
+  max-width: 38rem;
+  color: var(--nuppdoc-text-muted);
+  font-size: 1.04rem;
+}
+
+.nuppdoc-showcase-details > :first-child {
+  margin-top: 0;
+}
+
+.nuppdoc-showcase-details > :last-child {
+  margin-bottom: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nuppdoc-motion-ready .nuppdoc-showcase-feature {
+    opacity: 0;
+    transform: translateY(28px);
+    transition: opacity 620ms ease, transform 620ms ease;
+  }
+
+  .nuppdoc-motion-ready .nuppdoc-showcase-feature.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 760px) {
+  .nuppdoc-showcase-feature,
+  .nuppdoc-showcase-feature:nth-child(even) {
+    grid-template-columns: 1fr;
+  }
+
+  .nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-visual,
+  .nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-copy {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --nuppdoc-playground-border: #3a7a6f;

@@ -36,11 +36,14 @@ type page.HeroAction = {
     theme: string?
 }
 
---- One card below the hero, saying what the project is good for.
+--- One illustrated capability on a home page.
 type page.Feature = {
+    code: string?,
+    codeLanguage: string?,
     details: string?,
     icon: string?,
     image: string?,
+    imageAlt: string?,
     title: string
 }
 
@@ -371,27 +374,42 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?): string
         ) .. '" alt="' .. htmlEscape(config.heroImageAlt) .. '"></div>'
     end
     out[#out + 1] = '</div>'
-    if #(config.features or {}) > 0 then
-        out[#out + 1] = '<div class="nuppdoc-features">'
-        for _, feature in ipairs(config.features as {page.Feature}) do
-            out[#out + 1] = '<section class="nuppdoc-feature">'
-            if feature.image then
-                out[#out + 1] = '<img class="nuppdoc-feature-image" src="' .. htmlEscape(feature.image) .. '" alt="">'
-            elseif feature.icon then
-                out[
-                    #out + 1
-                ] = '<span class="nuppdoc-feature-icon" aria-hidden="true">' .. htmlEscape(feature.icon) .. '</span>'
-            end
+    out[#out + 1] = '</section>'
+
+    return table.concat(out)
+end
+
+--- The alternating showcase belongs after the home's introductory Markdown, where the
+--- page author decides what the reader should try first.
+local function homeFeatures(config: page.Hero, links: urlsMod.Links?): string
+    if config.layout ~= "home" or #(config.features or {}) == 0 then
+        return ""
+    end
+
+    local out = {'<section class="nuppdoc-feature-showcase" aria-label="Nupp features">'}
+    for _, feature in ipairs(config.features as {page.Feature}) do
+        out[#out + 1] = '<article class="nuppdoc-showcase-feature">'
+        out[#out + 1] = '<div class="nuppdoc-showcase-visual">'
+        if feature.image then
             out[
                 #out + 1
-            ] = '<h2>' .. htmlEscape(
-                feature.title
-            ) .. '</h2><div class="nuppdoc-feature-details">' .. markdownHtml(
-                feature.details or "",
-                links
-            ) .. '</div></section>'
+            ] = '<img src="' .. htmlEscape(feature.image) .. '" alt="' .. htmlEscape(feature.imageAlt or "") .. '">'
+        elseif feature.code then
+            local language = feature.codeLanguage or "nupp"
+            out[#out + 1] = markdownHtml("```" .. language .. "\n" .. feature.code .. "\n```", links)
+        elseif feature.icon then
+            out[
+                #out + 1
+            ] = '<span class="nuppdoc-showcase-icon" aria-hidden="true">' .. htmlEscape(feature.icon) .. '</span>'
         end
-        out[#out + 1] = '</div>'
+        out[
+            #out + 1
+        ] = '</div><div class="nuppdoc-showcase-copy"><h2>' .. htmlEscape(
+            feature.title
+        ) .. '</h2><div class="nuppdoc-showcase-details">' .. markdownHtml(
+            feature.details or "",
+            links
+        ) .. '</div></div></article>'
     end
     out[#out + 1] = '</section>'
 
@@ -534,5 +552,6 @@ function page.render(
 end
 
 page.homeHero = homeHero
+page.homeFeatures = homeFeatures
 
 return page

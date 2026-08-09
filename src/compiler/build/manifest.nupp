@@ -201,7 +201,7 @@ local PAGE_KEYS = {"path", "title", "source", "layout", "heroTitle", "heroText",
     "hero_title", "hero_text", "hero_image", "hero_image_alt", "hero_actions", "features",}
 
 local HERO_ACTION_KEYS = {"text", "path", "theme"}
-local FEATURE_KEYS = {"icon", "image", "title", "details"}
+local FEATURE_KEYS = {"icon", "image", "imageAlt", "title", "details", "code", "codeLanguage"}
 local TASK_KEYS = {"description", "argv", "build", "env"}
 
 local function validateKeys(value, known, label)

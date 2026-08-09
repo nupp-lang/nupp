@@ -106,8 +106,8 @@ return {
             outDir = "build/docs",
             title = "Nupp API",
             name = "Nupp",
-            description = "A systems language for LuaJIT with ownership, "
-               .. "C interop, and built-in tooling.",
+            description = "LuaJIT for systems work: types, ownership, an optimizing "
+               .. "compiler, and effortless C FFI in one toolchain.",
             github = "https://github.com/nupp-lang/nupp",
             logo = "images/nupp.svg",
             favicon = "images/nupp-icon-32.png",
@@ -121,8 +121,8 @@ return {
                   source = "docs/home.md",
                   layout = "home",
                   heroTitle = "Nupp",
-                  heroText = "A systems language for LuaJIT with ownership, "
-                     .. "C interop, and built-in tooling.",
+                  heroText = "LuaJIT for systems work: types, ownership, an optimizing "
+                     .. "compiler, and effortless C FFI in one toolchain.",
                   heroImage = "images/nupp.png",
                   heroImageAlt = "A nuppeppo in a moonlit forest",
                   heroActions = {
@@ -138,27 +138,124 @@ return {
                   },
                   features = {
                      {
-                        icon = "◆",
-                        title = "Safe ownership",
-                        details = "Owned, borrowed, pinned, and deterministic "
-                           .. "resource lifetimes.",
+                        title = "Add types without leaving Lua behind",
+                        details = "Start with a LuaJIT program that already runs. Add "
+                           .. "annotations where they earn their keep, then tighten a file "
+                           .. "to strict Nupp when it is ready.",
+                        code = [[-- models.g.nupp: type syntax, gradual checks
+local function scale(point, factor)
+    return {x = point.x * factor, y = point.y * factor}
+end
+
+-- models.nupp: the same code, now a checked boundary
+local function scale(point: Point, factor: number): Point
+    return new Point {x = point.x * factor, y = point.y * factor}
+end]],
                      },
                      {
-                        icon = "C",
-                        title = "Direct C interop",
-                        details = "Typed declarations and header imports built "
-                           .. "for LuaJIT FFI.",
+                        title = "Model real data precisely",
+                        details = "Records stay flexible Lua tables. Structs become compact "
+                           .. "FFI cdata with a fixed C layout. Use the representation your "
+                           .. "data actually needs.",
+                        code = [[local record User
+    name: string
+    online: boolean
+end
+
+local struct Vec2
+    x: float
+    y: float
+end]],
                      },
                      {
-                        icon = "⚡",
-                        title = "Fast toolchain",
-                        details = "Parser, formatter, build tool, documentation, "
-                           .. "and LSP in one binary.",
+                        title = "Write expressive, checked APIs",
+                        details = "Generics, interfaces, unions, overloads, and control-flow "
+                           .. "narrowing make contracts useful without making Lua feel heavy.",
+                        code = [[local function first<V>(items: {V}): V?
+    return items[1]
+end
+
+local function label(value: string | number): string
+    if value is string then return value:upper() end
+    return string.format("%.2f", value)
+end]],
                      },
                      {
-                        icon = "<>",
-                        title = "Lua-shaped",
-                        details = "A familiar language that keeps Lua's small, expressive core.",
+                        title = "Make FFI contracts visible",
+                        details = "Declare native functions with their real C-compatible types. "
+                           .. "Nupp checks every call while LuaJIT still does the fast work.",
+                        code = [[cdef struct timeval
+    tv_sec: int64
+    tv_usec: int32
+end
+
+cdef function gettimeofday(tv: timeval*, tz: voidptr?): int32]],
+                     },
+                     {
+                        title = "Import headers instead of transcribing them",
+                        details = "Turn a C header into a typed Nupp declaration module, then "
+                           .. "keep the generated boundary reviewed and versioned with the code "
+                           .. "that calls it.",
+                        code = [[# Generate typed bindings you can commit and edit.
+
+nupp import-c native/library.h --out src/library.d.nupp
+
+# Or use a header directly while compiling.
+local native = cheader("native/library.h")]],
+                        codeLanguage = "text",
+                     },
+                     {
+                        title = "Give resources a lifetime the checker can see",
+                        details = "Ownership, borrowing, pinning, and deterministic cleanup make "
+                           .. "the important rules at a C boundary explicit—and make leaks and "
+                           .. "use-after-move errors reportable.",
+                        code = [[with file = resources.open_file("report.txt", "r") do
+    local contents = file:read("*a")
+    send(borrows contents)
+end -- the file is closed on every structured exit]],
+                     },
+                     {
+                        title = "Capture what native calls are allowed to do",
+                        details = "Effect contracts describe whether a call borrows, takes, or "
+                           .. "returns ownership. The compiler infers those facts for Nupp code "
+                           .. "and checks them at module boundaries.",
+                        code = [[cdef function send(borrows bytes: cstring): int32
+
+@owned(free)
+cdef function malloc(size: uint64): voidptr
+cdef function free(takes value: voidptr)]],
+                     },
+                     {
+                        title = "Keep the LuaJIT you already know",
+                        details = "Every valid LuaJIT program is valid Nupp. Keep Lua's small, "
+                           .. "direct model, then opt into interpolation, typed declarations, and "
+                           .. "the rest of Nupp where they help.",
+                        code = [[local name = "Nupp"
+local status = ready ? "go" : "wait"
+print(`Hello, ${name}: ${status}`)]],
+                     },
+                     {
+                        title = "Optimize what the JIT cannot infer",
+                        details = "Nupp leaves hot loops to LuaJIT's tracer and specializes the "
+                           .. "work that happens before a trace exists: constants, table shapes, "
+                           .. "and facts preserved by types.",
+                        code = [[local function packetSize(): integer
+    return 8 * 1024 + 32
+end
+
+-- -O1 folds this before LuaJIT ever sees the function.]],
+                     },
+                     {
+                        title = "Carry the whole workflow in one toolchain",
+                        details = "Check, format, build, test, profile, document, explain errors, "
+                           .. "and power an editor from the same language-aware compiler. No "
+                           .. "glue scripts required.",
+                        code = [[nupp check          # type-check the project
+nupp fmt            # apply Nupp's fixed style
+nupp test           # build and run the configured suite
+nupp run --profile  # write a speedscope-compatible profile
+nupp lsp            # start the language server]],
+                        codeLanguage = "text",
                      },
                   },
                },
