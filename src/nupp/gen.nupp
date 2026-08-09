@@ -1748,7 +1748,8 @@ function gen.generate(result, filename, coverage)
             local line = sourceLine(x)
             e(("%s("):format(layoutName), line)
             emit(x.args and x.args.exprs and x.args.exprs[1] or x.obj)
-            e((", %q, %q"):format(x.layoutOf.name, x.layoutOf.spec))
+            e((", %q, %q, %q"):format(x.layoutOf.name, x.layoutOf.spec,
+                x.layoutOf.printed))
             for _, nestedName in ipairs(x.layoutOf.nested) do
                 e((", %s"):format(nestedName))
             end
@@ -1861,10 +1862,10 @@ function gen.generate(result, filename, coverage)
         -- the way ffi.typeof spells a nested struct, because nupp emits anonymous
         -- structs and a nested field's size cannot be resolved from a name.
         code = ("const %s = (function() const cache = setmetatable({}, {__mode = \"k\"}) "
-            .. "return function(ct, name, spec, ...) "
+            .. "return function(ct, name, spec, printed, ...) "
             .. "local hit = cache[ct] if hit then return hit end "
             .. "const nested = {...} local at = 0 "
-            .. "const fields = {} const parts = {} "
+            .. "const fields = {} "
             .. "for fname, ctype in spec:gmatch(\"([^:,]+):([^,]+)\") do "
             .. "local own local shown = ctype "
             .. "if ctype:sub(1, 1) == \"$\" then at = at + 1 own = nested[at] "
@@ -1873,13 +1874,13 @@ function gen.generate(result, filename, coverage)
             .. "else own = ctype end "
             .. "fields[#fields + 1] = {name = fname, ctype = shown, "
             .. "offset = __nuppFfi.offsetof(ct, fname), size = __nuppFfi.sizeof(own)} "
-            .. "parts[#parts + 1] = fname .. \":\" .. shown end "
+            .. "end "
             .. "const size = __nuppFfi.sizeof(ct) "
             .. "for i = 1, #fields do "
             .. "const after = fields[i + 1] and fields[i + 1].offset or size "
             .. "fields[i].padding = after - fields[i].offset - fields[i].size end "
             .. "const layout = {name = name, size = size, fields = fields, "
-            .. "fingerprint = table.concat(parts, \",\") .. \"|\" .. size} "
+            .. "fingerprint = printed .. \"|\" .. size} "
             .. "cache[ct] = layout return layout end end)(); "):format(layoutName)
             .. code
         needsFfi = true

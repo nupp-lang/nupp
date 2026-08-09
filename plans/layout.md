@@ -136,11 +136,11 @@ shape as `__nuppArray` and `__nuppBuffer` in `src/nupp/gen.nupp`.
 
 ## Status
 
-L1 and L2 are implemented; `tests/layouttest.lua` covers them by running the
+L1, L2 and L3 are implemented; `tests/layouttest.lua` covers them by running the
 generated code and checking every number against `ffi.sizeof`/`ffi.offsetof`
 rather than against a constant written down here.
 
-Two things the implementation changed from this plan:
+Three things the implementation changed from this plan, and one bug it found:
 
 - **A fixed C array is not a struct field at all.** `reifiableField` admits
   primitives, a nested struct, and pointers -- not `carray` -- so `v: float[4]`
@@ -152,6 +152,23 @@ Two things the implementation changed from this plan:
   collapsed every pointer to `void *` -- so `Inner*` and `Other*` shared a
   fingerprint. Fields now report their declared spelling (`Inner`, `Inner *`)
   and the marker only drives sizing.
+- **The fingerprint expands a nested struct rather than naming it.** L3's open
+  question, decided: naming it misses a change that keeps the size, so swapping
+  `Inner`'s floats for int32s leaves `inner:Inner,w:float|12` matching itself
+  across the change and a reader takes ints for floats. Expansion is
+  `inner:{a:float,b:float},w:float|12`. It terminates because a by-value cycle
+  is now refused, and a pointer is not followed since the pointee is not part of
+  this layout.
+
+Found while asking whether the expansion could cycle: **a struct could contain
+itself by value**, checking clean and dying at load with `typeof: type parameter
+expected, got nil`, because the ctype names itself before it exists. Mutual
+by-value containment did the same. Both are NUPP2201 now, with the repair named.
+
+Separately, and not fixed here: **a struct cannot point at itself either**, for
+the same reason at one remove — an anonymous ctype cannot refer to itself, so
+every linked list is unreachable. Recorded in plans/todo.md, and pinned by tests
+that should invert when it is fixed.
 
 ## Milestones
 
@@ -165,8 +182,8 @@ Two things the implementation changed from this plan:
    exercised, and where a wrong answer is silent rather than loud, so each shape
    wants a test that checks the offset against the FFI rather than against a
    number someone wrote down.
-3. **L3, the fingerprint.** Canonical ordering, and a decision on whether it
-   includes size. Including it makes a 32-bit save refuse on 64-bit, which is
+3. ~~**L3, the fingerprint.**~~ Done. Canonical ordering, size included, and
+   nested structs expanded. The decision on whether it Including it makes a 32-bit save refuse on 64-bit, which is
    correct, and is why tecs pairs its fingerprint with name-keyed migration.
    Nupp produces the fingerprint and stays out of the migration policy.
 4. **L4, the acceptance use.** Port the part of tecs that consumes this —

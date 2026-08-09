@@ -187,6 +187,26 @@ work makes sense in.
       callback lint.
 - [ ] Struct unions and bitfields (tagged C union lowering); malloc-backed big
       arrays. Fixed arrays `T[N]` landed.
+- [ ] **A struct cannot point at itself, or at one declared after it.** Codegen
+      spells a nested struct by substituting its ctype into an anonymous one,
+      `ffi.typeof("struct { $ *next; }", Node)`, so for a self-reference the name
+      is nil at the moment the ctype is built and the module dies at load with
+      `type parameter expected, got nil`. It checks clean. The same applies to
+      `struct A { b: B* }` when `B` is declared below.
+
+      That is every linked list, tree, intrusive list and mutually-referential C
+      structure, which is a large part of what FFI work is for. C names the
+      struct and forward-declares it; an anonymous ctype cannot refer to itself
+      at all, so the fix is naming the emitted struct (and `ffi.cdef`-ing a
+      forward declaration) rather than a patch to the substitution.
+
+      `tests/layouttest.lua` pins the current behaviour in
+      `aSelfReferencingPointerIsBroken` and `aForwardPointerIsBrokenTheSameWay`;
+      both should become positive tests when this is fixed.
+- [ ] **A struct cannot hold a fixed C array.** `reifiableField` admits
+      primitives, a nested struct and pointers, so `v: float[4]` is NUPP2201.
+      C structs commonly have array members, and `T[N]` already exists as a
+      type, so this is a gap in the field rule rather than in the type system.
 - [ ] **Struct layout reflection** ([design](layout.md)). What reifying broke,
       answered without imposing a format: field names in declaration order,
       each field's C type, offset, size and padding, the struct's size, and a

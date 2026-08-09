@@ -203,7 +203,32 @@ function ffi.install(c: any): any
                     .. "struct is laid out in memory"})
                 return T.any
             end
-            local parts, nested = {}, {}
+            -- The fingerprint expands a nested struct rather than naming it. Naming
+            -- it misses a change that keeps the size: swapping `Inner`'s floats for
+            -- int32s leaves every size identical, so `inner:Inner,w:float|12` would
+            -- match itself across the change and a reader would take ints for floats.
+            -- Expansion terminates because a by-value cycle is NUPP2201, so the graph
+            -- is a DAG; a pointer is not followed, since the pointee is not part of
+            -- this layout.
+            local function expand(t: any): string?
+                if not t then
+                    return nil
+                end
+                if t.tag == "nominal" and t.declKind == "struct" then
+                    local inner = {}
+                    for _, fname in ipairs(t.fieldOrder or {}) do
+                        local one = expand(t.byname[fname])
+                        if not one then
+                            return nil
+                        end
+                        inner[#inner + 1] = fname .. ":" .. one
+                    end
+                    return "{" .. table.concat(inner, ",") .. "}"
+                end
+                return T.cName(t)
+            end
+
+            local parts, nested, printed = {}, {}, {}
             for _, name in ipairs(subject.fieldOrder or {}) do
                 local fieldType = subject.byname[name]
                 local spelling = T.cName(fieldType)
@@ -223,6 +248,7 @@ function ffi.install(c: any): any
                 end
                 parts[#parts + 1] = name .. ":"
                     .. (byValue and ("$" .. spelling) or spelling)
+                printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
                 if byValue then
                     nested[#nested + 1] = spelling
                 end
@@ -234,7 +260,8 @@ function ffi.install(c: any): any
                 return T.any
             end
             node.layoutOf = {name = subject.name,
-                spec = table.concat(parts, ","), nested = nested}
+                spec = table.concat(parts, ","),
+                printed = table.concat(printed, ","), nested = nested}
             return c.lookupType("Layout") or T.any
         end
 

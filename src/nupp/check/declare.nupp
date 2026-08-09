@@ -38,6 +38,43 @@ local type Node = cst.Node
 function declare.install(c: any, reifiableField: any, fix: any,
     insertBefore: any, validateAnnotation: any)
 
+    --- Whether `t` reaches `target` by value, and through which declaration.
+    ---
+    --- Only by value. A pointer to a struct is one pointer wide whatever it points
+    --- at, so a linked structure is written that way and is not a cycle; following
+    --- stars would refuse the shape the language expects.
+    ---
+    --- @param t the field's type
+    --- @param target the declaration being checked
+    --- @return the name of a declaration on the cycle, or nil
+    local function containedByValue(t: any, target: any): string?
+        local seen = {}
+        local function reaches(current: any): string?
+            if not current or current.tag ~= "nominal"
+                or current.declKind ~= "struct" then
+                return nil
+            end
+            if current == target then
+                return target.name
+            end
+            if seen[current] then
+                -- A cycle that does not pass through the declaration being checked
+                -- was reported when that one was checked; stopping keeps this walk
+                -- finite rather than saying it twice.
+                return nil
+            end
+            seen[current] = true
+            for _, name in ipairs(current.fieldOrder or {}) do
+                local found = reaches(current.byname[name])
+                if found then
+                    return current.name
+                end
+            end
+            return nil
+        end
+        return reaches(t)
+    end
+
     -- The entries a struct body also accepts. Fields carry the reifiability question
     -- and are asked separately; these three are shapes a struct keeps unchanged, so
     -- their presence does not argue against the suggestion. Everything absent is
@@ -833,6 +870,26 @@ function declare.install(c: any, reifiableField: any, fix: any,
                         c.diag("NUPP2201", e, ("struct field %q: %s is not reifiable "
                             .. "(use a record for GC types, or a pointer)")
                             :format(e.name.text, T.tostring(ft)))
+                    elseif stat.declKind == "struct"
+                        and not stat.isAnnotationDefinition then
+                        -- A struct that contains itself by value has no size: the
+                        -- layout would have to include a copy of the layout. C refuses
+                        -- it and so does the ctype this lowers to, but the refusal
+                        -- arrived as `typeof: type parameter expected, got nil` at
+                        -- load, because the ctype names itself before it exists.
+                        -- Through a pointer it is fine, and is how a linked structure
+                        -- is written -- so the walk follows values and stops at stars.
+                        local cycle = containedByValue(ft, n)
+                        if cycle then
+                            c.diag("NUPP2201", e,
+                                ("struct field %q makes %s contain itself, which has "
+                                .. "no size"):format(e.name.text, n.name), nil,
+                                {help = cycle == n.name
+                                and ("hold it by pointer instead: `%s: %s*`")
+                                :format(e.name.text, n.name)
+                                or ("the cycle runs through %s; hold one step of it "
+                                .. "by pointer"):format(cycle)})
+                        end
                     end
                 elseif e.kind == "indexerDecl" then
                     local key = c.resolveType(e.key)

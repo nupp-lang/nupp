@@ -227,4 +227,127 @@ return Vec2 ~= nil
       "a program that never asks carries no helper")
 end
 
+function M.aNestedStructIsExpandedInTheFingerprint()
+   -- The hole naming it would leave: swap Inner's floats for int32s and every
+   -- size stays identical, so `inner:Inner,w:float|12` matches itself across the
+   -- change and a reader takes ints for floats.
+   local function fingerprintOf(innerFields)
+      return runs(([[
+local struct Inner
+%s
+end
+
+local struct Outer
+    inner: Inner
+    w: float
+end
+return layoutof(Outer)
+]]):format(innerFields), "Outer").fingerprint
+   end
+   local floats = fingerprintOf("    a: float\n    b: float")
+   local ints = fingerprintOf("    a: int32\n    b: int32")
+   assertEq(floats, "inner:{a:float,b:float},w:float|12", "the nested fields expand")
+   assert(floats ~= ints,
+      "a same-size change inside the nested struct still changes the fingerprint")
+   local renamed = fingerprintOf("    x: float\n    y: float")
+   assert(floats ~= renamed, "and so does renaming one of its fields")
+end
+
+function M.aPointerIsNotFollowedIntoTheFingerprint()
+   -- The pointee is not part of this layout, and following it would not terminate
+   -- for a linked structure. Two separate declarations, because a struct cannot
+   -- currently point at itself at all -- see aSelfReferencingPointerIsBroken.
+   local l = runs([[
+local struct Inner
+    a: float
+    b: float
+end
+
+local struct Holder
+    p: Inner*
+    value: int32
+end
+return layoutof(Holder)
+]], "Holder")
+   assertEq(l.fields[1].ctype, "Inner *", "named, not expanded")
+   assert(l.fingerprint:find("p:Inner %*"), "and named in the fingerprint too")
+   assert(not l.fingerprint:find("{", 1, true), "the pointee is not expanded")
+end
+
+function M.aSelfReferencingPointerIsBroken()
+   -- Not this feature's bug, and not this feature's to fix, but a test rather than
+   -- a note because it is the shape a linked list is written in.
+   --
+   -- Codegen spells a nested struct by substituting its ctype into an anonymous
+   -- one: `ffi.typeof("struct { $ *next; }", Node)`. For a self-reference, and for
+   -- a pointer to a struct declared further down, that name is nil at the moment
+   -- the ctype is built, so the module dies at load with "type parameter expected,
+   -- got nil". C would name the struct and forward-declare it; an anonymous ctype
+   -- cannot refer to itself at all.
+   --
+   -- When that is fixed, this test fails and should become the positive one.
+   local ok = pcall(runs, [[
+local struct Node
+    next: Node*
+    value: int32
+end
+return layoutof(Node)
+]], "Node")
+   assertEq(ok, false, "a self-referencing pointer still fails at load")
+end
+
+function M.aStructCannotContainItselfByValue()
+   local found = nil
+   for _, d in ipairs(diagnostics([[
+local struct Loop
+    me: Loop
+    n: int32
+end
+return Loop
+]])) do
+      if d.code == "NUPP2201" then found = d end
+   end
+   assert(found, "a struct containing itself by value has no size")
+   assert(found.help and found.help:find("pointer", 1, true),
+      "and the repair is a pointer")
+end
+
+function M.aMutualCycleIsCaughtToo()
+   local found = nil
+   for _, d in ipairs(diagnostics([[
+local struct A
+    b: B
+    n: int32
+end
+
+local struct B
+    a: A
+    n: int32
+end
+return {A, B}
+]])) do
+      if d.code == "NUPP2201" then found = d end
+   end
+   assert(found, "two structs containing each other have no size either")
+end
+
+function M.aForwardPointerIsBrokenTheSameWay()
+   -- The same defect reached the other way: `A` points at `B`, which is declared
+   -- after it, so `B` is nil when A's ctype is built. Mutual linked structures are
+   -- unreachable until the anonymous-ctype limitation above is lifted.
+   local ok = pcall(runs, [[
+local struct A
+    b: B*
+    n: int32
+end
+
+local struct B
+    a: A*
+    n: int32
+end
+return layoutof(A)
+]], "A")
+   assertEq(ok, false, "a forward pointer between structs still fails at load")
+end
+
 return M
