@@ -2,13 +2,13 @@
 
 ## Decision
 
-Add `nupp.regex` as an **opt-in native runtime feature**.  Its public Lua/Nupp
-surface is the `tecs.regex` surface verbatim, with the module prefix changed
-from `tecs` to `nupp`:
+Add `nupp.regex` as an **opt-in native runtime feature** beneath an
+**always-present global `nupp` module table**. Its public Lua/Nupp surface is
+the `tecs.regex` surface verbatim, with the module prefix changed from `tecs`
+to `nupp`:
 
 ```nupp
-local regex = require("nupp.regex")
-local expression = regex.compile([[(?<key>[a-z]+)=(\d+)]])
+local expression = nupp.regex.compile([[(?<key>[a-z]+)=(\d+)]])
 local found = assert(expression:captures("hp=100"))
 print(found.named.key.value) -- hp
 ```
@@ -19,6 +19,14 @@ engine, not a replacement for LPeg or a general parser generator.
 
 The implementation must be absent from a target that does not request it.  The
 default Nupp host, and a binary stamped from it, contain no Rust regex code.
+
+`nupp` itself is never optional. Generated Nupp code initializes the one
+process-global table before user code runs, and the prelude declares it in every
+project. Its standard namespace tables are installed even when their native
+backend is absent. Thus `nupp` is always a table and `nupp.regex` is always a
+typed namespace; a featureless target installs a lightweight `compile` sentinel
+that raises the existing missing-feature diagnostic before attempting any native
+load. No Rust regex code is linked merely to provide that error.
 
 ## Why a target feature, not DCE
 
@@ -58,7 +66,9 @@ build = {
 `"regex"`.  It is deliberately separate from `dependencies`: the latter says
 that the application owns and pins an arbitrary C/Cargo/LuaRocks dependency;
 the former says that Nupp owns the API, ABI, sources, tests, and distribution
-contract.  A target with no `runtime` list has exactly today's output.
+contract. A target with no `runtime` list has no native runtime artifact or
+linked host code; it still receives the small always-present `nupp` global
+bootstrap described above.
 
 A future closed-world linker may prove that a requested runtime feature is
 unreachable and remove it, but that is not this work.  Such a mode needs the
@@ -120,7 +130,7 @@ specified extension.
 Keep the public API independent of how a process obtains native code:
 
 ```text
-require("nupp.regex")
+nupp.regex
         |
         +-- public Nupp wrapper: Match, Captures, init handling, replacement API
         |
@@ -169,11 +179,19 @@ src/nupp/regex.nupp          # public wrapper and type surface
 the runtime crate.  `host/src/lua.rs` preloads `nupp.regex.native` only with
 that feature enabled.  The feature must not be a default feature.
 
-Add `nupp.regex` to the bundled-source map in `src/nupp/env.nupp` and to the
-compiler/dist resource lists in `nupp.lua`.  An installed Nupp binary then
-types and compiles a project that requires it from exactly the source it
-contains, as it already does for `nupp.std.resources`, `nupp.std.zone`, and
-`nupp.std.profile`.
+Add a `global nupp` declaration to `src/nupp/decls/prelude.d.nupp`, including
+the `regex` member's exact type surface. The generator emits an idempotent
+runtime bootstrap before each generated Nupp module executes: it creates
+`_G.nupp` if absent, rejects a pre-existing non-table value, and installs the
+public namespace wrapper once. `nupp` is reserved for this compiler-owned
+global, so user declarations cannot replace its type or bind a different global
+under that name.
+
+Add the public wrapper source to the bundled-source map in `src/nupp/env.nupp`
+and to the compiler/dist resource lists in `nupp.lua`. The generated startup
+installs it as `nupp.regex`, instead of exposing a user-facing
+`require("nupp.regex")` module. An installed Nupp binary consequently types
+and compiles a project using the global from exactly the source it contains.
 
 The compiler distribution also needs the checked Rust runtime source and lock
 file available as an embedded resource.  On a source checkout the build uses
@@ -190,23 +208,23 @@ feature registry resolves `regex` to the embedded Cargo crate, builds a locked
 `cdylib`, and stages it under the target's `outDir/lib` beside ordinary native
 dependencies.
 
-Add a generated, target-local native-library registry.  `nupp.regex` asks that
-registry for the exact staged path instead of trusting the process working
-directory or platform loader search paths.  `nupp run`, `nupp test`, and a
-directly run generated entry initialize the same registry, so a program works
-from a subdirectory and reports a precise missing-feature/missing-library error
-rather than an opaque `ffi.load` failure.
+Add a generated, target-local native-library registry. The `nupp.regex`
+wrapper asks that registry for the exact staged path instead of trusting the
+process working directory or platform loader search paths. `nupp run`,
+`nupp test`, and a directly run generated entry initialize the same registry,
+so a program works from a subdirectory and reports a precise
+missing-feature/missing-library error rather than an opaque `ffi.load` failure.
 
 The cache key includes the runtime-feature list, the embedded crate digest,
 Cargo version, target triple, profile, and feature set.  Removing `regex` from
 a target removes its staged library through the existing target-output cleanup
 path.
 
-If a module statically requires `nupp.regex` but the selected target lacks
+If a module statically reaches `nupp.regex` but the selected target lacks
 `runtime = {"regex"}`, fail the build with a diagnostic that names the missing
-target feature.  A computed `require` cannot be proved at build time; if it
-requests `nupp.regex` at runtime without the feature, the wrapper raises the
-same actionable message.  This is deliberately conservative under Nupp's
+target feature. A dynamic field lookup cannot be proved at build time; if it
+reaches `nupp.regex` at runtime without the feature, the wrapper raises the
+same actionable message. This is deliberately conservative under Nupp's
 source-set build model.
 
 ### 2. Bundles
@@ -264,10 +282,12 @@ machine code.  Document the distinction clearly.
    Cargo runtime artifact and test memory ownership under repeated compile,
    match, replace, and collection cycles.
 
-3. **Add `nupp.regex`.** Implement the public wrapper, type it from its Nupp
-   source, wire it into embedded standard-module resolution, and port all API
-   behavior tests.  Verify a plain LuaJIT/modules-target execution through the
-   staged cdylib, not only through a host that happens to be linked already.
+3. **Install the global and add `nupp.regex`.** Add the reserved, always-present
+   `nupp` prelude/global initialization path, implement the public regex
+   wrapper beneath it, and wire the wrapper source into embedded runtime
+   resolution. Port all API behavior tests. Verify a plain LuaJIT/modules target
+   through the staged cdylib, not only through a host that happens to be linked
+   already.
 
 4. **Teach project builds about native runtimes.** Add the closed `runtime`
    target key, validation, cache fingerprints, target task output, runtime
@@ -289,10 +309,11 @@ machine code.  Document the distinction clearly.
 
 | Case | Expected result |
 | --- | --- |
-| Existing target with no `runtime` | Byte-identical generated Lua and no `nupp_regex` library or host symbol. |
+| Existing target with no `runtime` | `nupp` is initialized as a global table; no `nupp_regex` library or host symbol exists. |
 | `modules` target with `regex` | Locked cdylib staged under `outDir/lib`; `nupp run` and tests load it from a non-root working directory. |
-| Static `require("nupp.regex")`, no feature | Build fails with the target and required `runtime = {"regex"}` named. |
-| Dynamic `require`, no feature | Build stays conservative; an executed request fails with the same remedy. |
+| No native runtime feature | `nupp` is still a global table; no regex library or host symbol exists. |
+| Static `nupp.regex` use, no feature | Build fails with the target and required `runtime = {"regex"}` named. |
+| Dynamic `nupp["regex"]` use, no feature | Build stays conservative; an executed request fails with the same remedy. |
 | `bundle` plus `regex` | Refuses before writing an artifact; no pretend single-file output. |
 | Binary target plus a default host | Refuses before stamping and names the stub/feature mismatch. |
 | Binary target plus a regex host | Stamps and runs with no shared-library sidecar; public API results match the modules target. |
