@@ -232,7 +232,7 @@ record types.Func
     predicate: {param: integer, type: types.Type}?
 
     --- Generic binders and their aligned upper bounds.
-    typeParams: {types.Type}?
+    typeParams: {types.TypeVar}?
 
     typeBounds: {types.Type}?
 
@@ -482,6 +482,13 @@ types.uint16 = prim("uint16")
 types.uint32 = prim("uint32")
 types.uint64 = prim("uint64")
 
+-- The structures `table` is gradual toward, which is what makes it redundant beside one
+-- in a union. Kept in step with the pair of gradual rules in `relations.isA`.
+local TABLE_SHAPED: {[string]: boolean} = {
+    array = true, map = true, tuple = true, shape = true,
+    metatable = true, nominal = true,
+}
+
 --- Name to type, for resolving an annotation that names a builtin.
 local builtins: {[string]: types.Type} = {
     any = types.any, unknown = types.unknown, never = types.never,
@@ -597,7 +604,8 @@ end
 ---
 --- Nested unions flatten, duplicates drop by identity, and members sort by id, so any
 --- way of writing the same union reaches one type. A single surviving member is
---- returned unwrapped, and `any` swallows the rest.
+--- returned unwrapped, `any` swallows the rest, and `table` drops beside a structure it
+--- is already gradual toward.
 function types.union(members: {types.Type}): types.Type
     local seen: {[types.Type]: boolean} = {}
     local flat: {types.Type} = {}
@@ -617,6 +625,29 @@ function types.union(members: {types.Type}): types.Type
     for _, m in ipairs(flat) do
         if m == types.any then
             return types.any
+        end
+    end
+    -- `table` is gradual toward every table-shaped type, so beside one it says nothing
+    -- that member does not already say, while leaving a union no field can be read
+    -- from. `x = x or {}` on a declared shape is the idiom that reaches here: the empty
+    -- literal is `table`, and without this the write hands the variable back a type its
+    -- own fields are missing from.
+    local structured = false
+    for _, m in ipairs(flat) do
+        if TABLE_SHAPED[m.tag] then
+            structured = true
+        end
+    end
+    if structured then
+        local kept: {types.Type} = {}
+        for _, m in ipairs(flat) do
+            if m ~= types.table_ then
+                kept[#kept + 1] = m
+            end
+        end
+        flat = kept
+        if #flat == 1 then
+            return flat[1]
         end
     end
     table.sort(flat, function(a, b) return a.id < b.id end)
@@ -863,7 +894,7 @@ end
 --- signatures that narrow differently are different types, even where their parameters
 --- and returns agree.
 function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
-    paramModes: {string}?, predicate: types.Predicate?, typeParams: {types.Type}?,
+    paramModes: {string}?, predicate: types.Predicate?, typeParams: {types.TypeVar}?,
     typeBounds: {types.Type}?, borrowsParam: integer?,
     borrowsSelf: boolean?, borrowsParams: {integer}?, ffiOut: any,
     varargType: types.Type?, noreturn: boolean?, paramPack: types.Pack?,

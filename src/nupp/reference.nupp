@@ -110,6 +110,10 @@ nowhere else until narrowed or cast, the top of the type lattice. `never` is
 the bottom: uninhabited, so it fits anywhere and nothing but itself fits it —
 what a function that always raises, exits, or loops forever returns.
 
+`table` is gradual the same way toward table structures only, and is what `{}`
+infers as, so it drops out of a union already holding one: `opts = opts or {}`
+leaves a declared record still holding its fields.
+
 Postfix suffixes apply left to right: `T?` optional, `T*` pointer, `T[?]` a
 variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
 unlike the one-based `{T}`. `|` builds a union, a string literal is the type

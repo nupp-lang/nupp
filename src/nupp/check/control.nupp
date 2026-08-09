@@ -234,6 +234,10 @@ function control.install(c: any): any
     handlers.withStmt = function(stat: cst.WithStmt)
         c.pushScope()
         for _, binding in ipairs(stat.bindings or {}) do
+            -- Error recovery can leave an acquisition without its name. The value is
+            -- still checked, so what it holds is still reported; only the scope entry,
+            -- which has nothing to be called, is skipped.
+            local nameTok = binding.name
             local acquired = c.infer(binding.expr)
             local cleanups = acquired.tag == "owned" and acquired.cleanups
                 or {}
@@ -254,7 +258,7 @@ function control.install(c: any): any
                 if not ok then
                     c.diag("NUPP2001", binding.expr,
                         ("cannot initialize %s: %s")
-                        :format(binding.name.text, why))
+                        :format(nameTok and nameTok.text or "acquisition", why))
                 end
             end
             -- The contract itself was validated where it was written, which is the only
@@ -269,11 +273,12 @@ function control.install(c: any): any
             end
             local visible = ownershipKind(acquired) == "owned"
                 and T.borrowed(rawType(acquired)) or T.any
-            c.bindVar(binding.name.text, visible, binding.type ~= nil,
-                binding.name)
-            local entry = c.scope.vars[binding.name.text]
-            if entry then
-                entry.withBinding = binding
+            if nameTok then
+                c.bindVar(nameTok.text, visible, binding.type ~= nil, nameTok)
+                local entry = c.scope.vars[nameTok.text]
+                if entry then
+                    entry.withBinding = binding
+                end
             end
         end
         -- The bindings live in this scope, so a body reference to one of them resolves

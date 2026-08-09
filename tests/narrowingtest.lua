@@ -265,4 +265,52 @@ function M.errorItselfReturnsNever()
    }, "\n"))
 end
 
+-- `{}` is `table`, which is gradual toward every table structure. Beside one in a
+-- union it therefore says nothing that member does not, and a union carrying it is
+-- one no field can be read from. Defaulting a declared binding -- the `x = x or {}`
+-- every optional parameter is written with -- is what reaches this.
+function M.defaultingADeclaredTableKeepsItsStructure()
+   local OPTS = "local type Opts = {output: string?, title: string?}\n"
+   -- assigned back to the parameter, alone and among several targets
+   assertClean(OPTS .. table.concat({
+      "local function run(opts: Opts?): string?",
+      "    opts = opts or {}",
+      "    return opts.output",
+      "end",
+      "return {run = run}",
+   }, "\n"))
+   assertClean(OPTS .. table.concat({
+      "local function run(root: string?, opts: Opts?): string?",
+      "    root, opts = root or '.', opts or {}",
+      "    return opts.output or root",
+      "end",
+      "return {run = run}",
+   }, "\n"))
+   -- and written as the branch that defaults it, where the join is what unions
+   assertClean(OPTS .. table.concat({
+      "local function run(opts: Opts?): string?",
+      "    if not opts then",
+      "        opts = {}",
+      "    end",
+      "    return opts.output",
+      "end",
+      "return {run = run}",
+   }, "\n"))
+   -- an array reached the same way, and an element read off it
+   assertClean(table.concat({
+      "local function first(items: {string}?): string?",
+      "    items = items or {}",
+      "    return items[1]",
+      "end",
+      "return {first = first}",
+   }, "\n"))
+   -- what the collapse must not do: a literal with fields still narrows a
+   -- variable declared as a plain table
+   assertClean(table.concat({
+      "local t: table = {}",
+      "t = {a = 1}",
+      "local n: integer = t.a",
+   }, "\n"))
+end
+
 return M

@@ -117,7 +117,7 @@ function bindings.install(c: any): any
                     and initNode.kind == "tableExpr" then
                     local hasConst = false
                     for _, field in ipairs(initNode.fields or {}) do
-                        if field.isConst then
+                        if field.kind == "fieldNamed" and field.isConst then
                             hasConst = true; break
                         end
                     end

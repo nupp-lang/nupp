@@ -26,7 +26,8 @@ function pragma.install(c: any): any
     local marks = c.marks
     local defineAnnotation = marks.defineAnnotation
     local validateAnnotation = marks.validateAnnotation
-    local stringValue = marks.stringValue
+    local stringValue, nameText = marks.stringValue, marks.nameText
+    local literalText = marks.literalText
 
     local handlers = {}
     local RELAXATIONS = {
@@ -157,8 +158,7 @@ function pragma.install(c: any): any
             local relaxed = {}
             for _, arg in ipairs(stat.annotationArgs or {}) do
                 local expr = arg.expr
-                local value = expr and expr.kind == "name" and expr.token.text
-                    or stringValue(expr)
+                local value = nameText(expr) or stringValue(expr)
                 if not value or not RELAXATIONS[value] then
                     c.diag("NUPP2112", arg,
                         "@relax names function-identity, load-order, error-site, "
@@ -184,23 +184,19 @@ function pragma.install(c: any): any
             local opaque, outName, success = false, nil, "always"
             for _, arg in ipairs(stat.annotationArgs or {}) do
                 local expr = arg.expr
-                if arg.name and arg.name.text == "opaque"
+                local argName = arg.name and arg.name.text or nil
+                local named = nameText(expr)
+                if argName == "opaque"
                     and expr and expr.kind == "trueExpr" then
                     opaque = true
-                elseif arg.name and arg.name.text == "out"
-                    and expr and expr.kind == "name" then
-                    outName = expr.token.text
-                elseif arg.name and arg.name.text == "success"
-                    and expr and expr.kind == "name"
-                    and (expr.token.text == "always"
-                    or expr.token.text == "zero"
-                    or expr.token.text == "nonzero") then
-                    success = expr.token.text
-                elseif arg.name and arg.name.text == "success"
-                    and expr and (expr.kind == "number"
-                    or expr.kind == "string") then
-                    success = "equals:" .. expr.token.text
-                elseif arg.name and arg.name.text == "cleanup" then
+                elseif argName == "out" and named then
+                    outName = named
+                elseif argName == "success" and (named == "always"
+                    or named == "zero" or named == "nonzero") then
+                    success = named
+                elseif argName == "success" and literalText(expr) then
+                    success = "equals:" .. tostring(literalText(expr))
+                elseif argName == "cleanup" then
                     local cleanupExprs = {}
                     if expr and expr.kind == "name" then
                         cleanupExprs[1] = expr
@@ -214,25 +210,25 @@ function pragma.install(c: any): any
                             "@owned cleanup must name one or more functions")
                     end
                     for _, cleanupExpr in ipairs(cleanupExprs) do
-                        if not cleanupExpr or cleanupExpr.kind ~= "name" then
+                        local cleanupName = nameText(cleanupExpr)
+                        if not cleanupName then
                             c.diag("NUPP2602", arg,
                                 "@owned cleanup entries must be function names")
                         else
-                            cleanups[#cleanups + 1] = cleanupExpr.token.text
+                            cleanups[#cleanups + 1] = cleanupName
                         end
                     end
-                elseif arg.name or not expr or expr.kind ~= "name" then
+                elseif argName or not named then
                     c.diag("NUPP2602", arg,
                         "invalid @owned argument")
                 else
-                    local cleanup = expr.token.text
-                    local entry = c.lookupEntry(cleanup)
-                    if entry then
+                    local entry = c.lookupEntry(named)
+                    if entry and expr and expr.kind == "name" then
                         c.markToken(expr.token, entry.definition, entry.t,
                             entry.definition and entry.definition.kind
                             or "function")
                     end
-                    cleanups[#cleanups + 1] = cleanup
+                    cleanups[#cleanups + 1] = named
                 end
             end
             if opaque and #cleanups > 0 then
@@ -272,22 +268,17 @@ function pragma.install(c: any): any
             local outName, sourceName, success = nil, nil, "always"
             for _, arg in ipairs(stat.annotationArgs or {}) do
                 local expr = arg.expr
-                if arg.name and arg.name.text == "out"
-                    and expr and expr.kind == "name" then
-                    outName = expr.token.text
-                elseif arg.name and arg.name.text == "from"
-                    and expr and expr.kind == "name" then
-                    sourceName = expr.token.text
-                elseif arg.name and arg.name.text == "success"
-                    and expr and expr.kind == "name"
-                    and (expr.token.text == "always"
-                    or expr.token.text == "zero"
-                    or expr.token.text == "nonzero") then
-                    success = expr.token.text
-                elseif arg.name and arg.name.text == "success"
-                    and expr and (expr.kind == "number"
-                    or expr.kind == "string") then
-                    success = "equals:" .. expr.token.text
+                local argName = arg.name and arg.name.text or nil
+                local named = nameText(expr)
+                if argName == "out" and named then
+                    outName = named
+                elseif argName == "from" and named then
+                    sourceName = named
+                elseif argName == "success" and (named == "always"
+                    or named == "zero" or named == "nonzero") then
+                    success = named
+                elseif argName == "success" and literalText(expr) then
+                    success = "equals:" .. tostring(literalText(expr))
                 else
                     c.diag("NUPP2602", arg, "invalid @borrowed argument")
                 end

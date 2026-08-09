@@ -317,7 +317,7 @@ record cst.Chunk is cst.Hints
     kind: 'chunk'
 
     --- The top-level blocks, one per recovery region.
-    blocks: {cst.Node}
+    blocks: {cst.Block}
 
     --- The end-of-file token, which carries the trailing trivia.
     eof: lexer.Token?
@@ -353,7 +353,7 @@ record cst.WithStmt is cst.Hints
     withTok: lexer.Token?
 
     --- The acquisitions, left to right.
-    bindings: {cst.Node}
+    bindings: {cst.WithBinding}
 
     --- The `do` opening the protected body.
     doTok: lexer.Token?
@@ -393,7 +393,7 @@ record cst.IfStmt is cst.Hints
     kind: 'ifStmt'
 
     --- The `if` clause and any `elseif` clauses, in order.
-    clauses: {cst.Node}
+    clauses: {cst.IfClause | cst.ElseifClause}
 
     --- The `else`, when there is one.
     elseClause: cst.Node?
@@ -725,7 +725,7 @@ record cst.PragmaStmt is cst.Hints
     open: lexer.Token?
 
     --- The arguments, one `annotationArg` each.
-    annotationArgs: {cst.Node}?
+    annotationArgs: {cst.AnnotationArg}?
 
     --- The `)` closing them.
     close: lexer.Token?
@@ -748,7 +748,7 @@ record cst.AnnotationApply is cst.Hints
     open: lexer.Token?
 
     --- The arguments, one `annotationArg` each.
-    annotationArgs: {cst.Node}?
+    annotationArgs: {cst.AnnotationArg}?
 
     --- The `)` closing them.
     close: lexer.Token?
@@ -1329,7 +1329,7 @@ record cst.TableExpr is cst.Hints
     kind: 'tableExpr'
 
     --- Its entries, in source order.
-    fields: {cst.Node}
+    fields: {cst.FieldItem | cst.FieldNamed | cst.FieldBracket}
 end
 
 --- `[k] = v` in a table constructor.
