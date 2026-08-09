@@ -121,8 +121,8 @@ return {
                   layout = "home",
                   heroTitle = "Nupp",
                   heroText = "Typed, safe, fast LuaJIT.",
-                  heroContent = "Nupp adds types, resource safety, and C FFI to LuaJIT "
-                     .. "without giving up Lua's small, expressive core.",
+                  heroContent = "Nupp adds types and ownership to LuaJIT, making C interop "
+                     .. "and performance approachable.",
                   heroImage = "images/nupp.png",
                   heroImageAlt = "A nuppeppo in a moonlit forest",
                   heroActions = {
