@@ -149,6 +149,57 @@ function M.protectedCallsKeepCorrelatedResultArms()
    }, "\n"))
 end
 
+-- A pack union survives a `function` declaration, not just the function-type
+-- annotation the prelude declares pcall with. The two spell one signature, and a
+-- declaration used to rebuild its result pack from the flat head a union leaves
+-- empty, which replaced the union with a pack of no results: the body could return
+-- nothing, and every caller read the results as any.
+function M.declaredPackUnionsKeepCorrelatedResultArms()
+   clean(table.concat({
+      "local function run(): ((true, number, string) | (false, any))",
+      "   return true, 1, 'one'",
+      "end",
+      "local ok, value, text = run()",
+      "if ok == true then",
+      "   local n: number = value",
+      "   local s: string = text",
+      "end",
+   }, "\n"))
+end
+
+function M.declaredPackUnionsCheckTheBodyAgainstEveryArm()
+   assertEq(codes(table.concat({
+      "local function run(): ((true, number, string) | (false, any))",
+      "   return true, 'wrong', 'one'",
+      "end",
+      "return run",
+   }, "\n")), "NUPP2010")
+end
+
+-- Asserted as a rejection, not a clean check: while the union was being dropped the
+-- results came back gradual, so every annotation fit and a `clean` here passed for
+-- the wrong reason.
+function M.genericWrappersPreserveTheirCallbacksResultArms()
+   local wrapper = {
+      "local function protect<R...>(callback: function(): R...):",
+      "   ((true, R...) | (false, any))",
+      "   return pcall(callback)",
+      "end",
+      "local function pair(): (number, string) return 1, 'one' end",
+      "local ok, value, text = protect(pair)",
+      "if ok == true then",
+   }
+   local function inArm(...)
+      local lines = {}
+      for j, line in ipairs(wrapper) do lines[j] = line end
+      for _, line in ipairs({...}) do lines[#lines + 1] = line end
+      lines[#lines + 1] = "end"
+      return table.concat(lines, "\n")
+   end
+   clean(inArm("   local n: number = value", "   local s: string = text"))
+   assertEq(codes(inArm("   local s: string = value")), "NUPP2001")
+end
+
 function M.selectTransformsPacksWithoutAny()
    clean(table.concat({
       "local text, flag = select(2, 1, 'two', true)",

@@ -293,7 +293,14 @@ function functions.install(c: state.Checker): state.StatHandlers
                 validateCleanups(annotated[1], body.ownCleanups, body.ownTok or body, "NUPP2615")
             end
         end
-        if body.returnPack then
+        -- Rebuilt so the adjustments above, which write through `rets`, reach the pack
+        -- the body and every caller are checked against. A pack union keeps its arms in
+        -- `alternatives` and leaves `head` empty, so rebuilding one from `rets` would
+        -- replace it with an empty pack: the declaration would return nothing, where
+        -- the same signature written as a function type returns the union. Neither
+        -- adjustment applies to a union anyway — both reach through `annotated[1]`,
+        -- which a union leaves nil, and @owned already reports NUPP2602 for that.
+        if body.returnPack and not retPack.alternatives then
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
         c.retStack[#c.retStack + 1] = annotated or false
@@ -501,7 +508,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         if (borrowsParam or borrowsSelf or borrowsParams) and rets[1] and not body.ownCleanups then
             rets[1] = T.borrowed(rawType(rets[1]))
         end
-        if body.returnPack then
+        if body.returnPack and not retPack.alternatives then
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
 
