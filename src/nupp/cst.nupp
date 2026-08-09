@@ -63,6 +63,10 @@ interface cst.Hints
     --- A string accumulator lowered to a `string.buffer` by `OPT-5`.
     concatBuffer: any
 
+    --- A bare `buffer` the checker resolved to the string.buffer module, which
+    --- codegen emits as the binding it requires once per module.
+    bufferIntrinsic: boolean?
+
     constantBranchNone: boolean?
 
     --- A complete `@effects` contract, normalized by the checker.

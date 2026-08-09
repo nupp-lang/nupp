@@ -1625,6 +1625,12 @@ function gen.generate(result, filename)
                 emitChildren(x)
             end
 
+        elseif kind == "name" and x.bufferIntrinsic then
+            -- The module the checker resolved this name to, bound once per generated
+            -- module. `OPT-5` shares the same binding, so a file that both writes
+            -- `buffer` and has an accumulator lowered requires string.buffer once.
+            e(concatBufferName(), sourceLine(x))
+
         elseif kind == "localStmt" and x.concatBuffer then
             -- The accumulator keeps its declaration, so anything reading it after the
             -- loop reads a string and needs no rewriting. The buffer is opened beside

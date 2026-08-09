@@ -187,6 +187,35 @@ work makes sense in.
       callback lint.
 - [ ] Struct unions and bitfields (tagged C union lowering); malloc-backed big
       arrays. Fixed arrays `T[N]` landed.
+- [ ] **A generalized `Serializable`, because reifying currently makes
+      serializing worse.** A `struct` instance is cdata, and cdata is where the
+      table-shaped world stops: `string.buffer.encode` raises `cannot serialize
+      'cdata'` and offers no hook to install, `pairs` needs a `__pairs` on the
+      metatype, and `type` answers `"cdata"`. So the largest speedup the
+      language has is also the change that breaks the snapshot path, and
+      `reifiable-record` (NUPP2509) has to warn about it rather than recommend
+      it freely.
+
+      The inversion available: nupp knows the field set and the C layout, so a
+      reified value can serialize by copying its bytes rather than by walking
+      its keys. Done properly, reifying makes serialization *faster* than the
+      table it replaced, and the cost story turns into a reason.
+
+      What has to be decided, roughly in order: whether the contract is an
+      interface a declaration opts into or something every reifiable
+      declaration gets; whether the wire form is layout-compatible bytes
+      (fast, and hostage to field order, padding and endianness) or a described
+      encoding that survives a layout change; how a graph with cycles and
+      sharing is handled, since `string.buffer.encode` refuses both; and what
+      a version skew between writer and reader is supposed to do.
+
+      Do not design this from the declaration inward. tecs is the workload —
+      "everything can serialize", world-wide snapshots, and fast — so
+      `FFIStorage.tl` and `FFIEvents.tl` in the acceptance port
+      (tests/acceptance/tecs) are what say which of the above actually matter.
+      Two options short of it stay open meanwhile: a generated `__pairs` from
+      the declared field set, which is cheap and restores iteration, and a
+      generated conversion for crossing a boundary that only speaks tables.
 
 ## Ownership and resource scopes
 
@@ -555,6 +584,15 @@ What is left, in the order the numbers justify:
       `fixpoint` already compares `-O0` against `-O2` on the compiler itself,
       which is the whole-program version of the same idea; this is the
       per-program one, and it wants generated inputs (above) to be worth much.
+- [ ] **A segfault in `luajit tests/run.lua`, seen once, not reproduced.**
+      `Segmentation fault: 11` partway through a full run, on the run that
+      followed a compiler rebuild; four full runs and six of `profiletest`
+      immediately afterwards were clean, and `fixpoint` passed. Recorded rather
+      than chased because a crash in the suite is worth a note even without a
+      reproduction, and because the entry below already says trace-timing makes
+      one test non-deterministic — the same machinery is the first place to
+      look. If it recurs, run under `MallocStackLogging` or a LuaJIT built with
+      assertions rather than re-running the suite.
 - [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
       flaky.** Recorded failing once in six runs with "unrecordable bytecode
       must be reported"; it depends on the JIT attempting and aborting a trace
