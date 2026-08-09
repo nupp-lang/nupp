@@ -181,6 +181,63 @@ function ffi.install(c: any): any
             return T.carray(elemT, nil)
         end
 
+        -- layoutof(Struct) answers how one is laid out in C memory: the fields in
+        -- declaration order with their offsets, sizes and padding, the whole size, and
+        -- a fingerprint over all of it.
+        --
+        -- Reifying is what makes a value unreachable to anything that walks a table,
+        -- and this is what makes it reachable again without the language choosing a
+        -- serialization format. See plans/layout.md.
+        --
+        -- Only the spec is built here, because only the checker knows the declared
+        -- field order and types. Everything numeric is this platform's and is asked
+        -- of the FFI at run time.
+        if calleeName == "layoutof" then
+            local args = argExprs
+            local subject = args[1] and c.infer(args[1]) or nil
+            if not subject or subject.tag ~= "nominal"
+                or subject.declKind ~= "struct" then
+                c.diag("NUPP2402", node,
+                    "layoutof needs a struct type as its argument", nil,
+                    {help = "a record is a table and has no C layout; only a "
+                    .. "struct is laid out in memory"})
+                return T.any
+            end
+            local parts, nested = {}, {}
+            for _, name in ipairs(subject.fieldOrder or {}) do
+                local fieldType = subject.byname[name]
+                local spelling = T.cName(fieldType)
+                -- A struct held by value is the one shape whose size cannot come from
+                -- its spelling: nupp emits anonymous ctypes, so `ffi.sizeof("Inner")`
+                -- fails. Mark it, and hand the ctype over beside the spec. A pointer
+                -- to one needs no marker, since every pointer is one pointer wide.
+                local byValue = fieldType and fieldType.tag == "nominal"
+                    and fieldType.declKind == "struct"
+                if not spelling then
+                    -- A struct whose every field reified cannot reach this, so it
+                    -- means the type moved and the spelling did not follow.
+                    c.diag("NUPP2402", node,
+                        ("field %q of %s has no C spelling")
+                        :format(name, subject.name))
+                    return T.any
+                end
+                parts[#parts + 1] = name .. ":"
+                    .. (byValue and ("$" .. spelling) or spelling)
+                if byValue then
+                    nested[#nested + 1] = spelling
+                end
+            end
+            if #parts == 0 then
+                c.diag("NUPP2402", node,
+                    ("%s declares no fields, so it has no layout")
+                    :format(subject.name))
+                return T.any
+            end
+            node.layoutOf = {name = subject.name,
+                spec = table.concat(parts, ","), nested = nested}
+            return c.lookupType("Layout") or T.any
+        end
+
         -- cheader("path.h" [, "lib"]) types a pinned C header at compile time: LuaJIT
         -- parses it and reports back what it declares, so there is no generated file to
         -- keep in step and the sizes are the ones this platform actually uses.

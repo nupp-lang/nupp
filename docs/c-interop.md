@@ -186,6 +186,47 @@ points[0].x = 1.0
 
 That is `carray<T>`, distinct from the one-based Lua array `{T}`.
 
+## Read a struct's layout
+
+`layoutof(T)` answers how a reified `struct` sits in memory:
+
+```nupp
+struct Vertex
+    x: float
+    y: float
+    z: float
+end
+
+const layout = layoutof(Vertex)
+print(layout.size)                       -- 12
+print(layout.fingerprint)                -- x:float,y:float,z:float|12
+for _, f in ipairs(layout.fields) do
+    print(f.name, f.ctype, f.offset, f.size, f.padding)
+end
+```
+
+Reifying puts a value where anything that walks a table cannot reach it:
+`string.buffer.encode` refuses cdata outright, `pairs` needs a `__pairs`, and
+`type` answers `"cdata"`. This is what makes it reachable again without the
+language choosing a serialization format — a codec, a snapshot writer, or a GPU
+vertex-attribute descriptor is written against the layout, and the format stays
+yours.
+
+`size` is a field's own; `padding` is the alignment gap that follows it. They
+are separate because they answer different questions — an `int8` before a
+`number` has size 1 and padding 7, and a writer walking bytes needs both.
+
+Every number is this platform's, asked of the FFI when the layout is first
+built and cached per ctype afterwards. The `fingerprint` therefore describes one
+platform's layout, which is what makes it usable for noticing that saved data no
+longer matches what is reading it; deciding what to do about a mismatch is the
+application's.
+
+Only a `struct` has a layout. A `record` is a table, so `layoutof` on one is
+**NUPP2402**. Nothing is emitted for a struct nothing asks about: the lowering
+happens at the call site, so a program that never calls `layoutof` carries none
+of this.
+
 ## Describe lifetime behavior
 
 C types do not reveal who frees a returned pointer. Add that fact explicitly:

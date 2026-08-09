@@ -134,14 +134,34 @@ field whose type is anonymous. Size, offsets and padding are this platform's, so
 the helper asks for them at load and caches per ctype — the same hoisted-helper
 shape as `__nuppArray` and `__nuppBuffer` in `src/nupp/gen.nupp`.
 
+## Status
+
+L1 and L2 are implemented; `tests/layouttest.lua` covers them by running the
+generated code and checking every number against `ffi.sizeof`/`ffi.offsetof`
+rather than against a constant written down here.
+
+Two things the implementation changed from this plan:
+
+- **A fixed C array is not a struct field at all.** `reifiableField` admits
+  primitives, a nested struct, and pointers -- not `carray` -- so `v: float[4]`
+  is NUPP2201 and L2's array case does not exist. That is a real gap in the
+  language for FFI work, since C structs commonly have array members, but it is
+  a different piece of work.
+- **`$` does not reach the reported layout.** The first cut used it as the
+  ctype for a nested field, which leaked an encoding into user-facing data and
+  collapsed every pointer to `void *` -- so `Inner*` and `Other*` shared a
+  fingerprint. Fields now report their declared spelling (`Inner`, `Inner *`)
+  and the marker only drives sizing.
+
 ## Milestones
 
-1. **L1, the helper and the lowering.** `__nuppLayout` with a weak-keyed cache,
+1. ~~**L1, the helper and the lowering.**~~ Done. `__nuppLayout` with a weak-keyed cache,
    `layoutof` recognized in `src/nupp/check/ffi.nupp` the way `carray` is,
    emitted in `src/nupp/gen.nupp`. Primitive fields only. Tests run the
    generated code and assert offsets against `ffi.offsetof` independently.
-2. **L2, the field shapes a struct can actually hold.** Nested structs, pointers,
-   fixed arrays, optional pointers. This is where the `$` argument path is
+2. ~~**L2, the field shapes a struct can actually hold.**~~ Done, minus fixed
+   arrays, which a struct cannot hold. Nested structs, pointers, optional
+   pointers. This is where the `$` argument path is
    exercised, and where a wrong answer is silent rather than loud, so each shape
    wants a test that checks the offset against the FFI rather than against a
    number someone wrote down.

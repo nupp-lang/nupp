@@ -715,6 +715,50 @@ local package: {
     searchers: {function(string): any}?,
 }
 
+--- One field of a reified `struct`, as it is actually laid out in C memory.
+---
+--- `size` is the field's own, from its C type. `padding` is what follows it before the
+--- next field starts, or before the struct ends. They are separate because they answer
+--- different questions: a reader wants the size, and a writer walking bytes has to
+--- know about the gap. An `int8` before a `number` has size 1 and padding 7.
+local interface LayoutField
+    --- The field's name, as the declaration spells it.
+    name: string
+
+    --- Its C type, as the generated `ffi.typeof` spells it.
+    ctype: string
+
+    --- Bytes from the start of the struct.
+    offset: integer
+
+    --- Bytes the field itself occupies.
+    size: integer
+
+    --- Bytes of alignment padding after it.
+    padding: integer
+end
+
+--- How a reified `struct` is laid out, as `layoutof` answers it.
+---
+--- Every number here is this platform's: sizes and offsets come from the FFI at load
+--- rather than being baked in, because padding depends on the target. The fingerprint
+--- therefore describes one platform's layout, which is what makes it usable for
+--- detecting that saved data no longer matches.
+local interface Layout
+    --- The declaration's name.
+    name: string
+
+    --- Bytes one instance occupies, padding included.
+    size: integer
+
+    --- A canonical description of the fields and the size, for detecting drift
+    --- between the layout that wrote data and the layout reading it.
+    fingerprint: string
+
+    --- The fields, in declaration order.
+    fields: {LayoutField}
+end
+
 --- A Lua file handle. Ownership is attached by producers rather than this interface, so
 --- standard streams and borrowed handles use the same type.
 local interface LuaFile

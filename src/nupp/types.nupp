@@ -1195,4 +1195,62 @@ function types.tostring(t: types.Type): string
     return tag
 end
 
+-- How each reifiable primitive is spelled in C. The same set `reifiableField` admits,
+-- and the same spellings codegen writes into the `ffi.typeof` string -- kept here
+-- because two places now need the answer and a second copy would be a second answer.
+local C_NAME: {[string]: string} = {
+    number = "double", float = "float", boolean = "bool",
+    integer = "int32_t",
+    int8 = "int8_t", int16 = "int16_t", int32 = "int32_t", int64 = "int64_t",
+    uint8 = "uint8_t", uint16 = "uint16_t", uint32 = "uint32_t",
+    uint64 = "uint64_t",
+    cstring = "const char *", voidptr = "void *",
+}
+
+--- How a type is spelled in C, or nil when it has no spelling.
+---
+--- A nested struct answers `"$"`. Nupp emits anonymous struct ctypes, so
+--- `ffi.sizeof("Inner")` cannot resolve one by name -- the ctype itself has to be
+--- handed over, the way `ffi.typeof("struct { $ inner; }", Inner)` already does. The
+--- caller collects those in order and passes them alongside.
+---
+--- @param t the type to spell
+--- @return the C spelling, or nil
+function types.cName(t: types.Type): string?
+    if not t then
+        return nil
+    end
+    local tag = t.tag
+    if C_NAME[tag] then
+        return C_NAME[tag]
+    end
+    if tag == "nominal" and t.declKind == "struct" then
+        -- Its own name, so a fingerprint distinguishes two structs of one shape and a
+        -- reader sees the declaration rather than an encoding. Sizing it needs the
+        -- ctype instead, which the caller passes alongside.
+        return t.name
+    end
+    if tag == "ptr" then
+        -- A pointer is a pointer whatever it points at, and its size does not depend
+        -- on the pointee -- but the pointee is what tells two layouts apart, so it is
+        -- kept in the spelling and the size comes from the star.
+        local inner = types.cName(t.elem)
+        return (inner or "void") .. " *"
+    end
+    if tag == "carray" then
+        local elem = types.cName(t.elem)
+        if elem and t.count then
+            return elem .. "[" .. tostring(t.count) .. "]"
+        end
+        return nil
+    end
+    if tag == "union" and #t.members == 2 and t.hasNil then
+        -- The nullable spelling of a pointer: `T*?` is the same pointer, and NULL is
+        -- one of its values.
+        local other = t.members[1] == types.nil_ and t.members[2] or t.members[1]
+        return types.cName(other)
+    end
+    return nil
+end
+
 return types

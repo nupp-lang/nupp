@@ -67,6 +67,10 @@ interface cst.Hints
     --- codegen emits as the binding it requires once per module.
     bufferIntrinsic: boolean?
 
+    --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type
+    --- spec, and the nested struct ctypes the spec's `$` placeholders consume.
+    layoutOf: any
+
     constantBranchNone: boolean?
 
     --- A complete `@effects` contract, normalized by the checker.

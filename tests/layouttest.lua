@@ -1,0 +1,230 @@
+-- `layoutof(T)`, run rather than read.
+--
+-- Every number it reports is this platform's, so the assertions check against the
+-- FFI itself rather than against a number written down here: a test that hardcodes
+-- an offset passes on the machine it was written on and lies everywhere else.
+local parser = require("nupp.parser")
+local optimize = require("nupp.optimize")
+local gen = require("nupp.gen")
+local check = require("fragment")
+local envMod = require("nupp.env")
+local ffi = require("ffi")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
+
+local function assertEq(got, want, label)
+   if got ~= want then
+      error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch",
+         tostring(want), tostring(got)), 2)
+   end
+end
+
+local function runs(src, label)
+   local result = parser.parse(src, "test")
+   assertEq(#result.errors, 0, "syntax errors in test source\n" .. src)
+   local diags = check.check(result, "test", env)
+   for _, diag in ipairs(diags or {}) do
+      if diag.severity == "error" then
+         error(("%s: %s: %s\n%s"):format(label or "", diag.code, diag.msg, src), 2)
+      end
+   end
+   optimize.run(result, {level = 1})
+   local code, genDiags = gen.generate(result, "test")
+   assertEq(#genDiags, 0, "gen diagnostics")
+   local chunk, err = loadstring(code, "@layout_test")
+   if not chunk then
+      error(("does not load: %s\n---\n%s"):format(tostring(err), code), 2)
+   end
+   local ok, value = pcall(chunk)
+   if not ok then
+      error(("raised: %s\n---\n%s"):format(tostring(value), code), 2)
+   end
+   return value, code
+end
+
+local function diagnostics(src)
+   local result = parser.parse(src, "test")
+   assertEq(#result.errors, 0, "syntax errors in test source")
+   return check.check(result, "test", env)
+end
+
+local M = {}
+
+function M.reportsFieldsInDeclarationOrder()
+   local l = runs([[
+local struct Vec3
+    x: float
+    y: float
+    z: float
+end
+return layoutof(Vec3)
+]], "Vec3")
+   assertEq(l.name, "Vec3", "the declaration's name")
+   assertEq(#l.fields, 3, "three fields")
+   assertEq(l.fields[1].name, "x", "in order")
+   assertEq(l.fields[2].name, "y", "in order")
+   assertEq(l.fields[3].name, "z", "in order")
+end
+
+function M.everyNumberAgreesWithTheFfi()
+   -- The independent check: build the same ctype by hand and compare.
+   local l = runs([[
+local struct Vec3
+    x: float
+    y: float
+    z: float
+end
+return layoutof(Vec3)
+]], "Vec3")
+   local ct = ffi.typeof("struct { float x; float y; float z; }")
+   assertEq(l.size, ffi.sizeof(ct), "the struct's size")
+   for _, f in ipairs(l.fields) do
+      assertEq(f.offset, ffi.offsetof(ct, f.name), "offset of " .. f.name)
+      assertEq(f.size, ffi.sizeof("float"), "size of " .. f.name)
+   end
+end
+
+function M.sizeAndPaddingAreDifferentQuestions()
+   -- An int8 before a double: size 1, padding 7. Deriving size from the next
+   -- field's offset would report 8, which is the stride.
+   local l = runs([[
+local struct Mixed
+    tag: int8
+    value: number
+    id: int32
+end
+return layoutof(Mixed)
+]], "Mixed")
+   assertEq(l.fields[1].size, 1, "an int8 is one byte")
+   assertEq(l.fields[1].padding, ffi.offsetof(
+      ffi.typeof("struct { int8_t tag; double value; int32_t id; }"), "value") - 1,
+      "and the rest of the gap is padding")
+   assertEq(l.fields[2].size, 8, "a number is a double")
+   assertEq(l.fields[2].padding, 0, "which needs no padding before an int32")
+end
+
+function M.aNestedStructIsSizedFromItsCtype()
+   -- The shape that cannot be sized from its spelling: nupp emits anonymous
+   -- ctypes, so `ffi.sizeof("Inner")` fails and the ctype is passed instead.
+   local l = runs([[
+local struct Inner
+    a: float
+    b: float
+end
+
+local struct Outer
+    inner: Inner
+    w: float
+end
+return layoutof(Outer)
+]], "Outer")
+   local inner = ffi.typeof("struct { float a; float b; }")
+   assertEq(l.fields[1].name, "inner", "the nested field")
+   assertEq(l.fields[1].size, ffi.sizeof(inner), "sized from the ctype")
+   assertEq(l.fields[1].ctype, "Inner", "and reported by its declared name")
+   assertEq(l.size, ffi.sizeof(ffi.typeof("struct { $ inner; float w; }", inner)),
+      "the whole struct")
+end
+
+function M.aPointerKeepsItsPointeeInTheSpelling()
+   -- Every pointer is one pointer wide, so the size does not need the pointee --
+   -- but the pointee is what tells two layouts apart, so it stays in the spelling.
+   local l = runs([[
+local struct Inner
+    a: float
+end
+
+local struct Pointy
+    p: Inner*
+    n: int32
+end
+return layoutof(Pointy)
+]], "Pointy")
+   assertEq(l.fields[1].ctype, "Inner *", "the pointee survives")
+   assertEq(l.fields[1].size, ffi.sizeof("void *"), "sized as a pointer")
+end
+
+function M.aNullablePointerIsStillAPointer()
+   local l = runs([[
+local struct Inner
+    a: float
+end
+
+local struct Maybe
+    p: Inner*?
+    n: int32
+end
+return layoutof(Maybe)
+]], "Maybe")
+   assertEq(l.fields[1].size, ffi.sizeof("void *"), "NULL is one of its values")
+end
+
+function M.theFingerprintDistinguishesLayouts()
+   local function fingerprintOf(fields)
+      return runs(([[
+local struct S
+%s
+end
+return layoutof(S)
+]]):format(fields), "S").fingerprint
+   end
+   local base = fingerprintOf("    x: float\n    y: float")
+   assertEq(base, "x:float,y:float|" .. ffi.sizeof(
+      ffi.typeof("struct { float x; float y; }")), "names, types and size")
+   assert(base ~= fingerprintOf("    x: float\n    y: int32"),
+      "a changed field type changes it")
+   assert(base ~= fingerprintOf("    y: float\n    x: float"),
+      "a reordering changes it, because the layout changed")
+   assert(base ~= fingerprintOf("    x: float\n    z: float"),
+      "a renamed field changes it")
+end
+
+function M.theSameCtypeAnswersFromTheSameTable()
+   local same = runs([[
+local struct Vec2
+    x: float
+    y: float
+end
+return layoutof(Vec2) == layoutof(Vec2)
+]], "cached")
+   assertEq(same, true, "building it twice is one walk, not two")
+end
+
+function M.aRecordHasNoLayout()
+   local found = nil
+   for _, d in ipairs(diagnostics([[
+local record Point
+    x: float
+    y: float
+end
+return layoutof(Point)
+]])) do
+      if d.code == "NUPP2402" then found = d end
+   end
+   assert(found, "a record is a table and has no C layout")
+   assert(found.help and found.help:find("record", 1, true),
+      "and the message says why")
+end
+
+function M.aNonStructArgumentIsRefused()
+   local found = false
+   for _, d in ipairs(diagnostics("return layoutof(42)\n")) do
+      if d.code == "NUPP2402" then found = true end
+   end
+   assertEq(found, true, "a number is not a struct type")
+end
+
+function M.nothingIsEmittedWhenNothingAsks()
+   local _, code = runs([[
+local struct Vec2
+    x: float
+    y: float
+end
+return Vec2 ~= nil
+]], "unused")
+   assertEq(code:find("__nuppLayout", 1, true), nil,
+      "a program that never asks carries no helper")
+end
+
+return M

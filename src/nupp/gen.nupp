@@ -224,6 +224,8 @@ function gen.generate(result, filename, coverage)
     local needsClearTab = false
     local needsBuffer = false
     local bufferName
+    local needsLayout = false
+    local layoutName
     local newTabName, clearTabName
     local needsWith = false
     local withPackName, withIdName, withFailureName
@@ -1736,6 +1738,23 @@ function gen.generate(result, filename, coverage)
                 emitChildren(x)
             end
 
+        elseif kind == "call" and x.layoutOf then
+            -- The compiler knows the name and the field spellings; sizes, offsets and
+            -- padding are this platform's, so the helper asks the FFI at run time and
+            -- caches per ctype. Emitted at the call site, so a program that never asks
+            -- carries nothing.
+            needsLayout = true
+            layoutName = layoutName or reservedName("__nuppLayout")
+            local line = sourceLine(x)
+            e(("%s("):format(layoutName), line)
+            emit(x.args and x.args.exprs and x.args.exprs[1] or x.obj)
+            e((", %q, %q"):format(x.layoutOf.name, x.layoutOf.spec))
+            for _, nestedName in ipairs(x.layoutOf.nested) do
+                e((", %s"):format(nestedName))
+            end
+            e(")")
+            return
+
         elseif kind == "name" and x.bufferIntrinsic then
             -- The module the checker resolved this name to, bound once per generated
             -- module. `OPT-5` shares the same binding, so a file that both writes
@@ -1835,6 +1854,35 @@ function gen.generate(result, filename, coverage)
     if needsNewTab then
         code = ("const %s = require(\"table.new\"); "):format(newTabName)
             .. code
+    end
+    if needsLayout then
+        -- One layout per ctype, built on first ask. Weak keys so a ctype nothing else
+        -- holds is still collectable. `$` in the spec consumes the next ctype argument,
+        -- the way ffi.typeof spells a nested struct, because nupp emits anonymous
+        -- structs and a nested field's size cannot be resolved from a name.
+        code = ("const %s = (function() const cache = setmetatable({}, {__mode = \"k\"}) "
+            .. "return function(ct, name, spec, ...) "
+            .. "local hit = cache[ct] if hit then return hit end "
+            .. "const nested = {...} local at = 0 "
+            .. "const fields = {} const parts = {} "
+            .. "for fname, ctype in spec:gmatch(\"([^:,]+):([^,]+)\") do "
+            .. "local own local shown = ctype "
+            .. "if ctype:sub(1, 1) == \"$\" then at = at + 1 own = nested[at] "
+            .. "shown = ctype:sub(2) "
+            .. "elseif ctype:sub(-1) == \"*\" then own = \"void *\" "
+            .. "else own = ctype end "
+            .. "fields[#fields + 1] = {name = fname, ctype = shown, "
+            .. "offset = __nuppFfi.offsetof(ct, fname), size = __nuppFfi.sizeof(own)} "
+            .. "parts[#parts + 1] = fname .. \":\" .. shown end "
+            .. "const size = __nuppFfi.sizeof(ct) "
+            .. "for i = 1, #fields do "
+            .. "const after = fields[i + 1] and fields[i + 1].offset or size "
+            .. "fields[i].padding = after - fields[i].offset - fields[i].size end "
+            .. "const layout = {name = name, size = size, fields = fields, "
+            .. "fingerprint = table.concat(parts, \",\") .. \"|\" .. size} "
+            .. "cache[ct] = layout return layout end end)(); "):format(layoutName)
+            .. code
+        needsFfi = true
     end
     if needsBuffer then
         code = ("const %s = require(\"string.buffer\"); "):format(bufferName)
