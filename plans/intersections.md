@@ -8,11 +8,11 @@ overloading: it composes object capabilities and lets a value carry several
 contracts without manufacturing a new declaration.
 
 An intersection whose normalized members are all function types is also an
-overload set. A call infers its arguments once, specializes every candidate
-without changing checker state, and succeeds only when exactly one candidate
-accepts the call. The selected signature supplies the result, ownership,
-borrowing, predicate, `noreturn`, and FFI contracts. There is no best-match
-ranking and no separate overload type.
+overload set. A call infers its complete adjusted argument pack once,
+specializes every candidate without changing checker state, and succeeds only
+when exactly one candidate accepts the pack. The selected signature supplies
+the result pack, ownership, borrowing, predicate, `noreturn`, and FFI
+contracts. There is no best-match ranking and no separate overload type.
 
 Overloaded constructors are the first end-to-end user. `new T(...)` selects a
 constructor statically and emits a direct call to its generated function. No
@@ -25,13 +25,23 @@ This plan targets the compiler as it exists now:
 - Metatable contracts are checked in `src/nupp/check/metatable.nupp`, and
   **NUPP2123** belongs to those errors. An intersection diagnostic must not
   reuse it.
-- `types.Func` still stores `params`, `rets`, `vararg`, and `varargType`.
-  First-class type packs have a separate design but are not implemented.
+- First-class type packs are implemented. `types.Func.paramPack` and
+  `retPack` are the authoritative parameter and result sequences, with
+  `packParams`, `yieldPack`, and `resumePack` carrying the related generic and
+  coroutine contracts. `params`, `rets`, `vararg`, `varargType`, and
+  `paramModes` remain compatibility views during migration and must not become
+  a second source of truth.
+- `c.inferListPack` applies Lua list adjustment, `generics.unifyPack` and
+  `substPack` handle generic packs, and `relations.packIsA` checks complete
+  pack compatibility. Call nodes retain `argumentPack` and `valuePack`, while
+  per-result borrow provenance lives alongside the pack-valued call flow.
 - `ops.inferCall` in `src/nupp/check/calls.nupp` currently combines argument
-  inference, generic specialization, diagnostics, ownership transitions, and
-  result metadata in one path. Candidate probing cannot call that path.
+  pack inference, generic specialization, diagnostics, ownership transitions,
+  borrow propagation, and result-pack metadata in one path. Candidate probing
+  cannot call that path.
 - `ops.applyContract` independently repeats much of generic call checking for
-  metamethods and index operations. It must use the same overload selector.
+  metamethods and index operations, and still reasons through the compatibility
+  array views. It must move to packs and use the same overload selector.
 - A nominal's `constructors` is an ordered list of signatures, but
   `checkConstructor` refuses its second entry with **NUPP2208** and codegen has
   one `__nuppCtor` slot.
@@ -41,8 +51,10 @@ This plan targets the compiler as it exists now:
 - Signature help accepts only `node.signatureType`, and completion only reads
   members directly from shapes and nominals.
 
-The implementation should preserve these seams where practical. In particular,
-intersection work must not quietly implement half of type packs.
+The implementation should preserve these seams where practical. In
+particular, intersection work must preserve list adjustment, pack correlation,
+generic tails, ownership modes, and per-result borrow provenance rather than
+flattening them back into arrays.
 
 ## Goals
 
@@ -70,9 +82,9 @@ intersection work must not quietly implement half of type packs.
 - Multiple ordinary function bodies under one name. One function value may be
   described by several signatures; constructors are the only declarations that
   gain several bodies in this epic.
-- First-class type packs, pack generics, correlated result packs, or a rewrite
-  of Lua list adjustment. The later pack epic replaces the signature adapter
-  introduced here.
+- New pack syntax, pack-level computation, or changes to the landed Lua list
+  adjustment and correlation rules. Intersections consume the existing pack
+  model; they do not redesign it.
 - Generalizing runtime `is` to compound types. Today a union is not lowered to
   a disjunction of runtime tests. An intersection follows the same rule: a test
   already proved by the subject's static type may disappear, while a dynamic
@@ -149,6 +161,8 @@ Update every exhaustive type walk:
 
 - `types.Type` and `types.tostring`;
 - `generics.subst` (substitute every member and rebuild the intersection);
+- pack traversal reached through function `paramPack`, `retPack`, `yieldPack`,
+  and `resumePack`, including fixed heads and typed tails; and
 - any tag-based ownership, narrowing, C-boundary, and checker helper that should
   recurse through compound value types.
 
@@ -203,8 +217,10 @@ The existing identity-pair cache remains valid. Recursive checks must install
 their in-progress guard exactly as current structural checks do, because a
 nominal can lead back to an intersection through one of its members.
 
-Function variance stays unchanged. An overloaded function intersection fits a
-single function target when at least one callable member provides that target's
+Function variance stays unchanged and remains pack-native through
+`relations.packIsA`: parameter packs are contravariant and result packs are
+covariant. An overloaded function intersection fits a single function target
+when at least one callable member provides that target's complete pack
 contract; a concrete function fits a callable intersection only when it meets
 every signature.
 
@@ -236,39 +252,45 @@ hover instead of silently choosing whichever member happened to sort first.
 
 Method types compose exactly like other readable members, so two method
 signatures become a callable intersection. `generics.specializeSelf`,
-`dropSelf`, and `addSelf` must distribute over callable intersections; method
-syntax must not lose overloads merely because the current code checks
+`dropSelf`, and `addSelf` must distribute over callable intersections and
+preserve the parameter and result packs while adding or removing the receiver;
+method syntax must not lose overloads merely because the current code checks
 `mt.tag == "func"`.
 
-## A shared call-signature seam
+## A pack-native call-signature seam
 
-Before adding overload selection, extract a small representation-neutral view
-over the current `types.Func` fields. It should expose:
+Before adding overload selection, split the current pack-aware call path into a
+small shared seam over `types.Func`. It consumes:
 
-- named parameter types and ownership modes;
-- whether extra arguments are accepted and their element type;
-- result types;
-- generic binders and bounds; and
+- the complete `paramPack` and `retPack`, including slot ownership modes,
+  homogeneous, generic, symbolic, or unknown tails, and correlated result
+  alternatives;
+- ordinary and pack generic binders and ordinary bounds; and
 - predicate, borrowing, FFI-output, and `noreturn` metadata.
 
-This is not a type pack. It is the one seam overload resolution consumes so the
-type-pack epic can later replace arrays and `varargType` without rewriting the
-selector, diagnostics, constructors, and LSP together.
+The seam must not reconstruct a signature from `params`, `rets`, or
+`varargType`. Those fields are compatibility views; using them here would lose
+heterogeneous expansion, zero-length generic packs, correlated alternatives,
+slot modes, and result provenance.
 
 Refactor current call checking into three operations:
 
-1. **Infer arguments** once, producing the current argument-type array.
-2. **Probe and specialize** a signature without diagnostics, moves, borrow
-   state changes, metatable-literal checks, or CST mutations. The result is a
-   specialized signature or a structured rejection: arity, argument index and
-   mismatch, vararg mismatch, or generic bound failure.
+1. **Infer arguments** once with `c.inferListPack`, producing the same adjusted
+   `argumentPack` the single-signature path uses now.
+2. **Probe and specialize** a signature with `unifyPack`, `substPack`, and
+   `packIsA`, without diagnostics, moves, borrow state changes,
+   metatable-literal checks, discard checks, or CST mutations. The result is a
+   specialized signature or a structured rejection: fixed-head slot and
+   mismatch, tail or correlated-alternative mismatch, surplus values, or
+   ordinary generic-bound failure.
 3. **Apply the selected signature** once, performing the existing diagnostics,
    ownership transitions, metatable checks, borrow links, FFI-output metadata,
-   predicate metadata, and return calculation.
+   predicate metadata, discard checks, and result-pack propagation.
 
 The single-signature path continues to use **NUPP2006**, **NUPP2007**, and
-**NUPP2116** as it does today. The refactor must preserve the current Lua call
-rule that omitted arguments do not produce a too-few-arguments diagnostic.
+**NUPP2116** as it does today, with **NUPP2605** retained for discarded affine
+pack slots. The refactor must preserve the current Lua call rule that omitted
+arguments do not produce a too-few-arguments diagnostic.
 
 ## Overload resolution
 
@@ -279,30 +301,38 @@ the existing **NUPP2005** path unless it was already rejected as empty.
 
 Resolution is:
 
-1. Infer argument expressions once.
-2. Probe and generically specialize every candidate against those types.
+1. Infer the adjusted argument pack once and keep it on `node.argumentPack`.
+2. Probe and generically specialize every candidate against that complete
+   pack. A candidate accepts a correlated argument-pack union only when it
+   accepts every possible arm; overload selection never adds runtime dispatch
+   between argument-pack alternatives.
 3. If exactly one survives, apply it once and record both the original
    candidate and specialized signature on the call node.
 4. If none survives, report **NUPP2125** with each candidate and its first
    structured rejection.
 5. If several survive, report **NUPP2126** with the surviving signatures and
-   the argument positions that failed to distinguish them.
+   the argument slots or tails that failed to distinguish them.
 
 There is no ranking. An integer argument makes `(integer)` and `(number)`
-ambiguous because numeric widening admits both. An `any` argument commonly
-makes every candidate survive; the ambiguity diagnostic must name that
-argument and say that its gradual type prevents selection. Source order never
-breaks a tie.
+ambiguous because numeric widening admits both. An `any` slot, unknown tail,
+or still-symbolic generic tail can make every candidate survive; the ambiguity
+diagnostic must name the distinguishing slot or tail and say that its gradual
+type prevents selection. Source order never breaks a tie.
 
-On failure or ambiguity, return `any` for recovery and apply no candidate's
-ownership or borrowing effects. The program is already rejected, and choosing
-one merely to continue would mutate affine state arbitrarily.
+On failure or ambiguity, return the current gradual unknown result pack for
+recovery (`...any`, whose first scalar projection is `any`) and apply no
+candidate's ownership or borrowing effects. The program is already rejected,
+and choosing one merely to continue would mutate affine state arbitrarily.
 
-Generic unification is candidate-local. Bound failures reject that candidate
-rather than emitting **NUPP2116** during probing. The winning specialized
-signature becomes `node.signatureType`, so existing predicate narrowing and
-`neverReturns` logic see the selected contract. Store the whole candidate set
-and winner index separately for signature help.
+Ordinary and pack-generic unification are candidate-local. A pack binder binds
+one complete argument sequence, including an empty or heterogeneous sequence;
+one candidate's binding must never leak into another. Bound failures reject
+that candidate rather than emitting **NUPP2116** during probing. The winning
+specialized signature becomes `node.signatureType`, and its `retPack` becomes
+the call's `valuePack`, so existing correlation, predicate narrowing,
+`neverReturns`, affine-discard, and per-result borrow logic see the selected
+contract. Store the whole candidate set and winner index separately for
+signature help.
 
 The same selector must serve:
 
@@ -331,9 +361,11 @@ display and shared selection, but it does not replace the ordered entries.
   literal-construction rules under **NUPP2208**;
 - stop refusing every second constructor;
 - assign each accepted declaration a stable 1-based index; and
-- report identical parameter contracts at the later declaration with
-  **NUPP2208**, because no call can distinguish them. Other overlapping
-  signatures remain legal and may be ambiguous for particular calls.
+- report equivalent parameter-pack contracts at the later declaration with
+  **NUPP2208**, because no call can distinguish them. Compare the authoritative
+  pack contract, including modes and tails, rather than the compatibility
+  `params` array. Other overlapping signatures remain legal and may be
+  ambiguous for particular calls.
 
 `new T(...)` probes the constructor signatures through the shared selector. The
 selected call node records its constructor entry as well as its signature.
@@ -360,9 +392,10 @@ applicability.
 - Completion merges intersection member names and shows composed member types.
 - Go-to-definition returns every contributing declaration for a composed
   member.
-- Signature help returns all overload signatures and sets `activeSignature`
-  when the checker selected one. In incomplete or ambiguous source it still
-  shows the candidates without inventing a winner.
+- Signature help returns all overload signatures with their complete parameter
+  and result packs and sets `activeSignature` when the checker selected one. In
+  incomplete or ambiguous source it still shows the candidates without
+  inventing a winner.
 - The generated language reference gains syntax, normalization, member
   capabilities, subtyping, overload selection, and constructor examples.
 - Add a dedicated `docs/type-system/intersections.md` and link it from the
@@ -382,8 +415,9 @@ applicability.
 - **NUPP2208** remains the constructor-integrity diagnostic and also reports
   duplicate constructor parameter contracts.
 
-These allocations deliberately leave the type-pack plan's **NUPP2010** and
-**NUPP2121** untouched and respect metatable checking's **NUPP2123**.
+These allocations deliberately leave the landed pack diagnostics
+**NUPP2010**, **NUPP2121**, and **NUPP2605** untouched and respect metatable
+checking's **NUPP2123**.
 
 ## Delivery order
 
@@ -400,12 +434,13 @@ disjointness and **NUPP2124**, then wire read/write/indexer/member-name
 composition through the checker and LSP definitions. Add the language-reference
 section and dedicated guide here; intersections are useful before overloads.
 
-### 3. Pure signature probing and overload calls
+### 3. Pack-native probing and overload calls
 
-Extract the signature view and infer/probe/apply phases. First prove the
-single-signature suite is unchanged, then add intersection candidate selection,
-generic specialization, **NUPP2125**, **NUPP2126**, selected-signature metadata,
-method/self distribution, metamethod consumers, and signature help.
+Extract the infer/probe/apply phases around the authoritative packs. First
+prove the single-signature and pack suites are unchanged, then add intersection
+candidate selection, ordinary and pack-generic specialization, **NUPP2125**,
+**NUPP2126**, selected-signature and result-pack metadata, method/self
+distribution, metamethod consumers, and signature help.
 
 ### 4. Overloaded constructors and effects
 
@@ -416,10 +451,11 @@ and direct generated calls end to end.
 
 ### 5. Real declaration surfaces
 
-Convert only APIs that genuinely have correlated call surfaces and need no type
-packs yet. Good first candidates are fixed-arity prelude/string declarations and
-bodyless `.d.nupp` APIs. Leave `pcall`, `xpcall`, `select`, `unpack`, and
-coroutine protocols to the type-pack epic.
+Convert only APIs that genuinely have a finite set of independent callable
+contracts. Good first candidates are fixed-arity prelude/string declarations
+and bodyless `.d.nupp` APIs. Keep `pcall`, `xpcall`, `select`, `unpack`, and
+coroutine protocols on their landed pack-native contracts: their behavior is
+variadic or correlated, not a finite overload set.
 
 ## Verification
 
@@ -439,12 +475,16 @@ Focused coverage includes:
   combinations, indexers, methods, completion, and multiple definitions;
 - primitive, literal-tag, nominal, union, and deliberately unknown emptiness
   cases;
-- one, zero, and several overload survivors; `any`; numeric widening; generic
-  bounds; varargs; safe calls; methods; `__call`; operators; and indexers;
-- proof that arguments are inferred once and rejected candidates neither emit
-  diagnostics nor move affine values;
+- one, zero, and several overload survivors; `any`; numeric widening; ordinary
+  generic bounds; fixed, homogeneous, generic, symbolic, and unknown pack
+  tails; correlated argument-pack alternatives; expanded calls; safe calls;
+  methods; `__call`; operators; and indexers;
+- proof that the argument pack is inferred once and rejected candidates neither
+  emit diagnostics, discard or move affine values, mutate borrow state, nor
+  leak ordinary or pack-generic bindings;
 - selected predicate, `noreturn`, borrowing, ownership, and FFI-output
-  contracts;
+  contracts, including multi-result borrow provenance and correlated result
+  packs;
 - two constructors selected independently, duplicates refused at their
   declaration, field invariants retained, and generated Lua calling distinct
   indexed functions directly; and
