@@ -372,12 +372,16 @@ them: a benchmark decides whether one is worth writing.
 
     luajit bench/ffi-hoisting.lua
     luajit bench/concat.lua
+    luajit bench/scratch-reuse.lua
 
-`concat` argued for `OPT-5` and now guards it. `ffi-hoisting` argued against a
-pass that is therefore not here: caching a ctype is the interpreter's win alone,
-while the clib symbol binding it also measures is real and already emitted. Both
-exit non-zero if their finding stops holding, so the one that argues against a
-pass keeps arguing.
+`concat` argued for `OPT-5` and now guards it. The other two argued against
+passes that are therefore not here. `ffi-hoisting` finds that caching a ctype is
+the interpreter's win alone, while the clib symbol binding it also measures is
+real and already emitted. `scratch-reuse` finds that hoisting a loop-local table
+or `ffi.new` out of its loop is slower than leaving it, because allocation
+sinking already removes an allocation that does not escape its trace — the same
+condition a pass would have had to prove. All three exit non-zero if their
+finding stops holding, so the ones that argue against a pass keep arguing.
 
 ## Inspecting and controlling passes
 

@@ -13,13 +13,21 @@ soundness burden in exchange for gains that vanish once a trace warms.
 The optimizations worth building are the ones the trace compiler
 structurally cannot do:
 
-- **GC pressure.** LuaJIT's collector is its weakest component and the
-  JIT does not help with it. Every object nupp keeps off the Lua heap is
-  an object the collector never walks. Reification already does this for
-  declared structs (6–9x on `bench/aos.nupp`, 5.6x on memory); the
-  remaining work is extending it to values the user did not declare as
-  structs, and telling the user when a declaration is one keyword away
-  from it (`reifiable-record`, NUPP2509).
+- **GC pressure, for values that escape.** LuaJIT's collector is its
+  weakest component and the JIT does not help with it. Every object nupp
+  keeps off the Lua heap is an object the collector never walks.
+
+  The qualifier is load-bearing and was learned by measurement
+  (`bench/scratch-reuse.lua`). A value that does not escape its trace
+  costs nothing already, because allocation sinking removes it — so an
+  optimization whose precondition is "proves it stays local" is aimed at
+  the case the JIT has handled. What the collector actually walks is what
+  escapes: kept in an array, returned, stored on something else.
+  Reification is 6–9x on `bench/aos.nupp` precisely because 200,000
+  particles held in an array escape as hard as a value can. The remaining
+  work is extending that to values the user did not declare as structs,
+  and telling the user when a declaration is one keyword away from it
+  (`reifiable-record`, NUPP2509).
 - **Algorithmic shape.** A trace compiler makes each step of an O(n²)
   loop fast and cannot make there be fewer steps. String building is the
   case that matters (`bench/concat.lua`), and it is worth naming
@@ -117,15 +125,32 @@ Each entry is tagged with where its win lands:
   concatenations, so the rewrite is a pessimization below three pieces, and
   straight-line `a .. b .. c` must never be touched — Lua already does a
   multi-operand concat in one operation.
-- `core` **Scratch reuse.** An `ffi.new` inside a loop is hoisted and
-  reused when ownership proves the value does not escape the iteration.
-  This is what `@owned` and non-escaping borrows already establish
-  (docs/ownership.md); the optimization is reading the analysis that the
-  resource model computes anyway.
+- ~~**Scratch reuse.**~~ Struck. Measured a pessimization
+  (`bench/scratch-reuse.lua`): hoisting a loop-local table and clearing
+  it each pass runs at 0.46x, and the `ffi.new` the entry was actually
+  written about at 1.00x. The reason is the entry's own precondition.
+  Allocation sinking removes an allocation that does not escape its
+  trace, which is the same condition ownership was going to prove, so
+  both allocate **zero bytes** already and `-jdump` shows no `TNEW` in
+  the trace at all. What reuse adds is the `table.clear` call, which is
+  why the table row is twice as slow.
 - `core` **Table promotion.** A local table with a statically known,
-  fixed field set that provably does not escape becomes cdata. Removes
-  it from the GC graph entirely. The highest-value item in this
-  document, and the one furthest from landing.
+  fixed field set becomes cdata, removing it from the GC graph.
+
+  This entry used to say "that provably does not escape", and that was
+  backwards. The non-escaping case is the one LuaJIT already handles for
+  free, as above. The case that costs real memory is the table that
+  **does** escape — kept in an array, returned, stored on another object
+  — where sinking cannot help and every one is an object the collector
+  walks. `bench/scratch-reuse.lua` measures that control at 43 MB against
+  zero, and it is the same shape as the 6–9x reification already delivers
+  on `bench/aos.nupp`, which is 200,000 particles held in an array and
+  therefore escaping about as hard as a value can.
+
+  So the analysis this wants is not "prove it stays local". It is the
+  field-set and type information that makes a cdata layout possible, plus
+  an escape answer used the other way round: a value that escapes is a
+  candidate, and one that does not is already free.
 - `cold` **Varargs elimination.** Known-arity calls should not touch
   `select` or build a table.
 
@@ -648,10 +673,17 @@ and wants §A query API onto the analysis.
    existed rather than in advance of one. See the section above.
 4. Concat lowering. Measured and superlinear (`bench/concat.lua`), and
    the entry the trace compiler cannot absorb for a reason other than GC.
-5. The local-escape query, then its callers: scratch reuse, then table
-   promotion — the highest-value entry in this document. The blocker is
-   one intra-body walk over alias classes that already exist, not the
-   interprocedural analysis that misled an earlier revision of this list.
+5. Table promotion, for values that escape. Scratch reuse was the other
+   caller this slot named and is struck: measured a pessimization, for
+   the same reason the FFI group was struck — its precondition is the
+   case the trace compiler already handles (`bench/scratch-reuse.lua`).
+
+   The local-escape query is no longer the blocker either, and that is
+   the useful part of the correction. Promotion does not need to prove a
+   value stays local; it needs a field set and types it can lay out in C,
+   which is what reification already does for a declared `struct`. The
+   nearest real step is therefore narrower than "table promotion": make
+   `reifiable-record` fire on the shapes that are not declarations yet.
 6. NYI rewriting and call-site monomorphization. Largest likely effect on
    real programs, and still unmeasurable: it wants the tecs `FFIStorage`
    port (plans/todo.md) to have something to measure against.
