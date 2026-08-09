@@ -595,6 +595,13 @@ local function textPath(node)
 end
 
 local function lookupPath(current, path)
+    -- `textPath` answers nil for anything that is not a dotted run of names, so
+    -- `make().x` and `t[k].y` arrive here with nothing to look up. There is no
+    -- constant path to find, and indexing the nil crashed the compiler on an
+    -- expression as ordinary as indexing a call's result.
+    if not path then
+        return nil
+    end
     local root = path:match("^[^.]+")
     while current do
         -- A declaration in an inner scope can shadow the root of an outer constant path

@@ -274,26 +274,40 @@ return layoutof(Holder)
    assert(not l.fingerprint:find("{", 1, true), "the pointee is not expanded")
 end
 
-function M.aSelfReferencingPointerIsBroken()
-   -- Not this feature's bug, and not this feature's to fix, but a test rather than
-   -- a note because it is the shape a linked list is written in.
-   --
-   -- Codegen spells a nested struct by substituting its ctype into an anonymous
-   -- one: `ffi.typeof("struct { $ *next; }", Node)`. For a self-reference, and for
-   -- a pointer to a struct declared further down, that name is nil at the moment
-   -- the ctype is built, so the module dies at load with "type parameter expected,
-   -- got nil". C would name the struct and forward-declare it; an anonymous ctype
-   -- cannot refer to itself at all.
-   --
-   -- When that is fixed, this test fails and should become the positive one.
-   local ok = pcall(runs, [[
+function M.aSelfReferencingPointerWorks()
+   -- The shape a linked list is written in. Codegen used to spell a nested struct
+   -- by substituting its ctype into an anonymous one, so a self-reference passed
+   -- nil and the module died at load. Such a struct is now emitted under a named
+   -- C tag, forward-declared first, which is what C does and the only thing an
+   -- anonymous ctype cannot do.
+   local l = runs([[
 local struct Node
-    next: Node*
+    next: Node*?
     value: int32
 end
-return layoutof(Node)
+
+local head = new Node {next = nil, value = 1}
+local tail = new Node {next = nil, value = 2}
+head.next = tail
+return layoutof(Node).size
 ]], "Node")
-   assertEq(ok, false, "a self-referencing pointer still fails at load")
+   assertEq(l, ffi.sizeof(ffi.typeof("struct { void *next; int32_t value; }")),
+      "the struct is laid out like the pointer-and-int it is")
+end
+
+function M.aSelfReferencingChainCanBeWalked()
+   local value = runs([[
+local struct Node
+    next: Node*?
+    value: int32
+end
+
+local head = new Node {next = nil, value = 1}
+local tail = new Node {next = nil, value = 2}
+head.next = tail
+return head.next.value
+]], "chain")
+   assertEq(value, 2, "the link is a real pointer to a real struct")
 end
 
 function M.aStructCannotContainItselfByValue()
@@ -331,23 +345,47 @@ return {A, B}
    assert(found, "two structs containing each other have no size either")
 end
 
-function M.aForwardPointerIsBrokenTheSameWay()
-   -- The same defect reached the other way: `A` points at `B`, which is declared
-   -- after it, so `B` is nil when A's ctype is built. Mutual linked structures are
-   -- unreachable until the anonymous-ctype limitation above is lifted.
-   local ok = pcall(runs, [[
+function M.aForwardPointerBetweenStructsWorks()
+   -- The same defect reached the other way: `A` points at `B`, declared after it.
+   -- Tagging closes over what a tagged struct names, because `ffi.cdef` has no `$`
+   -- substitution, so both ends end up named.
+   local value = runs([[
 local struct A
-    b: B*
+    b: B*?
     n: int32
 end
 
 local struct B
-    a: A*
+    a: A*?
     n: int32
 end
-return layoutof(A)
-]], "A")
-   assertEq(ok, false, "a forward pointer between structs still fails at load")
+
+local x = new A {b = nil, n = 7}
+local y = new B {a = nil, n = 8}
+x.b = y
+y.a = x
+return x.b.n * 10 + y.a.n
+]], "mutual")
+   assertEq(value, 87, "each side reaches the other")
+end
+
+function M.aBackwardPointerKeepsItsAnonymousCtype()
+   -- Only what needs naming is named: a pointer to an already-declared struct
+   -- reaches a ctype that exists, so its spelling is untouched and a program
+   -- without a forward or self reference generates exactly what it did.
+   local _, code = runs([[
+local struct Inner
+    a: float
+end
+
+local struct Holder
+    p: Inner*?
+    n: int32
+end
+return Holder ~= nil
+]], "backward")
+   assertEq(code:find("__nuppS_", 1, true), nil, "no tag was needed")
+   assert(code:find("$ *p", 1, true), "the substitution spelling is kept")
 end
 
 return M

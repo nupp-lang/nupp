@@ -35,6 +35,7 @@ represented.
 
 local cst = require("nupp.cst")
 local predicate = require("nupp.predicate")
+local bit = require("bit")
 
 local gen = {}
 
@@ -217,6 +218,127 @@ function gen.generate(result, filename, coverage)
         usedNames[name] = true
         return name
     end
+    local needsMetatypeOnce = false
+    local metatypeOnceName
+    -- Structs that have to be emitted as a named C tag rather than an anonymous
+    -- ctype, keyed by declaration name. See `planStructTags`.
+    local structTag = {}
+    local structTagOrder = {}
+
+    -- Which structs cannot be anonymous.
+    --
+    -- A nested struct is spelled by substituting its ctype into an anonymous one:
+    -- `ffi.typeof("struct { $ *next; }", Node)`. That works only when the ctype
+    -- already exists, so a struct pointing at itself, or at one declared below it,
+    -- passed nil and the module died at load -- which is every linked list and tree.
+    --
+    -- C names the struct and forward-declares the tag, and so does this. Only the
+    -- targets that need it are named, and only pointers to them change spelling, so
+    -- a program without a forward or self reference generates exactly what it did.
+    local function planStructTags()
+        local structs, indexOf = {}, {}
+        local function collect(node)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "recordDecl" and node.declKind == "struct"
+                and node.name then
+                structs[#structs + 1] = node
+                indexOf[node.name.text] = #structs
+            end
+            for _, child in ipairs(node) do collect(child) end
+        end
+        collect(result.root)
+        -- A C tag is process-global and `ffi.cdef` refuses to redefine one, so the
+        -- tag has to be unique per declaration -- two modules each with a `Node`
+        -- would otherwise collide, the second `cdef` would be swallowed by its
+        -- pcall, and the second module would silently get the first one's layout.
+        --
+        -- Derived from the module, the name, and the declaration's own field
+        -- spelling, so it is stable across rebuilds (which `fixpoint` requires) and
+        -- differs whenever the layout does. Two identical declarations sharing a
+        -- tag is correct: same body, same layout.
+        local moduleTag = (result.moduleName or filename or "")
+            :gsub("[^%w]", "_")
+        local function digest(text)
+            local h = 2166136261
+            for i = 1, #text do
+                h = bit.bxor(h, text:byte(i))
+                h = bit.band(h * 16777619, 0xffffffff)
+            end
+            return ("%08x"):format(bit.band(h, 0xffffffff))
+        end
+        local function tagFor(name)
+            if structTag[name] then
+                return structTag[name]
+            end
+            local decl = structs[indexOf[name]]
+            local shape = {}
+            for _, entry in ipairs(decl and decl.entries or {}) do
+                if entry.kind == "fieldDecl" and entry.name then
+                    shape[#shape + 1] = entry.name.text
+                end
+            end
+            local tag = "__nuppS_" .. name .. "_"
+                .. digest(moduleTag .. "|" .. name .. "|"
+                .. table.concat(shape, ","))
+            structTag[name] = tag
+            structTagOrder[#structTagOrder + 1] = tag
+            return tag
+        end
+        -- The struct a field names, whether it is held by value or by pointer.
+        local function referent(entry)
+            local t = entry.type
+            if not t then
+                return nil
+            end
+            if t.kind == "topt" then t = t.inner end
+            if t.kind == "tptr" then t = t.inner end
+            if t and t.kind == "tname" and t.base and indexOf[t.base.text] then
+                return t.base.text
+            end
+            return nil
+        end
+
+        -- Seed: a pointer that reaches at or after itself. A pointer backwards
+        -- reaches a ctype that already exists and keeps today's spelling.
+        for at, decl in ipairs(structs) do
+            for _, entry in ipairs(decl.entries or {}) do
+                if entry.kind == "fieldDecl" and entry.type then
+                    local t = entry.type
+                    if t.kind == "topt" then t = t.inner end
+                    if t.kind == "tptr" and t.inner
+                        and t.inner.kind == "tname" and t.inner.base then
+                        local targetAt = indexOf[t.inner.base.text]
+                        if targetAt and targetAt >= at then
+                            tagFor(t.inner.base.text)
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Then close over it. A named struct is written with `ffi.cdef`, which has
+        -- no `$` substitution -- that is a `ffi.typeof` feature -- so every struct a
+        -- tagged one names has to be spellable as a tag too, by value or by pointer.
+        -- Iterating to a fixed point costs one pass per newly tagged struct.
+        local changed = true
+        while changed do
+            changed = false
+            for _, decl in ipairs(structs) do
+                if structTag[decl.name.text] then
+                    for _, entry in ipairs(decl.entries or {}) do
+                        local target = entry.kind == "fieldDecl" and referent(entry)
+                        if target and not structTag[target] then
+                            tagFor(target)
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     local needsFfi = false
     local needsArrayCache = false
     local needsLibs = false
@@ -258,6 +380,13 @@ function gen.generate(result, filename, coverage)
     -- The `string.buffer` binding OPT-5 appends through, bound once per module like the
     -- table intrinsics beside it. Reserved rather than assumed, so a user local called
     -- `__nuppBuffer` does not collide with it.
+
+    local function metatypeHelper()
+        needsMetatypeOnce = true
+        metatypeOnceName = metatypeOnceName or reservedName("__nuppMetatype")
+        return metatypeOnceName
+    end
+
     local function concatBufferName()
         needsBuffer = true
         bufferName = bufferName or reservedName("__nuppBuffer")
@@ -674,6 +803,9 @@ function gen.generate(result, filename, coverage)
                     end
                     if t.kind == "tname" and C_PRIM[t.base.text] then
                         cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. ";"
+                    elseif t.kind == "tname" and structTag[t.base.text] then
+                        cdecl[#cdecl + 1] = "struct " .. structTag[t.base.text]
+                            .. " " .. fname .. ";"
                     elseif t.kind == "tname" then
                         cdecl[#cdecl + 1] = "$ " .. fname .. ";"
                         params[#params + 1] = t.base.text
@@ -682,6 +814,12 @@ function gen.generate(result, filename, coverage)
                         if inner.kind == "tname" and C_PRIM[inner.base.text] then
                             cdecl[#cdecl + 1] = C_PRIM[inner.base.text]
                                 .. " *" .. fname .. ";"
+                        elseif inner.kind == "tname"
+                            and structTag[inner.base.text] then
+                            -- Forward-declared above, so the tag resolves even
+                            -- though the body may not have been emitted yet.
+                            cdecl[#cdecl + 1] = "struct "
+                                .. structTag[inner.base.text] .. " *" .. fname .. ";"
                         elseif inner.kind == "tname" then
                             cdecl[#cdecl + 1] = "$ *" .. fname .. ";"
                             params[#params + 1] = inner.base.text
@@ -704,14 +842,28 @@ function gen.generate(result, filename, coverage)
             -- S:m()) have somewhere to attach; ffi.metatype hands back the ctype, which
             -- stays callable as the constructor.
             local mt = "__nuppMt_" .. x.name.text
-            local expr = "const " .. mt .. " = {__index = {}} " .. storage
-                .. (path or x.name.text)
-                .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { "
-                .. table.concat(cdecl, " ") .. " }\""
-            if #params > 0 then
-                expr = expr .. ", " .. table.concat(params, ", ")
+            local tag = structTag[x.name.text]
+            local expr
+            if tag then
+                -- Named, so the body may refer to the tag it is defining. pcall
+                -- because the forward declaration above already introduced it, and
+                -- because a module may be loaded twice in one process.
+                expr = ("pcall(__nuppFfi.cdef, \"struct %s { %s };\") "):format(
+                    tag, table.concat(cdecl, " "))
+                    .. "const " .. mt .. " = {__index = {}} " .. storage
+                    .. (path or x.name.text)
+                    .. (" = %s(__nuppFfi.typeof(\"struct %s\"), %s)")
+                    :format(metatypeHelper(), tag, mt)
+            else
+                expr = "const " .. mt .. " = {__index = {}} " .. storage
+                    .. (path or x.name.text)
+                    .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { "
+                    .. table.concat(cdecl, " ") .. " }\""
+                if #params > 0 then
+                    expr = expr .. ", " .. table.concat(params, ", ")
+                end
+                expr = expr .. "), " .. mt .. ")"
             end
-            expr = expr .. "), " .. mt .. ")"
             e(expr, line)
             for _, entry in ipairs(x.entries or {}) do
                 if entry.kind == "inlineMethod" then
@@ -1790,6 +1942,7 @@ function gen.generate(result, filename, coverage)
         end
     end
 
+    planStructTags()
     for _, child in ipairs(result.root) do
         emit(child)
     end
@@ -1855,6 +2008,28 @@ function gen.generate(result, filename, coverage)
     if needsNewTab then
         code = ("const %s = require(\"table.new\"); "):format(newTabName)
             .. code
+    end
+    if needsMetatypeOnce then
+        -- `ffi.metatype` claims a ctype once per process. A named struct's tag
+        -- encodes its body, so a second claim means the same declaration reached
+        -- this process twice and the ctype already carries the right metatable.
+        code = ("const %s = function(ct, mt) const ok, got = pcall("):format(
+            metatypeOnceName)
+            .. "__nuppFfi.metatype, ct, mt) if ok then return got end return ct end; "
+            .. code
+        needsFfi = true
+    end
+    if #structTagOrder > 0 then
+        -- Tags first, so a struct body and an anonymous ctype alike may point at one
+        -- whose body has not been emitted yet. `ffi.typeof` will not declare a tag
+        -- implicitly the way `ffi.cdef` does, so the declaration has to be explicit.
+        local forwards = {}
+        for _, tag in ipairs(structTagOrder) do
+            forwards[#forwards + 1] = ("pcall(__nuppFfi.cdef, \"struct %s;\"); ")
+                :format(tag)
+        end
+        code = table.concat(forwards) .. code
+        needsFfi = true
     end
     if needsLayout then
         -- One layout per ctype, built on first ask. Weak keys so a ctype nothing else
