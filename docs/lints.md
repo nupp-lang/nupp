@@ -187,7 +187,9 @@ help: write not
 
 ### `else-if`
 
-An `else` whose only statement is `if` is the long form of `elseif`.
+An `else` whose only statement is `if` is the long form of `elseif`. The lint
+also recognizes adjacent `if` statements that compare the same local name to
+different literals, where the first body does not assign that name.
 
 ::: code-group
 ```nupp [src/else-if.nupp]

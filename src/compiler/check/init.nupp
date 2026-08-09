@@ -274,7 +274,7 @@ function checkMod.check(
         typeDefs = {},
         pending = {},
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
@@ -1185,9 +1185,12 @@ function checkMod.check(
         end
         hoistDeclarations(block)
         local stats = block and block.kind == "block" and block.stats or {}
-        for _, stat in ipairs(stats) do
+        local wasNext = c.nextStat
+        for i, stat in ipairs(stats) do
+            c.nextStat = stats[i + 1]
             checkStat(stat)
         end
+        c.nextStat = wasNext
         if not scopeManaged then
             c.popScope()
         end

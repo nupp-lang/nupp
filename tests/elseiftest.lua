@@ -1,5 +1,5 @@
--- else-if: an `else` containing one unannotated `if` is an `elseif` written
--- longhand. The check is syntactic, so it neither changes nor depends on flow.
+-- else-if: an `else` containing one unannotated `if`, or two mutually exclusive
+-- literal tests of one local, are an `elseif` chain written longhand.
 local parser = require("compiler.parser")
 local check = require("fragment")
 local envMod = require("compiler.env")
@@ -60,6 +60,16 @@ else
 end
 ]]
 
+local ADJACENT = [[
+local c = foo[x]
+if c == "a" then
+   d = hi
+end
+if c == "b" then
+   d = boo
+end
+]]
+
 local M = {}
 
 function M.flagsAnElseContainingOnlyAnIf()
@@ -77,6 +87,33 @@ function M.offersAMachineApplicableFix()
    local rewritten = applyFix(CHAIN, fix)
    assert(rewritten:find("elseif%s+second then"), "joins the condition to elseif")
    assertQuiet(rewritten, "the rewritten source has no else-if lint")
+end
+
+function M.flagsAdjacentMutuallyExclusiveConditions()
+   local at = assertFlagged(ADJACENT)
+   assertEq(at.line, 5, "reports at the second if")
+   assertEq(at.help, "replace the second if with elseif and remove the preceding end",
+      "explains the adjacent rewrite")
+   local rewritten = applyFix(ADJACENT, at.fixes[1])
+   assert(rewritten:find("elseif%s+c == \"b\" then"), "changes the second if")
+   assertQuiet(rewritten, "the rewritten source has no else-if lint")
+end
+
+function M.allowsAdjacentConditionsThatCouldBothHold()
+   assertQuiet([[
+local c = foo[x]
+if c == "a" then first() end
+if c == "a" then second() end
+]], "equal tests are not mutually exclusive")
+   assertQuiet([[
+local c = foo[x]
+if c == "a" then c = "b" end
+if c == "b" then second() end
+]], "the first body changes the subject")
+   assertQuiet([[
+if c == "a" then first() end
+if c == "b" then second() end
+]], "a global may be changed by other code")
 end
 
 function M.allowsAdditionalStatementsInTheElse()
@@ -104,6 +141,8 @@ end
 function M.canBeAllowedByNameOrCode()
    assertQuiet('@allow("else-if")\n' .. CHAIN, "allowed by name")
    assertQuiet("@allow(NUPP2510)\n" .. CHAIN, "allowed by code")
+   assertQuiet(ADJACENT:gsub("if c == \"a\"", '@allow("else-if")\nif c == "a"'),
+      "adjacent form allowed by name")
 end
 
 function M.canBeTurnedOff()

@@ -203,6 +203,11 @@ record state.Checker
     --- The lint codes surrounding `@allow` pragmas have asked not to hear about.
     allowed: {any}
 
+    --- The statement immediately after the one being checked in its block, so a
+    --- statement-level judgement can compare adjacent statements while `@allow` is
+    --- still in scope.
+    nextStat: Node?
+
     --- Set while the hoisting pre-pass runs. It resolves annotations early to publish
     --- signatures, and anything wrong with them is reported when the declaration itself
     --- is checked, so saying it twice helps nobody.

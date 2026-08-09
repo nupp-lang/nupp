@@ -115,7 +115,7 @@ lints.all = {
         code = "NUPP2510",
         category = "style",
         level = "warning",
-        summary = "an else containing only an if",
+        summary = "a conditional chain written as separate ifs",
     },
 }
 

@@ -21,6 +21,82 @@ local memberSet = narrowing.memberSet
 
 local control = {}
 
+local LITERAL_KINDS: {
+    [string]: boolean
+} = {string = true, number = true, nilExpr = true, trueExpr = true, falseExpr = true,}
+
+--- The parts of a simple `name == literal` condition, or nil. The lint
+--- deliberately stays narrow: literal equality has no condition-side effect to skip,
+--- and a local binding cannot be changed by an ordinary call.
+local function literalEquality(stat: cst.IfStmt)
+    if stat.elseClause or #(stat.clauses or {}) ~= 1 then
+        return nil, nil
+    end
+    local clause = stat.clauses[1]
+    local cond = clause and clause.cond
+    if not cond or cond.kind ~= "binop" or not cond.op or cond.op.kind ~= "==" then
+        return nil, nil
+    end
+    local lhs, rhs = cond.lhs, cond.rhs
+    local name, literal = nil, nil
+    if lhs and lhs.kind == "name" and rhs and LITERAL_KINDS[rhs.kind] then
+        name, literal = lhs, rhs
+    elseif rhs and rhs.kind == "name" and lhs and LITERAL_KINDS[lhs.kind] then
+        name, literal = rhs, lhs
+    end
+    local nameTok, literalTok = name and name.token, literal and cst.firstToken(literal)
+    if not nameTok or not literalTok then
+        return nil
+    end
+
+    return {name = nameTok.text, literal = literalTok.text}
+end
+
+--- Whether `body` writes the name whose value the following condition would read.
+--- Function bodies are skipped: declaring a closure does not execute its assignment.
+local function writesName(body: cst.Node?, name: string): boolean
+    if not body or cst.isToken(body) or body.kind == "funcbody" or body.kind == "shortfn" then
+        return false
+    end
+    local function isName(node: cst.Node?): boolean
+        if not node or node.kind ~= "name" or not node.token then
+            return false
+        end
+        return node.token.text == name
+    end
+
+    if body.kind == "compoundAssign" and isName(body.target) then
+        return true
+    end
+    if body.kind == "assignStmt" then
+        for _, target in ipairs(body.targets or {}) do
+            if isName(target) then
+                return true
+            end
+        end
+    end
+    for _, child in ipairs(body) do
+        if not cst.isToken(child) and writesName(child, name) then
+            return true
+        end
+    end
+
+    return false
+end
+
+--- Whether `name` resolves to a local rather than a project global at this point.
+local function isLocal(c: state.Checker, name: string): boolean
+    local scope = c.scope
+    while scope do
+        if scope.vars and scope.vars[name] then
+            return true
+        end
+        scope = scope.parent
+    end
+
+    return false
+end
+
 --- Installs the control-flow statements on one run.
 ---
 --- @param c the run's state
@@ -298,6 +374,30 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.ifStmt = function(stat: cst.IfStmt)
+        local adjacent = c.nextStat
+        local first = literalEquality(stat)
+        local second = adjacent and adjacent.kind == "ifStmt" and literalEquality(adjacent) or nil
+        local firstClause = stat.clauses and stat.clauses[1] or nil
+        local firstEnd = cst.lastToken(stat)
+        local nextIf = adjacent and cst.firstToken(adjacent) or nil
+        if first and second and first.name == second.name and first.literal ~= second.literal and isLocal(
+            c,
+            first.name
+        ) and not writesName(firstClause and firstClause.body, first.name) and firstEnd and nextIf then
+            c.diag(
+                "else-if",
+                adjacent,
+                "this condition is mutually exclusive with the preceding if; write elseif instead",
+                {
+                    c.edits.fix(
+                        "write `elseif`",
+                        c.edits.replaceToken(firstEnd, ""),
+                        c.edits.replaceToken(nextIf, "elseif")
+                    ),
+                },
+                {help = "replace the second if with elseif and remove the preceding end"}
+            )
+        end
         local otherwise = stat.elseClause
         local elseBody = otherwise and otherwise.kind == "elseClause" and otherwise.body or nil
         local elseStats = elseBody and elseBody.kind == "block" and elseBody.stats or {}
