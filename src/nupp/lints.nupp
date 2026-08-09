@@ -83,6 +83,11 @@ lints.all = {
         category = "suspicious", level = "warning",
         summary = "a call with nothing to do but return has its result dropped",
     },
+    new lints.Lint {
+        name = "reifiable-record", code = "NUPP2509",
+        category = "performance", level = "off",
+        summary = "a record whose fields would all live in C memory",
+    },
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what
@@ -100,6 +105,7 @@ local CATEGORIES: {[string]: string} = {
     correctness = "the program is very likely wrong",
     suspicious = "legal, and probably not meant",
     style = "it works and reads badly",
+    performance = "a declaration is paying for something it does not use",
     pedantic = "opinions a project may not share",
 }
 
@@ -109,11 +115,26 @@ local LEVELS: {[string]: boolean} = {
     off = true, note = true, warning = true, error = true,
 }
 
+-- The categories whose members may default to `off`, so a project meets them by asking
+-- rather than by being told.
+--
+-- Every other lint answers "is this program wrong", which is worth saying unprompted.
+-- A performance suggestion answers "would a different declaration be faster", and the
+-- honest answer depends on how the value is used -- how many are built, and whether
+-- they are built in a loop -- which no declaration states. Reported unprompted it
+-- would fire on every small record of numbers, most of which are not hot, and a lint
+-- that is usually noise trains its reader to silence the category before ever meeting
+-- the case it was written for. `nupp lints` is where these are discovered.
+local OPT_IN: {[string]: boolean} = {performance = true}
+
 --- What each category is for, keyed by its name.
 lints.categories = CATEGORIES
 
 --- The levels a lint may be configured to.
 lints.levels = LEVELS
+
+--- The categories whose members may default to `off`, keyed by name.
+lints.optIn = OPT_IN
 
 --- The lint a name or a code refers to, or nil.
 ---

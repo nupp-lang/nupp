@@ -90,8 +90,14 @@ function M.everyLintIsWellFormed()
          at .. ": code must be NUPPnnnn")
       assert(check.lintCategories[lint.category],
          at .. ": no such category: " .. tostring(lint.category))
-      assert(check.lintLevels[lint.level] and lint.level ~= "off",
+      -- `off` is a legal default for an opt-in category only. Everywhere else it
+      -- would make a lint nothing reports and nobody meets, which is the same as
+      -- not writing it; in an opt-in category being quiet is the entry's point,
+      -- and `nupp lints` is where it is still met.
+      assert(check.lintLevels[lint.level],
          at .. ": no such default level: " .. tostring(lint.level))
+      assert(lint.level ~= "off" or check.lintOptIn[lint.category],
+         at .. ": only an opt-in category may default to off")
       assert(lint.summary and lint.summary ~= "", at .. ": needs a summary")
       assert(not seen[lint.name], at .. ": duplicate name")
       assert(not seen[lint.code], at .. ": duplicate code")

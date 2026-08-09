@@ -36,6 +36,64 @@ local type Node = cst.Node
 function declare.install(c: any, reifiableField: any, fix: any,
     insertBefore: any, validateAnnotation: any)
 
+    -- The entries a struct body also accepts. Fields carry the reifiability question
+    -- and are asked separately; these three are shapes a struct keeps unchanged, so
+    -- their presence does not argue against the suggestion. Everything absent is
+    -- refused by a struct outright (an indexer, an array part, a declaration-only
+    -- metamethod, a nested declaration), and a record holding one is not a candidate.
+    local STRUCT_ENTRY = {
+        fieldDecl = true, inlineMethod = true, constructorDecl = true,
+    }
+
+    --- Says when a record's fields would all fit in C memory, so `struct` is available.
+    ---
+    --- The judgement is deliberately one-directional. Reification is the largest
+    --- speedup nupp has, and nothing else reports that a declaration is a keyword away
+    --- from it; NUPP2201 only fires once `struct` is already written, so the record
+    --- that could have been one is the silent case. Suggesting is as far as this goes:
+    --- the two are not interchangeable at runtime -- a struct answers `is` as cdata
+    --- rather than a table, has a fixed layout, and gives up the prototype a record
+    --- stamps -- so the change is the author's to make.
+    ---
+    --- The test is a whitelist rather than a list of disqualifiers. Asking "is every
+    --- part of this one a struct also has" cannot suggest a change that fails to
+    --- compile; asking "does it hold anything I know a struct refuses" starts failing
+    --- the day a struct gains a restriction this forgot.
+    ---
+    --- @param stat the record declaration
+    --- @param n its resolved nominal, read for the field types already on it
+    local function suggestStruct(stat: any, n: any)
+        if stat.isAnnotationDefinition or stat.generics
+            or #(stat.supertypes or {}) > 0 then
+            return
+        end
+        local fields = 0
+        for _, e in ipairs(stat.entries or {}) do
+            if not STRUCT_ENTRY[e.kind] then
+                return
+            end
+            if e.kind == "fieldDecl" then
+                -- A capability is a property, which a struct has no way to install.
+                if e.capability then
+                    return
+                end
+                local ft = e.name and n.byname[e.name.text]
+                if not ft or not reifiableField(ft) then
+                    return
+                end
+                fields = fields + 1
+            end
+        end
+        if fields == 0 then
+            return
+        end
+        c.diag("NUPP2509", stat.name,
+            ("record %s declares only fields that reify"):format(n.name), nil,
+            {help = "declaring it `struct` puts its instances in C memory, off the "
+            .. "collector's graph, at the cost of a fixed layout: no fields added "
+            .. "after construction, and `is` answers as cdata rather than a table"})
+    end
+
     --- Reads a `where` refinement into the runtime test it names, and holds it to
     --- the declaration it belongs to.
     ---
@@ -844,6 +902,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 -- keeps it from standing where an instance is wanted, and an
                 -- instance from standing where it is.
                 c.bindDeclaredVar(stat, T.metatable(n))
+                suggestStruct(stat, n)
             else
                 c.bindDeclaredVar(stat, T.any)
             end

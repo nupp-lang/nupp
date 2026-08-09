@@ -810,6 +810,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | `undocumented-raise` | NUPP2506 | suspicious | warning |
 | `unused-binding` | NUPP2507 | suspicious | warning |
 | `discarded-result` | NUPP2508 | suspicious | warning |
+| `reifiable-record` | NUPP2509 | performance | off |
 
 ## Diagnostic codes with a worked example
 

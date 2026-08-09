@@ -467,6 +467,7 @@ end
 checkMod.lints = lints.all
 checkMod.lintCategories = lints.categories
 checkMod.lintLevels = lints.levels
+checkMod.lintOptIn = lints.optIn
 checkMod.lintLevel = lints.level
 checkMod.lintFor = lints.get
 

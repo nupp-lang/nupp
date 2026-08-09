@@ -51,6 +51,7 @@ Every lint has a name and a stable code:
  undocumented-raise       NUPP2506   suspicious    warning
  unused-binding           NUPP2507   suspicious    warning
  discarded-result         NUPP2508   suspicious    warning
+ reifiable-record         NUPP2509   performance   off
 ```
 
 The name is what you write in configuration and suppressions; the code is what
@@ -321,12 +322,62 @@ escapes, declared callees, yielding and raising all are. A function returning
 nothing — including one returning only `nil` — discards nothing and is not
 judged.
 
+### `reifiable-record`
+
+A record whose fields would all fit in C memory is one keyword away from being a
+struct, which is the largest speedup the compiler has.
+
+::: code-group
+```nupp [src/reifiable-record.nupp]
+local record Vec2
+    x: float
+    y: float
+end
+
+return Vec2
+```
+
+```text [nupp check output]
+src/reifiable-record.nupp:1:14: note: NUPP2509 reifiable-record: record Vec2 declares only fields that reify
+ 1 | local record Vec2
+   |              ^~~~
+help: declaring it `struct` puts its instances in C memory, off the collector's graph, at the cost of a fixed layout: no fields added after construction, and `is` answers as cdata rather than a table
+```
+:::
+
+The judgement is one-directional and stays a suggestion, because the two are not
+interchangeable at runtime: a struct has a fixed layout, answers `is` as cdata
+rather than as a table, and gives up the prototype a record stamps on what it
+builds. [`NUPP2201`](diagnostics.md) is the other half — it fires once `struct`
+is written and a field cannot live in C memory, so between them a declaration is
+told both what it could gain and what it may not do.
+
+A record is a candidate only when every entry is one a struct also accepts: a
+field whose type reifies, a constructor, or a method. An indexer, a Lua array
+part, a declaration-only metamethod, a nested declaration, a property
+capability, generics, and a declared supertype each end the question. The test
+asks what a struct accepts rather than listing what it refuses, so a suggestion
+cannot name a change that fails to compile.
+
+The lint is off until a project asks for it:
+
+```lua
+lints = { performance = "note" }
+```
+
 ## Categories
 
 - **correctness** — the program is very likely wrong. A project rarely turns
   these off.
 - **suspicious** — legal, and probably not meant.
 - **style** — it works and reads badly.
+- **performance** — a declaration is paying for something it does not use. The
+  only opt-in category: its members default to `off`, and a project asks for
+  them as a class. Whether a faster declaration is worth having depends on how
+  many values are built and where, which no declaration states, so reported
+  unprompted these would fire on code that is not hot and teach their reader to
+  silence the category before meeting the case they were written for. `nupp
+  lints` lists them whatever their level, which is where they are discovered.
 - **pedantic** — opinions a project may not share. No lint is in this category
   yet, so setting it currently moves nothing.
 
