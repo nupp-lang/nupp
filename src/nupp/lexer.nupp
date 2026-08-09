@@ -81,6 +81,9 @@ type lexer.Token = {
     --- An angle bracket of a generic clause or application, likewise tight.
     generic: boolean?,
 
+    --- `...` introducing a homogeneous type-pack tail, kept tight to its type.
+    homogeneousPack: boolean?,
+
     --- The name of a named vararg parameter, `...rest`.
     namedVararg: boolean?,
 

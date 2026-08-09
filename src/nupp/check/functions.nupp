@@ -185,20 +185,27 @@ function functions.install(c: any): any
         local inferredModes, declaredModes = inferredParameterModes(body)
         local vararg = false
         local varargType = nil
-        local typeParams, typeBounds
+        local typeParams, typeBounds, packParams
         c.functionDepth = c.functionDepth + 1
         c.pushScope()
         if body.generics then
-            typeParams, typeBounds = c.bindGenerics(body.generics, "function")
+            typeParams, typeBounds, packParams = c.bindGenerics(
+                body.generics, "function")
         end
         if selfType then
             c.bindVar("self", selfType)
         end
+        local paramPackTail = nil
         for _, p in ipairs(body.params) do
             if p.namedVararg then
                 vararg = true
                 if p.type then
-                    varargType = c.resolveType(p.type)
+                    if p.type.kind == "tpack" then
+                        local pack = c.resolvePack(p.type)
+                        paramPackTail = pack.tail
+                    else
+                        varargType = c.resolveType(p.type)
+                    end
                 end
                 c.bindVar(p.name.text, T.table_, false, p.name,
                     "parameter", true)
@@ -228,20 +235,32 @@ function functions.install(c: any): any
             else
                 vararg = true
                 if p.type then
-                    varargType = c.resolveType(p.type)
+                    if p.type.kind == "tpack" then
+                        local pack = c.resolvePack(p.type)
+                        paramPackTail = pack.tail
+                    else
+                        varargType = c.resolveType(p.type)
+                    end
                 end
             end
         end
+        local paramPack = T.pack(params, paramPackTail or (vararg and {
+            kind = varargType and "homogeneous" or "unknown",
+            type = varargType or T.any} or nil), paramModes)
         local annotated = nil
-        if body.rets then
+        local retPack
+        if body.returnPack then
+            retPack = c.resolvePack(body.returnPack)
             annotated = {}
-            for j, r in ipairs(body.rets) do
-                annotated[j] = c.resolveType(r)
-                rets[j] = annotated[j]
+            for j, resultT in ipairs(retPack.head) do
+                annotated[j], rets[j] = resultT, resultT
             end
         else
             rets[1] = T.any
+            retPack = T.pack({}, {kind = "unknown", type = T.any})
         end
+        local yieldPack = body.yieldPack and c.resolvePack(body.yieldPack) or nil
+        local resumePack = body.resumePack and c.resolvePack(body.resumePack) or nil
         -- A method returning `borrowed<T>` without naming a source borrows its
         -- receiver: there is only one thing it could mean, and spelling it out on every
         -- container accessor is noise. The result stays explicitly a borrow, so a
@@ -268,7 +287,18 @@ function functions.install(c: any): any
                     body.ownTok or body, "NUPP2615")
             end
         end
+        if body.returnPack then
+            retPack = T.pack(rets, retPack.tail, retPack.modes)
+        end
         c.retStack[#c.retStack + 1] = annotated or false
+        c.retPackStack[#c.retPackStack + 1] = body.returnPack
+            and retPack or false
+        c.varargPackStack[#c.varargPackStack + 1] = vararg
+            and T.pack({}, paramPack.tail) or false
+        c.yieldPackStack[#c.yieldPackStack + 1] = yieldPack or false
+        c.resumePackStack[#c.resumePackStack + 1] = resumePack or false
+        local protocolContext = {yieldPacks = {}}
+        c.protocolStack[#c.protocolStack + 1] = protocolContext
         c.ownReturnStack[#c.ownReturnStack + 1] = body.ownCleanups
             and annotated and annotated[1] and rawType(annotated[1]) or false
         c.borrowReturnStack[#c.borrowReturnStack + 1] =
@@ -307,6 +337,62 @@ function functions.install(c: any): any
         c.checkBlock(body.body, true) -- scope already pushed
         c.loops.setReturning(wasReturning)
         c.loops.finish(loopClosure, body)
+        -- A generic input pack may contain affine slots. Its body therefore has to
+        -- transfer that complete sequence exactly once: directly to the matching result
+        -- pack, or as the expanding argument of a callable accepting the same symbolic
+        -- tail. Any other use can duplicate or silently drop an owner at an
+        -- instantiation the generic body cannot see yet.
+        if paramPackTail and paramPackTail.kind == "generic" then
+            local uses, transfers = 0, 0
+            local transferred = {}
+            local function isVararg(node)
+                return node and not cst.isToken(node) and node.kind == "vararg"
+            end
+            local function walk(node)
+                if not node or cst.isToken(node) then
+                    return
+                end
+                if node.kind == "funcbody" or node.kind == "shortfn" then
+                    return
+                end
+                if node.kind == "vararg" then
+                    uses = uses + 1
+                    return
+                elseif node.kind == "returnStmt" then
+                    local exprs = node.exprs or {}
+                    local last = exprs[#exprs]
+                    if isVararg(last) and retPack.tail
+                        and retPack.tail.kind == "generic"
+                        and retPack.tail.var == paramPackTail.var then
+                        transfers = transfers + 1
+                        transferred[last] = true
+                    end
+                elseif node.kind == "call" or node.kind == "methodCall"
+                    or node.kind == "safeCall" then
+                    local args = node.args and node.args.exprs or {}
+                    local last = args[#args]
+                    local signature = node.signatureType
+                    local tail = signature and signature.tag == "func"
+                        and signature.paramPack.tail or nil
+                    if isVararg(last) and tail and tail.kind == "generic"
+                        and tail.var == paramPackTail.var then
+                        transfers = transfers + 1
+                        transferred[last] = true
+                    end
+                end
+                for _, child in ipairs(node) do
+                    if not cst.isToken(child) and not transferred[child] then
+                        walk(child)
+                    end
+                end
+            end
+            walk(body.body)
+            if uses ~= 0 or transfers ~= 1 then
+                c.diag("NUPP2605", body,
+                    "a potentially affine generic argument pack must be "
+                    .. "forwarded exactly once")
+            end
+        end
         if body.disposeContract and disposeRoot and disposeRoot ~= "self" then
             local terminal = ownershipState(c.lookupEntry(disposeRoot))
             if terminal then
@@ -323,10 +409,19 @@ function functions.install(c: any): any
             end
         end
         c.borrowReturnStack[#c.borrowReturnStack] = nil
+        c.protocolStack[#c.protocolStack] = nil
+        c.varargPackStack[#c.varargPackStack] = nil
+        c.yieldPackStack[#c.yieldPackStack] = nil
+        c.resumePackStack[#c.resumePackStack] = nil
         c.ownReturnStack[#c.ownReturnStack] = nil
         c.retStack[#c.retStack] = nil
+        c.retPackStack[#c.retPackStack] = nil
         c.popScope()
         c.functionDepth = c.functionDepth - 1
+        if not yieldPack and #protocolContext.yieldPacks > 0 then
+            yieldPack = T.packUnion(protocolContext.yieldPacks)
+            resumePack = T.pack({}, {kind = "unknown", type = T.any})
+        end
         -- A body that only ever raises never comes back, whether or not its return type
         -- says so; inferring it is what lets a guard clause written as a helper narrow
         -- at the call site the way an inline `error` does. A declared `never` return
@@ -402,9 +497,13 @@ function functions.install(c: any): any
             and not body.ownCleanups then
             rets[1] = T.borrowed(rawType(rets[1]))
         end
+        if body.returnPack then
+            retPack = T.pack(rets, retPack.tail, retPack.modes)
+        end
         return T.func(params, rets, vararg, paramModes, predicate,
             typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams,
-            nil, varargType, noreturn)
+            nil, varargType, noreturn, paramPack, retPack, packParams,
+            yieldPack, resumePack)
     end
 
     -- A function's type as its annotations give it, without checking the body. Enough
@@ -413,10 +512,11 @@ function functions.install(c: any): any
     c.signatureOf = function(body, selfType)
         local params, modes = {}, {}
         local inferredModes, declaredModes = inferredParameterModes(body or {})
-        local typeParams, typeBounds
+        local typeParams, typeBounds, packParams
         c.pushScope()
         if body and body.generics then
-            typeParams, typeBounds = c.bindGenerics(body.generics, "function")
+            typeParams, typeBounds, packParams = c.bindGenerics(
+                body.generics, "function")
         end
         if selfType then
             params[1] = selfType
@@ -424,6 +524,7 @@ function functions.install(c: any): any
         end
         local parameterIndex = 0
         local varargType = nil
+        local paramPackTail = nil
         local vararg = body and body.varargs or false
         for _, p in ipairs(body and body.params or {}) do
             if p.name and not p.namedVararg then
@@ -441,20 +542,29 @@ function functions.install(c: any): any
                 -- `...` and `...rest`, with or without an element annotation
                 vararg = true
                 if p.type then
-                    varargType = c.resolveType(p.type)
+                    if p.type.kind == "tpack" then
+                        local pack = c.resolvePack(p.type)
+                        paramPackTail = pack.tail
+                    else
+                        varargType = c.resolveType(p.type)
+                    end
                 end
             end
         end
-        local rets = {}
-        for j, r in ipairs(body and body.rets or {}) do
-            rets[j] = c.resolveType(r)
-        end
-        if #rets == 0 then
-            rets[1] = T.any
-        end
+        local paramPack = T.pack(params, paramPackTail or (vararg and {
+            kind = varargType and "homogeneous" or "unknown",
+            type = varargType or T.any} or nil), modes)
+        local retPack = body and body.returnPack and c.resolvePack(body.returnPack)
+            or T.pack({}, {kind = "unknown", type = T.any})
+        local rets = body and body.returnPack and retPack.head or {T.any}
+        local yieldPack = body and body.yieldPack and c.resolvePack(body.yieldPack)
+            or nil
+        local resumePack = body and body.resumePack and c.resolvePack(body.resumePack)
+            or nil
         c.popScope()
         return T.func(params, rets, vararg, modes,
-            nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, false)
+            nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, false,
+            paramPack, retPack, packParams, yieldPack, resumePack)
     end
 
     c.inferredParameterModes = inferredParameterModes
@@ -544,7 +654,9 @@ function functions.install(c: any): any
                 owner.byname[member] = T.func(params, ft.rets, ft.vararg,
                     modes, ft.predicate, ft.typeParams, ft.typeBounds,
                     ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams,
-                    ft.ffiOut, ft.varargType, ft.noreturn)
+                    ft.ffiOut, ft.varargType, ft.noreturn,
+                    T.pack(params, ft.paramPack.tail, modes), ft.retPack,
+                    ft.packParams, ft.yieldPack, ft.resumePack)
                 owner.writeByname[member] = owner.byname[member]
             else
                 owner.byname[member] = ft

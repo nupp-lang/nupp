@@ -24,6 +24,22 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- The complete Lua value sequence produced when this expression is in the final
+    --- expanding position of a list. Parenthesized expressions deliberately omit it.
+    valuePack: any
+
+    --- The exact value sequence supplied to a checked call after Lua list adjustment.
+    argumentPack: any
+
+    --- Stable coroutine-library operation recognized by the checker.
+    coroutineIntrinsic: string?
+
+    --- Protocol carried from coroutine.wrap into the returned callable binding.
+    wrappedProtocol: any
+
+    --- Local thread whose phase a coroutine.status result describes.
+    coroutineStatusName: string?
+
     --- Lua source replacing a primitive expression the optimizer proved constant.
     folded: string?
 
@@ -68,25 +84,25 @@ interface cst.Hints
     --- The runtime table of a record, which is its identity.
     recordName: string?
 
-    --- The runtime table of an interface, which exists only to hold the default
-    --- bodies a declaration taking the contract references.
+    --- The runtime table of an interface, which exists only to hold the default bodies
+    --- a declaration taking the contract references.
     interfaceName: string?
 
-    --- The nominal a supertype node named, so its runtime spelling can be found
-    --- again from the type.
+    --- The nominal a supertype node named, so its runtime spelling can be found again
+    --- from the type.
     resolvedSupertype: any
 
-    --- The defaults a declaration takes, as `{name, from}` pairs the generator
-    --- turns into assignments.
+    --- The defaults a declaration takes, as `{name, from}` pairs the generator turns
+    --- into assignments.
     inheritedDefaultNames: any
 
     --- Set on an inline method emitted as a plain function rather than a method,
     --- because a default's receiver is the value it is later attached to.
     inlineDotted: boolean?
 
-    --- The runtime test a `where` refinement named, attached by the checker so
-    --- `is` compiles to it. A refinement travels as data, so nothing here has to
-    --- be resolved a second time.
+    --- The runtime test a `where` refinement named, attached by the checker so `is`
+    --- compiles to it. A refinement travels as data, so nothing here has to be resolved
+    --- a second time.
     wherePredicate: any
 
     --- Set on an `is` whose answer the subject's own type already settles.
@@ -96,8 +112,8 @@ interface cst.Hints
     --- false without running.
     refutedStatically: boolean?
 
-    --- Whether that subject still admits nil, which is then the only question
-    --- left to ask at run time.
+    --- Whether that subject still admits nil, which is then the only question left to
+    --- ask at run time.
     provenNeedsNil: boolean?
 
     --- Generator-owned runtime path for a nested record.
@@ -146,12 +162,12 @@ interface cst.Hints
     --- Whether the access went through a declared contract.
     usesIndexContract: boolean?
 
-    --- The metamethod a field access named on the receiver's own runtime table,
-    --- which is the metatable its instances carry. Writing one installs it.
+    --- The metamethod a field access named on the receiver's own runtime table, which
+    --- is the metatable its instances carry. Writing one installs it.
     metamethodName: string?
 
-    --- The receiver whose contract that is, so the installed value can be held to
-    --- it where the assignment is checked.
+    --- The receiver whose contract that is, so the installed value can be held to it
+    --- where the assignment is checked.
     metamethodReceiver: any
 
     --- Set while an assignment asks an index expression for its accepted write type.
@@ -184,8 +200,8 @@ interface cst.Hints
     --- Set on a call that constructs a record.
     recordConstruct: string?
 
-    --- Set on the call under a `new`, which is what makes it a construction
-    --- rather than an ordinary call reaching `__call` or a ctype.
+    --- Set on the call under a `new`, which is what makes it a construction rather than
+    --- an ordinary call reaching `__call` or a ctype.
     isNew: boolean?
 
     --- The runtime path of a record whose declared constructor this call runs.
@@ -949,6 +965,9 @@ record cst.Generics is cst.Hints
 
     --- Upper bounds, indexed to match `names`; an absent slot is unbounded.
     bounds: {cst.Node}
+
+    --- Whether the aligned name is a generic pack binder, `A...`.
+    packs: {boolean}
 end
 
 --- One parameter of a function body, a short function, or a cdef.
@@ -986,6 +1005,12 @@ record cst.Funcbody is cst.Hints
 
     --- Its return annotations, when they were written.
     rets: {cst.Node}?
+
+    returnPack: cst.Node?
+
+    yieldPack: cst.Node?
+
+    resumePack: cst.Node?
 
     --- The block.
     body: cst.Node?
@@ -1084,11 +1109,11 @@ end
 
 --- `new T(...)`, `new T {...}`: the only way to construct a record or a struct.
 ---
---- The construction is written as a call so that Lua's existing call sugar covers
---- every form, and so that a qualified name reaches its declaration through the
---- same suffix parsing everything else uses. `new` installs nothing at run time:
---- it lowers to the stamp or the ctype call directly, which is what leaves
---- `__call` and `__new` to the program.
+--- The construction is written as a call so that Lua's existing call sugar covers every
+--- form, and so that a qualified name reaches its declaration through the same suffix
+--- parsing everything else uses. `new` installs nothing at run time: it lowers to the
+--- stamp or the ctype call directly, which is what leaves `__call` and `__new` to the
+--- program.
 record cst.NewExpr is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1101,13 +1126,13 @@ end
 
 --- `constructor(...) ... end` in a declaration body: what `new T(...)` runs.
 ---
---- It has no name and no return type. The instance is made before the body runs
---- and returned after it, so the body's whole job is to fill the fields in.
---- `matches ... end` in an interface body: the runtime test for `is`.
+--- It has no name and no return type. The instance is made before the body runs and
+--- returned after it, so the body's whole job is to fill the fields in. `matches ...
+--- end` in an interface body: the runtime test for `is`.
 ---
---- An interface has no table to stamp, so this is the only identity it can have.
---- The expression reads the declaration's own fields through `self`, in a subset
---- small enough to inline wherever `is` is written.
+--- An interface has no table to stamp, so this is the only identity it can have. The
+--- expression reads the declaration's own fields through `self`, in a subset small
+--- enough to inline wherever `is` is written.
 record cst.MatchesDecl is cst.Hints
     {cst.Node | lexer.Token}
 
@@ -1549,6 +1574,31 @@ record cst.Ttuple is cst.Hints
     types: {cst.Node}
 end
 
+--- A value sequence in type position, `(T, U, R...)`, `R...`, or `...T`.
+record cst.Tpack is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tpack'
+
+    --- Fixed head types.
+    types: {cst.Node}
+
+    --- A generic tail name or homogeneous tail type.
+    tail: cst.Node?
+
+    --- `generic` or `homogeneous` when a tail is present.
+    tailKind: string?
+end
+
+--- Alternative complete value sequences, `(Pack | Pack)`.
+record cst.TpackUnion is cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tpackUnion'
+
+    packs: {cst.Node}
+end
+
 --- `{T}`, a one-based Lua array.
 record cst.Tarray is cst.Hints
     {cst.Node | lexer.Token}
@@ -1575,6 +1625,14 @@ record cst.Tfunc is cst.Hints
 
     --- Its return types, when they were written.
     rets: {cst.Node}?
+
+    paramPack: cst.Node?
+
+    returnPack: cst.Node?
+
+    yieldPack: cst.Node?
+
+    resumePack: cst.Node?
 end
 
 --- One parameter of a function type.
@@ -1592,6 +1650,8 @@ record cst.TfuncParam is cst.Hints
 
     --- Its type.
     type: cst.Node?
+
+    pack: boolean?
 end
 
 --- `T?`, which admits nil.
@@ -1703,7 +1763,7 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr
     | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen
     | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc
-    | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion
+    | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion
     | cst.ErrorType | cst.Tpredicate | cst.Tborrows
 
 --- What a node holds: another node, or a token.

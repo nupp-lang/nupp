@@ -1,0 +1,296 @@
+local parser = require("nupp.parser")
+local check = require("nupp.check")
+local envMod = require("nupp.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
+
+local function assertEq(got, want, label)
+   if got ~= want then
+      error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch",
+         tostring(want), tostring(got)), 2)
+   end
+end
+
+local function codes(source)
+   env.loaded = {}
+   local parsed = parser.parse(source, "test")
+   assertEq(#parsed.errors, 0, "syntax: "
+      .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+   local out = {}
+   for j, diagnostic in ipairs(check.check(parsed, "test", env)) do
+      out[j] = diagnostic.code
+   end
+   return table.concat(out, " ")
+end
+
+local function clean(source)
+   assertEq(codes(source), "", "expected clean check for:\n" .. source)
+end
+
+local M = {}
+
+function M.genericPacksPreserveHeterogeneousValues()
+   clean(table.concat({
+      "local function forward<A...>(...: A...): A...",
+      "   return ...",
+      "end",
+      "local count, name, active = forward(3, 'nupp', true)",
+      "local n: number = count",
+      "local s: string = name",
+      "local b: boolean = active",
+   }, "\n"))
+end
+
+function M.callbackAdaptersInferArgumentAndResultPacks()
+   clean(table.concat({
+      "local function apply<A..., R...>(",
+      "   f: function(A...): R..., ...: A...",
+      "): R...",
+      "   return f(...)",
+      "end",
+      "local function pair(n: number, s: string): (boolean, string)",
+      "   return n > 0, s",
+      "end",
+      "local ok, text = apply(pair, 1, 'ready')",
+      "local b: boolean = ok",
+      "local s: string = text",
+   }, "\n"))
+end
+
+function M.genericAliasesAcceptDelimitedPackArguments()
+   clean(table.concat({
+      "local type Adapter<A..., R...> = function(A...): R...",
+      "local function forward<A...>(...: A...): A... return ... end",
+      "local adapter: Adapter<(number, string), (number, string)> = forward",
+   }, "\n"))
+end
+
+function M.packBinderPlacementAndPackPositionsAreChecked()
+   assertEq(codes("local function bad<A..., T>(x: T) end"), "NUPP2121")
+   assertEq(codes("local value: (number, string)"), "NUPP2121")
+end
+
+function M.luaOnlyExpandsTheFinalUnparenthesizedExpression()
+   clean(table.concat({
+      "local function pair(): (number, string)",
+      "   return 1, 'one'",
+      "end",
+      "local function consume(n: number, s: string) end",
+      "consume(pair())",
+      "local first: number = (pair())",
+      "local a, b, c = pair(), true",
+      "local n: number = a",
+      "local flag: boolean = b",
+      "local missing: nil = c",
+   }, "\n"))
+end
+
+function M.expandedSurplusArgumentsKeepTheArityDiagnostic()
+   assertEq(codes(table.concat({
+      "local function pair(): (number, string)",
+      "   return 1, 'one'",
+      "end",
+      "local function one(n: number) end",
+      "one(pair())",
+   }, "\n")), "NUPP2007")
+end
+
+function M.protectedCallsKeepCorrelatedResultArms()
+   clean(table.concat({
+      "local function pair(n: number): (number, string)",
+      "   return n, tostring(n)",
+      "end",
+      "local ok, value, text = xpcall(pair,",
+      "   function(_): boolean return false end, 1)",
+      "if ok == true then",
+      "   local n: number = value",
+      "   local s: string = text",
+      "else",
+      "   local failure: boolean = value",
+      "   local absent: nil = text",
+      "end",
+   }, "\n"))
+end
+
+function M.selectTransformsPacksWithoutAny()
+   clean(table.concat({
+      "local text, flag = select(2, 1, 'two', true)",
+      "local s: string = text",
+      "local b: boolean = flag",
+      "local last: boolean = select(-1, 1, 'two', true)",
+      "local count: integer = select('#', 1, 'two', true)",
+   }, "\n"))
+   assertEq(codes("local value = select(0, 1, 2)"), "NUPP2010")
+end
+
+function M.unpackPreservesTupleAndArrayElementTypes()
+   clean(table.concat({
+      "local function takeTuple(tuple: {number, string, boolean})",
+      "   local n, s = unpack(tuple, 1, 2)",
+      "   local exactNumber: number = n",
+      "   local exactString: string = s",
+      "end",
+      "local list: {string} = {'a', 'b'}",
+      "local a, b = unpack(list)",
+      "local first: string = a",
+      "local second: string = b",
+   }, "\n"))
+end
+
+function M.coroutineProtocolsTypeYieldResumeAndReturnValues()
+   clean(table.concat({
+      "local function worker(start: number): string",
+      "   yields (number, string) resumes (boolean)",
+      "   local again: boolean = coroutine.yield(start, 'paused')",
+      "   return tostring(again)",
+      "end",
+      "local co: thread<(number), (boolean), (number, string), (string)> =",
+      "   coroutine.create(worker)",
+      "local ok, value, label = coroutine.resume(co, 1)",
+      "if ok then",
+      "   local result: number | string = value",
+      "   local detail: string? = label",
+      "end",
+   }, "\n"))
+end
+
+function M.coroutineStartAndResumePacksFollowTheLocalHandlePhase()
+   local declaration = table.concat({
+      "local function worker(start: number): string",
+      "   yields (number) resumes (boolean)",
+      "   local again: boolean = coroutine.yield(start)",
+      "   return tostring(again)",
+      "end",
+   }, "\n")
+   assertEq(codes(declaration .. "\n" .. table.concat({
+      "local co = coroutine.create(worker)",
+      "coroutine.resume(co, true)",
+   }, "\n")), "NUPP2010")
+   clean(declaration .. "\n" .. table.concat({
+      "local co = coroutine.create(worker)",
+      "local firstOk, firstValue = coroutine.resume(co, 1)",
+      "local nextOk, nextValue = coroutine.resume(co, true)",
+   }, "\n"))
+   assertEq(codes(declaration .. "\n" .. table.concat({
+      "local co = coroutine.create(worker)",
+      "coroutine.resume(co, 1)",
+      "coroutine.resume(co, 2)",
+   }, "\n")), "NUPP2010")
+end
+
+function M.coroutineWrapCarriesTheSameStatefulProtocol()
+   local declaration = table.concat({
+      "local function worker(start: number): string",
+      "   yields (number) resumes (boolean)",
+      "   local again: boolean = coroutine.yield(start)",
+      "   return tostring(again)",
+      "end",
+   }, "\n")
+   clean(declaration .. "\n" .. table.concat({
+      "local wrapped = coroutine.wrap(worker)",
+      "local yielded: number | string = wrapped(1)",
+      "local returned: number | string = wrapped(true)",
+   }, "\n"))
+   assertEq(codes(declaration .. "\n" .. table.concat({
+      "local wrapped = coroutine.wrap(worker)",
+      "wrapped(true)",
+   }, "\n")), "NUPP2006")
+end
+
+function M.coroutineStatusNarrowsADeadHandle()
+   assertEq(codes(table.concat({
+      "local function worker(start: number): string",
+      "   yields (number) resumes (boolean)",
+      "   local again: boolean = coroutine.yield(start)",
+      "   return tostring(again)",
+      "end",
+      "local co = coroutine.create(worker)",
+      "coroutine.resume(co, 1)",
+      "local state = coroutine.status(co)",
+      "if state == 'dead' then",
+      "   coroutine.resume(co, true)",
+      "end",
+   }, "\n")), "NUPP2010")
+end
+
+function M.affinePackResultsCannotBeSilentlyDiscarded()
+   local declaration = table.concat({
+      "@owned(cleanup = release)",
+      "cdef function acquire(): voidptr",
+      "cdef function release(takes value: voidptr)",
+      "local function make(): (number, owned<voidptr>)",
+      "   return 1, acquire()",
+      "end",
+   }, "\n")
+   assertEq(codes(declaration .. "\nlocal first = make()"), "NUPP2605")
+   assertEq(codes(declaration .. "\nmake()"), "NUPP2605")
+end
+
+function M.protectedCallOwnersExistOnlyInTheSuccessArm()
+   local declaration = table.concat({
+      "@owned(cleanup = release)",
+      "cdef function acquire(): voidptr",
+      "cdef function release(takes value: voidptr)",
+   }, "\n")
+   clean(declaration .. "\n" .. table.concat({
+      "local ok, resource = pcall(acquire)",
+      "if ok then",
+      "   dispose(resource)",
+      "end",
+   }, "\n"))
+   assertEq(codes(declaration .. "\n" .. table.concat({
+      "local ok, resource = pcall(acquire)",
+      "if ok then",
+      "   print(resource)",
+      "end",
+   }, "\n")), "NUPP2603")
+end
+
+function M.genericPackForwardingKeepsBorrowProvenance()
+   local declaration = table.concat({
+      "local struct resource",
+      "   value: int32",
+      "end",
+      "@owned(cleanup = resource_free)",
+      "cdef function resource_new(): resource*",
+      "cdef function resource_free(takes value: resource*)",
+      "local function borrow(borrows value: resource*):",
+      "   borrowed<resource*> borrows value",
+      "   return value",
+      "end",
+      "local function forward<A...>(...: A...): A...",
+      "   return ...",
+      "end",
+   }, "\n")
+   assertEq(codes(declaration .. "\n" .. table.concat({
+      "local owner = resource_new()",
+      "local view = forward(borrow(owner))",
+      "resource_free(owner)",
+      "print(view.value)",
+   }, "\n")), "NUPP2603 NUPP2602")
+   clean(declaration .. "\n" .. table.concat({
+      "local owner = resource_new()",
+      "do",
+      "   local view = forward(borrow(owner))",
+      "   print(view.value)",
+      "end",
+      "resource_free(owner)",
+   }, "\n"))
+end
+
+function M.potentiallyAffineGenericPacksMustTransferExactlyOnce()
+   assertEq(codes(table.concat({
+      "local function drop<A...>(...: A...) end",
+      "return drop",
+   }, "\n")), "NUPP2605")
+   assertEq(codes(table.concat({
+      "local function duplicate<A...>(sink: function(A...), ...: A...)",
+      "   sink(...)",
+      "   sink(...)",
+      "end",
+      "return duplicate",
+   }, "\n")), "NUPP2605")
+end
+
+return M

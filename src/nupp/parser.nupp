@@ -191,7 +191,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor,
-        parseFuncbody, parseType, parseStatement, parseReturnType
+        parseFuncbody, parseType, parseTypePack, parseStatement, parseReturnType
 
     -- Tokens that can begin a type expression.
     local TYPE_START = {
@@ -325,10 +325,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         local g = new cst.Generics {kind = "generics"}
         add(g, advance()).generic = true
-        g.names, g.bounds = {}, {}
+        g.names, g.bounds, g.packs = {}, {}, {}
         repeat
             local at = #g.names + 1
             g.names[at] = add(g, expectName("in generic parameter list"))
+            if cur().kind == "..." then
+                g.packs[at] = true
+                add(g, advance()).generic = true
+            end
             if cur().kind == "name" and cur().text == "is" then
                 add(g, advance())
                 g.bounds[at] = add(g, parseType())
@@ -387,18 +391,34 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             if cur().kind == "<" then
                 add(n, advance()).generic = true
-                n.typeArgs = {add(n, parseType())}
+                local packArgs = n.base and n.base.text == "thread"
+                n.typeArgs = {add(n, packArgs
+                    and parseTypePack(false) or parseType())}
                 while cur().kind == "," do
                     add(n, advance())
-                    n.typeArgs[#n.typeArgs + 1] = add(n, parseType())
+                    n.typeArgs[#n.typeArgs + 1] = add(n, packArgs
+                        and parseTypePack(false) or parseType())
                 end
                 add(n, expect(">", "to close type arguments")).generic = true
             end
             return n
         elseif kind == "(" then
+            local open = advance()
+            local first = parseType()
+            if cur().kind == "," then
+                local pack = new cst.Tpack {kind = "tpack", types = {}}
+                add(pack, open)
+                pack.types[1] = add(pack, first)
+                while cur().kind == "," do
+                    add(pack, advance())
+                    pack.types[#pack.types + 1] = add(pack, parseType())
+                end
+                add(pack, expect(")", "to close type pack"))
+                return pack
+            end
             local n = new cst.Tparen {kind = "tparen"}
-            add(n, advance())
-            n.inner = add(n, parseType())
+            add(n, open)
+            n.inner = add(n, first)
             add(n, expect(")", "to close type"))
             return n
         elseif kind == "{" then
@@ -503,8 +523,25 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         add(p, advance())
                         if cur().kind == ":" then
                             annotationColon(p, "in vararg type")
-                            p.type = add(p, parseType())
+                            if cur().kind == "name" and tokens[i + 1]
+                                and tokens[i + 1].kind == "..." then
+                                p.type = add(p, parseTypePack())
+                                p.pack = true
+                            else
+                                p.type = add(p, parseType())
+                            end
                         end
+                        n.params[#n.params + 1] = add(n, p)
+                        break
+                    elseif cur().kind == "name" and tokens[i + 1]
+                        and tokens[i + 1].kind == "..." then
+                        local pack = new cst.Tpack {kind = "tpack", types = {}}
+                        local tail = new cst.Tname {kind = "tname"}
+                        tail.base = add(tail, advance())
+                        pack.tail = add(pack, tail)
+                        pack.tailKind = "generic"
+                        add(pack, advance()).generic = true
+                        p.type, p.pack = add(p, pack), true
                         n.params[#n.params + 1] = add(n, p)
                         break
                     elseif cur().kind == "name"
@@ -535,17 +572,23 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, expect(")", "to close function type parameters"))
             if cur().kind == ":" then
                 annotationColon(n, "before return type")
-                if cur().kind == "(" then
-                    -- multi-return needs parens in type position [CS-7]
-                    add(n, advance())
-                    n.rets = {add(n, parseType())}
-                    while cur().kind == "," do
-                        add(n, advance())
-                        n.rets[#n.rets + 1] = add(n, parseType())
-                    end
-                    add(n, expect(")", "to close return types"))
+                local returnPack = parseTypePack(false)
+                n.returnPack = returnPack
+                if returnPack.kind == "tpack" and not returnPack.tail then
+                    for _, child in ipairs(returnPack) do add(n, child) end
                 else
-                    n.rets = {add(n, parseType())}
+                    add(n, returnPack)
+                end
+                n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+            end
+            if cur().kind == "name" and cur().text == "yields" then
+                add(n, advance())
+                n.yieldPack = add(n, parseTypePack(false))
+                if not (cur().kind == "name" and cur().text == "resumes") then
+                    errAt(cur(), "'resumes' must follow a coroutine yield pack")
+                else
+                    add(n, advance())
+                    n.resumePack = add(n, parseTypePack(false))
                 end
             end
             return n
@@ -610,6 +653,85 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             n.types[#n.types + 1] = add(n, parsePosttype())
         end
+        return n
+    end
+
+    --- A complete value sequence in a function signature.
+    parseTypePack = function(allowBareList: boolean?): Node
+        if cur().kind == "..." then
+            local n = new cst.Tpack {kind = "tpack", types = {},
+                tailKind = "homogeneous"}
+            local dots = add(n, advance())
+            dots.generic, dots.homogeneousPack = true, true
+            n.tail = add(n, parseType())
+            return n
+        end
+        if cur().kind == "name" and tokens[i + 1]
+            and tokens[i + 1].kind == "..." then
+            local n = new cst.Tpack {kind = "tpack", types = {},
+                tailKind = "generic"}
+            local tail = new cst.Tname {kind = "tname"}
+            tail.base = add(tail, advance())
+            n.tail = add(n, tail)
+            add(n, advance()).generic = true
+            return n
+        end
+        if cur().kind ~= "(" then
+            local n = new cst.Tpack {kind = "tpack", types = {}}
+            n.types[1] = add(n, parseReturnType())
+            while allowBareList and cur().kind == "," and tokens[i + 1]
+                and TYPE_START[tokens[i + 1].kind] do
+                add(n, advance()).typeSeparator = true
+                n.types[#n.types + 1] = add(n, parseType())
+            end
+            return n
+        end
+        local n = new cst.Tpack {kind = "tpack", types = {}}
+        add(n, advance())
+        if cur().kind == ")" then
+            add(n, advance()); return n
+        end
+        if cur().kind == "(" then
+            local first = add(n, parseTypePack(false))
+            if cur().kind == "|" then
+                local union = new cst.TpackUnion {kind = "tpackUnion",
+                    packs = {first}}
+                for _, child in ipairs(n) do add(union, child) end
+                while cur().kind == "|" do
+                    add(union, advance())
+                    union.packs[#union.packs + 1] = add(union,
+                        parseTypePack(false))
+                end
+                add(union, expect(")", "to close pack union"))
+                return union
+            end
+            n.types[1] = first
+        else
+            while true do
+                if cur().kind == "..." then
+                    local dots = add(n, advance())
+                    dots.generic, dots.homogeneousPack = true, true
+                    n.tailKind = "homogeneous"
+                    n.tail = add(n, parseType())
+                    break
+                end
+                local item = add(n, parseType())
+                if cur().kind == "..." then
+                    if item.kind ~= "tname" then
+                        errAt(cur(), "only a generic pack name may precede '...'")
+                    end
+                    add(n, advance()).generic = true
+                    n.tail, n.tailKind = item, "generic"
+                    break
+                end
+                n.types[#n.types + 1] = item
+                if cur().kind ~= "," then
+                    break
+                end
+                add(n, advance())
+            end
+        end
+        add(n, expect(")", "to close type pack"))
         return n
     end
 
@@ -932,25 +1054,27 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     end
 
     -- "new" is contextual [CS-12]: it introduces a construction only when a name
-    -- follows it on the same line. That is what keeps `local new = 1`, `f(new)`
-    -- and a `new` left at the end of a line meaning what they always did — a name
-    -- is a name everywhere the next token does not make it an operator.
+    -- follows it on the same line. That is what keeps `local new = 1`, `f(new)` and a
+    -- `new` left at the end of a line meaning what they always did — a name is a name
+    -- everywhere the next token does not make it an operator.
 
     --- Whether a construction begins at the cursor.
     local function atNewexp(): boolean
         local tok = cur()
-        if tok.kind ~= "name" or tok.text ~= "new" then return false end
+        if tok.kind ~= "name" or tok.text ~= "new" then
+            return false
+        end
         local after = tokens[i + 1]
         return after ~= nil and after.kind == "name" and after.line == tok.line
     end
 
     --- `new T(...)`, `new T {...}`: a construction.
     ---
-    --- The operand is parsed as an ordinary suffixed expression, so a qualified
-    --- name and every call-argument spelling come from the machinery that already
-    --- reads them. What `new` adds is the requirement that it end in a call:
-    --- a bare `new T` would be a second way to write `new T()`, and one spelling
-    --- per meaning is the whole reason the keyword exists.
+    --- The operand is parsed as an ordinary suffixed expression, so a qualified name
+    --- and every call-argument spelling come from the machinery that already reads
+    --- them. What `new` adds is the requirement that it end in a call: a bare `new T`
+    --- would be a second way to write `new T()`, and one spelling per meaning is the
+    --- whole reason the keyword exists.
     local function parseNewexp(): Node
         local n = new cst.NewExpr {kind = "newExpr"}
         local kw = advance()
@@ -961,7 +1085,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             -- A construction is not the call sugar it is spelled as, so its brace
             -- stands off the type rather than hugging it the way `f{...}` does.
             local calleeEnd = cst.lastToken(call.obj)
-            if calleeEnd then calleeEnd.constructTarget = true end
+            if calleeEnd then
+                calleeEnd.constructTarget = true
+            end
         end
         if call.kind ~= "call" and call.kind ~= "safeCall" then
             errAt(kw, "'new' needs a construction; write new T(...) or new T {...}",
@@ -1108,7 +1234,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     if cur().kind == ":" then
                         annotationColon(p, "in vararg annotation")
-                        p.type = add(p, parseType())
+                        if cur().kind == "name" and tokens[i + 1]
+                            and tokens[i + 1].kind == "..." then
+                            p.type = add(p, parseTypePack())
+                        else
+                            p.type = add(p, parseType())
+                        end
                     end
                     n.params[#n.params + 1] = add(n, p)
                     if cur().kind == "," then
@@ -1139,13 +1270,23 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if cur().kind == ":" then
             -- Statement-position return annotation: unparenthesized list [CS-7].
             annotationColon(n, "before return types")
-            n.rets = {add(n, parseReturnType())}
-            while cur().kind == "," and tokens[i + 1]
-                and TYPE_START[tokens[i + 1].kind] do
-                -- the comma belongs to the annotation, not to the code, so it erases
-                -- with the types it separates
-                add(n, advance()).typeSeparator = true
-                n.rets[#n.rets + 1] = add(n, parseType())
+            local returnPack = parseTypePack(true)
+            n.returnPack = returnPack
+            if returnPack.kind == "tpack" and not returnPack.tail then
+                for _, child in ipairs(returnPack) do add(n, child) end
+            else
+                add(n, returnPack)
+            end
+            n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+        end
+        if cur().kind == "name" and cur().text == "yields" then
+            add(n, advance())
+            n.yieldPack = add(n, parseTypePack(true))
+            if not (cur().kind == "name" and cur().text == "resumes") then
+                errAt(cur(), "'resumes' must follow a coroutine yield pack")
+            else
+                add(n, advance())
+                n.resumePack = add(n, parseTypePack(true))
             end
         end
         local savedLoopDepth = loopDepth
@@ -1257,15 +1398,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 e.body = add(e, parseFuncbody())
             elseif cur().kind == "name" and cur().text == "constructor"
                 and tokens[i + 1] and tokens[i + 1].kind == "(" then
-                -- Contextual, like every other word this grammar adds: a field
-                -- named `constructor` is followed by a colon, never a paren.
+                -- Contextual, like every other word this grammar adds: a field named
+                -- `constructor` is followed by a colon, never a paren.
                 e = new cst.ConstructorDecl {kind = "constructorDecl"}
                 add(e, advance())
                 e.body = add(e, parseFuncbody())
             elseif cur().kind == "name" and cur().text == "matches"
                 and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
-                -- Contextual: a field named `matches` is followed by a colon,
-                -- because every field states its own type.
+                -- Contextual: a field named `matches` is followed by a colon, because
+                -- every field states its own type.
                 e = new cst.MatchesDecl {kind = "matchesDecl"}
                 add(e, advance())
                 e.expr = add(e, parseExp())

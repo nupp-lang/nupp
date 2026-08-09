@@ -158,6 +158,44 @@ record types.CType
     of: types.Type
 end
 
+--- A generic binder standing for zero or more heterogeneous values.
+record types.PackVar
+    id: string
+    tag: 'packvar'
+    name: string
+end
+
+--- A Lua value sequence. `tail` is homogeneous, generic, symbolic or unknown.
+record types.Pack
+    id: string
+    tag: 'pack'
+    head: {types.Type}
+    modes: {string}
+    tail: any
+    alternatives: {types.Pack}?
+end
+
+--- A coroutine protocol. Bare `thread` remains its gradual erased supertype.
+record types.ProtocolThread
+    id: string
+    tag: 'protocolThread'
+    startPack: types.Pack
+    resumePack: types.Pack
+    yieldPack: types.Pack
+    returnPack: types.Pack
+end
+
+--- A structural generic alias awaiting explicit type and pack arguments.
+record types.GenericAlias
+    id: string
+    tag: 'genericAlias'
+    name: string
+    body: types.Type
+    typeParams: {types.Type}
+    typeBounds: {types.Type}
+    packParams: {types.PackVar}
+end
+
 --- A function.
 record types.Func
     id: string
@@ -202,6 +240,16 @@ record types.Func
 
     --- Whether its result borrows the receiver of a method call.
     borrowsSelf: boolean?
+
+    --- First-class parameter and result sequences. The arrays above are compatibility
+    --- views during the migration and are derived from these packs.
+    paramPack: types.Pack
+
+    retPack: types.Pack
+
+    packParams: {types.PackVar}?
+    yieldPack: types.Pack?
+    resumePack: types.Pack?
 end
 
 --- The type containing exactly one value.
@@ -265,18 +313,18 @@ record types.Nominal
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?
 
-    --- The runtime test a `where` refinement named, as data. It is what `is`
-    --- compiles to for a declaration whose values need not have been stamped
-    --- here, and for an interface, which has no table to stamp at all. Its shape
-    --- belongs to `nupp.predicate`.
+    --- The runtime test a `where` refinement named, as data. It is what `is` compiles
+    --- to for a declaration whose values need not have been stamped here, and for an
+    --- interface, which has no table to stamp at all. Its shape belongs to
+    --- `nupp.predicate`.
     predicate: any
 
     --- Member names this interface implements rather than only declaring, so a
     --- declaration taking the contract takes the behaviour with it.
     defaults: {[string]: boolean}?
 
-    --- The interface each inherited default came from, so the generator knows
-    --- which table to reference it out of.
+    --- The interface each inherited default came from, so the generator knows which
+    --- table to reference it out of.
     inheritedDefaults: {[string]: types.Type}?
 
     --- Default terminal operations inherited from `@dispose` contracts. Entries are
@@ -330,7 +378,7 @@ end
 --- Any type.
 type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Ptr | types.CArray
     | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar
-    | types.Metatable | types.Nominal
+    | types.Metatable | types.Nominal | types.ProtocolThread | types.GenericAlias
 
 --- One field of a structural shape. `type` is accepted as the legacy spelling passed by
 --- compiler internals and means an ordinary read-write property.
@@ -346,6 +394,9 @@ type types.Predicate = {param: integer, type: types.Type}
 
 --- Every structural type built so far, keyed by its canonical string.
 local arena: {[string]: types.Type} = {}
+
+local packArena: {[string]: types.Pack} = {}
+local packVarArena: {[string]: types.PackVar} = {}
 
 --- Returns the type interned under `key`, building it on first use.
 ---
@@ -602,6 +653,148 @@ function types.unwrapOwnership(t: types.Type): types.Type
     return t
 end
 
+local function packTailId(tail: any): string
+    if not tail then
+        return ""
+    end
+    if tail.kind == "homogeneous" then
+        return "..." .. tail.type.id
+    end
+    if tail.kind == "generic" then
+        return tail.var.id .. "..."
+    end
+    if tail.kind == "slice" then
+        return "slice(" .. tostring(tail.id) .. ")"
+    end
+    return "...unknown"
+end
+
+--- Interns a fixed-head pack with an optional tail.
+function types.pack(head: {types.Type}?, tail: any, modes: {string}?): types.Pack
+    local hs, ms, copied = {}, {}, {}
+    for j, t in ipairs(head or {}) do
+        copied[j], hs[j] = t, t.id
+        ms[j] = modes and modes[j] or "plain"
+    end
+    local keyParts = {}
+    for j, id in ipairs(hs) do keyParts[j] = ms[j] .. ":" .. id end
+    local key = "pack(" .. table.concat(keyParts, ",") .. packTailId(tail) .. ")"
+    local found = packArena[key]
+    if found then
+        return found
+    end
+    local made = new types.Pack {tag = "pack", head = copied, modes = ms,
+        tail = tail}
+    made.id = key
+    packArena[key] = made
+    return made
+end
+
+function types.packvar(name: string, identity: string?): types.PackVar
+    local key = "pv(" .. (identity or name) .. ")"
+    local found = packVarArena[key]
+    if found then
+        return found
+    end
+    local made = new types.PackVar {tag = "packvar", name = name}
+    made.id = key
+    packVarArena[key] = made
+    return made
+end
+
+function types.packUnion(alternatives: {types.Pack}): types.Pack
+    local flat, seen, ids = {}, {}, {}
+    for _, p in ipairs(alternatives) do
+        for _, q in ipairs(p.alternatives or {p}) do
+            if not seen[q.id] then
+                seen[q.id] = true; flat[#flat + 1] = q
+            end
+        end
+    end
+    table.sort(flat, function(a, b) return a.id < b.id end)
+    if #flat == 1 then
+        return flat[1]
+    end
+    for j, p in ipairs(flat) do ids[j] = p.id end
+    local key = "packunion(" .. table.concat(ids, "|") .. ")"
+    local found = packArena[key]
+    if found then
+        return found
+    end
+    local made = new types.Pack {tag = "pack", head = {}, modes = {},
+        alternatives = flat}
+    made.id = key
+    packArena[key] = made
+    return made
+end
+
+function types.packAt(pack: types.Pack, index: integer): types.Type?
+    if pack.alternatives then
+        local members = {}
+        for _, arm in ipairs(pack.alternatives) do
+            members[#members + 1] = types.packAt(arm, index) or types.nil_
+        end
+        return types.union(members)
+    end
+    if pack.head[index] then
+        return pack.head[index]
+    end
+    local tail = pack.tail
+    if tail and (tail.kind == "homogeneous" or tail.kind == "unknown") then
+        return tail.type or types.any
+    end
+    return nil
+end
+
+function types.packMayExpand(pack: types.Pack): boolean
+    return pack.tail ~= nil or pack.alternatives ~= nil
+end
+
+function types.protocolThread(startPack: types.Pack, resumePack: types.Pack,
+    yieldPack: types.Pack, returnPack: types.Pack): types.Type
+    local key = "thread<" .. startPack.id .. "," .. resumePack.id .. ","
+        .. yieldPack.id .. "," .. returnPack.id .. ">"
+    return intern(key, function()
+        return new types.ProtocolThread {tag = "protocolThread",
+            startPack = startPack, resumePack = resumePack,
+            yieldPack = yieldPack, returnPack = returnPack}
+    end)
+end
+
+function types.genericAlias(name: string, body: types.Type,
+    typeParams: {types.Type}?, typeBounds: {types.Type}?,
+    packParams: {types.PackVar}?): types.Type
+    local parts = {"alias(" .. name, body.id}
+    for _, tv in ipairs(typeParams or {}) do parts[#parts + 1] = tv.id end
+    for _, pv in ipairs(packParams or {}) do parts[#parts + 1] = pv.id end
+    local key = table.concat(parts, "|") .. ")"
+    return intern(key, function()
+        return new types.GenericAlias {tag = "genericAlias", name = name,
+            body = body, typeParams = typeParams or {},
+            typeBounds = typeBounds or {}, packParams = packParams or {}}
+    end)
+end
+
+function types.tostringPack(pack: types.Pack): string
+    if pack.alternatives then
+        local arms = {}
+        for j, arm in ipairs(pack.alternatives) do arms[j] = types.tostringPack(arm) end
+        return "(" .. table.concat(arms, " | ") .. ")"
+    end
+    local parts = {}
+    for j, t in ipairs(pack.head) do parts[j] = types.tostring(t) end
+    if pack.tail then
+        if pack.tail.kind == "homogeneous" then
+            parts[#parts + 1] = "..." .. types.tostring(pack.tail.type)
+        elseif pack.tail.kind == "generic" then
+            parts[#parts + 1] = pack.tail.var.name .. "..."
+        else
+            parts[#parts + 1] = "...unknown"
+        end
+    end
+    return "(" .. table.concat(parts, ", ") .. ")"
+end
+
 -- params/rets: arrays of types; vararg: boolean (params accept extra values).
 
 --- `predicate`, when present, marks this function as answering whether its parameter
@@ -612,7 +805,9 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
     paramModes: {string}?, predicate: types.Predicate?, typeParams: {types.Type}?,
     typeBounds: {types.Type}?, borrowsParam: integer?,
     borrowsSelf: boolean?, borrowsParams: {integer}?, ffiOut: any,
-    varargType: types.Type?, noreturn: boolean?): types.Type
+    varargType: types.Type?, noreturn: boolean?, paramPack: types.Pack?,
+    retPack: types.Pack?, packParams: {types.PackVar}?, yieldPack: types.Pack?,
+    resumePack: types.Pack?): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
     -- say `never` once; it does not also carry a parallel boolean.
@@ -633,8 +828,11 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
     if vararg then
         varargPart = varargType and (",..." .. varargType.id) or ",..."
     end
-    local key = "fn(" .. table.concat(keyedParams, ",") .. varargPart
-        .. "):(" .. table.concat(rids, ",") .. ")"
+    paramPack = paramPack or types.pack(params, vararg and {
+        kind = varargType and "homogeneous" or "unknown",
+        type = varargType or types.any} or nil, modes)
+    retPack = retPack or types.pack(rets)
+    local key = "fn" .. paramPack.id .. ":" .. retPack.id
     if predicate then
         key = key .. "|is" .. predicate.param .. ":" .. predicate.type.id
     end
@@ -645,6 +843,17 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
                 and typeBounds[j].id or "any")
         end
         key = key .. "|<" .. table.concat(genericParts, ",") .. ">"
+    end
+    if packParams and #packParams > 0 then
+        local pp = {}
+        for j, pv in ipairs(packParams) do pp[j] = pv.id end
+        key = key .. "|<" .. table.concat(pp, ",") .. ">"
+    end
+    if yieldPack then
+        key = key .. "|yields" .. yieldPack.id
+    end
+    if resumePack then
+        key = key .. "|resumes" .. resumePack.id
     end
     if borrowsParam then
         key = key .. "|borrows" .. borrowsParam
@@ -672,7 +881,9 @@ function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
             predicate = predicate, typeParams = typeParams,
             typeBounds = typeBounds, borrowsParam = borrowsParam,
             borrowsSelf = borrowsSelf, borrowsParams = borrowsParams,
-            ffiOut = ffiOut, noreturn = noreturn or nil}
+            ffiOut = ffiOut, noreturn = noreturn or nil,
+            paramPack = paramPack, retPack = retPack, packParams = packParams,
+            yieldPack = yieldPack, resumePack = resumePack}
     end)
 end
 
@@ -730,7 +941,7 @@ end
 
 -- Cheap containment test used to decide whether instantiation is needed.
 function types.hasTypevar(t: types.Type): boolean
-    return t.id:find("tv(", 1, true) ~= nil
+    return t.id:find("tv(", 1, true) ~= nil or t.id:find("pv(", 1, true) ~= nil
 end
 
 ---------------------------------------------------------------------------
@@ -861,14 +1072,46 @@ function types.tostring(t: types.Type): string
             ps[j] = (mode and mode ~= "plain" and mode .. " " or "")
                 .. types.tostring(p)
         end
-        if t.vararg then
-            ps[#ps + 1] = t.varargType
-                and ("...: " .. types.tostring(t.varargType)) or "..."
+        local paramTail = t.paramPack.tail
+        if paramTail then
+            if paramTail.kind == "homogeneous" then
+                ps[#ps + 1] = "...: " .. types.tostring(paramTail.type)
+            elseif paramTail.kind == "generic" then
+                ps[#ps + 1] = paramTail.var.name .. "..."
+            else
+                ps[#ps + 1] = "..."
+            end
         end
-        local rs: {string} = {}
-        for j, r in ipairs(t.rets) do rs[j] = types.tostring(r) end
-        local ret = #rs > 0 and (": " .. table.concat(rs, ", ")) or ""
-        return "function(" .. table.concat(ps, ", ") .. ")" .. ret
+        local hasRet = #t.retPack.head > 0 or t.retPack.tail ~= nil
+            or t.retPack.alternatives ~= nil
+        local ret = ""
+        if hasRet then
+            ret = ": " .. (#t.retPack.head == 1 and not t.retPack.tail
+                and not t.retPack.alternatives
+                and types.tostring(t.retPack.head[1])
+                or types.tostringPack(t.retPack))
+        end
+        local protocol = t.yieldPack and (" yields " .. types.tostringPack(t.yieldPack)
+            .. " resumes " .. types.tostringPack(t.resumePack
+            or types.pack({}, {kind = "unknown", type = types.any}))) or ""
+        local binders = {}
+        for _, tv in ipairs(t.typeParams or {}) do
+            binders[#binders + 1] = tv.name
+        end
+        for _, pv in ipairs(t.packParams or {}) do
+            binders[#binders + 1] = pv.name .. "..."
+        end
+        local generic = #binders > 0 and "<" .. table.concat(binders, ", ")
+            .. ">" or ""
+        return "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")"
+            .. ret .. protocol
+    elseif tag == "protocolThread" then
+        return "thread<" .. types.tostringPack(t.startPack) .. ", "
+            .. types.tostringPack(t.resumePack) .. ", "
+            .. types.tostringPack(t.yieldPack) .. ", "
+            .. types.tostringPack(t.returnPack) .. ">"
+    elseif tag == "genericAlias" then
+        return t.name
     end
     return tag
 end

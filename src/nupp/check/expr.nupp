@@ -172,7 +172,14 @@ function expr.install(c: any)
         elseif kind == "falseExpr" then
             return T.literal(false, T.boolean)
         elseif kind == "vararg" then
-            return T.any
+            local pack = c.varargPackStack[#c.varargPackStack]
+            if not pack then
+                return T.any
+            end
+            node.valuePack = pack
+            c.lastCallPack = pack
+            c.lastCallRets = pack.head
+            return T.packAt(pack, 1) or T.nil_
         elseif kind == "name" then
             local nameTok = node.token
             if not nameTok then
@@ -279,29 +286,31 @@ function expr.install(c: any)
                     "declared here, with no value")} or nil,
                     help = ("assign it first, or declare it as %s? if it is "
                     .. "meant to start empty"):format(T.tostring(entry.t))})
-                -- Said once. A binding nobody assigned is usually read more than
-                -- once, and the second report adds nothing to the first.
+                -- Said once. A binding nobody assigned is usually read more than once,
+                -- and the second report adds nothing to the first.
                 entry.unassigned = nil
             end
             return entry and entry.t or T.any -- unknown names are any unless --strict
         elseif kind == "paren" then
             local inner = node.expr
             local out = inner and c.infer(inner) or T.any
+            if inner and inner.valuePack then
+                c.checkPackDiscard(inner.valuePack, 2, node)
+            end
             node.immutablePath = inner and inner.immutablePath or false
             return out
         elseif kind == "newExpr" then
-            -- The construction is the call underneath. Marking it is most of what
-            -- this does: what a record or a struct construction means is one piece
-            -- of code in `calls`, and `new` decides that it runs rather than
-            -- repeating it.
+            -- The construction is the call underneath. Marking it is most of what this
+            -- does: what a record or a struct construction means is one piece of code
+            -- in `calls`, and `new` decides that it runs rather than repeating it.
             local call = node.call as cst.Call
             if not call then
                 return T.any
             end
             call.isNew = true
-            -- `new` names a type, so an operand that names a declared one is
-            -- answered as a type. Going through the value would answer for an
-            -- interface -- which binds none -- with `any`, and say nothing.
+            -- `new` names a type, so an operand that names a declared one is answered
+            -- as a type. Going through the value would answer for an interface -- which
+            -- binds none -- with `any`, and say nothing.
             local named = call.obj and c.pathKey(call.obj) or nil
             local declared = named and c.lookupType(named) or nil
             local buildable = declared and declared.tag == "nominal"
@@ -367,33 +376,32 @@ function expr.install(c: any)
             local subject = node.expr
             local from = subject and c.infer(subject) or nil
             local target = c.resolveType(node.type)
-            -- A test the declaration already answers is not worth running. This
-            -- is what makes `is` on an interface work for a value already known
-            -- to implement it, whatever the interface can or cannot test at run
-            -- time.
+            -- A test the declaration already answers is not worth running. This is what
+            -- makes `is` on an interface work for a value already known to implement
+            -- it, whatever the interface can or cannot test at run time.
             --
-            -- Gradual types prove nothing: `any` and an unsubstituted parameter
-            -- fit everything, so eliding on them would turn every test true.
+            -- Gradual types prove nothing: `any` and an unsubstituted parameter fit
+            -- everything, so eliding on them would turn every test true.
             --
-            -- Only a subject that is a name or a path of them: anything computed
-            -- has to run whether or not its answer was already known, and a test
-            -- that stands in for a call is not the place to decide that.
+            -- Only a subject that is a name or a path of them: anything computed has to
+            -- run whether or not its answer was already known, and a test that stands
+            -- in for a call is not the place to decide that.
             if from and target and subject and c.pathKey(subject)
                 and from ~= T.any and from.tag ~= "typevar"
                 and from ~= T.never and target ~= T.any then
-                -- The nil an optional admits is the only part its declaration
-                -- does not settle, so it is taken off before asking and put back
-                -- as the one question left.
+                -- The nil an optional admits is the only part its declaration does not
+                -- settle, so it is taken off before asking and put back as the one
+                -- question left.
                 local admitsNil = isA(T.nil_, from)
                 local present = admitsNil and subtract(from, T.nil_) or from
                 if present ~= T.never and present.tag ~= "typevar"
                     and isA(present, target) then
                     node.provenStatically = true
                     node.provenNeedsNil = admitsNil
-                -- A declaration's own table is not one of the values it stamps, so
-                -- this pairing is settled the other way and the test would spend a
-                -- metatable lookup to say false. The only pairing answered so: `as`
-                -- stays the way to override what the checker decided.
+                -- A declaration's own table is not one of the values it stamps, so this
+                -- pairing is settled the other way and the test would spend a metatable
+                -- lookup to say false. The only pairing answered so: `as` stays the way
+                -- to override what the checker decided.
                 elseif rawType(present).tag == "metatable"
                     and target.tag == "nominal" then
                     node.refutedStatically = true
@@ -427,22 +435,30 @@ function expr.install(c: any)
                 end
             end
             local rets
+            local retPack
             -- A short function does not count itself into functionDepth, so the loop it
             -- might sit in was seen at the depth still current here.
             local loopClosure = c.loops.begin(c.functionDepth)
             local wasReturning = c.loops.setReturning(false)
             if node.expr then
-                rets = {c.infer(node.expr)} -- expr body: one inferred return
+                local first = c.infer(node.expr)
+                retPack = node.expr.valuePack or T.pack({first})
+                rets = retPack.head
             else
                 c.retStack[#c.retStack + 1] = false
+                c.retPackStack[#c.retPackStack + 1] = false
                 c.checkBlock(node.body, true)
                 c.retStack[#c.retStack] = nil
+                c.retPackStack[#c.retPackStack] = nil
                 rets = {T.any}
+                retPack = T.pack({}, {kind = "unknown", type = T.any})
             end
             c.loops.setReturning(wasReturning)
             c.loops.finish(loopClosure, node)
             c.popScope()
-            return T.func(params, rets, vararg)
+            return T.func(params, rets, vararg, nil, nil, nil, nil, nil,
+                nil, nil, nil, nil, nil, T.pack(params,
+                vararg and {kind = "unknown", type = T.any} or nil), retPack)
         elseif kind == "istring" then
             -- every ${...} part is tostring-ed; the whole literal is a string
             for _, e in ipairs(node.parts) do c.infer(e) end

@@ -81,7 +81,7 @@ local next: function(t: table, k: any?): (any, any)
 --- @param n the 1-based index to select from, or the string "#"
 --- @param ... the arguments to select from
 --- @return the selected arguments, or their count
-local select: function(n: any, ...: any): any
+local select: function<A...>(n: any, A...): A...
 
 --- Reads `t[k]` without consulting an `__index` metamethod.
 ---
@@ -149,7 +149,8 @@ local error: function(msg: any, level: number?): never
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the error value
-local pcall: function(f: any, ...: any): (boolean, any)
+local pcall: function<A..., R...>(f: function(A...): R..., A...):
+    ((true, R...) | (false, any))
 
 --- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
 --- still collect a traceback.
@@ -159,7 +160,8 @@ local pcall: function(f: any, ...: any): (boolean, any)
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the handler's result
-local xpcall: function(f: any, handler: any, ...: any): (boolean, any)
+local xpcall: function<E, A..., R...>(f: function(A...): R...,
+    handler: function(any): E, A...): ((true, R...) | (false, E))
 
 --- Returns the elements of `t` from index `i` through `j` as separate values.
 ---
@@ -167,7 +169,7 @@ local xpcall: function(f: any, handler: any, ...: any): (boolean, any)
 --- @param i the first index, 1 by default
 --- @param j the last index, `#t` by default
 --- @return the selected elements
-local unpack: function(t: table, i: number?, j: number?): any
+local unpack: function<T>(t: {T}, i: number?, j: number?): ...T
 
 --- Loads module `name` the first time it is asked for and returns its value. Later
 --- calls hand back the value cached in `package.loaded`.
@@ -797,8 +799,8 @@ local io: {
     stdin: LuaFile,
 }
 
---- Cooperative multitasking. Coroutines are typed as `thread`; the values they carry
---- across a resume or a yield are not tracked.
+--- Cooperative multitasking. A callback with typed start, yield, resume, and return
+--- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
 local coroutine: {
     --- Creates a coroutine with `f` as its body. The body does not start running until
     --- the first `resume`.
@@ -814,14 +816,14 @@ local coroutine: {
     --- @param ... the values to pass into it
     --- @return true when it yielded or returned, false when it raised
     --- @return the values it yielded or returned, or the error it raised
-    resume: function(co: thread, ...: any): (boolean, any),
+    resume: function<A...>(co: thread, A...): ...any,
 
     --- Suspends the running coroutine. The arguments become the results of the `resume`
     --- that started it.
     ---
     --- @param ... the values to hand back to the resumer
     --- @return the values passed to the next `resume`
-    yield: function(...: any): any,
+    yield: function<Y...>(Y...): ...any,
 
     --- Returns the state of `co`: "running", "suspended", "normal" for one that resumed
     --- another coroutine, or "dead".

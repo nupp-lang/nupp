@@ -208,6 +208,46 @@ function narrow.install(c: any): any
                 if falsy then
                     out.f[name] = falsy
                 end
+                local entry = c.lookupEntry(name)
+                local group = entry and entry.packCorrelation
+                local at = entry and entry.packCorrelationIndex
+                if group and at then
+                    local trueArms, falseArms = {}, {}
+                    for _, arm in ipairs(group.pack.alternatives or {}) do
+                        local value = T.packAt(arm, at) or T.nil_
+                        local armTrue, armFalse = truthiness(value)
+                        if armTrue then
+                            trueArms[#trueArms + 1] = arm
+                        end
+                        if armFalse then
+                            falseArms[#falseArms + 1] = arm
+                        end
+                    end
+                    local function correlate(into, arms)
+                        for index, sibling in pairs(group.names) do
+                            local members = {}
+                            for _, arm in ipairs(arms) do
+                                members[#members + 1] = T.packAt(arm, index)
+                                    or T.nil_
+                            end
+                            if #members > 0 then
+                                into[sibling] = T.union(members)
+                            end
+                        end
+                        for _, copy in ipairs(group.extraNames or {}) do
+                            local members = {}
+                            for _, arm in ipairs(arms) do
+                                members[#members + 1] = T.packAt(arm, copy.index)
+                                    or T.nil_
+                            end
+                            if #members > 0 then
+                                into[copy.name] = T.union(members)
+                            end
+                        end
+                    end
+                    correlate(out.t, trueArms)
+                    correlate(out.f, falseArms)
+                end
                 return out
             end
             return none
@@ -321,9 +361,11 @@ function narrow.install(c: any): any
                 -- and, when the base is a union, keeps only the members whose field
                 -- could hold it.
                 local refNode, litNode
-                if rhs.kind == "string" or rhs.kind == "number" then
+                if rhs.kind == "string" or rhs.kind == "number"
+                    or rhs.kind == "trueExpr" or rhs.kind == "falseExpr" then
                     refNode, litNode = lhs, rhs
-                elseif lhs.kind == "string" or lhs.kind == "number" then
+                elseif lhs.kind == "string" or lhs.kind == "number"
+                    or lhs.kind == "trueExpr" or lhs.kind == "falseExpr" then
                     refNode, litNode = rhs, lhs
                 end
                 -- a test on a copied discriminant is a test on the field it was copied
@@ -351,6 +393,51 @@ function narrow.install(c: any): any
                         end
                     end
                     out.t[key] = litT
+                    if refNode.kind == "name" and refNode.token then
+                        local entry = c.lookupEntry(refNode.token.text)
+                        if entry and entry.coroutineStatusName
+                            and litT.tag == "literal"
+                            and type(litT.constant) == "string" then
+                            out.t["@coroutine:" .. entry.coroutineStatusName] = litT
+                        end
+                        local group = entry and entry.packCorrelation
+                        local slot = entry and entry.packCorrelationIndex
+                        if group and slot then
+                            local selected, rejected = {}, {}
+                            for _, arm in ipairs(group.pack.alternatives or {}) do
+                                local armType = T.packAt(arm, slot) or T.nil_
+                                if isA(litT, armType) then
+                                    selected[#selected + 1] = arm
+                                else
+                                    rejected[#rejected + 1] = arm
+                                end
+                            end
+                            local function addCorrelated(into, arms)
+                                for index, sibling in pairs(group.names) do
+                                    local members = {}
+                                    for _, arm in ipairs(arms) do
+                                        members[#members + 1] =
+                                            T.packAt(arm, index) or T.nil_
+                                    end
+                                    if #members > 0 then
+                                        into[sibling] = T.union(members)
+                                    end
+                                end
+                                for _, copy in ipairs(group.extraNames or {}) do
+                                    local members = {}
+                                    for _, arm in ipairs(arms) do
+                                        members[#members + 1] =
+                                            T.packAt(arm, copy.index) or T.nil_
+                                    end
+                                    if #members > 0 then
+                                        into[copy.name] = T.union(members)
+                                    end
+                                end
+                            end
+                            addCorrelated(out.t, selected)
+                            addCorrelated(out.f, rejected)
+                        end
+                    end
                     -- what the value can still hold once this member is ruled out
                     local refT = c.refType(refNode)
                     local rest, emptied = withoutMember(refT, litT)
@@ -481,11 +568,37 @@ function narrow.install(c: any): any
     -- not tracked, since the checker cannot tell two evaluations apart.
     function facts.applyFacts(facts: {[string]: Type})
         for name, t in pairs(facts) do
-            if name:find(".", 1, true) then
+            local coroutineName = name:match("^@coroutine:(.+)$")
+            if coroutineName then
+                local entry = c.lookupEntry(coroutineName)
+                if entry then
+                    local phase = t.tag == "literal" and t.constant == "dead"
+                        and "dead" or entry.threadPhase
+                    c.scope.vars[coroutineName] = {
+                        t = entry.t, narrowing = true,
+                        ann = entry.ann or false,
+                        constant = entry.constant or false,
+                        decl = entry.decl or entry.t,
+                        definition = entry.definition,
+                        ownership = entry.ownership,
+                        moved = c.ownershipState(entry).moved or false,
+                        ownershipOrigin = c.ownershipState(entry),
+                        functionDepth = entry.functionDepth or c.functionDepth,
+                        threadPhase = phase,
+                    }
+                end
+            elseif name:find(".", 1, true) then
                 c.scope.narrowed = c.scope.narrowed or {}
                 c.scope.narrowed[name] = t
             else
                 local entry = c.lookupEntry(name)
+                local conditionalOwnership = entry and entry.packCorrelation
+                    and c.ownershipKind(t) or nil
+                local moved = entry and c.ownershipState(entry).moved or false
+                local ownershipOrigin = entry and c.ownershipState(entry) or nil
+                if conditionalOwnership then
+                    moved, ownershipOrigin = false, nil
+                end
                 c.scope.vars[name] = {
                     t = t,
                     narrowing = true, -- shadows a declaration; not one itself
@@ -497,11 +610,21 @@ function narrow.install(c: any): any
                     constant = entry and entry.constant or false,
                     decl = entry and (entry.decl or entry.t) or t,
                     definition = entry and entry.definition or nil,
-                    ownership = entry and entry.ownership or nil,
-                    moved = entry and c.ownershipState(entry).moved or false,
-                    ownershipOrigin = entry and c.ownershipState(entry) or nil,
+                    -- A correlated result can carry an owner on only one arm (pcall's
+                    -- success arm is the important case). It is not a live obligation
+                    -- before the discriminator is selected. Once narrowed into that arm
+                    -- this shadow is the owner for the branch and is audited when the
+                    -- branch scope closes; other narrowed values continue to share
+                    -- their declaration's ordinary ownership state.
+                    ownership = conditionalOwnership
+                    or entry and entry.ownership or nil,
+                    moved = moved,
+                    ownershipOrigin = ownershipOrigin,
                     functionDepth = entry and entry.functionDepth
                     or c.functionDepth,
+                    threadPhase = entry and entry.threadPhase or nil,
+                    wrappedProtocol = entry and entry.wrappedProtocol or nil,
+                    wrappedPhase = entry and entry.wrappedPhase or nil,
                 }
             end
         end

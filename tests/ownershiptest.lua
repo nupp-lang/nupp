@@ -314,7 +314,7 @@ end
 
 function M.liveOwnersMustBeDischarged()
    assertEq(codes(RESOURCE .. "\nlocal value = resource_new()"), "NUPP2603")
-   assertEq(codes(RESOURCE .. "\nresource_new()"), "NUPP2603")
+   assertEq(codes(RESOURCE .. "\nresource_new()"), "NUPP2605")
 end
 
 function M.opaqueOwnersAreTransferOnly()
@@ -902,7 +902,7 @@ function M.ignoredOwnedOutputsAreRejected()
       "@owned(out = result, cleanup = free, success = zero)",
       "cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32",
       "posix_memalign(16, 64)",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "NUPP2605")
 end
 
 function M.multipleOwnedOutputsPreserveCAndLuaOrder()

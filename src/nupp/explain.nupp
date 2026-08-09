@@ -144,6 +144,19 @@ local ENTRIES: {any} = {
         docs = "docs/type-system/properties.md#access-diagnostics",
     },
     {
+        code = "NUPP2010",
+        summary = "A complete value pack does not fit the required sequence",
+        rule = "Calls, returns, assignments, selection, and coroutine transfers "
+        .. "compare complete Lua value sequences. Their fixed slots, optional "
+        .. "tails, and correlated alternatives must agree; use parentheses only "
+        .. "when intentionally projecting one ordinary value.",
+        wrong = "local value = select(0, 1, 2)\nreturn value\n",
+        right = "local first, second = select(1, 1, 2)\n"
+        .. "return first, second\n",
+        related = {"NUPP2002", "NUPP2007", "NUPP2121"},
+        docs = "docs/type-system/packs.md#pack-compatibility",
+    },
+    {
         code = "NUPP2106",
         summary = "An exported declaration needs a type annotation",
         strict = true,
@@ -193,33 +206,45 @@ local ENTRIES: {any} = {
         docs = "docs/modules.md#diagnostics",
     },
     {
+        code = "NUPP2121",
+        summary = "A type pack is used where only one value type can appear",
+        rule = "A pack binder must follow every ordinary type binder, and a pack "
+        .. "may appear only in a sequence position: function parameters or "
+        .. "results, a coroutine protocol, a pack-union arm, or an explicit pack "
+        .. "argument.",
+        wrong = "local value: (number, string)\nreturn value\n",
+        right = "local function pair(): (number, string)\n"
+        .. "    return 1, \"one\"\nend\nreturn pair\n",
+        related = {"NUPP2010"},
+        docs = "docs/type-system/packs.md#syntax",
+    },
+    {
         code = "NUPP2122",
-
 
         summary = "A 'where' refinement cannot be enforced",
         rule = "A `where` clause names the runtime test that decides whether a "
-            .. "value is one of these, and `x is T` compiles to it. That test "
-            .. "has to run wherever `is` is written, so it reads the "
-            .. "declaration's own fields through `self` and nothing else: "
-            .. "comparisons against literals, `type()` tests, `and`, `or`, "
-            .. "`not`. A call, arithmetic, or a name from outside the subject "
-            .. "cannot be evaluated there. A refinement that always answers the "
-            .. "same way is also refused — always true identifies every value, "
-            .. "always false leaves the type uninhabited — and so is one on a "
-            .. "struct, which `ffi.istype` already answers exactly.\n\n"
-            .. "A declaration is also held to the refinements of the interfaces "
-            .. "it declares. `record C is Shape` is a claim the checker proves, "
-            .. "and Shape's refinement is what `is Shape` runs, so fields that "
-            .. "make that test fail would leave the two disagreeing about the "
-            .. "same value. Only a provable failure is reported: a refinement "
-            .. "whose answer no declaration settles is not evidence of a "
-            .. "mistake.",
+        .. "value is one of these, and `x is T` compiles to it. That test "
+        .. "has to run wherever `is` is written, so it reads the "
+        .. "declaration's own fields through `self` and nothing else: "
+        .. "comparisons against literals, `type()` tests, `and`, `or`, "
+        .. "`not`. A call, arithmetic, or a name from outside the subject "
+        .. "cannot be evaluated there. A refinement that always answers the "
+        .. "same way is also refused — always true identifies every value, "
+        .. "always false leaves the type uninhabited — and so is one on a "
+        .. "struct, which `ffi.istype` already answers exactly.\n\n"
+        .. "A declaration is also held to the refinements of the interfaces "
+        .. "it declares. `record C is Shape` is a claim the checker proves, "
+        .. "and Shape's refinement is what `is Shape` runs, so fields that "
+        .. "make that test fail would leave the two disagreeing about the "
+        .. "same value. Only a provable failure is reported: a refinement "
+        .. "whose answer no declaration settles is not evidence of a "
+        .. "mistake.",
         wrong = "local interface Circle\n    kind: string\n\n    matches\n"
-            .. "        tostring(self.kind) == \"circle\"\n    end\nend\n\n"
-            .. "return Circle\n",
+        .. "        tostring(self.kind) == \"circle\"\n    end\nend\n\n"
+        .. "return Circle\n",
         right = "local interface Circle\n    kind: string\n\n    matches\n"
-            .. "        self.kind == \"circle\"\n    end\nend\n\n"
-            .. "return Circle\n",
+        .. "        self.kind == \"circle\"\n    end\nend\n\n"
+        .. "return Circle\n",
         related = {"NUPP2116"},
         docs = "docs/type-system/generics.md",
     },
@@ -227,24 +252,24 @@ local ENTRIES: {any} = {
         code = "NUPP2123",
         summary = "A metatable value does not fit the key it is written under",
         rule = "A metamethod declaration is a contract, and a metatable literal "
-            .. "is where the value fulfilling it is written, so the value is "
-            .. "held to it — with `self` specialized to the receiver, through a "
-            .. "bounded type parameter as readily as through a concrete type. "
-            .. "Where the declaration contracts for nothing, LuaJIT still says "
-            .. "what it will do with the key: `__mode` is read as a string, "
-            .. "`__index` and `__newindex` are a table to defer to or a function "
-            .. "to run, and everything else it knows is called.\n\n"
-            .. "Only a literal is checked. What a function returns cannot be "
-            .. "seen from here, so a computed metatable stays gradual.",
+        .. "is where the value fulfilling it is written, so the value is "
+        .. "held to it — with `self` specialized to the receiver, through a "
+        .. "bounded type parameter as readily as through a concrete type. "
+        .. "Where the declaration contracts for nothing, LuaJIT still says "
+        .. "what it will do with the key: `__mode` is read as a string, "
+        .. "`__index` and `__newindex` are a table to defer to or a function "
+        .. "to run, and everything else it knows is called.\n\n"
+        .. "Only a literal is checked. What a function returns cannot be "
+        .. "seen from here, so a computed metatable stays gradual.",
         wrong = "local record I64\n    v: integer\n"
-            .. "    metamethod __add: function(self: I64, other: I64): I64\n"
-            .. "end\n\nlocal x = new I64 {v = 1}\n"
-            .. "setmetatable(x, {__add = \"not a function\"})\n\nreturn x\n",
+        .. "    metamethod __add: function(self: I64, other: I64): I64\n"
+        .. "end\n\nlocal x = new I64 {v = 1}\n"
+        .. "setmetatable(x, {__add = \"not a function\"})\n\nreturn x\n",
         right = "local record I64\n    v: integer\n"
-            .. "    metamethod __add: function(self: I64, other: I64): I64\n"
-            .. "end\n\nlocal x = new I64 {v = 1}\n"
-            .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
-            .. "    return new I64 {v = a.v + b.v}\nend})\n\nreturn x\n",
+        .. "    metamethod __add: function(self: I64, other: I64): I64\n"
+        .. "end\n\nlocal x = new I64 {v = 1}\n"
+        .. "setmetatable(x, {__add = function(a: I64, b: I64): I64\n"
+        .. "    return new I64 {v = a.v + b.v}\nend})\n\nreturn x\n",
         related = {"NUPP2118", "NUPP2006"},
         docs = "docs/metamethods.md",
     },
@@ -252,33 +277,49 @@ local ENTRIES: {any} = {
         code = "NUPP2202",
         summary = "A declaration is built with 'new'",
         rule = "Records and structs are constructed with `new`. Calling a "
-            .. "declaration used to be the construction, which meant the call "
-            .. "was never the program's own: a record's `__call` was shadowed "
-            .. "whenever the argument was a table, and a struct's ctype call "
-            .. "was claimed outright. Saying construction in the source gives "
-            .. "those hooks back. A record that does declare a `__call` "
-            .. "contract is called, not reported.",
+        .. "declaration used to be the construction, which meant the call "
+        .. "was never the program's own: a record's `__call` was shadowed "
+        .. "whenever the argument was a table, and a struct's ctype call "
+        .. "was claimed outright. Saying construction in the source gives "
+        .. "those hooks back. A record that does declare a `__call` "
+        .. "contract is called, not reported.",
         wrong = "local record Point\n    x: integer\nend\n\n"
-            .. "local p = Point{x = 1}\n\nreturn p\n",
+        .. "local p = Point{x = 1}\n\nreturn p\n",
         right = "local record Point\n    x: integer\nend\n\n"
-            .. "local p = new Point {x = 1}\n\nreturn p\n",
+        .. "local p = new Point {x = 1}\n\nreturn p\n",
         related = {"NUPP2206"},
         docs = "docs/reference.md#records",
+    },
+    {
+        code = "NUPP2605",
+        summary = "Adjusting a value pack would discard an affine value",
+        rule = "Lua may truncate extra results, but Nupp cannot silently lose an "
+        .. "owned or pinned slot. Bind and discharge every affine result, or "
+        .. "forward the complete generic pack to a matching result or parameter.",
+        wrong = "cdef function release(takes value: voidptr)\n"
+        .. "@owned(cleanup = release)\n"
+        .. "cdef function acquire(): voidptr\nacquire()\n",
+        right = "cdef function release(takes value: voidptr)\n"
+        .. "@owned(cleanup = release)\n"
+        .. "cdef function acquire(): voidptr\n"
+        .. "local value = acquire()\nrelease(value)\n",
+        related = {"NUPP2602", "NUPP2603", "NUPP2010"},
+        docs = "docs/type-system/packs.md#ownership-and-provenance",
     },
     {
         code = "NUPP2206",
         summary = "Only a record or a struct can be constructed",
         rule = "`new` names a type and builds a value of it, so the operand "
-            .. "has to be a declaration with something to build. An interface "
-            .. "declares a contract and has no runtime table to stamp; an enum "
-            .. "value is one of its declared strings, written directly. The "
-            .. "operand is answered as a type rather than through whatever "
-            .. "value stands under the name, because an interface binds none.",
+        .. "has to be a declaration with something to build. An interface "
+        .. "declares a contract and has no runtime table to stamp; an enum "
+        .. "value is one of its declared strings, written directly. The "
+        .. "operand is answered as a type rather than through whatever "
+        .. "value stands under the name, because an interface binds none.",
         wrong = "local interface Named\n    name: string\nend\n\n"
-            .. "local n = new Named {name = \"ada\"}\n\nreturn n\n",
+        .. "local n = new Named {name = \"ada\"}\n\nreturn n\n",
         right = "local interface Named\n    name: string\nend\n\n"
-            .. "local record User is Named\n    name: string\nend\n\n"
-            .. "local n = new User {name = \"ada\"}\n\nreturn n\n",
+        .. "local record User is Named\n    name: string\nend\n\n"
+        .. "local n = new User {name = \"ada\"}\n\nreturn n\n",
         related = {"NUPP2202"},
         docs = "docs/reference.md#records",
     },
@@ -286,17 +327,17 @@ local ENTRIES: {any} = {
         code = "NUPP2207",
         summary = "A binding is read before it holds a value",
         rule = "`local v: Vec2` used to construct one where it was declared, "
-            .. "which was a construction the source did not say. It no longer "
-            .. "does, so the binding holds nil until something assigns to it, "
-            .. "and reading it before that indexes nil at run time rather than "
-            .. "yielding a value of the declared type. Assign it first, or "
-            .. "declare it optional if it is meant to start empty. A "
-            .. "declaration file states what exists elsewhere and assigns "
-            .. "nothing, so it is exempt.",
+        .. "which was a construction the source did not say. It no longer "
+        .. "does, so the binding holds nil until something assigns to it, "
+        .. "and reading it before that indexes nil at run time rather than "
+        .. "yielding a value of the declared type. Assign it first, or "
+        .. "declare it optional if it is meant to start empty. A "
+        .. "declaration file states what exists elsewhere and assigns "
+        .. "nothing, so it is exempt.",
         wrong = "local record Point\n    x: integer\nend\n\n"
-            .. "local p: Point\n\nreturn p.x\n",
+        .. "local p: Point\n\nreturn p.x\n",
         right = "local record Point\n    x: integer\nend\n\n"
-            .. "local p: Point = new Point {x = 0}\n\nreturn p.x\n",
+        .. "local p: Point = new Point {x = 0}\n\nreturn p.x\n",
         related = {"NUPP2202", "NUPP2206"},
         docs = "docs/reference.md#records",
     },
@@ -304,20 +345,20 @@ local ENTRIES: {any} = {
         code = "NUPP2208",
         summary = "A constructor does not hold up its declaration",
         rule = "A `constructor(...)` body is what `new T(...)` runs. The "
-            .. "instance is made before it and returned after it, so its whole "
-            .. "job is to fill the fields in — and every field that cannot hold "
-            .. "nil has to be filled, or the value handed back does not match "
-            .. "the declaration it claims. That guarantee is the reason to "
-            .. "prefer a constructor over a literal, so declaring one closes "
-            .. "the literal form for that declaration. An interface builds "
-            .. "nothing and cannot carry one, and there is one constructor per "
-            .. "declaration until overloads arrive with intersection types.",
+        .. "instance is made before it and returned after it, so its whole "
+        .. "job is to fill the fields in — and every field that cannot hold "
+        .. "nil has to be filled, or the value handed back does not match "
+        .. "the declaration it claims. That guarantee is the reason to "
+        .. "prefer a constructor over a literal, so declaring one closes "
+        .. "the literal form for that declaration. An interface builds "
+        .. "nothing and cannot carry one, and there is one constructor per "
+        .. "declaration until overloads arrive with intersection types.",
         wrong = "local record Account\n    name: string\n    balance: number\n"
-            .. "\n    constructor(name: string)\n        self.name = name\n"
-            .. "    end\nend\n\nreturn Account\n",
+        .. "\n    constructor(name: string)\n        self.name = name\n"
+        .. "    end\nend\n\nreturn Account\n",
         right = "local record Account\n    name: string\n    balance: number\n"
-            .. "\n    constructor(name: string)\n        self.name = name\n"
-            .. "        self.balance = 0\n    end\nend\n\nreturn Account\n",
+        .. "\n    constructor(name: string)\n        self.name = name\n"
+        .. "        self.balance = 0\n    end\nend\n\nreturn Account\n",
         related = {"NUPP2202", "NUPP2207"},
         docs = "docs/reference.md#records",
     },
@@ -325,25 +366,25 @@ local ENTRIES: {any} = {
         code = "NUPP3001",
         summary = "`is` has nothing to test against this type",
         rule = "A record is identified by the metatable it stamps and a struct "
-            .. "by its ctype, so both answer `is` exactly. An interface has "
-            .. "neither, by design — it is conformance rather than provenance — "
-            .. "so something has to stand in for one.\n\n"
-            .. "Three things can. A literal-typed field is a tag, and the test "
-            .. "is read off it with nothing written. A `matches` block says the "
-            .. "test outright, for a shape no tag describes. And a subject "
-            .. "whose own type declares the interface needs no test at all: the "
-            .. "declaration already answered, so the `is` compiles to `true`. "
-            .. "An alias has none of these and never will.",
+        .. "by its ctype, so both answer `is` exactly. An interface has "
+        .. "neither, by design — it is conformance rather than provenance — "
+        .. "so something has to stand in for one.\n\n"
+        .. "Three things can. A literal-typed field is a tag, and the test "
+        .. "is read off it with nothing written. A `matches` block says the "
+        .. "test outright, for a shape no tag describes. And a subject "
+        .. "whose own type declares the interface needs no test at all: the "
+        .. "declaration already answered, so the `is` compiles to `true`. "
+        .. "An alias has none of these and never will.",
         wrong = "local interface Drawable\n    width: number\nend\n\n"
-            .. "local record Sprite is Drawable\n    width: number\nend\n\n"
-            .. "local unknown: any = new Sprite {width = 1}\n\n"
-            .. "return unknown is Drawable\n",
+        .. "local record Sprite is Drawable\n    width: number\nend\n\n"
+        .. "local unknown: any = new Sprite {width = 1}\n\n"
+        .. "return unknown is Drawable\n",
         right = "local interface Drawable\n    kind: \"drawable\"\n"
-            .. "    width: number\nend\n\n"
-            .. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
-            .. "    width: number\nend\n\n"
-            .. "local unknown: any = new Sprite {kind = \"drawable\", width = 1}\n\n"
-            .. "return unknown is Drawable\n",
+        .. "    width: number\nend\n\n"
+        .. "local record Sprite is Drawable\n    kind: \"drawable\"\n"
+        .. "    width: number\nend\n\n"
+        .. "local unknown: any = new Sprite {kind = \"drawable\", width = 1}\n\n"
+        .. "return unknown is Drawable\n",
         related = {"NUPP2122"},
         docs = "docs/type-system/interfaces.md",
     },

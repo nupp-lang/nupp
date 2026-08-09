@@ -81,8 +81,8 @@ function bindings.install(c: any): any
                     c.diag("NUPP2001", initializers[j] or stat,
                         ("cannot initialize %s: %s"):format(nameTok.text, why))
                 end
-                -- The annotation is the target here, so it says whose metatable
-                -- this is as readily as a parameter would.
+                -- The annotation is the target here, so it says whose metatable this is
+                -- as readily as a parameter would.
                 c.checkMetatableLiteral(initializers[j], init, ann)
                 if ownershipKind(init) and ownershipKind(init)
                     ~= ownershipKind(ann) then
@@ -141,6 +141,26 @@ function bindings.install(c: any): any
                 stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
             local initNode = initializers[j]
+            if boundEntry and bound.tag == "protocolThread" then
+                if initNode and initNode.coroutineIntrinsic == "create" then
+                    boundEntry.threadPhase = "new"
+                elseif initNode and initNode.kind == "name" and initNode.token then
+                    local source = c.lookupEntry(initNode.token.text)
+                    boundEntry.threadPhase = source and source.threadPhase or "unknown"
+                    if source then
+                        source.threadPhase = "unknown"
+                    end
+                else
+                    boundEntry.threadPhase = "unknown"
+                end
+            end
+            if boundEntry and initNode and initNode.wrappedProtocol then
+                boundEntry.wrappedProtocol = initNode.wrappedProtocol
+                boundEntry.wrappedPhase = "new"
+            end
+            if boundEntry and initNode and initNode.coroutineStatusName then
+                boundEntry.coroutineStatusName = initNode.coroutineStatusName
+            end
             local returnBorrowOwners = nil
             local exprCount = #initializers
             local expandedCall = exprCount > 0 and initializers[exprCount] or nil
@@ -150,11 +170,11 @@ function bindings.install(c: any): any
                     j - exprCount + 1]
             end
             -- `local v: Vec2` used to construct one, which was a construction the
-            -- source did not say. It no longer does, so the binding holds nil
-            -- until something puts a value in it, and reading it before that is
-            -- an indexing error waiting to happen rather than a value of the
-            -- declared type. A declaration file states what exists elsewhere and
-            -- assigns nothing, so it is not making this mistake.
+            -- source did not say. It no longer does, so the binding holds nil until
+            -- something puts a value in it, and reading it before that is an indexing
+            -- error waiting to happen rather than a value of the declared type. A
+            -- declaration file states what exists elsewhere and assigns nothing, so it
+            -- is not making this mistake.
             if boundEntry and ann and not initNode and not c.declarationFile
                 and ann.tag == "nominal"
                 and (ann.declKind == "record" or ann.declKind == "struct") then
@@ -180,6 +200,21 @@ function bindings.install(c: any): any
                 and initNode.kind == "dotIndex" then
                 boundEntry.aliasNode = initNode
                 boundEntry.aliasPath = pathKey(initNode)
+            end
+            if boundEntry and initNode and not ann and initNode.kind == "name"
+                and initNode.token then
+                local sourceEntry = c.lookupEntry(initNode.token.text)
+                if sourceEntry and sourceEntry.packCorrelation then
+                    boundEntry.packCorrelation = sourceEntry.packCorrelation
+                    boundEntry.packCorrelationIndex =
+                        sourceEntry.packCorrelationIndex
+                    local group = sourceEntry.packCorrelation
+                    group.extraNames = group.extraNames or {}
+                    group.extraNames[#group.extraNames + 1] = {
+                        name = nameTok.text,
+                        index = sourceEntry.packCorrelationIndex,
+                    }
+                end
             end
             if boundEntry and (ownershipKind(bound) == "owned"
                 or ownershipKind(bound) == "pinned")
@@ -216,6 +251,21 @@ function bindings.install(c: any): any
                 end
             end
         end
+        local exprCount = #initializers
+        local expanded = exprCount > 0 and initializers[exprCount] or nil
+        local correlated = expanded and expanded.valuePack
+        if correlated and correlated.alternatives then
+            local group = {pack = correlated, names = {}}
+            for j = exprCount, #stat.names do
+                local entry = c.lookupEntry(stat.names[j].text)
+                if entry then
+                    local index = j - exprCount + 1
+                    entry.packCorrelation = group
+                    entry.packCorrelationIndex = index
+                    group.names[index] = stat.names[j].text
+                end
+            end
+        end
     end
 
     handlers.assignStmt = function(stat: cst.AssignStmt)
@@ -246,10 +296,42 @@ function bindings.install(c: any): any
                     entry and entry.t or T.any,
                     entry and entry.definition and entry.definition.kind
                     or "variable")
-                -- Whatever else the assignment turns out to be, the binding now
-                -- holds something. The walk is in source order, so a read that
-                -- came before this one has already been answered.
-                if entry then entry.unassigned = nil end
+                -- Whatever else the assignment turns out to be, the binding now holds
+                -- something. The walk is in source order, so a read that came before
+                -- this one has already been answered.
+                if entry then
+                    local oldGroup = entry.packCorrelation
+                    local oldIndex = entry.packCorrelationIndex
+                    if oldGroup and oldIndex
+                        and oldGroup.names[oldIndex] == targetName then
+                        oldGroup.names[oldIndex] = nil
+                    end
+                    entry.unassigned = nil
+                    entry.packCorrelation = nil
+                    entry.packCorrelationIndex = nil
+                    if et and et.tag == "protocolThread" then
+                        if written and written.coroutineIntrinsic == "create" then
+                            entry.threadPhase = "new"
+                        elseif written and written.kind == "name" and written.token then
+                            local source = c.lookupEntry(written.token.text)
+                            entry.threadPhase = source and source.threadPhase
+                                or "unknown"
+                            if source and source ~= entry then
+                                source.threadPhase = "unknown"
+                            end
+                        else
+                            entry.threadPhase = "unknown"
+                        end
+                    else
+                        entry.threadPhase = nil
+                    end
+                    if written and written.wrappedProtocol then
+                        entry.wrappedProtocol = written.wrappedProtocol
+                        entry.wrappedPhase = "new"
+                    elseif et and et.tag ~= "func" then
+                        entry.wrappedProtocol, entry.wrappedPhase = nil, nil
+                    end
+                end
                 if entry and entry.constant then
                     c.diag("NUPP2008", target,
                         ("cannot assign to const variable %s")
@@ -332,9 +414,9 @@ function bindings.install(c: any): any
                     or target.containerTag == "map"
                     or target.containerIsSequence)
                 if et and tt and target.metamethodName then
-                    -- The name is a contract the receiver declared, so this
-                    -- assignment is the installation that fulfils it and the
-                    -- contract is what the value answers to.
+                    -- The name is a contract the receiver declared, so this assignment
+                    -- is the installation that fulfils it and the contract is what the
+                    -- value answers to.
                     c.checkMetamethodValue(written or stat,
                         target.metamethodName, et, tt,
                         target.metamethodReceiver)
@@ -362,6 +444,23 @@ function bindings.install(c: any): any
             end
             if key and et and et ~= T.any then
                 applyFacts({[key] = et})
+            end
+        end
+        local exprCount = #(values or {})
+        local expanded = exprCount > 0 and values[exprCount] or nil
+        local correlated = expanded and expanded.valuePack
+        if correlated and correlated.alternatives then
+            local group = {pack = correlated, names = {}}
+            for j = exprCount, #stat.targets do
+                local target = stat.targets[j]
+                local tok = target.kind == "name" and target.token or nil
+                local entry = tok and c.lookupEntry(tok.text) or nil
+                if entry and tok then
+                    local index = j - exprCount + 1
+                    entry.packCorrelation = group
+                    entry.packCorrelationIndex = index
+                    group.names[index] = tok.text
+                end
             end
         end
     end
@@ -434,6 +533,10 @@ function bindings.install(c: any): any
             return
         end
         local resultT = c.infer(called)
+        if called.valuePack then
+            c.checkPackDiscard(called.valuePack, 1, called)
+            return
+        end
         local ignoredOwner = ownershipKind(resultT) == "owned"
         if called.ffiOutContracts then
             for _, returned in ipairs(c.lastCallRets or {}) do

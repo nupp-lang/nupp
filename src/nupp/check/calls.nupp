@@ -19,7 +19,9 @@ local calls = {}
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 local substType = generics.subst
+local substPack = generics.substPack
 local unify = generics.unify
+local unifyPack = generics.unifyPack
 local instantiateNominal = generics.instantiate
 local specializeSelf = generics.specializeSelf
 local dropSelf = generics.dropSelf
@@ -201,8 +203,8 @@ function calls.install(c: any): any
         return names
     end
 
-    -- The names a receiver contracts for, so a misspelled installation on its own
-    -- table can be told from a field that is simply not there.
+    -- The names a receiver contracts for, so a misspelled installation on its own table
+    -- can be told from a field that is simply not there.
     c.metamethodNames = function(t)
         t = rawType(t)
         if t.tag == "ptr" then
@@ -223,8 +225,8 @@ function calls.install(c: any): any
 
     function ops.metamethodOf(t, name)
         t = rawType(t)
-        -- The contracts a metatable carries are the ones its receiver declared;
-        -- that is what makes it that receiver's metatable rather than a table.
+        -- The contracts a metatable carries are the ones its receiver declared; that is
+        -- what makes it that receiver's metatable rather than a table.
         if t.tag == "metatable" then
             return ops.metamethodOf(t.of, name)
         end
@@ -340,10 +342,10 @@ function calls.install(c: any): any
         elseif argsNode and argsNode.str then
             args = {argsNode.str}
         end
-        -- A record's name holds its runtime table, and building instances is what
-        -- that table is for, so the wrapper comes off before asking what is being
-        -- called. Reaching a `metatable<R>` any other way -- a hand-built one under
-        -- an annotation -- is not a declaration and is left alone.
+        -- A record's name holds its runtime table, and building instances is what that
+        -- table is for, so the wrapper comes off before asking what is being called.
+        -- Reaching a `metatable<R>` any other way -- a hand-built one under an
+        -- annotation -- is not a declaration and is left alone.
         if calleeT.tag == "metatable" and calleeT.of.tag == "nominal"
             and calleeT.of.declKind == "record" then
             calleeT = calleeT.of
@@ -352,9 +354,9 @@ function calls.install(c: any): any
         -- struct construction: S{...} named or S(...) positional
         local constructible = calleeT.tag == "nominal"
             and (calleeT.declKind == "struct" or calleeT.declKind == "record")
-        -- An operand naming a declared type was already answered as one. What is
-        -- left is a value that is not a type at all, and `any` -- an unknown name
-        -- under gradual typing -- is deliberately not one of them.
+        -- An operand naming a declared type was already answered as one. What is left
+        -- is a value that is not a type at all, and `any` -- an unknown name under
+        -- gradual typing -- is deliberately not one of them.
         if node.isNew and not constructible and not node.newReported
             and calleeT ~= T.any then
             local named = node.obj and c.pathKey(node.obj)
@@ -363,10 +365,10 @@ function calls.install(c: any): any
                 nil, {help = "`new` builds a record or a struct"})
             node.newReported = true
         end
-        -- Calling a declaration is no longer how it is built, so the call belongs
-        -- to whatever the program installed: a record's `__call`, a struct's
-        -- ctype. A record that declared no contract is the one case worth
-        -- reporting, since calling it was until now the way to construct it.
+        -- Calling a declaration is no longer how it is built, so the call belongs to
+        -- whatever the program installed: a record's `__call`, a struct's ctype. A
+        -- record that declared no contract is the one case worth reporting, since
+        -- calling it was until now the way to construct it.
         if constructible and not node.isNew then
             if calleeT.declKind == "record" then
                 local callContract = ops.metamethodOf(calleeT, "__call")
@@ -380,7 +382,9 @@ function calls.install(c: any): any
                 {help = ("write new %s%s"):format(named,
                 (argsNode and argsNode.table) and "{...}" or "(...)")})
             for _, arg in ipairs(args) do
-                if not cst.isToken(arg) then c.infer(arg) end
+                if not cst.isToken(arg) then
+                    c.infer(arg)
+                end
             end
             return calleeT, {calleeT}
         end
@@ -393,10 +397,10 @@ function calls.install(c: any): any
                 and args[1].kind == "tableExpr" then
                 tbl = args[1]
             end
-            -- A declaration that states how it is built is built that way and no
-            -- other. Leaving the literal open beside a constructor would let
-            -- every invariant the constructor establishes be walked around, which
-            -- is the whole of what it is for.
+            -- A declaration that states how it is built is built that way and no other.
+            -- Leaving the literal open beside a constructor would let every invariant
+            -- the constructor establishes be walked around, which is the whole of what
+            -- it is for.
             local constructors = calleeT.constructors
             if constructors and #constructors > 0 then
                 local named = c.pathKey(node.obj) or calleeT.name
@@ -406,23 +410,25 @@ function calls.install(c: any): any
                         .. "it"):format(named), nil,
                         {help = ("write new %s(...) with the constructor's "
                         .. "arguments"):format(named)})
-                    -- The fields were the wrong shape of argument, not a wrong
-                    -- one; holding them to the constructor's parameters as well
-                    -- would say the same thing twice.
+                    -- The fields were the wrong shape of argument, not a wrong one;
+                    -- holding them to the constructor's parameters as well would say
+                    -- the same thing twice.
                     c.infer(tbl)
                     return calleeT, {calleeT}
                 end
                 node.constructorCall = named
                 -- The construction is settled here. What follows is an ordinary
-                -- application of the constructor's signature, and re-entering
-                -- with `new` still set would ask this same node whether it can
-                -- be constructed a second time.
+                -- application of the constructor's signature, and re-entering with
+                -- `new` still set would ask this same node whether it can be
+                -- constructed a second time.
                 node.isNew = nil
                 local signature = constructors[1]
                 local built = T.func(signature.params, {calleeT},
                     signature.vararg, signature.paramModes, nil,
                     signature.typeParams, signature.typeBounds, nil, nil, nil,
-                    nil, signature.varargType)
+                    nil, signature.varargType, nil, signature.paramPack,
+                    T.pack({calleeT}), signature.packParams,
+                    signature.yieldPack, signature.resumePack)
                 local first, rets = ops.inferCall(node, built, argsNode)
                 return first, rets
             end
@@ -542,9 +548,9 @@ function calls.install(c: any): any
         end
 
         -- A bounded receiver reaches `__call` through its bound, and so does a
-        -- metatable standing for one: calling a declaration's table is exactly what
-        -- the contract on it describes. A concrete record was unwrapped above and
-        -- answered as a construction or a call before reaching here.
+        -- metatable standing for one: calling a declaration's table is exactly what the
+        -- contract on it describes. A concrete record was unwrapped above and answered
+        -- as a construction or a call before reaching here.
         if calleeT.tag == "typevar" or calleeT.tag == "metatable" then
             local callContract = ops.metamethodOf(calleeT, "__call")
             if callContract then
@@ -553,9 +559,8 @@ function calls.install(c: any): any
         end
 
         if calleeT == T.any or calleeT.tag ~= "func" then
-            -- A `new` whose operand was already refused is not also a bad call:
-            -- the program said what it meant, and one diagnostic says why it
-            -- cannot be met.
+            -- A `new` whose operand was already refused is not also a bad call: the
+            -- program said what it meant, and one diagnostic says why it cannot be met.
             if calleeT ~= T.any and not node.newReported then
                 c.diag("NUPP2005", node,
                     ("%s is not callable"):format(T.tostring(calleeT)))
@@ -574,27 +579,71 @@ function calls.install(c: any): any
             return T.any, nil
         end
 
-        -- infer all argument types up front
+        -- Lua expands only the final argument expression. Keep that sequence intact so
+        -- a generic tail binds heterogeneous slots instead of a widened element type.
         local ats = knownAts or {}
-        for j, arg in ipairs(args) do
-            if ats[j] then
-            -- A specialized call path already inferred this expression.
-            elseif cst.isToken(arg) then
-                ats[j] = arg.kind == "string" and T.string or T.any
-            else
-                ats[j] = c.infer(arg)
+        local argPack
+        if knownAts then
+            argPack = T.pack(knownAts)
+        elseif #args == 1 and cst.isToken(args[1]) then
+            ats[1] = args[1].kind == "string" and T.string or T.any
+            argPack = T.pack(ats)
+        else
+            argPack = c.inferListPack(args)
+            ats = argPack.head
+        end
+        node.argumentPack = argPack
+        if argPack.alternatives then
+            local maxHead: integer = 0
+            for _, arm in ipairs(argPack.alternatives) do
+                if #arm.head > maxHead then
+                    maxHead = #arm.head
+                end
+            end
+            ats = {}
+            for j = 1, maxHead do ats[j] = T.packAt(argPack, j) or T.nil_ end
+            argPack = T.pack(ats)
+        end
+        local argNodes = {}
+        for j = 1, #argPack.head do
+            argNodes[j] = args[math.min(j, #args)] or node
+        end
+        -- Provenance is value-flow metadata rather than part of an interned type. Align
+        -- it with the adjusted argument pack so substituting a generic pack can carry a
+        -- borrowed slot back out without detaching it from its owner.
+        local argumentBorrowOwners = {}
+        for j, source in ipairs(argNodes) do
+            if not cst.isToken(source) then
+                local expandedIndex = 1
+                if #args > 0 and source == args[#args] and j >= #args then
+                    expandedIndex = j - #args + 1
+                end
+                local owners = source.returnBorrowOwners
+                    and source.returnBorrowOwners[expandedIndex] or nil
+                if not owners and source.borrowOwner then
+                    owners = {source.borrowOwner}
+                elseif not owners and source.borrowOwners then
+                    owners = source.borrowOwners
+                end
+                argumentBorrowOwners[j] = owners
             end
         end
 
         -- instantiate generics by unifying declared params against arguments
         local params, rets = calleeT.params, calleeT.rets
+        local paramPack, retPack = calleeT.paramPack, calleeT.retPack
+        local declaredParamPack, declaredRetPack = paramPack, retPack
         local paramModes = calleeT.paramModes or {}
         local varargType = calleeT.varargType
-        if T.hasTypevar(calleeT) then
+        -- Only bind generics introduced by the callable itself. A callback type such as
+        -- `function(A...): R...` inside an outer generic function mentions the outer
+        -- binders, but calling that callback must preserve those symbolic packs rather
+        -- than treating them as a fresh generic signature and replacing an unbound
+        -- result pack with `...any`.
+        if T.hasTypevar(calleeT) and (#(calleeT.typeParams or {}) > 0
+            or #(calleeT.packParams or {}) > 0) then
             local map = {}
-            for j = 1, math.min(#ats, #params) do
-                unify(params[j], ats[j], map)
-            end
+            unifyPack(paramPack, argPack, map)
             -- The extra arguments bind the element type too, which is what makes
             -- `math.min(a, b)` over integers stay an integer.
             if varargType then
@@ -617,102 +666,109 @@ function calls.install(c: any): any
             for j, p in ipairs(params) do p2[j] = substType(p, map) end
             for j, r in ipairs(rets) do r2[j] = substType(r, map) end
             params, rets = p2, r2
+            paramPack, retPack = substPack(paramPack, map), substPack(retPack, map)
+            params, rets = paramPack.head, retPack.head
+            paramModes = paramPack.modes
             if varargType then
                 varargType = substType(varargType, map)
             end
         end
 
         local nparams = #params
-        if #args > nparams and not calleeT.vararg then
+        local actualCount = #argPack.head
+        if not argPack.tail and actualCount > nparams and not calleeT.vararg then
             c.diag("NUPP2007", node, ("too many arguments (expected %d, got %d)")
-                :format(nparams, #args), nil, callDetails(node))
+                :format(nparams, actualCount), nil, callDetails(node))
+            c.checkPackDiscard(argPack, nparams + 1, node)
         end
         -- A declared element type applies to every argument past the last named
         -- parameter; an undeclared `...` still accepts anything.
         if varargType then
-            for j = nparams + 1, #args do
+            for j = nparams + 1, actualCount do
                 local ok, why = isA(ats[j] or T.any, varargType)
                 if not ok then
-                    c.diag("NUPP2006", cst.isToken(args[j]) and node or args[j],
+                    c.diag("NUPP2006", cst.isToken(argNodes[j])
+                        and node or argNodes[j],
                         ("argument %d: %s"):format(j, why), nil,
                         callDetails(node))
                 end
             end
         end
-        for j = 1, math.min(#args, nparams) do
+        for j = 1, math.min(actualCount, nparams) do
             local mode = paramModes[j] or "plain"
             local actualForCheck = ats[j]
             if node.cdefCall and c.ownershipKind(actualForCheck) == "pinned" then
                 actualForCheck = rawType(actualForCheck)
-                if not cst.isToken(args[j]) then
-                    args[j].passPinnedPointer = true
+                if not cst.isToken(argNodes[j]) then
+                    argNodes[j].passPinnedPointer = true
                 end
             end
             local ok, why = isA(actualForCheck, params[j])
             if not ok then
-                c.diag("NUPP2006", cst.isToken(args[j]) and node or args[j],
+                c.diag("NUPP2006", cst.isToken(argNodes[j])
+                    and node or argNodes[j],
                     ("argument %d: %s"):format(j, why), nil,
                     callDetails(node))
             end
-            -- The parameter is fully substituted by now, so a `metatable<T>` says
-            -- whose metatable this argument is. That is how `setmetatable` and any
-            -- registrar taking one reach the receiver's contracts, a bounded
-            -- generic's included.
-            if not cst.isToken(args[j]) then
-                c.checkMetatableLiteral(args[j], ats[j], params[j])
+            -- The parameter is fully substituted by now, so a `metatable<T>` says whose
+            -- metatable this argument is. That is how `setmetatable` and any registrar
+            -- taking one reach the receiver's contracts, a bounded generic's included.
+            if not cst.isToken(argNodes[j]) then
+                c.checkMetatableLiteral(argNodes[j], ats[j], params[j])
             end
             if mode == "takes" then
                 local withBorrow = c.ownershipKind(ats[j]) == "borrowed"
-                    and not cst.isToken(args[j]) and args[j].withBinding
+                    and not cst.isToken(argNodes[j]) and argNodes[j].withBinding
                 if withBorrow then
-                    c.diag("NUPP2614", args[j],
+                    c.diag("NUPP2614", argNodes[j],
                         "a visible 'with' borrow cannot be consumed")
                 end
                 if not withBorrow then
-                    c.moveExpression(cst.isToken(args[j]) and node or args[j],
+                    c.moveExpression(cst.isToken(argNodes[j])
+                        and node or argNodes[j],
                         ats[j], ("argument %d"):format(j))
                 end
             elseif mode == "exclusive" then
-                local entry, nameNode = c.ownershipEntry(args[j])
+                local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 if c.ownershipKind(ats[j]) == "borrowed" then
-                    c.diag("NUPP2602", args[j] or node,
+                    c.diag("NUPP2602", argNodes[j] or node,
                         "an exclusive parameter needs sole access, not a shared borrow")
                 elseif entry and (entry.activeBorrows or 0) > 0 then
-                    c.diag("NUPP2602", nameNode or args[j],
+                    c.diag("NUPP2602", nameNode or argNodes[j],
                         "an exclusive parameter cannot invalidate a value while a "
                         .. "derived borrow is live")
                 end
             elseif mode == "borrows" and c.ownershipKind(ats[j]) == "borrowed" then
             -- Reborrowing is valid and does not alter either lifetime.
             elseif mode == "plain" and c.ownershipKind(ats[j]) then
-                c.diag("NUPP2603", args[j] or node,
+                c.diag("NUPP2603", argNodes[j] or node,
                     "an owner or borrow needs a borrows, exclusive, or takes contract")
             elseif mode == "plain" and node.cdefCall
                 and c.pointerShaped(ats[j]) and c.unsafeDepth == 0 then
-                c.diag("NUPP2604", args[j] or node,
+                c.diag("NUPP2604", argNodes[j] or node,
                     "passing a raw pointer to C requires unsafe do or a "
                     .. "borrows, exclusive, takes, retains, or releases contract")
             elseif mode == "retains" or mode == "releases" then
-                local entry, nameNode = c.ownershipEntry(args[j])
+                local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 if not node.cdefCall then
-                    c.diag("NUPP2602", args[j] or node,
+                    c.diag("NUPP2602", argNodes[j] or node,
                         mode .. " is an imported C-function contract")
                 elseif c.ownershipKind(ats[j]) ~= "pinned" or not entry then
-                    c.diag("NUPP2602", args[j] or node,
+                    c.diag("NUPP2602", argNodes[j] or node,
                         mode .. " argument requires a named pinned<T> handle")
                 elseif entry.moved then
                 -- The name expression already emitted the use-after-move.
                 elseif mode == "retains" then
                     if entry.retained then
-                        c.diag("NUPP2602", nameNode or args[j],
+                        c.diag("NUPP2602", nameNode or argNodes[j],
                             "C already retains this pinned handle")
                     else
                         entry.retained = true
                     end
                 elseif not entry.retained then
-                    c.diag("NUPP2602", nameNode or args[j],
+                    c.diag("NUPP2602", nameNode or argNodes[j],
                         "releases argument is not currently retained by C")
                 else
                     entry.retained = false
@@ -732,10 +788,10 @@ function calls.install(c: any): any
                 sources[#sources + 1] = node.obj
             end
             if calleeT.borrowsParam then
-                sources[#sources + 1] = args[calleeT.borrowsParam]
+                sources[#sources + 1] = argNodes[calleeT.borrowsParam]
             end
             for _, at in ipairs(calleeT.borrowsParams or {}) do
-                sources[#sources + 1] = args[at]
+                sources[#sources + 1] = argNodes[at]
             end
             local owners = {}
             for _, source in ipairs(sources) do
@@ -755,9 +811,32 @@ function calls.install(c: any): any
                 node.returnBorrowOwners = {[1] = owners}
             end
         end
+        -- A pack used in both parameter and result position is a transparent forwarding
+        -- channel. Copy the adjusted argument slot's borrow roots to the corresponding
+        -- substituted result slot; rebuilding only the borrowed type would otherwise
+        -- preserve its qualifier but lose what keeps it alive.
+        local resultTail = declaredRetPack.tail
+        if resultTail and resultTail.kind == "generic" then
+            local inputStart: integer? = nil
+            local inputTail = declaredParamPack.tail
+            if inputTail and inputTail.kind == "generic"
+                and inputTail.var == resultTail.var then
+                inputStart = #declaredParamPack.head + 1
+            end
+            if inputStart then
+                for j = #declaredRetPack.head + 1, #retPack.head do
+                    local source = inputStart + j - #declaredRetPack.head - 1
+                    local owners = argumentBorrowOwners[source]
+                    if owners then
+                        node.returnBorrowOwners = node.returnBorrowOwners or {}
+                        node.returnBorrowOwners[j] = owners
+                    end
+                end
+            end
+        end
         for _, output in ipairs(calleeT.ffiOut or {}) do
             if output.kind == "borrowed" then
-                local source = args[output.sourceParam]
+                local source = argNodes[output.sourceParam]
                 local entry = source and c.ownershipEntry(source)
                 if entry then
                     node.returnBorrowOwners = node.returnBorrowOwners or {}
@@ -770,7 +849,13 @@ function calls.install(c: any): any
                 end
             end
         end
-        return rets[1] or T.nil_, rets
+        node.signatureType = T.func(params, rets, calleeT.vararg,
+            paramModes, calleeT.predicate, calleeT.typeParams,
+            calleeT.typeBounds, calleeT.borrowsParam, calleeT.borrowsSelf,
+            calleeT.borrowsParams, calleeT.ffiOut, varargType,
+            calleeT.noreturn, paramPack, retPack, calleeT.packParams,
+            calleeT.yieldPack, calleeT.resumePack)
+        return T.packAt(retPack, 1) or T.nil_, retPack.head, retPack
     end
 
     c.metamethodOf = ops.metamethodOf

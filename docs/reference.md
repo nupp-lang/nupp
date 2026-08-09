@@ -140,6 +140,37 @@ return m
 
 Reports: `NUPP2101`. `nupp explain <code>` says more.
 
+## Type packs and variadic generics
+
+`A...` declares a heterogeneous generic value sequence. A pack may have a fixed
+head and a generic or homogeneous tail. Only a final unparenthesized call or
+`...` expands in an argument, assignment, or return list; parentheses project
+one value.
+
+Whole-pack unions preserve relationships between results. This is why testing
+the boolean returned by `pcall` narrows its sibling values to the callback's
+results or the failure value together. Discarding an affine slot while adjusting
+a list is an error.
+
+```nupp
+local m = {}
+
+function m.forward<A...>(...: A...): A...
+    return ...
+end
+
+function m.protected<A..., R...>(
+    callback: function(A...): R...,
+    ...: A...
+): ((true, R...) | (false, any))
+    return pcall(callback, ...)
+end
+
+return m
+```
+
+Reports: `NUPP2010`, `NUPP2121`, `NUPP2605`. `nupp explain <code>` says more.
+
 ## Property capabilities
 
 `readonly` and `writeonly` grant member access independently on shapes,
@@ -787,15 +818,18 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2001 | A value does not fit the type it is bound to |
 | NUPP2004 | The field does not exist on that type |
 | NUPP2009 | A property view does not grant the requested access |
+| NUPP2010 | A complete value pack does not fit the required sequence |
 | NUPP2106 | An exported declaration needs a type annotation |
 | NUPP2107 | A dispatch leaves members of a closed set unhandled |
 | NUPP2119 | A declaration does not say where it lives |
+| NUPP2121 | A type pack is used where only one value type can appear |
 | NUPP2122 | A 'where' refinement cannot be enforced |
 | NUPP2123 | A metatable value does not fit the key it is written under |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |
 | NUPP2208 | A constructor does not hold up its declaration |
+| NUPP2605 | Adjusting a value pack would discard an affine value |
 | NUPP3001 | `is` has nothing to test against this type |
 
 ## Working with the toolchain

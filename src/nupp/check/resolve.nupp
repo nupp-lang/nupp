@@ -84,10 +84,37 @@ function resolve.install(c: any)
     -- way of resolving a type name ends here rather than only the unqualified one.
     local function applyTypeArgs(t, node)
         -- A refinement is what `is` compiles to, and every path that resolves a
-        -- declared name arrives here, so this is the one place it has to be
-        -- attached from. It travels as data, so nothing is resolved twice.
+        -- declared name arrives here, so this is the one place it has to be attached
+        -- from. It travels as data, so nothing is resolved twice.
         if t and t.tag == "nominal" and t.predicate then
             node.wherePredicate = t.predicate
+        end
+        if t and t.tag == "genericAlias" then
+            local map, ordinaryAt, packAt = {}, 1, 1
+            for _, arg in ipairs(node.typeArgs or {}) do
+                if arg.kind == "tpack" or arg.kind == "tpackUnion"
+                    or arg.kind == "tparen" and packAt <= #t.packParams
+                    and ordinaryAt > #t.typeParams then
+                    local packNode = arg
+                    local pack = arg.kind == "tparen"
+                        and T.pack({c.resolveType(arg.inner)})
+                        or c.resolvePack(packNode)
+                    local pv = t.packParams[packAt]
+                    if pv then
+                        map[pv], packAt = pack, packAt + 1
+                    end
+                else
+                    local tv = t.typeParams[ordinaryAt]
+                    if tv then
+                        map[tv], ordinaryAt = c.resolveType(arg), ordinaryAt + 1
+                    else
+                        c.diag("NUPP2121", arg,
+                            "ambiguous or surplus generic alias argument")
+                    end
+                end
+            end
+            c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
+            return generics.subst(t.body, map)
         end
         if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
             return t
@@ -226,6 +253,17 @@ function resolve.install(c: any)
             if name == "metatable" and node.typeArgs and node.typeArgs[1] then
                 return T.metatable(c.resolveType(node.typeArgs[1]))
             end
+            if name == "thread" and node.typeArgs then
+                if #node.typeArgs ~= 4 then
+                    c.diag("NUPP2121", node,
+                        "thread protocol needs start, resume, yield, and return packs")
+                end
+                return T.protocolThread(
+                    c.resolvePack(node.typeArgs[1]),
+                    c.resolvePack(node.typeArgs[2]),
+                    c.resolvePack(node.typeArgs[3]),
+                    c.resolvePack(node.typeArgs[4]))
+            end
             if (name == "owned" or name == "borrowed" or name == "pinned")
                 and node.typeArgs
                 and node.typeArgs[1] and not c.lookupType(name) then
@@ -273,8 +311,8 @@ function resolve.install(c: any)
                         node.recordName = name
                     end
                 elseif t.tag == "nominal" and t.declKind == "interface" then
-                    -- An interface has a table only when it carries defaults, and
-                    -- then only so a declaration taking one can reach the body.
+                    -- An interface has a table only when it carries defaults, and then
+                    -- only so a declaration taking one can reach the body.
                     if moduleName and visibility ~= "global" then
                         node.interfaceName = ("require(%q).%s")
                             :format(moduleName, name)
@@ -376,6 +414,10 @@ function resolve.install(c: any)
             local elems = {}
             for j, e in ipairs(node.types) do elems[j] = c.resolveType(e) end
             return T.tuple(elems)
+        elseif kind == "tpack" or kind == "tpackUnion" then
+            c.diag("NUPP2121", node,
+                "a type pack may only appear in a value-sequence position")
+            return T.any
         elseif kind == "tshape" then
             local fields, order, byname = {}, {}, {}
             local indexer = {}
@@ -455,15 +497,21 @@ function resolve.install(c: any)
             local params, rets, paramModes = {}, {}, {}
             local vararg = false
             local varargType = nil
-            local typeParams, typeBounds
+            local typeParams, typeBounds, packParams
             if node.generics then
                 c.pushScope()
-                typeParams, typeBounds = c.bindGenerics(node.generics, "type-function")
+                typeParams, typeBounds, packParams = c.bindGenerics(
+                    node.generics, "type-function")
             end
+            local paramPackTail = nil
             for _, p in ipairs(node.params) do
                 if p.kind == "tfuncParam" then
                     local first = p[1]
-                    if first and cst.isToken(first) and first.kind == "..." then
+                    if p.pack then
+                        local pp = c.resolvePack(p.type)
+                        paramPackTail = pp.tail
+                        vararg = true
+                    elseif first and cst.isToken(first) and first.kind == "..." then
                         vararg = true
                         if p.type then
                             varargType = c.resolveType(p.type)
@@ -476,16 +524,67 @@ function resolve.install(c: any)
                     end
                 end
             end
-            for j, r in ipairs(node.rets or {}) do rets[j] = c.resolveType(r) end
+            local paramPack = T.pack(params, paramPackTail or (vararg and {
+                kind = varargType and "homogeneous" or "unknown",
+                type = varargType or T.any} or nil), paramModes)
+            local retPack = node.returnPack and c.resolvePack(node.returnPack)
+                or T.pack({})
+            rets = retPack.head
+            local yieldPack = node.yieldPack and c.resolvePack(node.yieldPack) or nil
+            local resumePack = node.resumePack and c.resolvePack(node.resumePack) or nil
             if node.generics then
                 c.popScope()
             end
             return T.func(params, rets, vararg, paramModes, nil,
-                typeParams, typeBounds, nil, nil, nil, nil, varargType)
+                typeParams, typeBounds, nil, nil, nil, nil, varargType, nil,
+                paramPack, retPack, packParams, yieldPack, resumePack)
         elseif kind == "tparen" then
             return c.resolveType(node.inner)
         end
         return T.any
+    end
+
+    c.resolvePack = function(node)
+        if not node then
+            return T.pack({})
+        end
+        if node.kind == "tpackUnion" then
+            local arms = {}
+            for j, arm in ipairs(node.packs or {}) do arms[j] = c.resolvePack(arm) end
+            return T.packUnion(arms)
+        end
+        if node.kind ~= "tpack" then
+            return T.pack({c.resolveType(node)})
+        end
+        local head = {}
+        for j, item in ipairs(node.types or {}) do
+            if item.kind == "tpack" or item.kind == "tpackUnion" then
+                c.diag("NUPP2121", item, "a pack cannot be nested as one value")
+                head[j] = T.any
+            else
+                head[j] = c.resolveType(item)
+            end
+        end
+        local tail = nil
+        if node.tailKind == "homogeneous" then
+            tail = {kind = "homogeneous", type = c.resolveType(node.tail)}
+        elseif node.tailKind == "generic" then
+            local base = node.tail and node.tail.base
+            local pv, def
+            if base then
+                pv, def = c.lookupPack(base.text)
+            end
+            if not pv then
+                c.diag("NUPP2121", node.tail or node,
+                    "unknown generic pack " .. string.format("%q",
+                    base and base.text or ""))
+                tail = {kind = "unknown", type = T.any}
+            else
+                c.markToken(base, def, nil, "typeParameter")
+                tail = {kind = "generic", var = pv}
+            end
+        end
+        return T.pack(head, tail)
     end
 
     -- Resolves an alias that was hoisted to the top of its block, the first time
@@ -504,7 +603,18 @@ function resolve.install(c: any)
         c.resolvingAlias[name] = true
         local saved = c.scope
         c.scope = owner
-        local t = c.resolveType(waiting.node)
+        local t
+        local decl = waiting.decl
+        if decl and decl.generics then
+            c.pushScope()
+            local typeParams, typeBounds, packParams = c.bindGenerics(
+                decl.generics, "type-alias")
+            local body = c.resolveType(waiting.node)
+            c.popScope()
+            t = T.genericAlias(name, body, typeParams, typeBounds, packParams)
+        else
+            t = c.resolveType(waiting.node)
+        end
         c.scope = saved
         c.resolvingAlias[name] = nil
         owner.pending[name] = nil

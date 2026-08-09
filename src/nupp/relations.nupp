@@ -75,19 +75,99 @@ local function memberIsA(have: Type, want: Type): boolean
         for j = 2, #want.params do
             wm[#wm + 1] = want.paramModes and want.paramModes[j] or "plain"
         end
-        return isA(T.func(hp, have.rets, have.vararg, hm, nil, nil,
-            nil, nil, nil, nil, nil, have.varargType),
+        return (isA(T.func(hp, have.rets, have.vararg, hm, nil, nil,
+            nil, nil, nil, nil, nil, have.varargType, nil,
+            T.pack(hp, have.paramPack.tail, hm), have.retPack,
+            have.packParams, have.yieldPack, have.resumePack),
             T.func(wp, want.rets, want.vararg, wm, nil, nil,
-            nil, nil, nil, nil, nil, want.varargType))
+            nil, nil, nil, nil, nil, want.varargType, nil,
+            T.pack(wp, want.paramPack.tail, wm), want.retPack,
+            want.packParams, want.yieldPack, want.resumePack)))
     end
-    return isA(have, want)
+    return (isA(have, want))
 end
 
 local function optionalIsA(a: Type?, b: Type?): boolean
     if not a or not b then
         return false
     end
-    return isA(a, b)
+    return (isA(a, b))
+end
+
+local function affine(t)
+    if not t then
+        return false
+    end
+    if t.tag == "owned" or t.tag == "pinned" then
+        return true
+    end
+    if t.tag == "union" then
+        for _, member in ipairs(t.members) do
+            if affine(member) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- Covariant compatibility between complete result packs.
+function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
+    if have == want then
+        return true
+    end
+    if have.alternatives then
+        for _, arm in ipairs(have.alternatives) do
+            local ok, why = relations.packIsA(arm, want)
+            if not ok then
+                return false, why
+            end
+        end
+        return true
+    end
+    if want.alternatives then
+        for _, arm in ipairs(want.alternatives) do
+            if relations.packIsA(have, arm) then
+                return true
+            end
+        end
+        return false, ("pack %s fits no alternative of %s")
+            :format(T.tostringPack(have), T.tostringPack(want))
+    end
+    for j, expected in ipairs(want.head) do
+        local actual = T.packAt(have, j) or T.nil_
+        if not isA(actual, expected) then
+            return false, ("pack slot %d: %s is not a %s"):format(j,
+                T.tostring(actual), T.tostring(expected))
+        end
+    end
+    if want.tail and want.tail.kind == "homogeneous" then
+        for j = #want.head + 1, #have.head do
+            if not isA(have.head[j], want.tail.type) then
+                return false, ("pack tail slot %d is not a %s"):format(j,
+                    T.tostring(want.tail.type))
+            end
+        end
+        if have.tail and have.tail.kind == "homogeneous"
+            and not isA(have.tail.type, want.tail.type) then
+            return false, "homogeneous pack tails are incompatible"
+        end
+    elseif want.tail and want.tail.kind == "generic" then
+        if not have.tail or have.tail.kind ~= "generic"
+            or have.tail.var ~= want.tail.var then
+            return false, "generic pack tails are incompatible"
+        end
+    elseif not want.tail then
+        for j = #want.head + 1, #have.head do
+            if affine(have.head[j]) then
+                return false, "an affine extra result would be truncated"
+            end
+        end
+        if have.tail and (have.tail.kind == "generic" or affine(have.tail.type)) then
+            return false, "a potentially affine result tail would be truncated"
+        end
+    end
+    return true
 end
 
 local type PropertyType = T.Shape | T.Nominal
@@ -560,6 +640,27 @@ local function check(a: Type, b: Type): boolean, string?
     end
 
     if atag == "func" and btag == "func" then
+        -- A generic function value is universally quantified: it can stand where one
+        -- concrete instantiation is wanted. Infer that instantiation from the target's
+        -- parameter pack, validate ordinary bounds, then compare the resulting
+        -- monomorphic callable with the usual variance rules.
+        if (#(a.typeParams or {}) > 0 or #(a.packParams or {}) > 0)
+            and #(b.typeParams or {}) == 0 and #(b.packParams or {}) == 0 then
+            local generic = require("nupp.generics")
+            local map = {}
+            generic.unifyPack(a.paramPack, b.paramPack, map)
+            for j, tv in ipairs(a.typeParams or {}) do
+                local bound = a.typeBounds and a.typeBounds[j]
+                local actual = map[tv]
+                if bound and actual
+                    and not isA(actual, generic.subst(bound, map)) then
+                    return false, ("type argument %s does not satisfy %s")
+                        :format(T.tostring(actual), T.tostring(bound))
+                end
+            end
+            local concrete = generic.instantiateFunction(a, map)
+            return isA(concrete, b)
+        end
         -- Ignoring arguments is ordinary Lua: a callback that takes the value and not
         -- the key is usable wherever both are passed. Wanting more than will ever be
         -- supplied is not, since the extra ones read as nil.
@@ -610,7 +711,32 @@ local function check(a: Type, b: Type): boolean, string?
                     :format(T.tostring(a), T.tostring(b), j)
             end
         end
+        local packsOk, packsWhy = relations.packIsA(a.retPack, b.retPack)
+        if not packsOk then
+            return false, ("%s is not a %s (%s)"):format(T.tostring(a),
+                T.tostring(b), packsWhy)
+        end
+        if b.yieldPack then
+            if not a.yieldPack then
+                return false, ("%s is not a %s (missing yield protocol)")
+                    :format(T.tostring(a), T.tostring(b))
+            end
+            local yieldOk = relations.packIsA(a.yieldPack, b.yieldPack)
+            local resumeOk = a.resumePack and b.resumePack
+                and relations.packIsA(b.resumePack, a.resumePack)
+            if not yieldOk or not resumeOk then
+                return false, ("%s is not a %s (coroutine protocol)")
+                    :format(T.tostring(a), T.tostring(b))
+            end
+        end
         return true
+    end
+
+    if atag == "protocolThread" and btag == "thread" then
+        return true
+    end
+    if atag == "protocolThread" and btag == "protocolThread" then
+        return fail(a, b)
     end
 
     -- nominal vs nominal: identity only (interface conformance lands later)

@@ -19,6 +19,7 @@ local cst = require("nupp.cst")
 local ffiMod = require("nupp.check.ffi")
 
 local isA = relations.isA
+local packIsA = relations.packIsA
 local rawType = T.unwrapOwnership
 local dropSelf = generics.dropSelf
 
@@ -251,6 +252,18 @@ function callexpr.install(c: any): any
         end
         local calleeT = callee and c.infer(callee) or T.any
         node.calleeType = rawType(calleeT)
+        local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        if wrappedEntry and wrappedEntry.wrappedProtocol then
+            local protocol = wrappedEntry.wrappedProtocol
+            local input = wrappedEntry.wrappedPhase == "new"
+                and protocol.startPack or protocol.resumePack
+            local output = T.packUnion({protocol.yieldPack,
+                protocol.returnPack})
+            calleeT = T.func(input.head, output.head, input.tail ~= nil,
+                input.modes, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+                input, output)
+            node.calleeType = calleeT
+        end
         -- LuaJIT exposes these functions through builtin modules rather than before
         -- startup. Recognize the stable prelude path by definition, never by spelling:
         -- a local named `table` remains an ordinary call.
@@ -295,8 +308,260 @@ function callexpr.install(c: any): any
         if calleeName == "setmetatable" and calleeT.tag ~= "func" then
             c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
         end
-        local first, rets = c.inferCall(node, calleeT, node.args, knownAts)
+        local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        if wrappedEntry and wrappedEntry.wrappedProtocol then
+            wrappedEntry.wrappedPhase = "started"
+        end
+        local globalEntry = calleeName ~= "" and c.env and c.env.globals
+            and c.env.globals[calleeName] or nil
+        local localEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        local stableGlobal = globalEntry and localEntry
+            and globalEntry.definition == localEntry.definition
+        if stableGlobal and calleeName == "select" and node.argumentPack then
+            local source = node.argumentPack
+            local selector = argExprs[1]
+            local selectorToken = selector and (selector.kind == "string"
+                or selector.kind == "number") and selector.token or nil
+            local selectorText = selectorToken and selectorToken.text or ""
+            if selector and selector.kind == "string"
+                and (selectorText == '"#"' or selectorText == "'#'") then
+                pack = T.pack({T.integer})
+                local discarded = {}
+                for j = 2, #source.head do
+                    discarded[#discarded + 1] = source.head[j]
+                end
+                c.checkPackDiscard(T.pack(discarded, source.tail), 1, node)
+            else
+                local selected: integer? = nil
+                if selector and selector.kind == "number" then
+                    selected = tonumber((selectorText:gsub("_", ""))) as integer
+                elseif selector and selector.kind == "unop" and selector.op
+                    and selector.op.kind == "-" and selector.operand
+                    and selector.operand.kind == "number"
+                    and selector.operand.token then
+                    selected = -(assert(tonumber((selector.operand.token.text
+                        :gsub("_", "")))) as integer)
+                end
+                local values = {}
+                for j = 2, #source.head do values[#values + 1] = source.head[j] end
+                local valuePack = T.pack(values, source.tail)
+                if selected then
+                    local start = selected < 0 and #values + selected + 1
+                        or selected
+                    if not source.tail and (selected == 0 or start < 1
+                        or start > #values) then
+                        c.diag("NUPP2010", selector,
+                            "select index is outside its statically known argument pack")
+                    end
+                    local discarded = {}
+                    for j = 1, math.max(start - 1, 0) do
+                        discarded[#discarded + 1] = values[j]
+                    end
+                    c.checkPackDiscard(T.pack(discarded,
+                        source.tail and start > #values and source.tail or nil),
+                        1, selector or node)
+                    local sliced = {}
+                    for j = math.max(start, 1), #values do
+                        sliced[#sliced + 1] = values[j]
+                    end
+                    pack = T.pack(sliced, valuePack.tail)
+                else
+                    local members = {}
+                    for _, value in ipairs(values) do members[#members + 1] = value end
+                    if source.tail and source.tail.type then
+                        members[#members + 1] = source.tail.type
+                    end
+                    pack = T.pack({}, {kind = "homogeneous",
+                        type = #members > 0 and T.union(members) or T.any})
+                    c.checkPackDiscard(valuePack, 1, selector or node)
+                end
+            end
+            first, rets = T.packAt(pack, 1) or T.nil_, pack.head
+        end
+        if stableGlobal and calleeName == "unpack" and node.argumentPack then
+            local tableType = T.packAt(node.argumentPack, 1)
+            local elements, elementType = {}, nil
+            if tableType and tableType.tag == "tuple" then
+                for j, value in ipairs(tableType.elems) do elements[j] = value end
+            elseif tableType and tableType.tag == "array" then
+                elementType = tableType.elem
+            end
+            if #elements > 0 or elementType then
+                local function integerLiteral(expr): integer?
+                    local tok = expr and expr.kind == "number" and expr.token or nil
+                    if not tok then
+                        return nil
+                    end
+                    return tonumber((tok.text:gsub("_", ""))) as integer
+                end
+                local from = integerLiteral(argExprs[2]) or 1
+                local through = integerLiteral(argExprs[3])
+                if #elements > 0 and (not argExprs[2]
+                    or integerLiteral(argExprs[2]))
+                    and (not argExprs[3] or through) then
+                    through = through or #elements
+                    local sliced = {}
+                    for j = from, through do
+                        sliced[#sliced + 1] = elements[j] or T.nil_
+                    end
+                    pack = T.pack(sliced)
+                elseif elementType then
+                    pack = T.pack({}, {kind = "homogeneous", type = elementType})
+                else
+                    pack = T.pack({}, {kind = "homogeneous",
+                        type = T.union(elements)})
+                end
+                first, rets = T.packAt(pack, 1) or T.nil_, pack.head
+            end
+        end
+        local tableEntry = baseName ~= "" and c.env and c.env.globals
+            and c.env.globals[baseName] or nil
+        local baseEntry = baseName ~= "" and c.lookupEntry(baseName) or nil
+        local stableMember = tableEntry and baseEntry
+            and tableEntry.definition == baseEntry.definition
+        if stableMember and baseName == "coroutine" then
+            node.coroutineIntrinsic = memberName
+            local actual = node.argumentPack or T.pack({})
+            local function unknownPack()
+                return T.pack({}, {kind = "unknown", type = T.any})
+            end
+            local function checkProtocol(expected, offset: integer)
+                local head = {}
+                for j = offset + 1, #actual.head do
+                    head[#head + 1] = actual.head[j]
+                end
+                local supplied = T.pack(head, actual.tail)
+                local ok, why = packIsA(supplied, expected)
+                local exact = expected.alternatives or expected.tail
+                    or not supplied.tail and #supplied.head == #expected.head
+                if not ok or not exact then
+                    c.diag("NUPP2010", argExprs[offset + 1] or node,
+                        why or ("coroutine pack has %d values, expected %d")
+                        :format(#supplied.head, #expected.head))
+                end
+            end
+            if memberName == "create" then
+                local bodyType = T.packAt(actual, 1)
+                if bodyType and bodyType.tag == "func" then
+                    first = T.protocolThread(bodyType.paramPack,
+                        bodyType.resumePack or unknownPack(),
+                        bodyType.yieldPack or unknownPack(), bodyType.retPack)
+                    pack, rets = T.pack({first}), {first}
+                end
+            elseif memberName == "resume" then
+                local threadType = T.packAt(actual, 1)
+                if threadType and threadType.tag == "protocolThread" then
+                    local threadArg = argExprs[1]
+                    local threadEntry = threadArg and threadArg.kind == "name"
+                        and threadArg.token
+                        and c.lookupEntry(threadArg.token.text) or nil
+                    -- A local handle starts with the callback's Start pack. After the
+                    -- first transfer it can no longer be new, even when control later
+                    -- joins and its suspended/dead phase is unknown, so subsequent
+                    -- transfers use Resume. Escaped or erased handles accept either.
+                    local phase = threadEntry and threadEntry.threadPhase or "unknown"
+                    if phase == "dead" then
+                        c.diag("NUPP2010", threadArg or node,
+                            "a coroutine narrowed to dead cannot be resumed")
+                    end
+                    local accepted = phase == "new" and threadType.startPack
+                        or phase == "started" and threadType.resumePack
+                        or phase == "dead" and threadType.resumePack
+                        or T.packUnion({threadType.startPack,
+                        threadType.resumePack})
+                    if accepted.alternatives then
+                        local fits = false
+                        local suppliedHead = {}
+                        for j = 2, #actual.head do
+                            suppliedHead[#suppliedHead + 1] = actual.head[j]
+                        end
+                        local supplied = T.pack(suppliedHead, actual.tail)
+                        for _, arm in ipairs(accepted.alternatives) do
+                            local armFits = packIsA(supplied, arm)
+                                and (arm.tail ~= nil or not supplied.tail
+                                and #supplied.head == #arm.head)
+                            fits = fits or armFits
+                        end
+                        if not fits then
+                            checkProtocol(threadType.startPack, 1)
+                        end
+                    else
+                        checkProtocol(accepted, 1)
+                    end
+                    if threadEntry then
+                        threadEntry.threadPhase = "started"
+                    end
+                    local function successful(values)
+                        local head = {T.literal(true, T.boolean)}
+                        for _, value in ipairs(values.head) do
+                            head[#head + 1] = value
+                        end
+                        return T.pack(head, values.tail)
+                    end
+                    pack = T.packUnion({successful(threadType.yieldPack),
+                        successful(threadType.returnPack),
+                        T.pack({T.literal(false, T.boolean), T.any})})
+                    first, rets = T.packAt(pack, 1) or T.boolean, pack.head
+                end
+            elseif memberName == "yield" then
+                local expected = c.yieldPackStack[#c.yieldPackStack]
+                local resumed = c.resumePackStack[#c.resumePackStack]
+                if expected then
+                    checkProtocol(expected, 0)
+                end
+                local protocol = c.protocolStack[#c.protocolStack]
+                if protocol and not expected then
+                    protocol.yieldPacks[#protocol.yieldPacks + 1] = actual
+                end
+                if resumed then
+                    pack, rets = resumed, resumed.head
+                    first = T.packAt(resumed, 1) or T.nil_
+                end
+            elseif memberName == "status" then
+                local threadArg = argExprs[1]
+                local threadEntry = threadArg and threadArg.kind == "name"
+                    and threadArg.token
+                    and c.lookupEntry(threadArg.token.text) or nil
+                if threadArg and threadArg.kind == "name" and threadArg.token then
+                    node.coroutineStatusName = threadArg.token.text
+                end
+                local phase = threadEntry and threadEntry.threadPhase or "unknown"
+                local statuses = {}
+                if phase == "new" then
+                    statuses[1] = T.literal("suspended", T.string)
+                elseif phase == "dead" then
+                    statuses[1] = T.literal("dead", T.string)
+                elseif phase == "started" then
+                    statuses = {T.literal("suspended", T.string),
+                        T.literal("dead", T.string)}
+                else
+                    statuses = {T.literal("suspended", T.string),
+                        T.literal("running", T.string),
+                        T.literal("normal", T.string),
+                        T.literal("dead", T.string)}
+                end
+                first = T.union(statuses)
+                pack, rets = T.pack({first}), {first}
+            elseif memberName == "wrap" then
+                local bodyType = T.packAt(actual, 1)
+                if bodyType and bodyType.tag == "func" then
+                    local wrappedReturns = T.packUnion({bodyType.yieldPack
+                        or unknownPack(), bodyType.retPack})
+                    first = T.func(bodyType.paramPack.head,
+                        wrappedReturns.head, bodyType.paramPack.tail ~= nil,
+                        bodyType.paramPack.modes, nil, nil, nil, nil, nil,
+                        nil, nil, nil, nil, bodyType.paramPack, wrappedReturns)
+                    node.wrappedProtocol = T.protocolThread(bodyType.paramPack,
+                        bodyType.resumePack or unknownPack(),
+                        bodyType.yieldPack or unknownPack(), bodyType.retPack)
+                    pack, rets = T.pack({first}), {first}
+                end
+            end
+        end
         c.lastCallRets = rets
+        node.valuePack = pack or (rets and T.pack(rets)
+            or T.pack({}, {kind = "unknown", type = T.any}))
+        c.lastCallPack = node.valuePack
         return first
     end
     handlers.safeCall = handlers.call
@@ -334,9 +599,12 @@ function callexpr.install(c: any): any
             c.markToken(member, fieldDef, mt,
                 mt.tag == "func" and "method" or "property")
             -- o:m(...) desugars to m(o, ...): drop the self parameter
-            local first, rets = c.inferCall(node,
+            local first, rets, pack = c.inferCall(node,
                 mt.tag == "func" and dropSelf(mt) or mt, node.args)
             c.lastCallRets = rets
+            node.valuePack = pack or (rets and T.pack(rets)
+                or T.pack({}, {kind = "unknown", type = T.any}))
+            c.lastCallPack = node.valuePack
             return optional and T.optional(first) or first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then

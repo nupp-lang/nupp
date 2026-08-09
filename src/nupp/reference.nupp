@@ -197,6 +197,38 @@ return m
     },
 
     new reference.Section {
+        title = "Type packs and variadic generics",
+        codes = {"NUPP2010", "NUPP2121", "NUPP2605"},
+        body = [=[
+`A...` declares a heterogeneous generic value sequence. A pack may have a fixed
+head and a generic or homogeneous tail. Only a final unparenthesized call or
+`...` expands in an argument, assignment, or return list; parentheses project
+one value.
+
+Whole-pack unions preserve relationships between results. This is why testing
+the boolean returned by `pcall` narrows its sibling values to the callback's
+results or the failure value together. Discarding an affine slot while adjusting
+a list is an error.
+]=],
+        example = [=[
+local m = {}
+
+function m.forward<A...>(...: A...): A...
+    return ...
+end
+
+function m.protected<A..., R...>(
+    callback: function(A...): R...,
+    ...: A...
+): ((true, R...) | (false, any))
+    return pcall(callback, ...)
+end
+
+return m
+]=],
+    },
+
+    new reference.Section {
         title = "Property capabilities",
         codes = {"NUPP2001", "NUPP2009"},
         body = [=[
@@ -237,7 +269,7 @@ return m
     new reference.Section {
         title = "Records",
         codes = {"NUPP2004", "NUPP2118", "NUPP2202", "NUPP2206", "NUPP2207",
-            "NUPP2208"},
+        "NUPP2208"},
         body = [=[
 A record is a table with declared fields. It may carry inline methods, whose
 `self` is implicit, and it is built with `new`.

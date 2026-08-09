@@ -66,6 +66,11 @@ function M.typeTostring()
       "{[string]: {integer}}")
    assertEq(T.tostring(T.func({ T.number }, { T.boolean }, false)),
       "function(number): boolean")
+   local packVar = T.packvar("A", "test-pack")
+   local pack = T.pack({}, {kind = "generic", var = packVar})
+   assertEq(T.tostring(T.func({}, {}, true, nil, nil, nil, nil, nil,
+      nil, nil, nil, nil, nil, pack, pack, {packVar})),
+      "function<A...>(A...): (A...)")
    assertEq(T.tostring(T.indexer(T.string, T.string, T.string, T.number)),
       "{readonly [string]: string, writeonly [string]: number}")
    assertEq(T.tostring(T.shape({{name = "value", read = T.string,

@@ -628,6 +628,56 @@ function M.contractSyntaxSemanticTokens()
    assert(at["4:12"] == "method", "inline method name is method")
 end
 
+function M.packBindersHaveTypeParameterEditorSemantics()
+   local uri = "file://" .. ROOT .. "/pack-tooling.nupp"
+   local source = "local function forward<A...>(...: A...): A... return ... end\n"
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/definition",
+        params = { textDocument = { uri = uri },
+           position = { line = 0, character = 34 } } },
+      { jsonrpc = "2.0", id = 11, method = "textDocument/references",
+        params = { textDocument = { uri = uri },
+           position = { line = 0, character = 23 },
+           context = { includeDeclaration = true } } },
+      { jsonrpc = "2.0", id = 12, method = "textDocument/rename",
+        params = { textDocument = { uri = uri },
+           position = { line = 0, character = 23 }, newName = "Values" } },
+      { jsonrpc = "2.0", id = 13, method = "textDocument/semanticTokens/full",
+        params = { textDocument = { uri = uri } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   })
+   local definition = responseWithId(out, 10).result
+   assert(definition.range.start.line == 0
+      and definition.range.start.character == 23,
+      "pack splice resolves to its binder")
+   assert(#responseWithId(out, 11).result == 3,
+      "binder and both pack references are found")
+   local edits = responseWithId(out, 12).result.changes[uri]
+   assert(#edits == 3 and edits[1].newText == "Values",
+      "pack binder rename covers every splice")
+
+   local initialize = responseWithId(out, 1).result.capabilities
+   local tokenTypes = initialize.semanticTokensProvider.legend.tokenTypes
+   local data = responseWithId(out, 13).result.data
+   local line, character = 0, 0
+   local at = {}
+   for index = 1, #data, 5 do
+      line = line + data[index]
+      character = data[index] == 0
+         and character + data[index + 1] or data[index + 1]
+      at[line .. ":" .. character] = tokenTypes[data[index + 3] + 1]
+   end
+   assert(at["0:23"] == "typeParameter"
+      and at["0:34"] == "typeParameter"
+      and at["0:41"] == "typeParameter",
+      "pack binders and splices use type-parameter semantic tokens")
+end
+
 function M.utf16Positions()
    local uri = "file://" .. ROOT .. "/utf16-demo.nupp"
    local source = "local emoji = '😀'; local value = emoji\n"

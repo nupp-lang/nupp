@@ -306,3 +306,7 @@ Parameters are contravariant and returns are covariant, as usual. A function
 that takes fewer parameters is usable where more are supplied, because ignoring
 arguments is ordinary Lua; taking more is an error unless the target is
 variadic.
+
+Function parameters and results are represented as value sequences. Fixed,
+homogeneous, generic, and correlated sequences are described in [Type
+packs](packs.md).

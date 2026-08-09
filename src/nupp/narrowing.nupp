@@ -145,6 +145,12 @@ function narrowing.truthiness(vt: Type): Type?, Type?
     if vt == T.any then
         return nil, nil
     end
+    if vt == T.nil_ or (vt.tag == "literal" and vt.constant == false) then
+        return nil, vt
+    end
+    if vt.tag == "literal" and vt.constant == true then
+        return vt, nil
+    end
     local FALSE_T = T.literal(false, T.boolean)
     local truthy = narrowing.subtract(narrowing.subtract(vt, T.nil_), FALSE_T)
     local falsy: {Type} = {}

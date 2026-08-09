@@ -152,6 +152,8 @@ record checkMod.Checker
     --- not annotated and is therefore not checked.
     retStack: {any}
 
+    retPackStack: {any}
+
     --- Raw first-return types for functions whose public result is wrapped by `@owned`.
     --- The body may return a newly produced raw value or transfer an existing owner;
     --- the annotation establishes the public obligation.
@@ -160,6 +162,13 @@ record checkMod.Checker
     --- Set while checking a function whose return is declared `borrows p`, so that
     --- returning a borrow is permitted there and only there.
     borrowReturnStack: {any}
+
+    varargPackStack: {any}
+
+    yieldPackStack: {any}
+
+    resumePackStack: {any}
+    protocolStack: {any}
 
     --- The owned fields a `@dispose` body still has to discharge.
     disposerFieldStack: {any}
@@ -200,6 +209,9 @@ record checkMod.Checker
     --- the first.
     lastCallRets: {Type}?
 
+    --- The complete pack produced by the last expanding expression.
+    lastCallPack: any
+
     -- The operations a pass reaches the run through. They are fields rather than locals
     -- so that a pass can live in its own module and still call them.
 
@@ -215,6 +227,8 @@ record checkMod.Checker
 
     --- The type a name resolves to, or nil.
     lookupType: function(name: string): Type?
+
+    lookupPack: function(name: string): any
 
     --- Records what a token means, for the editor and for go-to-definition.
     markToken: function(tok: any, def: any, t: Type?, kind: string?)
@@ -233,6 +247,8 @@ record checkMod.Checker
 
     --- The type an annotation names.
     resolveType: function(node: Node?): Type
+
+    resolvePack: function(node: Node?): any
 
     --- The type a reference currently holds: what narrowing knows, else the declared or
     --- inferred type reached through its base.
@@ -343,15 +359,19 @@ record checkMod.Checker
     --- Binds a type name, and a declaration's name in both namespaces.
     bindType: function(name: string, t: Type?, tok: any?)
 
+    bindPack: function(name: string, p: any, tok: any?)
+
     bindDeclaredType: function(stat: any, t: Type?)
 
     bindDeclaredVar: function(stat: any, t: Type?)
 
     --- Binds a generics clause's parameters, returning them and their bounds.
-    bindGenerics: function(generics: any, role: string): (any, any)
+    bindGenerics: function(generics: any, role: string): (any, any, any)
 
     --- A fresh type parameter for one binder.
     typevarAt: function(tok: any, role: string): Type
+
+    packvarAt: function(tok: any, role: string): any
 
     --- The key a qualified declaration binds under, and the table it attaches to.
     declKey: function(stat: any): string
@@ -404,6 +424,9 @@ record checkMod.Checker
 
     --- The types of an expression list, expanding a trailing call's extra results.
     inferList: function(exprs: any, count: integer): {Type}
+
+    inferListPack: function(exprs: any): any
+    checkPackDiscard: function(pack: any, first: integer, at: any): boolean
 
     --- Records a `function m.f` or `m.x = v` as a member of the returned module.
     recordModuleField: function(target: Node, t: Type?, constant: boolean?,
@@ -536,13 +559,16 @@ function checkMod.check(result, filename, env, opts)
         moduleExports = opts and opts.initialExports
         or {types = {}, typeDefs = {}, values = {}},
         seenDefinitions = {},
-        scope = {vars = {}, types = {}, typeDefs = {},
+        scope = {vars = {}, types = {}, packTypes = {}, typeDefs = {},
         pending = {}, parent = nil},
-        retStack = {}, ownReturnStack = {}, borrowReturnStack = {},
+        retStack = {}, retPackStack = {}, ownReturnStack = {},
+        borrowReturnStack = {},
+        varargPackStack = {}, yieldPackStack = {}, resumePackStack = {},
+        protocolStack = {},
         disposerFieldStack = {}, validatedCleanupContracts = {},
         unsafeDepth = 0, functionDepth = 0,
         captureWatches = {}, allowed = {}, hoisting = false,
-        resolvingAlias = {}, lastCallRets = nil,
+        resolvingAlias = {}, lastCallRets = nil, lastCallPack = nil,
         moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {},
         constModulePaths = {},
         moduleLocalAnnotated = false,
@@ -653,7 +679,7 @@ function checkMod.check(result, filename, env, opts)
     -- there is enough; the stack keeps nested scopes independent, and an inner capture
     -- is recorded for every enclosing scope it also escapes.
     c.pushScope = function()
-        c.scope = {vars = {}, types = {}, typeDefs = {},
+        c.scope = {vars = {}, types = {}, packTypes = {}, typeDefs = {},
             pending = {}, parent = c.scope,
             depth = (c.scope and c.scope.depth or 0) + 1}
     end
@@ -757,6 +783,17 @@ function checkMod.check(result, filename, env, opts)
         end
         return nil
     end
+    c.lookupPack = function(name)
+        local s = c.scope
+        while s do
+            local p = s.packTypes and s.packTypes[name]
+            if p then
+                return p, s.typeDefs[name]
+            end
+            s = s.parent
+        end
+        return nil
+    end
     c.definition = function(tok, kind)
         if not tok then
             return nil
@@ -836,6 +873,16 @@ function checkMod.check(result, filename, env, opts)
         c.scope.typeDefs[name] = def
         c.markToken(tok, def, t, kind)
     end
+    c.bindPack = function(name, p, tok)
+        c.scope.packTypes[name] = p
+        local def = tok and c.definition(tok, "typeParameter")
+            or c.scope.typeDefs[name]
+        if def then
+            def.type, def.kind = p, "typeParameter"
+        end
+        c.scope.typeDefs[name] = def
+        c.markToken(tok, def, nil, "typeParameter")
+    end
 
     --- The single table a qualified declaration attaches to, or nil when the name is
     --- unqualified.
@@ -894,24 +941,44 @@ function checkMod.check(result, filename, env, opts)
         return T.typevar(tok.text, filename .. ":" .. tostring(tok.offset)
             .. ":" .. (role or "generic"))
     end
+    c.packvarAt = function(tok, role)
+        return T.packvar(tok.text, filename .. ":" .. tostring(tok.offset)
+            .. ":" .. (role or "generic-pack"))
+    end
 
     -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
     -- after each binder is visible.
     c.bindGenerics = function(generics, role)
-        local params, bounds = {}, {}
+        local params, bounds, packParams = {}, {}, {}
+        local sawPack = false
         for j, nameTok in ipairs(generics and generics.names or {}) do
-            local tv = c.typevarAt(nameTok, role)
-            params[j] = tv
-            c.bindType(nameTok.text, tv, nameTok)
+            local isPack = generics.packs and generics.packs[j]
+            if isPack then
+                sawPack = true
+                local pv = c.packvarAt(nameTok, role)
+                packParams[#packParams + 1] = pv
+                c.bindPack(nameTok.text, pv, nameTok)
+            else
+                if sawPack then
+                    c.diag("NUPP2121", nameTok,
+                        "an ordinary type parameter cannot follow a pack parameter")
+                end
+                local tv = c.typevarAt(nameTok, role)
+                params[#params + 1] = tv
+                c.bindType(nameTok.text, tv, nameTok)
+            end
             local boundNode = generics.bounds and generics.bounds[j]
             if boundNode then
-                bounds[j] = c.resolveType(boundNode)
-                if tv.tag == "typevar" then
-                    tv.bound = bounds[j]
+                if isPack then
+                    c.diag("NUPP2121", boundNode,
+                        "generic pack bounds are not supported")
+                else
+                    bounds[#params] = c.resolveType(boundNode)
+                    params[#params].bound = bounds[#params]
                 end
             end
         end
-        return params, bounds
+        return params, bounds, packParams
     end
 
     ---------------------------------------------------------------------
@@ -946,24 +1013,123 @@ function checkMod.check(result, filename, env, opts)
     -- still have left a call's results behind — a function expression whose body calls
     -- something does — so the expansion asks what the expression is rather than
     -- trusting what the last call reported.
-    local EXPANDS = {call = true, methodCall = true, safeCall = true}
+    local EXPANDS = {call = true, methodCall = true, safeCall = true,
+        vararg = true}
 
-    local function inferList(exprs, count)
-        local out = {}
+    local function affineType(t)
+        if not t then
+            return false
+        end
+        if t.tag == "owned" or t.tag == "pinned" then
+            return true
+        end
+        if t.tag == "union" then
+            for _, member in ipairs(t.members) do
+                if affineType(member) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    local function valueMode(t)
+        if not t then
+            return "plain"
+        end
+        if t.tag == "owned" or t.tag == "pinned" then
+            return "takes"
+        end
+        if t.tag == "borrowed" then
+            return "borrows"
+        end
+        return "plain"
+    end
+
+    local function checkPackDiscard(pack, first, at)
+        if not pack then
+            return false
+        end
+        local discarded = false
+        if pack.alternatives then
+            for _, arm in ipairs(pack.alternatives) do
+                discarded = checkPackDiscard(arm, first, at) or discarded
+            end
+            return discarded
+        end
+        for j = first, #pack.head do
+            if affineType(pack.head[j]) then
+                discarded = true
+            end
+        end
+        if pack.tail and (pack.tail.kind == "generic"
+            or affineType(pack.tail.type)) then
+            discarded = true
+        end
+        if discarded then
+            c.diag("NUPP2605", at,
+                "an affine value in this result pack would be discarded")
+        end
+        return discarded
+    end
+
+    local function inferListPack(exprs)
+        local head, modes, tail = {}, {}, nil
         exprs = exprs or {}
         for j, e in ipairs(exprs) do
-            c.lastCallRets = nil
-            local t = c.infer(e)
-            local rets = EXPANDS[e.kind] and c.lastCallRets or nil
-            if j == #exprs and rets and #rets > 1 then
-                for k, r in ipairs(rets) do
-                    if not count or j + k - 1 <= count then
-                        out[j + k - 1] = r
+            c.lastCallRets, c.lastCallPack = nil, nil
+            local valueT = c.infer(e)
+            local produced = e.valuePack or c.lastCallPack
+            local pack = j == #exprs and EXPANDS[e.kind] and produced or nil
+            if pack then
+                if pack.alternatives then
+                    local alternatives = {}
+                    for armIndex, arm in ipairs(pack.alternatives) do
+                        local armHead, armModes = {}, {}
+                        for k, value in ipairs(head) do
+                            armHead[k], armModes[k] = value, modes[k]
+                        end
+                        for k, resultT in ipairs(arm.head) do
+                            armHead[#armHead + 1] = resultT
+                            local mode = arm.modes[k]
+                            armModes[#armModes + 1] = mode
+                                and mode ~= "plain" and mode or valueMode(resultT)
+                        end
+                        alternatives[armIndex] = T.pack(armHead, arm.tail,
+                            armModes)
                     end
+                    return T.packUnion(alternatives)
                 end
+                for k, resultT in ipairs(pack.head) do
+                    head[#head + 1] = resultT
+                    local mode = pack.modes[k]
+                    modes[#modes + 1] = mode and mode ~= "plain" and mode
+                        or valueMode(resultT)
+                end
+                tail = pack.tail
             else
-                out[j] = t
+                head[#head + 1] = valueT
+                modes[#modes + 1] = valueMode(valueT)
+                if produced then
+                    checkPackDiscard(produced, 2, e)
+                end
             end
+        end
+        return T.pack(head, tail, modes)
+    end
+
+    local function inferList(exprs, count)
+        local pack = inferListPack(exprs)
+        local out = {}
+        local hasExpressions = exprs and #exprs > 0
+        local limit = count and hasExpressions and count
+            or math.min(count or #pack.head, #pack.head)
+        for j = 1, limit do
+            out[j] = T.packAt(pack, j) or T.nil_
+        end
+        if count then
+            checkPackDiscard(pack, count + 1,
+                exprs and exprs[#exprs] or nil)
         end
         return out
     end
@@ -1190,6 +1356,8 @@ function checkMod.check(result, filename, env, opts)
     -- Promoted onto the run so that the statement families below, each in its own
     -- module, can reach them without being lexically inside this function.
     c.inferList = inferList
+    c.inferListPack = inferListPack
+    c.checkPackDiscard = checkPackDiscard
     c.recordModuleField = recordModuleField
     c.constModuleField = constModuleField
     c.alwaysExits = alwaysExits
@@ -1238,7 +1406,7 @@ function checkMod.check(result, filename, env, opts)
                 end
                 c.bindType(key, n, nil)
             elseif k == "typeAlias" and decl.name and decl.value then
-                local waiting = {node = decl.value, tok = decl.name}
+                local waiting = {node = decl.value, tok = decl.name, decl = decl}
                 decl.hoistedAlias = waiting
                 c.scope.pending[c.declKey(decl)] = waiting
             end

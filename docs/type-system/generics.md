@@ -18,6 +18,22 @@ local type Handler<E> = function(event: E): boolean
 local mapper: function<A, B>(xs: {A}, f: function(A): B): {B}
 ```
 
+A binder ending in `...` is a type-pack parameter. It preserves a heterogeneous
+sequence rather than choosing one element type:
+
+```nupp
+local function forward<A...>(...: A...): A...
+    return ...
+end
+
+local type Adapter<A..., R...> = function(A...): R...
+local type PairAdapter = Adapter<(number, string), (boolean, integer)>
+```
+
+Ordinary binders precede pack binders. Explicit pack arguments use parentheses
+to delimit one pack from the next. See [Type packs](packs.md) for list
+adjustment, correlation, and ownership rules.
+
 ## Constraints use `is`
 
 ```nupp

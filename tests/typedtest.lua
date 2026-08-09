@@ -212,6 +212,13 @@ function M.formattingTypedCode()
       "local m: {[string]: {number}} = {}\n")
    assertEq(fmt1("local function f< T >( x : T ) : T return x end"),
       "local function f<T>(x: T): T return x end\n")
+   assertEq(fmt1("local function f< A... , R... >( ... : A... ) : R... "
+      .. "return ... end"),
+      "local function f<A..., R...>(...: A...): R... return ... end\n")
+   assertEq(fmt1("local f:function(A...):( (true,R...) | (false,any) )"),
+      "local f: function(A...): ((true, R...) | (false, any))\n")
+   assertEq(fmt1("local f:function():... string"),
+      "local f: function(): ...string\n")
    assertEq(fmt1("local x : S * ? = nil"), "local x: S*? = nil\n")
    assertEq(fmt1("@jit local function h() end"), "@jit local function h() end\n")
    assertEq(fmt1("local record P\nx: number\nend"),

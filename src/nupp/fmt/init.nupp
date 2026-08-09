@@ -309,6 +309,9 @@ local function sep(prev, tok)
         if tok.kind == "(" then
             return ""
         end -- f<T>(x)
+        if prev.homogeneousPack then
+            return ""
+        end -- homogeneous pack tail: ...T
     end
     if NO_SPACE_AFTER[prev.kind] then
         return ""
@@ -332,9 +335,8 @@ local function sep(prev, tok)
         if prev.contextualOp then
             return " "
         end
-        -- A construction is spelled as call sugar and is not one: the fields belong
-        -- to the type rather than being an argument to it, so the brace stands off
-        -- it.
+        -- A construction is spelled as call sugar and is not one: the fields belong to
+        -- the type rather than being an argument to it, so the brace stands off it.
         if prev.constructTarget then
             return " "
         end
@@ -795,12 +797,12 @@ local function render(lines)
             local rest = {}
             for j = 2, #line.items do rest[#rest + 1] = line.items[j] end
             if #rest > 0 then
-                push((indentStr .. renderItems(rest)):gsub("%s+$", ""))
+                push(((indentStr .. renderItems(rest)):gsub("%s+$", "")))
             end
         else
             local body = renderItems(line.items)
             if body ~= "" then
-                push((indentStr .. body):gsub("%s+$", ""))
+                push(((indentStr .. body):gsub("%s+$", "")))
             end
         end
         -- blank line after a documented declaration, unless the scope closes right
