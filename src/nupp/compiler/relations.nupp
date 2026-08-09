@@ -205,50 +205,34 @@ local function memberIsA(have: Type, want: Type): boolean
         for j = 2, #want.params do
             wm[#wm + 1] = want.paramModes and want.paramModes[j] or "plain"
         end
-        return (
-            isA(
-                T.func(
-                    hp,
-                    have.rets,
-                    have.vararg,
-                    hm,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    have.varargType,
-                    nil,
-                    T.pack(hp, have.paramPack.tail, hm),
-                    have.retPack,
-                    have.packParams,
-                    have.yieldPack,
-                    have.resumePack
-                ),
-                T.func(
-                    wp,
-                    want.rets,
-                    want.vararg,
-                    wm,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    nil,
-                    want.varargType,
-                    nil,
-                    T.pack(wp, want.paramPack.tail, wm),
-                    want.retPack,
-                    want.packParams,
-                    want.yieldPack,
-                    want.resumePack
-                )
-            )
-        )
+        return (isA(T.func(hp, have.rets, have.vararg, hm, nil, nil, nil, nil, nil, nil, nil, have.varargType, nil, T.pack(
+            hp,
+            have.paramPack.tail,
+            hm
+        ), have.retPack, have.packParams, have.yieldPack, have.resumePack,
+            -- Both sides keep the qualifier, so dropping the receiver to
+            -- compare shapes does not also drop the suspension check.
+            have.noYield), T.func(
+            wp,
+            want.rets,
+            want.vararg,
+            wm,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            want.varargType,
+            nil,
+            T.pack(wp, want.paramPack.tail, wm),
+            want.retPack,
+            want.packParams,
+            want.yieldPack,
+            want.resumePack,
+            want.noYield
+        )))
     end
 
     return (isA(have, want))

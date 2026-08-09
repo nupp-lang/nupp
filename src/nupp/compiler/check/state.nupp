@@ -386,6 +386,10 @@ record state.Checker
     --- rebuilt once effects are known.
     moduleTypeFromFields: boolean?
 
+    --- The expression a module returned, so a direct `return function ... end` or
+    --- `return {f = ...}` is qualified as well as one assembled through a local.
+    moduleReturnValue: cst.Node?
+
     --- The node each exported field's value came from, kept because interning has
     --- already thrown the answer away by the time effects are known: two exports with
     --- identical signatures share one type, so `moduleType` alone cannot say which of

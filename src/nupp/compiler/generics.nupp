@@ -146,26 +146,17 @@ function generics.subst(t: Type, map: Bindings): Type
                 bounds[j] = generics.subst(b, map)
             end
         end
-        return T.func(
-            params,
-            rets,
-            t.vararg,
-            t.paramModes,
-            t.predicate,
-            t.typeParams,
-            bounds,
-            t.borrowsParam,
-            t.borrowsSelf,
-            t.borrowsParams,
-            t.ffiOut,
-            t.varargType and generics.subst(t.varargType, map) or nil,
-            t.noreturn,
-            paramPack,
-            retPack,
-            t.packParams,
-            t.yieldPack and generics.substPack(t.yieldPack, map) or nil,
-            t.resumePack and generics.substPack(t.resumePack, map) or nil
-        )
+        return T.func(params, rets, t.vararg, t.paramModes, t.predicate, t.typeParams, bounds, t.borrowsParam, t.borrowsSelf, t.borrowsParams, t.ffiOut, t.varargType and generics.subst(
+            t.varargType,
+            map
+        ) or nil, t.noreturn, paramPack, retPack, t.packParams, t.yieldPack and generics.substPack(
+            t.yieldPack,
+            map
+        ) or nil, t.resumePack and generics.substPack(t.resumePack, map) or nil,
+            -- Substitution changes what a function takes and answers, never whether
+            -- calling it may suspend. Dropping the qualifier here would silently
+            -- downgrade every generic call site to may-yield.
+            t.noYield)
     end
 
     return t
@@ -198,7 +189,8 @@ function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
         concrete.retPack,
         nil,
         concrete.yieldPack,
-        concrete.resumePack
+        concrete.resumePack,
+        concrete.noYield
     ) as T.Func
 end
 
@@ -536,26 +528,9 @@ function generics.dropSelf(ft: Type): Type
             modes[#modes + 1] = ft.paramModes and ft.paramModes[j] or "plain"
         end
         local paramPack = T.pack(params, ft.paramPack.tail, modes)
-        return T.func(
-            params,
-            ft.rets,
-            ft.vararg,
-            modes,
-            nil,
-            ft.typeParams,
-            ft.typeBounds,
-            ft.borrowsParam,
-            ft.borrowsSelf,
-            ft.borrowsParams,
-            ft.ffiOut,
-            ft.varargType,
-            ft.noreturn,
-            paramPack,
-            ft.retPack,
-            ft.packParams,
-            ft.yieldPack,
-            ft.resumePack
-        )
+        return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
+            -- Adjusting the receiver rewrites a parameter list, not an effect.
+            ft.noYield)
     end
 
     return ft
@@ -606,7 +581,8 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         ft.retPack,
         ft.packParams,
         ft.yieldPack,
-        ft.resumePack
+        ft.resumePack,
+        ft.noYield
     )
 end
 

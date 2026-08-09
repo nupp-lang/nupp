@@ -186,6 +186,10 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         if #c.retStack == 0 and not c.moduleType then
             c.moduleType = ts[1] -- top-level return: the module's type
+            -- The expression itself, so boundary finalization can qualify a module
+            -- that returns a function or a table literal directly rather than filling
+            -- a local one field at a time.
+            c.moduleReturnValue = stat.exprs and stat.exprs[1] or nil
             -- The table widened to `table` when it was built, a literal constructor
             -- being open so that fields may be added to it. They were, and what was
             -- added is what a caller reaches, so the surface replaces it. An annotated

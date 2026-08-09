@@ -47,11 +47,23 @@ work makes sense in.
         Function expressions are now summarized, without which a callable
         inside an exported table had no answer.
 
+        A second pass closed three transport holes. Re-exporting an alias
+        preserves an imported guarantee rather than erasing it, absent local
+        provenance meaning nothing was learned and not that a fact was
+        refuted. Every function-type reconstruction carries the qualifier --
+        substitution, instantiation, receiver adjustment, and the shape
+        comparison that drops a receiver. And every returned module surface is
+        finalized, not only one assembled field by field, so a module that
+        returns a function or a table literal is qualified too. A declared
+        `yields = false` also outranks an inferred `external`, which is the
+        one thing a contract exists to say.
+
         Left open: nominal methods are outside the qualified boundary and stay
         may-yield, since a nominal's identity survives rechecks and
         `typeFingerprint` does not expand its members, so a guarantee there
-        could not be invalidated. The effect-interface digest closes that and
-        is not built.
+        could not be invalidated. `aNominalMethodIsNotQualified` pins that on
+        the method's own type and is what should fail first when the
+        effect-interface digest moves the boundary.
   - [ ] S1: `nosuspend` regions and `@effects(yields = false)`, with NUPP2701
         carrying the call chain. No run-time component, and worth landing
         alone after S0: it turns one of tecs's run-time errors into a checked

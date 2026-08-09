@@ -230,16 +230,24 @@ local function bodyOf(value: cst.Node?): cst.Node?
     return nil
 end
 
--- Whether a body provably cannot suspend. Absent, foreign, widened, or contradicted
--- facts all answer false: the guarantee is positive, so anything short of an answer
--- leaves the callable may-yield.
-local function provenNonYielding(body: cst.Node?): boolean
+-- Whether a declaration provably cannot suspend. Anything short of an answer leaves the
+-- callable may-yield, the guarantee being a positive one.
+--
+-- A contract outranks inference. `external` and `top` mean *inference* learned nothing,
+-- which is why they disqualify an inferred summary -- but an author who wrote
+-- `@effects(external = true, yields = false)` has stated the fact that inference could
+-- not reach, and NUPP2112 already holds a visible body to what its contract claims.
+-- Treating a declared negative as unknown would make the contract unable to say the one
+-- thing it exists to say.
+local function provenNonYielding(node: cst.Node?, body: cst.Node?): boolean
+    local contract = node and node.effectContract or body and body.effectContract
+    if contract and contract.yields ~= nil then
+        return contract.yields ~= true
+    end
     local summary = body and body.effectSummary
     if not summary then
         return false
     end
-    -- The same disqualifications `analysis.queries` applies, asked directly: a widened
-    -- or foreign summary knows nothing, and knowing nothing is may-yield.
     if summary.top == true or summary.external == true then
         return false
     end
@@ -262,7 +270,19 @@ local function qualifyExport(t: Type?, value: cst.Node?): Type?
         return t
     end
     if t.tag == "func" then
-        return T.withYields(t, not provenNonYielding(bodyOf(value)))
+        -- No local definition to consult means nothing was learned here, and nothing
+        -- learned is not the same as a guarantee refuted. A re-export -- `M.safe =
+        -- B.safe` -- arrives already qualified, and stamping it may-yield because this
+        -- file has no body for it would destroy the fact rather than decline to add
+        -- one. The effect travels with type identity; erasing it here is what would
+        -- break that.
+        local body = bodyOf(value)
+        local contract = value and not cst.isToken(value) and value.effectContract or nil
+        if not body and not contract then
+            return t
+        end
+
+        return T.withYields(t, not provenNonYielding(value, body))
     end
     -- A table of callables is the other exported shape: `M.ops = {read = ..., ...}`.
     -- Each leaf is paired with the field that produced it, so each answers for itself.
@@ -305,22 +325,32 @@ end
 -- set here instead, on the returned surface only: nothing inside this module captured
 -- the new identity, because everything inside it consults the analysis directly.
 local function finalizeBoundary(c: state.Checker)
-    if not c.moduleTypeFromFields or not c.moduleType then
+    if not c.moduleType then
         return
     end
-    local fields = {}
-    for name, ft in pairs(c.moduleFields) do
-        local qualified = qualifyExport(ft, c.moduleFieldValues[name])
-        c.moduleFields[name] = qualified as Type
-        if c.moduleFieldConst[name] then
-            fields[#fields + 1] = {name = name, read = qualified}
-        else
-            fields[#fields + 1] = {name = name, type = qualified}
+    -- A module assembled one field at a time: each export answers from the value that
+    -- was assigned to it, and the surface is rebuilt from the qualified fields.
+    if c.moduleTypeFromFields then
+        local fields = {}
+        for name, ft in pairs(c.moduleFields) do
+            local qualified = qualifyExport(ft, c.moduleFieldValues[name])
+            c.moduleFields[name] = qualified as Type
+            if c.moduleFieldConst[name] then
+                fields[#fields + 1] = {name = name, read = qualified}
+            else
+                fields[#fields + 1] = {name = name, type = qualified}
+            end
         end
+        if #fields > 0 then
+            c.moduleType = T.shape(fields)
+        end
+        return
     end
-    if #fields > 0 then
-        c.moduleType = T.shape(fields)
-    end
+    -- Everything else a module can return: a function directly, or a table literal
+    -- built in the `return` rather than filled in beforehand. `qualifyExport` walks
+    -- both, and answers the type unchanged for a surface it cannot pair with a
+    -- definition -- which is what leaves an annotated or nominal export alone.
+    c.moduleType = qualifyExport(c.moduleType, c.moduleReturnValue) as Type
 end
 
 -- Returns diags, moduleType (top-level return plus runtime declaration exports), and

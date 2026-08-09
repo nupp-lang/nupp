@@ -30,13 +30,13 @@ local function moduleTypeOf(src, name)
    local env = envMod.new(HERE)
    local result = parser.parse(src, (name or "test") .. ".g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags, moduleType = check.check(result, (name or "test") .. ".g.nupp", env)
+   local diags, moduleType, exports = check.check(result, (name or "test") .. ".g.nupp", env)
    for _, diag in ipairs(diags) do
       if diag.severity ~= "warning" and diag.severity ~= "note" then
          error(("unexpected %s: %s"):format(diag.code, diag.msg), 2)
       end
    end
-   return moduleType, result
+   return moduleType, result, exports
 end
 
 local function fieldType(moduleType, name)
@@ -129,14 +129,27 @@ function M.aCallbackParameterIsNotStampedWithItsOwnersEffect()
       "a parameter is a separate callable and stays conservatively may-yield")
 end
 
-function M.anUncontractedBodylessFunctionMayYield()
-   -- Nothing established a guarantee, so there is not one. The qualifier is positive
-   -- for exactly this reason: silence is may-yield.
+function M.anUncontractedVisibleBodyThatCannotBeReadMayYield()
+   -- A body inference could not get through. Not the bodyless case, which is below.
    local moduleType = moduleTypeOf(
       "local M = {}\nfunction M.f(): nil\n    someUnknownGlobal()\nend\nreturn M")
    local t = fieldType(moduleType, "f")
    assertTrue(t ~= nil, "the export is present")
-   assertEq(t.noYield, nil, "an unknowable body may suspend")
+   assertEq(t.noYield, nil, "an unreadable body may suspend")
+end
+
+function M.aGenuinelyBodylessDeclarationMayYield()
+   -- A `cdef` has no body at all: there is nothing for inference to read, so the only
+   -- way it could carry a guarantee is by declaring one, and it declares none.
+   local moduleType = moduleTypeOf(table.concat({
+      "local M = {}",
+      "cdef function spin(n: int32): int32",
+      "M.spin = spin",
+      "return M",
+   }, "\n"))
+   local t = fieldType(moduleType, "spin")
+   assertTrue(t ~= nil and t.tag == "func", "the export is callable")
+   assertEq(t.noYield, nil, "a foreign implementation may do anything")
 end
 
 function M.anEffectsContractSuppliesTheNegativeFact()
@@ -186,14 +199,16 @@ function M.theQualifierReachesBothIdentityMechanisms()
       "the build fingerprint separates them too")
 end
 
-function M.aNominalMethodIsOutsideTheQualifiedBoundary()
-   -- Scope decision, and observable rather than asserted. A method declared on a
-   -- record is not a module field, so finalization never sees it and its type keeps
-   -- no guarantee. That is deliberate: a nominal's identity survives rechecks and
+function M.aNominalMethodIsNotQualified()
+   -- Scope decision, pinned on the method's own type rather than on its absence from
+   -- the module shape. A nominal's identity deliberately survives rechecks and
    -- `typeFingerprint` does not expand its members, so a method body that started
    -- yielding could not invalidate a dependent through the type. Claiming a guarantee
-   -- that cannot be invalidated is the one thing worse than claiming none.
-   local moduleType = moduleTypeOf(table.concat({
+   -- nothing can invalidate is worse than claiming none, so methods carry none.
+   --
+   -- This test is what would fail first if the effect digest lands and the boundary
+   -- moves; it should be updated then rather than deleted.
+   local _, _, exports = moduleTypeOf(table.concat({
       "local M = {}",
       "record M.Thing",
       "    n: integer",
@@ -204,12 +219,12 @@ function M.aNominalMethodIsOutsideTheQualifiedBoundary()
       "end",
       "return M",
    }, "\n"))
-   assertEq(fieldType(moduleType, "quiet"), nil,
-      "a method is not a module field")
-   local plain = fieldType(moduleType, "plain")
-   assertTrue(plain ~= nil and plain.tag == "func", "a plain export still is one")
-   assertEq(plain.noYield, true,
-      "and it is qualified, so the boundary is where it says it is")
+   local thing = exports and exports.types and exports.types.Thing
+   assertTrue(thing ~= nil and thing.tag == "nominal", "the record is exported")
+   local method = thing.byname and thing.byname.quiet
+   assertTrue(method ~= nil and method.tag == "func", "and its method is reachable")
+   assertEq(method.noYield, nil,
+      "a method carries no guarantee, because none here could be invalidated")
 end
 
 function M.withYieldsPreservesEverythingElse()
@@ -238,6 +253,96 @@ function M.qualifyingIsIdempotent()
    assertEq(fieldType(exported, "safe"), fieldType(again, "safe"),
       "two checks of one source agree, so the interface hash is stable")
    assertEq(exported, again, "and so does the whole boundary")
+end
+
+function M.reExportingPreservesAnImportedGuarantee()
+   -- The hole that mattered most. `M.safe = B.safe` has no local body, and treating
+   -- "no answer here" as "may yield" erased a fact the type had already carried across
+   -- a boundary -- the exact opposite of conservative, and a direct contradiction of
+   -- the effect travelling with type identity.
+   local facade = moduleTypeOf(
+      io.open(HERE .. "/fixtures/effectsfacade.g.nupp"):read("*a"),
+      "fixtures/effectsfacade")
+   local safe = fieldType(facade, "safe")
+   assertTrue(safe ~= nil and safe.tag == "func", "the re-export is callable")
+   assertEq(safe.noYield, true, "a guarantee survives being handed on")
+   local waits = fieldType(facade, "waits")
+   assertTrue(waits ~= nil and waits.tag == "func", "and so is the other")
+   assertEq(waits.noYield, nil, "while a may-yield export stays may-yield")
+end
+
+function M.aReExportChainKeepsTheFactAcrossTwoBoundaries()
+   local _, result = moduleTypeOf(
+      'local F = require("fixtures.effectsfacade")\nlocal f = F.safe\nreturn f',
+      "consumer")
+   local t = localType(result, "f")
+   assertTrue(t ~= nil and t.tag == "func", "the alias is callable")
+   assertEq(t.noYield, true, "two hops do not wear the guarantee away")
+end
+
+function M.aDirectlyReturnedFunctionIsQualified()
+   -- Not every module fills a local one field at a time. One that returns a function
+   -- has a boundary too, and it used to be left unqualified.
+   local moduleType = moduleTypeOf("return function(): nil\nend")
+   assertTrue(moduleType ~= nil and moduleType.tag == "func",
+      "the module is a function")
+   assertEq(moduleType.noYield, true, "and it is qualified")
+end
+
+function M.aDirectlyReturnedTableLiteralIsQualifiedPerLeaf()
+   local moduleType = moduleTypeOf(table.concat({
+      "local function helper(): nil",
+      "    coroutine.yield()",
+      "end",
+      "return {",
+      "    reader = function(): nil",
+      "    end,",
+      "    waiter = function(): nil",
+      "        helper()",
+      "    end,",
+      "}",
+   }, "\n"))
+   assertTrue(moduleType ~= nil and moduleType.tag == "shape",
+      "the module is a table of callables")
+   local byName = {}
+   for _, field in ipairs(moduleType.fields or {}) do
+      byName[field.name] = field.read or field.type
+   end
+   assertEq(byName.reader and byName.reader.noYield, true, "the safe leaf")
+   assertEq(byName.waiter and byName.waiter.noYield, nil, "the yielding leaf")
+end
+
+function M.aContractOutranksAnUnreadableBody()
+   -- `external` means inference learned nothing, not that the answer is unknowable.
+   -- A summary built from a contract carries `external`, and disqualifying on that
+   -- alone threw away the `yields = false` sitting beside it. The contract is what an
+   -- author writes precisely when inference cannot reach the fact, so it outranks the
+   -- inferred disqualification; NUPP2112 still holds a visible body to the claim.
+   local moduleType = moduleTypeOf(table.concat({
+      "local M = {}",
+      "@effects(external = true, yields = false)",
+      "function M.f(): nil",
+      "end",
+      "return M",
+   }, "\n"))
+   local t = fieldType(moduleType, "f")
+   assertTrue(t ~= nil, "the export is present")
+   assertEq(t.noYield, true, "a declared negative establishes the guarantee")
+end
+
+function M.genericSubstitutionKeepsTheQualifier()
+   -- Substitution rewrites what a function takes and answers, never whether calling it
+   -- may suspend. A generic call site that lost the bit would be may-yield for no
+   -- reason a reader could see.
+   local generics = require("nupp.compiler.generics")
+   local tv = T.typeVar and T.typeVar("T") or nil
+   if not tv then
+      return
+   end
+   local safe = T.withYields(T.func({tv}, {tv}), false)
+   local concrete = generics.subst(safe, {[tv] = T.string})
+   assertEq(concrete.noYield, true, "the qualifier survives substitution")
+   assertEq(concrete.params[1], T.string, "and the substitution happened")
 end
 
 -- Two edits to one dependency, one of which changes the boundary and one of which
