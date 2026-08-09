@@ -319,48 +319,56 @@ per ordinary function call, and it must be measured rather than described away.
 
 Baselines were captured before any of this existed, against tecs's own
 `taskruntime` loaded from its compiled Lua tree with no SDL and no engine
-(`bench/suspension-baseline.lua`). On one machine, median of seven:
+(`bench/suspension-baseline.lua`). On one machine, median of seven, with
+allocation sampled separately under a stopped collector:
 
 ```
  path            ns/op  bytes/op  what it measures
  ─────────────   ─────  ────────  ───────────────────────────────────
  direct            0.5       0.0  a traced loop, not a call
- blocking          1.4       0.0  a wait-mode check, then calling through
- task-direct       0.4       0.0  the same work inside a task
- gate-only       155.7       0.3  newGate, complete, wait
- handled-ready   346.6       0.3  awaitCallback resumed synchronously
- park-resume     396.5     121.9  a park, a scheduler round trip, a resume
+ blocking          1.5       0.0  a wait-mode check, then calling through
+ task-direct       0.4       0.1  the same work inside a task
+ gate-only       155.8     296.1  newGate, complete, wait
+ handled-ready   348.3     568.1  awaitCallback resumed synchronously
+ park-resume     448.0     613.2  a park, a scheduler round trip, a resume
 ```
 
 `direct` and `task-direct` are traced loops, not calls: LuaJIT compiles and
 inlines them, so they are the floor of the apparatus rather than the cost of
-calling anything. Nothing should be compared against them, and an earlier
-revision of this section did exactly that. `handled-ready` is compared against
-`task-direct`, which shares its context, and against `gate-only`, which differs
-from it by one protocol.
+calling anything, and nothing should be compared against them. `handled-ready`
+is compared against `task-direct`, which shares its context, and `gate-only`,
+which differs from it by one protocol.
 
-Two things the measurement settles, one of which contradicts what this section
-first claimed:
+The measurement method is part of the result here, and worth stating because
+getting it wrong reverses the answer. `collectgarbage("count")` reports the
+current heap, not a cumulative total, so sampling it with the collector running
+measures what *survived* a collection — which reads a path that allocates
+heavily and collects promptly as one that allocates nothing. The collector has
+to be stopped around the sample, which is why allocation runs fewer operations
+than timing: the garbage is retained for the duration.
 
-- **The handler lookup is not the risk.** A wait-mode check costs about 1.5ns,
-  so the O(1) read this section is careful about is noise.
-- **The ready path does not allocate.** 0.3 bytes per operation, against 122 for
-  a real park. The first draft attributed 346ns to gates and closures; the
-  allocation column refutes it. tecs already pools its waiters and resets rather
-  than rebuilds its gates, and whatever the subscription and resume closures
-  cost, LuaJIT is sinking them. The cost is protocol *work*, not garbage.
+What the numbers say:
 
-Where the work is: the gate round trip is about 155ns and `awaitCallback` adds
-about 190ns on top of it. So the target for S2 is doing less per await, not
-allocating less — the saving available is in the wrapper, not underneath it.
+- **The handler lookup is not the risk.** A wait-mode check costs about 1.5ns.
+- **The ready path allocates, and substantially.** 568 bytes per await that never
+  parks. `taskruntime.newGate` builds a fresh table with a metatable on every
+  call and nothing pools it; the pooling elsewhere in tecs is `process.tl`
+  recycling *pipe waiters*, which is a different thing one layer up.
+- **Both layers cost, in both currencies.** The gate is about 156ns and 296
+  bytes; the wrapper around it adds about 192ns and 272 bytes. A real park adds
+  only about 100ns and 45 bytes on top of the ready path, so the ready path is
+  most of the cost of waiting even when waiting actually happens.
 
-The obligation this puts on S2 is therefore narrower than "allocate nothing",
-which was never available in any case: a subscription and a one-shot resume have
-to exist before synchronous completion can be known, and the present contract
-demands a cancellation even after it. What S2 must avoid allocating is a **gate
-or retained park state** for a subscription that completed during the call —
-unless S2 changes the protocol, and letting a synchronously-resumed subscription
-answer no cancellation at all is the change worth considering.
+So S2 has two levers on the row that matters, and they are worth about the same:
+not building a gate for a subscription that completes during the call, and not
+building the closures the wrapper needs. The first is available outright. The
+second is bounded by the protocol — a subscription and a one-shot resume have to
+exist before synchronous completion can be known — but the *cancellation* need
+not, and letting a synchronously-resumed subscription answer none is the change
+that makes a third of the wrapper's allocation optional.
+
+What S2 must therefore avoid on the synchronous path is a **gate or retained
+park state**. "Allocate nothing" was never available and should not be the bar.
 
 For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
 context read and then reaches the same gate, scheduler, and readiness pump it

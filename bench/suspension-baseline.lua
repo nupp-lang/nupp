@@ -48,6 +48,10 @@ local clock = os.clock
 local format = string.format
 
 local OPERATIONS = tonumber(os.getenv("BENCH_SUSPENSION_OPERATIONS")) or 200000
+
+-- Allocation is sampled over fewer operations than timing, because measuring it means
+-- holding every byte of the garbage until the sample ends.
+local ALLOC_OPERATIONS = tonumber(os.getenv("BENCH_SUSPENSION_ALLOC_OPERATIONS")) or 20000
 local SAMPLES = tonumber(os.getenv("BENCH_SUSPENSION_SAMPLES")) or 7
 
 local root = os.getenv("TECS_LUA")
@@ -86,15 +90,30 @@ end
 
 local rows = {}
 
--- Bytes the collector saw allocated while `body` ran, per operation. A full collection
--- first, and the counter read on either side: crude, and enough to separate a path that
--- allocates per call from one that does not, which is the question being asked.
+-- Bytes allocated while `body` ran, per operation.
+--
+-- The collector has to be *stopped* for this to mean anything. `collectgarbage("count")`
+-- reports the current heap, not a cumulative total, so with the collector running the
+-- delta measures what survived a collection rather than what was allocated -- which
+-- reads a path that allocates heavily and collects promptly as one that allocates
+-- nothing. An earlier revision of this harness made exactly that mistake and drew the
+-- opposite conclusion from the truth.
+--
+-- Stopping the collector means the garbage is retained for the duration, so allocation
+-- sampling runs a smaller number of operations than timing does.
 local function allocated(body, operations)
    collectgarbage("collect")
+   collectgarbage("stop")
    local before = collectgarbage("count")
-   body()
+   local ok, err = pcall(body)
    local after = collectgarbage("count")
+   -- Restarted whatever happened: leaving the collector off after a failure would make
+   -- every later measurement, and the process, quietly wrong.
+   collectgarbage("restart")
    collectgarbage("collect")
+   if not ok then
+      error(err, 0)
+   end
 
    return (after - before) * 1024 / operations
 end
@@ -118,24 +137,34 @@ local function payload(value)
    return value
 end
 
-local function directLoop()
-   for _ = 1, OPERATIONS do
+-- Each body takes its operation count, so timing and allocation can sample the same
+-- path at different sizes: holding the garbage means allocation runs fewer rounds.
+local function directLoop(n)
+   for _ = 1, n do
       payload(1)
    end
 end
 
-record("direct", measure(directLoop), "a traced loop, not a call", allocated(directLoop, OPERATIONS))
+local function bench(name, body, note, operations)
+   local timed = measure(function()
+      body(operations or OPERATIONS)
+   end)
+   local bytes = allocated(function()
+      body(operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
+   end, operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
+   record(name, timed, note, bytes, operations or OPERATIONS)
+end
+
+bench("direct", directLoop, "a traced loop, not a call")
 
 if task then
-   local function blockingLoop()
-      for _ = 1, OPERATIONS do
+   bench("blocking", function(n)
+      for _ = 1, n do
          if task.waitMode() == "blocking" then
             payload(1)
          end
       end
-   end
-   record("blocking", measure(blockingLoop), "waitMode check, then call through",
-      allocated(blockingLoop, OPERATIONS))
+   end, "waitMode check, then call through")
 
    -- Drives a task to completion, stepping until it settles or nothing is ready.
    local function drive(spawn, onIdle)
@@ -151,28 +180,24 @@ if task then
       payload(job.value or 0)
    end
 
-   -- The comparison `handled-ready` actually wants: identical context, identical
-   -- scheduler, one fewer protocol. LuaJIT will trace this loop too, so it is a floor
-   -- for the in-task case rather than the cost of a call -- but it is the right floor,
-   -- because it is the one `handled-ready` differs from by exactly the await.
-   local function taskDirect()
+   -- The comparison `handled-ready` wants: identical context, identical scheduler, one
+   -- fewer protocol.
+   bench("task-direct", function(n)
       drive(function()
          local sum = 0
-         for _ = 1, OPERATIONS do
+         for _ = 1, n do
             sum = sum + 1
          end
 
          return sum
       end)
-   end
-   record("task-direct", measure(taskDirect), "the same work inside a task",
-      allocated(taskDirect, OPERATIONS))
+   end, "the same work inside a task")
 
    -- The gate alone, without the await protocol wrapped round it.
-   local function gateOnly()
+   bench("gate-only", function(n)
       drive(function()
          local sum = 0
-         for _ = 1, OPERATIONS do
+         for _ = 1, n do
             local gate = task.newGate(function()
             end)
             gate:complete(1)
@@ -182,14 +207,12 @@ if task then
 
          return sum
       end)
-   end
-   record("gate-only", measure(gateOnly), "newGate, complete, wait",
-      allocated(gateOnly, OPERATIONS))
+   end, "newGate, complete, wait")
 
-   local function handledReady()
+   bench("handled-ready", function(n)
       drive(function()
          local sum = 0
-         for _ = 1, OPERATIONS do
+         for _ = 1, n do
             sum = sum + task.awaitCallback(function(resume)
                resume(1)
 
@@ -200,16 +223,14 @@ if task then
 
          return sum
       end)
-   end
-   record("handled-ready", measure(handledReady), "awaitCallback resumed synchronously",
-      allocated(handledReady, OPERATIONS))
+   end, "awaitCallback resumed synchronously")
 
    local PARKS = math.max(math.floor(OPERATIONS / 100), 1)
-   local function parkResume()
+   bench("park-resume", function(n)
       local pending = nil
       drive(function()
          local sum = 0
-         for _ = 1, PARKS do
+         for _ = 1, n do
             sum = sum + task.awaitCallback(function(resume)
                pending = resume
 
@@ -230,14 +251,12 @@ if task then
 
          return false
       end)
-   end
-   record("park-resume", measure(parkResume),
-      format("%d parks, each with a scheduler round trip", PARKS),
-      allocated(parkResume, PARKS), PARKS)
+   end, format("%d parks, each with a scheduler round trip", PARKS), PARKS)
 end
 
-print(format("suspension baselines: %d operations, median of %d samples",
-   OPERATIONS, SAMPLES))
+print(format("suspension baselines: %d operations, median of %d samples; "
+   .. "allocation sampled over %d with the collector stopped",
+   OPERATIONS, SAMPLES, ALLOC_OPERATIONS))
 if not task then
    print("tecs rows skipped: set TECS_LUA to a compiled tecs Lua tree")
 end
