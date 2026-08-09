@@ -26,13 +26,42 @@ local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report
 
 local modules = {}
 
-local function typeFingerprint(t, active)
+-- Named by module path rather than required: what these say is wanted at compile time
+-- and nothing of them is at run time.
+local type Config = nupp.build.manifest.Config
+local type Target = nupp.build.manifest.Target
+local type State = nupp.build.cache.State
+
+--- What a build did, for a caller that would otherwise only be able to observe that
+--- something got faster.
+---
+--- The three are set before anything is compiled, so a caller passes an empty table and
+--- reads it back filled in. A check counts the same way a build does, which is what
+--- lets a test say "this edit rechecked one module".
+type modules.Stats = {
+    checkedModules: number,
+    generatedModules: number,
+    reusedModules: number,
+    [string]: any,
+}
+
+--- What a modules build wrote, as a set of paths.
+---
+--- A check produces none of them and says so with an empty one, which is what lets the
+--- caller treat both the same way.
+type modules.Result = {outputs: {[string]: boolean}}
+
+local function typeFingerprint(t: nupp.types.Type?,
+    active: {[nupp.types.Type]: boolean}?): string
     if not t then
         return "nil"
     end
     active = active or {}
     if active[t] then
-        return "@" .. (t.name or t.tag)
+        -- Only some tags carry a name. One that does not is identified by its tag,
+        -- which every type has, and asking is what the cast is for.
+        local named = t as {name: string?}
+        return "@" .. (named.name or t.tag)
     end
     active[t] = true
     local tag, value = t.tag, nil
@@ -115,7 +144,7 @@ local function typeFingerprint(t, active)
     return value
 end
 
-local function resourceRelative(config, path, root)
+local function resourceRelative(config: Config, path: string, root: string): string
     local normalized = normalize(path)
     local rootPrefix = normalize(root)
     if rootPrefix ~= "." and normalized:sub(1, #rootPrefix + 1) == rootPrefix .. "/" then
@@ -178,8 +207,10 @@ local function copyModuleRecord(record)
     }
 end
 
-local function buildModules(root, outDir, config, target, oldState, newState,
-    checkOnly, strict, stats, diagnostics, checkState)
+local function buildModules(root: string, outDir: string, config: Config,
+    target: Target, oldState: State, newState: State, checkOnly: boolean?,
+    strict: boolean?, stats: modules.Stats?, diagnostics: {any}?,
+    checkState: nupp.build.store.Value?): modules.Result?, string?
     local envConfig = {}
     for key, value in pairs(config) do envConfig[key] = value end
     envConfig.include = {}
@@ -254,7 +285,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
 
     local records, reused, codeFor, paths = {}, {}, {}, {}
     local order, queued, cursor = {}, {}, 1
-    stats = stats or {}
+    stats = (stats or {}) as modules.Stats
     stats.checkedModules, stats.generatedModules, stats.reusedModules = 0, 0, 0
 
     -- Everything one module had to say, by module name, rather than one list everything
@@ -362,11 +393,11 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                     and type(previous.dependencies) == "table"
                     and type(previous.effects) == "table"
                     and type(previous.diags) == "table"
-                if usable and not checkOnly then
+                if usable and previous and not checkOnly then
                     usable = previous.artifactHash
                         and hashFile(output) == previous.artifactHash
                 end
-                if usable then
+                if usable and previous then
                     records[item.name] = copyModuleRecord(previous)
                     records[item.name].output = output
                     reused[item.name] = true
@@ -375,7 +406,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                     -- "nothing changed" rather than "nothing is wrong", and the second
                     -- run over a project with an error in it would pass.
                     said[item.name] = previous.diags
-                    for _, depName in ipairs(previous.dependencies) do
+                    for _, depName in ipairs(previous.dependencies or {}) do
                         enqueue(depName)
                     end
                 else

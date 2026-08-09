@@ -9,6 +9,13 @@ of this module, and callers pass an argv and never build a command line.
 
 local process = {}
 
+--- Where a command runs and what it runs with.
+---
+--- Both are folded into the command line rather than handed to a spawn call, because
+--- there is no spawn call to hand them to: `cd` and the shell's own assignment syntax
+--- are what a single string can say.
+type process.Options = {cwd: string?, env: {[string]: string}?}
+
 local windows = package.config:sub(1, 1) == "\\"
 
 local function quote(arg)
@@ -23,9 +30,9 @@ local function quote(arg)
     return "'" .. arg:gsub("'", "'\\''") .. "'"
 end
 
-function process.command(argv, opts)
+function process.command(argv: {string}, opts: process.Options?): string
     assert(type(argv) == "table" and #argv > 0, "argv must not be empty")
-    opts = opts or {}
+    opts = (opts or {}) as process.Options
     local parts = {}
     if opts.env then
         local names = {}
@@ -51,7 +58,7 @@ function process.command(argv, opts)
     return command
 end
 
-function process.mkdirCommand(path, forWindows)
+function process.mkdirCommand(path: string, forWindows: boolean?): {string}
     path = tostring(path)
     if forWindows == nil then
         forWindows = windows
@@ -79,12 +86,12 @@ local function exitCode(status)
     return status
 end
 
-function process.run(argv, opts)
+function process.run(argv: {string}, opts: process.Options?): integer
     return exitCode(os.execute(process.command(argv, opts)))
 end
 
-function process.capture(argv, opts)
-    opts = opts or {}
+function process.capture(argv: {string}, opts: process.Options?): integer, string
+    opts = (opts or {}) as process.Options
     local tmp = os.tmpname()
     local command = process.command(argv, opts) .. " >" .. quote(tmp) .. " 2>&1"
     local code = exitCode(os.execute(command))

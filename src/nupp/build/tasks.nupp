@@ -15,8 +15,40 @@ local jsonArray = cache.jsonArray
 
 local tasks = {}
 
-local function targetConfig(config, requested)
-    local build = config.build or {}
+--- One thing a project can be asked to do.
+---
+--- A build target, or one of the actions a manifest configures beside them. The fields
+--- past the first four depend on which: a docs target has `sources` where a bundle has
+--- `entries`, and the test action has `argv`. `nupp tasks` prints the ones that are
+--- there, which is what makes the output say what kind of task it is.
+type tasks.Task = {
+    name: string,
+
+    --- Whether a build with no target named would run this one.
+    default: boolean,
+
+    --- "build" for a target, "project" for a configured action.
+    category: string,
+
+    kind: string,
+    description: string?,
+
+    --- What to type to run it.
+    command: {string},
+
+    [string]: any,
+}
+
+--- What `describe` answers with.
+---
+--- Asking by name gets that one task; asking for none gets every task under `tasks`,
+--- with `default` naming which would run. Both arrive through one return, and the
+--- caller already knows which it asked for.
+type tasks.Description = {[string]: any}
+
+local function targetConfig(config: manifest.Config,
+    requested: string?): manifest.Target?, string?
+    local build = (config.build or {}) as manifest.Build
     if build.targets then
         local name = requested or build.default
         if not name then
@@ -25,11 +57,11 @@ local function targetConfig(config, requested)
             table.sort(names)
             name = names[1]
         end
-        local target = name and build.targets[name]
+        local target = (name and build.targets[name]) as manifest.Target
         if type(target) ~= "table" then
             return nil, "unknown build target " .. tostring(name)
         end
-        local merged = {}
+        local merged: manifest.Target = {}
         for key, value in pairs(build) do
             if key ~= "targets" and key ~= "default" then
                 merged[key] = value
@@ -43,7 +75,9 @@ local function targetConfig(config, requested)
         end
         return merged
     end
-    return build
+    -- A build section that names no targets is the target, which is what the manifest
+    -- means by leaving them out.
+    return build as manifest.Target
 end
 
 local function copyStrings(items)
@@ -96,8 +130,11 @@ local function taskDescription(config, name, isDefault)
     }
 end
 
-local function configuredTasks(config, buildOnly)
-    local build = config.build
+local function configuredTasks(config: manifest.Config,
+    buildOnly: boolean?): {tasks.Task}, string?
+    -- Every caller has already refused a manifest with no build section, which is what
+    -- makes this the config's own answer rather than a guess at one.
+    local build = config.build as manifest.Build
     local names, defaultName = {}, nil
     if build.targets then
         for name in pairs(build.targets) do names[#names + 1] = name end
@@ -151,7 +188,9 @@ local function configuredTasks(config, buildOnly)
         end
         table.sort(customNames)
         for _, customName in ipairs(customNames) do
-            local custom = config.tasks[customName]
+            -- The names came from iterating the same table, so every one of them
+            -- indexes back to a task; the map's optional result is not a real maybe.
+            local custom = (config.tasks or {})[customName] as manifest.Task
             local name = actionName(customName)
             tasks[#tasks + 1] = {
                 name = name,
@@ -171,7 +210,15 @@ local function configuredTasks(config, buildOnly)
     return tasks, defaultName
 end
 
-function tasks.describe(root, requested, opts)
+--- What the manifest at `root` defines, or one named task of it.
+---
+--- @param root the project directory, "." by default
+--- @param requested one task's name, or nil for all of them
+--- @param opts `buildOnly` leaves out the configured test and self-host actions
+--- @return the task, or the whole list
+--- @return why not, ready to print
+function tasks.describe(root: string?, requested: string?,
+    opts: {buildOnly: boolean?}?): tasks.Description?, string?
     local config, err = manifest.load(root or ".")
     if not config then
         return nil, err
@@ -192,7 +239,7 @@ function tasks.describe(root, requested, opts)
     return {default = defaultName, tasks = jsonArray(tasks)}
 end
 
-function tasks.encodeJson(value)
+function tasks.encodeJson(value: unknown): string
     return json.encode(value)
 end
 

@@ -28,11 +28,64 @@ local listFiles = fs.listFiles
 
 local cache = {}
 
-local function jsonArray(items)
-    return setmetatable(items, json.array_mt)
+--- What one module's last build left behind.
+---
+--- Every field is optional because the state is read back from a file: this version
+--- writes all of them, and a file that turns out to be missing one is a cache miss
+--- rather than a crash.
+type cache.ModuleRecord = {
+    sourceHash: string?,
+    interfaceHash: string?,
+    artifactHash: string?,
+    dependencies: {string}?,
+    output: string?,
+
+    --- What checking the module had to say, kept so that reusing the record says it
+    --- again rather than reporting a clean file.
+    diags: {any}?,
+}
+
+--- What one dependency's last build produced, as its provider described it.
+---
+--- The providers hand back different things -- a native build has an output and a
+--- binding, a rock has a tree and the search path it adds -- so this is the union of
+--- what any of them says, and `key` is the part they all agree on.
+type cache.DependencyRecord = {
+    key: string?,
+    output: string?,
+    binding: string?,
+    rock: string?,
+    version: string?,
+    tree: string?,
+    luaVersion: string?,
+    path: string?,
+    cpath: string?,
+}
+
+--- Everything one build wrote down about what it did.
+---
+--- `compilerHash`, `configHash` and `projectIndexHash` are absent from a state that has
+--- just been emptied and filled in by the run that is about to compare them.
+type cache.State = {
+    version: integer,
+    modules: {[string]: cache.ModuleRecord},
+    dependencies: {[string]: cache.DependencyRecord},
+    outputs: {[string]: boolean},
+
+    --- Target name -> the outputs that target produced, so each can remove its own
+    --- leftovers without removing another's.
+    targets: {[string]: {string}},
+
+    compilerHash: string?,
+    configHash: string?,
+    projectIndexHash: string?,
+}
+
+local function jsonArray<T>(items: {T}): {T}
+    return setmetatable(items, json.array_mt) as {T}
 end
 
-local function stable(value, seen)
+local function stable(value: unknown, seen: {[unknown]: boolean}?): string
     local kind = type(value)
     if kind == "nil" then
         return "nil"
@@ -46,28 +99,31 @@ local function stable(value, seen)
     if kind ~= "table" then
         return "<" .. kind .. ">"
     end
+    -- `type` has settled what this is; the cast is how that answer reaches the checker,
+    -- which follows `is` rather than a comparison against a copied `type()` result.
+    local entries = value as {[unknown]: unknown}
     seen = seen or {}
     if seen[value] then
         return "<cycle>"
     end
     seen[value] = true
     local keys = {}
-    for key in pairs(value) do keys[#keys + 1] = key end
+    for key in pairs(entries) do keys[#keys + 1] = key end
     table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
     local parts = {}
     for _, key in ipairs(keys) do
-        parts[#parts + 1] = stable(key, seen) .. "=" .. stable(value[key], seen)
+        parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
     end
     seen[value] = nil
     return "{" .. table.concat(parts, ",") .. "}"
 end
 
-local function hashFile(path)
+local function hashFile(path: string): string?
     local text = readFile(path)
     return text and hash.digest(text) or nil
 end
 
-local function hashFiles(files)
+local function hashFiles(files: {string}): string
     local parts = {}
     for _, path in ipairs(files) do
         parts[#parts + 1] = path .. "\0" .. (hashFile(path) or "missing")
@@ -75,7 +131,7 @@ local function hashFiles(files)
     return hash.digest(table.concat(parts, "\0"))
 end
 
-local function moduleDir()
+local function moduleDir(): string
     local source = debug.getinfo(1, "S").source
     return source:match("^@(.*)[/\\]") or "."
 end
@@ -85,7 +141,7 @@ end
 -- for a second process to be told the same thing.
 local toolFingerprintMemo = nil
 
-local function toolFingerprint()
+local function toolFingerprint(): string
     if toolFingerprintMemo then
         return toolFingerprintMemo
     end
@@ -127,14 +183,14 @@ end
 -- Bumped whenever a recorded digest stops meaning what it meant, which discards the
 -- last version's state instead of comparing hex that was computed by a different
 -- function. Version 2 is where the cache keys moved off SHA-256.
-local STATE_VERSION = 2
+local STATE_VERSION: integer = 2
 
-local function emptyState()
+local function emptyState(): cache.State
     return {version = STATE_VERSION, modules = {}, dependencies = {},
-        outputs = {}, targets = {}}
+        outputs = {}, targets = {}} as cache.State
 end
 
-local function loadState(path)
+local function loadState(path: string): cache.State
     local text = readFile(path)
     if not text then
         return emptyState()
@@ -153,7 +209,7 @@ local function loadState(path)
     return state
 end
 
-local function saveState(path, state)
+local function saveState(path: string, state: cache.State): boolean?, string?
     return writeFile(path, json.encode(state) .. "\n")
 end
 

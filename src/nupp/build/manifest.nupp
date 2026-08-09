@@ -16,6 +16,122 @@ local join = fs.join
 
 local manifest = {}
 
+--[[
+The manifest's shape, as the checks below hold it to.
+
+Every one of these carries an open indexer, and that is not a shrug. A manifest key
+means something to whatever reads it, and the docs targets alone take a dozen the build
+never looks at; the closed lists further down are where a key is refused, because a
+misspelling has to be caught by name and by suggestion rather than by a type error at a
+call site nobody is standing at. What the fields here say is the part the build itself
+reads, so a consumer that asks for one gets an answer rather than `any`.
+]]
+
+--- One build target: what it compiles and what it produces.
+---
+--- Everything is optional because a target inherits the `build` table's keys and
+--- overrides the ones it names, so the merged result is what has to be complete.
+type manifest.Target = {
+    --- "modules", "bundle", "binary" or "docs"; absent means "modules".
+    kind: string?,
+
+    description: string?,
+    outDir: string?,
+    output: string?,
+
+    --- The prebuilt host a `binary` target's payload is stamped into.
+    stub: string?,
+
+    entries: {string}?,
+    sources: {string}?,
+    resources: {string}?,
+    dependencies: {string}?,
+    format: string?,
+    title: string?,
+
+    --- The target's own name, filled in by `nupp.build.tasks` when it merges the
+    --- build's keys with the target's. A docs target takes `targetName` instead,
+    --- because `name` is already the site's.
+    name: string?,
+    targetName: string?,
+
+    [string]: any,
+}
+
+--- What a project depends on but did not write.
+---
+--- Only `kind` and `dependencies` are common to all of them: what a C build takes and
+--- what a rock takes have nothing else in common, and each provider in
+--- `nupp.build.deps` reads its own.
+type manifest.Dependency = {
+    --- "c", "cargo", "rust" or "luarocks".
+    kind: string?,
+
+    dependencies: {string}?,
+
+    [string]: any,
+}
+
+--- The build section: either one target inline, or several by name.
+type manifest.Build = {
+    outDir: string?,
+    targets: {[string]: manifest.Target}?,
+    default: string?,
+    [string]: any,
+}
+
+--- The command `nupp test` runs, and what it runs with.
+type manifest.Test = {
+    --- Required: a test section that names no command configures nothing.
+    argv: {string},
+
+    --- Which target to build first.
+    build: string?,
+
+    env: {[string]: string}?,
+    [string]: any,
+}
+
+--- Which target rebuilds the compiler, and where its stage zero lives.
+type manifest.SelfHost = {
+    target: string?,
+    bootstrap: string?,
+
+    --- The `binary` target `nupp fixpoint --binary` stamps twice.
+    binary: string?,
+
+    [string]: any,
+}
+
+--- One named `tasks` entry: a command the project runs by hand often enough to want
+--- a name for, and optionally a target to build before it.
+type manifest.Task = {
+    description: string?,
+    argv: {string}?,
+    build: string?,
+    env: {[string]: string}?,
+
+    [string]: any,
+}
+
+--- A whole `nupp.lua`.
+---
+--- The underscored keys are not written by hand: `nupp.build.project` folds the
+--- options a command was given into the config before it is hashed, so changing one
+--- invalidates the artifacts built under the old value.
+type manifest.Config = {
+    include: {string}?,
+    strict: boolean?,
+    fmt: {methodParens: boolean?}?,
+    lints: {[string]: string}?,
+    dependencies: {[string]: manifest.Dependency}?,
+    build: manifest.Build?,
+    test: manifest.Test?,
+    tasks: {[string]: manifest.Task}?,
+    selfHost: manifest.SelfHost?,
+    [string]: any,
+}
+
 local function validateArray(value, label, itemType, required)
     if value == nil then
         if required then
@@ -280,7 +396,7 @@ local LINT_LEVELS = {off = true, note = true, warning = true, error = true}
 -- key of their own.
 local FMT_KEYS = {"methodParens"}
 
-local function validateManifest(config)
+local function validateManifest(config: manifest.Config): boolean?, string?
     local valid, err = validateArray(config.include, "include", "string")
     if not valid then
         return nil, err
@@ -564,7 +680,12 @@ local function validateManifest(config)
     return true
 end
 
-function manifest.load(root)
+--- Reads `root/nupp.lua` and validates the whole of it.
+---
+--- @param root the project directory, "." by default
+--- @return the manifest, or nil when it could not be read or does not check out
+--- @return why, ready to print
+function manifest.load(root: string?): manifest.Config?, string?
     root = root or "."
     local path = join(root, "nupp.lua")
     local chunk, loadErr = loadfile(path)

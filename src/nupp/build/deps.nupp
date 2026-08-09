@@ -25,6 +25,20 @@ local stable, hashFiles = cache.stable, cache.hashFiles
 
 local deps = {}
 
+-- Named by module path rather than required: the manifest's shape is all this needs
+-- from it, and a type costs nothing at run time where a require would have loaded the
+-- validator into every process that builds a dependency.
+local type Config = nupp.build.manifest.Config
+local type Target = nupp.build.manifest.Target
+local type Dependency = nupp.build.manifest.Dependency
+
+--- The search-path entries one rock tree adds.
+type deps.RockPaths = {path: string, cpath: string}
+
+--- One rock module a bundle carries: the name `require` reaches it by, and the file it
+--- was installed as.
+type deps.RockModule = {name: string, path: string}
+
 local function globPattern(glob)
     local out, j = {"^"}, 1
     while j <= #glob do
@@ -46,7 +60,7 @@ local function globPattern(glob)
     return table.concat(out)
 end
 
-local function expandGlob(root, glob)
+local function expandGlob(root: string, glob: string): {string}
     glob = normalize(glob)
     if not glob:find("[*?]") then
         local path = join(root, glob)
@@ -93,7 +107,7 @@ local function fetchGit(root, name, source)
         end
     end
     local code, head = process.capture({"git", "rev-parse", "HEAD"}, {cwd = checkout})
-    if code ~= 0 or normalize(head:gsub("%s+$", "")) ~= source.rev then
+    if code ~= 0 or normalize((head:gsub("%s+$", ""))) ~= source.rev then
         if process.run({"git", "fetch", "--depth", "1", "origin", source.rev},
             {cwd = checkout}) ~= 0 then
             return nil, "git fetch failed for " .. name
@@ -617,7 +631,8 @@ end
 --- starts afterwards -- the configured test command above all -- has to be told where
 --- that tree is; inside this process the provider has already said so. Returns nil when
 --- the target depends on no rocks.
-local function rockPaths(root, config, target)
+local function rockPaths(root: string, config: Config,
+    target: Target?): deps.RockPaths?
     local paths, cpaths, seen = {}, {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
         local dep = (config.dependencies or {})[name]
@@ -650,7 +665,8 @@ end
 --- Only what a target names. A rock tree holds test scripts, examples and a hundred and
 --- sixty lexers nobody asked for, and a bundle that swept the tree would carry all of
 --- it.
-local function rockModules(root, config, target)
+local function rockModules(root: string, config: Config,
+    target: Target?): {deps.RockModule}
     local selected, seen = {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
         local dep = (config.dependencies or {})[name]
@@ -680,8 +696,11 @@ local PROVIDERS = {c = buildC, cargo = buildCargo, rust = buildCargo,
 -- The target is passed rather than read off the config for the one caller that has no
 -- build to hang it on: `nupp doc` renders straight from the manifest, and the docs
 -- target's dependencies are the renderer's.
-local function buildDependencies(root, outDir, config, previous, target)
-    local results, visiting = {}, {}
+local function buildDependencies(root: string, outDir: string, config: Config,
+    previous: {[string]: cache.DependencyRecord},
+    target: Target?): {[string]: cache.DependencyRecord}?, string?
+    local results: {[string]: cache.DependencyRecord} = {}
+    local visiting = {}
     local function buildOne(name)
         if results[name] then
             return results[name]
@@ -689,7 +708,8 @@ local function buildDependencies(root, outDir, config, previous, target)
         if visiting[name] then
             return nil, "dependency cycle involving " .. name
         end
-        local dep = config.dependencies and config.dependencies[name]
+        local dep = (config.dependencies
+            and config.dependencies[name]) as Dependency
         if type(dep) ~= "table" then
             return nil, "unknown dependency " .. tostring(name)
         end

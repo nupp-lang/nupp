@@ -21,10 +21,11 @@ one rebuild; a trailer digest that changes makes every binary already stamped
 unreadable.
 ]]
 
-local bit = require("bit")
-
 local hash = {}
 
+-- `bit` is the global LuaJIT registers at startup, the way `ffi` below is. Requiring it
+-- into a local of the same name hands back that same table and shadows the declaration
+-- that says what is in it, so the checker stops knowing.
 local band, bxor = bit.band, bit.bxor
 local bnot, rshift, ror = bit.bnot, bit.rshift, bit.ror
 local rol = bit.rol
@@ -61,7 +62,7 @@ local function word(s, offset)
     return bit.tobit(a * 0x1000000 + b * 0x10000 + c * 0x100 + d)
 end
 
-function hash.sha256(input)
+function hash.sha256(input: string): string
     local bitLength = #input * 8
     input = input .. "\128"
     local padding = (56 - (#input % 64)) % 64
@@ -138,7 +139,7 @@ end
 --- rather than whatever this happens to compute. It reads little-endian, which is what
 --- every machine LuaJIT is built for reads; on a big-endian one the number would
 --- differ, and for a key nobody ships that costs one rebuild and nothing else.
-local function xxh64(input, seed)
+local function xxh64(input: string, seed: uint64): uint64
     local size = #input
     local words = ffi.cast<const uint64[?]>(input)
     local h
@@ -198,10 +199,10 @@ end
 ---
 --- Written as two 32-bit halves because `%x` takes a Lua number, and a whole word has
 --- lost bits by the time `format` sees it as one.
-local function hex64(value)
-    return ("%08x%08x"):format(
-        tonumber(band(rshift(value, 32), 0xFFFFFFFFULL)),
-        tonumber(band(value, 0xFFFFFFFFULL)))
+local function hex64(value: uint64): string
+    local high = tonumber(band(rshift(value, 32), 0xFFFFFFFFULL))
+    local low = tonumber(band(value, 0xFFFFFFFFULL))
+    return ("%08x%08x"):format(high, low)
 end
 
 -- Two seeds, so the answer is 128 bits rather than 64. Two different files agreeing
@@ -215,7 +216,7 @@ local SEED_B = 0x9E3779B97F4A7C15ULL
 ---
 --- For cache keys. Read the note at the top of the file before reaching for it where
 --- the answer gets written down somewhere durable.
-function hash.digest(input)
+function hash.digest(input: string): string
     return hex64(xxh64(input, SEED_A)) .. hex64(xxh64(input, SEED_B))
 end
 

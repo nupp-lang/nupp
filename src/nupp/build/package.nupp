@@ -22,6 +22,11 @@ local resourceRelative = modulesMod.resourceRelative
 
 local package_ = {}
 
+-- Named by module path rather than required: nothing of these is wanted at run time.
+local type Config = nupp.build.manifest.Config
+local type Target = nupp.build.manifest.Target
+local type ModuleRecord = nupp.build.cache.ModuleRecord
+
 --- `text` as a Lua long string, at a bracket level the text itself does not use.
 ---
 --- A declaration file is prose and code, both of which contain `]]`, so the level is
@@ -38,7 +43,8 @@ local function longString(text: string): string
 end
 
 --- The Lua module name a target's entry compiles to, and where its `.lua` lands.
-local function entryModule(root, outDir, target)
+local function entryModule(root: string, outDir: string,
+    target: Target): string, string
     local mainName = "nupp.main"
     local entries = target.entries or {}
     if entries[1] and not entries[1]:match("%.nupp$") then
@@ -65,7 +71,15 @@ end
 --- resources are sorted here, and nothing records a time or a building machine's path.
 --- Two builds of one tree produce identical bytes, which is what the packaging fixpoint
 --- rests on.
-local function bundleText(root, config, target, banner, modules)
+---
+--- @param modules what the build recorded, so the bundle carries the modules it
+---     compiled rather than everything that has since appeared beside them
+--- @return the chunk, or nil when one of its parts could not be read
+--- @return why not
+--- @return the resources that had no key a running program could ask for
+local function bundleText(root: string, config: Config, target: Target,
+    banner: string?,
+    modules: {[string]: ModuleRecord}?): string?, string?, {string}?
     local outDir = target.outDir or "build"
     local _, mainPath = entryModule(root, outDir, target)
     local chunks = {banner or ""}
@@ -95,11 +109,12 @@ local function bundleText(root, config, target, banner, modules)
         chunks[#chunks + 1] = "\nend\n"
     end
 
+    local built = modules or {}
     local names = {}
-    for name in pairs(modules or {}) do names[#names + 1] = name end
+    for name in pairs(built) do names[#names + 1] = name end
     table.sort(names)
     for _, name in ipairs(names) do
-        local path = modules[name].output
+        local path = built[name].output
         if path and normalize(path) ~= normalize(mainPath) then
             local text, readErr = readFile(path)
             if not text then
@@ -152,7 +167,7 @@ local function bundleText(root, config, target, banner, modules)
 end
 
 --- Where a `bundle` target writes its one file.
-local function bundleOutput(root, target, name)
+local function bundleOutput(root: string, target: Target, name: string): string
     local outDir = target.outDir or "build"
     return join(root, target.output or join(outDir, name .. ".lua"))
 end
@@ -219,7 +234,8 @@ end
 --- the result, and with it notarization. A binary handed to somebody else's Mac needs a
 --- signer that can sign over the payload rather than around it; see
 --- [distribution.md](../../../docs/distribution.md).
-local function stampFile(output, stubText, payload)
+local function stampFile(output: string, stubText: string,
+    payload: string): boolean?, string?
     local written, writeErr = writeFile(output, stampBinary(stubText, payload))
     if not written then
         return nil, tostring(writeErr)
