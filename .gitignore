@@ -6,3 +6,4 @@
 scratch/
 host/target/
 vendor/
+tests/build/
