@@ -2012,6 +2012,15 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     local root = new cst.Chunk {kind = "chunk"}
     root.blocks = {}
+    if cur().kind == "@" and tokens[i + 1] and tokens[i + 1].kind == "not"
+        and tokens[i + 1].text == "!"
+        and tokens[i + 2] and tokens[i + 2].kind == "name"
+        and tokens[i + 2].text == "nofmt" then
+        -- An inner annotation belongs to the file rather than a statement. It is
+        -- deliberately absent from the tree's array part, so compilation ignores it.
+        root.formatDisabled = true
+        advance(); advance(); advance()
+    end
     while true do
         root.blocks[#root.blocks + 1] = add(root, parseBlock())
         if cur().kind == "eof" then

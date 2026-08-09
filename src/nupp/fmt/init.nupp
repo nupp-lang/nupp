@@ -5,7 +5,7 @@ Fixed, with one knob:
 
 - four-space indentation;
 - 120 columns for code, 88 for docblock text;
-- existing line breaks are respected, so lines are never joined;
+- ordinary line breaks are soft, so short expressions and groups join;
 - an over-long line is broken, one element per group;
 - an `if` is broken across lines, however short its arms;
 - docblocks are reflowed and set off from what they document;
@@ -131,53 +131,8 @@ local function groupBounds(n)
     return nil
 end
 
--- `if` is always a block. Existing line breaks are otherwise respected, but these
--- breaks are added: every arm's body opens a line, and `elseif`, `else` and `end` each
--- start theirs, so there is no inline form to write.
-local function hasNewlineBefore(tok)
-    for _, trivia in ipairs(tok.trivia or {}) do
-        if trivia.kind == "whitespace" and trivia.text:find("\n", 1, true) then
-            return true
-        end
-    end
-
-    return false
-end
-
--- A condition carried across source lines by `and` is easier to scan when every
--- continuation begins with its connective and `then` closes the header by itself.
-local function breakCarriedIfCondition(clause)
-    local firstAnd, carried = nil, false
-    local function walk(node)
-        if cst.isToken(node) then
-            if node.kind == "and" then
-                firstAnd = firstAnd or node
-                carried = carried or hasNewlineBefore(node)
-            end
-            return
-        end
-        for _, child in ipairs(node) do
-            walk(child)
-        end
-    end
-
-    walk(clause.cond)
-    if not firstAnd or not carried then
-        return
-    end
-
-    firstAnd.forceBreak = true
-    for _, child in ipairs(clause) do
-        if cst.isToken(child) and child.kind == "then" then
-            local tok = firstToken(child)
-            if tok then
-                tok.forceBreak = true
-            end
-            return
-        end
-    end
-end
-
+-- `if` is always a block. Its arms and closing keywords each start their own line, so
+-- there is no inline form to write.
 local function breakIfArms(n)
     local function breakBefore(node)
         local tok = node and firstToken(node)
@@ -187,7 +142,6 @@ local function breakIfArms(n)
     end
 
     for idx, clause in ipairs(n.clauses or {}) do
-        breakCarriedIfCondition(clause)
         if idx > 1 then
             breakBefore(clause)
         end
@@ -219,6 +173,20 @@ local function markFinalFunctionReturn(n)
     if first and returnTok then
         returnTok.finalFunctionReturn = true
         returnTok.functionBodyFirstTok = first
+    end
+end
+
+-- Ordinary functions are always blocks. Short-function syntax (`|| ->`) has no
+-- funcbody node and therefore remains the only one-line function spelling.
+local function breakFunctionBody(n)
+    local body = n.body
+    local first = body and firstToken(body)
+    if first then
+        first.forceBreak = true
+    end
+    local close = lastToken(n)
+    if close and close.kind == "end" then
+        close.forceBreak = true
     end
 end
 
@@ -261,6 +229,7 @@ local function annotate(root)
             breakIfArms(n)
         elseif kind == "funcbody" then
             markFinalFunctionReturn(n)
+            breakFunctionBody(n)
         elseif kind == "funcStmt" or kind == "localFuncStmt"
             or kind == "inlineMethod" then
             markFunctionEnd(n)
@@ -302,8 +271,12 @@ local function annotate(root)
             if cst.isToken(child) then
                 child.blockDepth = block
                 child.groupRef = childGroup
+                if child.kind == "end" or child.kind == "until" then
+                    child.forceBreak = true
+                end
                 if markStart then
                     child.startsStat = true
+                    child.forceBreak = true
                     markStart = false
                 end
             elseif child.kind == "block" then
@@ -626,7 +599,13 @@ local function buildLines(items)
     local cur = nil
     for _, item in ipairs(items) do
         local forced = item.kind == "token" and item.token.forceBreak
-        if not cur or item.nl > 0 or forced or item.kind == "doc" then
+        local standalone = item.kind == "doc" or item.kind == "plain"
+            or item.kind == "raw" or (item.kind == "comment" and item.nl > 0)
+        local previous = cur and cur.items[#cur.items]
+        local afterComment = item.nl > 0 and previous
+            and (previous.kind == "comment" or previous.kind == "doc"
+            or previous.kind == "plain" or previous.kind == "raw")
+        if not cur or item.nl >= 2 or forced or standalone or afterComment then
             cur = {items = {}, indent = 0, blankBefore = item.nl >= 2 and #lines > 0}
             lines[#lines + 1] = cur
         end
@@ -824,6 +803,15 @@ local function splitLine(line)
     end
     if #breaks == 0 then
         return nil
+    end
+    local header = lineFirstToken(line)
+    if header and (header.kind == "if" or header.kind == "elseif") then
+        for idx, item in ipairs(line.items) do
+            if item.kind == "token" and item.token.kind == "then" then
+                breaks[#breaks + 1] = idx
+                break
+            end
+        end
     end
     local start = 1
     for _, at in ipairs(breaks) do
@@ -1121,6 +1109,9 @@ function fmt.format(source: string, filename: string?,
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return source, result.errors
+    end
+    if result.root.formatDisabled then
+        return source, {}
     end
     canonicalizeSingleValueAnnotations(result, opts)
     parenthesizeMethodCalls(result, opts)

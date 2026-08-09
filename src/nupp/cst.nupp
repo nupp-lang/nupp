@@ -319,6 +319,9 @@ record cst.Chunk is cst.Hints
     --- The top-level blocks, one per recovery region.
     blocks: {cst.Block}
 
+    --- A leading `@!nofmt` inner annotation, which applies to this file only.
+    formatDisabled: boolean?
+
     --- The end-of-file token, which carries the trailing trivia.
     eof: lexer.Token?
 end

@@ -30,7 +30,7 @@ function M.spacingBasics()
    assertEq(fmt1("const x:number=1"), "const x: number = 1\n")
    assertEq(fmt1("f( x , y )"), "f(x, y)\n")
    assertEq(fmt1("local f = function () return nil end"),
-      "local f = function() return nil end\n")
+      "local f = function()\n    return nil\nend\n")
    assertEq(fmt1("local f: function (number): string"),
       "local f: function(number): string\n")
    assertEq(fmt1("t . a [ 1 ] : m ( )"), "t.a[1]:m()\n")
@@ -101,7 +101,7 @@ end
 
 function M.namedVarargSpacing()
    assertEq(fmt1("local function f(...args:number)return args.n end"),
-      "local function f(...args: number) return args.n end\n")
+      "local function f(...args: number)\n    return args.n\nend\n")
 end
 
 function M.ternaryAndSafeNav()
@@ -166,7 +166,7 @@ end
 
 function M.tableIndentation()
    local input = "local t = {\n1,\na = 2,\n}"
-   assertEq(fmt1(input), "local t = {\n    1,\n    a = 2,\n}\n")
+   assertEq(fmt1(input), "local t = {1, a = 2,}\n")
 end
 
 -- `as` and `is` are contextual operators lexed as names, and what follows them
@@ -184,7 +184,7 @@ end
 
 function M.continuationLines()
    local input = 'local s = a ..\n"tail"'
-   assertEq(fmt1(input), 'local s = a ..\n    "tail"\n')
+   assertEq(fmt1(input), 'local s = a .. "tail"\n')
 end
 
 function M.blankLineCollapse()

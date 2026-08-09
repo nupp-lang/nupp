@@ -43,11 +43,13 @@ not:
  Docblock text width  88 columns
 ```
 
-Existing line breaks are respected — lines are never joined. An over-long line
-breaks one element per group: an argument list, a parameter list, a table
-constructor. With no group to break, `and`, `or`, `..`, and the arithmetic
-operators are the break points. An `if` is always broken across lines, however
-short it is.
+Ordinary line breaks are soft: a short expression or delimited group is put on
+one line. Statements, comments, docblocks, blank lines, and block closers are
+structural boundaries. An over-long group breaks one element per line; with no
+group to break, `and`, `or`, `..`, and the arithmetic operators are the break
+points. An `if` is always broken across lines, however short it is, and an
+ordinary `function` body always has its own lines. `|| ->` is the one-line
+function spelling.
 
 Blank runs collapse to one, leading blanks are stripped, trailing whitespace
 goes, and a file ends with exactly one newline.
@@ -55,6 +57,15 @@ goes, and a file ends with exactly one newline.
 Docblocks are reflowed and set off with a blank line. `@tag` lines are
 recognized, continuations indent by five spaces, and fenced or indented
 verbatim blocks are left alone.
+
+`@!nofmt` is a leading inner annotation that leaves one whole file untouched:
+
+```nupp
+@!nofmt
+-- generated source or a deliberate non-canonical layout
+```
+
+It must be the file's first annotation and has no region form.
 
 A method call left in its sugar form gets its parentheses back:
 

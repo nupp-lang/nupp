@@ -142,6 +142,9 @@ type lexer.Token = {
 
     blankAfter: boolean?,
 
+    --- Begins a new output line regardless of its source trivia.
+    forceBreak: boolean?,
+
     --- The final top-level return in a function body, and that body's first token.
     finalFunctionReturn: boolean?,
 

@@ -49,6 +49,18 @@ function M.shortLinesAreLeftAlone()
    check(src, src)
 end
 
+function M.softBreaksJoinWhenTheyFit()
+   check(lines(
+      "return {diags = result.errors, moduleType = nil, syntax = true,",
+      "    result = result}"),
+      "return {diags = result.errors, moduleType = nil, syntax = true, result = result}\n")
+end
+
+function M.fileNofmtTagLeavesSourceUntouched()
+   local src = "@!nofmt\nlocal x=1\n"
+   assertEq(fmt1(src), src)
+end
+
 function M.callArgumentsBreakOnePerLine()
    check("local v = compute(alphaArgument, betaArgument, gammaArgument, "
       .. "deltaArgument, epsilonArgument, zetaArgument, etaLongerArgument)\n",
@@ -121,10 +133,14 @@ function M.carriedIfConditionsStartWithAnd()
       "    stat.builtinIpairs = {operand = operand, type = operandType}",
       "end"), lines(
       "if calleeTok",
-      "    and calleeTok.text == \"ipairs\" and global",
-      "    and calleeTok.definition == global.definition and operand",
-      "    and global.definition and global.definition.stable",
-      "    and operand.kind == \"name\" and operandType",
+      "    and calleeTok.text == \"ipairs\"",
+      "    and global",
+      "    and calleeTok.definition == global.definition",
+      "    and operand",
+      "    and global.definition",
+      "    and global.definition.stable",
+      "    and operand.kind == \"name\"",
+      "    and operandType",
       "    and operandType.tag == \"array\"",
       "then",
       "    stat.builtinIpairs = {operand = operand, type = operandType}",
