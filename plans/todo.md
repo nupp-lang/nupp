@@ -86,18 +86,21 @@ work makes sense in.
 - [ ] **Intersection types, including overloads as function intersections**
       ([design](intersections.md)).
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,
-      and member composition. An intersection of callable types is the overload
-      set: a call selects a compatible signature and applies that signature's
-      return, ownership, borrowing, and C-boundary effects. Do not add a second
-      overload-only type construct unless intersections prove unable to give
-      declaration files, the prelude, metamethods, and host APIs precise call
-      surfaces.
+      and read/write/indexer composition. An intersection of function types is
+      the overload set: infer arguments once, probe candidates without mutating
+      checker state, require exactly one survivor, and only then apply its
+      return, ownership, borrowing, predicate, `noreturn`, and C-boundary
+      contracts. **NUPP2124** reports proven emptiness, **NUPP2125** no matching
+      overload, and **NUPP2126** ambiguity. Keep the selector behind a small
+      signature view so the later type-pack representation can replace today's
+      `params`/`rets` arrays without redesigning overloads.
 
-      A declaration now carries at most one `constructor`, and NUPP2208 says a
-      second waits on this. Overloaded construction is the first user: the set
-      is a callable intersection, `new T(...)` selects from it statically, and a
-      call site emits a direct call to the function minted for the winner, so
-      nothing is dispatched at run time.
+      A declaration now carries at most one `constructor`, and **NUPP2208** says
+      a second waits on this. Overloaded construction is the first user: retain
+      ordered constructor provenance alongside the callable intersection,
+      select from it statically, and emit a direct call to the indexed function
+      minted for the winner. Constructor effect analysis follows that selected
+      body; nothing is dispatched at run time.
 - [ ] **First-class type packs and variadic generics**
       ([design](type-packs.md)). Represent function
       parameters and results as value sequences rather than ordinary tuple
