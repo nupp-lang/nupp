@@ -1252,4 +1252,123 @@ function M.aQualifiedFunctionAcquiresIntoAWith()
    }, "\n"))
 end
 
+-- Every intrinsic is spelled bare or qualified with `nupp.`, and the two mean
+-- the same thing: same diagnostics, same lowering.
+
+function M.everyIntrinsicAnswersToItsQualifiedSpelling()
+   assertClean(RESOURCE .. "\nlocal value = resource_new()\nnupp.dispose(value)")
+   assertClean(table.concat({
+      RESOURCE,
+      "local value = resource_new()",
+      "do",
+      "   local view = nupp.borrow(value)",
+      "end",
+      "dispose(value)",
+   }, "\n"))
+   assertClean(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "@owned(free)",
+      "cdef function malloc(size: uint64): voidptr",
+      "local value = malloc(8)",
+      "unsafe do",
+      "   local raw = nupp.intoRaw(value)",
+      "   local owner = nupp.fromRaw(raw, free)",
+      "   do",
+      "      local view = nupp.borrowFrom(raw, owner)",
+      "   end",
+      "   nupp.dispose(owner)",
+      "end",
+   }, "\n"))
+   assertClean(table.concat({
+      "cdef function remember(retains value: cstring)",
+      "cdef function forget(releases value: cstring)",
+      "local text = 'hello'",
+      "local pointer = ffi.cast<cstring>(text)",
+      "local handle: pinned<cstring> = nupp.pin(pointer, text)",
+      "remember(handle)",
+      "forget(handle)",
+   }, "\n"))
+   -- and it is refused for the same reasons the bare spelling is
+   assertEq(codes(table.concat({
+      "cdef function free(takes value: voidptr)",
+      "@owned(free)",
+      "cdef function malloc(size: uint64): voidptr",
+      "local value = malloc(8)",
+      "local raw = nupp.intoRaw(value)",
+   }, "\n")), "NUPP2604")
+end
+
+function M.bothSpellingsOfDisposeLowerTheSameWay()
+   local function lowered(call)
+      local source = table.concat({
+         "local calls = ''",
+         "local record File",
+         "   closed: boolean",
+         "   @dispose",
+         "   function close(self: File)",
+         "      calls = calls .. 'close'",
+         "   end",
+         "end",
+         "@owned",
+         "local function openFile(): File",
+         "   return new File {closed = false}",
+         "end",
+         "local file = openFile()",
+         call,
+         "return calls",
+      }, "\n")
+      local result, diags = checked(source)
+      assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+      local code, genDiags = gen.generate(result, "ownership-test")
+      assertEq(#genDiags, 0)
+      local chunk, loadErr = loadstring(code, "@ownership-qualified-dispose")
+      assert(chunk, tostring(loadErr) .. "\n" .. code)
+      assertEq(chunk(), "close", "the disposer runs")
+      return code
+   end
+
+   assertEq(lowered("nupp.dispose(file)"), lowered("dispose(file)"),
+      "the qualified spelling generated different code")
+end
+
+function M.aBindingNamedNuppShadowsTheQualifiedSpelling()
+   -- The intrinsic is reached through the compiler's own `nupp`, so a local of
+   -- that name means what the program says it means, as any other name would.
+   assertClean(table.concat({
+      "local nupp = {",
+      "   dispose = function(value: integer): integer return value end",
+      "}",
+      "local answer = nupp.dispose(3)",
+   }, "\n"))
+   -- and a local named after a bare intrinsic shadows it the same way
+   assertClean(table.concat({
+      "local function dispose(value: integer): integer return value end",
+      "local answer = dispose(3)",
+   }, "\n"))
+end
+
+function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
+   -- Parameter modes are read out of a body before the names in it resolve, so
+   -- both spellings have to be recognized by their spelling alone. Without that
+   -- the helper below infers a plain parameter and the double release goes
+   -- unreported.
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local function release(value: resource*)",
+      "   nupp.dispose(value)",
+      "end",
+      "local value = resource_new()",
+      "release(value)",
+      "release(value)",
+   }, "\n")), codes(table.concat({
+      RESOURCE,
+      "local function release(value: resource*)",
+      "   dispose(value)",
+      "end",
+      "local value = resource_new()",
+      "release(value)",
+      "release(value)",
+   }, "\n")))
+end
+
 return M

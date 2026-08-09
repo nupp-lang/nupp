@@ -9237,6 +9237,25 @@ local callexpr = { }
 
 
 
+local function ownershipIntrinsic ( c , callee )
+local name , qualified = cst . ownershipIntrinsicSpelling ( callee )
+if not name then
+return nil
+end
+if not qualified then
+return not c . lookupEntry ( name ) and name or nil
+end
+local globals = c . env and c . env . globals
+
+return globals and c . lookupEntry ( "nupp" ) == globals [ "nupp" ] and name or nil
+end
+
+
+
+
+
+
+
 
 
 
@@ -9287,8 +9306,8 @@ if obligation then
 c . diag ( "NUPP2603" , node , ( "cannot suspend while temporal obligation %q is live" ) : format ( obligation ) )
 end
 end
-if calleeName ~= "" and not c . lookupEntry ( calleeName ) then
-local intrinsic = calleeName
+local intrinsic = ownershipIntrinsic ( c , callee )
+if intrinsic then
 local args = argExprs
 if intrinsic == "intoRaw" then
 local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
@@ -15223,14 +15242,19 @@ return
 elseif kind == "call" then
 local calleeName = directName ( node . obj )
 local calleeT = calleeName and c . lookupVar ( calleeName ) or nil
+
+
+
+
+local intrinsic = cst . ownershipIntrinsicSpelling ( node . obj )
 local args = node . args and node . args . exprs or { }
 for j , arg in ipairs ( args ) do
 local name = directName ( arg )
 if name then
 local effect
-if calleeName == "dispose" or calleeName == "intoRaw" then
+if intrinsic == "dispose" or intrinsic == "intoRaw" then
 effect = "takes"
-elseif calleeName == "borrow" or calleeName == "pin" then
+elseif intrinsic == "borrow" or intrinsic == "pin" then
 effect = "borrows"
 elseif calleeT and calleeT . tag == "func" then
 effect = calleeT . paramModes [ j ] or "plain"
@@ -27500,6 +27524,55 @@ cst . isToken = isToken
 
 
 
+local OWNERSHIP_INTRINSICS = {
+borrow = true ,
+borrowFrom = true ,
+dispose = true ,
+fromRaw = true ,
+intoRaw = true ,
+pin = true ,
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cst . ownershipIntrinsicSpelling ( callee )
+if not callee then
+return nil
+end
+if callee . kind == "name" then
+local bare = callee . token and callee . token . text or ""
+return OWNERSHIP_INTRINSICS [ bare ] and bare or nil , false
+end
+if callee . kind ~= "dotIndex" then
+return nil
+end
+local base = callee . obj
+local member = callee . name and callee . name . text or ""
+if not base or base . kind ~= "name" or not OWNERSHIP_INTRINSICS [ member ] then
+return nil
+end
+local baseToken = base . token
+
+return baseToken and baseToken . text == "nupp" and member or nil , true
+end
+
+
+
+
+
+
+
 
 
 
@@ -28335,6 +28408,7 @@ file
 )
 local remainder = rewriteConfiguredPageLinks ( markdown : sub ( featureEnd + 1 ) , candidate , pages , file )
 body [ # body + 1 ] = markdownHtml ( introduction , links , 0 )
+body [ # body + 1 ] = '<h2 id="nupp-features">Nupp Features</h2>'
 body [ # body + 1 ] = homeFeatures ( candidate , links )
 body [ # body + 1 ] = markdownHtml ( remainder , links , 0 )
 else
@@ -41811,7 +41885,9 @@ local callee = call and call . kind == "call" and call . obj or nil
 
 
 local args = call and ( call ) . args and ( ( call ) . args ) . exprs or { }
-if callee and callee . kind == "name" and callee . token and callee . token . text == "dispose" and # args == 1 and args [
+
+
+if cst . ownershipIntrinsicSpelling ( callee ) == "dispose" and # args == 1 and args [
 1
 ] . kind == "name" and (
 args [ 1 ]
@@ -49855,6 +49931,11 @@ Parameter modes say what a call does with what it is given: `takes` consumes,
 `borrows` does not (and the borrow cannot escape), `exclusive` borrows with no
 other view live, and `retains`/`releases` describe C holding a pointer across a
 call.
+
+`dispose`, `borrow`, `intoRaw`, `fromRaw`, `borrowFrom`, and `pin` are the only
+names Nupp itself puts at the top level, and each also answers to `nupp.`:
+`nupp.dispose(handle)` is the same call as `dispose(handle)`. Either spelling is
+shadowed by a binding of that name, `nupp` included.
 ]=] ,
 example = [=[
 local m = {}
@@ -53363,7 +53444,7 @@ end
 return types
 
 end
-package.preload["nupp.std.profile"] = function(...)
+package.preload["nupp.profile"] = function(...)
 _G.nupp=_G.nupp or {};
 
 
@@ -53397,7 +53478,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local zone = require ( "nupp.std.zone" )
+local zone = require ( "nupp.zone" )
 local jitProfile = require ( "jit.profile" )
 local jitUtil = require ( "jit.util" )
 local vmdef = require ( "jit.vmdef" )
@@ -54213,7 +54294,7 @@ end
 return profile
 
 end
-package.preload["nupp.std.resources"] = function(...)
+package.preload["nupp.resources"] = function(...)
 _G.nupp=_G.nupp or {};
 
 
@@ -54267,7 +54348,7 @@ end
 return resources
 
 end
-package.preload["nupp.std.zone"] = function(...)
+package.preload["nupp.zone"] = function(...)
 _G.nupp=_G.nupp or {};
 
 

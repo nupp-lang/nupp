@@ -69,6 +69,24 @@ occasional use-after-free.
 All ownership syntax is erased or lowered to direct Lua/FFI operations. It
 does not change the C ABI and does not install `ffi.gc` finalizers.
 
+### The intrinsics are also spelled `nupp.`
+
+`dispose`, `borrow`, `intoRaw`, `fromRaw`, `borrowFrom`, and `pin` are the only
+names Nupp itself puts at the top level, and every one of them answers to
+`nupp.` as well:
+
+```nupp
+local handle = openFile(path)
+nupp.dispose(handle)
+```
+
+The two spellings mean the same thing, report the same diagnostics, and lower
+to the same code. The bare one is what the examples use; the qualified one is
+for a program that would rather say where a name comes from, or that has a
+binding of its own called `borrow`. Either can be shadowed, and a shadowing
+binding wins: a local `nupp` makes `nupp.dispose` an ordinary field call,
+exactly as a local `dispose` makes `dispose(x)` an ordinary call.
+
 ## Owned results and deterministic cleanup
 
 An explicit cleanup list is the clearest C-boundary contract:

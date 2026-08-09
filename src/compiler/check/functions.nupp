@@ -96,14 +96,19 @@ function functions.install(c: state.Checker): state.StatHandlers
             elseif kind == "call" then
                 local calleeName = directName(node.obj)
                 local calleeT = calleeName and c.lookupVar(calleeName) or nil
+                -- By spelling, because this reads modes out of a body before anything
+                -- has resolved the names in it. Both spellings of an intrinsic have to
+                -- answer here, or a body written with `nupp.dispose` gives its parameter
+                -- a weaker mode than the one beside it written with `dispose`.
+                local intrinsic = cst.ownershipIntrinsicSpelling(node.obj)
                 local args = node.args and node.args.exprs or {}
                 for j, arg in ipairs(args) do
                     local name = directName(arg)
                     if name then
                         local effect
-                        if calleeName == "dispose" or calleeName == "intoRaw" then
+                        if intrinsic == "dispose" or intrinsic == "intoRaw" then
                             effect = "takes"
-                        elseif calleeName == "borrow" or calleeName == "pin" then
+                        elseif intrinsic == "borrow" or intrinsic == "pin" then
                             effect = "borrows"
                         elseif calleeT and calleeT.tag == "func" then
                             effect = calleeT.paramModes[j] or "plain"

@@ -1910,6 +1910,55 @@ end
 
 cst.isToken = isToken
 
+--- The ownership intrinsics, which the compiler implements rather than declares.
+---
+--- These are the only names Nupp itself puts at the top level, so each is also spelled
+--- `nupp.`: a program that would rather say where a name comes from, or that has a local
+--- called `borrow`, needs a way to reach them anyway. The two spellings mean the same
+--- thing and lower to the same code.
+local OWNERSHIP_INTRINSICS: {[string]: boolean} = {
+    borrow = true,
+    borrowFrom = true,
+    dispose = true,
+    fromRaw = true,
+    intoRaw = true,
+    pin = true,
+}
+
+--- The ownership intrinsic a callee is written as, before anything asks what the names
+--- in it resolve to. Answers nil for a callee of any other shape.
+---
+--- Whether a spelling is the intrinsic is the caller's question, and the two callers ask
+--- it differently: the checker holds scopes and can see a local shadowing the name,
+--- while the pass reading parameter modes out of a body runs before any of that and has
+--- only the spelling. Both need the spelling read the same way, which is what lives
+--- here.
+---
+--- @param callee the expression being applied
+--- @return the intrinsic's name, or nil
+--- @return whether it was written qualified, which is what the base name has to be
+---     checked for
+function cst.ownershipIntrinsicSpelling(callee: cst.Node?): string?, boolean?
+    if not callee then
+        return nil
+    end
+    if callee.kind == "name" then
+        local bare = callee.token and callee.token.text or ""
+        return OWNERSHIP_INTRINSICS[bare] and bare or nil, false
+    end
+    if callee.kind ~= "dotIndex" then
+        return nil
+    end
+    local base = callee.obj
+    local member = callee.name and callee.name.text or ""
+    if not base or base.kind ~= "name" or not OWNERSHIP_INTRINSICS[member] then
+        return nil
+    end
+    local baseToken = base.token
+
+    return baseToken and baseToken.text == "nupp" and member or nil, true
+end
+
 --- Appends a child to `n`'s array part and returns it, so a caller can consume a token
 --- and record it in one expression. A nil child is ignored, which lets an optional part
 --- be added unconditionally.

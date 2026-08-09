@@ -29,6 +29,25 @@ local specializeSelf = generics.specializeSelf
 
 local callexpr = {}
 
+-- Which ownership intrinsic a callee is, once the names in it have been resolved.
+--
+-- A bare name is one only while nothing has bound it, so a local called `dispose`
+-- shadows the intrinsic the way it shadows anything else. A qualified one is one only
+-- while `nupp` still means the compiler's own table: resolving it to the entry the
+-- globals hold is what says no local has taken that name either.
+local function ownershipIntrinsic(c, callee)
+    local name, qualified = cst.ownershipIntrinsicSpelling(callee)
+    if not name then
+        return nil
+    end
+    if not qualified then
+        return not c.lookupEntry(name) and name or nil
+    end
+    local globals = c.env and c.env.globals
+
+    return globals and c.lookupEntry("nupp") == globals["nupp"] and name or nil
+end
+
 --- A type, as compiler.types builds them.
 local type Type = T.Type
 
@@ -85,8 +104,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag("NUPP2603", node, ("cannot suspend while temporal obligation %q is live"):format(obligation))
             end
         end
-        if calleeName ~= "" and not c.lookupEntry(calleeName) then
-            local intrinsic = calleeName
+        local intrinsic = ownershipIntrinsic(c, callee)
+        if intrinsic then
             local args = argExprs
             if intrinsic == "intoRaw" then
                 local valueT = args[1] and c.infer(args[1]) or T.any

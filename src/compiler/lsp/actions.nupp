@@ -136,7 +136,9 @@ local function disposeOf(block: cst.Block, from: integer, def: tree.Definition):
         -- A call holds its argument list as a plain node, so reaching the expressions
         -- inside it says which two productions those nodes are.
         local args = call and (call as cst.Call).args and ((call as cst.Call).args as cst.Args).exprs or {}
-        if callee and callee.kind == "name" and callee.token and callee.token.text == "dispose" and #args == 1 and args[
+        -- Either spelling of the intrinsic ends the owner's life, so either one is where
+        -- the `with` scope closes.
+        if cst.ownershipIntrinsicSpelling(callee) == "dispose" and #args == 1 and args[
             1
         ].kind == "name" and (
             args[1] as cst.NameExpr
