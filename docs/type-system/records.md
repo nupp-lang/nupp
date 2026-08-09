@@ -28,7 +28,7 @@ local record Point
     x: number
     y: number
 
-    function length(): number
+    function length(self): number
         return math.sqrt(self.x * self.x + self.y * self.y)
     end
 end
@@ -89,17 +89,19 @@ in a table is not meaningful.
 Record fields may expose independent read and write views, including distinct
 types for the two operations. See [property capabilities](properties.md).
 
-### Inline methods
+### Inline methods and static functions
 
-A method written in the body receives an implicit `self` and is emitted on the
-ordinary method namespace. Inline signatures are hoisted before any body is
-checked, so methods may call each other in any order.
+An inline function whose first parameter is named `self` is an instance method
+and is emitted on the ordinary method namespace. Without that parameter it is a
+static function, called through the declaration table with `.`. Inline
+signatures are hoisted before any body is checked, so methods may call each
+other in any order.
 
 ```nupp
 local record Counter
     value: number
 
-    function increment(by: number): self
+    function increment(self, by: number): self
         self.value = self.value + by
         return self
     end

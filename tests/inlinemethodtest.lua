@@ -1,12 +1,7 @@
 -- A record's inline method, run rather than read.
 --
--- The receiver may be written out or left implicit, and both have to generate
--- the same function. Emitting a declared `self` beside the colon that already
--- binds one declared it twice: the inner name shadowed the receiver with the
--- first actual argument, which for `obj:m()` is nil, so every call crashed.
---
--- It checked clean in that state, which is why this suite runs the code. The
--- broken spelling was the one in the language reference's own worked example.
+-- A leading `self` makes an inline function an instance method. Without it the
+-- function is static and is emitted on the declaration table with dot syntax.
 local parser = require("nupp.compiler.parser")
 local optimize = require("nupp.compiler.optimize")
 local gen = require("nupp.compiler.gen")
@@ -81,48 +76,38 @@ return (new m.Point {x = 3, y = 4}):lengthSquared()
    assertEq(value, 25, "the receiver reaches the body")
 end
 
-function M.animplicitReceiverWorks()
+function M.aReceiverlessFunctionIsStatic()
    local value = runs([[
 local m = {}
 
 record m.Point
-    x: integer
-    y: integer
-
-    function lengthSquared(): number
-        return self.x * self.x + self.y * self.y
+    function origin(): integer
+        return 0
     end
 end
 
-return (new m.Point {x = 3, y = 4}):lengthSquared()
-]], "implicit self")
-   assertEq(value, 25, "the receiver reaches the body")
+return m.Point.origin()
+]], "static function")
+   assertEq(value, 0, "the declaration table carries the function")
 end
 
-function M.bothSpellingsGenerateTheSameFunction()
-   local _, written = runs([[
+function M.staticAndInstanceFunctionsGenerateDistinctForms()
+   local value, code = runs([[
 local m = {}
 record m.P
     n: integer
     function twice(self): number
         return self.n * 2
     end
-end
-return (new m.P {n = 4}):twice()
-]], "written-out self")
-   local _, implicit = runs([[
-local m = {}
-record m.P
-    n: integer
-    function twice(): number
-        return self.n * 2
+    function answer(): number
+        return 42
     end
 end
-return (new m.P {n = 4}):twice()
-]], "implicit self")
-   assertEq(written:match("function m%.P:twice%b()"),
-      implicit:match("function m%.P:twice%b()"),
-      "the receiver is not declared twice in one and once in the other")
+return (new m.P {n = 4}):twice() + m.P.answer()
+]], "static and instance functions")
+   assertEq(value, 50)
+   assert(code:find("function m.P:twice()", 1, true))
+   assert(code:find("function m.P.answer()", 1, true))
 end
 
 function M.parametersBesideTheReceiverSurvive()
@@ -143,8 +128,8 @@ return (new m.Adder {base = 1}):plus(2, 3)
 end
 
 function M.aFirstParameterNotCalledSelfIsAnOrdinaryParameter()
-   -- Only a leading `self` is the receiver. Anything else keeps its place, and
-   -- the implicit receiver is still available under its own name.
+   -- Only a leading `self` is the receiver. Anything else keeps its place on a
+   -- static function.
    local value = runs([[
 local m = {}
 
@@ -152,27 +137,26 @@ record m.Adder
     base: integer
 
     function plus(amount: integer): number
-        return self.base + amount
+        return 10 + amount
     end
 end
 
-return (new m.Adder {base = 10}):plus(5)
+return m.Adder.plus(5)
 ]], "named first parameter")
-   assertEq(value, 15, "the argument does not land on the receiver")
+   assertEq(value, 15, "the parameter remains the first argument")
 end
 
 function M.repeatedMethodNamesSelectDistinctBodies()
    local value, code = runs([[
 local record Decoder
-    function decode(text: string): string
+    function decode(self, text: string): string
         return "text:" .. text
     end
 
-    function decode(value: integer): string
+    function decode(self, value: integer): string
         return "integer:" .. tostring(value)
     end
 end
-
 local decoder = new Decoder {}
 return decoder:decode("hello") .. "," .. decoder:decode(7)
 ]], "overloaded bodies")
@@ -183,11 +167,31 @@ return decoder:decode("hello") .. "," .. decoder:decode(7)
       "calls and bodies use hidden overload slots")
 end
 
-function M.anOverloadedReceiverIsEvaluatedOnce()
-   local value = runs([[
+function M.repeatedStaticNamesSelectDistinctBodies()
+   local value, code = runs([[
+local record Decoder
+    function decode(text: string): string return "text:" .. text end
+    function decode(value: integer): string return "integer:" .. tostring(value) end
+end
+return Decoder.decode("hello") .. "," .. Decoder.decode(7)
+]], "overloaded statics")
+   assertEq(value, "text:hello,integer:7", "each static call reaches its selected body")
+   assert(code:find("Decoder.__nupp_m_", 1, true),
+      "static calls and bodies use hidden overload slots")
+   assertEq(diagnostics([[
 local record Decoder
     function decode(text: string): string return text end
     function decode(value: integer): string return tostring(value) end
+end
+local held = Decoder.decode
+]]), "NUPP2126:5")
+end
+
+function M.anOverloadedReceiverIsEvaluatedOnce()
+   local value = runs([[
+local record Decoder
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 local calls = 0
 local function decoder(): Decoder
@@ -202,8 +206,8 @@ end
 function M.overloadedMethodsRequireAUniqueCall()
    local declaration = [[
 local record Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 local decoder = new Decoder {}
 ]]
@@ -217,8 +221,8 @@ end
 function M.returnTypesDoNotCreateMethodOverloads()
    assertEq(diagnostics([[
 local record Bad
-    function get(value: string): string return value end
-    function get(value: string): integer return 1 end
+    function get(self, value: string): string return value end
+    function get(self, value: string): integer return 1 end
 end
 ]]), "NUPP2118:3")
 end
@@ -226,13 +230,13 @@ end
 function M.overloadedInterfaceDefaultsAreOverriddenPerEntry()
    local value = runs([[
 local interface Decoder
-    function decode(text: string): string return "default:" .. text end
-    function decode(value: integer): string return "number:" .. tostring(value) end
+    function decode(self, text: string): string return "default:" .. text end
+    function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
 local record LoudDecoder is Decoder
     @override
-    function decode(text: string): string return "loud:" .. text end
+    function decode(self, text: string): string return "loud:" .. text end
 end
 
 local decoder: Decoder = new LoudDecoder {}
@@ -245,11 +249,11 @@ end
 function M.separateInterfacesCanContributeOverloadEntries()
    local value = runs([[
 local interface TextDecoder
-    function decode(text: string): string return "text:" .. text end
+    function decode(self, text: string): string return "text:" .. text end
 end
 
 local interface NumberDecoder
-    function decode(value: integer): string return "number:" .. tostring(value) end
+    function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
 local record Decoder is TextDecoder, NumberDecoder
@@ -270,8 +274,8 @@ local interface DecoderContract
 end
 
 local record Decoder is DecoderContract
-    function decode(text: string): string return "text:" .. text end
-    function decode(value: integer): string return "number:" .. tostring(value) end
+    function decode(self, text: string): string return "text:" .. text end
+    function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
 local decoder: DecoderContract = new Decoder {}
@@ -284,8 +288,8 @@ end
 function M.genericMethodEntriesKeepTheirDeclaredSlots()
    local value = runs([[
 local record Codec<T>
-    function encode(value: T): string return "one:" .. tostring(value) end
-    function encode(values: {T}): string return "many:" .. tostring(values[1]) end
+    function encode(self, value: T): string return "one:" .. tostring(value) end
+    function encode(self, values: {T}): string return "many:" .. tostring(values[1]) end
 end
 
 local codec: Codec<integer> = new Codec {}
@@ -298,8 +302,8 @@ end
 function M.safeNavigationKeepsOverloadSelection()
    local value = runs([[
 local record Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 local decoder: Decoder? = nil
 return decoder?.:decode("absent")
@@ -314,18 +318,18 @@ local interface Contract
         & function(self, integer): string
 end
 local record Missing is Contract
-    function decode(text: string): string return text end
+    function decode(self, text: string): string return text end
 end
 ]]), "NUPP2118:5")
 
    assertEq(diagnostics([[
 local interface Contract
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 local record Wrong is Contract
     @override
-    function decode(text: string): integer return 1 end
+    function decode(self, text: string): integer return 1 end
 end
 ]]), "NUPP2118:7")
 end

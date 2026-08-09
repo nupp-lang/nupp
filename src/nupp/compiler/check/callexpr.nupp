@@ -272,6 +272,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if intrinsic then
             return intrinsic
         end
+        if callee and callee.kind == "dotIndex" then
+            callee.callCallee = true
+        end
         local calleeT = callee and c.infer(callee) or T.any
         node.calleeType = rawType(calleeT)
         local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
@@ -351,6 +354,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
         end
         local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        if callee and callee.staticOverloadOwner and callee.staticOverloadName and node.overloadWinner then
+            local owner = callee.staticOverloadOwner
+            local name = callee.staticOverloadName
+            local selectedMember = methodslots.member(name, node.overloadWinner)
+            for _, entry in ipairs(owner.staticEntries and owner.staticEntries[name] or {}) do
+                local candidate = specializeSelf(owner, entry.signature, owner)
+                if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
+                    callee.overloadMember = entry.member
+                    break
+                end
+            end
+            callee.overloadMember = callee.overloadMember or selectedMember
+        end
         if wrappedEntry and wrappedEntry.wrappedProtocol then
             wrappedEntry.wrappedPhase = "started"
         end
@@ -671,6 +687,28 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
         if node.safeObj then
             ot = withoutNil(ot)
+        end
+        local rawReceiver = rawType(ot)
+        local staticOwner = rawReceiver.tag == "metatable" and rawType(rawReceiver.of) or nil
+        local static = staticOwner
+            and staticOwner.tag == "nominal"
+            and staticOwner.staticByname
+            and staticOwner.staticByname[
+            member.text
+        ]
+        if static then
+            local owner = staticOwner as T.Nominal
+            c.diag(
+                "NUPP2004",
+                member,
+                ("%q is a static function and does not accept a receiver"):format(member.text),
+                nil,
+                {help = ("call it with `%s.%s(...)`"):format(owner.name, member.text)}
+            )
+            local first, rets, pack = c.inferCall(node, static, node.args)
+            c.lastCallRets = rets
+            node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+            return first
         end
         local mt, fieldDef, fieldDefs = c.fieldType(ot, member.text)
         if mt and node.safeMethod then

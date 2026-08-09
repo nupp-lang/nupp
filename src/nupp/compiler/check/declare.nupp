@@ -27,6 +27,18 @@ local substType = generics.subst
 local addSelf = generics.addSelf
 local dropSelf = generics.dropSelf
 
+local function hasReceiver(body: any, declKind: string): boolean
+    -- Struct inline functions retain their established method-only model. Records and
+    -- interfaces make the receiver explicit: without a leading `self`, the function
+    -- belongs to the declaration table instead of its instances.
+    if declKind == "struct" then
+        return true
+    end
+    local first = body and body.params and body.params[1]
+
+    return first ~= nil and first.name ~= nil and first.name.text == "self"
+end
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -675,11 +687,15 @@ function declare.install(
             -- the block are on it
             n.byname = n.byname or {}
             n.writeByname = n.writeByname or {}
+            n.staticByname = n.staticByname or {}
+            n.staticWriteByname = n.staticWriteByname or {}
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
             n.methodEntries = {}
             n.methodDispatchEntries = {}
             n.overloadedMethods = {}
+            n.staticEntries = {}
+            n.overloadedStatics = {}
             n.defaultEntries = {}
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
@@ -701,6 +717,8 @@ function declare.install(
             n.fieldOrder = {}
             n.fieldDefs = {}
             n.writeFieldDefs = {}
+            n.staticFieldDefs = {}
+            n.staticWriteFieldDefs = {}
             stat.resolvedType = n
 
             -- Hoist nested declarations within the nominal namespace so sibling fields
@@ -819,13 +837,17 @@ function declare.install(
             -- overload group, a local body replaces only its matching parameter pack
             -- and leaves the other inherited entries visible.
             local inlineSignatures: {[string]: {any}} = {}
+            local staticSignatures: {[string]: {any}} = {}
             for _, e in ipairs(stat.entries) do
                 if e.kind == "inlineMethod" then
-                    local signature = c.signatureOf(e.body, n)
+                    local receiver = hasReceiver(e.body, stat.declKind)
+                    e.inlineStatic = not receiver
+                    local signature = c.signatureOf(e.body, receiver and n or nil)
                     local name = e.name.text
-                    local group = inlineSignatures[name] or {}
+                    local groups = receiver and inlineSignatures or staticSignatures
+                    local group = groups[name] or {}
                     group[#group + 1] = signature
-                    inlineSignatures[name] = group
+                    groups[name] = group
                 end
             end
             for name, localSignatures in pairs(inlineSignatures) do
@@ -863,6 +885,15 @@ function declare.install(
                     n.writeByname[name] = combined
                     n.overloadedMethods[name] = #members > 1
                 end
+            end
+            for name, signatures in pairs(staticSignatures) do
+                if inlineSignatures[name] or n.byname[name] then
+                    c.diag("NUPP2118", stat, ("static member %q conflicts with an instance member"):format(name))
+                end
+                local combined = #signatures == 1 and signatures[1] or T.intersection(signatures)
+                n.staticByname[name] = combined
+                n.staticWriteByname[name] = combined
+                n.overloadedStatics[name] = #signatures > 1
             end
             local localMembers, localMetamethods = {}, {}
             for _, e in ipairs(stat.entries) do
@@ -1086,7 +1117,8 @@ function declare.install(
                         state = {read = true, write = true, method = true}
                         localMembers[name] = state
                     end
-                    local declaredGroup = inlineSignatures[name] or {}
+                    local receiver = hasReceiver(e.body, stat.declKind)
+                    local declaredGroup = (receiver and inlineSignatures or staticSignatures)[name] or {}
                     if isDisposer and #declaredGroup > 1 then
                         c.diag(
                             "NUPP2602",
@@ -1094,33 +1126,42 @@ function declare.install(
                             "a disposal method has one resource contract and cannot " .. "be overloaded"
                         )
                     end
-                    if isDisposer then
+                    if isDisposer and not receiver then
+                        c.diag("NUPP2602", e.name, "a disposal method must declare `self` as its first parameter")
+                        isDisposer = false
+                    elseif isDisposer then
                         e.body.disposeContract = true
                         e.body.disposeMethod = true
                     end
-                    local ft = addSelf(c.checkFuncbody(e.body, n), n, isDisposer and "takes" or nil)
+                    local checked = c.checkFuncbody(e.body, receiver and n or nil)
+                    local ft = receiver and addSelf(checked, n, isDisposer and "takes" or nil) or checked
                     c.raises.check(e, e.body)
-                    local callable = dropSelf(ft) as T.Func
+                    local callable = (receiver and dropSelf(ft) or ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)
                     local memberName = methodslots.member(name, callable)
-                    local entries = n.methodEntries[name] or {}
+                    local entryGroups = receiver and n.methodEntries or n.staticEntries
+                    local entries = entryGroups[name] or {}
                     for _, prior in ipairs(entries) do
                         if prior.parameterKey == parameterKey then
                             c.diag(
                                 "NUPP2118",
                                 e.name,
                                 (
-                                    "method %q already has an entry with parameter pack %s"
-                                ):format(name, T.tostringPack(callable.paramPack)),
+                                    "%s %q already has an entry with parameter pack %s"
+                                ):format(
+                                    receiver and "method" or "static function",
+                                    name,
+                                    T.tostringPack(callable.paramPack)
+                                ),
                                 nil,
                                 {
-                                    help = "method overloads need distinguishable "
+                                    help = "overloads need distinguishable "
                                     .. "parameter packs; return types do not select one"
                                 }
                             )
                         end
                     end
-                    local definition = c.definition(e.name, "method")
+                    local definition = c.definition(e.name, receiver and "method" or "function")
                     definition.type = ft
                     local entry = {
                         signature = ft,
@@ -1130,12 +1171,14 @@ function declare.install(
                         definition = definition
                     }
                     entries[#entries + 1] = entry
-                    n.methodEntries[name] = entries
-                    e.methodEntry = entry
+                    entryGroups[name] = entries
+                    if receiver then
+                        e.methodEntry = entry
+                    end
 
                     -- An interface body implements this exact overload. It is emitted
                     -- once, and implementors inherit the corresponding runtime slot.
-                    if stat.declKind == "interface" then
+                    if receiver and stat.declKind == "interface" then
                         n.defaults = n.defaults or {}
                         n.defaults[name] = true
                         n.defaultEntries[
@@ -1147,8 +1190,16 @@ function declare.install(
                             entry = entry
                         }
                     end
-                    e.overridesDefault = inheritedDefault(n, memberName)
-                    if e.overridesDefault and not isOverride then
+                    e.overridesDefault = receiver and inheritedDefault(n, memberName) or nil
+                    if not receiver and isOverride then
+                        c.diag(
+                            "NUPP2118",
+                            e.name,
+                            "a static function cannot override an instance default",
+                            nil,
+                            {help = "add `self` as the first parameter, or remove @override"}
+                        )
+                    elseif e.overridesDefault and not isOverride then
                         c.diag(
                             "NUPP2118",
                             e.name,
@@ -1175,9 +1226,14 @@ function declare.install(
                     if isDisposer then
                         n.defaultDisposers[#n.defaultDisposers + 1] = "@method:" .. name
                     end
-                    n.fieldDefs[name] = n.fieldDefs[name] or definition
-                    n.writeFieldDefs[name] = n.fieldDefs[name]
-                    c.markToken(e.name, definition, ft, "method")
+                    if receiver then
+                        n.fieldDefs[name] = n.fieldDefs[name] or definition
+                        n.writeFieldDefs[name] = n.fieldDefs[name]
+                    else
+                        n.staticFieldDefs[name] = n.staticFieldDefs[name] or definition
+                        n.staticWriteFieldDefs[name] = n.staticFieldDefs[name]
+                    end
+                    c.markToken(e.name, definition, ft, receiver and "method" or "function")
                 elseif e.kind == "recordDecl" or e.kind == "typeAlias" then
                     if stat.declKind == "struct" then
                         c.diag("NUPP2201", e, "struct bodies hold fields only (no nested declarations)")
@@ -1260,6 +1316,13 @@ function declare.install(
                     end
                 end
             end
+            for _, entries in pairs(n.staticEntries) do
+                if #entries > 1 then
+                    for _, entry in ipairs(entries) do
+                        entry.declaration.overloadMember = entry.member
+                    end
+                end
+            end
             -- The refinement is read last, because it speaks about the fields and they
             -- are only all here now. It is an interface's runtime identity: a record's
             -- instances are stamped and a struct is its ctype, but an interface has no
@@ -1329,7 +1392,10 @@ function declare.install(
                 c.bindDeclaredVar(stat, T.metatable(n))
                 suggestStruct(stat, n)
             else
-                c.bindDeclaredVar(stat, T.any)
+                -- Interfaces with defaults or statics have a declaration table at run
+                -- time. Giving the name its metatable type keeps static access checked;
+                -- an erased interface still has no readable runtime members.
+                c.bindDeclaredVar(stat, T.metatable(n))
             end
             c.publishType(stat, n, projectEntry)
         end

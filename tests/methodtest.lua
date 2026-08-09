@@ -14,12 +14,13 @@ local function assertEq(got, want, label)
    end
 end
 
-local function diagsOf(src)
-   local result = parser.parse(src, "test.g.nupp")
+local function diagsOf(src, filename)
+   filename = filename or "test.g.nupp"
+   local result = parser.parse(src, filename)
    assertEq(#result.errors, 0, "syntax errors: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do
+   for j, d in ipairs(check.check(result, filename, env)) do
       out[j] = d.code .. ":" .. d.line
    end
    return table.concat(out, " ")
@@ -97,6 +98,50 @@ function M.explicitSelfKeepsTheReceiverType()
       "    end",
       "end",
    }, "\n")), "NUPP2004:5")
+end
+
+function M.inlineFunctionsNeedSelfToBeMethods()
+   local declaration = table.concat({
+      "local interface Greeter",
+      "    name: string",
+      "",
+      "    function greet(): string",
+      "        return 'hello, ' .. self.name",
+      "    end",
+      "end",
+   }, "\n")
+   assertEq(diagsOf(declaration, "test.nupp"), "NUPP2105:5")
+
+   assertEq(run(table.concat({
+      "local record Numbers",
+      "    function answer(): integer",
+      "        return 42",
+      "    end",
+      "end",
+      "return Numbers.answer()",
+   }, "\n")), 42)
+   assertEq(diagsOf(table.concat({
+      "local record Numbers",
+      "    function answer(): integer return 42 end",
+      "end",
+      "local numbers = new Numbers {}",
+      "numbers:answer()",
+   }, "\n")), "NUPP2004:5")
+   assertEq(diagsOf(table.concat({
+      "local record Numbers",
+      "    function answer(): integer return 42 end",
+      "end",
+      "Numbers:answer()",
+   }, "\n")), "NUPP2004:4")
+
+   assertEq(run(table.concat({
+      "local interface Greeter",
+      "    function greet(name: string): string",
+      "        return 'hello, ' .. name",
+      "    end",
+      "end",
+      "return Greeter.greet('Ada')",
+   }, "\n")), "hello, Ada")
 end
 
 function M.dottedMembersTakeNoReceiver()
@@ -204,7 +249,7 @@ function M.newConstructsRecordsAndStructs()
       "local record Account",
       "    name: string",
       "    balance: number",
-      "    function deposit(credit: number)",
+      "    function deposit(self, credit: number)",
       "        self.balance = self.balance + credit",
       "    end",
       "end",
@@ -462,7 +507,7 @@ function M.interfacesCarryDefaultBodies()
    assertEq(run(table.concat({
       "local interface Greeter",
       "   name: string",
-      "   function greet(): string",
+      "   function greet(self): string",
       "      return 'hello, ' .. self.name",
       "   end",
       "end",
@@ -477,7 +522,7 @@ function M.interfacesCarryDefaultBodies()
       "local interface Sized",
       "   w: float",
       "   h: float",
-      "   function area(): number",
+      "   function area(self): number",
       "      return self.w * self.h",
       "   end",
       "end",
@@ -491,7 +536,7 @@ function M.interfacesCarryDefaultBodies()
    assertEq(run(table.concat({
       "local interface Base",
       "   n: integer",
-      "   function twice(): number",
+      "   function twice(self): number",
       "      return self.n * 2",
       "   end",
       "end",
@@ -511,7 +556,7 @@ function M.overridingADefaultIsDeclared()
    local iface = table.concat({
       "local interface Greeter",
       "   name: string",
-      "   function greet(): string",
+      "   function greet(self): string",
       "      return 'hi'",
       "   end",
       "end",
@@ -521,7 +566,7 @@ function M.overridingADefaultIsDeclared()
       "",
       "local record Silent is Greeter",
       "   name: string",
-      "   function greet(): string",
+      "   function greet(self): string",
       "      return '...'",
       "   end",
       "end",
@@ -532,7 +577,7 @@ function M.overridingADefaultIsDeclared()
       "local record Loud is Greeter",
       "   name: string",
       "   @override",
-      "   function greet(): string",
+      "   function greet(self): string",
       "      return 'LOUD'",
       "   end",
       "end",
@@ -543,7 +588,7 @@ function M.overridingADefaultIsDeclared()
       "local record Bogus",
       "   n: integer",
       "   @override",
-      "   function nope(): integer",
+      "   function nope(self): integer",
       "      return 1",
       "   end",
       "end",
@@ -555,12 +600,12 @@ end
 function M.aDefaultInheritedTwiceMustBeChosen()
    local ifaces = table.concat({
       "local interface A",
-      "   function tag(): string",
+      "   function tag(self): string",
       "      return 'a'",
       "   end",
       "end",
       "local interface B",
-      "   function tag(): string",
+      "   function tag(self): string",
       "      return 'b'",
       "   end",
       "end",
@@ -577,7 +622,7 @@ function M.aDefaultInheritedTwiceMustBeChosen()
       "local record Good is A, B",
       "   n: integer",
       "   @override",
-      "   function tag(): string",
+      "   function tag(self): string",
       "      return 'mine'",
       "   end",
       "end",
@@ -596,7 +641,7 @@ function M.constructorsRunAndFillEveryField()
       "        self.name = name",
       "        self.balance = opening",
       "    end",
-      "    function deposit(credit: number)",
+      "    function deposit(self, credit: number)",
       "        self.balance = self.balance + credit",
       "    end",
       "end",
@@ -865,7 +910,7 @@ function M.aRecordsTableSatisfiesItsOwnMetatableType()
    local foo = table.concat({
       "local record Foo",
       "   v: integer",
-      "   function double(): integer",
+      "   function double(self): integer",
       "      return self.v * 2",
       "   end",
       "end",

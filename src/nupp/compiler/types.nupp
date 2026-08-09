@@ -318,6 +318,12 @@ record types.Nominal
     --- present only here is write-only.
     writeByname: {[string]: types.Type}
 
+    --- Members carried by the declaration's runtime table rather than its instances.
+    --- Inline functions without a leading `self` parameter live here.
+    staticByname: {[string]: types.Type}
+
+    staticWriteByname: {[string]: types.Type}
+
     indexReadKey: types.Type?
     indexReadValue: types.Type?
     indexWriteKey: types.Type?
@@ -370,6 +376,10 @@ record types.Nominal
 
     writeFieldDefs: any
 
+    staticFieldDefs: any
+
+    staticWriteFieldDefs: any
+
     --- The fields in declaration order, which is the order a struct's positional
     --- construction fills them.
     fieldOrder: {string}?
@@ -401,6 +411,9 @@ record types.Nominal
     methodDispatchEntries: {[string]: {any}}?
 
     overloadedMethods: {[string]: boolean}?
+
+    staticEntries: {[string]: {any}}?
+    overloadedStatics: {[string]: boolean}?
 
     defaultEntries: {[string]: any}?
 
@@ -1208,7 +1221,7 @@ local nominalCounter: integer = 0
 function types.nominal(name: string, declKind: string): types.Nominal
     nominalCounter = nominalCounter + 1
     local t = new types.Nominal {tag = "nominal", declKind = declKind, name = name, byname = {}, -- populated while the declaration is checked
-        writeByname = {}, metamethods = {}, nestedTypes = {}, defaultDisposers = {},}
+        writeByname = {}, staticByname = {}, staticWriteByname = {}, metamethods = {}, nestedTypes = {}, defaultDisposers = {},}
     t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
     return t

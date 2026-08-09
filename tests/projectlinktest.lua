@@ -594,7 +594,7 @@ local greet = {}
 interface greet.Greeter
     name: string
 
-    function hello(): string
+    function hello(self): string
         return "hello, " .. self.name
     end
 end

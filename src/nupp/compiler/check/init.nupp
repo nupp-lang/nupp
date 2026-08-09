@@ -54,7 +54,8 @@ local type Node = cst.Node
 --- A node or a token: what a diagnostic can be pointed at.
 local type Child = cst.Child
 
--- The run's own shape is declared in nupp.compiler.check.state, because a pass has to name
+-- The run's own shape is declared in nupp.compiler.check.state, because a pass has to
+-- name
 -- it
 -- and this file requires every pass. These keep the names a caller already had.
 
@@ -70,7 +71,8 @@ type checkMod.Checker = state.Checker
 -- The type algebra and the generic machinery moved out of this file; the names the
 -- checker calls them by are kept, since they read as vocabulary here.
 
--- The lint registry lives in nupp.compiler.lints, which `nupp lints` reads too. The checker
+-- The lint registry lives in nupp.compiler.lints, which `nupp lints` reads too. The
+-- checker
 -- keeps the re-exports so a caller that already had them still works.
 checkMod.lints = lints.all
 checkMod.lintCategories = lints.categories
@@ -1001,7 +1003,8 @@ function checkMod.check(
     c.apply = apply
 
     -- A metatable literal is where a declared contract is fulfilled, so what it puts
-    -- under each key is checked wherever one is written. See nupp.compiler.check.metatable.
+    -- under each key is checked wherever one is written. See
+    -- nupp.compiler.check.metatable.
     metatable.install(c)
 
     -- The type an expression has. See nupp.compiler.check.expr.
@@ -1136,6 +1139,8 @@ function checkMod.check(
                 decl.hoistedType, decl.hoistedEntry = n, entry
                 n.byname = n.byname or {}
                 n.writeByname = n.writeByname or {}
+                n.staticByname = n.staticByname or {}
+                n.staticWriteByname = n.staticWriteByname or {}
                 local key = c.declKey(decl)
                 if c.qualifierOf(decl) then
                     n.runtimePath = key
@@ -1164,10 +1169,18 @@ function checkMod.check(
             if ownerKey then
                 local owner = c.lookupType(ownerKey)
                 local member = memberTok and memberTok.text
-                if owner and owner.tag == "nominal" and owner.byname and member and not owner.byname[member] then
+                local isStatic = owner and not fname.method and (
+                    owner.declKind == "record" or owner.declKind == "interface"
+                )
+                local members = owner and (isStatic and owner.staticByname or owner.byname)
+                if owner and owner.tag == "nominal" and members and member and not members[member] then
                     local signature = c.signatureOf(decl.body, fname.method and owner or nil)
-                    owner.byname[member] = signature
-                    owner.writeByname[member] = signature
+                    members[member] = signature
+                    if not isStatic then
+                        owner.writeByname[member] = signature
+                    else
+                        owner.staticWriteByname[member] = signature
+                    end
                 end
             end
         end

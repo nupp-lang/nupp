@@ -93,10 +93,12 @@ function index.install(c: state.Checker): state.ExprHandlers
                 return nil
             end
             local t, def = c.env.exportedNominal(c.env, exporting, memberName)
-            if t and t.tag == "nominal" and (t.declKind == "record" or t.declKind == "struct") then
+            if t and t.tag == "nominal" and (
+                t.declKind == "record" or t.declKind == "struct" or t.declKind == "interface"
+            ) then
                 -- The same value the declaring module bound, so a record arrives as the
                 -- metatable its table is rather than as an instance of it.
-                local held = t.declKind == "record" and T.metatable(t) or t
+                local held = t.declKind == "struct" and t or T.metatable(t)
                 c.markToken(member, def, held, def and def.kind or "variable")
                 return held
             end
@@ -215,7 +217,28 @@ function index.install(c: state.Checker): state.ExprHandlers
             )
             return T.any
         end
-        if not writing and base.tag == "nominal" and base.overloadedMethods and base.overloadedMethods[memberName] then
+        local staticOwner = base.tag == "metatable" and rawType(base.of) or nil
+        if not writing
+            and staticOwner
+            and staticOwner.tag == "nominal"
+            and staticOwner.overloadedStatics
+            and staticOwner.overloadedStatics[
+            memberName
+        ] then
+            node.staticOverloadOwner = staticOwner
+            node.staticOverloadName = memberName
+            if not node.callCallee then
+                c.diag(
+                    "NUPP2126",
+                    member,
+                    ("overloaded static function %q has no single field value"):format(memberName),
+                    nil,
+                    {help = "call it through the declaration table so the arguments select one body"}
+                )
+            end
+        elseif not writing and base.tag == "nominal" and base.overloadedMethods and base.overloadedMethods[
+            memberName
+        ] then
             c.diag(
                 "NUPP2126",
                 member,

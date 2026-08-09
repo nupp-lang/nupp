@@ -172,7 +172,7 @@ local record File
    closed: boolean
 
    @dispose
-   function close()
+   function close(self)
       self.closed = true
    end
 end
@@ -210,7 +210,7 @@ end
 local record File is Closeable
    fd: integer
 
-   function close()
+   function close(self)
       self.fd = -1
    end
 end
@@ -600,7 +600,7 @@ local record Bundle
    second: owned<File>
 
    @dispose
-   function close()
+   function close(self)
       closeFile(self.second)
       closeFile(self.first)
    end

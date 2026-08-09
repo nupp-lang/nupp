@@ -165,10 +165,10 @@ end
 function test.calleeUsesTheSelectedMethodOverloadSummary()
    local queries, result = analysed([[
 local record Choice
-    function choose(value: string): string
+    function choose(self, value: string): string
         return value
     end
-    function choose(value: integer): string
+    function choose(self, value: integer): string
         coroutine.yield()
         return tostring(value)
     end
@@ -192,8 +192,8 @@ end
 function test.calleeKeepsInheritedMethodOverloadProvenance()
    local queries, result = analysed([[
 local interface Choice
-    function choose(value: string): string return value end
-    function choose(value: integer): string
+    function choose(self, value: string): string return value end
+    function choose(self, value: integer): string
         coroutine.yield()
         return tostring(value)
     end
@@ -201,7 +201,7 @@ end
 
 local record Concrete is Choice
     @override
-    function choose(value: string): string return "local:" .. value end
+    function choose(self, value: string): string return "local:" .. value end
 end
 
 local choice = new Concrete {}

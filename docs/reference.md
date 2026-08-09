@@ -275,8 +275,8 @@ local decimal: integer = parse("10")
 local hexadecimal: string = parse("10", 16)
 
 local record Decoder
-    function decode(text: string): string return "text:" .. text end
-    function decode(value: integer): string return "integer:" .. tostring(value) end
+    function decode(self, text: string): string return "text:" .. text end
+    function decode(self, value: integer): string return "integer:" .. tostring(value) end
 end
 
 local decoder = new Decoder {}
@@ -290,8 +290,9 @@ Reports: `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208`. `nupp explain <code>` s
 
 ### Records
 
-A record is a table with declared fields. It may carry inline methods, whose
-`self` is implicit, and it is built with `new`.
+A record is a table with declared fields. An inline function is an instance
+method when its first parameter is named `self`; without that parameter it is a
+static function on the record's own table. Records are built with `new`.
 
 `new` is how both records and structs are constructed, and the only way: it
 lowers to the metatable stamp and the ctype call directly, installing nothing,
@@ -404,7 +405,7 @@ local m = {}
 interface m.Greeter
     name: string
 
-    function greet(): string
+    function greet(self): string
         return "hello, " .. self.name
     end
 end
@@ -417,7 +418,7 @@ record m.Shouter is m.Greeter
     name: string
 
     @override
-    function greet(): string
+    function greet(self): string
         return "HELLO"
     end
 end

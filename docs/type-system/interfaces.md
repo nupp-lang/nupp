@@ -142,7 +142,7 @@ contract takes the behaviour with it:
 local interface Greeter
     name: string
 
-    function greet(): string
+    function greet(self): string
         return "hello, " .. self.name
     end
 end

@@ -272,6 +272,8 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.arrayOf = n.arrayOf and generics.subst(n.arrayOf, map) or nil
     inst.fieldDefs = n.fieldDefs
     inst.writeFieldDefs = n.writeFieldDefs
+    inst.staticFieldDefs = n.staticFieldDefs
+    inst.staticWriteFieldDefs = n.staticWriteFieldDefs
     inst.selfType = n.selfType
     inst.supertypes = {}
     for j, parent in ipairs(n.supertypes or {}) do
@@ -286,11 +288,22 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, ft in pairs(n.writeByname or {}) do
         inst.writeByname[name] = generics.subst(ft, map)
     end
+    for name, ft in pairs(n.staticByname or {}) do
+        inst.staticByname[name] = generics.subst(ft, map)
+    end
+    for name, ft in pairs(n.staticWriteByname or {}) do
+        inst.staticWriteByname[name] = generics.subst(ft, map)
+    end
     inst.overloadedMethods = {}
+    inst.overloadedStatics = {}
     inst.methodEntries = {}
     inst.methodDispatchEntries = {}
+    inst.staticEntries = {}
     for name in pairs(n.overloadedMethods or {}) do
         inst.overloadedMethods[name] = true
+    end
+    for name in pairs(n.overloadedStatics or {}) do
+        inst.overloadedStatics[name] = true
     end
     for name, entries in pairs(n.methodEntries or {}) do
         local specialized = {}
@@ -321,6 +334,21 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             }
         end
         inst.methodDispatchEntries[name] = specialized
+    end
+    for name, entries in pairs(n.staticEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[
+                j
+            ] = {
+                signature = generics.subst(entry.signature, map),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.staticEntries[name] = specialized
     end
     inst.indexReadKey = n.indexReadKey and generics.subst(n.indexReadKey, map) or nil
     inst.indexReadValue = n.indexReadValue and generics.subst(n.indexReadValue, map) or nil

@@ -98,7 +98,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local calleeT = calleeName and c.lookupVar(calleeName) or nil
                 -- By spelling, because this reads modes out of a body before anything
                 -- has resolved the names in it. Both spellings of an intrinsic have to
-                -- answer here, or a body written with `nupp.dispose` gives its parameter
+                -- answer here, or a body written with `nupp.dispose` gives its
+                -- parameter
                 -- a weaker mode than the one beside it written with `dispose`.
                 local intrinsic = cst.ownershipIntrinsicSpelling(node.obj)
                 local args = node.args and node.args.exprs or {}
@@ -232,9 +233,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         local paramPackTail = nil
         for _, p in ipairs(body.params) do
             if p == explicitSelf then
-                -- The binding above carries the owner type. The generator
-                -- likewise removes this parameter when it emits `function
-                -- Owner:method(...)`.
+            -- The binding above carries the owner type. The generator
+            -- likewise removes this parameter when it emits `function
+            -- Owner:method(...)`.
             elseif p.namedVararg then
                 vararg = true
                 if p.type then
@@ -593,7 +594,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         local vararg = body and body.varargs or false
         for sourceIndex, p in ipairs(body and body.params or {}) do
             if p == explicitSelf then
-                -- The receiver added above is the leading `self` spelling.
+            -- The receiver added above is the leading `self` spelling.
             elseif p.name and not p.namedVararg then
                 local pt = p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[sourceIndex] or "borrows"
@@ -769,6 +770,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                     ft.resumePack
                 )
                 owner.writeByname[member] = owner.byname[member]
+            elseif owner.declKind == "record" or owner.declKind == "interface" then
+                owner.staticByname[member] = ft
+                owner.staticWriteByname[member] = ft
             else
                 owner.byname[member] = ft
                 owner.writeByname[member] = ft
@@ -776,7 +780,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             if body.disposeMethod then
                 owner.defaultDisposers[#owner.defaultDisposers + 1] = fname.method and ("@method:" .. member) or member
             end
-            if owner.fieldOrder then
+            if owner.fieldOrder and (fname.method or owner.declKind == "struct") then
                 owner.fieldOrder[#owner.fieldOrder + 1] = member
             end
         end

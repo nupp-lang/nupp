@@ -168,7 +168,7 @@ record shapes.Path
     points: {shapes.Point}
     cutFrom: Path?          -- Path, not shapes.Path
 
-    function count(): integer
+    function count(self): integer
         return #self.points
     end
 end
@@ -180,8 +180,8 @@ The binding lives and dies with the body. Outside it, the member is
 ## Methods
 
 Prefer implementing a record's methods inline, as `Path.count` above. Inline
-methods keep behavior beside the fields and contracts it relies on, receive an
-implicit `self`, and are still emitted as ordinary `shapes.Path` methods. Use a
+methods keep behavior beside the fields and contracts it relies on, declare
+`self` first, and are still emitted as ordinary `shapes.Path` methods. Use a
 separate qualified method only when adapting a type outside its declaration.
 
 ## Conventions
@@ -266,7 +266,7 @@ record shapes.Path
     points: {shapes.Point}
     cutFrom: Path?
 
-    function count(): integer
+    function count(self): integer
         return #self.points
     end
 end

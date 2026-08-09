@@ -62,11 +62,11 @@ local function parseTokens(tokens: {Token}): Ast
 end
 
 local record Decoder
-    function decode(text: string): Ast
+    function decode(self, text: string): Ast
         return parseText(text)
     end
 
-    function decode(tokens: {Token}): Ast
+    function decode(self, tokens: {Token}): Ast
         return parseTokens(tokens)
     end
 end
@@ -90,8 +90,8 @@ There is no runtime value corresponding to the source name `decoder.decode`:
 ```nupp
 -- reports: NUPP2126
 local record Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 
 local decoder = new Decoder {}
@@ -103,8 +103,8 @@ Write an adapter when a callback needs one selected operation:
 
 ```nupp
 local record Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 
 local decoder = new Decoder {}
@@ -124,8 +124,8 @@ An `any` argument may leave several entries possible:
 ```nupp
 -- reports: NUPP2126
 local record Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 
 local decoder = new Decoder {}
@@ -137,8 +137,8 @@ An explicit cast selects the intended entry:
 
 ```nupp
 local record Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 
 local decoder = new Decoder {}
@@ -174,8 +174,8 @@ Two bodies cannot differ only by return type:
 ```nupp
 -- reports: NUPP2118
 local record Bad
-    function get(value: string): string return value end
-    function get(value: string): integer return 1 end
+    function get(self, value: string): string return value end
+    function get(self, value: string): integer return 1 end
 end
 ```
 
@@ -196,8 +196,8 @@ local interface DecoderContract
 end
 
 local record Decoder is DecoderContract
-    function decode(text: string): string return "text:" .. text end
-    function decode(value: integer): string return "number:" .. tostring(value) end
+    function decode(self, text: string): string return "text:" .. text end
+    function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
 local decoder: DecoderContract = new Decoder {}
@@ -216,7 +216,7 @@ local interface DecoderContract
 end
 
 local record Incomplete is DecoderContract
-    function decode(text: string): string return text end
+    function decode(self, text: string): string return text end
 end
 ```
 
@@ -227,18 +227,18 @@ it does not replace:
 
 ```nupp
 local interface Decoder
-    function decode(text: string): string
+    function decode(self, text: string): string
         return "default:" .. text
     end
 
-    function decode(value: integer): string
+    function decode(self, value: integer): string
         return "number:" .. tostring(value)
     end
 end
 
 local record LoudDecoder is Decoder
     @override
-    function decode(text: string): string
+    function decode(self, text: string): string
         return "loud:" .. text
     end
 end
@@ -256,13 +256,13 @@ explicit. Putting it on a parameter pack with no inherited body is also
 ```nupp
 -- reports: NUPP2118
 local interface Decoder
-    function decode(text: string): string return text end
-    function decode(value: integer): string return tostring(value) end
+    function decode(self, text: string): string return text end
+    function decode(self, value: integer): string return tostring(value) end
 end
 
 local record Wrong is Decoder
     @override
-    function decode(flag: boolean): string return tostring(flag) end
+    function decode(self, flag: boolean): string return tostring(flag) end
 end
 ```
 
@@ -271,14 +271,14 @@ uses `@override`:
 
 ```nupp
 local interface Formatter
-    function format(text: string): string return text end
+    function format(self, text: string): string return text end
 end
 
 local record DetailedFormatter is Formatter
     @override
-    function format(text: string): string return "text:" .. text end
+    function format(self, text: string): string return "text:" .. text end
 
-    function format(value: integer): string return "integer:" .. tostring(value) end
+    function format(self, value: integer): string return "integer:" .. tostring(value) end
 end
 
 local formatter = new DetailedFormatter {}
@@ -290,11 +290,11 @@ name. Their distinct parameter packs form one inherited overload group:
 
 ```nupp
 local interface TextDecoder
-    function decode(text: string): string return "text:" .. text end
+    function decode(self, text: string): string return "text:" .. text end
 end
 
 local interface NumberDecoder
-    function decode(value: integer): string return "number:" .. tostring(value) end
+    function decode(self, value: integer): string return "number:" .. tostring(value) end
 end
 
 local record Decoder is TextDecoder, NumberDecoder
@@ -315,11 +315,11 @@ call site without changing its runtime slot:
 
 ```nupp
 local record Codec<T>
-    function encode(value: T): string
+    function encode(self, value: T): string
         return "one:" .. tostring(value)
     end
 
-    function encode(values: {T}): string
+    function encode(self, values: {T}): string
         return "many:" .. tostring(values[1])
     end
 end
@@ -375,8 +375,8 @@ local record Ast
 end
 
 local record Decoder
-    function decode(text: string): Ast return new Ast {source = text} end
-    function decode(tokens: {Token}): Ast return new Ast {source = tokens[1].kind} end
+    function decode(self, text: string): Ast return new Ast {source = text} end
+    function decode(self, tokens: {Token}): Ast return new Ast {source = tokens[1].kind} end
 end
 
 local decoder = new Decoder {}

@@ -42,7 +42,7 @@ local record Point
     x: number
     y: number
 
-    function length(): number
+    function length(self): number
         return math.sqrt(self.x * self.x + self.y * self.y)
     end
 end
@@ -190,7 +190,7 @@ local record Session
     closed: boolean
 
     @dispose
-    function close()
+    function close(self)
         self.closed = true
     end
 end

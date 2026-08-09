@@ -740,6 +740,11 @@ function gen.generate(
             e(x.folded, sourceLine(x))
             return
         end
+        if kind == "dotIndex" and x.overloadMember then
+            emit(x.obj)
+            e("." .. x.overloadMember, sourceLine(x))
+            return
+        end
         if x.callableBindings then
             for _, binding in ipairs(x.callableBindings) do
                 e("const " .. binding.name .. "=", sourceLine(x))
@@ -854,6 +859,7 @@ function gen.generate(
                     emit(entry)
                 elseif entry.kind == "inlineMethod" then
                     entry.inlineRuntimeOwner = runtimeName
+                    entry.inlineDotted = entry.inlineStatic
                     emit(entry)
                 elseif entry.kind == "constructorDecl" then
                     entry.inlineRuntimeOwner = runtimeName
@@ -881,7 +887,9 @@ function gen.generate(
                     inherits = true
                 end
             end
-            if #defaults == 0 and not inherits then
+            local nominal = x.resolvedType
+            local hasStatics = nominal and nominal.staticByname and next(nominal.staticByname) ~= nil
+            if #defaults == 0 and not inherits and not hasStatics then
                 return
             end
             local line = sourceLine(x)
@@ -1637,11 +1645,9 @@ function gen.generate(
                 end
             end
             if x.inlineDotted then
-                -- A default is written where its receiver is not yet known, so `self`
-                -- is an ordinary first parameter. Everything that takes the default
-                -- assigns this same function, and the colon call at the use site passes
-                -- the receiver as it always would.
-                table.insert(names, 1, "self")
+                -- Defaults and statics are plain functions on a declaration table.
+                -- A default's explicitly written `self` remains its first parameter;
+                -- a static has no receiver to add.
                 e(
                     (
                         "function %s.%s(%s)"

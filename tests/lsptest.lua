@@ -1308,7 +1308,7 @@ function M.completionAfterAValueDotOffersItsFields()
       "    x: number",
       "    y: number",
       "",
-      "    function scaled(by: number): number",
+      "    function scaled(self, by: number): number",
       "        return self.x * by",
       "    end",
       "end",

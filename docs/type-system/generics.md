@@ -186,7 +186,7 @@ deliberately unsound for mutable contents and chosen for compatibility.
 local record Counter
     value: number
 
-    function increment(by: number): self
+    function increment(self, by: number): self
         self.value = self.value + by
         return self
     end

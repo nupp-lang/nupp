@@ -226,14 +226,14 @@ end
 ## Ordinary inline methods
 
 An ordinary method body may be written directly in a record or struct. It uses
-`function`, has an implicit `self` value, and is emitted on the ordinary method
-namespace:
+`function`, declares `self` as its first parameter, and is emitted on the
+ordinary method namespace:
 
 ```nupp
 local record Counter
     value: number
 
-    function increment(by: number): self
+    function increment(self, by: number): self
         self.value = self.value + by
         return self
     end

@@ -49,6 +49,18 @@ interface cst.Hints
     --- Generated local used instead of a proved immutable dotted callee.
     staticCallee: string?
 
+    --- Hidden slot selected for an overloaded static declaration function.
+    overloadMember: string?
+
+    staticOverloadOwner: any
+    staticOverloadName: string?
+
+    --- This field access is immediately applied as a call, so overload selection can
+    --- replace it with the chosen hidden runtime slot.
+    callCallee: boolean?
+
+    overloadWinner: any
+
     --- Immutable callees first bound immediately before this statement.
     callableBindings: any
 
@@ -123,6 +135,10 @@ interface cst.Hints
     --- Set on an inline method emitted as a plain function rather than a method,
     --- because a default's receiver is the value it is later attached to.
     inlineDotted: boolean?
+
+    --- Set on an inline function whose parameter list has no leading `self`. It is
+    --- attached to the declaration table and never receives an instance.
+    inlineStatic: boolean?
 
     --- The runtime test a `where` refinement named, attached by the checker so `is`
     --- compiles to it. A refinement travels as data, so nothing here has to be resolved

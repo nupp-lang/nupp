@@ -122,11 +122,11 @@ Repeated method names form an overload set without an annotation:
 
 ```nupp
 local record Decoder
-    function decode(text: string): string
+    function decode(self, text: string): string
         return "text:" .. text
     end
 
-    function decode(value: integer): string
+    function decode(self, value: integer): string
         return "integer:" .. tostring(value)
     end
 end

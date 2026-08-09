@@ -22,7 +22,7 @@ local record File
     closed: boolean
 
     @dispose
-    function close()
+    function close(self)
         self.closed = true
     end
 end
@@ -186,7 +186,7 @@ local record Pair
     second: owned<Session>
 
     @dispose
-    function close()
+    function close(self)
         closeSession(self.second)
         closeSession(self.first)
     end

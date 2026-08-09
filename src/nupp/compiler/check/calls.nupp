@@ -175,10 +175,20 @@ function calls.install(c: state.Checker): calls.Ops
         if t.tag == "ptr" then
             return c.fieldType(t.elem, name)
         end
-        -- A record's runtime table holds its methods, its statics and its nested
-        -- declarations, so reaching a member through `metatable<R>` reaches R's.
+        -- A declaration table exposes its statics first. Instance methods remain
+        -- readable as plain functions from the table too, as in Lua's `R.method(r)`.
         if t.tag == "metatable" then
-            return c.fieldType(t.of, name)
+            local owner = rawType(t.of)
+            if owner.tag == "nominal" then
+                local ft = owner.staticByname and owner.staticByname[name]
+                local definition = owner.staticFieldDefs and owner.staticFieldDefs[name]
+                if not ft then
+                    ft = owner.byname and owner.byname[name]
+                    definition = owner.fieldDefs and owner.fieldDefs[name]
+                end
+                return ft and specializeSelf(owner, ft, owner) or nil, definition
+            end
+            return c.fieldType(owner, name)
         end
         -- A literal is one value of its base type and carries the same members, which
         -- is what lets `("%s"):format(x)` reach the string library.
@@ -258,7 +268,17 @@ function calls.install(c: state.Checker): calls.Ops
             return c.fieldWriteType(t.elem, name)
         end
         if t.tag == "metatable" then
-            return c.fieldWriteType(t.of, name)
+            local owner = rawType(t.of)
+            if owner.tag == "nominal" then
+                local ft = owner.staticWriteByname and owner.staticWriteByname[name]
+                local definition = owner.staticWriteFieldDefs and owner.staticWriteFieldDefs[name]
+                if not ft then
+                    ft = owner.writeByname and owner.writeByname[name]
+                    definition = owner.writeFieldDefs and owner.writeFieldDefs[name]
+                end
+                return ft and specializeSelf(owner, ft, owner) or nil, definition
+            end
+            return c.fieldWriteType(owner, name)
         end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
@@ -329,7 +349,15 @@ function calls.install(c: state.Checker): calls.Ops
             return c.fieldNames(t.elem, writing)
         end
         if t.tag == "metatable" then
-            return c.fieldNames(t.of, writing)
+            local owner = rawType(t.of)
+            local names = c.fieldNames(owner, writing)
+            if owner.tag == "nominal" then
+                local statics = writing and owner.staticWriteByname or owner.staticByname
+                for name in pairs(statics or {}) do
+                    names[name] = true
+                end
+            end
+            return names
         end
         if t.tag == "typevar" and t.bound then
             return c.fieldNames(t.bound, writing)
