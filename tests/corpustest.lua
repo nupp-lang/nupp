@@ -67,11 +67,11 @@ function M.declarationKeywordsRemainOrdinaryNames()
          "print(i)",          -- ordinary call
       }) do
          local src = ("local %s\n%s\n"):format(kw, follow)
-         local result = parser.parse(src, "kw")
+         local result = parser.parse(src, "kw.g.nupp")
          assert(#result.errors == 0,
             ("`local %s` + `%s` must stay ordinary Lua: %s")
                :format(kw, follow, result.errors[1] and result.errors[1].msg or ""))
-         local diags = check.check(result, "kw", env)
+         local diags = check.check(result, "kw.g.nupp", env)
          assert(#diags == 0, ("`local %s` + `%s`: %s")
             :format(kw, follow, diags[1] and diags[1].msg or ""))
       end

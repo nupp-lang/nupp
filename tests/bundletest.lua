@@ -89,8 +89,8 @@ local M = {}
 function M.aBundleRunsUnderAPlainInterpreter()
    local dir = tempProject({
       ["nupp.lua"] = MANIFEST,
-      ["src/app/main.nupp"] = MAIN,
-      ["src/app/greet.nupp"] = GREET,
+      ["src/app/main.g.nupp"] = MAIN,
+      ["src/app/greet.g.nupp"] = GREET,
       ["src/app/data/note.txt"] = "carried along\n",
    })
    local out, ok = run(dir, "'" .. NUPP .. "' build")
@@ -112,8 +112,8 @@ end
 function M.aBundleNeedsNothingFromTheTreeItCameFrom()
    local dir = tempProject({
       ["nupp.lua"] = MANIFEST,
-      ["src/app/main.nupp"] = MAIN,
-      ["src/app/greet.nupp"] = GREET,
+      ["src/app/main.g.nupp"] = MAIN,
+      ["src/app/greet.g.nupp"] = GREET,
       ["src/app/data/note.txt"] = "carried along\n",
    })
    assert(select(2, run(dir, "'" .. NUPP .. "' build")), "builds")
@@ -138,8 +138,8 @@ end
 function M.twoBuildsOfOneTreeProduceIdenticalBytes()
    local dir = tempProject({
       ["nupp.lua"] = MANIFEST,
-      ["src/app/main.nupp"] = MAIN,
-      ["src/app/greet.nupp"] = GREET,
+      ["src/app/main.g.nupp"] = MAIN,
+      ["src/app/greet.g.nupp"] = GREET,
       ["src/app/data/note.txt"] = "carried along\n",
       ["src/app/data/second.txt"] = "and another\n",
    })
@@ -161,8 +161,8 @@ function M.resourcesThatCannotBeNamedAreReported()
       '"src/app/data/*.txt", "extra/*.txt"')
    local dir = tempProject({
       ["nupp.lua"] = manifest,
-      ["src/app/main.nupp"] = MAIN,
-      ["src/app/greet.nupp"] = GREET,
+      ["src/app/main.g.nupp"] = MAIN,
+      ["src/app/greet.g.nupp"] = GREET,
       ["src/app/data/note.txt"] = "carried along\n",
       ["extra/loose.txt"] = "not reachable\n",
    })
@@ -184,8 +184,8 @@ end
 function M.aBundleCarriesWhatTheBuildCompiledNotWhatIsLyingAround()
    local dir = tempProject({
       ["nupp.lua"] = MANIFEST,
-      ["src/app/main.nupp"] = MAIN,
-      ["src/app/greet.nupp"] = GREET,
+      ["src/app/main.g.nupp"] = MAIN,
+      ["src/app/greet.g.nupp"] = GREET,
       ["src/app/data/note.txt"] = "carried along\n",
    })
    assert(select(2, run(dir, "'" .. NUPP .. "' build")), "builds")
@@ -253,7 +253,7 @@ build = { type = "builtin", modules = { tinyrock = "tinyrock.lua" } }
 function M.aBundleCarriesTheRockModulesItWasToldTo()
    local dir = tempProject({
       ["nupp.lua"] = ROCK_MANIFEST,
-      ["src/app/main.nupp"] = ROCK_MAIN,
+      ["src/app/main.g.nupp"] = ROCK_MAIN,
       ["vendor/tinyrock/tinyrock.lua"] = "return {answer = 42}\n",
       ["vendor/tinyrock/tinyrock-1.0-1.rockspec"] = TINY_ROCKSPEC,
    })

@@ -380,7 +380,7 @@ local function moduleName(path: string, root: string, includes: {string}?): stri
             end
         end
     end
-    best = best:gsub("%.d%.nupp$", ""):gsub("%.nupp$", "")
+    best = best:gsub("%.d%.nupp$", ""):gsub("%.g%.nupp$", ""):gsub("%.nupp$", "")
     best = best:gsub("/init$", ""):gsub("/", ".")
     return best
 end

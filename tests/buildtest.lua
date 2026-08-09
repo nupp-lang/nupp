@@ -396,9 +396,9 @@ return {
 function M.compilesModulesNothingRequires()
    local dir = tempProject({
       ["nupp.lua"] = SOURCE_SET_MANIFEST,
-      ["src/app/main.nupp"] = "print('main')\n",
+      ["src/app/main.g.nupp"] = "print('main')\n",
       -- Required by nothing at all.
-      ["src/app/orphan.nupp"] = "local orphan = {}\nreturn orphan\n",
+      ["src/app/orphan.g.nupp"] = "local orphan = {}\nreturn orphan\n",
    })
    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
    assert(exists(dir .. "/build/app/orphan.lua"),
@@ -410,16 +410,16 @@ end
 function M.aComputedRequireFindsItsModule()
    local dir = tempProject({
       ["nupp.lua"] = SOURCE_SET_MANIFEST,
-      ["src/app/main.nupp"] =
+      ["src/app/main.g.nupp"] =
          'local which = "app.plugin"\nprint(require(which).hi())\n',
-      ["src/app/plugin.nupp"] =
+      ["src/app/plugin.g.nupp"] =
          "local plugin = {}\n\nfunction plugin.hi(): string\n"
          .. '    return "found"\nend\n\nreturn plugin\n',
    })
    assert(select(1, capture(("cd '%s' && '%s' build"):format(dir, NUPP))))
    assert(exists(dir .. "/build/app/plugin.lua"),
       "the module named only by a computed require is in the build")
-   local ran = capture(("cd '%s' && '%s' run src/app/main.nupp"):format(dir, NUPP))
+   local ran = capture(("cd '%s' && '%s' run src/app/main.g.nupp"):format(dir, NUPP))
    assert(ran:find("found", 1, true),
       "and the program finds it at run time: " .. ran)
    os.execute("rm -rf '" .. dir .. "'")
@@ -430,15 +430,15 @@ end
 function M.checksModulesNothingRequires()
    local dir = tempProject({
       ["nupp.lua"] = SOURCE_SET_MANIFEST,
-      ["src/app/main.nupp"] = "print('main')\n",
-      ["src/app/orphan.nupp"] =
+      ["src/app/main.g.nupp"] = "print('main')\n",
+      ["src/app/orphan.g.nupp"] =
          "local orphan = {}\n\nfunction orphan.wrong(): string\n"
          .. "    return 42\nend\n\nreturn orphan\n",
    })
    local out = capture(("cd '%s' && '%s' check"):format(dir, NUPP))
    assert(out:find("NUPP2002", 1, true),
       "the orphan's type error is reported: " .. out)
-   assert(out:find("orphan.nupp", 1, true), "and named: " .. out)
+   assert(out:find("orphan.g.nupp", 1, true), "and named: " .. out)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

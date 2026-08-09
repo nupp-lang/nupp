@@ -216,8 +216,8 @@ function M.projectIndexTracksOverlaysAndDependents()
    local dir = os.tmpname()
    os.remove(dir)
    os.execute("mkdir -p '" .. dir .. "'")
-   local modelPath = dir .. "/model.nupp"
-   local mainPath = dir .. "/main.nupp"
+   local modelPath = dir .. "/model.g.nupp"
+   local mainPath = dir .. "/main.g.nupp"
    local modelFile = assert(io.open(modelPath, "wb"))
    modelFile:write("local record Shared\n   value: number\nend\n")
    modelFile:close()

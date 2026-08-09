@@ -116,10 +116,11 @@ local function run(parsed: any): integer
         end
         local outPath: string
         if outDir then
-            local base = path:match("([^/\\]+)%.nupp$") or path
+            local base = path:match("([^/\\]+)%.g%.nupp$")
+                or path:match("([^/\\]+)%.nupp$") or path
             outPath = outDir .. "/" .. base .. ".lua"
         else
-            outPath = path:gsub("%.nupp$", "") .. ".lua"
+            outPath = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "") .. ".lua"
         end
         local out, err = io.open(outPath, "wb")
         if not out then

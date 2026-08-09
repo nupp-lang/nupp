@@ -142,7 +142,7 @@ function M.anEnumMemberIsAcceptedWhereItsFunctionWantsIt()
       "local rc: number = e.mini_status(e.MINI_BUSY)",
    }, "\n"), "consumer")
    assert(#result.errors == 0, "consumer must parse")
-   local diags = check.check(result, "consumer", env)
+   local diags = check.check(result, "consumer.g.nupp", env)
    assert(#diags == 0, "consumer should check cleanly: "
       .. (diags[1] and diags[1].msg or ""))
 
@@ -198,9 +198,9 @@ function M.consumerTypechecksAgainstImport()
 
    local function diagsOf(src)
       env.loaded = {}
-      local result = parser.parse(src, "consumer")
+      local result = parser.parse(src, "consumer.g.nupp")
       assert(#result.errors == 0, "consumer must parse")
-      local diags = check.check(result, "consumer", env)
+      local diags = check.check(result, "consumer.g.nupp", env)
       local out = {}
       for j, d in ipairs(diags) do out[j] = d.code .. ":" .. d.line end
       return table.concat(out, " "), diags

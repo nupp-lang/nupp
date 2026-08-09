@@ -15,10 +15,10 @@ local function assertEq(got, want, label)
 end
 
 local function checked(source)
-   local result = parser.parse(source, "with-test")
+   local result = parser.parse(source, "with-test.g.nupp")
    assertEq(#result.errors, 0,
       result.errors[1] and result.errors[1].msg or "syntax")
-   local diags = check.check(result, "with-test", env)
+   local diags = check.check(result, "with-test.g.nupp", env)
    return result, diags
 end
 
@@ -261,7 +261,7 @@ function M.withIsContextualAndLossless()
       "   print(item.name)",
       "end",
    }, "\n")
-   local result = parser.parse(source, "with-test")
+   local result = parser.parse(source, "with-test.g.nupp")
    assertEq(#result.errors, 0)
    assertEq(result.root.blocks[1].stats[2].kind, "localStmt")
    local scope = result.root.blocks[1].stats[3]

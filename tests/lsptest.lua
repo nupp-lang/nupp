@@ -247,8 +247,8 @@ function M.republishesDependentDiagnostics()
    local projectDir = os.tmpname()
    os.remove(projectDir)
    assert(os.execute("mkdir -p '" .. projectDir .. "'") == 0)
-   local modelUri = "file://" .. projectDir .. "/model.nupp"
-   local consumerUri = "file://" .. projectDir .. "/consumer.nupp"
+   local modelUri = "file://" .. projectDir .. "/model.g.nupp"
+   local consumerUri = "file://" .. projectDir .. "/consumer.g.nupp"
    local consumer = table.concat({
       "local item: Shared = new Shared {}",
       "local value: number = item.value",
@@ -1596,7 +1596,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
    local rootDir = makeDir()
    local otherDir = makeDir()
    writeInto(otherDir, "nupp.lua", 'return { include = { "src" } }\n')
-   writeInto(otherDir, "src/shared.nupp",
+   writeInto(otherDir, "src/shared.g.nupp",
       "local shared = {}\n\nrecord shared.Token\n   id: uint32\nend\n\n"
       .. "return shared\n")
 
@@ -1625,7 +1625,7 @@ function M.initializeAdoptsTheClientsWorkspaceFolders()
       "a module in the second folder resolves: "
       .. json.encode(last or json.null))
    local location = responseWithId(out, 10).result
-   assert(location and location.uri:match("shared%.nupp$"),
+   assert(location and location.uri:match("shared%.g%.nupp$"),
       "and its declaration is navigable: " .. json.encode(location))
    os.execute("rm -rf '" .. rootDir .. "' '" .. otherDir .. "'")
 end
@@ -2332,12 +2332,19 @@ local function codeActionSession(projectDir, name, source, position, applyTitle)
    if not applyTitle then return actions, uri, nil end
 
    local rewritten = applied(source, actionNamed(actions, applyTitle), uri)
+   -- The suffix goes before the extension, not after it: a file's layer is its
+   -- extension, so `x.g.nupp.applied` would be checked strictly and the rewrite
+   -- of a gradual file would be verified against rules it never claimed.
+   local gradual = path:match("%.g%.nupp$") ~= nil
+   local base = path:gsub("%.g%.nupp$", ""):gsub("%.nupp$", "")
+   local appliedPath = base .. (gradual and ".applied.g.nupp" or ".applied.nupp")
+   local appliedUri = "file://" .. appliedPath
    table.insert(messages, 3, { jsonrpc = "2.0", method = "textDocument/didOpen",
-      params = { textDocument = { uri = uri .. ".applied", languageId = "nupp",
+      params = { textDocument = { uri = appliedUri, languageId = "nupp",
          version = 1, text = rewritten } } })
-   writeFile(path .. ".applied", rewritten)
+   writeFile(appliedPath, rewritten)
    local verify = runSession(messages, projectDir)
-   local published = diagnosticsFor(verify, uri .. ".applied")
+   local published = diagnosticsFor(verify, appliedUri)
    return actions, uri, rewritten, published[#published]
 end
 
@@ -2576,7 +2583,7 @@ function M.codeActionWrapsAnOwnerNothingElseUses()
       "",
    }, "\n")
    local actions, uri, rewritten, diagnostics = codeActionSession(projectDir,
-      "owner.nupp", source, positionOf(source, "local handle"),
+      "owner.g.nupp", source, positionOf(source, "local handle"),
       "Wrap in a 'with' scope")
    os.execute("rm -rf '" .. projectDir .. "'")
 

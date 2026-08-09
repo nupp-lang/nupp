@@ -400,7 +400,7 @@ function M.projectFilesShadowBundledDeclarations()
       "local cjson = require('cjson')\nlocal n: integer = cjson.encode({})",
       "consumer")
    assertEq(#result.errors, 0, "consumer parses")
-   local diags = check.check(result, "consumer", env)
+   local diags = check.check(result, "consumer.g.nupp", env)
    assertEq(#diags, 0, "the project's own declaration is used: "
       .. (diags[1] and diags[1].msg or ""))
    os.execute("rm -rf '" .. dir .. "'")

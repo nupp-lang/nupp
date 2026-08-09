@@ -342,8 +342,17 @@ return {
    remove(dir)
 end
 
-function M.strictProjectChecksReachTheIncrementalChecker()
-   local dir = tempProject({
+function M.strictnessFollowsTheFileExtensionThroughTheProject()
+   -- The old shape of this test asked whether a flag reached the incremental
+   -- checker. The flag is no longer what decides: the extension is, and it has to
+   -- survive the whole path from the file on disk to the checker.
+   local gradualDir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, build = {entries = {"main"}}}
+]],
+      ["src/main.g.nupp"] = "return unknown_project_value\n",
+   })
+   local strictDir = tempProject({
       ["nupp.lua"] = [[
 return {include = {"src"}, build = {entries = {"main"}}}
 ]],
@@ -352,15 +361,17 @@ return {include = {"src"}, build = {entries = {"main"}}}
    local errorPath = os.tmpname()
    local originalStderr = io.stderr
    io.stderr = assert(io.open(errorPath, "wb"))
-   local gradual = project.check(dir)
-   local strict = project.check(dir, {strict = true})
+   local gradual = project.check(gradualDir)
+   local forced = project.check(gradualDir, {strict = true})
+   local strict = project.check(strictDir)
    io.stderr:close()
    io.stderr = originalStderr
    os.remove(errorPath)
-   assertEq(gradual, 0, "gradual project check permits unknown globals")
-   assertEq(strict, 1,
-      "strict project check rejects unknown globals")
-   remove(dir)
+   assertEq(gradual, 0, ".g.nupp permits unknown globals")
+   assertEq(forced, 1, "--strict audits a .g.nupp anyway")
+   assertEq(strict, 1, ".nupp holds the floor with nothing asked for")
+   remove(gradualDir)
+   remove(strictDir)
 end
 
 function M.manifestStrictnessIsTheProjectAndEditorDefault()

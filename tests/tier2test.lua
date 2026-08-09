@@ -38,7 +38,7 @@ function M.literalUnionMembersAssignDirectly()
    assertEq(diagsOf(COLOR .. "\nlocal c: Color = 'purple'"), "NUPP2001:2")
    -- the message names the offending value and the members it is not one of
    local result = parser.parse(COLOR .. "\nlocal c: Color = 'purple'", "t")
-   local d = check.check(result, "t", env)[1]
+   local d = check.check(result, "t.g.nupp", env)[1]
    assert(d.msg:find('"purple"', 1, true), "names the value: " .. d.msg)
    assert(d.msg:find('"blue"', 1, true), "names the members: " .. d.msg)
 end
@@ -181,7 +181,7 @@ function M.differentArgumentsAreDifferentTypes()
    }, "\n")), "NUPP2001:5")
    -- and the message distinguishes them
    local result = parser.parse(BOX .. "\nlocal n: Box<number> = new Box {}\nlocal s: Box<string> = n", "t")
-   local d = check.check(result, "t", env)[1]
+   local d = check.check(result, "t.g.nupp", env)[1]
    assert(d.msg:find("Box<number>", 1, true), "renders arguments: " .. d.msg)
 end
 

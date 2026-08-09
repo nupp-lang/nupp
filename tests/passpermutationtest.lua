@@ -46,9 +46,9 @@ end
 
 -- One build under one set of disabled passes, run for its value.
 local function build(src, disabled)
-   local result = parser.parse(src, "perm")
+   local result = parser.parse(src, "perm.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source\n" .. src)
-   local diags = check.check(result, "perm", env)
+   local diags = check.check(result, "perm.g.nupp", env)
    for _, diag in ipairs(diags or {}) do
       if diag.severity == "error" then
          error(("%s: %s\n%s"):format(diag.code, diag.msg, src), 2)

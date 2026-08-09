@@ -18,7 +18,7 @@ local function codes(source)
    assertEq(#parsed.errors, 0, "syntax: "
       .. (parsed.errors[1] and parsed.errors[1].msg or ""))
    local out = {}
-   for j, diagnostic in ipairs(check.check(parsed, "test", env)) do
+   for j, diagnostic in ipairs(check.check(parsed, "test.g.nupp", env)) do
       out[j] = diagnostic.code
    end
    return table.concat(out, " ")

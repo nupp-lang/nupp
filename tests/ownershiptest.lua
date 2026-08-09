@@ -14,10 +14,10 @@ local function assertEq(got, want, label)
 end
 
 local function checked(source)
-   local result = parser.parse(source, "ownership-test")
+   local result = parser.parse(source, "ownership-test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
-   local diags = check.check(result, "ownership-test", env)
+   local diags = check.check(result, "ownership-test.g.nupp", env)
    return result, diags
 end
 
