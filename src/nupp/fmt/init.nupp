@@ -15,7 +15,8 @@ Fixed, with one knob:
   false` turns that off and leaves the sugar as written.
 
 A group is an argument list, a parameter list, or a table constructor, and
-breaking one puts each element on its own line. A docblock is a `---` run with
+breaking one puts each element on its own line. Shape types always put each
+field on its own line. A docblock is a `---` run with
 its annotations, and it gets a blank line on either side of the declaration it
 belongs to.
 
@@ -287,6 +288,15 @@ local function annotate(root)
             inner.last = lastToken(n[closeIdx - 1])
             if kind == "tshape" and inner.last == inner.seps[#inner.seps] then
                 inner.last.formatOmit = true
+            end
+            if kind == "tshape" then
+                for _, field in ipairs(n.fields or {}) do
+                    local first = firstToken(field)
+                    if first then
+                        first.forceBreak = true
+                    end
+                end
+                closeTok.forceBreak = true
             end
         end
 

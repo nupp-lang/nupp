@@ -102,6 +102,14 @@ function M.tableConstructorsBreak()
          "}"))
 end
 
+function M.shapeFieldsAlwaysBreak()
+   check("type Pair = {first: string, second: number}\n", lines(
+      "type Pair = {",
+      "    first: string,",
+      "    second: number",
+      "}"))
+end
+
 function M.parenthesizedTablesKeepTheirCloserTogether()
    check("local t = ({ alphaValue = 1, betaValue = 2, gammaValue = 3, "
       .. "deltaValue = 4, epsilonValue = 5, zetaValue = 6, etaValue = 77 })\n",
