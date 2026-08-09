@@ -197,6 +197,8 @@ local RESIZE_SCRIPT = [[(function(){var handle=document.querySelector('.sidebar-
 
 local APP_SCRIPT = [[(function(){function show(){var route=location.hash.slice(1)||'all',found=false;document.querySelectorAll('.route').forEach(function(page){var active=page.dataset.route===route;page.hidden=!active;found=found||active});if(!found&&route!=='all'){location.hash='all';return}document.querySelectorAll('[data-route]').forEach(function(link){if(link.tagName==='A'){link.toggleAttribute('aria-current',link.dataset.route===route)}});document.title=(document.querySelector('.route:not([hidden]) h1')||{}).textContent||'Nupp coverage'}window.addEventListener('hashchange',show);document.querySelectorAll('[data-view]').forEach(function(button){button.onclick=function(){var route=button.closest('.route');route.querySelectorAll('.view').forEach(function(view){view.classList.toggle('hidden',view.dataset.view!==button.dataset.view)})}});document.querySelectorAll('th button[data-key]').forEach(function(button){button.onclick=function(){var table=button.closest('table'),body=table.tBodies[0],key=button.dataset.key,rows=[].slice.call(body.rows),desc=button.dataset.desc==='1';rows.sort(function(a,z){var x=a.dataset[key],y=z.dataset[key];return (Number(x)-Number(y)||x.localeCompare(y))*(desc?-1:1)});table.querySelectorAll('th button[data-key]').forEach(function(header){header.setAttribute('aria-sort','none')});button.dataset.desc=desc?'0':'1';button.setAttribute('aria-sort',desc?'descending':'ascending');rows.forEach(function(row){body.appendChild(row)})}});show()})();]]
 
+local NAVIGATION_SCRIPT = [[(function(){function top(){window.scrollTo(0,0)}window.addEventListener('hashchange',top);top()})();]]
+
 local TREE_SCRIPT = [[(function(){function expand(){var route=location.hash.slice(1)||'all';document.querySelectorAll('.tree a[data-route]').forEach(function(link){if(link.dataset.route!==route)return;var parent=link.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement}})}window.addEventListener('hashchange',expand);expand()})();]]
 
 local function page(title, tree, body)
@@ -212,6 +214,7 @@ local function page(title, tree, body)
         .. SCRIPT
         .. "*/"
         .. APP_SCRIPT
+        .. NAVIGATION_SCRIPT
         .. TREE_SCRIPT
         .. RESIZE_SCRIPT
         .. "</script>"
@@ -241,17 +244,17 @@ local function treeHtml(files)
         end
         node.files[#node.files + 1] = file
     end
-    local function render(node, prefix, open)
+    local function render(node, prefix, depth)
         local out, names = {"<ul>"}, {}
         for name in pairs(node.dirs) do names[#names + 1] = name end
         table.sort(names)
         for _, name in ipairs(names) do
             local path = prefix == "" and name or prefix .. "/" .. name
-            out[#out + 1] = "<li><details" .. (open and " open" or "")
+            out[#out + 1] = "<li><details" .. (depth < 2 and " open" or "")
                 .. "><summary><a data-route='" .. escape(directoryRoute(path)) .. "' href='"
                 .. routeHref(directoryRoute(path)) .. "'><span class=folder aria-hidden=true></span>" .. escape(name)
                 .. "</a></summary>"
-                .. render(node.dirs[name], path, open) .. "</details></li>"
+                .. render(node.dirs[name], path, depth + 1) .. "</details></li>"
         end
         table.sort(node.files, function(a, b) return a.path < b.path end)
         for _, file in ipairs(node.files) do
@@ -263,7 +266,7 @@ local function treeHtml(files)
         out[#out + 1] = "</ul>"
         return table.concat(out)
     end
-    return "<nav class=tree>" .. render(root, "", false) .. "</nav>"
+    return "<nav class=tree>" .. render(root, "", 0) .. "</nav>"
 end
 
 local function metricCard(label, value)

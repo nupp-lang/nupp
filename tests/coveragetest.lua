@@ -49,6 +49,11 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     assert(index:find("<a data-route='dir/src/nupp' href='#dir/src/nupp'>nupp</a>", 1, true),
         "coverage breadcrumbs link nested parent layers")
     assert(index:find("location.hash.slice(1)||'all'", 1, true), "coverage routes use URL hashes")
+    assert(index:find("window.scrollTo(0,0)", 1, true), "coverage navigation resets scroll")
+    assert(index:find("<details open><summary><a data-route='dir/src'", 1, true),
+        "coverage tree opens its first level")
+    assert(index:find("<details open><summary><a data-route='dir/src/nupp'", 1, true),
+        "coverage tree opens its second level")
     assert(index:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
     assert(index:find("aria-sort=none", 1, true), "sortable headings expose their state")
