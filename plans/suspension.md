@@ -322,26 +322,45 @@ Baselines were captured before any of this existed, against tecs's own
 (`bench/suspension-baseline.lua`). On one machine, median of seven:
 
 ```
- path            ns/op   what it measures
- ──────────────  ─────   ────────────────────────────────────────
- direct            0.8   an ordinary call
- blocking          2.3   a wait-mode check, then calling through
- handled-ready   332.4   awaitCallback resumed synchronously
- park-resume     782.0   a park, a scheduler round trip, a resume
+ path            ns/op  bytes/op  what it measures
+ ─────────────   ─────  ────────  ───────────────────────────────────
+ direct            0.5       0.0  a traced loop, not a call
+ blocking          1.4       0.0  a wait-mode check, then calling through
+ task-direct       0.4       0.0  the same work inside a task
+ gate-only       155.7       0.3  newGate, complete, wait
+ handled-ready   346.6       0.3  awaitCallback resumed synchronously
+ park-resume     396.5     121.9  a park, a scheduler round trip, a resume
 ```
 
-Two of those numbers redirect the work. A mode check costs about 1.5ns, so the
-"one O(1) handler read" this section is careful about is not where the risk is.
-The synchronous await costs 332ns -- four hundred times a direct call -- and a
-real park only about twice that again, which says the cost is not the scheduler
-round trip but the gate and the two closures allocated to reach it.
+`direct` and `task-direct` are traced loops, not calls: LuaJIT compiles and
+inlines them, so they are the floor of the apparatus rather than the cost of
+calling anything. Nothing should be compared against them, and an earlier
+revision of this section did exactly that. `handled-ready` is compared against
+`task-direct`, which shares its context, and against `gate-only`, which differs
+from it by one protocol.
 
-So the row to protect is `handled-ready`, and the way to protect it is for
-`suspend` to allocate nothing when its subscription completes during the call.
-A subscription that resumes synchronously never needs a gate, a parked frame or
-a cancellation to be retained; recognizing that case is worth more than any
-saving on the lookup. Done well S2 is faster here than what it replaces, which
-is a stronger claim than parity and a more useful one to hold the milestone to.
+Two things the measurement settles, one of which contradicts what this section
+first claimed:
+
+- **The handler lookup is not the risk.** A wait-mode check costs about 1.5ns,
+  so the O(1) read this section is careful about is noise.
+- **The ready path does not allocate.** 0.3 bytes per operation, against 122 for
+  a real park. The first draft attributed 346ns to gates and closures; the
+  allocation column refutes it. tecs already pools its waiters and resets rather
+  than rebuilds its gates, and whatever the subscription and resume closures
+  cost, LuaJIT is sinking them. The cost is protocol *work*, not garbage.
+
+Where the work is: the gate round trip is about 155ns and `awaitCallback` adds
+about 190ns on top of it. So the target for S2 is doing less per await, not
+allocating less — the saving available is in the wrapper, not underneath it.
+
+The obligation this puts on S2 is therefore narrower than "allocate nothing",
+which was never available in any case: a subscription and a one-shot resume have
+to exist before synchronous completion can be known, and the present contract
+demands a cancellation even after it. What S2 must avoid allocating is a **gate
+or retained park state** for a subscription that completed during the call —
+unless S2 changes the protocol, and letting a synchronously-resumed subscription
+answer no cancellation at all is the change worth considering.
 
 For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
 context read and then reaches the same gate, scheduler, and readiness pump it

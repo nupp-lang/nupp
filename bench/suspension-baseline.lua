@@ -7,12 +7,19 @@
 --
 -- Four paths, measured separately because they are four different claims:
 --
---   direct        An ordinary call. The floor, and what a ready operation must stay
---                 indistinguishable from -- a library tries its immediate path before
---                 it ever asks about suspending, so nothing here should ever run.
+--   direct        A loop LuaJIT traces and inlines. It is *not* the cost of a Lua
+--                 call, and nothing here should be compared against it: it is the
+--                 floor of the measurement apparatus, reported so a reader can see
+--                 where that floor is.
+--   task-direct   The same work inside a spawned task, calling through rather than
+--                 awaiting. This is what `handled-ready` must be compared against --
+--                 the same context, the same scheduler, one less protocol.
 --   blocking      What waiting costs with no handler installed. tecs answers
 --                 `waitMode() == "blocking"` outside a scheduler and calls straight
 --                 through; S2's built-in handler replaces exactly this.
+--   gate-only     `newGate`, complete, `wait`, with no `awaitCallback` around it.
+--                 Splits the await protocol from the gate underneath it, so an
+--                 attribution can be made rather than guessed at.
 --   handled-ready A cooperative await whose subscription resumes synchronously. The
 --                 gate completes without parking, so this is the cost of asking rather
 --                 than the cost of waiting -- and it is the row most likely to regress,
@@ -23,8 +30,12 @@
 --                 new work is legitimately being added, so it wants a budget rather
 --                 than a comparison.
 --
--- The last two run against tecs's own `taskruntime`, loaded from its compiled Lua tree
--- with no SDL and no engine. These are its numbers, not a model of them.
+-- Bytes allocated per operation are reported beside the times. A time says what a path
+-- costs; only the allocation column says *why*, and an attribution without it is a
+-- hypothesis wearing a conclusion's clothes.
+--
+-- Everything but the first row runs against tecs's own `taskruntime`, loaded from its
+-- compiled Lua tree with no SDL and no engine. These are its numbers, not a model.
 --
 -- Run with:
 --
@@ -75,8 +86,27 @@ end
 
 local rows = {}
 
-local function record(name, seconds, note)
-   rows[#rows + 1] = {name = name, seconds = seconds, note = note}
+-- Bytes the collector saw allocated while `body` ran, per operation. A full collection
+-- first, and the counter read on either side: crude, and enough to separate a path that
+-- allocates per call from one that does not, which is the question being asked.
+local function allocated(body, operations)
+   collectgarbage("collect")
+   local before = collectgarbage("count")
+   body()
+   local after = collectgarbage("count")
+   collectgarbage("collect")
+
+   return (after - before) * 1024 / operations
+end
+
+local function record(name, seconds, note, bytes, operations)
+   rows[#rows + 1] = {
+      name = name,
+      seconds = seconds,
+      note = note,
+      bytes = bytes,
+      operations = operations or OPERATIONS,
+   }
 end
 
 -- The work each path performs, so the rows differ by their machinery and not by what
@@ -88,28 +118,76 @@ local function payload(value)
    return value
 end
 
-record("direct", measure(function()
+local function directLoop()
    for _ = 1, OPERATIONS do
       payload(1)
    end
-end), "an ordinary call")
+end
+
+record("direct", measure(directLoop), "a traced loop, not a call", allocated(directLoop, OPERATIONS))
 
 if task then
-   -- Outside any scheduler tecs answers `blocking` and the caller proceeds. This is the
-   -- shape S2's built-in handler has to match, mode check included.
-   record("blocking", measure(function()
+   local function blockingLoop()
       for _ = 1, OPERATIONS do
          if task.waitMode() == "blocking" then
             payload(1)
          end
       end
-   end), "waitMode check, then call through")
+   end
+   record("blocking", measure(blockingLoop), "waitMode check, then call through",
+      allocated(blockingLoop, OPERATIONS))
 
-   -- A cooperative await that completes during its own subscription. No park, no
-   -- scheduler step: the gate is created, completed and read.
-   record("handled-ready", measure(function()
+   -- Drives a task to completion, stepping until it settles or nothing is ready.
+   local function drive(spawn, onIdle)
       local sched = task.newScheduler()
-      local job = sched:spawn(function()
+      local job = sched:spawn(spawn)
+      while job.status == "pending" do
+         if sched:step() == 0 then
+            if not (onIdle and onIdle()) then
+               break
+            end
+         end
+      end
+      payload(job.value or 0)
+   end
+
+   -- The comparison `handled-ready` actually wants: identical context, identical
+   -- scheduler, one fewer protocol. LuaJIT will trace this loop too, so it is a floor
+   -- for the in-task case rather than the cost of a call -- but it is the right floor,
+   -- because it is the one `handled-ready` differs from by exactly the await.
+   local function taskDirect()
+      drive(function()
+         local sum = 0
+         for _ = 1, OPERATIONS do
+            sum = sum + 1
+         end
+
+         return sum
+      end)
+   end
+   record("task-direct", measure(taskDirect), "the same work inside a task",
+      allocated(taskDirect, OPERATIONS))
+
+   -- The gate alone, without the await protocol wrapped round it.
+   local function gateOnly()
+      drive(function()
+         local sum = 0
+         for _ = 1, OPERATIONS do
+            local gate = task.newGate(function()
+            end)
+            gate:complete(1)
+            local value = gate:wait()
+            sum = sum + (value or 0)
+         end
+
+         return sum
+      end)
+   end
+   record("gate-only", measure(gateOnly), "newGate, complete, wait",
+      allocated(gateOnly, OPERATIONS))
+
+   local function handledReady()
+      drive(function()
          local sum = 0
          for _ = 1, OPERATIONS do
             sum = sum + task.awaitCallback(function(resume)
@@ -122,21 +200,14 @@ if task then
 
          return sum
       end)
-      while job.status == "pending" do
-         if sched:step() == 0 then
-            break
-         end
-      end
-      payload(job.value or 0)
-   end), "awaitCallback resumed synchronously")
+   end
+   record("handled-ready", measure(handledReady), "awaitCallback resumed synchronously",
+      allocated(handledReady, OPERATIONS))
 
-   -- A real park. The subscription holds its resume, the scheduler finds nothing ready,
-   -- the harness stands in for a registered source, and the task resumes.
    local PARKS = math.max(math.floor(OPERATIONS / 100), 1)
-   record("park-resume", measure(function()
+   local function parkResume()
       local pending = nil
-      local sched = task.newScheduler()
-      local job = sched:spawn(function()
+      drive(function()
          local sum = 0
          for _ = 1, PARKS do
             sum = sum + task.awaitCallback(function(resume)
@@ -148,20 +219,21 @@ if task then
          end
 
          return sum
-      end)
-      while job.status == "pending" do
-         if sched:step() == 0 then
-            if pending then
-               local resume = pending
-               pending = nil
-               resume(1)
-            else
-               break
-            end
+      end, function()
+         if pending then
+            local resume = pending
+            pending = nil
+            resume(1)
+
+            return true
          end
-      end
-      payload(job.value or 0)
-   end), format("%d parks, each with a scheduler round trip", PARKS))
+
+         return false
+      end)
+   end
+   record("park-resume", measure(parkResume),
+      format("%d parks, each with a scheduler round trip", PARKS),
+      allocated(parkResume, PARKS), PARKS)
 end
 
 print(format("suspension baselines: %d operations, median of %d samples",
@@ -170,15 +242,15 @@ if not task then
    print("tecs rows skipped: set TECS_LUA to a compiled tecs Lua tree")
 end
 print("")
-print(format(" %-14s %12s %14s  %s", "path", "seconds", "ns/op", "what it measures"))
-print(" " .. ("\226\148\128"):rep(14) .. "  " .. ("\226\148\128"):rep(12)
-   .. "  " .. ("\226\148\128"):rep(14) .. "  " .. ("\226\148\128"):rep(40))
+print(format(" %-14s %10s %10s  %s", "path", "ns/op", "bytes/op", "what it measures"))
+local rule = ("\226\148\128"):rep(14)
+print(" " .. rule .. "  " .. ("\226\148\128"):rep(8) .. "  "
+   .. ("\226\148\128"):rep(8) .. "  " .. ("\226\148\128"):rep(38))
 for _, row in ipairs(rows) do
-   local operations = row.name == "park-resume"
-      and math.max(math.floor(OPERATIONS / 100), 1) or OPERATIONS
-   print(format(" %-14s %12.6f %14.1f  %s", row.name, row.seconds,
-      row.seconds / operations * 1e9, row.note))
+   print(format(" %-14s %10.1f %10.1f  %s", row.name,
+      row.seconds / row.operations * 1e9, row.bytes or 0, row.note))
 end
 print("")
-print("S2 must leave `direct`, `blocking` and `handled-ready` indistinguishable from")
-print("these, and must state a budget for `park-resume` rather than a comparison.")
+print("`direct` and `task-direct` are traced loops rather than calls: read them as the")
+print("floor of the apparatus, and compare `handled-ready` against `task-direct` and")
+print("`gate-only`, which share its context and differ from it by one protocol each.")
