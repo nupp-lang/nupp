@@ -47,7 +47,10 @@ whenever output is not a terminal, so piped output never carries escapes.
   tokens: every construct, a compiled example of each, and the codes that
   report misuse. Read it before writing `.nupp` if you have not already.
   `--format skill` ejects it as an agent skill.
-- `./bin/nupp check --strict [FILE...]` type-checks source.
+- `./bin/nupp check [FILE...]` type-checks source. A `.nupp` file is checked
+  strictly; `.g.nupp` opts a file out of the strict floor without giving up the
+  typed syntax, and `.lua` is plain Lua the typed layer is refused in.
+  `--strict` holds every file to the floor whatever it is called.
 - `./bin/nupp check --json [FILE...]` returns structured diagnostics and
   available fixes. Read `help` and `related` before editing, and apply a whole
   titled fix rather than selecting individual edits from it.

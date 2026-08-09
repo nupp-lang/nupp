@@ -149,6 +149,46 @@ function checkMod.strictByDefault(filename: string?): boolean
         or filename:match("%.lua$"))
 end
 
+--- Every node the typed layer is written with: the type productions themselves, the
+--- declarations that introduce a type, and the cast that names one.
+local TYPED_LAYER: {[string]: string} = {
+    recordDecl = "a type declaration", typeAlias = "a type alias",
+    castExpr = "an `as` cast",
+    tname = "a type annotation", tarray = "a type annotation",
+    tmap = "a type annotation", tshape = "a type annotation",
+    ttuple = "a type annotation", tunion = "a type annotation",
+    tintersection = "a type annotation", topt = "a type annotation",
+    tfunc = "a type annotation", tpack = "a type annotation",
+    tparen = "a type annotation", tptr = "a type annotation",
+    tcarray = "a type annotation", tconst = "a type annotation",
+    tliteral = "a type annotation", tborrows = "a type annotation",
+    tpredicate = "a type annotation", ternary = "a type annotation",
+}
+
+--- Reports the typed layer wherever it appears in a plain Lua file.
+---
+--- A `.lua` file is Lua: this toolchain will require, build and run one, and that is
+--- the whole promise. An annotation written there reads as a claim the file does not
+--- make -- the extension already settled that it is checked gradually, so the
+--- annotation governs nothing, and the next person to read it has to work out that it
+--- never did. Better to say so where it was written.
+---
+--- Reported at the outermost node and not below it, so one annotation is one
+--- diagnostic however deeply its type nests.
+local function reportTypedLayer(c: state.Checker, node: any)
+    if type(node) ~= "table" or cst.isToken(node) then
+        return
+    end
+    local named = TYPED_LAYER[node.kind]
+    if named then
+        c.diag("NUPP1006", node, named .. " is not plain Lua")
+        return
+    end
+    for _, child in ipairs(node) do
+        reportTypedLayer(c, child)
+    end
+end
+
 -- Returns diags, moduleType (top-level return plus runtime declaration exports), and
 -- the module's exported type/value interface.
 function checkMod.check(result: state.Parse, filename: string?,
@@ -1142,6 +1182,14 @@ function checkMod.check(result: state.Parse, filename: string?,
                     end
                 end
             end
+        end
+    end
+
+    -- Said once, before anything is checked, so the answer does not depend on how far
+    -- checking got.
+    if filename and filename:match("%.lua$") then
+        for _, block in ipairs(result.root.blocks) do
+            reportTypedLayer(c, block)
         end
     end
 

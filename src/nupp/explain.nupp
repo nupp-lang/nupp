@@ -106,6 +106,17 @@ local ENTRIES: {any} = {
         docs = "docs/diagnostics.md#code-families",
     },
     {
+        code = "NUPP1006",
+        summary = "The typed layer appears in a plain Lua file",
+        rule = "A `.lua` file is Lua. The toolchain will require, build and run "
+        .. "one, and that is the whole promise: its extension already settles "
+        .. "that it is checked gradually, so an annotation written there governs "
+        .. "nothing. Rename the file `.nupp` to mean it, or `.g.nupp` to keep the "
+        .. "gradual layer with the typed syntax available.",
+        related = {"NUPP2105", "NUPP2106"},
+        docs = "docs/diagnostics.md#code-families",
+    },
+    {
         code = "NUPP2001",
         summary = "A value does not fit the type it is bound to",
         rule = "An annotated binding accepts only values of that type. The "

@@ -413,7 +413,6 @@ In `nupp.lua`:
 ```lua
 return {
    include = { "src" },
-   strict = true, -- also used by the language server
 
    lints = {
       -- by name

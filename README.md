@@ -20,6 +20,16 @@ explicit `unsafe do` blocks. See
 trace-aware checker (types that know what the JIT will compile) is on the
 roadmap ([plans/todo.md](plans/todo.md)).
 
+A file's extension says which floor it is held to, so it is visible where the
+file is rather than in a setting that governs everything at once: `.nupp` is
+checked strictly, `.g.nupp` is the same typed syntax with the strict floor
+down, and a plain `.lua` file is Lua, built and run unchanged, with the typed
+layer refused in it. The marker is not part of the module's name, so
+`require("models")` finds `models.g.nupp` and a file can change layer without
+anything that requires it noticing. `nupp check --strict` holds every file to
+the floor whatever it is called. See
+[docs/type-system/overview.md](docs/type-system/overview.md).
+
 Compiler and lint output includes stable codes, source spans, related
 locations, repair help, and structured fixes; see
 [docs/diagnostics.md](docs/diagnostics.md).

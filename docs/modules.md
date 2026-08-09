@@ -306,8 +306,9 @@ print(path:count(), shapes.origin().x, d is shapes.Point)
 - **NUPP2120** — a project module is used without being required. An error in a
   build, a warning in an editor. Given once per name, and it replaces NUPP2105
   for that name.
-- **NUPP2105** (`--strict`) — unknown variable, for names no project file
-  answers to.
+- **NUPP2105** (strict files) — unknown variable, for names no project file
+  answers to. Reported in a `.nupp` file, and in any file under `--strict`.
+- **NUPP1006** — the typed layer written in a `.lua` file, which is plain Lua.
 
 NUPP2119, NUPP2101 and NUPP2120 carry machine-applicable fixes, which the LSP
 server offers as quick fixes. Each way out a message names is its own fix

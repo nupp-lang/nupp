@@ -916,6 +916,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | --- | --- |
 | NUPP0001 | A source file could not be read |
 | NUPP1002 | A required token is missing |
+| NUPP1006 | The typed layer appears in a plain Lua file |
 | NUPP2001 | A value does not fit the type it is bound to |
 | NUPP2004 | The field does not exist on that type |
 | NUPP2009 | A property view does not grant the requested access |

@@ -4,26 +4,33 @@ Nupp is LuaJIT with types, safer resource handling, and a toolchain in the box.
 It is a superset: your Lua already compiles, and each thing below is something
 you opt into on the declaration where you want it.
 
-## Types you add one at a time
+## Types you add one file at a time
 
-Anything unannotated is `any` and checks silently. That is the whole adoption
-story — there is no configuration step, no migration mode, and no point at
-which a half-typed project stops building.
+Your Lua already builds: a `.lua` file is required, compiled and run
+unchanged, and nothing in it has to be annotated for that to keep working.
+There is no configuration step and no migration mode.
+
+What a file is called says which floor it is held to. A `.nupp` file is
+checked strictly — unknown variables are errors, and nothing untyped crosses a
+module boundary. Rename a `.lua` file to `.g.nupp` and the typed syntax becomes
+available with that floor still down, so annotations can go in one at a time:
 
 ```nupp
--- checks nothing, and that is allowed
+-- models.g.nupp — the typed syntax, no floor yet
 local function scale(p, k)
     return {x = p.x * k, y = p.y * k}
 end
 
--- checks the boundary
+-- models.nupp — the same file, once it is ready to hold the floor
 local function scale(p: Point, k: number): Point
     return new Point {x = p.x * k, y = p.y * k}
 end
 ```
 
-`--strict` raises the floor when a project is ready: unknown variables become
-errors, and nothing untyped is allowed to cross a module boundary.
+The marker is not part of the module's name, so `require("models")` finds it
+either way and nothing that depends on the file has to change when it moves.
+`nupp check --strict` holds every file to the floor whatever it is called,
+which is how you find out what a rename would cost before doing it.
 
 What you get for an annotation is the ordinary list — misspelled fields, wrong
 argument types, missing returns, unhandled union members — reported with a code,

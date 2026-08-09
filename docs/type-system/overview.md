@@ -57,9 +57,9 @@ literals widen.
 The practical reading: annotate when you want the constraint, leave it off when
 you want the Lua behaviour. Both are supported positions.
 
-## `--strict`
+## The strict floor, and which files hold it
 
-Strict mode adds exactly three things:
+Strict adds exactly three things:
 
 - **NUPP2105** — unknown variable, for a name no project file answers to.
 - **NUPP2106** — an exported declaration needs a type annotation, so nothing
@@ -68,8 +68,36 @@ Strict mode adds exactly three things:
   initialized from a wider numeric type. This lint is unreachable without
   strict mode.
 
-Everything else is checked identically either way. `strict = true` in
-`nupp.lua` sets the default, and the language server reads the same setting.
+Everything else is checked identically either way.
+
+Which files hold that floor is decided by their extension, so a file says what
+it is where anyone reading it can see it:
+
+```
+ Extension  Floor     What it means
+ ─────────  ────────  ──────────────────────────────────────────────
+ .nupp      strict    Ordinary Nupp.
+ .g.nupp    gradual   The typed syntax, without the floor.
+ .d.nupp    gradual   Describes an interface somebody else implements.
+ .lua       gradual   Plain Lua, and the typed layer is refused there.
+```
+
+`.g.nupp` is the opt-out, and it is a whole file at a time on purpose: a
+per-declaration escape would be a second way to say `any`, which the language
+already has. The module name drops the marker — `models.g.nupp` is the module
+`models`, and `require("models")` finds it — so a file can change layer
+without anything that requires it noticing.
+
+`.d.nupp` is exempt because a declaration file describes foreign code. LuaJIT's
+`string.buffer.encode(v: any): string` really does take any Lua value, and no
+annotation written here changes what LuaJIT accepts.
+
+`--strict` overrides the lot, holding every file to the floor including the
+`.g.nupp` ones. That is the tool for finding out what adopting one would cost:
+
+```bash
+nupp check --strict
+```
 
 ## `any`, and the escape hatches
 

@@ -103,9 +103,12 @@ A usage error prints `nupp: <message>` on stderr and points at
 nupp check [--strict] [--target NAME] [--format text|json] [file...]
 ```
 
-With no files, checks the default target from `nupp.lua`. `--strict` adds
-unknown-variable errors, requires annotations on module exports, and enables
-the `lossy-narrowing` lint. `--target` cannot be combined with explicit files.
+With no files, checks the default target from `nupp.lua`. A file's extension
+decides the floor it is held to — `.nupp` strict, `.g.nupp` and `.d.nupp` and
+`.lua` gradual — and `--strict` overrides that, holding every file to the
+strict floor whatever it is called: unknown-variable errors, annotations
+required on module exports, and the `lossy-narrowing` lint. `--target` cannot
+be combined with explicit files.
 
 ### `build`
 
