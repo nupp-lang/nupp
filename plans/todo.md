@@ -239,13 +239,25 @@ work makes sense in.
       struct one remove out: `ffi.sizeof("Cell[4]")` cannot resolve an anonymous
       ctype by name, so the element goes alongside and the layout helper
       multiplies by the count.
-- [ ] **Struct layout reflection** ([design](layout.md)). What reifying broke,
-      answered without imposing a format: field names in declaration order,
-      each field's C type, offset, size and padding, the struct's size, and a
-      fingerprint. `layoutof(T)` lowers at the call site, so a program that
-      never asks pays nothing. tecs is the workload and draws the line — its
-      166-line runtime codec generator is what this makes unnecessary, and its
-      2411-line snapshot format is what nupp should not try to see.
+- [x] **Struct layout reflection** ([design](layout.md)). `layoutof(T)` reports
+      field names in declaration order with their C types, offsets, sizes and
+      padding, the struct's size, and a fingerprint over all of it. Lowered at
+      the call site, so a program that never asks carries none of it. Nested
+      structs are expanded in the fingerprint, not named, because naming misses
+      a same-size change; pointers are not followed, since the pointee is not
+      part of this layout.
+
+      Correcting the milestone rather than claiming it: this does **not** make
+      tecs's `fieldcodec.tl` unnecessary. That file is for *table* components,
+      which have no C layout, so reflection cannot serve them. What it replaces
+      is the hand-maintained constant — `structSize`, and shapes like
+      `gpu/meshlayout.tl`'s `INSTANCE_FLOATS = 16` that must agree with a struct
+      and a shader and can quietly stop agreeing.
+
+      Left open: what a struct *cannot* reflect is still a table, so a record
+      has no layout and never will; and nothing yet reports a struct whose
+      fingerprint changed between two builds of the same program, which is the
+      case a saved file would care about.
 - [ ] **A generalized `Serializable`, because reifying currently makes
       serializing worse.** Superseded in part by layout.md, which takes the
       reflection half; what stays open here is whether anything above it is
@@ -651,15 +663,40 @@ What is left, in the order the numbers justify:
       Left open: the programs are hand-written, so coverage is only as good as
       they are. The generated corpus above is what makes this worth much beyond
       the shapes someone thought to write down.
-- [ ] **A segfault in `luajit tests/run.lua`, seen once, not reproduced.**
-      `Segmentation fault: 11` partway through a full run, on the run that
-      followed a compiler rebuild; four full runs and six of `profiletest`
-      immediately afterwards were clean, and `fixpoint` passed. Recorded rather
-      than chased because a crash in the suite is worth a note even without a
-      reproduction, and because the entry below already says trace-timing makes
-      one test non-deterministic — the same machinery is the first place to
-      look. If it recurs, run under `MallocStackLogging` or a LuaJIT built with
-      assertions rather than re-running the suite.
+- [ ] **`luajit tests/run.lua` segfaults roughly one run in eight, in
+      libunwind.** Not a nupp defect as far as the evidence goes, and not new:
+      seven macOS crash reports, all one signature, the earliest from 08-08
+      11:25 — between two refinement commits, days before the work that first
+      noticed it.
+
+      ```
+      EXC_BAD_ACCESS  KERN_INVALID_ADDRESS at 0x8
+        libunwind.dylib   unw_set_reg
+        luajit            ?
+        libunwind.dylib   _Unwind_RaiseException
+        luajit            lua_pcall
+        luajit            lua_cpcall
+      ```
+
+      So: an error being raised, unwound through the system unwinder, which
+      dereferences near-null. `lua_cpcall` is the frontend's own frame, not a
+      per-test one, and the runner does nothing unusual — `pcall` around a test
+      body, with descriptors redirected by `dup2` either side of it. LuaJIT on
+      arm64 macOS uses external unwinding for error propagation, and that is
+      where this lives.
+
+      What it is not: a wrong answer. The suite passes on the runs that
+      complete, and `fixpoint` has never been affected. What it costs is a CI
+      job failing at random, which is why it is worth a note rather than a
+      shrug.
+
+      Leads, in the order worth trying: reproduce under a LuaJIT built with
+      assertions, or with `MallocStackLogging=1` for a real backtrace; check
+      whether it correlates with the tests that deliberately raise; and see
+      whether a LuaJIT newer than 2.1.1785577137 has touched arm64 unwinding.
+      Re-running the suite has stopped being informative — it reproduces about
+      as often as a coin lands heads three times, which is enough to be sure it
+      is real and not enough to bisect by hand.
 - [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
       flaky.** Recorded failing once in six runs with "unrecordable bytecode
       must be reported"; it depends on the JIT attempting and aborting a trace
@@ -675,9 +712,35 @@ v0.1 gate, and it is the acceptance corpus several items above name: bounded
 generic metatable receivers, bounds-carrying spans, the callback `jit.off`
 lint, and dialect-interop runtime equivalence.
 
+The port has started: `tests/acceptance/tecs` holds it, with `PORT.md` logging
+what fought back. It is a running port, not a reading exercise — `run.nupp`
+exercises the translated modules, and two compiler bugs were found by running
+what checked clean.
+
+```
+ file                     lines  state
+ ───────────────────────  ─────  ────────────────
+ schema.tl                   49  ported, runs
+ StableChunkedArray.tl       94  ported, runs
+ init.tl                    111  not started
+ EpochArena.tl              116  not started
+ FFIEvents.tl               200  not started
+ FFIStorage.tl              706  not started
+```
+
+- [ ] **Translate the four remaining files.** 143 of 1276 lines are done, and
+      they are the two with the least FFI in them, so nothing about reification
+      or a struct not being a table has come up yet. `FFIStorage.tl` is the
+      schema-to-cdata layer and the file the gate actually names; `FFIEvents.tl`
+      is the event storage the metatable and prototype work was aimed at; and
+      `EpochArena.tl` is the owned growable buffer the bounds-carrying spans
+      item above wants.
+- [ ] **Two frictions the port logged and nobody has fixed.** No table literal
+      infers into a tuple type in any position, including a directly annotated
+      binding, so every Teal-idiomatic `{string, string}` needs a cast at each
+      site. And integer arithmetic widens, so a `%` result cannot key a
+      `{[integer]: _}` without `as integer`. Both are in `PORT.md` with repros.
 - [ ] Focused fixtures cover tecs-style nested event records, bounded
       registration, late `__call` installation, generic `__index`/`__newindex`,
       and arithmetic contracts (`tests/gentest.lua:84`,
-      `tests/checktest.lua:163,191`). No tecs source file has been translated;
-      `FFIStorage` appears only in these plans. Translating and running the
-      real files remains the gate.
+      `tests/checktest.lua:163,191`).
