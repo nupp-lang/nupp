@@ -17,7 +17,9 @@ local runtime = {}
 -- (path, env) and returns generated Lua source or nil plus an error. The returned
 -- function removes this exact loader, even if other loaders were added while the
 -- program was running.
-function runtime.install(env, compile)
+function runtime.install(env: envMod.Env,
+    compile: function(path: string, env: envMod.Env): (string?, string?)):
+    function(): nil
     local loaders = package.loaders
     assert(loaders, "this Lua runtime does not expose package loaders")
     assert(type(compile) == "function", "compile callback must be a function")

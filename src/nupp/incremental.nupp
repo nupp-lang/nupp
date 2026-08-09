@@ -133,8 +133,11 @@ end
 --- Builds a query graph rooted at `rootDir`.
 ---
 --- @param rootDir the project root
---- @param opts passed through to the environment
-function incremental.new(rootDir: string, opts: any?): incremental.Inc
+--- @param opts an `envMod.Options`, passed through to the environment. Named as a
+---     plain table because the default this applies -- `opts or {}` -- is an empty
+---     literal, and the checker widens one of those to `table` whatever it is being
+---     assigned to.
+function incremental.new(rootDir: string, opts: table?): incremental.Inc
     opts = opts or {}
     local env = envMod.new(rootDir, opts)
     local strict = opts.strict
