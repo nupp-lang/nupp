@@ -218,9 +218,6 @@ record checkMod.Checker
     --- the first.
     lastCallRets: {Type}?
 
-    --- The complete pack produced by the last expanding expression.
-    lastCallPack: any
-
     -- The operations a pass reaches the run through. They are fields rather than locals
     -- so that a pass can live in its own module and still call them.
 
@@ -577,7 +574,7 @@ function checkMod.check(result, filename, env, opts)
         disposerFieldStack = {}, validatedCleanupContracts = {},
         unsafeDepth = 0, functionDepth = 0,
         captureWatches = {}, allowed = {}, hoisting = false,
-        resolvingAlias = {}, lastCallRets = nil, lastCallPack = nil,
+        resolvingAlias = {}, lastCallRets = nil,
         moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {},
         constModulePaths = {},
         moduleLocalAnnotated = false,
@@ -1024,13 +1021,8 @@ function checkMod.check(result, filename, env, opts)
     end
 
     -- Types an expression list against `count` targets, expanding the last expression's
-    -- extra return values. Only a call expands: `local a, b = f()` takes both of f's
-    -- results, while `local a, b = g` takes g and nothing. Inferring anything else may
-    -- still have left a call's results behind — a function expression whose body calls
-    -- something does — so the expansion asks what the expression is rather than
-    -- trusting what the last call reported.
-    local EXPANDS = {call = true, methodCall = true, safeCall = true,
-        vararg = true}
+    -- extra return values. See nupp.check.expr for which expressions expand.
+    local EXPANDS = expr.EXPANDS
 
     local function affineType(t)
         if not t then
@@ -1093,9 +1085,9 @@ function checkMod.check(result, filename, env, opts)
         local head, modes, tail = {}, {}, nil
         exprs = exprs or {}
         for j, e in ipairs(exprs) do
-            c.lastCallRets, c.lastCallPack = nil, nil
+            c.lastCallRets = nil
             local valueT = c.infer(e)
-            local produced = e.valuePack or c.lastCallPack
+            local produced = e.valuePack
             local pack = j == #exprs and EXPANDS[e.kind] and produced or nil
             if pack then
                 if pack.alternatives then

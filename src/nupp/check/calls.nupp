@@ -153,6 +153,11 @@ function calls.install(c: any): any
         if t.tag == "metatable" then
             return c.fieldType(t.of, name)
         end
+        -- A literal is one value of its base type and carries the same members, which
+        -- is what lets `("%s"):format(x)` reach the string library.
+        if t.tag == "literal" then
+            return c.fieldType(t.base, name)
+        end
         if t.tag == "typevar" and t.bound then
             local bound = t.bound as Type
             local ft, fieldDef = c.fieldType(bound, name)
@@ -656,7 +661,7 @@ function calls.install(c: any): any
                             selectedSignature.resumePack)
                     end
                     node.valuePack = pack
-                    c.lastCallRets, c.lastCallPack = rets, pack
+                    c.lastCallRets = rets
                 end
                 return first, rets, pack
             end

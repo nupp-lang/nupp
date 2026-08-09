@@ -563,7 +563,6 @@ function callexpr.install(c: any): any
         c.lastCallRets = rets
         node.valuePack = pack or (rets and T.pack(rets)
             or T.pack({}, {kind = "unknown", type = T.any}))
-        c.lastCallPack = node.valuePack
         return first
     end
     handlers.safeCall = handlers.call
@@ -643,7 +642,6 @@ function callexpr.install(c: any): any
             c.lastCallRets = rets
             node.valuePack = pack or (rets and T.pack(rets)
                 or T.pack({}, {kind = "unknown", type = T.any}))
-            c.lastCallPack = node.valuePack
             return optional and T.optional(first) or first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
@@ -659,6 +657,11 @@ function callexpr.install(c: any): any
         if node.args then
             c.inferCall(node, T.any, node.args)
         end
+        -- Nothing is known about what an unresolvable method returns, which includes
+        -- how many values, so the pack this call publishes stays open the way an
+        -- untyped call's does.
+        c.lastCallRets = nil
+        node.valuePack = T.pack({}, {kind = "unknown", type = T.any})
         return T.any
     end
     return handlers

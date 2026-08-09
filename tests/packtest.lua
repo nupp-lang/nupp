@@ -86,6 +86,42 @@ function M.luaOnlyExpandsTheFinalUnparenthesizedExpression()
    }, "\n"))
 end
 
+-- An expanding expression is read for every value it produces, and the reader
+-- takes them off the node. A call whose own path published no pack used to leave
+-- the reader with whichever call ran last, which is one of its own arguments: the
+-- inner callee's results became the outer call's.
+function M.anInnerCallDoesNotSupplyTheEnclosingCallsResults()
+   clean(table.concat({
+      "local function want(message: string) end",
+      "local function maybe(value: any): string?",
+      "   return value and 'owned' or nil",
+      "end",
+      "local function main(value: any, name: string)",
+      "   want(('%s %q'):format(maybe(value), name))",
+      "   want(('%s %q'):format(name, maybe(value)))",
+      "   local formatted = ('%s'):format(maybe(value))",
+      "   want(formatted)",
+      "end",
+      "return main",
+   }, "\n"))
+end
+
+-- A literal is one value of its base type, so it carries the same members. Without
+-- that, `('%s'):format(x)` found no method and answered `any`, which is what let the
+-- leaked pack through in the first place.
+function M.aStringLiteralReachesTheStringLibrary()
+   assertEq(codes(table.concat({
+      "local function want(n: number) end",
+      "want(('%s'):format(1))",
+      "return want",
+   }, "\n")), "NUPP2006")
+   clean(table.concat({
+      "local repeated: string = ('ab'):rep(2)",
+      "local width: number = #('ab'):upper()",
+      "return repeated, width",
+   }, "\n"))
+end
+
 function M.expandedSurplusArgumentsKeepTheArityDiagnostic()
    assertEq(codes(table.concat({
       "local function pair(): (number, string)",
