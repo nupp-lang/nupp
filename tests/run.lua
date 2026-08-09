@@ -1,6 +1,7 @@
 -- Minimal test runner: loads tests/*test.lua and compiles tests/*test.nupp,
 -- runs every function in the returned table, and reports failures with their
--- assert message.
+-- assert message. A suite may also define beforeAll, afterAll, beforeEach,
+-- and afterEach lifecycle hooks.
 --
 -- With --json it reports the same run as one document: a record per test with
 -- where it is defined, how long it took, and — when it failed — the message and
@@ -227,39 +228,104 @@ local function showCaptured(record)
    stream:flush()
 end
 
+local HOOKS = {
+   beforeAll = true, afterAll = true, beforeEach = true, afterEach = true,
+}
+
+local function call(fn)
+   if fn == nil then return true end
+   return pcall(fn)
+end
+
+-- afterEach gets a chance to clean up after a failed setup or test. If both
+-- phases fail, keep the original failure as the headline and retain the
+-- cleanup failure as the useful second half of the report.
+local function runCase(hooks, fn)
+   local ok, problem = call(hooks.beforeEach)
+   if ok then
+      ok, problem = call(fn)
+   end
+   local afterOk, afterProblem = call(hooks.afterEach)
+   if not afterOk then
+      if not ok then
+         error(tostring(problem) .. "\n  afterEach failed: "
+            .. tostring(afterProblem), 0)
+      end
+      error("afterEach failed: " .. tostring(afterProblem), 0)
+   end
+   if not ok then
+      error(problem, 0)
+   end
+end
+
+local function recordResult(suite, name, defined, ok, err, stdout, stderr, elapsed)
+   total = total + 1
+   local file, line = definedAt(defined)
+   local record = {suite = suite, name = name, file = file, line = line,
+      durationMs = elapsed, status = ok and "passed" or "failed"}
+   if ok then
+      passed = passed + 1
+      mark(".")
+   elseif test.isSkip(err) then
+      skipped = skipped + 1
+      record.status = "skipped"
+      record.skip = {reason = tostring(test.skipReason(err) or "skipped")}
+      mark("S")
+   else
+      failed = failed + 1
+      local message, errFile, errLine = errorPosition(err)
+      record.failure = {message = message, file = errFile, line = errLine}
+      record.output = {stdout = stdout, stderr = stderr}
+      mark("E")
+   end
+   if verbose then
+      record.output = record.output or {stdout = stdout, stderr = stderr}
+      showCaptured(record)
+   end
+   results[#results + 1] = record
+end
+
 for _, suiteInfo in ipairs(suites) do
    local suite, removeLoader = loadSuite(suiteInfo)
+   local hooks = {}
    local cases = {}
-   for name in pairs(suite) do cases[#cases + 1] = name end
-   table.sort(cases)
-   for _, name in ipairs(cases) do
-      total = total + 1
-      local file, line = definedAt(suite[name])
-      local before = now()
-      local ok, err, stdout, stderr = capture(suite[name])
-      local elapsed = now() - before
-      local record = {suite = suiteInfo.name, name = name, file = file, line = line,
-         durationMs = elapsed, status = ok and "passed" or "failed"}
-      if ok then
-         passed = passed + 1
-         mark(".")
-      elseif test.isSkip(err) then
-         skipped = skipped + 1
-         record.status = "skipped"
-         record.skip = {reason = tostring(test.skipReason(err) or "skipped")}
-         mark("S")
+   for name, fn in pairs(suite) do
+      if HOOKS[name] then
+         hooks[name] = fn
       else
-         failed = failed + 1
-         local message, errFile, errLine = errorPosition(err)
-         record.failure = {message = message, file = errFile, line = errLine}
-         record.output = {stdout = stdout, stderr = stderr}
-         mark("E")
+         cases[#cases + 1] = name
       end
-      if verbose then
-         record.output = record.output or {stdout = stdout, stderr = stderr}
-         showCaptured(record)
+   end
+   table.sort(cases)
+   local before = now()
+   local ready, setupProblem, setupOut, setupErr = capture(function()
+      local ok, problem = call(hooks.beforeAll)
+      if not ok then error(problem, 0) end
+   end)
+   local setupElapsed = now() - before
+   if not ready then
+      recordResult(suiteInfo.name, "beforeAll", hooks.beforeAll, false,
+         setupProblem, setupOut, setupErr, setupElapsed)
+   else
+      for _, name in ipairs(cases) do
+         local case = suite[name]
+         local caseBefore = now()
+         local ok, err, stdout, stderr = capture(function()
+            runCase(hooks, case)
+         end)
+         recordResult(suiteInfo.name, name, case, ok, err, stdout, stderr,
+            now() - caseBefore)
       end
-      results[#results + 1] = record
+   end
+   local after = now()
+   local afterOk, afterProblem, afterOut, afterErr = capture(function()
+      local ok, problem = call(hooks.afterAll)
+      if not ok then error(problem, 0) end
+   end)
+   local afterElapsed = now() - after
+   if not afterOk then
+      recordResult(suiteInfo.name, "afterAll", hooks.afterAll, false,
+         afterProblem, afterOut, afterErr, afterElapsed)
    end
    if removeLoader then removeLoader() end
 end

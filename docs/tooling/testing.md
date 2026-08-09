@@ -109,6 +109,43 @@ end
 return M
 ```
 
+### Lifecycle hooks
+
+A suite may define JUnit-style lifecycle functions. They are not ordinary test
+cases; a failing hook becomes an explicit synthetic failure:
+
+```lua
+local M = {}
+
+function M.beforeAll()
+   -- once, before this suite's cases
+end
+
+function M.beforeEach()
+   -- before every case
+end
+
+function M.afterEach()
+   -- after every case, including a failed setup or case
+end
+
+function M.afterAll()
+   -- once, even when beforeAll fails
+end
+
+function M.opensAConnection()
+   -- test body
+end
+
+return M
+```
+
+`beforeAll` failure prevents the suite's cases from running and is reported as
+`beforeAll`; `afterAll` still runs. A failing `afterEach` is reported with the
+case failure, if there was one, so cleanup failures do not hide the original
+problem. The same four names work in Nupp; give each hook a `: nil` return
+annotation under strict checking.
+
 The same shape works in Nupp; save this as `tests/mathstest.nupp`:
 
 ```nupp
