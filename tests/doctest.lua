@@ -177,6 +177,41 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    assert(task.members[2].params[1].name == "prefix")
 end
 
+function M.namespaceTagSynthesizesModulesFromAShapesFields()
+   local source = table.concat({
+      "--- @namespace lib",
+      "local lib: {",
+      "   data: {",
+      "      --- Encodes a value.",
+      "      encode: function(value: any): string",
+      "   },",
+      "   math: lib.MathLibrary",
+      "}",
+      "",
+      "--- Scalar helpers.",
+      "record lib.MathLibrary",
+      "   --- Adds two numbers.",
+      "   add: function(a: number, b: number): number",
+      "end",
+   }, "\n")
+   local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib", {includeAll = true})
+   assert(module, errors and errors[1] and errors[1].msg)
+   assert(#module.items == 1, "the record stays an ordinary item")
+   assert(module.items[1].name == "MathLibrary", module.items[1].name)
+   assert(extra and #extra == 2, extra and #extra)
+   local byName = {}
+   for _, mod in ipairs(extra) do
+      byName[mod.name] = mod
+   end
+   assert(byName["lib.data"], "an inline field becomes its own module")
+   assert(byName["lib.data"].items[1].name == "encode")
+   assert(byName["lib.data"].items[1].kind == "function")
+   assert(byName["lib.data"].items[1].doc.text == "Encodes a value.")
+   assert(byName["lib.math"], "a field spelled by name follows it to the same file's record")
+   assert(byName["lib.math"].items[1].name == "add")
+   assert(byName["lib.math"].items[1].params[1].name == "a")
+end
+
 function M.hidesPrivateMembersUnlessExplicitlyIncluded()
    local source = table.concat({
       "record Public",

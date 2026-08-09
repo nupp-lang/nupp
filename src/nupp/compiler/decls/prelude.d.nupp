@@ -182,6 +182,8 @@ local require: function(name: string): any
 
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
+---
+--- @namespace nupp
 local nupp: {
     data: {
         encodeJSON: function(value: any): string,

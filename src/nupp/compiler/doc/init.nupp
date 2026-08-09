@@ -109,13 +109,14 @@ type doc.BuildOptions = {
 }
 
 --- Reads one source file as its documented declarations. Returns the module, or nil and
---- the parse errors that stopped it.
+--- the parse errors that stopped it. A third result carries the modules an `@namespace`
+--- declaration implied, empty when the file held none.
 function doc.extract(
     source: string,
     path: string?,
     name: string,
     opts: extractMod.Options?
-): extractMod.Module?, {nupp.compiler.lexer.LexError}?
+): extractMod.Module?, {nupp.compiler.lexer.LexError}?, {extractMod.Module}?
     return extractMod.extract(source, path, name, opts)
 end
 
@@ -159,7 +160,7 @@ local function loadModules(root, config, settings, requested)
             errors[#errors + 1] = {filename = path, line = 1, col = 1, msg = tostring(readErr)}
         else
             local name = moduleName(path, root, config.include or {})
-            local module, parseErrors = doc.extract(
+            local module, parseErrors, extraModules = doc.extract(
                 source,
                 path,
                 name,
@@ -167,6 +168,9 @@ local function loadModules(root, config, settings, requested)
             )
             if module then
                 modules[#modules + 1] = module
+                for _, extra in ipairs(extraModules or {}) do
+                    modules[#modules + 1] = extra
+                end
             else
                 for _, err in ipairs(parseErrors as {nupp.compiler.lexer.LexError}) do
                     errors[#errors + 1] = err

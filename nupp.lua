@@ -396,6 +396,31 @@ nupp lsp            # start the language server]],
                   source = "docs/regex.md",
                },
 
+               -- The same handwritten pages, again as overviews on the
+               -- @namespace-synthesized module routes, so a reader who
+               -- follows a cross-reference into the API reference finds
+               -- the same prose above the generated field list.
+               {
+                  path = "modules/nupp/data",
+                  title = "Module: nupp.data",
+                  source = "docs/data.md",
+               },
+               {
+                  path = "modules/nupp/io",
+                  title = "Module: nupp.io",
+                  source = "docs/io.md",
+               },
+               {
+                  path = "modules/nupp/math",
+                  title = "Module: nupp.math",
+                  source = "docs/math.md",
+               },
+               {
+                  path = "modules/nupp/regex",
+                  title = "Module: nupp.regex",
+                  source = "docs/regex.md",
+               },
+
                {
                   path = "tooling/cli",
                   title = "nupp command",
