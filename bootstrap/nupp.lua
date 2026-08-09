@@ -3102,13 +3102,13 @@ end
 
 local DOCS_KEYS = {
 
-"sources" , "format" , "outDir" , "title" , "name" , "description" , "github" , "logo" , "favicon" , "public" , "customCss" , "lexers" , "includePrivate" , "all" , "pages" ,
+"sources" , "format" , "outDir" , "title" , "name" , "description" , "github" , "logo" , "favicon" , "public" , "customCss" , "lexers" , "includePrivate" , "all" , "pages" , "constructorPattern" ,
 
 "kind" , "dependencies" , "entries" , "resources" , "output" , "stub" , "nativeFeatures" , }
 
-local PAGE_KEYS = { "path" , "title" , "source" , "layout" , "heroTitle" , "heroText" , "heroImage" , "heroImageAlt" , "heroActions" ,
+local PAGE_KEYS = { "path" , "title" , "source" , "layout" , "heroTitle" , "heroText" , "heroContent" , "heroImage" , "heroImageAlt" , "heroActions" ,
 
-"hero_title" , "hero_text" , "hero_image" , "hero_image_alt" , "hero_actions" , "features" , }
+"hero_title" , "hero_text" , "hero_content" , "hero_image" , "hero_image_alt" , "hero_actions" , "features" , }
 
 local HERO_ACTION_KEYS = { "text" , "path" , "theme" }
 local FEATURE_KEYS = { "icon" , "image" , "imageAlt" , "title" , "details" , "code" , "codeLanguage" }
@@ -27715,7 +27715,7 @@ local normalize , join = filesMod . normalize , filesMod . join
 local readFile , writeFile = filesMod . readFile , filesMod . writeFile
 local listFiles , privateSource = filesMod . listFiles , filesMod . privateSource
 local copyPublicFiles = filesMod . copyPublicFiles
-local moduleName = extractMod . moduleName
+local moduleName , childModules = extractMod . moduleName , extractMod . children
 local configureScintillua = highlightMod . configureScintillua
 local markdownHtml , markdownOutline = htmlMod . markdownHtml , htmlMod . markdownOutline
 local THEME , SCRIPT = assetsMod . THEME , assetsMod . SCRIPT
@@ -27724,9 +27724,13 @@ local relativePrefix , cleanRoute = urlsMod . relativePrefix , urlsMod . cleanRo
 local symbolLinkIndex , symbolLinks = urlsMod . symbolLinkIndex , urlsMod . symbolLinks
 local rewriteConfiguredPageLinks = urlsMod . rewriteConfiguredPageLinks
 local moduleSummary , renderHtmlItem = apiMod . moduleSummary , apiMod . renderHtmlItem
+local nestedModules = apiMod . nestedModules
 local renderPage , homeHero , homeFeatures = pageMod . render , pageMod . homeHero , pageMod . homeFeatures
 
 local doc = { }
+
+
+
 
 
 
@@ -27804,8 +27808,10 @@ return extractMod . extract ( source , path , name , opts )
 end
 
 
-function doc . markdown ( modules , title )
-return markdownMod . render ( modules , title )
+
+
+function doc . markdown ( modules , title , all )
+return markdownMod . render ( modules , title , all )
 end
 
 local function sourceFiles ( root , config , settings , requested )
@@ -27883,10 +27889,23 @@ end
 
 
 
+
+
+
+
+
 local function embedFiles ( root , markdown )
-local out = { }
+local out , fence = { } , nil
 for line in ( markdown .. "\n" ) : gmatch ( "(.-)\n" ) do
-local path = line : match ( "^<<<%s+@(%S+)%s*$" )
+local marker = line : match ( "^%s*(```+)" ) or line : match ( "^%s*(~~~+)" )
+if marker then
+if not fence then
+fence = marker
+elseif marker : sub ( 1 , 1 ) == fence : sub ( 1 , 1 ) and # marker >= # fence then
+fence = nil
+end
+end
+local path = not fence and line : match ( "^<<<%s+@(%S+)%s*$" )
 if path then
 local contents , err = readFile ( join ( root , path ) )
 if not contents then
@@ -27923,6 +27942,7 @@ candidate [ key ] = value
 end
 candidate . heroTitle = candidate . heroTitle or candidate . hero_title
 candidate . heroText = candidate . heroText or candidate . hero_text
+candidate . heroContent = candidate . heroContent or candidate . hero_content
 candidate . heroImage = candidate . heroImage or candidate . hero_image
 candidate . heroImageAlt = candidate . heroImageAlt or candidate . hero_image_alt
 candidate . heroActions = candidate . heroActions or candidate . hero_actions
@@ -28081,23 +28101,32 @@ local file = routeFile ( candidate . path )
 local markdown , body , items , current = candidate . markdown or "" , { } , { } , nil
 if candidate . module then
 local module = candidate . module
+local children = childModules ( modules , module . name )
 current , items = module . name , { }
+if # children > 0 then
+items [ # items + 1 ] = { path = "modules" , name = "Modules" }
+end
 if # module . items > 0 then
 items [ # items + 1 ] = { path = "module-contents" , name = "Module contents" }
 end
 for _ , item in ipairs ( module . items ) do
 items [ # items + 1 ] = item
 end
-markdown = doc . markdown ( { module } )
+markdown = doc . markdown ( { module } , nil , modules )
 local links = symbolLinks ( linkIndex , module , relativePrefix ( file ) )
 body [ # body + 1 ] = '<h1>Module: <code>' .. htmlEscape ( module . name ) .. '</code></h1>'
 if module . text ~= "" then
 body [ # body + 1 ] = markdownHtml ( module . text , links )
 end
+body [ # body + 1 ] = nestedModules ( children , relativePrefix ( file ) )
 if # module . items == 0 then
+
+
+if # children == 0 then
 body [ # body + 1 ] = '<div class="nuppdoc-empty">No public declarations.</div>'
+end
 else
-body [ # body + 1 ] = moduleSummary ( module )
+body [ # body + 1 ] = moduleSummary ( module , settings . constructorPattern )
 for _ , item in ipairs ( module . items ) do
 renderHtmlItem ( body , item , links )
 end
@@ -28107,9 +28136,30 @@ local links = symbolLinks ( linkIndex , nil , relativePrefix ( file ) )
 items = markdownOutline ( markdown )
 body [ # body + 1 ] = homeHero ( candidate , links )
 local renderedMarkdown = rewriteConfiguredPageLinks ( markdown , candidate , pages , file )
-body [ # body + 1 ] = markdownHtml ( renderedMarkdown , links , 0 )
+local featureStart , featureEnd
 if candidate . path == "" then
+
+
+featureStart , featureEnd = markdown : find ( "<!-- nupp:features -->" , 1 , true )
+end
+if featureStart and featureEnd then
+local introduction = rewriteConfiguredPageLinks (
+markdown : sub ( 1 , featureStart - 1 ) ,
+candidate ,
+pages ,
+file
+)
+local remainder = rewriteConfiguredPageLinks ( markdown : sub ( featureEnd + 1 ) , candidate , pages , file )
+body [ # body + 1 ] = markdownHtml ( introduction , links , 0 )
 body [ # body + 1 ] = homeFeatures ( candidate , links )
+body [ # body + 1 ] = markdownHtml ( remainder , links , 0 )
+else
+body [ # body + 1 ] = markdownHtml ( renderedMarkdown , links , 0 )
+end
+if candidate . path == "" then
+if not featureStart then
+body [ # body + 1 ] = homeFeatures ( candidate , links )
+end
 body [ # body + 1 ] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
 for _ , module in ipairs ( modules ) do
 body [
@@ -28347,6 +28397,7 @@ local stringsMod = require ( "compiler.doc.strings" )
 local htmlMod = require ( "compiler.doc.html" )
 local highlightMod = require ( "compiler.doc.highlight" )
 local extractMod = require ( "compiler.doc.extract" )
+local urlsMod = require ( "compiler.doc.urls" )
 
 local htmlEscape = stringsMod . htmlEscape
 local summaryText = stringsMod . summaryText
@@ -28354,17 +28405,74 @@ local markdownHtml , tableHtml = htmlMod . markdownHtml , htmlMod . tableHtml
 local inlineHtml = htmlMod . inlineHtml
 local highlightNupp = highlightMod . nuppSource
 local splitMembers = extractMod . splitMembers
+local moduleFile = urlsMod . moduleFile
 
 local api = { }
+
+
+
+local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
+
 local function kindBadge ( kind )
 return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape ( kind ) .. '">' .. htmlEscape ( kind ) .. '</span>'
 end
 
-local function moduleSummary ( module )
-local groups = { { title = "Types" , items = { } } , { title = "Functions" , items = { } } , { title = "Values" , items = { } } , }
+
+
+
+local function isConstructor ( item , pattern )
+if pattern == "" or item . kind ~= "function" then
+return false
+end
+
+return ( item . name : match ( "([^.]+)$" ) or item . name ) : match ( pattern ) ~= nil
+end
+
+
+
+
+local function nestedModules ( children , prefix )
+if # children == 0 then
+return ""
+end
+local rows = { }
+for _ , child in ipairs ( children ) do
+rows [
+# rows + 1
+] = {
+'<a href="' .. htmlEscape ( prefix .. moduleFile ( child . name ) ) .. '"><code>' .. htmlEscape (
+child . name
+) .. '</code></a>' ,
+inlineHtml ( summaryText ( child . text ) ) ,
+}
+end
+
+return '<section class="nuppdoc-module-modules"><h2 id="modules">Modules</h2>'
+.. tableHtml (
+{ "Module" , "Description" } ,
+rows
+) .. "</section>"
+end
+
+local function moduleSummary ( module , constructorPattern )
+local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
+
+
+local groups = {
+{ title = "Constructors" , kinds = false , items = { } } ,
+{ title = "Types" , kinds = true , items = { } } ,
+{ title = "Functions" , kinds = true , items = { } } ,
+{ title = "Values" , kinds = true , items = { } } ,
+}
 for _ , item in ipairs ( module . items ) do
-local callable = item . kind == "function" or item . kind == "method"
-local group = callable and groups [ 2 ] or item . kind == "variable" and groups [ 3 ] or groups [ 1 ]
+local group = groups [ 2 ]
+if isConstructor ( item , pattern ) then
+group = groups [ 1 ]
+elseif item . kind == "function" or item . kind == "method" then
+group = groups [ 3 ]
+elseif item . kind == "variable" then
+group = groups [ 4 ]
+end
 group . items [ # group . items + 1 ] = item
 end
 local out = { '<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>' }
@@ -28372,17 +28480,22 @@ for _ , group in ipairs ( groups ) do
 if # group . items > 0 then
 local rows = { }
 for _ , item in ipairs ( group . items ) do
-rows [
-# rows + 1
-] = {
-'<a href="#' .. htmlEscape ( item . path ) .. '"><code>' .. htmlEscape ( item . name ) .. '</code></a>' ,
-kindBadge ( item . kind ) ,
-inlineHtml ( summaryText ( item . doc . text ) ) ,
+local row = {
+'<a href="#' .. htmlEscape ( item . path ) .. '"><code>' .. htmlEscape ( item . name ) .. '</code></a>'
 }
+
+
+if group . kinds then
+row [ # row + 1 ] = kindBadge ( item . kind )
 end
-out [
-# out + 1
-] = '<h3>' .. group . title .. '</h3>' .. tableHtml ( { group . title : sub ( 1 , - 2 ) , "Kind" , "Description" } , rows )
+row [ # row + 1 ] = inlineHtml ( summaryText ( item . doc . text ) )
+rows [ # rows + 1 ] = row
+end
+local headers = group . kinds and { group . title : sub ( 1 , - 2 ) , "Kind" , "Description" } or {
+group . title : sub ( 1 , - 2 ) ,
+"Description"
+}
+out [ # out + 1 ] = '<h3>' .. group . title .. '</h3>' .. tableHtml ( headers , rows )
 end
 end
 out [ # out + 1 ] = "</section>"
@@ -28516,6 +28629,7 @@ out [ # out + 1 ] = "</section>"
 end
 
 api . moduleSummary = moduleSummary
+api . nestedModules = nestedModules
 api . renderHtmlItem = renderHtmlItem
 
 return api
@@ -28580,7 +28694,7 @@ local THEME = [[
 .nuppdoc-module-tree{margin:0;padding:4px 0 0 .5rem;list-style:none}.nuppdoc-module-branch>details>summary{color:var(--nuppdoc-text-muted);font-weight:500}.nuppdoc-module-branch>details>summary.nuppdoc-module-branch-link{padding-top:0;padding-bottom:0;padding-left:0}.nuppdoc-module-branch>details>summary>a{padding-right:.2rem}.nuppdoc-module-branch .nuppdoc-module-tree{padding:2px 0 0 .7rem}
 .nuppdoc-outline-title{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.66rem;font-weight:600}.nuppdoc-outline a[aria-current]{color:var(--nuppdoc-accent)}
 .nuppdoc-breadcrumbs{margin:0 0 .75rem}.nuppdoc-breadcrumbs ol{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;list-style:none}.nuppdoc-breadcrumbs li{display:inline-flex;align-items:center;margin:0;padding:0;color:var(--nuppdoc-text-faint);font-size:.82rem;line-height:1.2}.nuppdoc-breadcrumbs li+li::before{margin:0 .45rem;color:var(--nuppdoc-border);content:"/"}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-faint);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.16em}.nuppdoc-breadcrumbs .nuppdoc-breadcrumb-home{font-size:.9rem;text-decoration:none}.nuppdoc-breadcrumbs [aria-current="page"]{color:var(--nuppdoc-text-muted)}
-.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2){width:19%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
+.nuppdoc-module-summary h3{margin-top:1.65rem;font-size:1rem}.nuppdoc-module-summary table,.nuppdoc-module-modules table{table-layout:fixed}.nuppdoc-module-summary th:first-child{width:28%}.nuppdoc-module-summary th:nth-child(2):not(:last-child){width:19%}.nuppdoc-module-modules th:first-child{width:32%}.nuppdoc-module-summary .nuppdoc-kind-badge{margin-left:0}.nuppdoc-kind-record,.nuppdoc-kind-interface,.nuppdoc-kind-struct,.nuppdoc-kind-type{color:#8250df;border-color:color-mix(in srgb,#8250df 35%,var(--nuppdoc-border));background:color-mix(in srgb,#8250df 12%,var(--nuppdoc-background))}.nuppdoc-kind-variable{color:#9a6700;border-color:color-mix(in srgb,#9a6700 35%,var(--nuppdoc-border));background:color-mix(in srgb,#9a6700 12%,var(--nuppdoc-background))}
 .nuppdoc-home-shell{display:block;max-width:none}.nuppdoc-home-content{width:min(calc(100% - 2 * var(--nuppdoc-home-gutter)),var(--nuppdoc-home-width));padding-top:4.5rem}.nuppdoc-home-hero{margin:0 0 4rem}.nuppdoc-hero-main{display:grid;align-items:start;gap:3rem;grid-template-columns:minmax(0,1fr)}.nuppdoc-hero-main.has-image{grid-template-columns:minmax(0,1fr) minmax(280px,.8fr)}.nuppdoc-hero-copy{position:relative;z-index:1}.nuppdoc-hero-copy h1{max-width:720px;margin:0;color:var(--nuppdoc-accent);font-size:5.5rem;letter-spacing:-.04em;line-height:.95}.nuppdoc-hero-text{max-width:650px;margin:1.08rem 0 0;color:var(--nuppdoc-text-muted);font-size:1.6rem;line-height:1.35}.nuppdoc-hero-actions{display:flex;flex-wrap:wrap;gap:.75rem;margin-top:2rem}.nuppdoc-hero-action{display:inline-flex;align-items:center;justify-content:center;padding:.52rem .95rem;border:1px solid transparent;border-radius:16px;font-size:.9rem;font-weight:650;line-height:1;text-decoration:none}.nuppdoc-hero-action.brand{color:var(--nuppdoc-accent-contrast);background:var(--nuppdoc-accent)}.nuppdoc-hero-action.alt{color:var(--nuppdoc-text);border-color:var(--nuppdoc-border);background:var(--nuppdoc-background-alt)}.nuppdoc-hero-image{position:relative;display:grid;align-self:center;place-items:center}.nuppdoc-hero-starburst{position:absolute;width:var(--nuppdoc-hero-glow-size);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 38%,transparent) 0,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 20%,transparent) 34%,color-mix(in srgb,var(--nuppdoc-hero-glow-color) 8%,transparent) 58%,transparent 76%);filter:blur(var(--nuppdoc-hero-glow-blur));opacity:var(--nuppdoc-hero-glow-opacity)}.nuppdoc-hero-image img{position:relative;z-index:1;width:min(100%,390px);max-height:330px;border-radius:20px;box-shadow:0 24px 70px rgb(0 0 0 / 22%);object-fit:contain}.nuppdoc-features{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;margin-top:2rem}.nuppdoc-feature{margin:0;padding:1.4rem;border:1px solid var(--nuppdoc-border);border-radius:12px;background:var(--nuppdoc-background-alt)}.nuppdoc-feature-icon,.nuppdoc-feature-image{display:inline-grid;width:40px;height:40px;place-items:center;margin-bottom:1rem;border-radius:8px;background:var(--nuppdoc-accent-soft);font-size:1.25rem;object-fit:contain}.nuppdoc-feature h2{margin:0 0 .55rem;padding:0;border:0;font-size:1rem;letter-spacing:0}.nuppdoc-feature-details{margin:0;color:var(--nuppdoc-text-muted);font-size:.86rem;line-height:1.55}.nuppdoc-footer{display:flex;flex-wrap:wrap;justify-content:center;gap:.45rem}.nuppdoc-footer a{color:var(--nuppdoc-text-muted)}
 .nuppdoc-hero-starburst{overflow:hidden;clip-path:circle(50% at 50% 50%)}.nuppdoc-hero-image img{box-shadow:none;filter:drop-shadow(0 24px 35px rgb(0 0 0 / 22%))}
 @media(max-width:1100px){.nuppdoc-panel-toggle-right{display:none}.nuppdoc-shell.is-sidebar-collapsed{grid-template-columns:0 minmax(0,1fr)}.nuppdoc-features{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -29346,6 +29460,42 @@ end
 return fields , methods
 end
 
+
+
+
+
+
+
+
+
+
+
+
+
+function extract . children ( modules , name )
+local documented = { }
+for _ , module in ipairs ( modules ) do
+documented [ module . name ] = true
+end
+local prefix , children = name .. "." , { }
+for _ , module in ipairs ( modules ) do
+if module . name : sub ( 1 , # prefix ) == prefix then
+local nearest , walked = name , name
+for segment in module . name : sub ( # prefix + 1 ) : gmatch ( "[^.]+" ) do
+walked = walked .. "." .. segment
+if walked ~= module . name and documented [ walked ] then
+nearest = walked
+end
+end
+if nearest == name then
+children [ # children + 1 ] = module
+end
+end
+end
+
+return children
+end
+
 extract . moduleName = moduleName
 extract . splitMembers = splitMembers
 
@@ -30030,9 +30180,11 @@ _G.nupp=_G.nupp or {};
 
 local stringsMod = require ( "compiler.doc.strings" )
 local highlightMod = require ( "compiler.doc.highlight" )
+local urlsMod = require ( "compiler.doc.urls" )
 
 local trim , htmlEscape = stringsMod . trim , stringsMod . htmlEscape
 local headingId = stringsMod . headingId
+local rewriteSymbolLinks = urlsMod . rewriteSymbolLinks
 local codeHtml = highlightMod . codeHtml
 
 
@@ -30201,14 +30353,23 @@ end
 
 
 
+
+
+
+
+
 local function readFence ( lines , index )
-local language , options = lines [ index ] : match ( "^```%s*([%w_+-]*)%s*(.-)%s*$" )
-if not language then
+local fence , language , options = lines [ index ] : match ( "^(```+)%s*([%w_+-]*)%s*(.-)%s*$" )
+if not fence then
 return nil , index
+end
+local function closes ( line )
+local closer = line : match ( "^(```+)%s*$" )
+return closer ~= nil and # closer >= # fence
 end
 local code = { }
 index = index + 1
-while index <= # lines and not lines [ index ] : match ( "^```%s*$" ) do
+while index <= # lines and not closes ( lines [ index ] ) do
 code [ # code + 1 ] = lines [ index ]
 index = index + 1
 end
@@ -30394,6 +30555,14 @@ local rendered = { }
 
 
 local prepared = extractBlocks ( text .. "\n" , links , rendered )
+
+
+
+if links then
+prepared = rewriteSymbolLinks ( prepared , function ( name )
+return links [ name ]
+end )
+end
 headings , headingIndex = headingSlugs ( prepared ) , 0
 headingShiftBy = headingShift == nil and 1 or headingShift
 
@@ -30439,10 +30608,44 @@ _G.nupp=_G.nupp or {};
 
 
 local stringsMod = require ( "compiler.doc.strings" )
+local extractMod = require ( "compiler.doc.extract" )
+local urlsMod = require ( "compiler.doc.urls" )
 
 local markdownEscape , markdownCell = stringsMod . markdownEscape , stringsMod . markdownCell
+local summaryText = stringsMod . summaryText
+local childModules = extractMod . children
+local symbolLinkIndex = urlsMod . symbolLinkIndex
+local rewriteSymbolLinks = urlsMod . rewriteSymbolLinks
 
 local markdown = { }
+
+
+
+
+
+local anchors = nil
+local known = nil
+
+
+
+
+local function prose ( text )
+local text = tostring ( text or "" )
+if not anchors then
+return text
+end
+
+return rewriteSymbolLinks ( text , function ( name )
+return anchors [ name ] or known and known [ name ]
+end )
+end
+
+
+
+local function cell ( text )
+return markdownCell ( prose ( text ) )
+end
+
 local function sectionTitle ( kind )
 local names = {
 [ "function" ] = "Functions" ,
@@ -30483,7 +30686,7 @@ out [
 # out + 1
 ] = "| `" .. markdownEscape (
 param . name
-) .. "` | `" .. markdownEscape ( param . type ) .. "` | " .. markdownCell ( param . text ) .. " |"
+) .. "` | `" .. markdownEscape ( param . type ) .. "` | " .. cell ( param . text ) .. " |"
 end
 out [ # out + 1 ] = ""
 end
@@ -30497,7 +30700,7 @@ out [ # out + 1 ] = ""
 out [ # out + 1 ] = "| Type | Description |"
 out [ # out + 1 ] = "| --- | --- |"
 for _ , value in ipairs ( returns ) do
-out [ # out + 1 ] = "| `" .. markdownEscape ( value . type ) .. "` | " .. markdownCell ( value . text ) .. " |"
+out [ # out + 1 ] = "| `" .. markdownEscape ( value . type ) .. "` | " .. cell ( value . text ) .. " |"
 end
 out [ # out + 1 ] = ""
 end
@@ -30511,7 +30714,7 @@ end
 out [ # out + 1 ] = heading .. " Raises"
 out [ # out + 1 ] = ""
 for _ , condition in ipairs ( raises ) do
-out [ # out + 1 ] = "- " .. markdownCell ( condition )
+out [ # out + 1 ] = "- " .. cell ( condition )
 end
 out [ # out + 1 ] = ""
 end
@@ -30524,7 +30727,7 @@ out [ # out + 1 ] = ""
 
 
 if item . doc . text ~= "" then
-out [ # out + 1 ] = item . doc . text
+out [ # out + 1 ] = prose ( item . doc . text )
 ;
 out [ # out + 1 ] = ""
 end
@@ -30538,7 +30741,7 @@ out [ # out + 1 ] = ""
 out [ # out + 1 ] = "| Name | Description |"
 out [ # out + 1 ] = "| --- | --- |"
 for _ , typearg in ipairs ( item . typeargs ) do
-out [ # out + 1 ] = "| `" .. markdownEscape ( typearg . name ) .. "` | " .. markdownCell ( typearg . text ) .. " |"
+out [ # out + 1 ] = "| `" .. markdownEscape ( typearg . name ) .. "` | " .. cell ( typearg . text ) .. " |"
 end
 out [ # out + 1 ] = ""
 end
@@ -30554,7 +30757,7 @@ out [ # out + 1 ] = '<a id="' .. method . path .. '"></a>'
 out [ # out + 1 ] = "##### `" .. method . name .. "`"
 out [ # out + 1 ] = ""
 if method . text ~= "" then
-out [ # out + 1 ] = method . text
+out [ # out + 1 ] = prose ( method . text )
 out [ # out + 1 ] = ""
 end
 out [ # out + 1 ] = "```nupp"
@@ -30576,13 +30779,30 @@ out [
 # out + 1
 ] = "| `" .. markdownEscape (
 field . name
-) .. "` | `" .. markdownEscape ( field . type ) .. "` | " .. markdownCell ( field . text ) .. " |"
+) .. "` | `" .. markdownEscape ( field . type ) .. "` | " .. cell ( field . text ) .. " |"
 end
 out [ # out + 1 ] = ""
 end
 end
 
-function markdown . render ( modules , title )
+
+
+
+
+
+
+function markdown . render (
+modules ,
+title ,
+all
+)
+local all = all or modules
+anchors = symbolLinkIndex ( modules , function ( module , path )
+return "#" .. ( path or module )
+end )
+known = symbolLinkIndex ( all , function ( )
+return ""
+end )
 local out = { }
 if title and title ~= "" then
 out [ # out + 1 ] = "# " .. title
@@ -30590,11 +30810,31 @@ out [ # out + 1 ] = "# " .. title
 out [ # out + 1 ] = ""
 end
 for moduleIndex , module in ipairs ( modules ) do
+out [ # out + 1 ] = '<a id="' .. module . name .. '"></a>'
 out [ # out + 1 ] = "# Module: `" .. module . name .. "`"
 out [ # out + 1 ] = ""
 if module . text ~= "" then
-out [ # out + 1 ] = module . text
+out [ # out + 1 ] = prose ( module . text )
 ;
+out [ # out + 1 ] = ""
+end
+local children = childModules ( all , module . name )
+if # children > 0 then
+out [ # out + 1 ] = "## Modules"
+out [ # out + 1 ] = ""
+out [ # out + 1 ] = "| Module | Description |"
+out [ # out + 1 ] = "| --- | --- |"
+for _ , child in ipairs ( children ) do
+
+
+local label = "`" .. markdownEscape ( child . name ) .. "`"
+local anchor = anchors and anchors [ child . name ]
+out [
+# out + 1
+] = "| " .. ( anchor and "[" .. label .. "](" .. anchor .. ")" or label ) .. " | " .. markdownCell (
+summaryText ( child . text )
+) .. " |"
+end
 out [ # out + 1 ] = ""
 end
 local currentKind = nil
@@ -30612,6 +30852,7 @@ out [ # out + 1 ] = "---"
 out [ # out + 1 ] = ""
 end
 end
+anchors , known = nil , nil
 
 return table . concat ( out , "\n" ) .. "\n"
 end
@@ -30639,6 +30880,7 @@ local markdownHtml = htmlMod . markdownHtml
 local ICONS = assetsMod . ICONS
 
 local page = { }
+
 
 
 
@@ -30966,6 +31208,9 @@ config . heroTitle or config . title
 if config . heroText then
 out [ # out + 1 ] = '<p class="nuppdoc-hero-text">' .. htmlEscape ( config . heroText ) .. '</p>'
 end
+if config . heroContent then
+out [ # out + 1 ] = '<p class="nuppdoc-hero-content">' .. htmlEscape ( config . heroContent ) .. '</p>'
+end
 if # ( config . heroActions or { } ) > 0 then
 out [ # out + 1 ] = '<div class="nuppdoc-hero-actions">'
 
@@ -30985,6 +31230,7 @@ href
 end
 out [ # out + 1 ] = '</div>'
 end
+
 out [ # out + 1 ] = '</div>'
 if config . heroImage then
 out [
@@ -31228,6 +31474,12 @@ text or ""
 "```[%s%S]-```" ,
 " "
 ) : gsub (
+
+
+
+"%[%]%(([^%)]+)%)" ,
+"%1"
+) : gsub (
 "%[([^%]]+)%]%([^%)]+%)" ,
 "%1"
 ) : gsub ( "`([^`]*)`" , "%1" ) : gsub ( "[*_~#]" , "" ) : gsub ( "%s+" , " " ) : gsub ( "^%s+" , "" ) : gsub ( "%s+$" , "" )
@@ -31307,24 +31559,99 @@ links [ name ] = url
 end
 end
 
-local function symbolLinkIndex ( modules )
+
+
+
+
+
+local function defaultTarget ( module , path )
+return moduleFile ( module ) .. ( path and "#" .. path or "" )
+end
+
+local function symbolLinkIndex ( modules , target )
+local target = target or defaultTarget
 local links , ambiguous = { } , { }
 for _ , module in ipairs ( modules ) do
 for _ , item in ipairs ( module . items ) do
-local url = moduleFile ( module . name ) .. "#" .. item . path
+local url = target ( module . name , item . path )
 addSymbolLink ( links , ambiguous , item . path , url )
 addSymbolLink ( links , ambiguous , item . name , url )
 local tail = item . name : match ( "([^.]+)$" )
 addSymbolLink ( links , ambiguous , tail , url )
 for _ , member in ipairs ( item . members ) do
-local memberUrl = moduleFile ( module . name ) .. "#" .. item . path
-addSymbolLink ( links , ambiguous , member . path , memberUrl )
-addSymbolLink ( links , ambiguous , item . name .. "." .. member . name , memberUrl )
+addSymbolLink ( links , ambiguous , member . path , url )
+addSymbolLink ( links , ambiguous , item . name .. "." .. member . name , url )
 end
 end
 end
 
+
+
+
+for _ , module in ipairs ( modules ) do
+if links [ module . name ] == nil and not ambiguous [ module . name ] then
+links [ module . name ] = target ( module . name )
+end
+end
+
 return links
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function rewriteSymbolLinks ( markdown , resolve )
+local function rewrite ( prose )
+return ( prose : gsub ( "%[([^%[%]]*)%]%(([^%s%(%)]+)%)" , function ( text , target )
+if target : match ( "^[%w+.-]+:" ) or target : find ( "[/#]" ) then
+return "[" .. text .. "](" .. target .. ")"
+end
+local url = resolve ( target )
+local named = text : match ( "^%s*$" ) ~= nil
+if not url and not named then
+
+
+return "[" .. text .. "](" .. target .. ")"
+end
+local label = named and "`" .. target .. "`" or text
+
+return url and url ~= "" and "[" .. label .. "](" .. url .. ")" or label
+end ) )
+end
+
+
+
+
+local out , position = { } , 1
+while position <= # markdown do
+local opening , closing = markdown : find ( "(`+).-%1" , position )
+if not opening or not closing then
+out [ # out + 1 ] = rewrite ( markdown : sub ( position ) )
+;
+break
+end
+out [ # out + 1 ] = rewrite ( markdown : sub ( position , opening - 1 ) )
+out [ # out + 1 ] = markdown : sub ( opening , closing )
+position = closing + 1
+end
+
+return table . concat ( out )
 end
 
 local function symbolLinks ( index , module , prefix )
@@ -31425,6 +31752,7 @@ urls . moduleFile = moduleFile
 urls . relativePrefix = relativePrefix
 urls . symbolLinkIndex = symbolLinkIndex
 urls . symbolLinks = symbolLinks
+urls . rewriteSymbolLinks = rewriteSymbolLinks
 urls . routeFile = routeFile
 urls . cleanRoute = cleanRoute
 urls . pageLink = pageLink
