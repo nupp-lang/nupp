@@ -95,7 +95,14 @@ async function boot() {
         local tok = tree.tokenAt(lastResult, offset)
         if not tok then return json.encode({found = false}) end
         local def = tok.definition
-        local t = tok.inferredType or (def and def.type)
+        -- At a declaration's own name token, inferredType is left as plain
+        -- "any" (inference marks usages, not the binding's own name) even
+        -- though def.type already holds the real declared signature — the
+        -- gap this fixes. At a usage token inferredType is the better
+        -- answer, since it can be narrower than the declared type (an "if"
+        -- that proved a union down to one branch), so it stays first there.
+        local t = tok.inferredType
+        if (t == nil or t == T.any) and def and def.type then t = def.type end
         if not t then return json.encode({found = false}) end
         local name = def and def.name or tok.text
         local prefix = def and def.cdef and "cdef "
