@@ -107,7 +107,7 @@ return {
             outDir = "build/docs",
             title = "Nupp API",
             name = "Nupp",
-            description = "Typed, safe, fast LuaJIT.",
+            description = "LuaJIT, with the hard parts checked.",
             github = "https://github.com/nupp-lang/nupp",
             logo = "images/nupp.svg",
             favicon = "images/nupp-icon-32.png",
@@ -121,9 +121,10 @@ return {
                   source = "docs/home.md",
                   layout = "home",
                   heroTitle = "Nupp",
-                  heroText = "Typed, safe, fast LuaJIT.",
-                  heroContent = "Nupp adds types and ownership to LuaJIT, making C interop "
-                     .. "and performance approachable.",
+                  heroText = "LuaJIT, with the hard parts checked.",
+                  heroContent = "Nupp gives LuaJIT precise types, checked C interop, "
+                     .. "deterministic ownership, scheduler-neutral suspension, isolated "
+                     .. "workers, and self-contained builds—without hiding the Lua underneath.",
                   heroImage = "images/nupp.png",
                   heroImageAlt = "A nuppeppo in a moonlit forest",
                   heroActions = {
@@ -216,6 +217,37 @@ local native = cheader("native/library.h")]],
 end -- the file is closed on every structured exit]],
                      },
                      {
+                        title = "Wait without coloring the call graph",
+                        details = "One ordinary call blocks in a command-line program and parks "
+                           .. "under an installed scheduler. Suspension is a checked effect, so "
+                           .. "libraries stay reusable and forbidden waits fail before runtime.",
+                        code = [[local function nextPacket(): Packet
+    return connection:receive()
+end
+
+handle suspension with scheduler do
+    local packet = nextPacket() -- parks here
+end
+
+nosuspend do
+    commitArchetypeEdits()
+end]],
+                     },
+                     {
+                        title = "Use every core without sharing the heap",
+                        details = "Workers run fresh LuaJIT states on native threads and exchange "
+                           .. "bounded, serialized messages. Calls read like functions, failures "
+                           .. "cross back, and ownership guarantees every worker is joined.",
+                        code = [[local workers = require("nupp.workers")
+
+with hasher = workers.spawn("workers.hash") do
+    local answer = hasher:call({
+        name = "level1",
+        bytes = contents,
+    })
+end]],
+                     },
+                     {
                         title = "Capture what native calls are allowed to do",
                         details = "Effect contracts describe whether a call borrows, takes, or "
                            .. "returns ownership. The compiler infers those facts for Nupp code "
@@ -234,6 +266,26 @@ cdef function free(takes value: voidptr)]],
                         code = [[local name = "Nupp"
 local status = ready ? "go" : "wait"
 print(`Hello, ${name}: ${status}`)]],
+                     },
+                     {
+                        title = "Pay only for the native runtime you use",
+                        details = "The compiler follows resolved standard-library uses and builds "
+                           .. "exactly their Rust or C providers. Regex, paths, workers, and every "
+                           .. "other native facility disappear completely when the program does "
+                           .. "not use them.",
+                        code = [[local matcher = nupp.regex.compile("^[a-z][a-z0-9_]*$")
+
+-- Regex is selected for this target. Workers, URI support,
+-- UUID generation, and unrelated native code are absent.]],
+                     },
+                     {
+                        title = "Ship a deterministic, self-contained program",
+                        details = "Build modules, one-file Lua bundles, or executables with a "
+                           .. "feature-matched LuaJIT host. Sorted payloads and content-addressed "
+                           .. "inputs make identical source produce byte-identical output.",
+                        code = [[nupp build --target dist
+nupp fixpoint --binary]],
+                        codeLanguage = "text",
                      },
                      {
                         title = "Optimize what the JIT can't infer",
