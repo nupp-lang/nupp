@@ -4,7 +4,7 @@ import { EditorState } from "@codemirror/state";
 import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
 import { nuppEditorTheme } from "./cm-theme.js";
-import EXAMPLE from "./example.nupp";
+import { EXAMPLES } from "./examples.js";
 
 // Nupp positions are 1-based byte offsets (AGENTS.md: "Source positions are
 // 1-based byte line and column numbers"); CodeMirror positions are 0-based
@@ -23,6 +23,7 @@ const el = (id) => document.getElementById(id);
 const statusEl = el("status");
 const checkTimeEl = el("check-time");
 const compileButton = el("compile-button");
+const exampleSelect = el("example-select");
 const diagListEl = el("diagnostics");
 const outputHost = el("output-editor");
 const tabs = document.querySelectorAll(".tab");
@@ -106,7 +107,7 @@ const nuppHover = hoverTooltip(async (view, pos) => {
 const sourceView = new EditorView({
   parent: el("source-editor"),
   state: EditorState.create({
-    doc: EXAMPLE,
+    doc: EXAMPLES[0].source,
     extensions: [
       basicSetup,
       nuppEditorTheme,
@@ -291,6 +292,35 @@ function switchTab(name) {
 }
 for (const tab of tabs) {
   tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+}
+
+// --- Example picker (index.html only) ---------------------------------------
+
+function loadExample(id) {
+  const example = EXAMPLES.find((e) => e.id === id);
+  if (!example) return;
+  sourceView.dispatch({
+    changes: { from: 0, to: sourceView.state.doc.length, insert: example.source },
+    selection: { anchor: 0 },
+  });
+  // The generated Lua on screen belongs to the program that just got
+  // replaced, so drop it rather than leave it reading as this example's
+  // output. The edit above already schedules the re-check, through the
+  // updateListener the source editor is built with.
+  setOutput("");
+  switchTab("diagnostics");
+  sourceView.focus();
+}
+
+if (exampleSelect) {
+  for (const example of EXAMPLES) {
+    const option = document.createElement("option");
+    option.value = example.id;
+    option.textContent = example.label;
+    exampleSelect.appendChild(option);
+  }
+  exampleSelect.value = EXAMPLES[0].id;
+  exampleSelect.addEventListener("change", () => loadExample(exampleSelect.value));
 }
 
 setBusy(true);

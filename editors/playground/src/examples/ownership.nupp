@@ -1,0 +1,33 @@
+-- `@owned(cleanup)` says a result carries a cleanup obligation. It has to be
+-- discharged before it leaves scope, and forgetting is a compile error rather
+-- than a leak. `with` is the one place Nupp closes something for you: on
+-- fallthrough, on return, on loop control, and on an error raised inside.
+
+local function closeFile(file: LuaFile)
+    file:close()
+end
+
+--- Opens a file the caller must discharge.
+---
+--- @param path where to read from
+--- @return an owned handle
+--- @raises when the file cannot be opened
+@owned(closeFile)
+local function open(path: string): LuaFile
+    local file = io.open(path, "r")
+    if not file then error("cannot open " .. path) end
+    return file
+end
+
+local function lineCount(path: string): number
+    with file = open(path) do
+        local count = 0
+        for _ in file:lines() do count = count + 1 end
+        return count            -- the handle closes here, and on any error
+    end
+end
+
+print(lineCount("README.md"))
+
+-- try breaking it: swap the `with` for `local file = open(path)` and the
+-- checker names the handle that never gets closed

@@ -86,7 +86,8 @@ where the sandbox's abilities do.
 ## Two pages
 
 **`index.html`** is the full playground: source editor, a diagnostics list
-and generated-Lua panel behind tabs, a Compile button, header and footer.
+and generated-Lua panel behind tabs, an example picker, a Compile button,
+header and footer.
 
 **`embed.html`** is just the editor — no header, tabs, side panel, or
 footer — meant for `<iframe src=".../embed.html">`. It still checks on every
@@ -108,7 +109,10 @@ its own script.
       app.js               the UI: editor, diagnostics panel, generated-code
                            panel, debounced check-on-edit — shared by both
                            pages, see "Two pages" above
-      example.nupp          the starter snippet
+      examples.js          the example picker's menu, in order — the first
+                           entry is what the editor opens on
+      examples/            one .nupp file per menu entry — see "Examples"
+                           below for what belongs in one
       cm-theme.js            the editor's colors — see "Colors" below
       empty-shim.js         stands in for the Node built-ins (fs, path, os,
                            …) fengari's package statically requires but this
@@ -121,6 +125,23 @@ its own script.
                              a fetched asset — dist/nupp-bootstrap.lua is
                              browser-safe, worker.js does no further patching
     serve.mjs                 a static file server for dist/, nothing more
+
+## Examples
+
+`src/examples.js` is the whole menu: the dropdown's options are built from
+it at load, so a snippet can't be offered without existing or exist without
+being offered. Adding one is a file in `src/examples/` and a line there.
+
+Two constraints come from where these run rather than from taste. Each is a
+standalone program: the playground checks one buffer with no filesystem
+behind it, so nothing can `require` anything else, and none of them may
+declare a `struct`, `cdef`, or `cheader` — that is exactly the C-ABI
+machinery the `ffi` stub above can't stand in for, so such an example would
+open on an error about the playground rather than on the language.
+
+Each ends with a "try breaking it" line naming an edit and the diagnostic it
+draws, because the thing worth showing here is the one a static code sample
+on a docs page can't: what the checker says when the program is wrong.
 
 ## Colors
 

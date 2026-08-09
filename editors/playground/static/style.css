@@ -104,6 +104,33 @@ body {
   gap: .9rem;
 }
 
+.example-picker {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: var(--pg-muted);
+  font-size: .8rem;
+}
+
+/* `appearance: none` would take the disclosure arrow with it, and nothing
+   here wants to redraw one — this keeps the platform control and only
+   restates the colors and metrics, so it stays a native menu on every
+   platform. `color-scheme` on :root is what keeps the popup itself dark. */
+.select {
+  padding: .35rem 1.6rem .35rem .5rem;
+  color: var(--pg-text);
+  border: 1px solid var(--pg-border);
+  border-radius: 7px;
+  background: var(--pg-background-alt);
+  font: inherit;
+  font-size: .82rem;
+  cursor: pointer;
+}
+.select:hover { border-color: var(--pg-accent); }
+.select:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 1px; }
+
+.is-busy .select { opacity: .55; pointer-events: none; }
+
 .status {
   color: var(--pg-muted);
   font-size: .8rem;

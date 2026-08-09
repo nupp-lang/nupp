@@ -15,6 +15,12 @@
     <span>Nupp Playground</span>
   </a>
   <div class="header-actions">
+    <label class="example-picker">
+      <span>Example</span>
+      <!-- Options come from src/examples.js, so the menu and the snippets it
+           offers can't drift apart. -->
+      <select id="example-select" class="select"></select>
+    </label>
     <span id="status" class="status">starting…</span>
     <button id="compile-button" class="button">Compile</button>
   </div>
