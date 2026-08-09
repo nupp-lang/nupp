@@ -124,15 +124,22 @@ its own script.
 
 ## Colors
 
-The accent and syntax colors both come from `src/nupp/doc/assets.nupp` — the
-generated docs site's own palette (`--nuppdoc-syntax-*`, plus the
-string-syntax green reused as the UI accent) — not an invented scheme, so the
-playground reads as part of the same project. `src/cm-theme.js` is a real
-CodeMirror `EditorView.theme` and `HighlightStyle`, not loose CSS layered on
-top of `basicSetup`'s default one: a plain `.cm-*` class override in
-`style.css` loses that specificity fight, which is why the very first version
-of this file had it (a white gutter and default reddish/orange token colors,
-regardless of the page's own dark background).
+Every color in `static/style.css` comes from `docs/public/nupp.css` — the
+real site's actual "woodblock" theme, layered as a `customCss` override on
+top of `src/nupp/doc/assets.nupp`'s generic default (a plausible-looking but
+wrong place to source colors from, since the whole point of that file is to
+get overridden). `--pg-button` is that file's `--nupp-woodblock-vermilion`
+exactly, one value in both light and dark, same as its own `.brand`
+hero-action rule. `--pg-accent` departs from it on purpose: the real site's
+own accent is a teal, kept there for links; here its string-syntax green
+does UI-accent duty too.
+
+`src/cm-theme.js` is a real CodeMirror `EditorView.theme` and
+`HighlightStyle`, not loose CSS layered on top of `basicSetup`'s default one:
+a plain `.cm-*` class override in `style.css` loses that specificity fight,
+which is why the very first version of this file had it (a white gutter and
+default reddish/orange token colors, regardless of the page's own dark
+background).
 
 ## Development
 

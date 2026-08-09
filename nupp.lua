@@ -129,8 +129,8 @@ return {
                         theme = "brand",
                      },
                      {
-                        text = "Browse the API",
-                        path = "modules/nupp/main",
+                        text = "Playground",
+                        path = "/playground/",
                      },
                   },
                   features = {

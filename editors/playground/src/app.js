@@ -132,7 +132,10 @@ const outputView = outputHost
       parent: outputHost,
       state: EditorState.create({
         doc: "",
-        extensions: [basicSetup, nuppEditorTheme, EditorView.editable.of(false)],
+        // Generated output is plain LuaJIT, a subset of what nuppLanguage
+        // highlights — reusing it here means one language definition covers
+        // both panels rather than a second one for a subset of the first.
+        extensions: [basicSetup, nuppEditorTheme, nuppLanguage, EditorView.editable.of(false)],
       }),
     })
   : null;
