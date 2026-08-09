@@ -65,6 +65,13 @@ pass-throughs are deferred; see [Open questions](#open-questions).
 - Reject raw coroutine suspension while cleanup or borrowing obligations are
   live, because a raw coroutine may never resume.
 
+  The qualifier is load-bearing and [suspension.md](suspension.md) proposes
+  acting on it. A *handled* suspension has somebody responsible for it — a
+  handler holding the resume and the cancellation — where a raw yield has
+  nobody. If that distinction is made, this rule keeps applying to raw yields
+  and stops applying to handled ones, which is what would let a library hold a
+  pipe across a wait.
+
 ## Non-goals
 
 - Inferring ownership from a method named `close`, `free`, or `destroy`.

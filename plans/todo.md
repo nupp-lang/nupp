@@ -146,7 +146,30 @@ work makes sense in.
         taking a `TypeInfo` need nothing from the generic system.
   - [ ] C4: worker hardening beyond C1's floor — remaining resource limits,
         cancellation, LSP hardening, and eventual manifest build-cache
-        persistence.
+        persistence. Wants [suspension](suspension.md) and a real process
+        library under it: a worker the language server waits on must not block
+        its loop.
+- [ ] **Suspension** ([design](suspension.md)): waiting as a checked, handled
+      effect. One call site parks under a scheduler and blocks without one, so
+      a library that waits works inside a game frame and inside a CLI without
+      knowing which it is in. The analysis half exists — `yields` is inferred
+      and propagates — and nothing consumes it yet.
+  - [ ] S1: `nosuspend` regions and `@effects(yields = false)`, with NUPP2701
+        carrying the call chain. No run-time component, and worth landing
+        alone: it turns one of tecs's run-time errors into a checked one.
+  - [ ] S2: the `suspend` operation, the `Suspension` handler interface
+        including its readiness `source`, `handle ... with ... do`, and the
+        built-in blocking handler.
+  - [ ] S3: the C-call boundary — implicit `nosuspend` for FFI callbacks,
+        metamethod bodies, and the callback-taking library surface, with a
+        named run-time failure for what static analysis cannot reach.
+  - [ ] S4: permit handled suspension while a resource obligation is live,
+        keeping NUPP2603 for raw coroutine yields. The largest decision in that
+        plan: it trades a static guarantee for a stated handler contract.
+  - [ ] S5: `nupp.io.Process`. tecs's API surface — `communicate`, the
+        Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32
+        platform layer, since theirs is 48 SDL calls and Nupp cannot link SDL
+        in order to run `nupp check`.
 
 ## FFI and the C boundary
 
