@@ -36,20 +36,20 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     local index = read(out .. "/index.html")
     test.matches(index, "<details")
     test.matches(index, "Missed arms")
-    local detail = read(out .. "/files/src/nupp/gen.nupp.html")
-    test.matches(detail, "Nupp source")
-    test.matches(detail, "Generated Lua")
-    assert(detail:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
-    assert(detail:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
-    assert(detail:find("<a class='file partial' aria-current=page href='files/src/nupp/gen.nupp.html'", 1, true),
-        "coverage tree marks the selected file")
-    assert(detail:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true),
+    test.matches(index, "Nupp source")
+    test.matches(index, "Generated Lua")
+    assert(index:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
+    assert(index:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
+    assert(index:find("data-route='file/src/nupp/gen.nupp'", 1, true),
+        "coverage report has a file route")
+    assert(index:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true),
         "coverage pages have breadcrumbs")
-    assert(detail:find("<a href='files/src/index.html'>src</a>", 1, true),
+    assert(index:find("<a data-route='dir/src' href='#dir/src'>src</a>", 1, true),
         "coverage breadcrumbs link each parent layer")
-    assert(detail:find("<a href='files/src/nupp/index.html'>nupp</a>", 1, true),
+    assert(index:find("<a data-route='dir/src/nupp' href='#dir/src/nupp'>nupp</a>", 1, true),
         "coverage breadcrumbs link nested parent layers")
-    assert(detail:find(".tree a:hover", 1, true), "coverage tree has a hover state")
+    assert(index:find("location.hash.slice(1)||'all'", 1, true), "coverage routes use URL hashes")
+    assert(index:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
     assert(index:find("aria-sort=none", 1, true), "sortable headings expose their state")
     assert(index:find("td>.status{margin-right:.45rem}", 1, true),

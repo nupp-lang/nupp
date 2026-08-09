@@ -191,23 +191,45 @@ local BREADCRUMB_STYLE = [[
 .breadcrumbs{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;margin:0 0 .35rem;color:var(--muted);font-size:.82rem}.breadcrumbs a{color:var(--muted);text-decoration:none}.breadcrumbs a:hover{color:var(--accent);text-decoration:underline}.breadcrumbs [aria-hidden]{color:var(--faint)}.breadcrumbs [aria-current]{color:var(--fg)}
 ]]
 
+local SPA_STYLE = [[.route[hidden]{display:none}]]
+
 local RESIZE_SCRIPT = [[(function(){var handle=document.querySelector('.sidebar-resizer'),root=document.documentElement;if(!handle)return;function resize(x){var width=Math.max(220,Math.min(520,x));root.style.setProperty('--sidebar-width',width+'px');handle.setAttribute('aria-valuenow',width)}handle.addEventListener('pointerdown',function(e){e.preventDefault();handle.setPointerCapture(e.pointerId);function move(event){resize(event.clientX)}function end(){handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end)}handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end)})})();]]
 
-local function page(title, tree, body, base)
+local APP_SCRIPT = [[(function(){function show(){var route=location.hash.slice(1)||'all',found=false;document.querySelectorAll('.route').forEach(function(page){var active=page.dataset.route===route;page.hidden=!active;found=found||active});if(!found&&route!=='all'){location.hash='all';return}document.querySelectorAll('[data-route]').forEach(function(link){if(link.tagName==='A'){link.toggleAttribute('aria-current',link.dataset.route===route)}});document.title=(document.querySelector('.route:not([hidden]) h1')||{}).textContent||'Nupp coverage'}window.addEventListener('hashchange',show);document.querySelectorAll('[data-view]').forEach(function(button){button.onclick=function(){var route=button.closest('.route');route.querySelectorAll('.view').forEach(function(view){view.classList.toggle('hidden',view.dataset.view!==button.dataset.view)})}});document.querySelectorAll('th button[data-key]').forEach(function(button){button.onclick=function(){var table=button.closest('table'),body=table.tBodies[0],key=button.dataset.key,rows=[].slice.call(body.rows),desc=button.dataset.desc==='1';rows.sort(function(a,z){var x=a.dataset[key],y=z.dataset[key];return (Number(x)-Number(y)||x.localeCompare(y))*(desc?-1:1)});table.querySelectorAll('th button[data-key]').forEach(function(header){header.setAttribute('aria-sort','none')});button.dataset.desc=desc?'0':'1';button.setAttribute('aria-sort',desc?'descending':'ascending');rows.forEach(function(row){body.appendChild(row)})}});show()})();]]
+
+local TREE_SCRIPT = [[(function(){function expand(){var route=location.hash.slice(1)||'all';document.querySelectorAll('.tree a[data-route]').forEach(function(link){if(link.dataset.route!==route)return;var parent=link.parentElement;while(parent){if(parent.tagName==='DETAILS')parent.open=true;parent=parent.parentElement}})}window.addEventListener('hashchange',expand);expand()})();]]
+
+local function page(title, tree, body)
     return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        .. "<base href='" .. (base or "") .. "'><title>" .. escape(title)
-        .. " | Nupp coverage</title><style>" .. STYLE .. STYLE_OVERLAY .. BREADCRUMB_STYLE
+        .. "<title>" .. escape(title)
+        .. " | Nupp coverage</title><style>" .. STYLE .. STYLE_OVERLAY .. BREADCRUMB_STYLE .. SPA_STYLE
         .. "</style><div class=shell><aside><a class=brand href='index.html'>Nupp coverage</a>"
         .. tree
         .. "</aside><div class=sidebar-resizer role=separator tabindex=0 aria-label='Resize file tree' aria-orientation=vertical aria-valuemin=220 aria-valuemax=520 aria-valuenow=290></div><main>"
         .. body
         .. "</main></div><script>"
+        .. "/*"
         .. SCRIPT
+        .. "*/"
+        .. APP_SCRIPT
+        .. TREE_SCRIPT
         .. RESIZE_SCRIPT
         .. "</script>"
 end
 
-local function treeHtml(files, current)
+local function directoryRoute(path)
+    return "dir/" .. path
+end
+
+local function fileRoute(path)
+    return "file/" .. path
+end
+
+local function routeHref(route)
+    return "#" .. escape(route)
+end
+
+local function treeHtml(files)
     local root = {dirs = {}, files = {}}
     for _, file in ipairs(files) do
         local node, parts = root, {}
@@ -225,26 +247,23 @@ local function treeHtml(files, current)
         table.sort(names)
         for _, name in ipairs(names) do
             local path = prefix == "" and name or prefix .. "/" .. name
-            local active = current == path and " aria-current=page" or ""
             out[#out + 1] = "<li><details" .. (open and " open" or "")
-                .. "><summary><a" .. active .. " href='files/" .. escape(path)
-                .. "/index.html'><span class=folder aria-hidden=true></span>" .. escape(name)
+                .. "><summary><a data-route='" .. escape(directoryRoute(path)) .. "' href='"
+                .. routeHref(directoryRoute(path)) .. "'><span class=folder aria-hidden=true></span>" .. escape(name)
                 .. "</a></summary>"
-                .. render(node.dirs[name], path, current and current:sub(1, #path + 1)
-                == path .. "/") .. "</details></li>"
+                .. render(node.dirs[name], path, open) .. "</details></li>"
         end
         table.sort(node.files, function(a, b) return a.path < b.path end)
         for _, file in ipairs(node.files) do
-            local active = file.path == current and " aria-current=page" or ""
-            out[#out + 1] = "<li><a class='file " .. file.status .. "'" .. active
-                .. " href='files/"
-                .. escape(file.path) .. ".html'>"
+            out[#out + 1] = "<li><a class='file " .. file.status .. "' data-route='"
+                .. escape(fileRoute(file.path)) .. "' href='" .. routeHref(fileRoute(file.path))
+                .. "'>"
                 .. escape(file.path:match("([^/]+)$")) .. "</a></li>"
         end
         out[#out + 1] = "</ul>"
         return table.concat(out)
     end
-    return "<nav class=tree>" .. render(root, "", true) .. "</nav>"
+    return "<nav class=tree>" .. render(root, "", false) .. "</nav>"
 end
 
 local function metricCard(label, value)
@@ -258,7 +277,7 @@ local function pageHeading(path)
         return "<h1>All files</h1>"
     end
     local out, parts, prefix = {"<nav class=breadcrumbs aria-label=Breadcrumb>"
-        .. "<a href='index.html'>All files</a>"}, {}, ""
+        .. "<a data-route=all href='#all'>All files</a>"}, {}, ""
     for part in path:gmatch("[^/]+") do parts[#parts + 1] = part end
     for index, part in ipairs(parts) do
         prefix = prefix == "" and part or prefix .. "/" .. part
@@ -266,7 +285,8 @@ local function pageHeading(path)
         if index == #parts then
             out[#out + 1] = "<span aria-current=page>" .. escape(part) .. "</span>"
         else
-            out[#out + 1] = "<a href='files/" .. escape(prefix) .. "/index.html'>"
+            out[#out + 1] = "<a data-route='" .. escape(directoryRoute(prefix))
+                .. "' href='" .. routeHref(directoryRoute(prefix)) .. "'>"
                 .. escape(part) .. "</a>"
         end
     end
@@ -282,8 +302,9 @@ local function rows(files)
             .. "' data-functions='" .. file.functions.percent .. "' data-missed-functions='"
             .. #file.functions.missing .. "' data-branches='" .. file.branches.percent
             .. "' data-missed-arms='" .. #file.branches.missing
-            .. "'><td><span class='status " .. file.status .. "'></span><a href='files/"
-            .. escape(file.path) .. ".html'>" .. escape(file.path) .. "</a></td><td>"
+            .. "'><td><span class='status " .. file.status .. "'></span><a data-route='"
+            .. escape(fileRoute(file.path)) .. "' href='" .. routeHref(fileRoute(file.path))
+            .. "'>" .. escape(file.path) .. "</a></td><td>"
             .. file.lines.covered .. " / " .. file.lines.total .. " (" .. file.lines.percent
             .. "%)</td><td>" .. #file.lines.missing .. "</td><td>" .. file.functions.covered
             .. " / " .. file.functions.total .. "</td><td>" .. #file.functions.missing
@@ -348,10 +369,27 @@ local function fileBody(file)
         metricCard("Functions", file.functions), metricCard("Branches", file.branches),
         "</div><div class=tabs><button data-view=source>Nupp source</button>"
         .. "<button data-view=generated>Generated Lua</button></div>",
-        "<pre id=source class='view code'>" .. codeRows(file.source, file, "nupp") .. "</pre>",
-        "<pre id=generated class='view code hidden'>" .. codeRows(generated, file, "lua")
+        "<pre data-view=source class='view code'>" .. codeRows(file.source, file, "nupp") .. "</pre>",
+        "<pre data-view=generated class='view code hidden'>" .. codeRows(generated, file, "lua")
         .. "</pre>"}
     return table.concat(out)
+end
+
+local function routeSection(route, body)
+    return "<section class=route data-route='" .. escape(route) .. "' hidden>" .. body
+        .. "</section>"
+end
+
+local function reportBody(summary, model, dirs)
+    local sections = {routeSection("all", indexBody(summary, model, "All files"))}
+    for _, dir in ipairs(dirs) do
+        sections[#sections + 1] = routeSection(directoryRoute(dir),
+            indexBody(aggregate(model.files, dir), model, dir))
+    end
+    for _, file in ipairs(model.files) do
+        sections[#sections + 1] = routeSection(fileRoute(file.path), fileBody(file))
+    end
+    return table.concat(sections)
 end
 
 local function lcov(model)
@@ -394,31 +432,15 @@ function coverage.write(model, outDir)
     assert(writeFile(outDir .. "/coverage.json", encoder.encode(public) .. "\n"))
     assert(writeFile(outDir .. "/summary.json", encoder.encode(public.summary) .. "\n"))
     assert(writeFile(outDir .. "/lcov.info", lcov(model)))
-    local tree = treeHtml(model.files, nil)
-    assert(writeFile(outDir .. "/index.html", page("All files", tree,
-        indexBody(summary, model, "All files"), "")))
-    local dirs = {[""] = true}
+    local dirSet, dirs = {}, {}
     for _, file in ipairs(model.files) do
         local dir = parent(file.path)
-        while dir ~= "" do dirs[dir] = true; dir = parent(dir) end
+        while dir ~= "" do dirSet[dir] = true; dir = parent(dir) end
     end
-    for dir in pairs(dirs) do
-        if dir ~= "" then
-            local aggregateDir = aggregate(model.files, dir)
-            local depth = 1
-            for _ in dir:gmatch("/") do depth = depth + 1 end
-            assert(writeFile(outDir .. "/files/" .. dir .. "/index.html",
-                page(dir, treeHtml(model.files, dir), indexBody(aggregateDir, model, dir),
-                ("../"):rep(depth + 1))))
-        end
-    end
-    for _, file in ipairs(model.files) do
-        local depth = 0
-        for _ in file.path:gmatch("/") do depth = depth + 1 end
-        assert(writeFile(outDir .. "/files/" .. file.path .. ".html",
-            page(file.path, treeHtml(model.files, file.path), fileBody(file),
-            ("../"):rep(depth + 1))))
-    end
+    for dir in pairs(dirSet) do dirs[#dirs + 1] = dir end
+    table.sort(dirs)
+    assert(writeFile(outDir .. "/index.html", page("All files", treeHtml(model.files),
+        reportBody(summary, model, dirs))))
     return summary
 end
 
