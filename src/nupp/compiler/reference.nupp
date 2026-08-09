@@ -1024,13 +1024,21 @@ exists to be careful about exactly that.
 **NUPP2701** names the call and the path from it to the suspension, since a
 refusal is not actionable when the yield is four functions away.
 
-`nosuspend` opens a region only when `do` follows it; elsewhere it is a name.
+For anything whose body this compiler never sees — a declared host binding, a C
+function, a parameter, a callback — the guarantee is written in the type:
 
-A limitation worth knowing before reaching for this: a standard-library function
-is declared as a field of a table type, and there is nowhere to write an effect
-contract on one, so the prelude is conservatively may-yield. A region cannot
-currently admit `math.floor`. Declaring effects in a function type is what
-closes that.
+    nosuspend function(x: number): integer
+
+That is a positive guarantee, so an unmarked function type stays conservatively
+may-yield and silence is never mistaken for a promise. It is an ordinary part of
+the type, so it takes part in identity, subtyping, aliasing and substitution: a
+`nosuspend function` fits an ordinary slot, an ordinary function does not fit a
+`nosuspend` one, and an alias of either keeps what it had. The pure standard
+library is declared this way rather than special-cased, which is why
+`math.floor` is admitted and `print` is not.
+
+`nosuspend` opens a region when `do` follows it and qualifies a type when
+`function` does; elsewhere it is an ordinary name.
 ]=],
         example = [=[
 local m = {}
@@ -1044,10 +1052,11 @@ local function total(values: {integer}): number
     return sum
 end
 
-function m.commit(values: {integer}): number
+function m.commit(values: {integer}, report: nosuspend function(n: number): nil): number
     local answer = 0
     nosuspend do
         answer = total(values)
+        report(answer)
     end
 
     return answer

@@ -223,8 +223,10 @@ function resolve.install(c: state.Checker): nil
                         return applyTypeArgs(lexical, node)
                     end
                 end
-                -- `local T = require("nupp.compiler.types")` makes T.Type mean a type from
-                -- nupp.compiler.types, so resolve through what the name holds rather than
+                -- `local T = require("nupp.compiler.types")` makes T.Type mean a type
+                -- from
+                -- nupp.compiler.types, so resolve through what the name holds rather
+                -- than
                 -- assuming the local was named for its module.
                 if #names == 1 then
                     local holder = c.lookupEntry(names[1])
@@ -587,26 +589,10 @@ function resolve.install(c: state.Checker): nil
             if node.generics then
                 c.popScope()
             end
-            return T.func(
-                params,
-                rets,
-                vararg,
-                paramModes,
-                nil,
-                typeParams,
-                typeBounds,
-                nil,
-                nil,
-                nil,
-                nil,
-                varargType,
-                nil,
-                paramPack,
-                retPack,
-                packParams,
-                yieldPack,
-                resumePack
-            )
+            return T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
+                -- `nosuspend function(...)`: the one way to state the guarantee about
+                -- something whose body is never seen here.
+                node.noSuspend)
         elseif kind == "tparen" then
             return c.resolveType(node.inner)
         end

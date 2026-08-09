@@ -1799,6 +1799,15 @@ record cst.Tfunc is
     --- Names the production this node stands for.
     kind: 'tfunc'
 
+    --- Written `nosuspend function(...)`: calling it provably cannot suspend.
+    ---
+    --- A positive guarantee, so an unmarked function type stays conservatively
+    --- may-yield. It is the one way to state the fact about something whose body this
+    --- compiler never sees -- a declared host binding, a C function, a parameter -- and
+    --- it is an ordinary part of the type, so it participates in identity, subtyping,
+    --- aliasing, and substitution like everything else a type says.
+    noSuspend: boolean?
+
     --- Its generic parameters, when it has any.
     generics: cst.Node?
 

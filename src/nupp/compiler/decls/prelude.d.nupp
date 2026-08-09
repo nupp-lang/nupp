@@ -584,13 +584,13 @@ local string: {
     --- @param i the first index, 1 by default; negative counts from the end
     --- @param j the last index, `i` by default
     --- @return one code per selected character
-    byte: function(s: string, i: number?, j: number?): integer,
+    byte: nosuspend function(s: string, i: number?, j: number?): integer,
 
     --- Builds a string from the given character codes.
     ---
     --- @param ... the character codes, each 0 through 255
     --- @return the assembled string
-    char: function(...: number): string,
+    char: nosuspend function(...: number): string,
 
     --- Returns a binary representation of a Lua function that has no upvalues, in a
     --- form `loadstring` accepts.
@@ -598,7 +598,7 @@ local string: {
     --- @param f the function to dump
     --- @param strip whether to discard debug information
     --- @return the bytecode string
-    dump: function(f: any, strip: boolean?): string,
+    dump: nosuspend function(f: any, strip: boolean?): string,
 
     --- Finds the first match of pattern `pat` in `s`, at or after `init`. Any captures
     --- the pattern has follow the two returned indices.
@@ -609,7 +609,7 @@ local string: {
     --- @param plain whether to match `pat` literally, ignoring pattern syntax
     --- @return the index where the match starts, or nil when there is none
     --- @return the index where the match ends
-    find: function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
+    find: nosuspend function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
 
     --- Formats the arguments into `fmt`, which takes the C `printf` directives plus
     --- `%q` for a string quoted so Lua can read it back.
@@ -617,7 +617,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: function(fmt: string, ...: any): string,
+    format: nosuspend function(fmt: string, ...: any): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.
@@ -625,7 +625,7 @@ local string: {
     --- @param s the string to scan
     --- @param pat the pattern to repeat across `s`
     --- @return an iterator yielding one match at a time
-    gmatch: function(s: string, pat: string): function(): string,
+    gmatch: nosuspend function(s: string, pat: string): function(): string,
 
     --- Replaces matches of `pat` in `s`. `repl` may be a string, in which `%1` through
     --- `%9` stand for captures and `%0` for the whole match, a table looked up by the
@@ -637,19 +637,19 @@ local string: {
     --- @param n how many matches to replace at most, all of them by default
     --- @return the string with the replacements applied
     --- @return how many matches were replaced
-    gsub: function(s: string, pat: string, repl: any, n: number?): (string, integer),
+    gsub: nosuspend function(s: string, pat: string, repl: any, n: number?): (string, integer),
 
     --- Returns the length of `s` in bytes.
     ---
     --- @param s the string to measure
     --- @return the byte count
-    len: function(s: string): integer,
+    len: nosuspend function(s: string): integer,
 
     --- Returns `s` with every ASCII letter folded to lower case.
     ---
     --- @param s the string to fold
     --- @return the lowercased string
-    lower: function(s: string): string,
+    lower: nosuspend function(s: string): string,
 
     --- Returns the captures of the first match of `pat` in `s`, or the whole match when
     --- the pattern has no captures.
@@ -658,7 +658,7 @@ local string: {
     --- @param pat the pattern to look for
     --- @param init where to start, 1 by default; negative counts from the end
     --- @return the captures or the whole match, or nil when nothing matches
-    match: function(s: string, pat: string, init: number?): string?,
+    match: nosuspend function(s: string, pat: string, init: number?): string?,
 
     --- Returns `n` copies of `s`, with `sep` between consecutive copies.
     ---
@@ -666,13 +666,13 @@ local string: {
     --- @param n how many copies to produce
     --- @param sep what to place between copies, nothing by default
     --- @return the repeated string
-    rep: function(s: string, n: number, sep: string?): string,
+    rep: nosuspend function(s: string, n: number, sep: string?): string,
 
     --- Returns the bytes of `s` in reverse order.
     ---
     --- @param s the string to reverse
     --- @return the reversed string
-    reverse: function(s: string): string,
+    reverse: nosuspend function(s: string): string,
 
     --- Returns the substring of `s` running from `i` through `j`.
     ---
@@ -680,13 +680,13 @@ local string: {
     --- @param i the first index; negative counts from the end
     --- @param j the last index, -1 by default
     --- @return the selected substring
-    sub: function(s: string, i: number, j: number?): string,
+    sub: nosuspend function(s: string, i: number, j: number?): string,
 
     --- Returns `s` with every ASCII letter folded to upper case.
     ---
     --- @param s the string to fold
     --- @return the uppercased string
-    upper: function(s: string): string
+    upper: nosuspend function(s: string): string
 }
 
 --- Table manipulation. These functions work on the array part of a table: the integer
@@ -700,7 +700,7 @@ const table: {
     --- @param i the first index, 1 by default
     --- @param j the last index, `#t` by default
     --- @return the joined string
-    concat: function(t: table, sep: string?, i: number?, j: number?): string,
+    concat: nosuspend function(t: table, sep: string?, i: number?, j: number?): string,
 
     --- Inserts `v` at position `pos`, shifting later elements up. Called with two
     --- arguments, appends that value to the end instead.
@@ -708,14 +708,14 @@ const table: {
     --- @param t the array to insert into
     --- @param pos the position to insert at, or the value to append
     --- @param v the value to insert, when a position was given
-    insert: function(t: table, pos: any, v: any?),
+    insert: nosuspend function(t: table, pos: any, v: any?),
 
     --- Removes the element at `pos`, shifting later elements down.
     ---
     --- @param t the array to remove from
     --- @param pos the position to remove, `#t` by default
     --- @return the element that was removed
-    remove: function(t: table, pos: number?): any,
+    remove: nosuspend function(t: table, pos: number?): any,
 
     --- Sorts `t` in place, between indices 1 and `#t`. The sort is not stable, and
     --- `cmp` must be a strict order or it may raise.
@@ -731,7 +731,7 @@ const table: {
     ---
     --- @param t the table to scan
     --- @return the largest positive numeric key
-    maxn: function(t: table): number,
+    maxn: nosuspend function(t: table): number,
 
     -- LuaJIT extensions
 
@@ -757,95 +757,95 @@ local math: {
     ---
     --- @param x the number to take the magnitude of
     --- @return the absolute value
-    abs: function(x: number): number,
+    abs: nosuspend function(x: number): number,
 
     --- Returns the smallest integer that is not less than `x`.
     ---
     --- @param x the number to round up
     --- @return the rounded value
-    ceil: function(x: number): integer,
+    ceil: nosuspend function(x: number): integer,
 
     --- Returns the largest integer that is not greater than `x`.
     ---
     --- @param x the number to round down
     --- @return the rounded value
-    floor: function(x: number): integer,
+    floor: nosuspend function(x: number): integer,
 
     --- Returns the square root of `x`.
     ---
     --- @param x the number to take the root of
     --- @return the square root
-    sqrt: function(x: number): number,
+    sqrt: nosuspend function(x: number): number,
 
     --- Returns e raised to the power `x`.
     ---
     --- @param x the exponent
     --- @return the result
-    exp: function(x: number): number,
+    exp: nosuspend function(x: number): number,
 
     --- Returns the natural logarithm of `x`, or its logarithm in `base`.
     ---
     --- @param x the number to take the logarithm of
     --- @param base the base to use, e by default
     --- @return the logarithm
-    log: function(x: number, base: number?): number,
+    log: nosuspend function(x: number, base: number?): number,
 
     --- Returns `x` raised to the power `y`, the same as `x ^ y`.
     ---
     --- @param x the base
     --- @param y the exponent
     --- @return the result
-    pow: function(x: number, y: number): number,
+    pow: nosuspend function(x: number, y: number): number,
 
     --- Returns the remainder of `x / y`, keeping the sign of `x`.
     ---
     --- @param x the dividend
     --- @param y the divisor
     --- @return the remainder
-    fmod: function(x: number, y: number): number,
+    fmod: nosuspend function(x: number, y: number): number,
 
     --- Splits `x` into its integral and fractional parts, both keeping the sign of `x`.
     ---
     --- @param x the number to split
     --- @return the integral part
     --- @return the fractional part
-    modf: function(x: number): (number, number),
+    modf: nosuspend function(x: number): (number, number),
 
     --- Returns the sine of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the sine
-    sin: function(x: number): number,
+    sin: nosuspend function(x: number): number,
 
     --- Returns the cosine of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the cosine
-    cos: function(x: number): number,
+    cos: nosuspend function(x: number): number,
 
     --- Returns the tangent of `x`, which is in radians.
     ---
     --- @param x the angle in radians
     --- @return the tangent
-    tan: function(x: number): number,
+    tan: nosuspend function(x: number): number,
 
     --- Returns the arc sine of `x`, in radians.
     ---
     --- @param x the sine to invert, -1 through 1
     --- @return the angle in radians
-    asin: function(x: number): number,
+    asin: nosuspend function(x: number): number,
 
     --- Returns the arc cosine of `x`, in radians.
     ---
     --- @param x the cosine to invert, -1 through 1
     --- @return the angle in radians
-    acos: function(x: number): number,
+    acos: nosuspend function(x: number): number,
 
     --- Returns the arc tangent of `x`, in radians.
     ---
     --- @param x the tangent to invert
     --- @return the angle in radians
-    atan: function(x: number): number,
+    atan: nosuspend function(x: number): number,
 
     --- Returns the arc tangent of `y / x`, using the sign of both arguments to place
     --- the result in the right quadrant.
@@ -853,37 +853,37 @@ local math: {
     --- @param y the numerator
     --- @param x the denominator
     --- @return the angle in radians
-    atan2: function(y: number, x: number): number,
+    atan2: nosuspend function(y: number, x: number): number,
 
     --- Returns the hyperbolic sine of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic sine
-    sinh: function(x: number): number,
+    sinh: nosuspend function(x: number): number,
 
     --- Returns the hyperbolic cosine of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic cosine
-    cosh: function(x: number): number,
+    cosh: nosuspend function(x: number): number,
 
     --- Returns the hyperbolic tangent of `x`.
     ---
     --- @param x the argument
     --- @return the hyperbolic tangent
-    tanh: function(x: number): number,
+    tanh: nosuspend function(x: number): number,
 
     --- Converts the angle `r` from radians to degrees.
     ---
     --- @param r the angle in radians
     --- @return the angle in degrees
-    deg: function(r: number): number,
+    deg: nosuspend function(r: number): number,
 
     --- Converts the angle `d` from degrees to radians.
     ---
     --- @param d the angle in degrees
     --- @return the angle in radians
-    rad: function(d: number): number,
+    rad: nosuspend function(d: number): number,
 
     --- Returns the smallest of its arguments. Comparing integers gives an integer back,
     --- so a bound taken this way stays usable as an index.
@@ -905,12 +905,12 @@ local math: {
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
     --- @return the generated number
-    random: function(): number & function(m: number): number & function(m: number, n: number): number,
+    random: nosuspend function(): number & function(m: number): number & function(m: number, n: number): number,
 
     --- Seeds the pseudo-random generator, which starts from a fixed state.
     ---
     --- @param seed the seed to start from
-    randomseed: function(seed: number),
+    randomseed: nosuspend function(seed: number),
 
     --- Splits `x` into a fraction in [0.5,1) and an exponent, such that `x` equals the
     --- fraction times 2 raised to the exponent.
@@ -918,14 +918,14 @@ local math: {
     --- @param x the number to split
     --- @return the fraction
     --- @return the exponent
-    frexp: function(x: number): (number, number),
+    frexp: nosuspend function(x: number): (number, number),
 
     --- Returns `m` times 2 raised to the power `e`.
     ---
     --- @param m the mantissa
     --- @param e the exponent
     --- @return the result
-    ldexp: function(m: number, e: number): number,
+    ldexp: nosuspend function(m: number, e: number): number,
 
     --- The ratio of a circle's circumference to its diameter.
     pi: number,
@@ -1221,7 +1221,7 @@ local bit: {
     ---
     --- @param x the number to normalize
     --- @return the normalized value
-    tobit: function(x: number): integer,
+    tobit: nosuspend function(x: number): integer,
 
     --- Returns `x` in hexadecimal, using `n` digits.
     ---
@@ -1229,72 +1229,72 @@ local bit: {
     --- @param n how many digits to print, 8 by default; a negative count
     ---     prints uppercase digits
     --- @return the hexadecimal text
-    tohex: function(x: number, n: number?): string,
+    tohex: nosuspend function(x: number, n: number?): string,
 
     --- Returns the bitwise complement of `x`.
     ---
     --- @param x the number to complement
     --- @return the complement
-    bnot: function(x: number): integer,
+    bnot: nosuspend function(x: number): integer,
 
     --- Returns the bitwise and of every argument.
     ---
     --- @param ... the numbers to combine
     --- @return the combined value
-    band: function(...: number): integer,
+    band: nosuspend function(...: number): integer,
 
     --- Returns the bitwise or of every argument.
     ---
     --- @param ... the numbers to combine
     --- @return the combined value
-    bor: function(...: number): integer,
+    bor: nosuspend function(...: number): integer,
 
     --- Returns the bitwise exclusive or of every argument.
     ---
     --- @param ... the numbers to combine
     --- @return the combined value
-    bxor: function(...: number): integer,
+    bxor: nosuspend function(...: number): integer,
 
     --- Shifts `x` left by `n` bits, filling with zeros.
     ---
     --- @param x the number to shift
     --- @param n how many bits to shift by, taken modulo 32
     --- @return the shifted value
-    lshift: function(x: number, n: number): integer,
+    lshift: nosuspend function(x: number, n: number): integer,
 
     --- Shifts `x` right by `n` bits without sign extension.
     ---
     --- @param x the number to shift
     --- @param n how many bits to shift by, taken modulo 32
     --- @return the shifted value
-    rshift: function(x: number, n: number): integer,
+    rshift: nosuspend function(x: number, n: number): integer,
 
     --- Shifts `x` right by `n` bits, copying the sign bit down.
     ---
     --- @param x the number to shift
     --- @param n how many bits to shift by, taken modulo 32
     --- @return the shifted value
-    arshift: function(x: number, n: number): integer,
+    arshift: nosuspend function(x: number, n: number): integer,
 
     --- Rotates `x` left by `n` bits.
     ---
     --- @param x the number to rotate
     --- @param n how many bits to rotate by, taken modulo 32
     --- @return the rotated value
-    rol: function(x: number, n: number): integer,
+    rol: nosuspend function(x: number, n: number): integer,
 
     --- Rotates `x` right by `n` bits.
     ---
     --- @param x the number to rotate
     --- @param n how many bits to rotate by, taken modulo 32
     --- @return the rotated value
-    ror: function(x: number, n: number): integer,
+    ror: nosuspend function(x: number, n: number): integer,
 
     --- Swaps the byte order of `x`, converting between endiannesses.
     ---
     --- @param x the number to byte-swap
     --- @return the swapped value
-    bswap: function(x: number): integer
+    bswap: nosuspend function(x: number): integer
 }
 
 --- Control and introspection for the JIT compiler itself.

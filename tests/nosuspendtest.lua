@@ -127,15 +127,92 @@ function M.staysAName()
    end
 end
 
-function M.aPreludeCallIsRefusedForNow()
-   -- Documents a known limitation rather than a design. A prelude function is a field
-   -- of a table type annotation, so there is nowhere to write `@effects` on it, and an
-   -- undeclared effect is conservatively may-yield. Until declaration files can state
-   -- the fact, `nosuspend` cannot admit `math.floor`.
-   --
-   -- This test should change, not be deleted, when that lands.
-   local refusals = diagnose("nosuspend do\n    math.floor(1.5)\nend")
-   assertEq(#refusals, 1, "the prelude is conservatively may-yield today")
+function M.acceptsAnAnnotatedPreludeCall()
+   -- The prelude is not special-cased. Its pure members say `nosuspend function(...)`
+   -- in the declaration like anything else would, and that is what admits them.
+   local refusals = diagnose(table.concat({
+      "nosuspend do",
+      "    local n = math.floor(1.5)",
+      "    local s = string.rep('-', n)",
+      "    local t = table.concat({'a'}, ',')",
+      "    local b = bit.band(1, 2)",
+      "    print(n, s, t, b)",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 1, "only the unannotated one is refused")
+   assertTrue(refusals[1].msg:find("print", 1, true) ~= nil,
+      "and it is `print`, which says nothing about its effects: " .. refusals[1].msg)
+end
+
+function M.aBodylessAnnotatedDeclarationIsAccepted()
+   -- The case the modifier exists for: a binding whose body this compiler never sees.
+   local refusals = diagnose(table.concat({
+      "local host: {quiet: nosuspend function(n: integer): integer}",
+      "nosuspend do",
+      "    host.quiet(1)",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 0, "a declared guarantee is a guarantee")
+end
+
+function M.aBodylessUnannotatedDeclarationIsRefused()
+   local refusals = diagnose(table.concat({
+      "local host: {loud: function(): nil}",
+      "nosuspend do",
+      "    host.loud()",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 1, "silence is not a guarantee")
+end
+
+function M.theModifierSurvivesAnAlias()
+   local refusals = diagnose(table.concat({
+      "local host: {quiet: nosuspend function(n: integer): integer}",
+      "local f = host.quiet",
+      "nosuspend do",
+      "    f(1)",
+      "end",
+   }, "\n"))
+   assertEq(#refusals, 0, "the fact is the type's, so renaming does not lose it")
+end
+
+function M.aNoSuspendFunctionSatisfiesAnOrdinarySlot()
+   -- A guarantee only has to hold where one was asked for.
+   local refusals, diags = diagnose(table.concat({
+      "local host: {quiet: nosuspend function(n: integer): integer}",
+      "local slot: function(n: integer): integer = host.quiet",
+      "return slot",
+   }, "\n"))
+   assertEq(#refusals, 0, "no region here")
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.severity == "warning" or diag.severity == "note",
+         "it fits the wider slot: " .. diag.code .. " " .. diag.msg)
+   end
+end
+
+function M.anOrdinaryFunctionDoesNotSatisfyANoSuspendSlot()
+   local _, diags = diagnose(table.concat({
+      "local host: {loud: function(n: integer): integer}",
+      "local slot: nosuspend function(n: integer): integer = host.loud",
+      "return slot",
+   }, "\n"))
+   local refused = nil
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2001" then refused = diag end
+   end
+   assertTrue(refused ~= nil, "a may-yield function cannot fill a slot that forbids it")
+   assertTrue(refused.msg:find("suspend", 1, true) ~= nil,
+      "and the refusal says why: " .. refused.msg)
+end
+
+function M.theModifierSurvivesGenericSubstitution()
+   local T = require("nupp.compiler.types")
+   local generics = require("nupp.compiler.generics")
+   local tv = T.typevar("T")
+   local safe = T.withYields(T.func({tv}, {tv}), false)
+   local concrete = generics.subst(safe, {[tv] = T.string})
+   assertEq(concrete.noYield, true, "substitution rewrites types, not effects")
+   assertEq(concrete.params[1], T.string, "and the substitution happened")
 end
 
 return M
