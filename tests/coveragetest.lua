@@ -45,6 +45,8 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     assert(detail:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
     assert(index:find("aria-sort=none", 1, true), "sortable headings expose their state")
+    assert(index:find("td>.status{margin-right:.45rem}", 1, true),
+        "table status dots leave room before filenames")
     test.matches(read(out .. "/lcov.info"), "SF:src/nupp/")
     assert(os.execute("rm -rf " .. string.format("%q", out)) == 0)
 end
