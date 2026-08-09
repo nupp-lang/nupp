@@ -7,6 +7,8 @@
   --pg-accent: #587539;
   --pg-accent-hover: #46602e;
   --pg-accent-soft: #e7eee0;
+  --pg-button: #0d2931;
+  --pg-button-hover: #163f4a;
   --pg-background: #fff;
   --pg-background-alt: #f6f6f7;
   --pg-border: #e2e2e3;
@@ -33,6 +35,8 @@
     --pg-accent: #9ece6a;
     --pg-accent-hover: #b3dc8a;
     --pg-accent-soft: #26301c;
+    --pg-button: #0d2931;
+    --pg-button-hover: #1c4552;
     --pg-background: #1b1b1f;
     --pg-background-alt: #161618;
     --pg-border: #2e2e32;
@@ -105,15 +109,15 @@ body {
 .button {
   padding: .4rem .9rem;
   color: #fff;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--pg-button) 60%, white 15%);
   border-radius: 7px;
-  background: var(--pg-accent);
+  background: var(--pg-button);
   font: inherit;
   font-weight: 600;
   font-size: .82rem;
   cursor: pointer;
 }
-.button:hover { background: var(--pg-accent-hover); }
+.button:hover { background: var(--pg-button-hover); }
 
 .is-busy .button { opacity: .55; pointer-events: none; }
 
@@ -279,3 +283,12 @@ body {
    EditorView.theme extension, not loose CSS here — because loose overrides
    of .cm-* classes lose the specificity fight against the stylesheet
    basicSetup's default HighlightStyle injects. */
+
+.cm-nupp-hover pre {
+  margin: 0;
+  padding: .45rem .6rem;
+  color: var(--pg-text);
+  font-family: var(--pg-font-mono);
+  font-size: .78rem;
+  white-space: pre-wrap;
+}

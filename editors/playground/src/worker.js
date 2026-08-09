@@ -43,7 +43,16 @@ async function boot() {
     local json = require("cjson")
     local parser = require("nupp.parser")
     local check = require("nupp.check")
+    local tree = require("nupp.lsp.tree")
+    local T = require("nupp.types")
     local env = require("nupp.env").new(".")
+
+    -- Set at the end of a successful __playground_check, read by
+    -- __playground_hover. Hover reuses the last check rather than
+    -- reparsing/rechecking the whole buffer on every mouse movement — the
+    -- same tradeoff a real editor makes reusing its last diagnostics pass
+    -- for hover, and one debounced check (see app.js) behind besides.
+    local lastResult = nil
 
     local function diagList(diags)
         local out = {}
@@ -72,8 +81,32 @@ async function boot() {
             local ok, checked = pcall(check.check, result, filename, env, {strict = false})
             if not ok then error(checked, 0) end
             diags = checked
+            lastResult = result
         end
         return json.encode({diagnostics = diagList(diags)})
+    end
+
+    -- What textDocument/hover in nupp.lsp answers with, minus the parts
+    -- (nupp.lsp.navigate's documentationFor, doc comments) that need a live
+    -- LSP session rather than just a checked parse result. offset is a
+    -- 1-based byte offset, same as every other position in this codebase.
+    __playground_hover = function(offset)
+        if not lastResult then return json.encode({found = false}) end
+        local tok = tree.tokenAt(lastResult, offset)
+        if not tok then return json.encode({found = false}) end
+        local def = tok.definition
+        local t = tok.inferredType or (def and def.type)
+        if not t then return json.encode({found = false}) end
+        local name = def and def.name or tok.text
+        local prefix = def and def.cdef and "cdef "
+            or def and def.constant and "const " or ""
+        return json.encode({
+            found = true,
+            name = name,
+            signature = prefix .. name .. ": " .. T.tostring(t),
+            offset = tok.offset,
+            length = #tok.text,
+        })
     end
 
     -- Mirrors nupp.cli.compile's compile.module, taking source text directly
@@ -122,6 +155,16 @@ function callForJson(name, source, filename) {
   return JSON.parse(text);
 }
 
+function hoverAt(offset) {
+  lua.lua_getglobal(L, to_luastring("__playground_hover"));
+  lua.lua_pushinteger(L, offset);
+  const rc = lua.lua_pcall(L, 1, 1, 0);
+  const text = lua.lua_tojsstring(L, -1);
+  lua.lua_pop(L, 1);
+  if (rc !== lua.LUA_OK) throw new Error(text);
+  return JSON.parse(text);
+}
+
 const FFI_MESSAGE_HINT = "not available in the browser playground";
 
 function friendlyError(err) {
@@ -135,7 +178,7 @@ function friendlyError(err) {
 }
 
 self.onmessage = (event) => {
-  const { id, kind, source, filename } = event.data;
+  const { id, kind, source, filename, offset } = event.data;
   if (!ready) {
     postMessage({ id, ok: false, error: "the compiler is still loading" });
     return;
@@ -145,6 +188,8 @@ self.onmessage = (event) => {
       postMessage({ id, ok: true, ...callForJson("__playground_check", source, filename || "playground.nupp") });
     } else if (kind === "compile") {
       postMessage({ id, ok: true, ...callForJson("__playground_compile", source, filename || "playground.nupp") });
+    } else if (kind === "hover") {
+      postMessage({ id, ok: true, ...hoverAt(offset) });
     } else {
       postMessage({ id, ok: false, error: `unknown request kind "${kind}"` });
     }

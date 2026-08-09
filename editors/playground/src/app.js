@@ -1,9 +1,17 @@
 import { EditorView, basicSetup } from "codemirror";
+import { hoverTooltip } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
 import { nuppEditorTheme } from "./cm-theme.js";
 import EXAMPLE from "./example.nupp";
+
+// Nupp positions are 1-based byte offsets (AGENTS.md: "Source positions are
+// 1-based byte line and column numbers"); CodeMirror positions are 0-based
+// character offsets. Byte vs. character only diverges on non-ASCII source,
+// which the checker itself doesn't special-case either — good enough here.
+const toCmPos = (nuppOffset) => nuppOffset - 1;
+const toNuppOffset = (cmPos) => cmPos + 1;
 
 const FILENAME = "playground.nupp";
 
@@ -47,11 +55,11 @@ worker.onmessage = (event) => {
   resolver(msg);
 };
 
-function request(kind, source) {
+function request(kind, extra) {
   const id = nextId++;
   return new Promise((resolve) => {
     pending.set(id, resolve);
-    worker.postMessage({ id, kind, source, filename: FILENAME });
+    worker.postMessage({ id, kind, filename: FILENAME, ...extra });
   });
 }
 
@@ -65,6 +73,33 @@ function setStatus(text, isError) {
 function setBusy(busy) {
   document.body.classList.toggle("is-busy", busy);
 }
+
+// --- Hover -------------------------------------------------------------------
+
+// Reuses whatever the last successful check found (see worker.js's
+// lastResult) instead of reparsing and rechecking the whole buffer on every
+// mouse movement — hovering needs to feel instant, and re-running the
+// checker doesn't.
+const nuppHover = hoverTooltip(async (view, pos) => {
+  const result = await request("hover", { offset: toNuppOffset(pos) });
+  if (!result.ok || !result.found) return null;
+  const docLength = view.state.doc.length;
+  const from = Math.max(0, Math.min(docLength, toCmPos(result.offset)));
+  const to = Math.max(from, Math.min(docLength, from + result.length));
+  return {
+    pos: from,
+    end: to,
+    above: true,
+    create() {
+      const dom = document.createElement("div");
+      dom.className = "cm-nupp-hover";
+      const pre = document.createElement("pre");
+      pre.textContent = result.signature;
+      dom.appendChild(pre);
+      return { dom };
+    },
+  };
+});
 
 // --- Source editor -----------------------------------------------------------
 
@@ -82,6 +117,7 @@ const sourceView = new EditorView({
       // applyDiagnostics(). This just installs the lint UI machinery.
       linter(() => []),
       lintGutter(),
+      nuppHover,
       EditorView.updateListener.of((update) => {
         if (update.docChanged) scheduleCheck();
       }),
@@ -147,7 +183,7 @@ function renderDiagnostics(diags) {
 function jumpTo(d) {
   if (typeof d.offset !== "number") return;
   const docLength = sourceView.state.doc.length;
-  const from = Math.max(0, Math.min(docLength, d.offset));
+  const from = Math.max(0, Math.min(docLength, toCmPos(d.offset)));
   const to = Math.max(from, Math.min(docLength, from + (d.length || 0)));
   sourceView.dispatch({
     selection: { anchor: from, head: to },
@@ -168,8 +204,8 @@ function applyDiagnostics(diags) {
   const markers = diags
     .filter((d) => typeof d.offset === "number")
     .map((d) => {
-      const from = Math.max(0, Math.min(docLength, d.offset));
-      const to = Math.max(from, Math.min(docLength, d.offset + Math.max(1, d.length || 1)));
+      const from = Math.max(0, Math.min(docLength, toCmPos(d.offset)));
+      const to = Math.max(from, Math.min(docLength, from + Math.max(1, d.length || 1)));
       return {
         from,
         to,
@@ -186,15 +222,22 @@ function applyDiagnostics(diags) {
 let checkTimer = null;
 function scheduleCheck() {
   clearTimeout(checkTimer);
-  checkTimer = setTimeout(checkNow, 400);
+  // Short enough to feel responsive, long enough that a fast typist doesn't
+  // queue up a check per keystroke — each one re-parses and re-checks the
+  // whole buffer (see worker.js), the same as `nupp check` on the command
+  // line; there's no incremental rechecking here (that's nupp.lsp's own
+  // incremental query engine, a lot more machinery than this playground
+  // drives — see README.md).
+  checkTimer = setTimeout(checkNow, 250);
 }
 
 let checkGeneration = 0;
 async function checkNow() {
   const generation = ++checkGeneration;
   const source = sourceView.state.doc.toString();
+  setStatus("checking…");
   const t0 = performance.now();
-  const result = await request("check", source);
+  const result = await request("check", { source });
   if (generation !== checkGeneration) return; // a newer check superseded this one
   const elapsed = Math.round(performance.now() - t0);
   if (!result.ok) {
@@ -216,7 +259,7 @@ async function checkNow() {
 async function compileNow() {
   setBusy(true);
   const source = sourceView.state.doc.toString();
-  const result = await request("compile", source);
+  const result = await request("compile", { source });
   setBusy(false);
   if (!result.ok) {
     setOutput(`-- ${result.error}`);
