@@ -303,6 +303,11 @@ return {
                   source = "docs/reference.md",
                },
                {
+                  path = "reference/regex",
+                  title = "nupp.regex",
+                  source = "docs/regex.md",
+               },
+               {
                   path = "reference/grammar",
                   title = "Grammar",
                   source = "docs/grammar.md",

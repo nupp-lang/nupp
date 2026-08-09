@@ -113,10 +113,10 @@ include root.
 Compiler-provided native APIs do not appear in `dependencies`. Their resolved
 uses record effects while Nupp checks the target's complete source set, and the
 build stages the matching providers automatically. For example,
-`nupp.regex.compile(...)` records `native.regex` and builds the compiler-owned
-Rust bridge into `build/lib/nupp_regex`; a target with no such resolved use
-does not build or retain that library. The global `nupp` table itself is always
-created by generated code.
+[`nupp.regex.compile(...)`](../regex.md) records `native.regex` and builds the
+compiler-owned Rust bridge into `build/lib/nupp_regex`; a target with no such
+resolved use does not build or retain that library. The global `nupp` table
+itself is always created by generated code.
 
 The registry also recognizes native Lua modules such as `require("lpeg")`.
 That produces `native.lpeg` for a feature-matched host without turning it into

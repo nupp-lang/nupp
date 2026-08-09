@@ -39,6 +39,8 @@ end
 - [Effect contracts](effects.md) — what calls may observe, change, or expose.
 - [Tooling](start/tooling.md) — the checker, build system, formatter, language
   server, documentation generator, and profiler.
+- [`nupp.regex`](regex.md) — compiled Rust regular expressions over Lua byte
+  strings, linked only when used.
 - [The language reference](reference.md) — every construct and the codes that
   report getting it wrong, generated from the compiler.
 

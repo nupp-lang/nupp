@@ -181,17 +181,25 @@ local require: function(name: string): any
 
 --- One byte-range match from a compiler-provided regular expression.
 record NuppRegexMatch
+    --- Bytes copied from the matched range.
     value: string
+    --- The first matched byte using a 1-based index.
     first: integer
+    --- The inclusive last matched byte, or `first - 1` for an empty match.
     last: integer
+    --- The capture-group index, with zero for the whole match.
     index: integer
+    --- The capture name, or nil for an unnamed group.
     name: string?
 end
 
 --- The whole match, numbered captures, and named aliases from one search.
 record NuppRegexCaptures
+    --- Group zero, which covers the whole match.
     whole: NuppRegexMatch
+    --- Explicit groups by 1-based index. An unmatched group leaves a hole.
     groups: {NuppRegexMatch}
+    --- The number of explicit groups, including groups that did not match.
     groupCount: integer
     -- Capture names are pattern-defined, so dot access cannot be enumerated
     -- statically. It remains gradual while numbered groups stay precise.
@@ -201,17 +209,52 @@ end
 --- A compiled Rust regular expression. Positions are 1-based inclusive byte
 --- indexes, matching Lua's string functions.
 record NuppRegex
+    --- The source pattern unchanged.
     pattern: string
+
+    --- Reports whether any part of an arbitrary-byte subject matches.
+    ---
+    --- @param subject arbitrary bytes, which need not be UTF-8
+    --- @return true when the expression matches at least once
     isMatch: function(self: NuppRegex, subject: string): boolean
+
+    --- Finds the first match at or after a byte position.
+    ---
+    --- @param subject arbitrary bytes
+    --- @param init the first byte considered under `string.find`'s rules
+    --- @return the matched bytes and their range, or nil
     find: function(self: NuppRegex, subject: string, init: integer?): NuppRegexMatch?
+
+    --- Finds the first match and every capture group it populated.
+    ---
+    --- @param subject arbitrary bytes
+    --- @param init the first byte considered under the same rules as `find`
+    --- @return the whole match, numbered groups, and named aliases, or nil
     captures: function(self: NuppRegex, subject: string, init: integer?): NuppRegexCaptures?
+
+    --- Replaces the first match, expanding `$0`, `$1`, `$name`, `${name}`,
+    --- and `$$` capture references in the replacement.
     replace: function(self: NuppRegex, subject: string, replacement: string): string
+
+    --- Replaces every non-overlapping match using `replace`'s capture syntax.
     replaceAll: function(self: NuppRegex, subject: string, replacement: string): string
+end
+
+--- The compiler-provided regular-expression library.
+record NuppRegexLibrary
+    --- Compiles a UTF-8 pattern using Rust regex syntax.
+    ---
+    --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse
+    --- the result; the Lua collector releases its native allocation.
+    ---
+    --- @param pattern Rust regex syntax
+    --- @return a reusable compiled expression
+    compile: function(pattern: string): NuppRegex
 end
 
 --- Compiler-provided facilities. The namespace is always present; native
 --- members are linked automatically when source reaches them.
-local nupp: {regex: {compile: function(pattern: string): NuppRegex}}
+local nupp: {regex: NuppRegexLibrary}
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
 --- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
