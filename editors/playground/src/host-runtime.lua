@@ -17,6 +17,13 @@ recompute and changes no answer.
 arg = {}
 os.exit = function(...) return ... end
 
+-- Lua 5.1 and LuaJIT's `loadstring`, which 5.2 folded into `load` and 5.3 --
+-- fengari's dialect -- does not define at all. nupp.optimize's constant folder
+-- reaches for it to evaluate a numeric literal the lexer already accepted, so
+-- without this the optimizer is not merely absent in the browser: turning it
+-- on fails the compile with "attempt to call a nil value".
+loadstring = loadstring or load
+
 -- fengari only registers the "io" global when it thinks it's running under
 -- Node (see the `typeof process` guard build.mjs folds away for the
 -- browser), so there is no table here to patch yet.

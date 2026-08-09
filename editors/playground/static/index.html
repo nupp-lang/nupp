@@ -15,36 +15,49 @@
     <span>Nupp Playground</span>
   </a>
   <div class="header-actions">
-    <label class="example-picker">
+    <label class="example-picker" id="example-picker">
       <span>Example</span>
       <!-- Options come from src/examples.js, so the menu and the snippets it
            offers can't drift apart. -->
       <select id="example-select" class="select"></select>
     </label>
     <span id="status" class="status">starting…</span>
+    <button id="options-button" class="icon-button" type="button" title="Options"
+            aria-label="Options" aria-expanded="false" aria-controls="options-panel">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h6.2m3.6 0H14M2 11.5h2.2m3.6 0H14"/><circle cx="10" cy="4.5" r="1.9"/><circle cx="6" cy="11.5" r="1.9"/></svg>
+    </button>
+    <button id="share-button" class="icon-button" type="button" title="Copy a link to this program"
+            aria-label="Copy a link to this program">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.6 9.4a2.6 2.6 0 0 0 3.9.3l2-2a2.6 2.6 0 0 0-3.7-3.7l-1.1 1.1"/><path d="M9.4 6.6a2.6 2.6 0 0 0-3.9-.3l-2 2a2.6 2.6 0 0 0 3.7 3.7l1.1-1.1"/></svg>
+    </button>
     <button id="compile-button" class="button">Compile</button>
   </div>
+  <!-- Inside the header, which is the positioned ancestor it hangs from. -->
+  <div id="options-panel" class="options-panel" hidden></div>
 </header>
 
+<!-- No "Open in the full playground" here: this is it. -->
 <main class="shell">
   <section class="panel panel-source">
     <div class="panel-head">
-      <span>main.nupp</span>
+      <span id="filename" class="filename">playground.nupp</span>
       <span id="check-time" class="panel-head-note"></span>
     </div>
     <div id="source-editor" class="editor-host"></div>
   </section>
 
-  <section class="panel panel-side">
-    <div class="tabs">
-      <button class="tab is-active" data-tab="diagnostics">Diagnostics</button>
-      <button class="tab" data-tab="output">Generated Lua</button>
-    </div>
-    <div id="diagnostics-panel" class="tab-panel is-active">
-      <ul id="diagnostics" class="diagnostics"></ul>
-    </div>
-    <div id="output-panel" class="tab-panel">
+  <!-- The same drawer the embed has, open on arrival: there is room for it
+       here, and a playground with its answer already showing is one fewer
+       click before the first thing worth seeing. -->
+  <section class="output is-open" id="output" aria-label="Output">
+    <button id="output-toggle" class="output-head" type="button" aria-expanded="true" aria-controls="output-body">
+      <span class="output-caret" aria-hidden="true">▸</span>
+      <span class="output-title">Output</span>
+      <span id="output-summary" class="output-summary"></span>
+    </button>
+    <div id="output-body" class="output-body">
       <div id="output-editor" class="editor-host"></div>
+      <ul id="diagnostics" class="diagnostics output-side"></ul>
     </div>
   </section>
 </main>

@@ -9,16 +9,49 @@
 <link rel="stylesheet" href="./style.css">
 </head>
 <body class="is-busy is-embed">
-<div class="embed-toolbar">
-  <label class="example-picker">
+<div class="head-bar">
+  <!-- One of these shows: the name when the buffer is the page's own program,
+       the menu when there are several to choose between. app.js picks. -->
+  <span id="filename" class="filename" hidden>playground.nupp</span>
+  <label class="example-picker" id="example-picker">
     <span>Example</span>
     <!-- Options come from src/examples.js, the same list index.html builds
          its menu from. -->
     <select id="example-select" class="select"></select>
   </label>
+
+  <div class="head-actions">
+    <button id="compile-button" class="icon-button" type="button" title="Compile" aria-label="Compile">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3.2v9.6l8-4.8z"/></svg>
+    </button>
+    <button id="options-button" class="icon-button" type="button" title="Options"
+            aria-label="Options" aria-expanded="false" aria-controls="options-panel">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h6.2m3.6 0H14M2 11.5h2.2m3.6 0H14"/><circle cx="10" cy="4.5" r="1.9"/><circle cx="6" cy="11.5" r="1.9"/></svg>
+    </button>
+    <a id="open-button" class="icon-button" title="Open in the full playground"
+       aria-label="Open in the full playground" href="/playground/" target="_blank" rel="noopener">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9 2.6h4.4V7M13 3l-6 6"/><path d="M11.6 9.6v3.2a.9.9 0 0 1-.9.9H3.3a.9.9 0 0 1-.9-.9V5.3a.9.9 0 0 1 .9-.9h3.2"/></svg>
+    </a>
+  </div>
+
+  <!-- Inside the bar, which is the positioned ancestor it hangs from. -->
+  <div id="options-panel" class="options-panel" hidden></div>
 </div>
+
 <div id="source-editor" class="editor-host"></div>
-<div id="status" class="embed-status">starting…</div>
+
+<section class="output" id="output" aria-label="Output">
+  <button id="output-toggle" class="output-head" type="button" aria-expanded="false" aria-controls="output-body">
+    <span class="output-caret" aria-hidden="true">▸</span>
+    <span class="output-title">Output</span>
+    <span id="output-summary" class="output-summary"></span>
+  </button>
+  <div id="output-body" class="output-body" hidden>
+    <pre id="output-main" class="output-main" tabindex="0"></pre>
+    <ul id="diagnostics" class="diagnostics output-side"></ul>
+  </div>
+</section>
+
 <script type="module" src="./app.js"></script>
 </body>
 </html>

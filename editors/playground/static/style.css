@@ -78,6 +78,8 @@ body {
 }
 
 .header {
+  /* The options menu hangs off this. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -111,6 +113,9 @@ body {
   color: var(--pg-muted);
   font-size: .8rem;
 }
+/* A class rule setting `display` outranks the user agent's own [hidden] rule,
+   so hiding this from script needs saying here. */
+.example-picker[hidden] { display: none; }
 
 /* `appearance: none` would take the disclosure arrow with it, and nothing
    here wants to redraw one — this keeps the platform control and only
@@ -154,9 +159,11 @@ body {
 
 .is-busy .button { opacity: .55; pointer-events: none; }
 
+/* Editor above, output drawer below — the same shape the embed has, so one
+   description of the layout covers both pages. */
 .shell {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
 }
@@ -167,8 +174,6 @@ body {
   min-height: 0;
   min-width: 0;
 }
-
-.panel-source { border-right: 1px solid var(--pg-border); }
 
 .panel-head {
   display: flex;
@@ -192,35 +197,6 @@ body {
 
 .editor-host .cm-editor { height: 100%; }
 .editor-host .cm-scroller { font-family: var(--pg-font-mono); font-size: 13.5px; }
-
-.tabs {
-  display: flex;
-  height: 34px;
-  border-bottom: 1px solid var(--pg-border);
-  background: var(--pg-background-alt);
-  flex: none;
-}
-
-.tab {
-  padding: 0 1rem;
-  color: var(--pg-muted);
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  font: inherit;
-  font-size: .8rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.tab.is-active { color: var(--pg-accent); border-bottom-color: var(--pg-accent); }
-
-.tab-panel {
-  display: none;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-}
-.tab-panel.is-active { display: flex; flex-direction: column; }
 
 .diagnostics {
   margin: 0;
@@ -283,56 +259,181 @@ body {
 }
 .footer a { color: var(--pg-accent); }
 
-/* embed.html: the editor and the example picker, meant to sit inside an
-   <iframe> — no tabs, side panel, or footer. The picker sits in a strip of its
-   own rather than floating over the editor, which would cover the code it is
-   there to switch, and at the leading edge, where a reader looks first. */
+/* embed.html: the editor between a head bar and an output drawer, meant to sit
+   inside an <iframe> — no side panel or footer. A plain flex column, since the
+   drawer changes height and the editor takes what is left. */
 .is-embed {
-  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
-.embed-toolbar {
-  position: absolute;
-  inset: 0 0 auto;
+.is-embed .editor-host .cm-scroller { font-size: 13px; }
+
+.head-bar {
+  position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
   height: 2.1rem;
-  padding: 0 .55rem;
+  padding: 0 .35rem 0 .55rem;
   border-bottom: 1px solid var(--pg-border);
   background: var(--pg-background-alt);
+  flex: none;
 }
-.embed-toolbar .example-picker { font-size: .72rem; }
-.embed-toolbar .select {
+.head-bar .example-picker { font-size: .72rem; }
+.head-bar .select {
   padding: .18rem 1.4rem .18rem .4rem;
   font-size: .74rem;
 }
-.is-embed #source-editor {
-  position: absolute;
-  inset: 2.1rem 0 0;
-}
-/* Set by app.js when the page inlined its own program, so there is no menu to
-   put in the strip and no reason to keep the strip. */
-.is-embed.is-bare .embed-toolbar { display: none; }
-.is-embed.is-bare #source-editor { inset: 0; }
-.is-embed .editor-host .cm-scroller { font-size: 13px; }
 
-.embed-status {
-  position: absolute;
-  right: .6rem;
-  bottom: .6rem;
-  z-index: 5;
-  padding: .2rem .45rem;
+.filename {
   color: var(--pg-muted);
-  border: 1px solid var(--pg-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--pg-background) 88%, transparent);
-  backdrop-filter: blur(6px);
-  font-size: .9rem;
-  line-height: 1;
-  /* The glyph says clean or not; the words it stands for are the title, so the
-     pill has to be hoverable to give them up. */
-  cursor: default;
+  font-family: var(--pg-font-mono);
+  font-size: .74rem;
 }
-.embed-status.status-error { border-color: var(--pg-error); }
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: .1rem;
+}
+
+/* One shape for every icon control on both pages. The glyphs are inline SVG
+   drawn on a 16-unit grid and stroked rather than filled, except the play
+   triangle, which has no outline to speak of. */
+.icon-button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  color: var(--pg-muted);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.icon-button:hover { color: var(--pg-text); background: var(--pg-code-background); }
+.icon-button.is-active { color: var(--pg-accent); background: var(--pg-code-background); }
+.icon-button:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-button svg path[d^="M4.5"] { fill: currentColor; stroke: none; }
+
+.is-busy .icon-button { opacity: .55; pointer-events: none; }
+
+/* Anchored under the button that opens it. Absolute rather than in flow so
+   opening it does not move the editor down. */
+.options-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + .3rem);
+  right: .35rem;
+  display: flex;
+  width: 17rem;
+  flex-direction: column;
+  gap: .55rem;
+  padding: .65rem .7rem;
+  border: 1px solid var(--pg-border);
+  border-radius: 8px;
+  background: var(--pg-background);
+  box-shadow: 0 6px 20px rgb(0 0 0 / .18);
+}
+.options-panel[hidden] { display: none; }
+
+.options-row {
+  display: flex;
+  align-items: flex-start;
+  gap: .5rem;
+  cursor: pointer;
+}
+.options-row input { margin: .15rem 0 0; accent-color: var(--pg-accent); }
+.options-text { display: flex; flex-direction: column; gap: .1rem; }
+.options-name { color: var(--pg-text); font-size: .78rem; font-weight: 600; }
+.options-hint { color: var(--pg-muted); font-size: .7rem; line-height: 1.35; }
+
+/* The output drawer. Collapsed it is one bar saying what the compiler said;
+   expanded it is that answer in full, with the diagnostics list beside it —
+   a clean compile can still carry warnings worth reading. */
+.output {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--pg-border);
+  background: var(--pg-background-alt);
+  flex: none;
+}
+.output.is-open { flex: 0 1 40%; }
+
+.output-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: .45rem;
+  height: 1.9rem;
+  padding: 0 .6rem;
+  color: var(--pg-muted);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: .74rem;
+  text-align: left;
+  cursor: pointer;
+  flex: none;
+}
+.output-head:hover { color: var(--pg-text); }
+.output-caret { display: inline-block; font-size: .62rem; transition: transform 120ms ease; }
+.output.is-open .output-caret { transform: rotate(90deg); }
+.output-title { font-weight: 600; }
+.output-summary {
+  margin-left: auto;
+  color: var(--pg-muted);
+  font-family: var(--pg-font-mono);
+  font-size: .7rem;
+}
+.output-summary.is-error { color: var(--pg-error); }
+
+.output-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  min-height: 0;
+  border-top: 1px solid var(--pg-border);
+  background: var(--pg-background);
+  flex: 1;
+}
+.output-body[hidden] { display: none; }
+
+.output-main {
+  overflow: auto;
+  min-height: 0;
+  margin: 0;
+  padding: .55rem .7rem;
+  color: var(--pg-text);
+  font-family: var(--pg-font-mono);
+  font-size: .74rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+/* Generated Lua reads as code; a diagnostic run reads as a report. */
+.output-main:not(.is-code) { color: var(--pg-muted); white-space: pre-wrap; }
+
+.output-side {
+  border-left: 1px solid var(--pg-border);
+  background: var(--pg-background-alt);
+}
+
+@media (max-width: 620px) {
+  .output-body { grid-template-columns: minmax(0, 1fr); }
+  .output-side { border-left: 0; border-top: 1px solid var(--pg-border); }
+}
 
 /* The editor's own colors (background, gutters, selection, syntax) are set
    properly via CodeMirror's theme API in src/cm-theme.js — an

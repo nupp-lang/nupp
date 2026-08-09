@@ -26,6 +26,7 @@ the implementations and the exact reasoning at each one, and
  `const NAME = value` nupp.build.hash's own top-level locals   rewritten to `local`, at build time
  `0x..ULL` literals    nupp.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
  `bit.*`               nupp.cdecl (C-declaration decoding)     real bitwise ops, Lua 5.3 native
+ `loadstring`          nupp.optimize's constant folder         Lua 5.3's `load`, same for a chunk
  `string.buffer`       nupp.build.store (project-index cache)  a plain string-accumulator
  `cjson`               build cache, `--json`-shaped output     a small JSON codec
  `ffi`                 nupp.cdecl, nupp.check.ffi              stub — see below
@@ -85,24 +86,45 @@ where the sandbox's abilities do.
 
 ## Two pages
 
-**`index.html`** is the full playground: source editor, a diagnostics list
-and generated-Lua panel behind tabs, an example picker, a Compile button,
-header and footer.
+Both are the same three parts stacked: a bar naming the buffer with the
+actions on its trailing edge, the editor, and an output drawer along the
+bottom. What differs is how much room each has.
 
-**`embed.html`** is the editor and the example picker — no tabs, side panel,
-or footer — meant for `<iframe src=".../embed.html">`, and what the docs site's
-` ```playground ` fence embeds (see `src/nupp/doc/html.nupp`). It still checks
-on every edit with the same debounce and shows the same inline squiggles and
-hover messages. The rest of the UI is one pill in the corner, which is a glyph
-rather than a sentence: there is no diagnostics list beside it to read a count
-against, so it answers whether the program checks and keeps the words as its
-title.
+**`index.html`** is the full playground: a header with the example menu, the
+check status, Options, Share and Compile, and the drawer open on arrival,
+since there is room for it and its answer is the first thing worth seeing.
+
+**`embed.html`** is the same thing sized for an `<iframe src=".../embed.html">`
+— the head bar carries only icons, and the drawer starts collapsed to one line.
+It is what the docs site's ` ```playground ` fence embeds (see
+`src/nupp/doc/html.nupp`). Its extra action is **Open**, which hands the buffer
+to the full playground rather than opening a blank one; the full playground has
+no such button, being already there.
+
+The drawer answers one question — what did the compiler say. Its main pane
+holds the diagnostics as the CLI prints them when something is wrong, and the
+generated Lua when nothing is; the list beside it stays either way, because a
+clean compile can still carry warnings. index.html highlights that pane as Lua,
+which is why a diagnostic run is written as Lua comments: one report format
+reads correctly in both.
+
+**Options** sets what the compiler is asked for: strict or gradual checking,
+and whether the `-O1` passes run before Lua is generated. Strict is on by
+default here where the command line leaves it off — every bundled example
+checks clean under it, and a playground is where the stricter answer is the
+more interesting one to meet first.
 
 An embedding page may supply its own program, as `#source=` in the fragment,
-percent-encoded. That page has chosen what it wants shown, so the example menu
-and the strip holding it drop out — the menu would only offer to replace what
-the page came to show. The fragment, rather than a query, keeps a reader's
-edits from reaching any server.
+percent-encoded, and non-default options ride along beside it (`&strict=0`).
+Share, on the full playground, builds exactly that link and copies it; where
+the clipboard is refused — an insecure origin, some embeddings — it puts the
+link in the address bar and says so. The fragment, rather than a query, keeps
+a reader's program and edits from reaching any server.
+
+A page that inlined its own program has one buffer and has already chosen it,
+so the embed's head bar names it instead of offering the example menu. The
+full playground keeps the menu regardless: a reader who arrived on a shared
+link is still free to go browse.
 
 Both pages share `app.js`, which looks up each optional element by id and skips
 wiring it up when the page doesn't have one, rather than each page having its

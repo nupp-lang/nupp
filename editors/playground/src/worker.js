@@ -72,13 +72,32 @@ async function boot() {
     -- table walked field-by-field from JS, is what host-runtime.lua's cjson
     -- shim exists for.
 
-    __playground_check = function(source, filename)
+    -- The third argument is what the Options panel set, as name=0/1 pairs:
+    -- "strict=1,optimize=0". Not JSON, though everything else here crosses as
+    -- JSON, because host-runtime.lua's cjson shim implements encode and not
+    -- decode -- nothing in the playground had needed to read JSON back until
+    -- now, and two booleans do not justify a parser. One argument still, so a
+    -- third setting is a field on each side and nothing in between.
+    --
+    -- No backticks anywhere in this string: it is a JS template literal, and
+    -- one would end it early.
+    local function settingsOf(options)
+        local out = {}
+        for name, value in tostring(options or ""):gmatch("([%w_]+)=([01])") do
+            out[name] = value == "1"
+        end
+        return out
+    end
+
+    __playground_check = function(source, filename, options)
+        local settings = settingsOf(options)
         local result = parser.parse(source, filename)
         local diags
         if #result.errors > 0 then
             diags = result.errors
         else
-            local ok, checked = pcall(check.check, result, filename, env, {strict = false})
+            local ok, checked = pcall(check.check, result, filename, env,
+                {strict = settings.strict == true})
             if not ok then error(checked, 0) end
             diags = checked
             lastResult = result
@@ -118,21 +137,26 @@ async function boot() {
 
     -- Mirrors nupp.cli.compile's compile.module, taking source text directly
     -- instead of reading a path off disk.
-    __playground_compile = function(source, filename)
+    __playground_compile = function(source, filename, options)
+        local settings = settingsOf(options)
         local result = parser.parse(source, filename)
         if #result.errors > 0 then
             return json.encode({reason = "syntax errors",
                 diagnostics = diagList(result.errors)})
         end
-        local ok, diags = pcall(check.check, result, filename, env, {strict = false})
+        local ok, diags = pcall(check.check, result, filename, env,
+            {strict = settings.strict == true})
         if not ok then error(diags, 0) end
         for _, d in ipairs(diags) do
             if d.severity == "error" then
                 return json.encode({reason = "type errors", diagnostics = diagList(diags)})
             end
         end
+        -- Every pass nupp.optimize registers runs at level 1, so the Options
+        -- panel's one switch is the whole of -O0 against -O1.
         local okOpt, optErr = pcall(require("nupp.optimize").run, result,
-            {level = 0, filename = filename, disabled = {}, relaxed = {}})
+            {level = settings.optimize == true and 1 or 0, filename = filename,
+             disabled = {}, relaxed = {}})
         if not okOpt then error(optErr, 0) end
         local gen = require("nupp.gen")
         local okGen, code, genDiags = pcall(gen.generate, result, filename)
@@ -151,11 +175,20 @@ async function boot() {
   postMessage({ type: "ready" });
 }
 
-function callForJson(name, source, filename) {
+// `strict=1,optimize=0` — see the settingsOf note in the driver for why this
+// is not JSON like everything else crossing this boundary.
+function encodeOptions(options) {
+  return Object.entries(options || {})
+    .map(([key, value]) => `${key}=${value ? 1 : 0}`)
+    .join(",");
+}
+
+function callForJson(name, source, filename, options) {
   lua.lua_getglobal(L, to_luastring(name));
   lua.lua_pushstring(L, to_luastring(source));
   lua.lua_pushstring(L, to_luastring(filename));
-  const rc = lua.lua_pcall(L, 2, 1, 0);
+  lua.lua_pushstring(L, to_luastring(encodeOptions(options)));
+  const rc = lua.lua_pcall(L, 3, 1, 0);
   const text = lua.lua_tojsstring(L, -1);
   lua.lua_pop(L, 1);
   if (rc !== lua.LUA_OK) throw new Error(text);
@@ -185,16 +218,16 @@ function friendlyError(err) {
 }
 
 self.onmessage = (event) => {
-  const { id, kind, source, filename, offset } = event.data;
+  const { id, kind, source, filename, offset, options } = event.data;
   if (!ready) {
     postMessage({ id, ok: false, error: "the compiler is still loading" });
     return;
   }
   try {
     if (kind === "check") {
-      postMessage({ id, ok: true, ...callForJson("__playground_check", source, filename || "playground.nupp") });
+      postMessage({ id, ok: true, ...callForJson("__playground_check", source, filename || "playground.nupp", options) });
     } else if (kind === "compile") {
-      postMessage({ id, ok: true, ...callForJson("__playground_compile", source, filename || "playground.nupp") });
+      postMessage({ id, ok: true, ...callForJson("__playground_compile", source, filename || "playground.nupp", options) });
     } else if (kind === "hover") {
       postMessage({ id, ok: true, ...hoverAt(offset) });
     } else {
