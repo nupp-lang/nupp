@@ -14,7 +14,7 @@ reference each command's `-h` does.
  tasks        List or inspect project tasks from nupp.lua
  lints        List the lints and the level each runs at
  explain      Describe a diagnostic code, with an example either way
- reference    Print the language reference, or eject it as an agent skill
+ reference    List or print a focused Nupp reference chapter
  test         Build and run the configured test command
  doc          Generate API documentation from source comments
  fixpoint     Verify a byte-identical self-hosting rebuild
@@ -201,17 +201,20 @@ nupp explain NUPP2119
 ### `reference`
 
 ```
-nupp reference [--format markdown|skill|json] [-o PATH]
+nupp reference [language|cli|all] [--format markdown|skill|json] [-o PATH]
 ```
 
-Prints the whole language: every construct, the shortest program that uses it,
-and the diagnostic codes that report getting it wrong. It is generated from the
-compiler, so it cannot describe a construct the compiler does not have.
+With no chapter, lists the available focused references. `language` covers the
+language and its diagnostics; `cli` covers commands, JSON contracts, testing,
+and coverage. `all` prints both. They are generated from the compiler, so they
+cannot describe a construct the compiler does not have.
 
 Around four thousand tokens, which is small enough to put in a prompt whole:
 
 ```bash
-nupp reference > docs/reference.md
+nupp reference cli
+nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+nupp reference all > docs/reference.md
 nupp reference --format skill -o .claude/skills/nupp/SKILL.md
 ```
 

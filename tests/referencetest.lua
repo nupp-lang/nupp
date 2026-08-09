@@ -122,11 +122,39 @@ function M.theSkillCarriesLoadableFrontmatter()
    assert(skill:find("# Nupp language reference", closing, true),
       "the document follows the frontmatter")
    assert(skill:find("## Language", closing, true), "groups language sections")
-   assert(skill:find("## Toolchain", closing, true), "groups tool workflows")
+   assert(skill:find("## CLI", closing, true), "groups CLI workflows")
    assert(skill:find("### Improving test coverage", closing, true),
       "teaches the coverage workflow")
    assert(skill:find("nupp coverage --report-json", closing, true),
       "makes coverage data queryable by agents")
+end
+
+function M.chaptersAreDiscoverableAndFocused()
+   local catalogue = reference.catalog()
+   assert(catalogue:find("language", 1, true), "lists the language chapter")
+   assert(catalogue:find("cli", 1, true), "lists the CLI chapter")
+   local cli = assert(reference.chapter("cli"), "finds the CLI chapter")
+   assert(reference.chapter("missing") == nil, "does not invent chapters")
+   local markdown = reference.chapterMarkdown(cli)
+   assert(markdown:find("# Nupp CLI reference", 1, true), "titles CLI output")
+   assert(markdown:find("CLI commands", 1, true), "lists CLI commands")
+   assert(markdown:find("Improving test coverage", 1, true),
+      "keeps coverage guidance in the CLI chapter")
+   local skill = reference.skill(cli)
+   assert(skill:find("name: nupp-cli", 1, true), "names focused CLI skill")
+end
+
+function M.referenceCommandListsAndSelectsChapters()
+   local pipe = assert(io.popen(('%q reference'):format(NUPP)))
+   local catalogue = pipe:read("*a")
+   pipe:close()
+   assert(catalogue:find("Nupp reference chapters", 1, true),
+      "bare command lists chapters")
+   local cliPipe = assert(io.popen(('%q reference cli'):format(NUPP)))
+   local cli = cliPipe:read("*a")
+   cliPipe:close()
+   assert(cli:find("# Nupp CLI reference", 1, true),
+      "CLI chapter is selectable")
 end
 
 -- Around four thousand tokens is the claim the help text makes. Held loosely —

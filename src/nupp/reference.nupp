@@ -49,8 +49,14 @@ end
 
 --- One chapter groups related reference sections under a stable top-level heading.
 record reference.Chapter
+    --- The word accepted by `nupp reference <chapter>`.
+    name: string
+
     --- The top-level heading readers use to orient themselves in the reference.
     title: string
+
+    --- One line for the chapter catalogue and an agent skill's description.
+    summary: string
 
     --- The sections inside this chapter, in their intended reading order.
     sections: {reference.Section}
@@ -1063,6 +1069,26 @@ end
 
 local TOOLCHAIN_SECTIONS: {reference.Section} = {
     new reference.Section {
+        title = "CLI commands", codes = {},
+        body = [=[
+`nupp help <command>` is the authoritative argument reference for one command;
+`nupp help` lists every command. Use it when a focused skill names a command but
+does not need every flag in context.
+
+- `check`, `build`, `run`, and `fmt` work with source and generated Lua.
+- `test` runs the configured test command; `coverage` runs it against a separate
+  instrumented build and writes a report.
+- `lsp` answers semantic source questions; `explain` expands a diagnostic; and
+  `reference` returns these focused language and CLI skills.
+- `tasks`, `clean`, `doc`, and `import-c` work with project configuration,
+  outputs, documentation, and C declarations.
+
+Data-producing commands accept `--json`, and then `--schema` describes their
+JSON contract. Use the schema before automating against a command rather than
+inferring fields from an example. The CLI uses 1-based byte lines and columns.
+]=],
+    },
+    new reference.Section {
         title = "Working with the toolchain", codes = {}, body = reference.tooling,
     },
     new reference.Section {
@@ -1092,9 +1118,77 @@ locations alongside highlighted Nupp and generated Lua when visual context helps
 --- Chapters make the document scannable in a prompt and allow structured consumers
 --- to distinguish language rules from workflows for using the compiler.
 reference.chapters = {
-    new reference.Chapter {title = "Language", sections = languageSections()},
-    new reference.Chapter {title = "Toolchain", sections = TOOLCHAIN_SECTIONS},
+    new reference.Chapter {
+        name = "language", title = "Language",
+        summary = "Nupp syntax, types, runtime constructs, lints, and diagnostics.",
+        sections = languageSections(),
+    },
+    new reference.Chapter {
+        name = "cli", title = "CLI",
+        summary = "Nupp commands, JSON contracts, testing, and coverage workflows.",
+        sections = TOOLCHAIN_SECTIONS,
+    },
 }
+
+--- Finds the chapter named by the CLI, without making callers know how the chapters
+--- are stored or what their display headings are.
+function reference.chapter(name: string): reference.Chapter?
+    for _, chapter in ipairs(reference.chapters) do
+        if chapter.name == name then return chapter end
+    end
+    return nil
+end
+
+--- The short discovery response for `nupp reference`: enough to choose a focused
+--- chapter without having to pay for the complete language reference first.
+function reference.catalog(): string
+    local out: {string} = {"Nupp reference chapters", ""}
+    for _, chapter in ipairs(reference.chapters) do
+        out[#out + 1] = ("  %-10s %s"):format(chapter.name, chapter.summary)
+    end
+    out[#out + 1] = ""
+    out[#out + 1] = "Run `nupp reference <chapter>` for one chapter, or "
+        .. "`nupp reference all` for the complete reference."
+    return table.concat(out, "\n")
+end
+
+--- Renders one section at a caller-chosen heading depth. Both a whole reference and a
+--- focused chapter use this, keeping the examples and diagnostic links identical.
+local function renderSection(out: {string}, section: reference.Section, level: integer)
+    out[#out + 1] = heading(level, section.title)
+    out[#out + 1] = ""
+    out[#out + 1] = (section.body:gsub("^%s+", ""):gsub("%s+$", ""))
+    out[#out + 1] = ""
+    local names: {string} = {}
+    for name in pairs(section.context or {}) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local source = (section.context as {[string]: string})[name]
+        out[#out + 1] = "`" .. name .. "`:"
+        out[#out + 1] = ""
+        out[#out + 1] = "```nupp"
+        out[#out + 1] = (source:gsub("^%s+", ""):gsub("%s+$", ""))
+        out[#out + 1] = "```"
+        out[#out + 1] = ""
+    end
+    if section.example then
+        out[#out + 1] = "```nupp"
+        out[#out + 1] = (section.example:gsub("^%s+", ""):gsub("%s+$", ""))
+        out[#out + 1] = "```"
+        out[#out + 1] = ""
+    end
+    if #section.codes > 0 then
+        local cited: {string} = {}
+        for _, code in ipairs(section.codes) do cited[#cited + 1] = "`" .. code .. "`" end
+        out[#out + 1] = "Reports: " .. table.concat(cited, ", ")
+            .. ". `nupp explain <code>` says more."
+        out[#out + 1] = ""
+    end
+end
+
+local function renderChapter(out: {string}, chapter: reference.Chapter, level: integer)
+    for _, section in ipairs(chapter.sections) do renderSection(out, section, level) end
+end
 
 --- The reference as markdown.
 ---
@@ -1109,84 +1203,45 @@ function reference.markdown(opts: {level: integer?}?): string
         .. " diagnostic codes that report getting it wrong. Generated from the"
         .. " compiler: `nupp reference`."
     out[#out + 1] = ""
-    out[#out + 1] = heading(base + 1, "Language")
-    out[#out + 1] = ""
-    for _, section in ipairs(reference.sections) do
-        out[#out + 1] = heading(base + 2, section.title)
+    for _, chapter in ipairs(reference.chapters) do
+        out[#out + 1] = heading(base + 1, chapter.title)
         out[#out + 1] = ""
-        out[#out + 1] = (section.body:gsub("^%s+", ""):gsub("%s+$", ""))
-        out[#out + 1] = ""
-        -- A companion comes first: the example requires it, so a reader meeting the
-        -- require has already seen what it resolves to.
-        local names: {string} = {}
-        for name in pairs(section.context or {}) do names[#names + 1] = name end
-        table.sort(names)
-        for _, name in ipairs(names) do
-            local source = (section.context as {[string]: string})[name]
-            out[#out + 1] = "`" .. name .. "`:"
-            out[#out + 1] = ""
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = (source:gsub("^%s+", ""):gsub("%s+$", ""))
-            out[#out + 1] = "```"
-            out[#out + 1] = ""
-        end
-        if section.example then
-            out[#out + 1] = "```nupp"
-            out[#out + 1] = (section.example:gsub("^%s+", ""):gsub("%s+$", ""))
-            out[#out + 1] = "```"
-            out[#out + 1] = ""
-        end
-        if #section.codes > 0 then
-            local cited: {string} = {}
-            for _, code in ipairs(section.codes) do
-                cited[#cited + 1] = "`" .. code .. "`"
-            end
-            out[#out + 1] = "Reports: " .. table.concat(cited, ", ")
-                .. ". `nupp explain <code>` says more."
-            out[#out + 1] = ""
-        end
+        renderChapter(out, chapter, base + 2)
     end
+    return (table.concat(out, "\n"):gsub("\n+$", ""))
+end
 
-    out[#out + 1] = heading(base + 2, "Built-in lints")
-    out[#out + 1] = ""
-    for _, row in ipairs(lintRows()) do out[#out + 1] = row end
-    out[#out + 1] = ""
-
-    out[#out + 1] = heading(base + 2, "Diagnostic codes with a worked example")
-    out[#out + 1] = ""
-    for _, row in ipairs(codeRows()) do out[#out + 1] = row end
-    out[#out + 1] = ""
-
-    out[#out + 1] = heading(base + 1, "Toolchain")
-    out[#out + 1] = ""
-    out[#out + 1] = heading(base + 2, "Working with the toolchain")
-    out[#out + 1] = ""
-    out[#out + 1] = (reference.tooling:gsub("^%s+", ""):gsub("%s+$", ""))
-    out[#out + 1] = ""
-    out[#out + 1] = heading(base + 2, "Improving test coverage")
-    out[#out + 1] = ""
-    out[#out + 1] = (TOOLCHAIN_SECTIONS[2].body:gsub("^%s+", ""):gsub("%s+$", ""))
-    return table.concat(out, "\n")
+--- One focused chapter as a standalone Markdown reference.
+function reference.chapterMarkdown(chapter: reference.Chapter): string
+    local out: {string} = {"# Nupp " .. chapter.title .. " reference", "", chapter.summary, ""}
+    renderChapter(out, chapter, 2)
+    return (table.concat(out, "\n"):gsub("\n+$", ""))
 end
 
 --- The same reference as an agent skill: YAML frontmatter naming it and saying when to
 --- load it, then the document. The description is what a harness keeps in context
 --- permanently, so it says what the skill covers rather than summarizing the language.
 ---
+--- @param chapter a focused chapter, or nil for the complete language skill
 --- @return SKILL.md, ready to write into a skills directory
-function reference.skill(): string
+function reference.skill(chapter: reference.Chapter?): string
     local out: {string} = {}
     out[#out + 1] = "---"
-    out[#out + 1] = "name: nupp"
+    out[#out + 1] = "name: " .. (chapter and "nupp-" .. chapter.name or "nupp")
     out[#out + 1] = "description: >-"
-    out[#out + 1] = "  Write, check and repair Nupp, the gradually typed LuaJIT"
-    out[#out + 1] = "  superset. Load before editing any .nupp file, or when"
-    out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
-    out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
-    out[#out + 1] = "  check/explain/lsp/coverage commands and their JSON contracts."
+    if chapter then
+        out[#out + 1] = "  " .. chapter.summary
+        out[#out + 1] = "  Load when this is the only Nupp context needed."
+    else
+        out[#out + 1] = "  Write, check and repair Nupp, the gradually typed LuaJIT"
+        out[#out + 1] = "  superset. Load before editing any .nupp file, or when"
+        out[#out + 1] = "  reading a NUPP diagnostic code. Covers syntax, types,"
+        out[#out + 1] = "  records, structs, ownership, C interop, the lints, and the"
+        out[#out + 1] = "  check/explain/lsp/coverage commands and their JSON contracts."
+    end
     out[#out + 1] = "---"
     out[#out + 1] = ""
-    out[#out + 1] = reference.markdown()
+    out[#out + 1] = chapter and reference.chapterMarkdown(chapter) or reference.markdown()
     return table.concat(out, "\n")
 end
 

@@ -7,21 +7,24 @@ not a file on a website: a reader holding a reference from a different version i
 worse off than one holding none, because they cannot tell.
 
 Three renderings of one document. `markdown` is the document; `skill` wraps it in
-the frontmatter an agent harness loads it by; `json` hands over the sections
-themselves, for a consumer that would rather render its own.
+the frontmatter an agent harness loads it by; `json` hands over the chapters and
+sections themselves, for a consumer that would rather render its own.
 ]]
 
 local spec = require("nupp.cli.spec")
 
 local command = spec.command{
     name = "reference",
-    summary = "Print the language reference, or eject it as an agent skill",
-    usage = {"nupp reference [--format markdown|skill|json] [-o PATH]"},
-    intro = [[Every construct, the shortest program that uses it, and the diagnostic
-codes that report getting it wrong. Around four thousand tokens, so it fits in a
-prompt whole.
+    summary = "List or print a focused Nupp reference chapter",
+    usage = {"nupp reference [language|cli|all] [--format markdown|skill|json] [-o PATH]"},
+    positionals = {{name = "chapter", choices = {"language", "cli", "all"}}},
+    intro = [[With no chapter, lists the available focused references. `all` is the
+complete language reference, around four thousand tokens, so it fits in a prompt
+whole.
 
-  nupp reference > docs/reference.md
+  nupp reference cli
+  nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+  nupp reference all > docs/reference.md
   nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
     options = {
         {name = "--format", value = "FORMAT",
@@ -80,25 +83,43 @@ for the same document rendered into the site.]],
 local function run(parsed: any): integer
     local reference = require("nupp.reference")
     local format = parsed.values.format or "markdown"
+    local positional: {string} = parsed.positional
+    if #positional > 1 then
+        return command:usageError("at most one reference chapter is required")
+    end
+    local topic = positional[1]
+    if not topic and not parsed.values.format and not parsed.values.output then
+        io.write(reference.catalog(), "\n")
+        return 0
+    end
+    local chapter = topic and topic ~= "all" and reference.chapter(topic) or nil
+    if topic and topic ~= "all" and not chapter then
+        return command:usageError("unknown reference chapter " .. topic)
+    end
     local text
     if format == "skill" then
-        text = reference.skill()
+        text = reference.skill(chapter)
+    elseif chapter then
+        text = reference.chapterMarkdown(chapter)
     else
         text = reference.markdown()
     end
 
     if format == "json" then
         local sections: {any} = {}
-        for _, section in ipairs(reference.sections) do
+        for _, section in ipairs(chapter and chapter.sections or reference.sections) do
             sections[#sections + 1] = {
                 title = section.title, body = section.body,
                 example = section.example, codes = section.codes,
             }
         end
         local payload = {
-            title = "Nupp language reference", sections = sections,
-            chapters = reference.chapters, tooling = reference.tooling, markdown = text,
+            title = chapter and "Nupp " .. chapter.title .. " reference"
+                or "Nupp language reference",
+            sections = sections, chapters = chapter and {chapter} or reference.chapters,
+            tooling = reference.tooling, markdown = text,
         }
+        if chapter then payload.chapter = chapter end
         if parsed.values.output then
             local file, err = io.open(parsed.values.output, "w")
             if not file then

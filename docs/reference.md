@@ -938,7 +938,25 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2605 | Adjusting a value pack would discard an affine value |
 | NUPP3001 | `is` has nothing to test against this type |
 
-## Toolchain
+## CLI
+
+### CLI commands
+
+`nupp help <command>` is the authoritative argument reference for one command;
+`nupp help` lists every command. Use it when a focused skill names a command but
+does not need every flag in context.
+
+- `check`, `build`, `run`, and `fmt` work with source and generated Lua.
+- `test` runs the configured test command; `coverage` runs it against a separate
+  instrumented build and writes a report.
+- `lsp` answers semantic source questions; `explain` expands a diagnostic; and
+  `reference` returns these focused language and CLI skills.
+- `tasks`, `clean`, `doc`, and `import-c` work with project configuration,
+  outputs, documentation, and C declarations.
+
+Data-producing commands accept `--json`, and then `--schema` describes their
+JSON contract. Use the schema before automating against a command rather than
+inferring fields from an example. The CLI uses 1-based byte lines and columns.
 
 ### Working with the toolchain
 
