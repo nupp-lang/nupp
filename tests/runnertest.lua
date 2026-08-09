@@ -70,4 +70,11 @@ return M
    os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.runsNuppSuites()
+   local output = run(ROOT .. "/tests/run.lua", "nupptest --json")
+   test.matches(output, '"suite":"nupptest"')
+   test.matches(output, '"name":"runsAsNupp"')
+   test.matches(output, '"name":"requiresNuppProjectModules"')
+end
+
 return M

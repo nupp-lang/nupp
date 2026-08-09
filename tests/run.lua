@@ -1,5 +1,6 @@
--- Minimal dependency-free test runner: loads tests/*test.lua, runs every
--- function in the returned table, reports failures with their assert message.
+-- Minimal test runner: loads tests/*test.lua and compiles tests/*test.nupp,
+-- runs every function in the returned table, and reports failures with their
+-- assert message.
 --
 -- With --json it reports the same run as one document: a record per test with
 -- where it is defined, how long it took, and — when it failed — the message and
@@ -128,16 +129,55 @@ do
    now = now or function() return os.clock() * 1000 end
 end
 
-local names = {}
+local suites = {}
 do
    local p = assert(io.popen("ls '" .. dir .. "'"), "cannot list test directory")
    for f in p:lines() do
-      local mod = f:match("^(.*test)%.lua$")
-      if mod and (not only or mod == only) then names[#names + 1] = mod end
+      local name, extension = f:match("^(.*test)%.([^.]+)$")
+      if name and (extension == "lua" or extension == "nupp")
+         and (not only or name == only) then
+         suites[#suites + 1] = {name = name, extension = extension}
+      end
    end
    p:close()
 end
-table.sort(names)
+table.sort(suites, function(a, b)
+   return a.name .. "." .. a.extension < b.name .. "." .. b.extension
+end)
+
+local function loadSuite(suite)
+   local path = dir .. "/" .. suite.name .. "." .. suite.extension
+   if suite.extension == "lua" then
+      return dofile(path)
+   end
+
+   -- A Nupp suite is an ordinary module after compilation. Keep its runtime
+   -- loader installed while its cases run so it may require project modules.
+   local compile = require("nupp.cli.compile")
+   -- The runner is invoked from the project root, just as `nupp test` runs
+   -- its configured command. Keep this root normalized for module lookup.
+   local env = require("nupp.env").new(".")
+   local settings = compile.settings({})
+   local code, compileErr = compile.module(path, env, settings)
+   if not code then
+      error("cannot compile Nupp test suite " .. path .. ": "
+         .. tostring(compileErr), 0)
+   end
+   local removeLoader = require("nupp.runtime").install(env, function(modulePath, e)
+      return compile.module(modulePath, e, settings)
+   end)
+   local chunk, loadErr = loadstring(code, "@" .. path)
+   if not chunk then
+      removeLoader()
+      error("cannot load Nupp test suite " .. path .. ": " .. tostring(loadErr), 0)
+   end
+   local ok, loaded = pcall(chunk)
+   if not ok then
+      removeLoader()
+      error(loaded, 0)
+   end
+   return loaded, removeLoader
+end
 
 --- Where a test function is written, which is stable and worth reporting even
 --- when it passes.
@@ -187,8 +227,8 @@ local function showCaptured(record)
    stream:flush()
 end
 
-for _, mod in ipairs(names) do
-   local suite = dofile(dir .. "/" .. mod .. ".lua")
+for _, suiteInfo in ipairs(suites) do
+   local suite, removeLoader = loadSuite(suiteInfo)
    local cases = {}
    for name in pairs(suite) do cases[#cases + 1] = name end
    table.sort(cases)
@@ -198,7 +238,7 @@ for _, mod in ipairs(names) do
       local before = now()
       local ok, err, stdout, stderr = capture(suite[name])
       local elapsed = now() - before
-      local record = {suite = mod, name = name, file = file, line = line,
+      local record = {suite = suiteInfo.name, name = name, file = file, line = line,
          durationMs = elapsed, status = ok and "passed" or "failed"}
       if ok then
          passed = passed + 1
@@ -221,6 +261,7 @@ for _, mod in ipairs(names) do
       end
       results[#results + 1] = record
    end
+   if removeLoader then removeLoader() end
 end
 local duration = now() - started
 

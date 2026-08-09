@@ -1,0 +1,14 @@
+-- A real Nupp suite keeps the runner's Nupp discovery, compilation, and
+-- runtime-loading paths covered by the normal test run.
+local M = {}
+local fixture = require("tests.nuppfixture")
+
+function M.runsAsNupp(): nil
+    assert(20 + 22 == 42)
+end
+
+function M.requiresNuppProjectModules(): nil
+    assert(fixture.answer == 42)
+end
+
+return M

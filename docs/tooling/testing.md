@@ -81,12 +81,14 @@ everywhere else; a Lua error carries no column, so none is invented.
 
 ## This repository's suite
 
-The compiler's own tests are a dependency-free runner: `tests/run.lua` loads
-every `tests/*test.lua`, calls every function in the table each returns, and
-prints `.` for a pass, `S` for a skip, and `E` for a failure while it runs.
-Its summary reports every outcome and elapsed time. With `--json`, progress is
-written to stderr and the one JSON document remains clean on stdout. Output
-from passing tests is captured; it is printed for failures or with `--verbose`.
+The compiler's own tests use a small runner: `tests/run.lua` loads every
+`tests/*test.lua` and compiles every `tests/*test.nupp`. Both kinds return a
+table of test functions. Nupp suites run with the project's runtime loader, so
+they can require project modules. The runner prints `.` for a pass, `S` for a
+skip, and `E` for a failure while it runs. Its summary reports every outcome
+and elapsed time. With `--json`, progress is written to stderr and the one JSON
+document remains clean on stdout. Output from passing tests is captured; it is
+printed for failures or with `--verbose`.
 
 ```bash
 ./bin/nupp test              # everything
@@ -102,6 +104,18 @@ local M = {}
 function M.narrowsOnIs()
    local got = checkOf("local s: string | number = 'x' if s is string then end")
    test.equal(got, "")
+end
+
+return M
+```
+
+The same shape works in Nupp; save this as `tests/mathstest.nupp`:
+
+```nupp
+local M = {}
+
+function M.addsNumbers(): nil
+   assert(20 + 22 == 42)
 end
 
 return M
