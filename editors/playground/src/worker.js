@@ -165,6 +165,17 @@ self.onmessage = (event) => {
   }
 };
 
+// Firefox's Error#stack is frame lines only ("fn@url:line:col"), with no
+// leading "Name: message" the way V8's is — so showing just `.stack` (the
+// previous version of this file) silently drops the actual reason there.
+// Always lead with `.message`.
+function describeError(err) {
+  if (!(err instanceof Error)) return String(err);
+  return err.stack && err.stack.includes(err.message)
+    ? err.stack
+    : `${err.message}\n${err.stack || ""}`;
+}
+
 boot().catch((err) => {
-  postMessage({ type: "boot-error", message: String(err && err.stack ? err.stack : err) });
+  postMessage({ type: "boot-error", message: describeError(err) });
 });
