@@ -766,11 +766,14 @@ local function splitLine(line)
             if cIdx and cIdx > idx + 1 then
                 local nextItem = line.items[idx + 1]
                 local wrapsTable = item.token.kind == "("
-                    and nextItem and nextItem.kind == "token"
+                    and nextItem
+                    and nextItem.kind == "token"
                     and nextItem.token.kind == "{"
                     and nextItem.token.opensGroup
-                    and indexOfToken(line.items, nextItem.token.opensGroup.close)
-                        == cIdx - 1
+                    and indexOfToken(
+                    line.items,
+                    nextItem.token.opensGroup.close
+                ) == cIdx - 1
                 if not wrapsTable then
                     openIdx, closeIdx, group = idx, cIdx, g
                     break
