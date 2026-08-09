@@ -462,6 +462,7 @@ local function renderSite(root, outDir, modules, title, settings)
                 )
                 local remainder = rewriteConfiguredPageLinks(markdown:sub(featureEnd + 1), candidate, pages, file)
                 body[#body + 1] = markdownHtml(introduction, links, 0)
+                body[#body + 1] = '<h2 id="nupp-features">Nupp Features</h2>'
                 body[#body + 1] = homeFeatures(candidate, links)
                 body[#body + 1] = markdownHtml(remainder, links, 0)
             else

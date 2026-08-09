@@ -593,6 +593,8 @@ function M.siteMatchesTheNuppdocPageModel()
       "Welcome to the project", 1, true), "home Markdown must follow the hero")
    assert(home:find("nuppdoc%-feature%-showcase"), home)
    assert(home:find("language%-nupp"), home)
+   assert(home:find("Nupp Features", 1, true) < home:find(
+      "nuppdoc%-feature%-showcase"), "feature heading must precede the showcase")
    assert(home:find("nuppdoc%-feature%-showcase") < home:find(
       "More details", 1, true), "features must follow the marked home introduction")
    assert(home:find('class="nuppdoc-logo" src="images/project.svg"',
