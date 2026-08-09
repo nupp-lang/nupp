@@ -196,6 +196,12 @@ the repository and on the site.
     ./bin/nupp test       build, then run tests (requires LuaJIT and cjson)
     ./bin/nupp fixpoint   verify the byte-identical self-hosting rebuild
 
+`node scripts/docs-serve.mjs` builds the docs site and the playground and
+serves both together — the docs site at `/`, the playground at
+`/playground/`, the same path the homepage's own "Playground" button links
+to — until Ctrl+C. Not a `nupp tasks` entry: every one of those produces an
+artifact and finishes, and this is a server that runs until killed.
+
 The Lua libraries the toolchain uses are dependencies like any other. `nupp.lua`
 declares lunamark and Scintillua as `kind = "luarocks"` rocks, the docs target
 depends on them, and `nupp doc` or `nupp build --target docs` installs them —

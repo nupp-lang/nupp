@@ -353,6 +353,11 @@ return {
       argv = { "luajit", "tests/run.lua" },
    },
 
+   -- No entry here for running the docs site + playground locally: every key
+   -- in this file names something that produces an artifact and finishes.
+   -- `nupp tasks` lists what finishes; a server that runs until killed isn't
+   -- that shape. See scripts/docs-serve.mjs instead.
+
    selfHost = {
       target = "compiler",
       bootstrap = "bootstrap/nupp.lua",
