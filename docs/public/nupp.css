@@ -63,6 +63,18 @@
   font-size: 1.08rem;
 }
 
+/* The playground follows the hero directly, so it does not need the regular
+ * section rule or the large gap used by lower-priority homepage sections. */
+.nuppdoc-home-hero {
+  margin-bottom: 1.5rem;
+}
+
+.nuppdoc-home-hero + h2 {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
 /* Let the Nuppeppo illustration dissolve into the page instead of ending at a
  * hard image boundary. The PNG is square, so the clipped mask stays circular. */
 .nuppdoc-hero-image img {
