@@ -11,16 +11,17 @@ from the menu, or edit this one.
 [Open the full playground](/playground/) for the diagnostics list and the Lua
 each program compiles to.
 
-## Start here
+## Getting started
 
 - [Installation](start/installation.md) — requirements, a checkout, and a first
   project.
 - [A tour of Nupp](start/tour.md) — the whole language in one pass.
-- [Reasons to use Nupp](start/why.md) — what each piece is for.
 - [Nupp syntax](start/syntax.md) — the syntax, and what LuaJIT 2.1 carries.
 
-## Go deeper
+## API docs
 
+- [The language reference](reference.md) — every construct and the codes that
+  report getting it wrong, generated from the compiler.
 - [Type system](type-system/overview.md) — gradual typing, records,
   structs, interfaces, generics, and narrowing.
 - [Ownership](start/ownership.md) — resources that are hard to leak.
@@ -29,7 +30,5 @@ each program compiles to.
   server, documentation generator, and profiler.
 - [`nupp.regex`](regex.md) — compiled Rust regular expressions over Lua byte
   strings, linked only when used.
-- [The language reference](reference.md) — every construct and the codes that
-  report getting it wrong, generated from the compiler.
 
-The generated API reference for the compiler's own modules is below.
+The generated API reference for the compiler's own modules follows.

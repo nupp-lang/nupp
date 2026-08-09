@@ -106,8 +106,8 @@ return {
             outDir = "build/docs",
             title = "Nupp API",
             name = "Nupp",
-            description = "LuaJIT for systems work: types, ownership, an optimizing "
-               .. "compiler, and effortless C FFI in one toolchain.",
+            description = "LuaJIT, sharpened: types, ownership, an optimizing compiler, "
+               .. "and effortless C FFI in one toolchain.",
             github = "https://github.com/nupp-lang/nupp",
             logo = "images/nupp.svg",
             favicon = "images/nupp-icon-32.png",
@@ -121,8 +121,8 @@ return {
                   source = "docs/home.md",
                   layout = "home",
                   heroTitle = "Nupp",
-                  heroText = "LuaJIT for systems work: types, ownership, an optimizing "
-                     .. "compiler, and effortless C FFI in one toolchain.",
+                  heroText = "LuaJIT, sharpened: types, ownership, an optimizing compiler, "
+                     .. "and effortless C FFI in one toolchain.",
                   heroImage = "images/nupp.png",
                   heroImageAlt = "A nuppeppo in a moonlit forest",
                   heroActions = {
@@ -235,7 +235,7 @@ local status = ready ? "go" : "wait"
 print(`Hello, ${name}: ${status}`)]],
                      },
                      {
-                        title = "Optimize what the JIT cannot infer",
+                        title = "Optimize what the JIT can't infer",
                         details = "Nupp leaves hot loops to LuaJIT's tracer and specializes the "
                            .. "work that happens before a trace exists: constants, table shapes, "
                            .. "and facts preserved by types.",
