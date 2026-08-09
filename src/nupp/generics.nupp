@@ -162,7 +162,7 @@ function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
 end
 
 --- Structurally matches an actual value sequence against a declared pack.
-function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings)
+function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
     if param.alternatives then
         for _, arm in ipairs(param.alternatives) do
             generics.unifyPack(arm, arg, map)
@@ -310,7 +310,7 @@ end
 --- @param param the declared parameter type, binders and all
 --- @param arg what the call passed there
 --- @param map accumulates the bindings
-function generics.unify(param: Type, arg: Type, map: Bindings)
+function generics.unify(param: Type, arg: Type, map: Bindings): nil
     param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
     if not T.hasTypevar(param) then
         return

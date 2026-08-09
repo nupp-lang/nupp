@@ -250,7 +250,8 @@ end
 ---
 --- @param path the field names, outermost first
 --- @param constant the value the field's literal type admits
-function predicate.equals(path: {string}, constant: any): predicate.Node?
+function predicate.equals(path: {string},
+    constant: string | number | boolean): predicate.Node?
     local kind = type(constant)
     local text = nil
     if kind == "string" then
@@ -328,7 +329,8 @@ end
 --- @param node the refinement
 --- @param fieldAt the declared type at a field path, or nil when there is none
 --- @return true, false, or nil when undecided
-function predicate.satisfiedBy(node: predicate.Node?, fieldAt: any): boolean?
+function predicate.satisfiedBy(node: predicate.Node?,
+    fieldAt: function(path: {string}): any): boolean?
     if not node then return nil end
     local op = node.op
 

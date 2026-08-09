@@ -1105,7 +1105,19 @@ local function parenthesizeMethodCalls(result, opts)
     result.tokens = tokens
 end
 
-function fmt.format(source, filename, opts)
+--- What the formatter was asked for. The two annotation entries are how a caller lends
+--- the formatter a project: it has to know an annotation's declared members before it
+--- can label a single value, and it resolves nothing itself.
+type fmt.Options = {
+    readonly annotations: any?,
+    readonly resolveAnnotation: (function(name: string): any)?,
+    readonly methodParens: boolean?,
+}
+
+--- Formats one file. Returns the source unchanged, with what stopped it, when the file
+--- does not parse or the result would not be the same program.
+function fmt.format(source: string, filename: string?,
+    opts: fmt.Options?): string, {any}
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return source, result.errors

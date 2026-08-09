@@ -141,6 +141,47 @@ record spec.Command
     patterned: {spec.Option}
 end
 
+--- One option as a command writes it, before `spec.command` resolves it. Every field a
+--- `spec.Option` carries is optional here, because the resolution is what fills the
+--- ones a declaration is entitled to leave out: `names` from `name`, `key` from the
+--- longest spelling, and `form` from whether a value was asked for.
+type spec.OptionSpec = {
+    name: string?,
+    names: {string}?,
+    key: string?,
+    value: string?,
+    form: spec.Form?,
+    pattern: string?,
+    choices: {string}?,
+    constant: any?,
+    repeats: boolean?,
+    set: boolean?,
+    display: string?,
+    duplicate: string?,
+    invalid: string?,
+    help: string?,
+}
+
+--- A command's grammar as it is written, which `spec.command` resolves into one.
+type spec.Declaration = {
+    name: string,
+    helpName: string?,
+    summary: string,
+    usage: {string}?,
+
+    --- The positional arguments the command names in its own help, if any.
+    positionals: {{name: string, choices: {string}?}}?,
+    options: {spec.OptionSpec}?,
+    intro: string?,
+    detail: string?,
+    schema: any?,
+    stopAtPositional: boolean?,
+
+    --- False when a command hands its arguments to something else and so cannot
+    --- honestly claim to accept the options every command otherwise takes.
+    universal: boolean?,
+}
+
 --- What a command file returns: the grammar, and the work behind it.
 record spec.Handler
     spec: spec.Command
@@ -249,7 +290,7 @@ end
 -- the one that forgot them. `--color` and `--no-color` share a key, so asking for
 -- colour and refusing it in the same breath is caught rather than resolved by whichever
 -- came last.
-local UNIVERSAL: {any} = {
+local UNIVERSAL: {spec.OptionSpec} = {
     {name = "--color", value = "WHEN", form = "optional", constant = "always",
     choices = {"always", "never", "auto"},
     help = "When to colour output: always, never, or auto (default)"},
@@ -274,7 +315,7 @@ local SCHEMA_OPTION = {
 ---
 --- Set `universal = false` when a command passes its arguments to something else and
 --- cannot answer for them.
-function spec.command(raw: any): spec.Command
+function spec.command(raw: spec.Declaration): spec.Command
     local options: {spec.Option} = {}
     local byName: {[string]: spec.Option} = {}
     local patterned: {spec.Option} = {}
@@ -299,7 +340,7 @@ function spec.command(raw: any): spec.Command
         helpName = raw.helpName or raw.name,
         summary = raw.summary,
         usage = raw.usage or {},
-        positionals = raw.positionals or {},
+        positionals = (raw.positionals or {}) as {spec.Positional},
         options = options,
         intro = raw.intro,
         detail = raw.detail,

@@ -29,7 +29,7 @@ local REPORTED = {note = "note", warning = "warning"}
 --- Whether a diagnostic stops a build. A note and a warning are reported and stepped
 --- over; everything else is an error, including a diagnostic with no severity, since
 --- everything that predates severities was one.
-function diagnostics.isFatal(e: any): boolean
+function diagnostics.isFatal(e: {readonly severity: string?}): boolean
     return REPORTED[e.severity] == nil
 end
 

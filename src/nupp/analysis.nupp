@@ -25,6 +25,14 @@ local cst = require("nupp.cst")
 
 local analysis = {}
 
+--- One function's facts. Every entry `LISTS` names is a set of parameter-rooted paths,
+--- every entry `FLAGS` names is a boolean that widens to true and never back, and `top`
+--- is the top of the lattice: nothing is known, so nothing may be assumed.
+---
+--- A map rather than a shape because every operation here reaches the entries by name,
+--- walking `LISTS` and `FLAGS`, rather than one field at a time.
+type analysis.Summary = {[string]: any}
+
 local LISTS = {"reads", "writes", "shapes", "metatables", "escapes", "calls"}
 local FLAGS = {"allocates", "yields", "raises", "external"}
 
@@ -34,7 +42,7 @@ local function setOf(values)
     return out
 end
 
-local function summary()
+local function summary(): analysis.Summary
     return {
         reads = {}, writes = {}, shapes = {}, metatables = {},
         escapes = {}, calls = {}, returns = {},
@@ -43,7 +51,7 @@ local function summary()
     }
 end
 
-local function fromContract(contract)
+local function fromContract(contract: {[string]: any}): analysis.Summary
     local out = summary()
     for _, name in ipairs(LISTS) do out[name] = setOf(contract[name]) end
     for _, value in ipairs(contract.returns or {}) do out.returns[value] = true end
@@ -62,7 +70,8 @@ local function copy(value)
     return out
 end
 
-local function join(into, other)
+local function join(into: analysis.Summary,
+    other: analysis.Summary): boolean
     local changed = false
     if other.top and not into.top then
         into.top, changed = true, true
@@ -847,11 +856,44 @@ function queries.body(body: any, byDefinition: any): any
     return facts
 end
 
+--- What one run worked out, and what a pass is handed to ask about.
+type analysis.Facts = {
+    functions: {any},
+    byDefinition: {[any]: any},
+
+    --- Every top-level block and every function's, so a pass can iterate without
+    --- knowing how the functions were found.
+    bodies: {any},
+}
+
+--- The questions, as `analysis.queries` binds them to one run's facts.
+type analysis.Queries = {
+    visible: function(summary: any): (boolean, string?),
+    free: function(summary: any, kinds: {string}): (boolean, string?),
+    known: function(token: any): any,
+    body: function(body: any): any,
+}
+
+--- What `run` annotates and reports through: a checked parse, and the checker to say a
+--- broken `@effects` contract to.
+type analysis.Target = {
+    readonly root: any,
+    analysis: analysis.Facts?,
+}
+
+--- The checker, as this file uses it: somewhere to say a contract the body does not
+--- hold up. Taken as a shape because `nupp.check` reaches this module, so naming its
+--- record here would close the require graph into a loop.
+type analysis.Reporter = {
+    readonly diag: function(code: string, at: any, msg: string, fixes: any?,
+    details: any?),
+}
+
 --- The questions, bound to what one run worked out.
 ---
 --- @param facts what `analysis.run` returned
 --- @return the query surface, or nil when the run produced nothing
-function analysis.queries(facts: any): any
+function analysis.queries(facts: analysis.Facts?): analysis.Queries?
     if not facts or not facts.byDefinition then
         return nil
     end
@@ -891,7 +933,8 @@ function analysis.queries(facts: any): any
     return bound
 end
 
-function analysis.run(result: any, checker: any?): any
+function analysis.run(result: analysis.Target,
+    checker: analysis.Reporter?): analysis.Facts
     local functions, byDefinition = collectFunctions(result.root)
     for _, info in ipairs(functions) do
         if info.contract then

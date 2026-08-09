@@ -48,7 +48,7 @@ end
 --- Starts recording, or joins a recording in progress. Needs a matching `release`. The
 --- first caller clears the stack and opens a new generation, so tokens from an earlier
 --- session cannot pop into this one.
-function zone.acquire()
+function zone.acquire(): nil
     references = references + 1
     if references > 1 then
         return
@@ -63,7 +63,7 @@ end
 
 --- Releases one `acquire`; the last empties the stack. Releasing nothing is ignored, so
 --- a teardown that runs twice is harmless.
-function zone.release()
+function zone.release(): nil
     if references == 0 then
         return
     end
@@ -80,7 +80,7 @@ function zone.release()
 end
 
 --- Pushes a zone. A no-op while inactive.
-function zone.push(name: string)
+function zone.push(name: string): nil
     if not active then
         return
     end
@@ -153,7 +153,7 @@ end
 
 --- Closes a zone opened by `enter`. A zero token, a stale generation, or an empty stack
 --- are all ignored.
-function zone.leave(token: integer)
+function zone.leave(token: integer): nil
     if token == 0 or not active or token ~= generation then
         return
     end

@@ -79,6 +79,18 @@ local CATEGORIES = {
     fieldDecl = {field = true},
 }
 
+--- What a registry offers a caller. The methods are explicit fields as well as
+--- `__index` entries, so a shape is the honest description of one: the checker reads
+--- the fields it can see rather than following an arbitrary metatable.
+type annotations.Registry = {
+    byname: {[string]: any},
+    define: function(self: any, spec: any): (any, string?),
+    get: function(self: any, name: string): any,
+    accepts: function(self: any, definition: any, node: any): boolean,
+    describeTargets: function(self: any, definition: any): string,
+    removeSource: function(self: any, source: any): nil,
+}
+
 local Registry = {}
 Registry.__index = Registry
 
@@ -244,7 +256,7 @@ local BUILTINS = {
     },
 }
 
-function annotations.new(withBuiltins)
+function annotations.new(withBuiltins: boolean?): annotations.Registry
     -- Keep the methods as explicit fields as well as on __index. That makes the public
     -- shape visible to nupp's gradual checker; it deliberately does not infer
     -- structural fields through arbitrary metatables.
@@ -266,7 +278,7 @@ end
 
 local defaultRegistry = annotations.new()
 
-function annotations.default()
+function annotations.default(): annotations.Registry
     return defaultRegistry
 end
 

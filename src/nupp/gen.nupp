@@ -195,10 +195,36 @@ local function declPath(x)
     return table.concat(parts, ".")
 end
 
---- Generates Lua. `coverage` is an internal build setting: absent on ordinary compiles,
---- so the normal emission path remains byte-for-byte what it was before coverage
---- existed. In coverage mode the third return is the source-site manifest.
-function gen.generate(result, filename, coverage)
+--- What `generate` lowers: a parse the checker has already been over. The side effects
+--- are the checker's rather than the parser's, which is why this is not
+--- `parser.ParseResult` — a generator that took one would be claiming it runs before
+--- checking, which it never does.
+type gen.Checked = {
+    readonly root: cst.Chunk,
+    readonly tokens: {any}?,
+    readonly implicitSideEffects: {[string]: any}?,
+}
+
+--- How a coverage build is asked for: `true` to instrument and name the file after
+--- `filename`, or a table naming the path the report should attribute sites to.
+type gen.CoverageRequest = {
+    path: string?,
+}
+
+--- What a coverage build needs back: where the file was, and every site it may
+--- report having reached.
+type gen.Coverage = {
+    path: string?,
+    sites: {any},
+}
+
+--- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
+---
+--- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
+--- emission path remains byte-for-byte what it was before coverage existed. In
+--- coverage mode the third return is the source-site manifest.
+function gen.generate(result: gen.Checked, filename: string?,
+    coverage: (boolean | gen.CoverageRequest)?): string, {any}, gen.Coverage?
     local out = {}
     local curLine = 1
     local atLineStart = true
@@ -364,8 +390,8 @@ function gen.generate(result, filename, coverage)
     local emitLoopDepth = 0
     local emitFunctionDepth = 0
     local coverageOn = coverage == true or type(coverage) == "table"
-    local coveragePath = coverageOn and (type(coverage) == "table" and coverage.path
-        or filename) or nil
+    local coveragePath = coverageOn and (type(coverage) == "table"
+        and (coverage as gen.CoverageRequest).path or filename) or nil
     local coverageSites: {any}? = nil
     local coverageSiteCount = 0
     local coverageName
@@ -2113,7 +2139,8 @@ function gen.generate(result, filename, coverage)
             coverageName, coverageName, coverageName, coverageName)
             .. code
     end
-    local metadata = coverageOn and {path = coveragePath, sites = coverageSites or {}} or nil
+    local metadata = coverageOn
+        and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
     return code, diags, metadata
 end
 

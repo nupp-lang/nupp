@@ -1075,14 +1075,31 @@ local function staticCallableWalk(root, remarks)
     visit(root)
 end
 
+--- What a pass works on: the tree it rewrites in place, the analysis the checker left
+--- beside it, and the name a remark is filed under.
+type optimize.Checked = {
+    readonly root: cst.Chunk,
+    readonly filename: string?,
+    readonly analysis: any?,
+}
+
+--- What the passes were asked for.
+type optimize.Options = {
+    readonly level: integer?,
+    readonly filename: string?,
+    readonly disabled: {[string]: boolean}?,
+    readonly relaxed: {[string]: boolean}?,
+}
+
 --- Runs the passes a level asks for over a parsed and checked file, annotating it in
 --- place.
 ---
 --- @param result the parse result, whose `root` is rewritten
 --- @param opts `level` is the `-O` level; `disabled` is a set of codes to skip
 --- @return the remarks the passes produced, in source order
-function optimize.run(result: any, opts: any): {any}
-    opts = opts or {}
+function optimize.run(result: optimize.Checked,
+    opts: optimize.Options?): {any}
+    opts = opts or {} as optimize.Options
     local level = opts.level or 0
     local disabled = opts.disabled or {}
     local remarks = {}

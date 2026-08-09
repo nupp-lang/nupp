@@ -174,6 +174,17 @@ record types.PackVar
     name: string
 end
 
+--- How the rest of a value sequence is described. `kind` says which field beside it
+--- carries the answer: "homogeneous" reads `type` and its `mode`, "generic" reads
+--- `var`, and "unknown" is the gradual tail a call site could not pin down.
+type types.PackTail = {
+    kind: string,
+    type: types.Type?,
+    var: types.PackVar?,
+    mode: string?,
+    id: string?,
+}
+
 --- A Lua value sequence. `tail` is homogeneous, generic, symbolic or unknown.
 record types.Pack
     id: string
@@ -762,7 +773,8 @@ local function packTailId(tail: any): string
 end
 
 --- Interns a fixed-head pack with an optional tail.
-function types.pack(head: {types.Type}?, tail: any, modes: {string}?): types.Pack
+function types.pack(head: {types.Type}?, tail: types.PackTail?,
+    modes: {string}?): types.Pack
     local hs, ms, copied = {}, {}, {}
     for j, t in ipairs(head or {}) do
         copied[j], hs[j] = t, t.id
@@ -896,7 +908,7 @@ end
 function types.func(params: {types.Type}, rets: {types.Type}, vararg: boolean?,
     paramModes: {string}?, predicate: types.Predicate?, typeParams: {types.TypeVar}?,
     typeBounds: {types.Type}?, borrowsParam: integer?,
-    borrowsSelf: boolean?, borrowsParams: {integer}?, ffiOut: any,
+    borrowsSelf: boolean?, borrowsParams: {integer}?, ffiOut: {any}?,
     varargType: types.Type?, noreturn: boolean?, paramPack: types.Pack?,
     retPack: types.Pack?, packParams: {types.PackVar}?, yieldPack: types.Pack?,
     resumePack: types.Pack?): types.Type
@@ -983,7 +995,8 @@ end
 -- 'red' land in a union that lists it. `base` is the type the literal behaves as
 -- everywhere except where its exact value matters: a member of a union of literals, or
 -- a discriminant comparison.
-function types.literal(value: any, base: types.Type?): types.Type
+function types.literal(value: string | number | boolean,
+    base: types.Type?): types.Type
     local of = base or types.string
     return intern("lit(" .. of.tag .. ":" .. tostring(value) .. ")",
         function()

@@ -9,9 +9,132 @@ source.
 ]]
 
 local ffi = require("ffi")
-local bit = require("bit")
+
+-- LuaJIT's BitOp is a global as well as a module, and it is declared as the global, so
+-- requiring it as a module is what leaves it untyped. The cast restates the two
+-- operations this file uses, in the words the declaration already gives them.
+local bit = require("bit") as {
+    rshift: function(x: number, n: number): integer,
+    band: function(...: number): integer,
+}
 
 local cdecl = {}
+
+--- One member of a struct. An unnamed one is skipped rather than modelled, so a member
+--- that is here has a name.
+interface cdecl.Member
+    name: string
+    type: cdecl.CType?
+
+    --- Its byte offset, as this ABI lays the struct out.
+    offset: integer?
+end
+
+--- One parameter of a function. C lets a declaration leave a parameter unnamed, and a
+--- header commonly does.
+interface cdecl.Param
+    name: string?
+    type: cdecl.CType?
+end
+
+--- A C type as LuaJIT's own ctype registry describes it, decoded far enough to be read
+--- without the FFI. `kind` says which of the fields beside it carry an answer:
+--- everything the kind does not use is absent.
+---
+--- A struct stays a reference, by `id` and `name`, rather than carrying its members.
+--- That is what lets a recursive or mutually-referential header terminate: the members
+--- live in the declaration `structById` returns.
+interface cdecl.CType
+    --- "void", "boolean", "integer", "float", "pointer", "struct", "enum", "array",
+    --- "function", or "unknown" for what this model does not spell.
+    kind: string
+
+    name: string?
+
+    --- How wide a number or an enum is.
+    bits: integer?
+
+    unsigned: boolean?
+
+    --- Whether what a pointer points at is const.
+    const: boolean?
+
+    --- What a pointer points at.
+    to: cdecl.CType?
+
+    --- What an array holds, and how many bytes of them it has room for.
+    of: cdecl.CType?
+
+    bytes: integer?
+
+    --- The ctype id a struct reference keeps, so `structById` can find its members.
+    id: integer?
+
+    --- A function's parameters, its result, and whether it takes more.
+    params: {cdecl.Param}?
+
+    returns: cdecl.CType?
+    vararg: boolean?
+end
+
+--- A function declaration: one LuaJIT parsed under a name. A function reached as a
+--- pointee is a `cdecl.CType` instead, since that one need not be named.
+interface cdecl.Function
+    kind: string
+    name: string
+    params: {cdecl.Param}
+    returns: cdecl.CType?
+    vararg: boolean?
+end
+
+--- A struct declaration, members and all.
+interface cdecl.Struct
+    kind: string
+    id: integer
+    name: string
+
+    --- Its size in bytes, as this ABI lays it out.
+    size: integer?
+
+    fields: {cdecl.Member}
+end
+
+--- One enumerator, in the order the header declared it.
+interface cdecl.Enumerator
+    name: string
+    value: number
+end
+
+--- An enum declaration. It carries its constants whether or not it is named, since
+--- `typedef enum { ... } Mode;` names the type and nothing else and the members are the
+--- point of declaring it.
+interface cdecl.Enum
+    kind: string
+    id: integer
+    name: string?
+    bits: integer
+    values: {cdecl.Enumerator}
+end
+
+--- A declaration LuaJIT would not parse, and why.
+interface cdecl.Rejected
+    text: string
+    reason: string
+end
+
+--- What one pass over a blob of C declared.
+interface cdecl.Inspection
+    structs: {cdecl.Struct}
+    functions: {cdecl.Function}
+    enums: {cdecl.Enum}
+
+    --- Empty unless the declarations were given one at a time, which is the form that
+    --- takes what parses and reports the rest.
+    rejected: {cdecl.Rejected}
+
+    --- How many declarations were offered.
+    declared: integer
+end
 
 -- lj_ctype.h kinds, as they appear in the high nibble of `info`.
 local CT_NUM, CT_STRUCT, CT_PTR, CT_ARRAY = 0, 1, 2, 3
@@ -236,7 +359,8 @@ local function targetUnits(text)
     return {text}, false
 end
 
-function cdecl.inspect(text, prelude)
+function cdecl.inspect(text: string | {string},
+    prelude: (string | {string})?): cdecl.Inspection?, string?
     local declarations = preludeList(prelude)
     local units, perUnit = targetUnits(text)
     local key = table.concat(declarations, "\n") .. "\0"
@@ -318,7 +442,7 @@ function cdecl.inspect(text, prelude)
     return result
 end
 
-function cdecl.declare(text)
+function cdecl.declare(text: string): boolean, string?
     local ok, err = pcall(ffi.cdef, text)
     if not ok then
         return false, tostring(err)
@@ -326,7 +450,7 @@ function cdecl.declare(text)
     return true
 end
 
-function cdecl.typeFromString(spec)
+function cdecl.typeFromString(spec: string): cdecl.CType?, string?
     local ok, ct = pcall(ffi.typeof, spec)
     if not ok then
         return nil, tostring(ct)
@@ -338,7 +462,7 @@ function cdecl.typeFromString(spec)
     return decodeType(id)
 end
 
-function cdecl.structById(id)
+function cdecl.structById(id: integer?): cdecl.Struct?
     local rid, entry = resolve(id)
     if not entry or kindOf(entry.info) ~= CT_STRUCT then
         return nil
@@ -346,7 +470,7 @@ function cdecl.structById(id)
     return decodeStruct(rid, entry)
 end
 
-function cdecl.declaredFunctions()
+function cdecl.declaredFunctions(): {[string]: cdecl.Function}
     local out = {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
@@ -359,7 +483,7 @@ end
 
 -- Sizes and alignments in the neutral model belong to this ABI.
 local abiCache
-function cdecl.abiTag()
+function cdecl.abiTag(): string
     if not abiCache then
         local parts = {jit.arch, jit.os}
         for _, param in ipairs({"32bit", "64bit", "le", "be", "fpu", "softfp",

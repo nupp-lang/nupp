@@ -18,6 +18,24 @@ local cdecl = require("nupp.cdecl")
 
 local cheader = {}
 
+--- What a struct tag already stands for in the program being checked, so a header met
+--- twice keeps one identity. Nil when nothing has declared it yet.
+type cheader.Resolver = function(tag: string): T.Type?
+
+--- How a header is read. `preprocess` runs the system compiler first, for headers whose
+--- declarations are written in a vocabulary their includes define.
+type cheader.Options = {
+    readonly preprocess: boolean?,
+    readonly cc: string?,
+}
+
+--- A header as the checker takes it: what it declares, and the text to hand the
+--- program's own FFI so the declarations exist at run time too.
+type cheader.Header = {
+    exports: {[string]: T.Type},
+    cdef: string,
+}
+
 local INT_BY_BITS = {
     [8] = {T.int8, T.uint8}, [16] = {T.int16, T.uint16},
     [32] = {T.int32, T.uint32}, [64] = {T.int64, T.uint64},
@@ -163,7 +181,7 @@ local cache = {}
 -- Keyed by content: declaring the same block twice is an error in the FFI rather than a
 -- no-op.
 local declaredBlocks = {}
-function cheader.declare(text)
+function cheader.declare(text: string): boolean, string?
     if declaredBlocks[text] ~= nil then
         return declaredBlocks[text]
     end
@@ -222,7 +240,8 @@ adoptStruct = function(tag)
     return nominal
 end
 
-function cheader.typeFromString(spec, resolver)
+function cheader.typeFromString(spec: string,
+    resolver: cheader.Resolver?): T.Type?, string?
     local model, err = cdecl.typeFromString(spec)
     if not model then
         return nil, err
@@ -233,7 +252,8 @@ end
 -- Every function the program has declared to the FFI, by name. This is what ffi.C and
 -- ffi.load hold, so both can be typed from what has actually been declared rather than
 -- handed back as any.
-function cheader.declaredFunctions(resolver)
+function cheader.declaredFunctions(
+    resolver: cheader.Resolver?): {[string]: T.Type}
     local out = {}
     local r = adoptingResolver(resolver)
     for name, fn in pairs(cdecl.declaredFunctions()) do
@@ -245,8 +265,9 @@ end
 -- Returns { exports = {name -> type}, cdef = string } or nil plus a reason.
 -- `opts.preprocess` runs the system compiler first, for headers whose declarations are
 -- written in a vocabulary their includes define.
-function cheader.load(path, opts)
-    opts = opts or {}
+function cheader.load(path: string,
+    opts: cheader.Options?): cheader.Header?, string?
+    opts = opts or {} as cheader.Options
     local source = readFile(path)
     if not source then
         return nil, "cannot read " .. path

@@ -64,7 +64,7 @@ end
 
 --- Compiles one file to Lua source. Returns the generated code, or nil and a short
 --- reason after having reported the diagnostics that stopped it.
-function compile.module(path: string, env: any,
+function compile.module(path: string, env: table,
     settings: compile.Settings): string?, string?
     local collected = settings.diagnostics
     -- Says each diagnostic, or puts it by for the caller to say later, and either way

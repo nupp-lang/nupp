@@ -13,7 +13,11 @@ local relations = require("nupp.relations")
 
 local narrowing = {}
 
-local isA = relations.isA
+-- `relations` reaches `generics`, which reaches this file, so the require graph loops
+-- and a whole-project check hands this edge back untyped. The cast restates the one
+-- signature taken from it, which `nupp.relations` declares in those words.
+local isA = (relations as {isA: function(a: T.Type, b: T.Type):
+    (boolean, string?)}).isA
 
 --- A type, as nupp.types builds them.
 local type Type = T.Type

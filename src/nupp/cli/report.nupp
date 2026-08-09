@@ -64,7 +64,7 @@ end
 --- an empty array rather than an empty object, because every field here that can be
 --- empty is a list, and a reader handed `{}` where it was promised `[]` has to
 --- special-case what was only ever an encoding accident.
-function report.encode(value: any): string
+function report.encode(value: unknown): string
     local encoder = require("cjson").new()
     encoder.encode_empty_table_as_object(false)
     encoder.encode_invalid_numbers(false)
@@ -73,7 +73,7 @@ end
 
 --- Writes one line of JSON to stdout. Never coloured: the reader is a program, and an
 --- escape code in a JSON string is a bug in whatever printed it.
-function report.write(value: any)
+function report.write(value: unknown): nil
     io.write(report.encode(value) .. "\n")
 end
 
@@ -126,12 +126,12 @@ end
 
 --- Writes `{"diagnostics": [...]}`, which is what `check --json` promises and what
 --- every other command that carries diagnostics embeds under the same key.
-function report.json(diagnostics: {any})
+function report.json(diagnostics: {any}): nil
     report.write({diagnostics = report.diagnosticValues(diagnostics)})
 end
 
 --- Whether a diagnostic stops the work. Only an error does.
-function report.fatal(diagnostic: any): boolean
+function report.fatal(diagnostic: {readonly severity: string?}): boolean
     return REPORTED[diagnostic.severity] == nil
 end
 

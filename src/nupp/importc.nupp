@@ -273,9 +273,19 @@ local function constantExpr(value)
     return nil
 end
 
+--- What an import was asked for: the compiler that preprocesses the header, the flags
+--- it needs to find what the header includes, and the library the generated
+--- declarations load from.
+type importc.Options = {
+    readonly cc: string?,
+    readonly cppflags: {string}?,
+    readonly lib: string?,
+}
+
 -- Main entry: returns the .nupp module text and a list of warnings.
-function importc.import(headerPath, opts)
-    opts = opts or {}
+function importc.import(headerPath: string,
+    opts: importc.Options?): string?, {string}
+    opts = opts or {} as importc.Options
     local warnings = {}
     local raw = readFile(headerPath)
     if not raw then
