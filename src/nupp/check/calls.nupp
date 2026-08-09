@@ -1016,6 +1016,26 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
 
+        -- The non-callback arguments have now bound this call's generics, so an
+        -- unannotated short function can see the concrete callback signature. Its
+        -- first pass used `any` only to select and specialize the call; replace that
+        -- provisional type before validating the completed argument list.
+        local contextualArgs = false
+        for j, arg in ipairs(args) do
+            local expected = params[j]
+            local isFunction = not cst.isToken(arg) and (
+                arg.kind == "shortfn" or arg.kind == "funcExpr"
+            )
+            if isFunction and expected and rawType(expected).tag == "func" then
+                ats[j] = c.apply.inferExpected(arg, expected)
+                contextualArgs = true
+            end
+        end
+        if contextualArgs then
+            argPack = T.pack(ats, argPack.tail, argPack.modes)
+            node.argumentPack = argPack
+        end
+
         local nparams = #params
         local actualCount = #argPack.head
         if not argPack.tail and actualCount > nparams and not calleeT.vararg then

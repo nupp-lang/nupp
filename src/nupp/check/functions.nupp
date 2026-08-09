@@ -16,6 +16,9 @@ local state = require("nupp.check.state")
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
 local functions = {}
 
 --- Installs the function statements on one run.
@@ -28,6 +31,7 @@ function functions.install(c: state.Checker): state.StatHandlers
     local resolvedOwnedCleanups = c.own.resolvedOwnedCleanups
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
     local validateCleanups = c.validateCleanups
+    local expectedFuncbodies: {[any]: Type} = {}
 
     local function inferredParameterModes(body)
         local modes, byname, declared = {}, {}, {}
@@ -190,6 +194,14 @@ function functions.install(c: state.Checker): state.StatHandlers
         local vararg = false
         local varargType = nil
         local typeParams, typeBounds, packParams
+        local expectedParams: {Type}? = nil
+        local expected = expectedFuncbodies[body]
+        if expected then
+            local expectedFunc = rawType(expected)
+            if expectedFunc.tag == "func" then
+                expectedParams = expectedFunc.params
+            end
+        end
         c.functionDepth = c.functionDepth + 1
         c.pushScope()
         if body.generics then
@@ -212,7 +224,8 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 c.bindVar(p.name.text, T.table_, false, p.name, "parameter", true)
             elseif p.name then
-                local pt = p.type and c.resolveType(p.type) or T.any
+                local pt = p.type and c.resolveType(p.type)
+                    or (expectedParams and expectedParams[#params + 1]) or T.any
                 params[#params + 1] = pt
                 local mode = inferredModes[#params] or "borrows"
                 if not declaredModes[
@@ -613,6 +626,14 @@ function functions.install(c: state.Checker): state.StatHandlers
             yieldPack,
             resumePack
         )
+    end
+
+    c.apply.checkFuncbodyExpected = function(body, expected)
+        expectedFuncbodies[body] = expected
+        local inferred = c.checkFuncbody(body)
+        expectedFuncbodies[body] = nil
+
+        return inferred
     end
 
     c.inferredParameterModes = inferredParameterModes

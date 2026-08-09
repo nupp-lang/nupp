@@ -201,7 +201,7 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
                 mark(node.capability, "keyword")
             end
         elseif kind == "generics" then
-            for _, tok in ipairs(node.names or {}) do
+            for _, tok in ipairs((node as cst.Generics).names) do
                 mark(tok, "typeParameter")
             end
         end

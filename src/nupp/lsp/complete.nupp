@@ -163,16 +163,17 @@ end
 function complete.signatureAt(result: tree.Parse, offset: integer): complete.CallSite?
     local best, bestSize
     tree.walkNodes(result.root, function(node)
+        local call = node as complete.CallSite
         if (
             node.kind == "call" or node.kind == "safeCall" or node.kind == "methodCall"
-        ) and ((node.signatureType and node.signatureType.tag == "func") or node.overloadCandidates) and node.args then
-            local first, last = tree.nodeBounds(node.args)
+        ) and ((call.signatureType and call.signatureType.tag == "func") or call.overloadCandidates) and call.args then
+            local first, last = tree.nodeBounds(call.args)
             if first and offset >= first and offset <= last then
                 -- Bounds are found together, so the first one testing non-nil settles
                 -- the second.
                 local size = (last as integer) - first
                 if not bestSize or size < bestSize then
-                    best, bestSize = node, size
+                    best, bestSize = call, size
                 end
             end
         end

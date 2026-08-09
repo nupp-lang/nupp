@@ -52,6 +52,10 @@ expr.EXPANDS = EXPANDS
 --- @param c the run's state
 function expr.install(c: state.Checker): nil
 
+    -- Expected types only flow into the expression being checked, never into a nested
+    -- short function it happens to contain.
+    local expectedShortfns: {[any]: Type} = {}
+
     local function visibleNames()
         local names = {}
         local scope = c.scope
@@ -469,9 +473,18 @@ function expr.install(c: state.Checker): nil
             c.pushScope()
             local params = {}
             local vararg = false
+            local expectedParams: {Type}? = nil
+            local expected = expectedShortfns[node]
+            if expected then
+                local expectedFunc = rawType(expected)
+                if expectedFunc.tag == "func" then
+                    expectedParams = expectedFunc.params
+                end
+            end
             for _, p in ipairs(node.params) do
                 if p.kind == "param" then
-                    local pt = p.type and c.resolveType(p.type) or T.any
+                    local pt = p.type and c.resolveType(p.type)
+                        or (expectedParams and expectedParams[#params + 1]) or T.any
                     local pname = p.name
                     if p.namedVararg then
                         vararg = true
@@ -632,6 +645,22 @@ function expr.install(c: state.Checker): nil
         node.valuePack = node.valuePack or T.pack({first})
 
         return first
+    end
+
+    c.apply.inferExpected = function(node, expected)
+        if not expected then
+            return c.infer(node)
+        end
+        if node.kind == "shortfn" then
+            expectedShortfns[node] = expected
+            local inferred = c.infer(node)
+            expectedShortfns[node] = nil
+            return inferred
+        elseif node.kind == "funcExpr" and node.body then
+            return c.apply.checkFuncbodyExpected(node.body, expected)
+        end
+
+        return c.infer(node)
     end
 end
 

@@ -594,6 +594,23 @@ function M.shortFunctionsTyped()
    assertClean("local neg = n -> -n\nneg(5)")
 end
 
+function M.shortFunctionsInferCallbackParameters()
+   local src = table.concat({
+      "local type Event = {name: string}",
+      "local function observe<E is Event>(eventType: E, observer: function(E))",
+      "end",
+      "local event: Event = {name = 'ready'}",
+      "observe(event, e -> do",
+      "    local name: string = e.name",
+      "end)",
+   }, "\n")
+   assertClean(src)
+   assertEq((diagsOf(src:gsub("e.name", "e.missing"))), "NUPP2004:6")
+   local longSrc = src:gsub("e %-%> do", "function(e)")
+   assertClean(longSrc)
+   assertEq((diagsOf(longSrc:gsub("e.name", "e.missing"))), "NUPP2004:6")
+end
+
 function M.interpolatedStringsTyped()
    assertClean("local n = 3\nlocal s: string = `n is ${n}, twice is ${n * 2}`")
    assertEq((diagsOf("local x: number = `just text ${1}`")), "NUPP2001:1")
