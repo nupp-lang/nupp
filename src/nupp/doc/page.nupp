@@ -18,6 +18,42 @@ local ICONS = assetsMod.ICONS
 
 local page = {}
 
+--- The documentation settings the chrome reads. `nupp.doc` owns the whole table; these
+--- are the parts a header, a brand, and a `<head>` are built out of.
+type page.Settings = {
+    description: string?,
+    favicon: string?,
+    github: string?,
+    logo: string?,
+    name: string?,
+}
+
+--- One call to action beside the hero copy.
+type page.HeroAction = {path: string?, text: string, theme: string?}
+
+--- One card below the hero, saying what the project is good for.
+type page.Feature = {details: string?, icon: string?, image: string?, title: string}
+
+--- The home page's hero, as the configured page describes it.
+type page.Hero = {
+    features: {page.Feature}?,
+    heroActions: {page.HeroAction}?,
+    heroImage: string?,
+    heroImageAlt: string?,
+    heroText: string?,
+    heroTitle: string?,
+    layout: string?,
+    title: string,
+}
+
+--- A page in the site's navigation: where it lives, what it is called, and the module
+--- it documents when it documents one.
+type page.Nav = {module: nupp.doc.extract.Module?, path: string, title: string}
+
+--- What the outline lists. A heading of a page and a declaration of a module both
+--- answer to a slug and a label, and the outline wants nothing else from either.
+type page.Entry = {name: string, path: string}
+
 -- A `public`-relative asset path is served from the site root, so it needs the page's
 -- depth-dependent prefix; an absolute URL or an already-rooted path does not.
 local function assetHref(prefix, source)
@@ -220,7 +256,7 @@ local function pageNavigation(route, pages, prefix)
     return table.concat(out)
 end
 
-local function homeHero(config, links)
+local function homeHero(config: page.Hero, links: urlsMod.Links?): string
     if config.layout ~= "home" then
         return ""
     end
@@ -235,7 +271,9 @@ local function homeHero(config, links)
     end
     if #(config.heroActions or {}) > 0 then
         out[#out + 1] = '<div class="nuppdoc-hero-actions">'
-        for _, action in ipairs(config.heroActions) do
+        -- The length test above already ruled out a hero that configured none of these,
+        -- but it reads the field rather than a local, which is not a narrowing.
+        for _, action in ipairs(config.heroActions as {page.HeroAction}) do
             local href = tostring(action.path or "")
             if not href:match("^[%w+.-]+:") and not href:match("^[/#]") then
                 local route = cleanRoute(href)
@@ -257,7 +295,7 @@ local function homeHero(config, links)
     out[#out + 1] = '</div>'
     if #(config.features or {}) > 0 then
         out[#out + 1] = '<div class="nuppdoc-features">'
-        for _, feature in ipairs(config.features) do
+        for _, feature in ipairs(config.features as {page.Feature}) do
             out[#out + 1] = '<section class="nuppdoc-feature">'
             if feature.image then
                 out[#out + 1] = '<img class="nuppdoc-feature-image" src="'
@@ -296,8 +334,10 @@ local function brand(settings, siteTitle, prefix)
     return table.concat(out)
 end
 
-function page.render(title, siteTitle, body, modules, current, items, file,
-    settings, pages, route, layout)
+function page.render(title: string, siteTitle: string, body: string,
+    modules: {nupp.doc.extract.Module}, current: string?, items: {page.Entry},
+    file: string, settings: page.Settings, pages: {page.Nav}, route: string,
+    layout: string?): string
     local prefix = relativePrefix(file)
     local home = layout == "home"
     local shellClass = home and "nuppdoc-shell nuppdoc-home-shell" or "nuppdoc-shell"

@@ -29,7 +29,12 @@ local headingId = stringsMod.headingId
 local codeHtml = highlightMod.codeHtml
 
 local html = {}
-local function tableHtml(headers, rows)
+
+--- One heading of a rendered document: the slug it is reachable at, the text as it
+--- reads once its markup is stripped, and how deep it sits.
+type html.Heading = {path: string, name: string, level: integer}
+
+local function tableHtml(headers: {string}, rows: {{string}}): string
     local out = {"<table><thead><tr>"}
     for _, header in ipairs(headers) do out[#out + 1] = "<th>" .. header .. "</th>" end
     out[#out + 1] = "</tr></thead><tbody>"
@@ -42,7 +47,7 @@ local function tableHtml(headers, rows)
     return table.concat(out)
 end
 
-local function markdownOutline(text)
+local function markdownOutline(text: string?): {html.Heading}
     local out, fenced = {}, false
     for line in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
         if line:match("^```") then
@@ -59,7 +64,8 @@ local function markdownOutline(text)
 end
 
 local codeGroupIndex = 0
-local markdownHtml
+local markdownHtml: (function(text: string?, links: nupp.doc.urls.Links?,
+    headingShift: integer?): string)
 
 local ADMONITION_TITLES = {
     note = "Note",
@@ -291,7 +297,8 @@ local function buildParser()
     })
 end
 
-markdownHtml = function(text, links, headingShift)
+markdownHtml = function(text: string?, links: nupp.doc.urls.Links?,
+    headingShift: integer?): string
     text = tostring(text or "")
     if text == "" then
         return ""
@@ -313,7 +320,10 @@ markdownHtml = function(text, links, headingShift)
     local prepared = extractBlocks(text .. "\n", links, rendered)
     headings, headingIndex = headingSlugs(prepared), 0
     headingShiftBy = headingShift == nil and 1 or headingShift
-    local out = parse(prepared .. "\n")
+    -- Annotated because the parser is reached through an untyped rock: without this the
+    -- rendered document arrives as `any` and the replacement pass below narrows it to
+    -- whatever `gsub` handed back second.
+    local out: string = parse(prepared .. "\n")
     out = out:gsub("<!%-%-nuppdoc%-block%-(%d+)%-%->", function(index)
         -- A block's markup is returned by a function so that a `%` in it is never read
         -- as a capture reference.
@@ -325,7 +335,7 @@ end
 -- The same renderer where a paragraph would be in the way: a summary in a table cell is
 -- a sentence, not a block. Only a document that is exactly one paragraph is unwrapped,
 -- so anything longer keeps its structure.
-local function inlineHtml(text, links)
+local function inlineHtml(text: string?, links: nupp.doc.urls.Links?): string
     local out = markdownHtml(text, links)
     local inner = out:match("^<p>(.*)</p>$")
     if inner and not inner:find("<p>", 1, true) then

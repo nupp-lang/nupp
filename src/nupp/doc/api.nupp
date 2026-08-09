@@ -22,7 +22,7 @@ local function kindBadge(kind)
         .. htmlEscape(kind) .. '">' .. htmlEscape(kind) .. '</span>'
 end
 
-local function moduleSummary(module)
+local function moduleSummary(module: extractMod.Module): string
     local groups = {
         {title = "Types", items = {}},
         {title = "Functions", items = {}},
@@ -72,7 +72,8 @@ local function raisesHtml(raises, heading, links)
         .. table.concat(entries) .. "</ul>"
 end
 
-local function renderHtmlItem(out, item, links)
+local function renderHtmlItem(out: {string}, item: extractMod.Item,
+    links: nupp.doc.urls.Links?): nil
     out[#out + 1] = '<section class="nuppdoc-api-item" id="'
         .. htmlEscape(item.path) .. '"><h2><code>' .. htmlEscape(item.name)
         .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-'

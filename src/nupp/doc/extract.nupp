@@ -16,6 +16,62 @@ local trim = stringsMod.trim
 local normalize, join = filesMod.normalize, filesMod.join
 
 local extract = {}
+
+--- One argument: its name and type as the source spelled them, and what `@param` said.
+type extract.Param = {
+    name: string,
+    type: string,
+    mode: string?,
+    text: string,
+}
+
+--- One result: a type and a description, with no name to hang them on.
+type extract.Result = {type: string, text: string}
+
+--- One type parameter, and what `@typearg` said about it.
+type extract.TypeArg = {name: string, text: string}
+
+--- A field, method, or metamethod of a record, interface, or struct. A function-typed
+--- one carries its own arguments and results, which is what tells the two apart.
+type extract.Member = {
+    name: string,
+    type: string,
+    text: string,
+    path: string,
+    params: {extract.Param},
+    returns: {extract.Result},
+    raises: {string},
+    isFunction: boolean?,
+    isMetamethod: boolean?,
+}
+
+--- One documented declaration: what it is called, how it is spelled, and everything its
+--- `---` run said about it.
+type extract.Item = {
+    name: string,
+    kind: string,
+    signature: string,
+    doc: docblock.Doc,
+    path: string,
+    line: integer,
+    members: {extract.Member},
+    params: {extract.Param},
+    returns: {extract.Result},
+    raises: {string},
+    typeargs: {extract.TypeArg},
+}
+
+--- One source file, read as its documented declarations.
+type extract.Module = {
+    name: string,
+    path: string?,
+    text: string,
+    items: {extract.Item},
+}
+
+--- What a caller wants included beyond the public surface a module hands out.
+type extract.Options = {includeAll: boolean?, includePrivate: boolean?}
+
 local function firstToken(node)
     if not node then
         return nil
@@ -308,7 +364,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile,
     return item
 end
 
-local function moduleName(path, root, includes)
+local function moduleName(path: string, root: string, includes: {string}?): string
     path, root = normalize(path), normalize(root)
     local relative = path
     if root ~= "." and path:sub(1, #root + 1) == root .. "/" then
@@ -348,8 +404,9 @@ local function headerDoc(root)
     return nil
 end
 
-function extract.extract(source, path, name, opts)
-    opts = opts or {}
+function extract.extract(source: string, path: string?, name: string,
+    opts: extract.Options?): extract.Module?, {nupp.lexer.LexError}
+    opts = opts or {} as extract.Options
     local parsed = parser.parse(source, path)
     if #parsed.errors > 0 then
         return nil, parsed.errors
@@ -383,7 +440,7 @@ end
 -- Function-typed members document like the functions they are, with their own arguments
 -- and results, so they are listed apart from the data fields rather than flattened into
 -- one table that has nowhere to put an annotation.
-local function splitMembers(members)
+local function splitMembers(members: {extract.Member}?): {extract.Member}, {extract.Member}
     local fields, methods = {}, {}
     for _, member in ipairs(members or {}) do
         local into = member.isFunction and methods or fields

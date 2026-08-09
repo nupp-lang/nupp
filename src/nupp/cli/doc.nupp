@@ -59,7 +59,8 @@ local function run(parsed: any): integer
     -- renders rather than reporting a library nobody was told to install.
     local deps = require("nupp.build.deps")
     local installed, depErr = deps.build(".",
-        settings.outDir or "build", config, {}, settings)
+        settings.outDir or "build", config as nupp.build.manifest.Config, {},
+        settings as nupp.build.manifest.Target)
     if not installed then
         io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
         return 1
@@ -87,7 +88,9 @@ local function run(parsed: any): integer
     if asJson then
         opts.written = written
     end
-    local code, output, resolved = doc.build(".", config, settings, opts)
+    local code, output, resolved = doc.build(".",
+        config as nupp.build.manifest.Config,
+        settings as nupp.build.manifest.Target, opts)
     if asJson then
         require("nupp.cli.report").write({ok = code == 0, files = written,
             output = output or "", format = resolved or ""})

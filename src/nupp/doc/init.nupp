@@ -39,14 +39,77 @@ local renderPage, homeHero = pageMod.render, pageMod.homeHero
 
 local doc = {}
 
+--- One page a manifest configured. `path` is the route it is written to; `source` is
+--- the markdown read into it. A hero key is accepted in either spelling, because a
+--- manifest is Lua and both are what people write.
+type doc.Page = {
+    features: {pageMod.Feature}?,
+    heroActions: {pageMod.HeroAction}?,
+    heroImage: string?,
+    heroImageAlt: string?,
+    heroText: string?,
+    heroTitle: string?,
+    hero_actions: {pageMod.HeroAction}?,
+    hero_image: string?,
+    hero_image_alt: string?,
+    hero_text: string?,
+    hero_title: string?,
+    layout: string?,
+    path: string,
+    source: string?,
+    title: string?,
+}
+
+--- What a manifest configured documentation to do. A build target of kind `docs` is
+--- read as one of these too, which is why `kind` and `targetName` are here.
+type doc.Settings = {
+    all: boolean?,
+    customCss: string?,
+    description: string?,
+    favicon: string?,
+    format: string?,
+    github: string?,
+    includePrivate: boolean?,
+    kind: string?,
+    lexers: string?,
+    logo: string?,
+    name: string?,
+    outDir: string?,
+    pages: {doc.Page}?,
+    public: string?,
+    sources: {string}?,
+    targetName: string?,
+    title: string?,
+}
+
+--- The manifest, as much of it as documentation reads.
+type doc.Config = {
+    build: {targets: {[string]: doc.Settings}?}?,
+    docs: doc.Settings?,
+    include: {string}?,
+    name: string?,
+}
+
+--- What one run was asked for beyond what the manifest said. Every field overrides its
+--- counterpart in the settings, and `written` collects the paths the run wrote.
+type doc.BuildOptions = {
+    checkOnly: boolean?,
+    format: string?,
+    output: string?,
+    sources: {string}?,
+    title: string?,
+    written: {string}?,
+}
+
 --- Reads one source file as its documented declarations. Returns the module, or nil and
 --- the parse errors that stopped it.
-function doc.extract(source, path, name, opts)
+function doc.extract(source: string, path: string?, name: string,
+    opts: extractMod.Options?): extractMod.Module?, {nupp.lexer.LexError}?
     return extractMod.extract(source, path, name, opts)
 end
 
 --- Renders extracted modules as a single markdown document.
-function doc.markdown(modules, title)
+function doc.markdown(modules: {extractMod.Module}, title: string?): string
     return markdownMod.render(modules, title)
 end
 
@@ -85,7 +148,9 @@ local function loadModules(root, config, settings, requested)
             if module then
                 modules[#modules + 1] = module
             else
-                for _, err in ipairs(parseErrors) do errors[#errors + 1] = err end
+                for _, err in ipairs(parseErrors as {nupp.lexer.LexError}) do
+                    errors[#errors + 1] = err
+                end
             end
         end
     end
@@ -389,12 +454,26 @@ end
 ---
 --- @param format site, markdown, or both
 --- @return the path, relative to the project root
-function doc.defaultOutDir(format)
+function doc.defaultOutDir(format: string?): string
     return format == "markdown" and "docs/api.md" or "build/docs"
 end
 
-function doc.build(root, config, settings, opts)
-    root, settings, opts = root or ".", settings or {}, opts or {}
+--- Generates the documentation one target asked for. Returns the exit code, and the
+--- path and format it resolved to.
+---
+--- The command line assembles its overrides out of parsed option values, so they arrive
+--- as a plain table rather than as `doc.BuildOptions`; that is what is read out of it.
+--- The manifest's own types are what callers hold: `nupp.build.project` hands over
+--- whatever it validated, and a docs target is an ordinary build target with the
+--- generator's keys on it. They arrive as those types and are read as the richer ones
+--- declared above, which describe the same tables in the detail this module needs.
+function doc.build(root: string?, config: nupp.build.manifest.Config,
+    settings: nupp.build.manifest.Target?,
+    opts: table?): integer, string?, string?
+    root = root or "."
+    local config = config as doc.Config
+    local settings = (settings or {}) as doc.Settings
+    local opts = opts as doc.BuildOptions or {} as doc.BuildOptions
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
     if #errors > 0 then
         report(errors); return 1
@@ -410,7 +489,7 @@ function doc.build(root, config, settings, opts)
     -- Recording is on for the writes below and off again before returning, so a later
     -- caller without a collector cannot inherit this one's.
     filesMod.collect(opts.written)
-    local code, message = 0, nil
+    local code: integer, message: string? = 0, nil
     if format == "markdown" then
         local ok, err = writeFile(output, doc.markdown(modules, title))
         if not ok then
@@ -443,9 +522,9 @@ end
 --- The documentation settings a manifest configured, either as its own `docs` table or
 --- as a build target of that kind. Exported because the command line needs to read them
 --- before it can let options override them.
-function doc.manifestSettings(config)
+function doc.manifestSettings(config: doc.Config): doc.Settings
     if type(config.docs) == "table" then
-        return config.docs
+        return config.docs as doc.Settings
     end
     for name, target in pairs(config.build and config.build.targets or {}) do
         if type(target) == "table" and target.kind == "docs" then
@@ -460,7 +539,7 @@ end
 
 --- Reads the manifest a project root configured, or an empty configuration when it has
 --- none. Returns nil and a message when there is one and it does not load.
-function doc.loadConfig(root)
+function doc.loadConfig(root: string?): doc.Config?, string?
     local manifest = loadfile(join(root or ".", "nupp.lua"))
     if not manifest then
         return {}

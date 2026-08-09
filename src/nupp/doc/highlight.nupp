@@ -198,7 +198,8 @@ local function highlightNuppLines(source, links)
     return out.lines
 end
 
-local function highlightNupp(source, links)
+local function highlightNupp(source: string,
+    links: nupp.doc.urls.Links?): string
     return table.concat(highlightNuppLines(source, links), "\n")
 end
 

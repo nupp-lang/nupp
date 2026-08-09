@@ -139,7 +139,7 @@ local function renderMarkdownItem(out, item)
     end
 end
 
-function markdown.render(modules, title)
+function markdown.render(modules: {nupp.doc.extract.Module}, title: string?): string
     local out = {}
     if title and title ~= "" then
         out[#out + 1] = "# " .. title; out[#out + 1] = ""

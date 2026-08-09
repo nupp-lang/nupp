@@ -12,12 +12,22 @@ local filesMod = require("nupp.doc.files")
 local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dirname
 
 local urls = {}
-local function moduleFile(name)
+
+--- A name to the page it is declared on, for every name a code block might mention.
+--- Reading a name the index does not hold answers nil, which is how a highlighted token
+--- decides whether it becomes a link.
+type urls.Links = {[string]: string}
+
+--- What a link rewrite needs to know about a configured page: the file its markdown was
+--- read from, and the route it was written to.
+type urls.Page = {source: string?, path: string}
+
+local function moduleFile(name: string): string
     return "modules/" .. name:gsub("[^%w._-]", "-"):gsub("%.", "/")
         .. "/index.html"
 end
 
-local function relativePrefix(file)
+local function relativePrefix(file: string): string
     local _, count = file:gsub("/", "")
     return string.rep("../", count)
 end
@@ -34,7 +44,7 @@ local function addSymbolLink(links, ambiguous, name, url)
     end
 end
 
-local function symbolLinkIndex(modules)
+local function symbolLinkIndex(modules: {nupp.doc.extract.Module}): urls.Links
     local links, ambiguous = {}, {}
     for _, module in ipairs(modules) do
         for _, item in ipairs(module.items) do
@@ -54,7 +64,8 @@ local function symbolLinkIndex(modules)
     return links
 end
 
-local function symbolLinks(index, module, prefix)
+local function symbolLinks(index: urls.Links, module: nupp.doc.extract.Module?,
+    prefix: string): urls.Links
     local links = {}
     if module then
         for _, item in ipairs(module.items) do
@@ -72,11 +83,11 @@ local function symbolLinks(index, module, prefix)
     end})
 end
 
-local function routeFile(route)
+local function routeFile(route: string): string
     return route == "" and "index.html" or route .. "/index.html"
 end
 
-local function cleanRoute(route)
+local function cleanRoute(route: string?): string?
     route = normalize(tostring(route or "")):gsub("^/", "")
     route = route:gsub("/index%.html$", ""):gsub("%.html$", "")
     if route == "." then
@@ -90,7 +101,7 @@ local function cleanRoute(route)
     return route
 end
 
-local function pageLink(prefix, route)
+local function pageLink(prefix: string, route: string): string
     return prefix .. routeFile(route)
 end
 
@@ -111,7 +122,8 @@ local function resolveDots(path)
     return table.concat(parts, "/")
 end
 
-local function rewriteConfiguredPageLinks(markdown, candidate, pages, file)
+local function rewriteConfiguredPageLinks(markdown: string, candidate: urls.Page,
+    pages: {urls.Page}, file: string): string
     if not candidate.source then
         return markdown
     end

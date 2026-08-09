@@ -166,10 +166,10 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
             io.stderr:write("nupp: " .. tostring(depErr) .. "\n")
             return 1
         end
-        return require("nupp.doc").build(root, config, target, {
+        return (require("nupp.doc").build(root, config, target, {
             checkOnly = opts.checkOnly,
             output = opts.outDir,
-        })
+        }))
     elseif target.kind and target.kind ~= "modules"
         and target.kind ~= "bundle" and target.kind ~= "binary" then
         -- A bundle is a modules build plus one more file, and a binary is a bundle

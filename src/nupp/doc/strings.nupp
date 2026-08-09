@@ -7,34 +7,36 @@ literally.
 ]]
 
 local strings = {}
-local function trim(text)
+local function trim(text: string): string
     return (text:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-local function markdownEscape(text)
+-- The replacement count `gsub` returns beside the text is not parenthesized away here,
+-- so it is part of what a caller receives and the signature has to say so.
+local function markdownEscape(text: string): string, integer?
     return text:gsub("([\\`*_%[%]<>])", "\\%1")
 end
 
 -- A description is markdown and renders as markdown; only the table syntax around it is
 -- escaped. Escaping the markdown as well would turn `like this` into visible backticks
 -- in every cell.
-local function markdownCell(text)
+local function markdownCell(text: string): string
     return (text:gsub("([\\|])", "\\%1"):gsub("\n", " "))
 end
 
-local function htmlEscape(text)
+local function htmlEscape(text: string?): string, integer?
     return tostring(text or ""):gsub("&", "&amp;"):gsub("<", "&lt;")
         :gsub(">", "&gt;"):gsub('"', "&quot;"):gsub("'", "&#39;")
 end
 
-local function headingId(text)
+local function headingId(text: string): string
     local id = text:lower():gsub("`", ""):gsub("<[^>]+>", "")
         :gsub("[^%w%s_-]", ""):gsub("[%s_]+", "-"):gsub("%-+", "-")
         :gsub("^%-", ""):gsub("%-$", "")
     return id ~= "" and id or "section"
 end
 
-local function summaryText(text)
+local function summaryText(text: string?): string
     text = tostring(text or ""):gsub("```[%s%S]-```", " ")
         :gsub("%[([^%]]+)%]%([^%)]+%)", "%1"):gsub("`([^`]*)`", "%1")
         :gsub("[*_~#]", ""):gsub("%s+", " ")
@@ -48,7 +50,7 @@ local function summaryText(text)
     return text ~= "" and text or "—"
 end
 
-local function escapeJs(text)
+local function escapeJs(text: string?): string
     return (tostring(text or ""):gsub("\\", "\\\\")
         :gsub('"', '\\"'):gsub("\r", "\\r"):gsub("\n", "\\n")
         :gsub("</", "<\\/"))
