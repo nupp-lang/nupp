@@ -374,45 +374,69 @@ aliasing propagated through known summaries. `@effects` contracts are
 checked against inference (NUPP2112) and trusted for bodyless
 declarations; see docs/effects.md.
 
-### ~~Aliasing and escape analysis beyond resources~~ — built
+### Aliasing and escape analysis beyond resources — half built
 
-`escapes` is a member of every summary, computed for plain locals and
-tables rather than only for `@owned` values. This section described
-extending the resource checker's questions to ordinary bindings, and that
-extension exists.
+The aliasing half exists. Alias classes are computed per body by
+union-find, with return aliasing propagated through known summaries, and
+they already answer questions about ordinary tables rather than only
+about `@owned` values.
 
-### A query API onto the analysis
+The escape half is narrower than its name suggests, and an earlier
+revision of this section claimed it whole. `escapes` is populated through
+`rootOf`, which resolves a value only through `rooted` — and `rooted` is
+built from a function's parameters. So a summary records **which
+parameter-rooted paths leave a function**, which is the interprocedural
+half and the one a caller needs. Whether a *local* escapes the body that
+declared it is a different question, and nothing computes it: `rootOf`
+returns nil for a purely local table, and no escape is recorded.
 
-This is what is actually missing, and it is smaller than either section
-it replaces.
+That missing question is exactly the one table promotion and scratch
+reuse have to ask — does this table stay inside this function — so they
+are further out than "escape analysis is built" would suggest. It is
+still the smaller half: an intra-body walk over a body whose alias
+classes are already computed, not a second interprocedural analysis. It
+belongs behind §A query API onto the analysis, as the query the existing
+`uses` count currently stands in for.
 
-The facts above have exactly one consumer. `proveLoops` walks a body and
-stamps `numericIpairsProof` or `numericIpairsDeclined` on a loop node,
-inside `analysis.nupp` itself; `optimize.nupp` reads that field and
-mentions nothing else. Escapes, allocates and writes are computed on
-every build and discarded.
+### ~~A query API onto the analysis~~ — built
 
-So the cost of the second consumer is not the analysis — it is that the
-current shape makes every new consumer a new prover written inside
-`analysis.nupp`, hand-rolling its own traversal and its own conservative
-reasoning, stamping its own bespoke node field. Three such provers are
-three places to be subtly wrong in a language with no deoptimization to
-recover.
+The facts used to have exactly one consumer, and the shape of that
+consumer was the problem. `proveLoops` lived inside `analysis.nupp`,
+walked a body, decided the single question numeric `ipairs` lowering
+asked, and stamped its verdict on the loop node; `optimize.nupp` read
+that field and mentioned nothing else. So the second consumer's cheapest
+route was a second prover beside the first, with its own traversal, its
+own conservative reasoning and its own node field — and one had already
+arrived, `discarded-result` having hand-rolled its own "does this call
+reach anything" predicate over the same summaries.
 
-What replaces it is a small set of questions asked of the summaries:
-whether a binding escapes its scope, whether anything in a region may
-write a path, whether a region can yield or re-enter, whether a call
-allocates. Pooled concat lowering wants the third, table promotion and
-scratch reuse want the first, `reifiable-record` (NUPP2509) wants the
-first to stop being purely syntactic, and numeric `ipairs` is the second
-expressed as a caller rather than as a prover. It should be designed
-against the query core so answers are cacheable per function and
-participate in cutoff.
+The duplicated walking was never the cost. Hand-rolled proofs were: there
+is no deoptimization here, so a proof that is subtly wrong is a
+miscompilation with no runtime signal, and each copy is another chance at
+one.
 
-Concat lowering (§Allocation) is the natural first caller: it has a
-measured payoff, it needs exactly one question, and it is small enough
-that the API is designed against a real consumer rather than in advance
-of one.
+`analysis.queries` is what replaced it. `visible` separates a summary
+that gave up from a body belonging to somebody else; `free` names which
+effects disqualify a call, since that differs by caller; `known` resolves
+a name to its callee; and a prepared body answers about alias classes,
+mentions, and whether anything can change a value's shape. Each answers
+`true`, or `false` with a reason and a node, because a pass that declines
+owes a remark and a lint owes a caret, and a boolean carries neither.
+
+Both existing consumers ask rather than prove. What stayed with numeric
+`ipairs` is what was always its own opinion rather than a fact about
+effects — that a dense literal is an acceptable bound, and that a second
+mention of the array is reason to stop — and that moved to
+`optimize.nupp` beside the rewrite it justifies.
+
+Still to add, each when a caller needs it: whether a local escapes its
+own body (§Aliasing and escape analysis, for table promotion and scratch
+reuse, and to stop `reifiable-record` being purely syntactic), and
+whether a region can yield or re-enter (for pooled concat lowering). The
+`uses` count is a deliberate stand-in for the first and is documented as
+one, because a query named `escapes` that answered a weaker question than
+its name would be the kind of quiet wrongness this section exists to
+avoid.
 
 ### Immutability must be declared
 
@@ -620,19 +644,20 @@ and wants §A query API onto the analysis.
    (`bench/ffi-hoisting.lua`). It sat here on the assumption that a lookup
    the JIT cannot see is a lookup worth hoisting, which the benchmark gate
    below exists to catch.
-3. Concat lowering, and the query API it is the first caller of. The
-   payoff is measured and superlinear (`bench/concat.lua`), the analysis
-   it needs already exists, and it is small enough to design the API
-   against one real consumer.
-4. The rest of the query API's callers: scratch reuse, then table
-   promotion — the highest-value entry in this document, and no longer
-   behind an unbuilt escape analysis.
-5. NYI rewriting and call-site monomorphization. Largest likely effect on
+3. ~~The query API.~~ Built, against the two consumers that already
+   existed rather than in advance of one. See the section above.
+4. Concat lowering. Measured and superlinear (`bench/concat.lua`), and
+   the entry the trace compiler cannot absorb for a reason other than GC.
+5. The local-escape query, then its callers: scratch reuse, then table
+   promotion — the highest-value entry in this document. The blocker is
+   one intra-body walk over alias classes that already exist, not the
+   interprocedural analysis that misled an earlier revision of this list.
+6. NYI rewriting and call-site monomorphization. Largest likely effect on
    real programs, and still unmeasurable: it wants the tecs `FFIStorage`
    port (plans/todo.md) to have something to measure against.
-6. Declared module immutability.
-7. The IR, and the rest of the `core` catalog behind it.
-8. The `cold` catalog, only where a benchmark justifies it. Nothing in it
+7. Declared module immutability.
+8. The IR, and the rest of the `core` catalog behind it.
+9. The `cold` catalog, only where a benchmark justifies it. Nothing in it
    has cleared that bar yet, and one entry has now failed it.
 
 ## Non-goals
