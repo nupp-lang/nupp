@@ -483,8 +483,9 @@ function expr.install(c: state.Checker): nil
             end
             for _, p in ipairs(node.params) do
                 if p.kind == "param" then
-                    local pt = p.type and c.resolveType(p.type)
-                        or (expectedParams and expectedParams[#params + 1]) or T.any
+                    local pt = p.type and c.resolveType(
+                        p.type
+                    ) or (expectedParams and expectedParams[#params + 1]) or T.any
                     local pname = p.name
                     if p.namedVararg then
                         vararg = true

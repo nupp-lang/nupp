@@ -224,8 +224,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
                 c.bindVar(p.name.text, T.table_, false, p.name, "parameter", true)
             elseif p.name then
-                local pt = p.type and c.resolveType(p.type)
-                    or (expectedParams and expectedParams[#params + 1]) or T.any
+                local pt = p.type and c.resolveType(p.type) or (expectedParams and expectedParams[#params + 1]) or T.any
                 params[#params + 1] = pt
                 local mode = inferredModes[#params] or "borrows"
                 if not declaredModes[

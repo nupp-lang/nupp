@@ -1023,9 +1023,7 @@ function calls.install(c: state.Checker): calls.Ops
         local contextualArgs = false
         for j, arg in ipairs(args) do
             local expected = params[j]
-            local isFunction = not cst.isToken(arg) and (
-                arg.kind == "shortfn" or arg.kind == "funcExpr"
-            )
+            local isFunction = not cst.isToken(arg) and (arg.kind == "shortfn" or arg.kind == "funcExpr")
             if isFunction and expected and rawType(expected).tag == "func" then
                 ats[j] = c.apply.inferExpected(arg, expected)
                 contextualArgs = true

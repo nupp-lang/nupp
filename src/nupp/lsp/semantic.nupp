@@ -48,30 +48,28 @@ type semantic.Api = {
     lastSent: function(uri: string): any
 }
 
-semantic.semanticTypes = wire.array(
-    {
-        "namespace",
-        "type",
-        "class",
-        "enum",
-        "interface",
-        "struct",
-        "typeParameter",
-        "parameter",
-        "variable",
-        "property",
-        "enumMember",
-        "function",
-        "method",
-        "keyword",
-        "comment",
-        "string",
-        "number",
-        "operator",
-        "decorator",
-        "label",
-    }
-)
+semantic.semanticTypes = wire.array({
+    "namespace",
+    "type",
+    "class",
+    "enum",
+    "interface",
+    "struct",
+    "typeParameter",
+    "parameter",
+    "variable",
+    "property",
+    "enumMember",
+    "function",
+    "method",
+    "keyword",
+    "comment",
+    "string",
+    "number",
+    "operator",
+    "decorator",
+    "label",
+})
 
 semantic.semanticModifiers = wire.array({"declaration", "readonly"})
 
