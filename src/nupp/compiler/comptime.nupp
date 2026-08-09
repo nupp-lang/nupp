@@ -1,0 +1,1050 @@
+--[[
+Compile-time evaluation, and the quoting of what it produced.
+
+A `comptime do ... end` block is ordinary Nupp that runs while the file is being
+checked. Its result is quoted back as a source literal, so the generated Lua
+holds a value rather than the work that produced it, and a reader of that Lua
+sees no evidence a compiler ran anything.
+
+The evaluator walks the checked tree directly rather than lowering the block to
+Lua and loading it. Two reasons. Lowering happens after checking, and evaluation
+has to happen during it, so the pass that produced the Lua is not available yet;
+and a walker counts its own steps exactly, where a loaded chunk needs a debug
+hook to be interrupted at all. What this costs is a second reading of the
+language's evaluation semantics, which is why the supported vocabulary is small
+and everything outside it is a diagnostic rather than a silent difference.
+
+Nothing here reads the file system, the clock, the environment, or a random
+source, and the library surface is an explicit allowlist rather than a
+description of one. See `plans/comptime.md`.
+]]
+
+local cst = require("nupp.compiler.cst")
+local T = require("nupp.compiler.types")
+
+local comptime = {}
+
+local isToken = cst.isToken
+
+--- How much a single evaluation may do before it is stopped. These are toolchain
+--- constants rather than source-level knobs: a block that needs more than this is
+--- better rewritten than granted an exception, and a limit a file can raise is a limit
+--- that stops bounding anything.
+comptime.limits = {
+    --- Interpreter steps. One statement or expression node is one step.
+    steps = 2000000,
+
+    --- Nested blocks, calls and expressions, which bounds evaluator stack depth.
+    depth = 200,
+
+    --- Entries in the quoted result, counted over the whole graph.
+    entries = 65536,
+
+    --- Bytes of quoted source the result may occupy.
+    bytes = 1048576,}
+
+--- The exact-integer range, matching what `OPT-3` treats as exact for the same reason:
+--- a double holds these and reads them back unchanged.
+local MAX_EXACT_INTEGER = 9007199254740991
+
+-- A raised evaluation failure. Errors travel as a table so a `pcall` boundary can tell
+-- one of ours from a genuine evaluator bug, which should not be reported as the user's
+-- mistake.
+local FAILURE = {}
+
+local function fail(code, node, message, help)
+    error({[FAILURE] = true, code = code, node = node, message = message, help = help}, 0)
+end
+
+--- Deterministic ordering over the keys a quotable table may have. Iteration order is
+--- observable -- a block that builds a string by walking a table would otherwise depend
+--- on the allocator -- so `pairs` and the serializer share one order rather than each
+--- picking their own.
+local function keyLess(a, b)
+    local ta, tb = type(a), type(b)
+    if ta ~= tb then
+        return ta < tb
+    end
+    if ta == "number" or ta == "string" then
+        return a < b
+    end
+    if ta == "boolean" then
+        return (not a) and b
+    end
+
+    return false
+end
+
+local function sortedKeys(t)
+    local keys = {}
+    for key in pairs(t) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, keyLess)
+
+    return keys
+end
+
+--- The array part of a table: entries `1..n` for the largest `n` with no hole. Every
+--- other key is a keyed entry, integers past the first hole included, so how sparse a
+--- table is has one spelling and does not depend on how it was built.
+local function arrayLength(t)
+    local n = 0
+    while t[n + 1] ~= nil do
+        n = n + 1
+    end
+
+    return n
+end
+
+--- A number as source that reads back as the same number.
+---
+--- An integral value in the exact range prints as an integer, matching `OPT-3`.
+--- Anything
+--- else needs a round trip rather than a tidy spelling: LuaJIT's default `%.14g` loses
+--- the last bits of a double, so the shortest spelling that reads back identically is
+--- searched for and `%.17g` is the fallback that always works.
+local function quoteNumber(value, node)
+    if value ~= value then
+        fail("NUPP2405", node, "NaN has no literal spelling")
+    end
+    if value == math.huge or value == -math.huge then
+        fail("NUPP2405", node, "an infinity has no literal spelling")
+    end
+    if value == 0 then
+        -- Negative zero is a different value from zero and the sign is the whole of the
+        -- difference, so it cannot be printed by the integer path.
+        return 1 / value < 0 and "-0.0" or "0"
+    end
+    if value == math.floor(value) and math.abs(value) <= MAX_EXACT_INTEGER then
+        return ("%.0f"):format(value)
+    end
+    for _, format in ipairs({"%.14g", "%.15g", "%.16g", "%.17g"}) do
+        local text = format:format(value)
+        if tonumber(text) == value then
+            return text
+        end
+    end
+
+    fail("NUPP2405", node, "this number has no spelling that reads back unchanged")
+end
+
+--- A value as canonical Lua source.
+---
+--- A table reachable by more than one path is refused rather than written twice.
+--- Quoting
+--- it twice would build two tables where the block had one, which changes what the
+--- program means without saying so; refusing leaves the author a decision to make
+--- rather
+--- than a difference to discover.
+local function quote(value, node, seen, budget)
+    local kind = type(value)
+    if value == nil then
+        return "nil"
+    elseif kind == "boolean" then
+        return tostring(value)
+    elseif kind == "number" then
+        return quoteNumber(value, node)
+    elseif kind == "string" then
+        return ("%q"):format(value)
+    elseif kind ~= "table" then
+        fail("NUPP2405", node, ("a %s is not a quotable result"):format(kind))
+    end
+    if seen[value] then
+        fail(
+            "NUPP2405",
+            node,
+            "this table is reachable by more than one path",
+            "build a separate table for each position, or return the shared part on its own"
+        )
+    end
+    seen[value] = true
+    if getmetatable(value) ~= nil then
+        fail("NUPP2405", node, "a table with a metatable is not a quotable result")
+    end
+    local parts = {}
+    local count = arrayLength(value)
+    for index = 1, count do
+        budget.entries = budget.entries + 1
+        parts[#parts + 1] = quote(value[index], node, seen, budget)
+    end
+    for _, key in ipairs(sortedKeys(value)) do
+        local skip = type(key) == "number" and key == math.floor(key) and key >= 1 and key <= count
+        if not skip then
+            budget.entries = budget.entries + 1
+            local keyText
+            if type(key) == "string" and key:find("^[%a_][%w_]*$") then
+                keyText = key
+            else
+                keyText = "[" .. quote(key, node, seen, budget) .. "]"
+            end
+            parts[#parts + 1] = keyText .. " = " .. quote(value[key], node, seen, budget)
+        end
+    end
+    if budget.entries > comptime.limits.entries then
+        fail("NUPP2404", node, ("the result exceeds %d entries"):format(comptime.limits.entries))
+    end
+    -- A table is written on one logical line. Attribution is what the generated file
+    -- owes a reader, and a result spread over lines the source did not have would cost
+    -- exactly that.
+    local text = "{" .. table.concat(parts, ", ") .. "}"
+    if #text > comptime.limits.bytes then
+        fail("NUPP2404", node, ("the result exceeds %d bytes of source"):format(comptime.limits.bytes))
+    end
+
+    return text
+end
+
+--- Quotes a finished value, or raises saying why it cannot be written down.
+local function quoteValue(value, node)
+    return quote(value, node, {}, {entries = 0})
+end
+
+-- The library surface, named function by function.
+--
+-- "The pure portions of string" is a description and decides nothing at the edges, so
+-- each entry here is a deliberate one. Two exclusions are worth their own sentence.
+--
+-- The transcendental functions -- sin, cos, exp, log and their relatives -- are absent
+-- because they are libm's, and libm differs between platforms. A block using one would
+-- produce a different constant on a different machine, which is exactly the property
+-- this feature promises not to have.
+--
+-- `tostring` is absent because `tostring(t)` on a table is a process address: it varies
+-- between two runs of the same compiler over the same input, so a block using it would
+-- break repeated-build byte identity. What replaces it answers for the scalars and
+-- refuses everything else.
+local function buildEnvironment()
+    local env = {}
+
+    env.assert = assert
+    env.error = error
+    env.select = select
+    env.tonumber = tonumber
+    env.type = type
+
+    --- Conversion that cannot leak an address: the scalars answer, and a table or a
+    --- function is an error rather than a hexadecimal surprise.
+    env.tostring = function(value)
+        local kind = type(value)
+        if kind == "string" then
+            return value
+        end
+        if kind == "number" or kind == "boolean" or kind == "nil" then
+            return tostring(value)
+        end
+
+        error(("tostring is unavailable for a %s at comptime"):format(kind), 0)
+    end
+
+    env.ipairs = ipairs
+
+    --- Iteration in the one order the serializer also uses, so that walking a table and
+    --- writing it down cannot disagree, and neither depends on the allocator.
+    env.pairs = function(t)
+        if type(t) ~= "table" then
+            error("pairs expects a table", 0)
+        end
+        local keys, index = sortedKeys(t), 0
+
+        return function()
+            index = index + 1
+            local key = keys[index]
+            if key == nil then
+                return nil
+            end
+
+            return key, t[key]
+        end
+    end
+
+    env.math = {
+        abs = math.abs,
+        ceil = math.ceil,
+        floor = math.floor,
+        fmod = math.fmod,
+        max = math.max,
+        min = math.min,
+        modf = math.modf,
+        sqrt = math.sqrt,
+        huge = math.huge,
+        pi = math.pi,
+    }
+
+    env.string = {byte = string.byte, char = string.char, find = string.find, format = string.format, len = string.len, lower = string.lower, match = string.match, rep = string.rep, reverse = string.reverse, sub = string.sub, upper = string.upper,
+        --- Only the string replacement. A function or table replacement would call back
+        --- into the evaluator from inside a C function, which the walker has no frame
+        --- for and no budget over.
+        gsub = function(subject, pattern, replacement, n)
+        if type(replacement) ~= "string" and type(replacement) ~= "number" then
+            error("gsub needs a string replacement at comptime", 0)
+        end
+
+        return string.gsub(subject, pattern, replacement, n)
+    end, gmatch = string.gmatch,}
+
+    env.table = {concat = table.concat, insert = table.insert, remove = table.remove,}
+
+    env.bit = {
+        band = bit.band,
+        bor = bit.bor,
+        bxor = bit.bxor,
+        bnot = bit.bnot,
+        lshift = bit.lshift,
+        rshift = bit.rshift,
+        arshift = bit.arshift,
+        rol = bit.rol,
+        ror = bit.ror,
+        bswap = bit.bswap,
+        tobit = bit.tobit,
+        tohex = bit.tohex,
+    }
+
+    -- Which library each allowlisted table is, so that reaching for a member the
+    -- allowlist leaves out can say so by name. Without this the block gets "a nil is
+    -- not callable", which describes the symptom and hides the reason: `math.random`
+    -- is not missing, it is deliberately absent.
+    local libraries = {[env.math] = "math", [env.string] = "string", [env.table] = "table", [env.bit] = "bit",}
+
+    return env, libraries
+end
+
+-- Control-flow signals. `break` and `return` unwind the walker rather than being
+-- threaded through every statement's result, which keeps the statement functions
+-- returning nothing and the reader from having to track a protocol.
+local BREAK = {}
+local RETURN = {}
+
+--- One evaluation in progress: the scopes, the budget, and the answer.
+local function newState(env, libraries)
+    return {env = env, libraries = libraries, steps = 0, depth = 0, result = nil}
+end
+
+local function scope(parent)
+    return {parent = parent, names = {}}
+end
+
+local function lookup(current, name)
+    while current do
+        local slot = current.names[name]
+        if slot ~= nil then
+            return slot
+        end
+        current = current.parent
+    end
+
+    return nil
+end
+
+local function declare(current, name, value)
+    current.names[name] = {value = value}
+end
+
+local function step(state, node)
+    state.steps = state.steps + 1
+    if state.steps > comptime.limits.steps then
+        fail("NUPP2404", node, ("evaluation exceeded %d steps"):format(comptime.limits.steps))
+    end
+end
+
+local function enter(state, node)
+    state.depth = state.depth + 1
+    if state.depth > comptime.limits.depth then
+        fail("NUPP2404", node, ("evaluation nested deeper than %d"):format(comptime.limits.depth))
+    end
+end
+
+local function leave(state)
+    state.depth = state.depth - 1
+end
+
+local unsupported = function(node, what)
+    fail(
+        "NUPP2402",
+        node,
+        ("%s is unavailable at comptime"):format(what),
+        "compute the value with the constructs comptime supports, or move this to run time"
+    )
+end
+
+local evalExpr, execBlock, evalMulti
+
+--- Calls one of the allowlisted library functions. Everything a block can call is a
+--- real
+--- Lua function reached through the environment, so the call itself is ordinary; what
+--- this adds is turning its error into a diagnostic sited at the call.
+--- Packs a value sequence with its exact length, so a trailing nil is not lost the way
+--- `{...}` loses it. Lua's adjustment rules are about lengths, so the length has to be
+--- carried rather than recovered.
+local function pack(...)
+    return {n = select("#", ...), ...}
+end
+
+local function callValues(state, node, callee, args)
+    if type(callee) ~= "function" then
+        fail("NUPP2402", node, ("a %s is not callable at comptime"):format(type(callee)))
+    end
+    local produced = pack(pcall(callee, unpack(args, 1, args.n)))
+    if not produced[1] then
+        local message = produced[2]
+        fail("NUPP2403", node, type(message) == "string" and message or "the call failed")
+    end
+    local values = {n = produced.n - 1}
+    for index = 2, produced.n do
+        values[index - 1] = produced[index]
+    end
+
+    return values
+end
+
+--- Whether an expression yields a whole value sequence rather than one value, which is
+--- what decides whether the last entry of a list expands.
+local function expands(node)
+    if not node or isToken(node) then
+        return false
+    end
+    local kind = node.kind
+
+    return kind == "call" or kind == "safeCall" or kind == "methodCall"
+end
+
+--- Evaluates an expression list under Lua's adjustment rules: every entry but the last
+--- is truncated to one value, and the last expands if it is a call.
+local function evalList(state, exprs)
+    local values = {n = 0}
+    local count = #(exprs or {})
+    for index = 1, count do
+        local expr = exprs[index]
+        if index == count and expands(expr) then
+            local produced = evalMulti(state, expr)
+            for offset = 1, produced.n do
+                values[values.n + offset] = produced[offset]
+            end
+            values.n = values.n + produced.n
+        else
+            values.n = values.n + 1
+            values[values.n] = evalExpr(state, expr)
+        end
+    end
+
+    return values
+end
+
+local function evalArgs(state, argsNode)
+    return evalList(state, argsNode and argsNode.exprs or {})
+end
+
+--- The value of one expression.
+evalExpr = function(state, node)
+    if not node or isToken(node) then
+        return nil
+    end
+    step(state, node)
+    enter(state, node)
+    local kind = node.kind
+    local answer
+    if kind == "number" then
+        local text = node.token and node.token.text or "0"
+        local lower = text:lower()
+        if lower:find("ll", 1, true) or lower:sub(-1) == "i" then
+            unsupported(node, "a boxed integer literal")
+        end
+        answer = tonumber((text:gsub("_", "")))
+    elseif kind == "string" then
+        local chunk = loadstring("return " .. (node.token and node.token.text or '""'))
+        answer = chunk and chunk() or ""
+    elseif kind == "nilExpr" then
+        answer = nil
+    elseif kind == "trueExpr" then
+        answer = true
+    elseif kind == "falseExpr" then
+        answer = false
+    elseif kind == "paren" or kind == "castExpr" then
+        answer = evalExpr(state, node.expr)
+    elseif kind == "name" then
+        local name = node.token and node.token.text or ""
+        local slot = lookup(state.scope, name)
+        if slot then
+            answer = slot.value
+        else
+            local fromEnv = state.env[name]
+            if fromEnv == nil then
+                fail(
+                    "NUPP2401",
+                    node,
+                    ("%q is not available at comptime"):format(name),
+                    "a comptime block reads only its own locals and the compile-time environment"
+                )
+            end
+            answer = fromEnv
+        end
+    elseif kind == "unop" then
+        local operand = evalExpr(state, node.operand)
+        local op = node.op and node.op.kind
+        if op == "not" then
+            answer = not operand
+        elseif op == "-" then
+            answer = -operand
+        elseif op == "#" then
+            answer = #operand
+        elseif op == "~" then
+            answer = bit.bnot(operand)
+        else
+            unsupported(node, ("the %s operator"):format(tostring(op)))
+        end
+    elseif kind == "binop" then
+        local op = node.op and node.op.kind
+        if op == "and" then
+            local left = evalExpr(state, node.lhs)
+            answer = left and evalExpr(state, node.rhs) or left
+        elseif op == "or" then
+            local left = evalExpr(state, node.lhs)
+            if left then
+                answer = left
+            else
+                answer = evalExpr(state, node.rhs)
+            end
+        elseif op == "??" then
+            local left = evalExpr(state, node.lhs)
+            if left == nil then
+                answer = evalExpr(state, node.rhs)
+            else
+                answer = left
+            end
+        else
+            local left, right = evalExpr(state, node.lhs), evalExpr(state, node.rhs)
+            if op == "+" then
+                answer = left + right
+            elseif op == "-" then
+                answer = left - right
+            elseif op == "*" then
+                answer = left * right
+            elseif op == "/" then
+                answer = left / right
+            elseif op == "%" then
+                answer = left % right
+            elseif op == "^" then
+                answer = left ^ right
+            elseif op == "//" then
+                -- The same expression `gen` lowers `//` to, so a block and the runtime
+                -- cannot disagree about a quotient no double holds exactly.
+                answer = math.floor(left / right)
+            elseif op == ".." then
+                answer = left .. right
+            elseif op == "==" then
+                answer = left == right
+            elseif op == "~=" then
+                answer = left ~= right
+            elseif op == "<" then
+                answer = left < right
+            elseif op == "<=" then
+                answer = left <= right
+            elseif op == ">" then
+                answer = left > right
+            elseif op == ">=" then
+                answer = left >= right
+            elseif op == "&" then
+                answer = bit.band(left, right)
+            elseif op == "|" then
+                answer = bit.bor(left, right)
+            elseif op == "~" then
+                answer = bit.bxor(left, right)
+            elseif op == "<<" then
+                answer = bit.lshift(left, right)
+            elseif op == ">>" then
+                answer = bit.rshift(left, right)
+            elseif op == "~>>" then
+                answer = bit.arshift(left, right)
+            else
+                unsupported(node, ("the %s operator"):format(tostring(op)))
+            end
+        end
+    elseif kind == "ternary" then
+        if evalExpr(state, node.cond) then
+            answer = evalExpr(state, node.ifTrue)
+        else
+            answer = evalExpr(state, node.ifFalse)
+        end
+    elseif kind == "tableExpr" then
+        local built, nextIndex = {}, 1
+        for _, field in ipairs(node.fields or {}) do
+            if field.kind == "fieldItem" then
+                built[nextIndex] = evalExpr(state, field.value)
+                nextIndex = nextIndex + 1
+            elseif field.kind == "fieldNamed" then
+                built[field.name and field.name.text or ""] = evalExpr(state, field.value)
+            else
+                local key = evalExpr(state, field.key)
+                if key == nil then
+                    fail("NUPP2403", field, "a table key evaluated to nil")
+                end
+                built[key] = evalExpr(state, field.value)
+            end
+        end
+        answer = built
+    elseif kind == "istring" then
+        local pieces = {}
+        for _, child in ipairs(node) do
+            if isToken(child) then
+                local text = child.text
+                local chunk
+                if child.kind == "istringOpen" or child.kind == "istringMid" then
+                    chunk = text:sub(2, -3)
+                elseif child.kind == "istringClose" then
+                    chunk = text:sub(2, -2)
+                end
+                if chunk and #chunk > 0 then
+                    pieces[#pieces + 1] = chunk
+                end
+            else
+                pieces[#pieces + 1] = state.env.tostring(evalExpr(state, child))
+            end
+        end
+        answer = table.concat(pieces)
+    elseif kind == "dotIndex" or kind == "safeIndex" then
+        local object = evalExpr(state, node.obj)
+        if object == nil and kind == "safeIndex" then
+            answer = nil
+        else
+            if type(object) ~= "table" then
+                fail("NUPP2403", node, ("a %s cannot be indexed"):format(type(object)))
+            end
+            local field = node.name and node.name.text or ""
+            answer = object[field]
+            local library = state.libraries[object]
+            if answer == nil and library then
+                fail(
+                    "NUPP2402",
+                    node,
+                    ("%s.%s is unavailable at comptime"):format(library, field),
+                    "the comptime library surface is an allowlist; see plans/comptime.md"
+                )
+            end
+        end
+    elseif kind == "bracketIndex" or kind == "safeBracket" then
+        local object = evalExpr(state, node.obj)
+        if object == nil and kind == "safeBracket" then
+            answer = nil
+        else
+            if type(object) ~= "table" then
+                fail("NUPP2403", node, ("a %s cannot be indexed"):format(type(object)))
+            end
+            answer = object[evalExpr(state, node.expr)]
+        end
+    elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+        answer = evalMulti(state, node)[1]
+    elseif kind == "funcExpr" or kind == "shortfn" then
+        unsupported(node, "defining a function inside a comptime block")
+    elseif kind == "newExpr" then
+        unsupported(node, "a construction")
+    elseif kind == "isExpr" then
+        unsupported(node, "an `is` test")
+    elseif kind == "vararg" then
+        unsupported(node, "varargs")
+    elseif kind == "comptimeExpr" then
+        unsupported(node, "a nested comptime block")
+    else
+        unsupported(node, ("a %s expression"):format(tostring(kind)))
+    end
+    leave(state)
+
+    return answer
+end
+
+--- The whole value sequence a call produces, which the single-value paths then
+--- truncate.
+evalMulti = function(state, node)
+    step(state, node)
+    enter(state, node)
+    local kind = node.kind
+    local values
+    if kind == "methodCall" then
+        local object = evalExpr(state, node.obj)
+        if object == nil and node.safeObj then
+            values = {n = 0}
+        else
+            if type(object) ~= "table" and type(object) ~= "string" then
+                fail("NUPP2403", node, ("a %s has no methods at comptime"):format(type(object)))
+            end
+            -- A string's methods are the allowlisted `string` table's, not whatever the
+            -- host has installed on the string metatable.
+            local from = type(object) == "string" and state.env.string or object
+            local method = from[node.name and node.name.text or ""]
+            local args = evalArgs(state, node.args)
+            for index = args.n, 1, -1 do
+                args[index + 1] = args[index]
+            end
+            args[1] = object
+            args.n = args.n + 1
+            values = callValues(state, node, method, args)
+        end
+    else
+        local callee = evalExpr(state, node.obj)
+        if callee == nil and kind == "safeCall" then
+            values = {n = 0}
+        else
+            values = callValues(state, node, callee, evalArgs(state, node.args))
+        end
+    end
+    leave(state)
+
+    return values
+end
+
+--- Assigns to one already-declared target.
+local function assign(state, target, value)
+    if isToken(target) then
+        return
+    end
+    if target.kind == "name" then
+        local name = target.token and target.token.text or ""
+        local slot = lookup(state.scope, name)
+        if not slot then
+            fail(
+                "NUPP2401",
+                target,
+                ("%q is not a comptime local, so it cannot be assigned"):format(name),
+                "a comptime block may not write to anything declared outside it"
+            )
+        end
+        slot.value = value
+    elseif target.kind == "dotIndex" then
+        local object = evalExpr(state, target.obj)
+        if type(object) ~= "table" then
+            fail("NUPP2403", target, ("a %s cannot be assigned through"):format(type(object)))
+        end
+        object[target.name and target.name.text or ""] = value
+    elseif target.kind == "bracketIndex" then
+        local object = evalExpr(state, target.obj)
+        if type(object) ~= "table" then
+            fail("NUPP2403", target, ("a %s cannot be assigned through"):format(type(object)))
+        end
+        local key = evalExpr(state, target.expr)
+        if key == nil then
+            fail("NUPP2403", target, "a table key evaluated to nil")
+        end
+        object[key] = value
+    else
+        unsupported(target, ("assigning to a %s"):format(tostring(target.kind)))
+    end
+end
+
+local execStatement
+
+--- Runs a block's statements in the scope already current, which is what a loop body
+--- and
+--- a `repeat` need: the loop owns the scope so that the control variable and the
+--- `until`
+--- condition can both see it.
+---
+--- @raises the control-flow signal of a `break` or `return` inside, and any evaluation
+---   failure the statements raise
+local function execStats(state, block)
+    for _, stat in ipairs(block and block.stats or {}) do
+        execStatement(state, stat)
+    end
+end
+
+--- Runs one statement.
+---
+--- @raises `RETURN` when the statement is a `return` and `BREAK` when it is a `break`,
+---   both caught by the construct they leave, and an evaluation failure when the
+---   statement cannot be run at compile time
+execStatement = function(state, stat)
+    if isToken(stat) then
+        return
+    end
+    step(state, stat)
+    local kind = stat.kind
+    if kind == "localStmt" then
+        local values = evalList(state, stat.exprs or {})
+        for index, name in ipairs(stat.names or {}) do
+            declare(state.scope, name.text, values[index])
+        end
+    elseif kind == "assignStmt" then
+        local values = evalList(state, stat.exprs or {})
+        for index, target in ipairs(stat.targets or {}) do
+            assign(state, target, values[index])
+        end
+    elseif kind == "compoundAssign" then
+        local op = stat.op and stat.op.kind or ""
+        local base = op:sub(1, -2)
+        local current = evalExpr(state, stat.target)
+        local operand = evalExpr(state, stat.value)
+        local answer
+        if base == "+" then
+            answer = current + operand
+        elseif base == "-" then
+            answer = current - operand
+        elseif base == "*" then
+            answer = current * operand
+        elseif base == "/" then
+            answer = current / operand
+        elseif base == "%" then
+            answer = current % operand
+        elseif base == "//" then
+            answer = math.floor(current / operand)
+        elseif base == ".." then
+            answer = current .. operand
+        elseif base == "??" then
+            answer = current == nil and operand or current
+        else
+            unsupported(stat, ("the %s operator"):format(op))
+        end
+        assign(state, stat.target, answer)
+    elseif kind == "returnStmt" then
+        local exprs = stat.exprs or {}
+        if #exprs > 1 then
+            fail(
+                "NUPP2402",
+                stat,
+                "a comptime block returns exactly one value",
+                "return a table holding them, until multi-value results are specified"
+            )
+        end
+        state.result = #exprs == 1 and evalExpr(state, exprs[1]) or nil
+        state.returned = true
+        error(RETURN, 0)
+    elseif kind == "breakStmt" then
+        error(BREAK, 0)
+    elseif kind == "callStmt" then
+        evalExpr(state, stat.expr)
+    elseif kind == "doStmt" or kind == "unsafeStmt" then
+        execBlock(state, stat.body)
+    elseif kind == "ifStmt" then
+        for _, clause in ipairs(stat.clauses or {}) do
+            if evalExpr(state, clause.cond) then
+                execBlock(state, clause.body)
+                return
+            end
+        end
+        if stat.elseClause then
+            execBlock(state, stat.elseClause.body)
+        end
+    elseif kind == "whileStmt" then
+        while evalExpr(state, stat.cond) do
+            local ok, err = pcall(execBlock, state, stat.body)
+            if not ok then
+                if err == BREAK then
+                    break
+                end
+                error(err, 0)
+            end
+            step(state, stat)
+        end
+    elseif kind == "repeatStmt" then
+        repeat
+            -- The `until` reads the body's locals, so both share one scope, which is
+            -- why this does not go through `execBlock`.
+            local inner = scope(state.scope)
+            local saved = state.scope
+            state.scope = inner
+            local ok, err = pcall(execStats, state, stat.body)
+            local done = ok and evalExpr(state, stat.cond) or false
+            state.scope = saved
+            if not ok then
+                if err == BREAK then
+                    break
+                end
+                error(err, 0)
+            end
+            step(state, stat)
+            if done then
+                break
+            end
+        until false
+    elseif kind == "fornumStmt" then
+        local from, to = evalExpr(state, stat.start), evalExpr(state, stat.stop)
+        local by = stat.step and evalExpr(state, stat.step) or 1
+        if type(from) ~= "number" or type(to) ~= "number" or type(by) ~= "number" then
+            fail("NUPP2403", stat, "a numeric loop needs numeric bounds")
+        end
+        if by == 0 then
+            fail("NUPP2403", stat, "a numeric loop with a zero step does not terminate")
+        end
+        local index = from
+        while (by > 0 and index <= to) or (by < 0 and index >= to) do
+            local inner = scope(state.scope)
+            if stat.var then
+                declare(inner, stat.var.text, index)
+            end
+            local saved = state.scope
+            state.scope = inner
+            local ok, err = pcall(execStats, state, stat.body)
+            state.scope = saved
+            if not ok then
+                if err == BREAK then
+                    break
+                end
+                error(err, 0)
+            end
+            step(state, stat)
+            index = index + by
+        end
+    elseif kind == "forinStmt" then
+        -- Lua's own protocol rather than a special case for `ipairs`: the explist
+        -- adjusts to the iterator, its state and the control value, and the iterator is
+        -- called with the last two each pass. That is what lets `pairs`, `ipairs` and
+        -- `string.gmatch` all work without any of them being recognized by name.
+        local produced = evalList(state, stat.exprs or {})
+        local iterator, invariant, control = produced[1], produced[2], produced[3]
+        if type(iterator) ~= "function" then
+            fail(
+                "NUPP2402",
+                stat,
+                "a generic for needs an iterator comptime can call",
+                "`ipairs`, `pairs` and `string.gmatch` are available"
+            )
+        end
+        while true do
+            local got = callValues(state, stat, iterator, {n = 2, invariant, control})
+            if got[1] == nil then
+                break
+            end
+            control = got[1]
+            local inner = scope(state.scope)
+            for index, name in ipairs(stat.names or {}) do
+                declare(inner, name.text, got[index])
+            end
+            local saved = state.scope
+            state.scope = inner
+            local ok, err = pcall(execStats, state, stat.body)
+            state.scope = saved
+            if not ok then
+                if err == BREAK then
+                    break
+                end
+                error(err, 0)
+            end
+            step(state, stat)
+        end
+    elseif kind == "emptyStmt" then
+        return
+    elseif kind == "localFuncStmt" or kind == "funcStmt" then
+        unsupported(stat, "declaring a function inside a comptime block")
+    elseif kind == "gotoStmt" or kind == "labelStmt" then
+        unsupported(stat, "goto")
+    elseif kind == "continueStmt" then
+        unsupported(stat, "continue")
+    elseif kind == "pragmaStmt" then
+        execStatement(state, stat.stat)
+    else
+        unsupported(stat, ("a %s statement"):format(tostring(kind)))
+    end
+end
+
+--- Runs a block in its own scope.
+execBlock = function(state, block)
+    if not block then
+        return
+    end
+    enter(state, block)
+    local saved = state.scope
+    state.scope = scope(saved)
+    local ok, err = pcall(execStats, state, block)
+    state.scope = saved
+    leave(state)
+    if not ok then
+        error(err, 0)
+    end
+end
+
+--- The type a finished value has, built the way the checker builds a table literal's:
+--- a scalar is its own literal type, an array is `{union of its elements}`, and a table
+--- with names is a fresh shape. Typing the value rather than parsing its quoted text is
+--- what keeps the checker from having to reach the parser, which would close a module
+--- cycle; the answer is the same one the literal would have been given.
+local function typeOf(value)
+    local kind = type(value)
+    if value == nil then
+        return T.nil_
+    elseif kind == "boolean" then
+        return T.literal(value, T.boolean)
+    elseif kind == "string" then
+        return T.literal(value, T.string)
+    elseif kind == "number" then
+        local exact = value == math.floor(value) and math.abs(value) <= MAX_EXACT_INTEGER
+        return T.literal(value, exact and T.integer or T.number)
+    elseif kind ~= "table" then
+        return T.any
+    end
+    local count = arrayLength(value)
+    local elements, named = {}, {}
+    for index = 1, count do
+        elements[#elements + 1] = typeOf(value[index])
+    end
+    for _, key in ipairs(sortedKeys(value)) do
+        local inArray = type(key) == "number" and key == math.floor(key) and key >= 1 and key <= count
+        if not inArray then
+            if type(key) == "string" then
+                named[#named + 1] = {name = key, read = typeOf(value[key]), write = typeOf(value[key])}
+            else
+                -- A computed key answers the way a computed key in a literal does.
+                return T.table_
+            end
+        end
+    end
+    if #named > 0 and #elements == 0 then
+        return T.shape(named, nil, true)
+    elseif #elements > 0 and #named == 0 then
+        return T.array(T.union(elements))
+    elseif #elements == 0 and #named == 0 then
+        return T.table_
+    end
+
+    return T.table_
+end
+
+--- Why an evaluation stopped, sited where the reader should look.
+type comptime.Failure = {
+    readonly code: string,
+    readonly node: cst.Node?,
+    readonly message: string,
+    readonly help: string?
+}
+
+--- Evaluates a `comptime do ... end` block.
+---
+--- Answers the quoted source of what it produced, or nil and a failure describing what
+--- stopped it. Nothing here raises past its own boundary: a failure the walker did not
+--- expect is reported as an evaluation failure at the block rather than crashing the
+--- compiler around it.
+---
+--- @param node the `comptime` expression, which is where a failure is reported
+--- @param block its body
+--- @return the result as canonical Lua source, its type, then the failure if there was
+---   one
+function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?
+    local env, libraries = buildEnvironment()
+    local state = newState(env, libraries)
+    state.scope = scope(nil)
+    local ok, err = pcall(execBlock, state, block)
+    if not ok and err ~= RETURN then
+        if type(err) == "table" and err[FAILURE] then
+            return nil, nil, err as comptime.Failure
+        end
+
+        return nil, nil, {code = "NUPP2403", node = node, message = tostring(err)} as comptime.Failure
+    end
+    if not state.returned then
+        return nil, nil, {
+            code = "NUPP2403",
+            node = node,
+            message = "a comptime block must return a value",
+            help = "every path out of the block needs a `return`",
+        } as comptime.Failure
+    end
+    local quoted
+    ok, quoted = pcall(quoteValue, state.result, node)
+    if not ok then
+        if type(quoted) == "table" and quoted[FAILURE] then
+            return nil, nil, quoted as comptime.Failure
+        end
+
+        return nil, nil, {code = "NUPP2405", node = node, message = tostring(quoted)} as comptime.Failure
+    end
+
+    return quoted as string, typeOf(state.result), nil
+end
+
+return comptime

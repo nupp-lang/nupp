@@ -67,13 +67,13 @@ return {
          compiler = {
             kind = "modules",
             description = "Build the self-hosted compiler",
-            entries = { "compiler.main" },
+            entries = { "nupp.compiler.main" },
             resources = {
-               "src/compiler/decls/*.d.nupp",
-               "src/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/resources.nupp", output = "compiler/nupp/resources.nupp"},
-               {source = "src/nupp/zone.nupp", output = "compiler/nupp/zone.nupp"},
-               {source = "src/nupp/profile.nupp", output = "compiler/nupp/profile.nupp"},
+               "src/nupp/compiler/decls/*.d.nupp",
+               "src/nupp/compiler/decls/jit/*.d.nupp",
+               {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
+               {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
+               {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
             },
          },
          -- Nupp stamped into a feature-matched host as one self-contained
@@ -83,17 +83,17 @@ return {
          dist = {
             kind = "binary",
             description = "Stamp the compiler into a self-contained binary",
-            entries = { "compiler.main" },
+            entries = { "nupp.compiler.main" },
             -- Carried, not just installed: a binary is handed to someone who
             -- has no rock tree, and `nupp doc` is one of the commands it
             -- claims to have.
             dependencies = { "lunamark", "scintillua" },
             resources = {
-               "src/compiler/decls/*.d.nupp",
-               "src/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/resources.nupp", output = "compiler/nupp/resources.nupp"},
-               {source = "src/nupp/zone.nupp", output = "compiler/nupp/zone.nupp"},
-               {source = "src/nupp/profile.nupp", output = "compiler/nupp/profile.nupp"},
+               "src/nupp/compiler/decls/*.d.nupp",
+               "src/nupp/compiler/decls/jit/*.d.nupp",
+               {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
+               {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
+               {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
             },
             stub = "nupp",
             output = "build/dist/nupp",

@@ -1,5 +1,5 @@
-local fmt = require("compiler.fmt")
-local lexer = require("compiler.lexer")
+local fmt = require("nupp.compiler.fmt")
+local lexer = require("nupp.compiler.lexer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -228,11 +228,11 @@ function M.idempotentAndParseStable()
 end
 
 function M.selfFormatStable()
-   local parser = require("compiler.parser")
+   local parser = require("nupp.compiler.parser")
    for _, rel in ipairs({
-      "src/compiler/lexer.nupp", "src/compiler/cst.nupp", "src/compiler/parser.nupp",
-      "src/compiler/fmt/displaywidth.nupp", "src/compiler/fmt/init.nupp",
-      "src/compiler/main.nupp",
+      "src/nupp/compiler/lexer.nupp", "src/nupp/compiler/cst.nupp", "src/nupp/compiler/parser.nupp",
+      "src/nupp/compiler/fmt/displaywidth.nupp", "src/nupp/compiler/fmt/init.nupp",
+      "src/nupp/compiler/main.nupp",
    }) do
       local f = assert(io.open(ROOT .. "/" .. rel))
       local src = f:read("*a")

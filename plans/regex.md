@@ -179,14 +179,14 @@ runtime/regex/
   src/lib.rs                 # C ABI used by the cdylib backend
   src/engine.rs              # port of Tecs regex.rs, shared by both fronts
   include/nupp_regex.h       # checked C ABI, generated or hand-maintained
-src/compiler/regex.nupp          # public wrapper and type surface
+src/nupp/compiler/regex.nupp          # public wrapper and type surface
 ```
 
 `host/Cargo.toml` gains an optional `regex` feature and a path dependency on
 the runtime crate.  `host/src/lua.rs` preloads `nupp.regex.native` only with
 that feature enabled.  The feature must not be a default feature.
 
-Add a `global nupp` declaration to `src/compiler/decls/prelude.d.nupp`, including
+Add a `global nupp` declaration to `src/nupp/compiler/decls/prelude.d.nupp`, including
 the `regex` member's exact type surface. The generator emits an idempotent
 runtime bootstrap before each generated Nupp module executes: it creates
 `_G.nupp` if absent, rejects a pre-existing non-table value, and installs the
@@ -194,7 +194,7 @@ public namespace wrapper once. `nupp` is reserved for this compiler-owned
 global, so user declarations cannot replace its type or bind a different global
 under that name.
 
-Add the public wrapper source to the bundled-source map in `src/compiler/env.nupp`
+Add the public wrapper source to the bundled-source map in `src/nupp/compiler/env.nupp`
 and to the compiler/dist resource lists in `nupp.lua`. The generated startup
 installs it as `nupp.regex`, instead of exposing a user-facing
 `require("nupp.regex")` module. An installed Nupp binary consequently types

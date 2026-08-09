@@ -88,7 +88,7 @@ end
 ```
 
 `assert` will not do that for you — it does not carry ownership metadata
-through, so `dispose(assert(maybeOwned()))` reports NUPP2602.
+through, so `nupp.dispose(assert(maybeOwned()))` reports NUPP2602.
 
 An acquisition can also be an owner you already hold, which moves it:
 
@@ -127,7 +127,7 @@ local channel = openChannel()
 manager:add(channel)       -- `add` takes it
 
 local other = openChannel()
-dispose(other)             -- closed at this exact point
+nupp.dispose(other)             -- closed at this exact point
 
 local returned = openChannel()
 return returned            -- the enclosing function is @owned(...)
@@ -150,9 +150,9 @@ it:
 ```nupp
 local socket = openSocket()
 local tls = openTls(socket)
-dispose(socket)                -- rejected: the session still holds it
-dispose(tls)                   -- releases the borrow
-dispose(socket)                -- now allowed
+nupp.dispose(socket)                -- rejected: the session still holds it
+nupp.dispose(tls)                   -- releases the borrow
+nupp.dispose(socket)                -- now allowed
 ```
 
 Which is what lets both layers live in one scope, since reverse cleanup order

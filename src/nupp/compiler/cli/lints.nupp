@@ -1,0 +1,140 @@
+--[[
+`nupp lints`: the lints, and the level each one runs at here.
+
+The levels reported are the project's own, not the defaults, so what prints is
+what would be enforced in this tree. A lint whose level a project moved says so
+beside its summary, since the difference is the thing worth noticing.
+]]
+
+local spec = require("nupp.compiler.cli.spec")
+local ansi = require("nupp.compiler.ansi")
+
+local command = spec.command{
+    name = "lints",
+    summary = "List the lints and the level each runs at",
+    usage = {"nupp lints [--format text|json]"},
+    intro = [[Levels are off, note, warning and error; only an error stops a build. A
+project moves one in nupp.lua by name or by category:
+
+  lints = { ["missing-require"] = "warning", pedantic = "warning" }
+
+A statement waves one away with @allow("missing-require"). See docs/lints.md.]],
+    options = require("nupp.compiler.cli.options").format(),
+    schema = {
+        type = "object",
+        properties = {
+            lints = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        name = {type = "string", description = "What an @allow suppression writes."},
+                        code = {
+                            type = "string",
+                            description = "The diagnostic code it reports under, "
+                            .. "which survives the name being reconsidered."
+                        },
+                        category = {type = "string"},
+                        level = {
+                            type = "string",
+                            enum = {"off", "note", "warning", "error"},
+                            description = "The level this project runs it at."
+                        },
+                        default = {
+                            type = "string",
+                            enum = {"off", "note", "warning", "error"},
+                            description = "The level it runs at when a project " .. "says nothing."
+                        },
+                        moved = {
+                            type = "boolean",
+                            description = "Whether this project moved it off " .. "its default."
+                        },
+                        summary = {type = "string"},
+                    },
+                    required = {"name", "code", "category", "level", "default", "moved", "summary"},
+                },
+            },
+        },
+        required = {"lints"},
+    },
+}
+
+-- A level is a severity in everything but name, so it is painted like one; the two
+-- levels that are not severities are the two that do not report anything.
+local LEVEL_SEVERITY = {error = "error", warning = "warning", note = "note",}
+
+local function run(parsed: any): integer
+    local lints = require("nupp.compiler.lints")
+    local project = require("nupp.compiler.build.project")
+    -- The project's own configuration, so what prints is what would be enforced here
+    -- rather than what the defaults would have said.
+    local config, err = project.loadManifest(".")
+    if not config and err then
+        io.stderr:write(err .. "\n")
+        return 1
+    end
+    local lintConfig = config and config.lints or nil
+    local style = ansi.style(io.stdout)
+    local rows: {any} = {}
+    local nameWidth: integer, categoryWidth: integer = 4, 8
+    for _, lint in ipairs(lints.all) do
+        local level = lints.level(lint, lintConfig)
+        rows[
+            #rows + 1
+        ] = {
+            name = lint.name,
+            code = lint.code,
+            category = lint.category,
+            level = level,
+            summary = lint.summary,
+            default = lint.level,
+            moved = level ~= lint.level,
+        }
+        if #lint.name > nameWidth then
+            nameWidth = #lint.name
+        end
+        if #lint.category > categoryWidth then
+            categoryWidth = #lint.category
+        end
+    end
+    table.sort(rows, function(a: any, b: any): boolean
+        return a.name < b.name
+    end)
+    if parsed.values.format == "json" then
+        require("nupp.compiler.cli.report").write({lints = rows})
+        return 0
+    end
+    -- Padded before styling, since an escape code has width in bytes and none on
+    -- screen, and one write at the end rather than one per row.
+    local out: {string} = {}
+    local function pad(text: string, width: integer): string
+        return text .. (" "):rep(width - #text)
+    end
+
+    out[
+        #out + 1
+    ] = style.faint(
+        pad("lint", nameWidth) .. "  " .. pad("category", categoryWidth) .. "  " .. pad("level", 7) .. "  summary"
+    )
+    for _, row in ipairs(rows) do
+        local summary = row.summary
+        if row.moved then
+            summary = summary .. style.faint((" (default %s)"):format(row.default))
+        end
+        local level = pad(row.level, 7)
+        local severity = LEVEL_SEVERITY[row.level]
+        if severity then
+            level = ansi.forSeverity(style, severity)(level)
+        end
+        out[
+            #out + 1
+        ] = style.strong(
+            pad(row.name, nameWidth)
+        ) .. "  " .. style.faint(pad(row.category, categoryWidth)) .. "  " .. level .. "  " .. summary
+    end
+    io.write(table.concat(out, "\n"), "\n")
+
+    return 0
+end
+
+return new spec.Handler {spec = command, run = run}

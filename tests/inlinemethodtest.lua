@@ -7,11 +7,11 @@
 --
 -- It checked clean in that state, which is why this suite runs the code. The
 -- broken spelling was the one in the language reference's own worked example.
-local parser = require("compiler.parser")
-local optimize = require("compiler.optimize")
-local gen = require("compiler.gen")
+local parser = require("nupp.compiler.parser")
+local optimize = require("nupp.compiler.optimize")
+local gen = require("nupp.compiler.gen")
 local check = require("fragment")
-local envMod = require("compiler.env")
+local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

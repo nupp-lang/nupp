@@ -15,11 +15,11 @@
 -- not change is the answer. `nupp fixpoint` is the whole-program version of the
 -- same idea, comparing the compiler built at -O0 against -O2; this is the
 -- per-program one.
-local parser = require("compiler.parser")
-local optimize = require("compiler.optimize")
-local gen = require("compiler.gen")
+local parser = require("nupp.compiler.parser")
+local optimize = require("nupp.compiler.optimize")
+local gen = require("nupp.compiler.gen")
 local check = require("fragment")
-local envMod = require("compiler.env")
+local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

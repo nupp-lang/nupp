@@ -5,9 +5,9 @@
 -- strictly, every code it cites has to resolve, every lint has to appear, and
 -- the committed docs/reference.md has to be what the binary would print.
 
-local reference = require("compiler.reference")
-local explain = require("compiler.explain")
-local lints = require("compiler.lints")
+local reference = require("nupp.compiler.reference")
+local explain = require("nupp.compiler.explain")
+local lints = require("nupp.compiler.lints")
 local json = require("cjson").new()
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

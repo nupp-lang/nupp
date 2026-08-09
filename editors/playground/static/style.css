@@ -1,5 +1,5 @@
 /* This is docs/public/nupp.css's actual "woodblock" palette, not
-   src/compiler/doc/assets.nupp's generic docs-generator default (the earlier
+   src/nupp/compiler/doc/assets.nupp's generic docs-generator default (the earlier
    version of this file used that one — a plausible-looking but wrong
    source, since it's the *un*-customized theme the real site overrides).
    --pg-button is --nupp-woodblock-vermilion from that file exactly; the

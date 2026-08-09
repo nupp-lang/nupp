@@ -10,10 +10,10 @@
 --
 -- A case that is about either lint asks for it back the way a project would, by
 -- passing its own `lints` table -- `opts.lints` replaces this wholesale, the
--- same as it replaces a project's. Everything else about `compiler.check` is passed
+-- same as it replaces a project's. Everything else about `nupp.compiler.check` is passed
 -- straight through.
 
-local check = require("compiler.check")
+local check = require("nupp.compiler.check")
 
 local FRAGMENT_LINTS = {
    ["unused-binding"] = "off",

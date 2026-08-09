@@ -18,7 +18,7 @@ arg = {}
 os.exit = function(...) return ... end
 
 -- Lua 5.1 and LuaJIT's `loadstring`, which 5.2 folded into `load` and 5.3 --
--- fengari's dialect -- does not define at all. compiler.optimize's constant folder
+-- fengari's dialect -- does not define at all. nupp.compiler.optimize's constant folder
 -- reaches for it to evaluate a numeric literal the lexer already accepted, so
 -- without this the optimizer is not merely absent in the browser: turning it
 -- on fails the compile with "attempt to call a nil value".
@@ -98,7 +98,7 @@ do
         return string.format("%0" .. n .. "x", a):sub(-n)
     end
     -- A global as well as a module, because LuaJIT registers it as one at
-    -- startup and compiler.build.hash reads it that way on purpose (see the note
+    -- startup and nupp.compiler.build.hash reads it that way on purpose (see the note
     -- above its own `local band, bxor = bit.band, bit.bxor`): requiring it into a
     -- local of the same name would shadow the declaration that types it. A shim
     -- that only answers `require` leaves that file indexing a nil global, which
@@ -108,7 +108,7 @@ do
 end
 
 -- LuaJIT's "string.buffer": a growable byte buffer. The project-index cache
--- (compiler.build.store) builds and reads one; a plain string accumulator behaves
+-- (nupp.compiler.build.store) builds and reads one; a plain string accumulator behaves
 -- the same for every method it actually calls.
 do
     local Buffer = {}
@@ -163,7 +163,7 @@ do
 end
 
 -- A tiny JSON codec, standing in for the "cjson" C extension that
--- compiler.build.store, compiler.cli.report, and compiler.cli.lsp use for cache blobs,
+-- nupp.compiler.build.store, nupp.compiler.cli.report, and nupp.compiler.cli.lsp use for cache blobs,
 -- `--json` output, and LSP framing.
 do
     local json = {}
@@ -244,7 +244,7 @@ do
         end
     end
     -- `ffi.cast` is the one member with a real implementation here, for the four
-    -- shapes compiler.build.hash's XXH64 asks for and nothing else. Reading
+    -- shapes nupp.compiler.build.hash's XXH64 asks for and nothing else. Reading
     -- little-endian words out of a Lua string is not C-ABI work -- no layout, no
     -- alignment, no offset the platform decides -- so unlike struct introspection
     -- it is something this VM can answer exactly, and Lua 5.3's own 64-bit

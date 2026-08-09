@@ -178,7 +178,7 @@ may disagree with. It does not reach a type error, which is not a judgement:
 naming one is `NUPP2108` and the error stands.
 
 `@owned(cleanup, ...)` marks the first return as an affine owner. The checker
-requires it to be transferred or explicitly discharged, and `dispose(value)`
+requires it to be transferred or explicitly discharged, and `nupp.dispose(value)`
 invokes the named cleanup functions in source order. Bare `@owned` resolves
 the result type's unique inherited `@dispose` operation;
 `@owned(opaque = true)` is the explicit transfer-only form.
@@ -281,6 +281,6 @@ current numeric `ipairs` rewrite needs no relaxation because it preserves the
 language's observable behavior under its proof.
 
 Compiler integrations can still add definitions directly through the
-extensible `compiler.annotations` registry. Source declarations are the normal
+extensible `nupp.compiler.annotations` registry. Source declarations are the normal
 language-facing mechanism; direct registration remains useful for built-ins
 and compiler extensions.

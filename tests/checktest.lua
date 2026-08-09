@@ -1,7 +1,7 @@
-local parser = require("compiler.parser")
+local parser = require("nupp.compiler.parser")
 local check = require("fragment")
-local T = require("compiler.types")
-local relations = require("compiler.relations")
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
 
 local function assertEq(got, want, label)
    if got ~= want then

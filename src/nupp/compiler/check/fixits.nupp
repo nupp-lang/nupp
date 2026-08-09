@@ -1,0 +1,338 @@
+--[[
+Machine-applicable edits, and the advice that carries them.
+
+A diagnostic may carry fixes: named edits an editor can offer without re-reading
+the prose. Each fix is a title and a list of byte-ranged edits into one file's
+source, and applying a fix is all-or-nothing. Only unambiguous rewrites qualify;
+where a message lists alternatives, each alternative is its own fix rather than a
+guess between them.
+
+None of this reads the checker's scopes — only the parse and the project index —
+so it is built once per file and asked, rather than threaded through the walk.
+]]
+
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+
+local fixits = {}
+
+--- The edits one file's diagnostics can offer. Built once per file and asked, since
+--- none of it reads the walk's scopes — only the parse and the project index.
+type fixits.Edits = {
+    --- A named fix, and the edits applying it makes. Applying one is all-or-nothing.
+    fix: function(title: string, ...: any): any,
+
+    --- An edit that puts text in front of a token, leaving the token alone.
+    insertBefore: function(tok: any, text: string): any,
+
+    --- Replaces one token without disturbing its leading trivia.
+    replaceToken: function(tok: any, text: string): any,
+
+    --- A fix for a misspelled metamethod, and one for an ordinary name, when exactly
+    --- one candidate is close enough to be the one that was meant.
+    spellingFix: function(tok: any, candidates: any): {any}?,
+
+    nameSpellingFix: function(tok: any, candidates: any): {any}?,
+
+    --- Makes a narrowing explicit around a complete initializer.
+    castFix: function(expr: any, target: any): {any}?,
+
+    --- An edit adding a require where this file keeps them.
+    requireEdit: function(name: string, moduleName: string): any?,
+
+    --- The local this file already binds a module to, and whether a top-level require
+    --- already binds a name at all.
+    requiredAs: function(moduleName: string): string?,
+
+    requireBindsName: function(name: string): boolean,
+
+    --- Advice for an unknown name a project module is named after, whether it is such a
+    --- name at all, and a fix per candidate module.
+    missingRequire: function(name: string): (string?, boolean, {any}?)
+}
+
+--- Damerau-Levenshtein distance for short language names. Treating an adjacent
+--- transposition as one edit catches `__idnex` without making the spelling threshold
+--- broad enough to guess at unrelated metamethods.
+local function editDistance(left: string, right: string): integer
+    local beforePrevious = nil
+    local previous = {}
+    for j = 0, #right do
+        previous[j] = j
+    end
+    for i = 1, #left do
+        local current = {[0] = i}
+        for j = 1, #right do
+            local cost = left:sub(i, i) == right:sub(j, j) and 0 or 1
+            current[j] = math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost)
+            if beforePrevious and i > 1 and j > 1 and left:sub(
+                i,
+                i
+            ) == right:sub(j - 1, j - 1) and left:sub(i - 1, i - 1) == right:sub(j, j) then
+                current[j] = math.min(current[j], beforePrevious[j - 2] + 1)
+            end
+        end
+        beforePrevious, previous = previous, current
+    end
+
+    return previous[#right]
+end
+
+--- What one file's diagnostics can offer to fix.
+---
+--- @param result the parse the diagnostics are about
+--- @param env the project environment, when there is one
+--- @return the edits those diagnostics can carry
+function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
+    local self = {}
+
+    function self.fix(title: string, ...): any
+        return {title = title, edits = {...}}
+    end
+
+    --- An edit that puts `text` in front of `tok`, leaving the token itself alone.
+    function self.insertBefore(tok: any, text: string): any
+        return {offset = tok.offset, length = 0, newText = text}
+    end
+
+    --- Replaces one token without disturbing its leading trivia.
+    function self.replaceToken(tok: any, text: string): any
+        return {offset = tok.offset, length = #tok.text, newText = text}
+    end
+
+    --- A fix for a misspelled name when exactly one candidate is close enough. Short
+    --- metamethod stems permit one edit; longer ones permit two, which still refuses
+    --- unrelated or merely unsupported runtime protocols.
+    function self.spellingFix(tok: any, candidates: any): {any}?
+        if not tok or type(tok.text) ~= "string" then
+            return nil
+        end
+        local compared = tok.text
+        if not compared:match("^__") then
+            compared = compared:sub(1, 1) == "_" and "_" .. compared or "__" .. compared
+        end
+        local best, distance, tied = nil, nil, false
+        for candidate in pairs(candidates or {}) do
+            local candidateDistance = editDistance(compared, candidate)
+            if not distance or candidateDistance < distance then
+                best, distance, tied = candidate, candidateDistance, false
+            elseif candidateDistance == distance then
+                tied = true
+            end
+        end
+        local stemLength = math.max(0, #compared - 2)
+        local threshold = stemLength >= 5 and 2 or 1
+        if not best or tied or distance > threshold then
+            return nil
+        end
+
+        return {self.fix(("change to `%s`"):format(best), self.replaceToken(tok, best))}
+    end
+
+    --- A fix for an ordinary identifier when one visible name is uniquely close.
+    function self.nameSpellingFix(tok: any, candidates: any): {any}?
+        if not tok or type(tok.text) ~= "string" then
+            return nil
+        end
+        local best, distance, tied = nil, nil, false
+        for key, value in pairs(candidates or {}) do
+            local candidate = type(key) == "number" and value or key
+            if type(candidate) == "string" and candidate ~= tok.text then
+                local candidateDistance = editDistance(tok.text, candidate)
+                if not distance or candidateDistance < distance then
+                    best, distance, tied = candidate, candidateDistance, false
+                elseif candidateDistance == distance then
+                    tied = true
+                end
+            end
+        end
+        local threshold = #tok.text >= 5 and 2 or 1
+        if not best or tied or distance > threshold then
+            return nil
+        end
+
+        return {self.fix(("change to `%s`"):format(best), self.replaceToken(tok, best))}
+    end
+
+    --- Makes a narrowing explicit around the complete initializer. Restrict the copied
+    --- spelling to a plain or qualified type name: unusual trivia and compound
+    --- spellings are better left to the author than rearranged.
+    function self.castFix(expr: any, target: any): {any}?
+        local first, last = cst.firstToken(expr), cst.lastToken(expr)
+        local rendered = target and cst.textOf(target) or ""
+        local name = rendered:match("^%s*([%a_][%w_%.]*)%s*$")
+        if not first or not last or not name then
+            return nil
+        end
+
+        return {
+            self.fix(
+                ("cast to `%s`"):format(name),
+                self.insertBefore(first, "("),
+                {offset = last.offset + #last.text, length = 0, newText = ") as " .. name}
+            )
+        }
+    end
+
+    --- The top-level `local <name> = require("<module>")` statements, in source order,
+    --- as {stat, name, module}. Read syntactically: a fix needs to know what this file
+    --- has already written, which is true whether or not the module resolves.
+    local function topLevelRequires(): {any}
+        local found = {}
+        for _, block in ipairs(result.root.blocks or {}) do
+            for _, stat in ipairs(block.stats or {}) do
+                local expr = stat.kind == "localStmt" and #(
+                    stat.names or {}
+                ) == 1 and stat.exprs and #stat.exprs == 1 and stat.exprs[1] or nil
+                local callee = expr and expr.kind == "call" and expr.obj or nil
+                if callee and callee.kind == "name" and callee.token and callee.token.text == "require" then
+                    local arg = expr.args and expr.args.exprs and expr.args.exprs[1]
+                    local strTok = arg and arg.kind == "string" and arg.token or expr.args and expr.args.str or nil
+                    local text = strTok and strTok.text or ""
+                    found[
+                        #found + 1
+                    ] = {
+                        stat = stat,
+                        name = stat.names[1].text,
+                        module = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+                    }
+                end
+            end
+        end
+
+        return found
+    end
+
+    --- An edit adding `local <name> = require("<module>")` where this file keeps its
+    --- requires: after the last one, or on the first statement's own line when there
+    --- are none — never above the header comment that statement carries as trivia.
+    function self.requireEdit(name: string, moduleName: string): any?
+        local line = ("local %s = require(%q)"):format(name, moduleName)
+        local requires = topLevelRequires()
+        local after = requires[#requires]
+        if after then
+            local tok = cst.lastToken(after.stat)
+            if not tok then
+                return nil
+            end
+            return {offset = tok.offset + #tok.text, length = 0, newText = "\n" .. line}
+        end
+        local firstBlock = (result.root.blocks or {})[1]
+        local firstStat = firstBlock and (firstBlock.stats or {})[1]
+        local tok = firstStat and cst.firstToken(firstStat)
+        if not tok then
+            return nil
+        end
+
+        return {offset = tok.offset - (tok.col - 1), length = 0, newText = line .. "\n\n"}
+    end
+
+    --- The local this file already binds `moduleName` to, if it binds one.
+    function self.requiredAs(moduleName: string): string?
+        for _, entry in ipairs(topLevelRequires()) do
+            if entry.module == moduleName then
+                return entry.name
+            end
+        end
+
+        return nil
+    end
+
+    --- Whether a top-level require already binds `name`. Checked alongside the scope so
+    --- a fix proposed while hoisting, before those locals exist, still sees them.
+    function self.requireBindsName(name: string): boolean
+        for _, entry in ipairs(topLevelRequires()) do
+            if entry.name == name then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- Names already spoken for, so a module used ten times is advice once.
+    local requireAdviceGiven = {}
+
+    --- Advice for an unknown name that a project file is named after, whether it is
+    --- such a name at all, and a fix per candidate module. The advice is given once;
+    --- the fact stays true, so a later use is not reported again in a less useful way.
+    ---
+    --- Several candidates are several fixes rather than one, because which module was
+    --- meant is exactly what the message says it cannot tell.
+    function self.missingRequire(name: string): string?, boolean, {any}?
+        if not env or not env.modulesNamed then
+            return nil, false, nil
+        end
+        local candidates = {}
+        for _, moduleName in ipairs(env.modulesNamed(env, name) or {}) do
+            -- a file does not require itself
+            if moduleName ~= result.moduleName then
+                candidates[#candidates + 1] = moduleName
+            end
+        end
+        if #candidates == 0 then
+            return nil, false, nil
+        end
+        if requireAdviceGiven[name] then
+            return nil, true, nil
+        end
+        requireAdviceGiven[name] = true
+        local fixes = {}
+        for _, moduleName in ipairs(candidates) do
+            local edit = self.requireEdit(name, moduleName)
+            if edit then
+                fixes[#fixes + 1] = self.fix(("require(%q)"):format(moduleName), edit)
+            end
+        end
+        local quoted = {}
+        for i, moduleName in ipairs(candidates) do
+            quoted[i] = ("%q"):format(moduleName)
+        end
+        if #candidates == 1 then
+            return ("%q names a project module; require(%s) to use it"):format(name, quoted[1]), true, fixes
+        end
+
+        return (
+            "%q names project modules %s; require the one you mean"
+        ):format(name, table.concat(quoted, ", ")), true, fixes
+    end
+
+    return self
+end
+
+--- How many single-character edits separate two short names, counting an adjacent
+--- transposition as one. Exported because a misspelling is not only a source-code
+--- problem: the manifest validator suggests keys with it too, and one threshold beats
+--- two that drift.
+---
+--- @param left one name
+--- @param right the other
+--- @return the number of edits
+fixits.editDistance = editDistance
+
+--- The nearest of `candidates` to `name`, or nil when nothing is near enough or two are
+--- equally near. The threshold widens with the name, since a long word survives two
+--- typos and a short one is a different word by then.
+---
+--- @param name what was written
+--- @param candidates the names it might have meant
+--- @return the single nearest candidate, or nil
+function fixits.nearest(name: string, candidates: {string}): string?
+    local limit = #name < 5 and 1 or 2
+    local best, distance, tied = nil, nil, false
+    for _, candidate in ipairs(candidates) do
+        local candidateDistance = editDistance(name, candidate)
+        if not distance or candidateDistance < distance then
+            best, distance, tied = candidate, candidateDistance, false
+        elseif candidateDistance == distance then
+            tied = true
+        end
+    end
+    if tied or not distance or distance > limit then
+        return nil
+    end
+
+    return best
+end
+
+return fixits

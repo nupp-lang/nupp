@@ -62,7 +62,7 @@ Measured rather than assumed:
   `ffi.sizeof("Inner")` fails and the size has to come from the ctype binding.
   The lowering therefore passes nested ctypes as arguments, the way
   `ffi.typeof("struct { $ inner; }", Inner)` already does.
-- `ffi.typeinfo` can walk names and offsets, and `src/compiler/cdecl.nupp` already
+- `ffi.typeinfo` can walk names and offsets, and `src/nupp/compiler/cdecl.nupp` already
   depends on it — but at compile time. Extending that dependency into generated
   user code is a bigger promise than emitting the names, which the compiler
   already has.
@@ -132,7 +132,7 @@ The compiler emits only what it knows statically: the name, and a spec of field
 names against C spellings, with `$` consuming the next ctype argument for a
 field whose type is anonymous. Size, offsets and padding are this platform's, so
 the helper asks for them at load and caches per ctype — the same hoisted-helper
-shape as `__nuppArray` and `__nuppBuffer` in `src/compiler/gen.nupp`.
+shape as `__nuppArray` and `__nuppBuffer` in `src/nupp/compiler/gen.nupp`.
 
 ## Status
 
@@ -173,8 +173,8 @@ that should invert when it is fixed.
 ## Milestones
 
 1. ~~**L1, the helper and the lowering.**~~ Done. `__nuppLayout` with a weak-keyed cache,
-   `layoutof` recognized in `src/compiler/check/ffi.nupp` the way `carray` is,
-   emitted in `src/compiler/gen.nupp`. Primitive fields only. Tests run the
+   `layoutof` recognized in `src/nupp/compiler/check/ffi.nupp` the way `carray` is,
+   emitted in `src/nupp/compiler/gen.nupp`. Primitive fields only. Tests run the
    generated code and assert offsets against `ffi.offsetof` independently.
 2. ~~**L2, the field shapes a struct can actually hold.**~~ Done, minus fixed
    arrays, which a struct cannot hold. Nested structs, pointers, optional

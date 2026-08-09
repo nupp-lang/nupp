@@ -10,7 +10,7 @@ that command understands Nupp's built-in test runner or coverage protocol.
 
 The report is source-first. It presents Nupp source as the primary program and
 offers the generated Lua as a synchronized secondary view. No source map is
-needed for line attribution: `compiler.gen` already emits code on the source line
+needed for line attribution: `nupp.compiler.gen` already emits code on the source line
 it came from and never changes a module's line count. Coverage metadata is
 still needed for columns, functions, branch arms, lowered forms, and erased
 syntax; it is not a replacement for the line-attribution invariant.
@@ -83,7 +83,7 @@ a declaration-only or all-erased file is reported as non-executable instead.
 
 The first integration target is Nupp's documented `tests/run.lua`-style
 runner. A custom test command can participate by inheriting the coverage
-environment and calling the public `compiler.coverage.flush()` before it exits.
+environment and calling the public `nupp.compiler.coverage.flush()` before it exits.
 Document that contract rather than silently producing a partial report. Add a
 small wrapper later only if it can reliably cover normal and error exits across
 supported LuaJIT hosts.
@@ -129,7 +129,7 @@ and coverage schema version.
 
 ### 2. Build a coverage-site manifest while emitting
 
-Teach `compiler.gen` to construct a per-module manifest only in coverage mode. Each
+Teach `nupp.compiler.gen` to construct a per-module manifest only in coverage mode. Each
 site has a stable ID, kind, source span, generated span, and optional enclosing
 function/branch ID:
 
@@ -198,7 +198,7 @@ helpers.
 
 ### 4. Recorder and process protocol
 
-Add `compiler.coverage` as a small runtime module. It receives the run directory,
+Add `nupp.compiler.coverage` as a small runtime module. It receives the run directory,
 run ID, and module manifest identity from environment/configuration, maintains
 per-module counters, and writes one shard per process at `flush()`.
 
@@ -331,7 +331,7 @@ report.
 
 ### Syntax highlighting and assets
 
-Reuse `compiler.doc.highlight` rather than introducing a browser-only highlighter:
+Reuse `nupp.compiler.doc.highlight` rather than introducing a browser-only highlighter:
 
 - Nupp source uses the compiler's lexer/highlighter, which already gives the
   language-authoritative tokenization.
@@ -361,7 +361,7 @@ third-party scripts, fonts, or network assets.
 
 1. Add coverage to compile/build settings, cache identity, and a separate
    output namespace.
-2. Refactor only enough of `compiler.gen` to make a normal emitter and optional
+2. Refactor only enough of `nupp.compiler.gen` to make a normal emitter and optional
    coverage emitter share the existing emission logic without adding normal
    per-node checks.
 3. Generate per-module manifests and assert every runtime counter ID appears
@@ -373,7 +373,7 @@ third-party scripts, fonts, or network assets.
 
 ### Stage 2: runtime collection and command orchestration
 
-1. Implement `compiler.coverage` counter storage, manifest registration, flush,
+1. Implement `nupp.compiler.coverage` counter storage, manifest registration, flush,
    and shard validation.
 2. Add `nupp coverage`, isolated run directories, environment propagation,
    cleanup policy, and threshold evaluation.
@@ -395,7 +395,7 @@ third-party scripts, fonts, or network assets.
 ### Stage 4: static HTML explorer
 
 1. Build a coverage page/layout module, sharing only the established
-   highlighter and token styles from `compiler.doc`.
+   highlighter and token styles from `nupp.compiler.doc`.
 2. Generate root, directory, and file pages plus a semantic left-hand tree.
 3. Implement no-JavaScript tables/links first; add sorting, filters, toggles,
    persistent tree state, and synchronized source/Lua scrolling in the small

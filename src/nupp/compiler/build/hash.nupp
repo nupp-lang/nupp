@@ -1,0 +1,285 @@
+--[[
+The two digests the build uses, which are two because they answer different
+questions.
+
+`digest` decides whether a build has to redo something. Nothing outside this
+machine reads the answer -- it is compared against the digest the last build
+wrote, and then thrown away -- so the properties that matter are that equal
+inputs agree, that different inputs practically never do, and that computing it
+costs nothing. That is XXH64 under two seeds, 128 bits of it, reading eight
+bytes at a time as a C array. A whole compiler tree digests in under two
+milliseconds, where the SHA-256 below takes four hundred.
+
+`sha256` is for a digest that leaves this machine: the one `nupp.compiler.build.package`
+writes into a stamped binary's trailer, where it is part of the file format and
+a reader elsewhere has to arrive at the same number. It is computed in 32-bit
+arithmetic over LuaJIT's `bit` library rather than delegated to whatever hashing
+utility a platform ships, so it agrees everywhere.
+
+Do not swap one for the other. A cache key that changes between releases costs
+one rebuild; a trailer digest that changes makes every binary already stamped
+unreadable.
+]]
+
+local hash = {}
+
+-- `bit` is the global LuaJIT registers at startup, the way `ffi` below is. Requiring it
+-- into a local of the same name hands back that same table and shadows the declaration
+-- that says what is in it, so the checker stops knowing.
+local band, bxor = bit.band, bit.bxor
+local bnot, rshift, ror = bit.bnot, bit.rshift, bit.ror
+local rol = bit.rol
+
+local K = {
+    0x428a2f98,
+    0x71374491,
+    0xb5c0fbcf,
+    0xe9b5dba5,
+    0x3956c25b,
+    0x59f111f1,
+    0x923f82a4,
+    0xab1c5ed5,
+    0xd807aa98,
+    0x12835b01,
+    0x243185be,
+    0x550c7dc3,
+    0x72be5d74,
+    0x80deb1fe,
+    0x9bdc06a7,
+    0xc19bf174,
+    0xe49b69c1,
+    0xefbe4786,
+    0x0fc19dc6,
+    0x240ca1cc,
+    0x2de92c6f,
+    0x4a7484aa,
+    0x5cb0a9dc,
+    0x76f988da,
+    0x983e5152,
+    0xa831c66d,
+    0xb00327c8,
+    0xbf597fc7,
+    0xc6e00bf3,
+    0xd5a79147,
+    0x06ca6351,
+    0x14292967,
+    0x27b70a85,
+    0x2e1b2138,
+    0x4d2c6dfc,
+    0x53380d13,
+    0x650a7354,
+    0x766a0abb,
+    0x81c2c92e,
+    0x92722c85,
+    0xa2bfe8a1,
+    0xa81a664b,
+    0xc24b8b70,
+    0xc76c51a3,
+    0xd192e819,
+    0xd6990624,
+    0xf40e3585,
+    0x106aa070,
+    0x19a4c116,
+    0x1e376c08,
+    0x2748774c,
+    0x34b0bcb5,
+    0x391c0cb3,
+    0x4ed8aa4a,
+    0x5b9cca4f,
+    0x682e6ff3,
+    0x748f82ee,
+    0x78a5636f,
+    0x84c87814,
+    0x8cc70208,
+    0x90befffa,
+    0xa4506ceb,
+    0xbef9a3f7,
+    0xc67178f2,
+}
+
+local function add(...)
+    local n = 0
+    for j = 1, select("#", ...) do
+        n = bit.tobit(n + select(j, ...))
+    end
+
+    return n
+end
+
+local function word(s, offset)
+    local a, b, c, d = s:byte(offset, offset + 3)
+    return bit.tobit(a * 0x1000000 + b * 0x10000 + c * 0x100 + d)
+end
+
+function hash.sha256(input: string): string
+    local bitLength = #input * 8
+    input = input .. "\128"
+    local padding = (56 - (#input % 64)) % 64
+    input = input .. string.rep("\0", padding)
+    local high = math.floor(bitLength / 0x100000000)
+    local low = bitLength % 0x100000000
+    input = input .. string.char(
+        band(rshift(high, 24), 0xff),
+        band(rshift(high, 16), 0xff),
+        band(rshift(high, 8), 0xff),
+        band(high, 0xff),
+        band(rshift(low, 24), 0xff),
+        band(rshift(low, 16), 0xff),
+        band(rshift(low, 8), 0xff),
+        band(low, 0xff)
+    )
+
+    local h = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,}
+    local w = {}
+    for chunk = 1, #input, 64 do
+        for j = 0, 15 do
+            w[j] = word(input, chunk + j * 4)
+        end
+        for j = 16, 63 do
+            local x, y = w[j - 15], w[j - 2]
+            local s0 = bxor(ror(x, 7), ror(x, 18), rshift(x, 3))
+            local s1 = bxor(ror(y, 17), ror(y, 19), rshift(y, 10))
+            w[j] = add(w[j - 16], s0, w[j - 7], s1)
+        end
+        local a, b, c, d = h[1], h[2], h[3], h[4]
+        local e, f, g, hh = h[5], h[6], h[7], h[8]
+        for j = 0, 63 do
+            local s1 = bxor(ror(e, 6), ror(e, 11), ror(e, 25))
+            local ch = bxor(band(e, f), band(bnot(e), g))
+            local t1 = add(hh, s1, ch, K[j + 1], w[j])
+            local s0 = bxor(ror(a, 2), ror(a, 13), ror(a, 22))
+            local maj = bxor(band(a, b), band(a, c), band(b, c))
+            local t2 = add(s0, maj)
+            hh, g, f, e = g, f, e, add(d, t1)
+            d, c, b, a = c, b, a, add(t1, t2)
+        end
+        h[1], h[2], h[3], h[4] = add(h[1], a), add(h[2], b), add(h[3], c), add(h[4], d)
+        h[5], h[6], h[7], h[8] = add(h[5], e), add(h[6], f), add(h[7], g), add(h[8], hh)
+    end
+    local out = {}
+    for _, value in ipairs(h) do
+        if value < 0 then
+            value = value + 0x100000000
+        end
+        out[#out + 1] = ("%08x"):format(value)
+    end
+
+    return table.concat(out)
+end
+
+local P1 = 0x9E3779B185EBCA87ULL
+local P2 = 0xC2B2AE3D27D4EB4FULL
+local P3 = 0x165667B19E3779F9ULL
+local P4 = 0x85EBCA77C2B2AE63ULL
+local P5 = 0x27D4EB2F165667C5ULL
+
+local function round(acc, input)
+    acc = acc + input * P2
+    acc = rol(acc, 31)
+    return acc * P1
+end
+
+local function mergeRound(acc, value)
+    value = round(0ULL, value)
+    acc = bxor(acc, value)
+    return acc * P1 + P4
+end
+
+--- XXH64 of `input` under `seed`, as a `uint64`.
+---
+--- The published algorithm, so `tests/projecttest.lua` can hold its published answers
+--- rather than whatever this happens to compute. It reads little-endian, which is what
+--- every machine LuaJIT is built for reads; on a big-endian one the number would
+--- differ, and for a key nobody ships that costs one rebuild and nothing else.
+local function xxh64(input: string, seed: uint64): uint64
+    local size = #input
+    local words = ffi.cast<const uint64[?]>(input)
+    local h
+    -- Positions are byte offsets, and the reads index the view whose element size
+    -- divides the offset. Everything up to the four-byte tail sits on an eight-byte
+    -- boundary, so no read here is unaligned.
+    local at = 0
+    if size >= 32 then
+        local v1, v2 = seed + P1 + P2, seed + P2
+        local v3, v4 = seed + 0ULL, seed - P1
+        local stripes = (size // 32) * 4
+        local w = 0
+        repeat
+            v1 = round(v1, words[w])
+            v2 = round(v2, words[w + 1])
+            v3 = round(v3, words[w + 2])
+            v4 = round(v4, words[w + 3])
+            w = w + 4
+        until w >= stripes
+        at = w * 8
+        h = rol(v1, 1) + rol(v2, 7) + rol(v3, 12) + rol(v4, 18)
+        h = mergeRound(h, v1)
+        h = mergeRound(h, v2)
+        h = mergeRound(h, v3)
+        h = mergeRound(h, v4)
+    else
+        h = seed + P5
+    end
+    h = h + size
+    while size - at >= 8 do
+        h = bxor(h, round(0ULL, words[at // 8]))
+        h = rol(h, 27) * P1 + P4
+        at = at + 8
+    end
+    if size - at >= 4 then
+        local halves = ffi.cast<const uint32[?]>(input)
+        h = bxor(h, ffi.cast<uint64>(halves[at // 4]) * P1)
+        h = rol(h, 23) * P2 + P3
+        at = at + 4
+    end
+    if at < size then
+        local bytes = ffi.cast<const uint8[?]>(input)
+        while at < size do
+            h = bxor(h, ffi.cast<uint64>(bytes[at]) * P5)
+            h = rol(h, 11) * P1
+            at = at + 1
+        end
+    end
+    h = bxor(h, rshift(h, 33))
+    h = h * P2
+    h = bxor(h, rshift(h, 29))
+    h = h * P3
+
+    return bxor(h, rshift(h, 32))
+end
+
+--- Sixteen hex digits of a `uint64`, high half first.
+---
+--- Written as two 32-bit halves because `%x` takes a Lua number, and a whole word has
+--- lost bits by the time `format` sees it as one.
+local function hex64(value: uint64): string
+    local high = tonumber(band(rshift(value, 32), 0xFFFFFFFFULL))
+    local low = tonumber(band(value, 0xFFFFFFFFULL))
+    return ("%08x%08x"):format(high, low)
+end
+
+-- Two seeds, so the answer is 128 bits rather than 64. Two different files agreeing
+-- means the build keeps a stale artifact and says nothing about it, which is the one
+-- failure a cache must not have; at 128 bits it will not happen, and the second pass
+-- costs about a millisecond over a whole compiler.
+local SEED_A = 0ULL
+local SEED_B = 0x9E3779B97F4A7C15ULL
+
+--- A 128-bit content digest of `input`, as 32 hex digits.
+---
+--- For cache keys. Read the note at the top of the file before reaching for it where
+--- the answer gets written down somewhere durable.
+function hash.digest(input: string): string
+    return hex64(xxh64(input, SEED_A)) .. hex64(xxh64(input, SEED_B))
+end
+
+--- Which digest the cache keys were computed with.
+---
+--- Recorded in the build state, so that changing the algorithm discards what the last
+--- version wrote instead of comparing hex against hex that meant something else.
+hash.DIGEST = "xxh64x2"
+
+hash.xxh64 = xxh64
+hash.hex64 = hex64
+
+return hash

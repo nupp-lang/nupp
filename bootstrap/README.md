@@ -10,11 +10,11 @@ is not something to depend on.
 
 That includes the standard-library declarations. A build leaves them on disk in
 `decls/` next to the compiled modules; the bundle carries them inside itself, as
-a `package.preload["nupp.embedded"]` table of path to source, and `compiler.env`
+a `package.preload["nupp.embedded"]` table of path to source, and `nupp.compiler.env`
 looks there before it looks on disk.
 
 ## Refreshing it
 
 Do not edit the generated file directly. After changing compiler sources, run
 `nupp fixpoint --update-bootstrap`; it verifies the two-stage self-hosting
-fixpoint and rebuilds the bundle from `build/compiler`, declarations included.
+fixpoint and rebuilds the bundle from `build/nupp/compiler`, declarations included.

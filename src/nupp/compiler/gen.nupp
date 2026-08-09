@@ -1,0 +1,2298 @@
+--[[
+Type erasure: a checked CST, lowered to LuaJIT 2.1 Lua.
+
+The invariant is that generated code never changes the line count. Tokens are
+emitted at their source lines — a cursor inserts newlines to catch up and never
+goes back — so an `@file.nupp` chunkname gives correct stack traces with no
+sourcemap machinery at all.
+
+Erased outright: type annotations, type declarations, generics, `as` casts, and
+`@` annotations, though the statement an annotation decorated remains.
+
+Most of the syntax Nupp takes from LuaJIT 3.0 is written out unchanged, because
+LuaJIT 2.1 backported it: the bit operators, the customary spellings, `?:`,
+`?.`, `??`, compound assignment, `continue`, `const`, short functions and
+underscores in numerals. Passing them through is not only shorter code, it is
+better code — a native `?.` is one branch where the equivalent lowering was a
+closure call.
+
+Lowered, because this runtime does not have them:
+
+- `a // b` and `a //= b`, floor division, which 2.1 did not backport;
+- `...name`, the named vararg, which 2.1 did not backport either, to the
+  `{ n = select("#", ...), ... }` table it stands for;
+- `a ??= b`, which is a Nupp extension LuaJIT declined;
+- an interpolated string, a Nupp extension, to a concatenation through
+  `tostring`;
+- `e is T` to a `type()` comparison, with nil compared directly.
+
+The floor of what runs generated output is therefore LuaJIT 2.1.1784535649,
+the first build with the backported operators.
+
+Code generation reports `NUPP3xxx` when a checked construct cannot be
+represented.
+]]
+
+local cst = require("nupp.compiler.cst")
+local predicate = require("nupp.compiler.predicate")
+local native = require("nupp.compiler.native")
+
+local gen = {}
+
+-- These are the nodes a block may execute directly. Coverage deliberately stays at
+-- statement boundaries: putting a probe in every expression is both less useful to a
+-- reader and much harder to prove preserves Lua's evaluation order.
+local COVERAGE_STATEMENTS = {
+    localStmt = true,
+    assignStmt = true,
+    compoundAssign = true,
+    callStmt = true,
+    ifStmt = true,
+    whileStmt = true,
+    fornumStmt = true,
+    forinStmt = true,
+    repeatStmt = true,
+    doStmt = true,
+    funcStmt = true,
+    returnStmt = true,
+    breakStmt = true,
+    continueStmt = true,
+    gotoStmt = true,
+    withStmt = true,
+    unsafeStmt = true,
+}
+
+-- Node kinds that exist only in the type layer: emitted as nothing.
+local TYPE_KINDS = {
+    tname = true,
+    topt = true,
+    tptr = true,
+    tunion = true,
+    tintersection = true,
+    tarray = true,
+    tmap = true,
+    ttuple = true,
+    tshape = true,
+    tshapeField = true,
+    tfunc = true,
+    tfuncParam = true,
+    tparen = true,
+    errorType = true,
+    tpredicate = true,
+    tborrows = true,
+    tliteral = true,
+    tconst = true,
+    tcarray = true,
+    generics = true,
+}
+
+-- Erased declarations. recordDecl is conditional: declKind == "struct" reifies to
+-- ffi.typeof instead (M3).
+local DECL_KINDS = {recordDecl = true, typeAlias = true,}
+
+-- C type names for reifiable primitive fields.
+local CP -- assigned to C_PRIM below (cdefCType is defined first)
+
+-- Maps a syntactic type node to a C type string for cdef emission. Uses checker hints
+-- (cdefName) for named C structs. Returns nil when the type has no C spelling.
+local function cdefCType(t)
+    if t.kind == "topt" then
+        t = t.inner
+    end
+    if t.kind == "tname" then
+        local name = t.base.text
+        if name == "cstring" then
+            return "const char *"
+
+        elseif name == "voidptr" then
+            return "void *"
+        end
+        if t.cdefName then
+            return "struct " .. t.cdefName
+        end
+        return CP[name]
+    elseif t.kind == "tconst" then
+        local inner = cdefCType(t.inner)
+        if inner then
+            return "const " .. inner
+        end
+    elseif t.kind == "tcarray" then
+        -- `T[?]` and `T[N]` spell as C writes them. A cast is the exception, and the
+        -- caller below handles it: LuaJIT has no cast to a variable-length array, and a
+        -- pointer is what viewing memory as one means anyway.
+        local element = cdefCType(t.element)
+        if element then
+            return element .. "[" .. (t.count and t.count.text or "?") .. "]"
+        end
+    elseif t.kind == "tptr" then
+        local inner = cdefCType(t.inner)
+        if inner then
+            return inner .. " *"
+        end
+    elseif t.kind == "tfunc" then
+        local params = {}
+        for _, param in ipairs(t.params or {}) do
+            if param.type then
+                local rendered = cdefCType(param.type)
+                if not rendered then
+                    return nil
+                end
+                params[#params + 1] = rendered
+            elseif param[1] and cst.isToken(param[1]) and param[1].kind == "..." then
+                params[#params + 1] = "..."
+            end
+        end
+        local ret = "void"
+        if t.rets and #t.rets > 0 then
+            if #t.rets > 1 then
+                return nil
+            end
+            ret = cdefCType(t.rets[1])
+            if not ret then
+                return nil
+            end
+        end
+        return ("%s (*)(%s)"):format(ret, #params > 0 and table.concat(params, ", ") or "void")
+    end
+
+    return nil
+end
+
+local C_PRIM = {
+    number = "double",
+    float = "float",
+    boolean = "bool",
+    integer = "int32_t",
+    int8 = "int8_t",
+    int16 = "int16_t",
+    int32 = "int32_t",
+    int64 = "int64_t",
+    uint8 = "uint8_t",
+    uint16 = "uint16_t",
+    uint32 = "uint32_t",
+    uint64 = "uint64_t",
+}
+CP = C_PRIM
+
+-- The two compound assignments this runtime does not have. Every other one is written
+-- out as it was read.
+local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
+
+-- Where a constructor lands on a record's runtime table. It has to be reachable from a
+-- call in another module, and that table is the one thing about a record that already
+-- crosses; a registry keyed by name would be a link step the language does not have.
+-- The prefix keeps it out of the way of declared fields.
+local CONSTRUCTOR_MEMBER = "__nuppCtor"
+
+local function constructorMember(index)
+    return CONSTRUCTOR_MEMBER .. tostring(index or 1)
+end
+
+-- `is` targets checkable with type(); sized numerics approximate to number.
+local IS_TYPE = {string = "string", number = "number", boolean = "boolean", table = "table", thread = "thread", userdata = "userdata", integer = "number", float = "number", int8 = "number", int16 = "number", int32 = "number", int64 = "number", uint8 = "number", uint16 = "number", uint32 = "number", uint64 = "number", [
+    "function"
+] = "function", -- spelled via tfunc, handled separately
+}
+
+-- Converts an interpolated-string literal chunk to a quoted Lua string. Source escapes
+-- (\n, \t, ...) pass through; \` and \$ lose their backslash (Lua doesn't know them);
+-- bare " and raw newlines get escaped.
+local function quoteChunk(s)
+    s = s:gsub("\\([`$])", "%1")
+    s = s:gsub('"', '\\"')
+    s = s:gsub("\n", "\\n")
+    return '"' .. s .. '"'
+end
+
+-- The runtime name of a declaration written with a qualified name, which is an ordinary
+-- field assignment: `record M.Point` lands on `M.Point`. Unqualified declarations have
+-- no path and keep their storage decided by visibility.
+local function declPath(x)
+    if not x.qualifiers then
+        return nil
+    end
+    local parts = {}
+    for _, token in ipairs(x.qualifiers) do
+        parts[#parts + 1] = token.text
+    end
+    parts[#parts + 1] = x.name.text
+
+    return table.concat(parts, ".")
+end
+
+--- What `generate` lowers: a parse the checker has already been over. The side effects
+--- are the checker's rather than the parser's, which is why this is not
+--- `parser.ParseResult` — a generator that took one would be claiming it runs before
+--- checking, which it never does.
+type gen.Checked = {
+    readonly root: cst.Chunk,
+    readonly tokens: {any}?,
+    readonly implicitSideEffects: {[string]: any}?,
+
+    --- What the checker resolved this file to, and the native features it recorded.
+    readonly moduleName: string?,
+    readonly effects: {[string]: any}?
+}
+
+--- How a coverage build is asked for: `true` to instrument and name the file after
+--- `filename`, or a table naming the path the report should attribute sites to.
+type gen.CoverageRequest = {
+    path: string?
+}
+
+--- What a coverage build needs back: where the file was, and every site it may report
+--- having reached.
+type gen.Coverage = {
+    path: string?,
+    sites: {any}
+}
+
+--- Lowers a checked parse to LuaJIT source, with the diagnostics lowering produced.
+---
+--- `coverage` is an internal build setting: absent on ordinary compiles, so the normal
+--- emission path remains byte-for-byte what it was before coverage existed. In coverage
+--- mode the third return is the source-site manifest.
+function gen.generate(
+    result: gen.Checked,
+    filename: string?,
+    coverage: (boolean | gen.CoverageRequest)?
+): string, {any}, gen.Coverage?
+    local out = {}
+    local curLine = 1
+    local atLineStart = true
+    local diags = {}
+    local tempCounter = 0
+    local usedNames = {}
+    for _, tok in ipairs(result.tokens or {}) do
+        if tok.kind == "name" then
+            usedNames[tok.text] = true
+        end
+    end
+    local function nextTemp()
+        local name
+        repeat
+            tempCounter = tempCounter + 1
+            name = "__nuppT" .. tempCounter
+        until not usedNames[name]
+        usedNames[name] = true
+
+        return name
+    end
+
+    local needsMetatypeOnce = false
+    local metatypeOnceName
+    -- Structs that have to be emitted as a named C tag rather than an anonymous ctype,
+    -- keyed by declaration name. See `planStructTags`.
+    local structTag = {}
+    local structTagOrder = {}
+
+    -- Which structs cannot be anonymous.
+    --
+    -- A nested struct is spelled by substituting its ctype into an anonymous one:
+    -- `ffi.typeof("struct { $ *next; }", Node)`. That works only when the ctype already
+    -- exists, so a struct pointing at itself, or at one declared below it, passed nil
+    -- and the module died at load -- which is every linked list and tree.
+    --
+    -- C names the struct and forward-declares the tag, and so does this. Only the
+    -- targets that need it are named, and only pointers to them change spelling, so a
+    -- program without a forward or self reference generates exactly what it did.
+    local function planStructTags()
+        local structs, indexOf = {}, {}
+        local function collect(node)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "recordDecl" and node.declKind == "struct" and node.name then
+                structs[#structs + 1] = node
+                indexOf[node.name.text] = #structs
+            end
+            for _, child in ipairs(node) do
+                collect(child)
+            end
+        end
+
+        collect(result.root)
+        -- A C tag is process-global and `ffi.cdef` refuses to redefine one, so the tag
+        -- has to be unique per declaration -- two modules each with a `Node` would
+        -- otherwise collide, the second `cdef` would be swallowed by its pcall, and the
+        -- second module would silently get the first one's layout.
+        --
+        -- Derived from the module, the name, and the declaration's own field spelling,
+        -- so it is stable across rebuilds (which `fixpoint` requires) and differs
+        -- whenever the layout does. Two identical declarations sharing a tag is
+        -- correct: same body, same layout.
+        local moduleTag = (result.moduleName or filename or ""):gsub("[^%w]", "_")
+        local function digest(text)
+            local h = 2166136261
+            for i = 1, #text do
+                h = bit.bxor(h, text:byte(i))
+                h = bit.band(h * 16777619, 0xffffffff)
+            end
+
+            return ("%08x"):format(bit.band(h, 0x7fffffff))
+        end
+
+        local function tagFor(name)
+            if structTag[name] then
+                return structTag[name]
+            end
+            local decl = structs[indexOf[name]]
+            local shape = {}
+            for _, entry in ipairs(decl and decl.entries or {}) do
+                if entry.kind == "fieldDecl" and entry.name then
+                    shape[#shape + 1] = entry.name.text
+                end
+            end
+            local tag = "__nuppS_" .. name .. "_" .. digest(moduleTag .. "|" .. name .. "|" .. table.concat(shape, ","))
+            structTag[name] = tag
+            structTagOrder[#structTagOrder + 1] = tag
+
+            return tag
+        end
+
+        -- The struct a field names, whether it is held by value or by pointer.
+        local function referent(entry)
+            local t = entry.type
+            if not t then
+                return nil
+            end
+            if t.kind == "topt" then
+                t = t.inner
+            end
+            if t.kind == "tptr" then
+                t = t.inner
+            end
+            if t and t.kind == "tname" and t.base and indexOf[t.base.text] then
+                return t.base.text
+            end
+
+            return nil
+        end
+
+        -- Seed: a pointer that reaches at or after itself. A pointer backwards reaches
+        -- a ctype that already exists and keeps today's spelling.
+        for at, decl in ipairs(structs) do
+            for _, entry in ipairs(decl.entries or {}) do
+                if entry.kind == "fieldDecl" and entry.type then
+                    local t = entry.type
+                    if t.kind == "topt" then
+                        t = t.inner
+                    end
+                    if t.kind == "tptr" and t.inner and t.inner.kind == "tname" and t.inner.base then
+                        local targetAt = indexOf[t.inner.base.text]
+                        if targetAt and targetAt >= at then
+                            tagFor(t.inner.base.text)
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Then close over it. A named struct is written with `ffi.cdef`, which has no
+        -- `$` substitution -- that is a `ffi.typeof` feature -- so every struct a
+        -- tagged one names has to be spellable as a tag too, by value or by pointer.
+        -- Iterating to a fixed point costs one pass per newly tagged struct.
+        local changed = true
+        while changed do
+            changed = false
+            for _, decl in ipairs(structs) do
+                if structTag[decl.name.text] then
+                    for _, entry in ipairs(decl.entries or {}) do
+                        local target = entry.kind == "fieldDecl" and referent(entry)
+                        if target and not structTag[target] then
+                            tagFor(target)
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local needsFfi = false
+    local needsArrayCache = false
+    local needsLibs = false
+    local needsNewTab = false
+    local needsClearTab = false
+    local needsBuffer = false
+    local bufferName
+    local needsLayout = false
+    local layoutName
+    local newTabName, clearTabName
+    local needsWith = false
+    local withPackName, withIdName, withFailureName
+    -- Generated `with` code calls library functions by name, so those names are bound
+    -- as locals on the hoisted first line: a user local called `unpack` or `error`
+    -- would otherwise shadow them at the point of use.
+    local withGlobals
+    -- One table holds every shareable region, each site owning an index, so the count
+    -- of `with` statements in a file cannot exhaust Lua's limit on locals per function.
+    local withCacheName
+    local withCacheSites = 0
+    local withStack = {}
+    local emitLoopDepth = 0
+    local emitFunctionDepth = 0
+    local coverageOn = coverage == true or type(coverage) == "table"
+    local coveragePath = coverageOn and (
+        type(coverage) == "table" and (coverage as gen.CoverageRequest).path or filename
+    ) or nil
+    local coverageSites: {any}? = nil
+    local coverageSiteCount = 0
+    local coverageName
+
+    local function reservedName(preferred)
+        if not usedNames[preferred] then
+            usedNames[preferred] = true
+            return preferred
+        end
+
+        return nextTemp()
+    end
+
+    -- The `string.buffer` binding OPT-5 appends through, bound once per module like the
+    -- table intrinsics beside it. Reserved rather than assumed, so a user local called
+    -- `__nuppBuffer` does not collide with it.
+
+    local function metatypeHelper()
+        needsMetatypeOnce = true
+        metatypeOnceName = metatypeOnceName or reservedName("__nuppMetatype")
+        return metatypeOnceName
+    end
+
+    local function concatBufferName()
+        needsBuffer = true
+        bufferName = bufferName or reservedName("__nuppBuffer")
+        return bufferName
+    end
+
+    local function tableIntrinsicName(name)
+        if name == "new" then
+            needsNewTab = true
+            newTabName = newTabName or reservedName("__nuppNew")
+            return newTabName
+        end
+        needsClearTab = true
+        clearTabName = clearTabName or reservedName("__nuppClear")
+
+        return clearTabName
+    end
+
+    local function diag(tok, code, msg, help)
+        diags[
+            #diags + 1
+        ] = {
+            code = code,
+            msg = msg,
+            filename = filename,
+            help = help,
+            line = tok and tok.line or 0,
+            col = tok and tok.col or 0,
+            offset = tok and tok.offset or 0,
+            length = tok and #tok.text or 0
+        }
+    end
+
+    -- Raw append with newline accounting.
+    local function raw(s)
+        out[#out + 1] = s
+        local _, n = s:gsub("\n", "")
+        if n > 0 then
+            curLine = curLine + n
+            atLineStart = s:sub(-1) == "\n"
+        elseif #s > 0 then
+            atLineStart = false
+        end
+    end
+
+    -- Advance the cursor to `line` (never backward).
+    local function sync(line)
+        while line and curLine < line do
+            raw("\n")
+        end
+    end
+
+    -- Emit one piece of code attributed to a source line.
+    local function e(text, line)
+        sync(line)
+        if not atLineStart then
+            raw(" ")
+        end
+        raw(text)
+    end
+
+    -- OPT-5 finishes where its loop closes: the accumulator becomes the string it would
+    -- have been. Every branch that emits a loop has to call this, because two passes
+    -- may claim one loop -- OPT-2 rewrites a generic `for` into a numeric one and emits
+    -- it somewhere else entirely. Forgetting it in one branch does not fail to
+    -- optimize, it leaves the accumulator empty.
+    local function finishConcatBuffer(x, line)
+        if x.concatBuffer then
+            e(("%s = %s:tostring()"):format(x.concatBuffer.target, x.concatBuffer.name), line)
+        end
+    end
+
+    local emit
+
+    local function sourceLine(node)
+        if not node then
+            return nil
+        end
+        if cst.isToken(node) then
+            return node.line
+        end
+        for _, child in ipairs(node) do
+            local line = sourceLine(child)
+            if line then
+                return line
+            end
+        end
+
+        return nil
+    end
+
+    local function coverageRuntime()
+        coverageName = coverageName or reservedName("__nuppCoverage")
+        return coverageName
+    end
+
+    local function coverageSite(kind, node)
+        coverageSiteCount = coverageSiteCount + 1
+        local id = coverageSiteCount
+        local sites = coverageSites or {}
+        coverageSites = sites
+        sites[#sites + 1] = {id = id, kind = kind, line = sourceLine(node) or 0}
+
+        return id
+    end
+
+    local function coverageHit(kind, node)
+        if not coverageOn then
+            return
+        end
+        local id = coverageSite(kind, node)
+        e(("%s.hit(%q,%d);"):format(coverageRuntime(), coveragePath, id), sourceLine(node))
+    end
+
+    local function coverageStatement(node)
+        if not node or cst.isToken(node) then
+            return false
+        end
+        if node.kind == "recordDecl" then
+            return node.declKind == "record" or node.declKind == "struct"
+        end
+
+        return COVERAGE_STATEMENTS[node.kind] == true
+    end
+
+    local function emitChildren(n)
+        for _, child in ipairs(n) do
+            emit(child)
+        end
+    end
+
+    --- Points a declaration's table at the default bodies it takes.
+    ---
+    --- A reference rather than a copy: the body's source lines are in the interface's
+    --- file, and this file has none to attribute a duplicate to. That is also why the
+    --- interface has to be reachable — through a `require` when it lives in another
+    --- module, which is what the checker resolved the name to.
+    local function emitInheritedDefaults(x, runtimeName)
+        local taken = x.inheritedDefaultNames
+        if not taken or #taken == 0 then
+            return
+        end
+        local line = sourceLine(x)
+        local parts = {}
+        for _, one in ipairs(taken) do
+            parts[
+                #parts + 1
+            ] = (
+                "%s.%s = %s.%s"
+            ):format(runtimeName, one.member or one.name, one.from, one.fromMember or one.member or one.name)
+        end
+        e(table.concat(parts, " "), line)
+    end
+
+    local function labelsIn(block)
+        local labels = {}
+        local function walk(n)
+            if not n or cst.isToken(n) then
+                return
+            end
+            if n.kind == "funcbody" then
+                return
+            end
+            if n.kind == "withStmt" then
+                return
+            end
+            if n.kind == "labelStmt" and n.name then
+                labels[n.name.text] = true
+            end
+            for _, child in ipairs(n) do
+                walk(child)
+            end
+        end
+
+        walk(block)
+
+        return labels
+    end
+
+    -- `...` cannot cross the protected region's function boundary, so a body that reads
+    -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
+    -- `with` bodies are searched too, so an inner region's varargs are forwarded down
+    -- through every enclosing region; nested functions are not, because they bind their
+    -- own `...`.
+    local function usesVararg(block)
+        local found = false
+        local function walk(n)
+            if found or not n or cst.isToken(n) then
+                return
+            end
+            if n.kind == "funcbody" or n.kind == "shortfn" then
+                return
+            end
+            if n.kind == "vararg" then
+                found = true
+                return
+            end
+            for _, child in ipairs(n) do
+                walk(child)
+            end
+        end
+
+        walk(block)
+
+        return found
+    end
+
+    local function activeWith()
+        local ctx = withStack[#withStack]
+        if ctx and ctx.functionDepth == emitFunctionDepth then
+            return ctx
+        end
+
+        return nil
+    end
+
+    local function emitPackedReturn(ctx, x)
+        e(("return \"return\",%s("):format(withPackName), sourceLine(x))
+        for j, expr in ipairs(x.exprs or {}) do
+            if j > 1 then
+                e(",")
+            end
+            emit(expr)
+        end
+        e(")")
+    end
+
+    emit = function(x)
+        if cst.isToken(x) then
+            if x.missing or x.kind == "eof" then
+                return
+            end
+            if x.typeColon or x.typeSeparator then
+                return
+            end
+            local text = x.text
+            if x.kind == "string" and text:sub(1, 1) == "`" then
+                -- backtick string without interpolation -> quoted string
+                text = quoteChunk(text:sub(2, -2))
+            end
+            e(text, x.line)
+            return
+        end
+
+        local kind = x.kind
+        if coverageOn and kind == "block" then
+            for _, child in ipairs(x) do
+                if coverageStatement(child) then
+                    coverageHit("statement", child)
+                end
+                emit(child)
+            end
+            return
+        end
+        if kind == "recordDecl" and x.isAnnotationDefinition then
+            -- Annotation schemas are compile-time model metadata, even when written
+            -- with `record` or `struct`; they have no runtime value or FFI layout of
+            -- their own.
+            return
+        end
+        if x.passPinnedPointer then
+            x.passPinnedPointer = nil
+            e("(", sourceLine(x))
+            emit(x)
+            e(").pointer")
+            x.passPinnedPointer = true
+            return
+        end
+        if x.comptimeValue then
+            -- Nothing of the block's body is emitted; the work happened while
+            -- compiling.
+            -- Its lines are simply left empty, because `sync` only moves forward, so
+            -- whatever follows the `end` still lands on the line it was written on and
+            -- the file keeps its line count.
+            e(x.comptimeValue, sourceLine(x))
+            return
+        end
+        if x.folded then
+            e(x.folded, sourceLine(x))
+            return
+        end
+        if x.callableBindings then
+            for _, binding in ipairs(x.callableBindings) do
+                e("const " .. binding.name .. "=", sourceLine(x))
+                emit(binding.value)
+                e(";")
+            end
+        end
+        if kind == "call" and x.staticCallee then
+            e(x.staticCallee, sourceLine(x))
+            if x.args then
+                emit(x.args)
+            end
+            return
+        end
+        if kind == "call" and x.tableIntrinsic then
+            e(tableIntrinsicName(x.tableIntrinsic), sourceLine(x))
+            if x.args then
+                emit(x.args)
+            end
+            return
+        end
+        if kind == "assignStmt" and x.isConst then
+            for i, target in ipairs(x.targets or {}) do
+                if i > 1 then
+                    e(",")
+                end
+                emit(target)
+            end
+            e("=")
+            for i, value in ipairs(x.exprs or {}) do
+                if i > 1 then
+                    e(",")
+                end
+                emit(value)
+            end
+            return
+        end
+        if kind == "fieldNamed" and x.isConst then
+            if x.name then
+                emit(x.name)
+            end
+            e("=")
+            if x.value then
+                emit(x.value)
+            end
+            return
+        end
+        if x.constantLoopNone then
+            -- OPT-3: the loop's constant bounds admit no first iteration. An empty `do`
+            -- block holds the opening and closing lines so that everything after the
+            -- loop keeps its own, and LuaJIT compiles it away to nothing.
+            e("do", sourceLine(x))
+            local endTok
+            for i = #x, 1, -1 do
+                local child = x[i]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            return
+        end
+        if kind == "ifStmt" and (x.constantBranch or x.constantBranchNone) then
+            -- OPT-3: every condition was a primitive constant. A `do` block preserves
+            -- the selected arm's local scope while the source lines of the omitted arms
+            -- remain blank.
+            e("do", sourceLine(x))
+            if x.constantBranch then
+                emit(x.constantBranch)
+            end
+            local endTok
+            for i = #x, 1, -1 do
+                local child = x[i]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            return
+        end
+        if coverageOn and (kind == "ifClause" or kind == "elseifClause") then
+            -- A branch probe wraps only the condition. It receives and returns the
+            -- original value, preserving Lua truthiness while counting both outcomes.
+            local branch = coverageSite("branch", x.cond)
+            for _, child in ipairs(x) do
+                if child == x.cond then
+                    e(("%s.branch(%q,%d,"):format(coverageRuntime(), coveragePath, branch), sourceLine(child))
+                    emit(child)
+                    e(")")
+                else
+                    emit(child)
+                end
+            end
+            return
+        end
+        if kind == "recordDecl" and x.declKind == "record" then
+            -- Records keep a runtime table: `function R:m()` attaches to it and
+            -- `R{...}` stamps it as the instance metatable, which is what gives a
+            -- record its identity at run time.
+            local line = sourceLine(x)
+            local path = declPath(x)
+            local runtimeName = x.recordRuntimeName or path or x.name.text
+            local attached = x.recordRuntimeName or path
+            local storage = attached and "" or x.visibility == "global" and "" or "const "
+            local expr = ("%s%s = {} %s.__index = %s"):format(storage, runtimeName, runtimeName, runtimeName)
+            e(expr, line)
+            for _, entry in ipairs(x.entries or {}) do
+                if entry.kind == "recordDecl" and entry.declKind == "record" then
+                    entry.recordRuntimeName = runtimeName .. "." .. entry.name.text
+                    emit(entry)
+                elseif entry.kind == "inlineMethod" then
+                    entry.inlineRuntimeOwner = runtimeName
+                    emit(entry)
+                elseif entry.kind == "constructorDecl" then
+                    entry.inlineRuntimeOwner = runtimeName
+                    emit(entry)
+                end
+            end
+            emitInheritedDefaults(x, runtimeName)
+            return
+        end
+
+        if kind == "recordDecl" and x.declKind == "interface" then
+            -- An interface is erased unless it implements something. A default body has
+            -- to live somewhere a declaration in another module can reach, and the
+            -- interface's own table is the only place that travels; an interface that
+            -- declares only signatures still emits nothing at all.
+            local defaults = {}
+            for _, entry in ipairs(x.entries or {}) do
+                if entry.kind == "inlineMethod" then
+                    defaults[#defaults + 1] = entry
+                end
+            end
+            local inherits = false
+            for _, super in ipairs(x.supertypes or {}) do
+                if super.interfaceName then
+                    inherits = true
+                end
+            end
+            if #defaults == 0 and not inherits then
+                return
+            end
+            local line = sourceLine(x)
+            local path = declPath(x)
+            local runtimeName = x.recordRuntimeName or path or x.name.text
+            local attached = x.recordRuntimeName or path
+            local storage = attached and "" or x.visibility == "global" and "" or "const "
+            e(("%s%s = {}"):format(storage, runtimeName), line)
+            for _, entry in ipairs(defaults) do
+                entry.inlineRuntimeOwner = runtimeName
+                entry.inlineDotted = true
+                emit(entry)
+            end
+            emitInheritedDefaults(x, runtimeName)
+            return
+        end
+
+        if kind == "recordDecl" and x.declKind == "struct" then
+            -- struct S { a: float, b: OtherStruct, p: S* } lowers to const S =
+            -- __nuppFfi.typeof("struct { float a; $ b; $ *p; }", OtherStruct,
+            -- S_is_forward_error)
+            needsFfi = true
+            local cdecl, params = {}, {}
+            for _, entry in ipairs(x.entries) do
+                if entry.kind == "fieldDecl" then
+                    local fname = entry.name.text
+                    local t = entry.type
+                    -- unwrap optional wrapper (S*? has the same representation)
+                    if t.kind == "topt" then
+                        t = t.inner
+                    end
+                    if t.kind == "tname" and C_PRIM[t.base.text] then
+                        cdecl[#cdecl + 1] = C_PRIM[t.base.text] .. " " .. fname .. ";"
+                    elseif t.kind == "tname" and structTag[t.base.text] then
+                        cdecl[#cdecl + 1] = "struct " .. structTag[t.base.text] .. " " .. fname .. ";"
+                    elseif t.kind == "tname" then
+                        cdecl[#cdecl + 1] = "$ " .. fname .. ";"
+                        params[#params + 1] = t.base.text
+                    elseif t.kind == "tcarray" and t.count then
+                        -- `T[N]` sits inline: the elements are the struct's own bytes.
+                        -- `T[?]` has no size and never reaches here, since the field
+                        -- rule refuses it.
+                        local element = t.element
+                        local spelling = element and element.kind == "tname" and C_PRIM[element.base.text] or nil
+                        if spelling then
+                            cdecl[#cdecl + 1] = spelling .. " " .. fname .. "[" .. t.count.text .. "];"
+                        elseif element and element.kind == "tname" and structTag[element.base.text] then
+                            cdecl[
+                                #cdecl + 1
+                            ] = "struct " .. structTag[element.base.text] .. " " .. fname .. "[" .. t.count.text .. "];"
+                        elseif element and element.kind == "tname" then
+                            cdecl[#cdecl + 1] = "$ " .. fname .. "[" .. t.count.text .. "];"
+                            params[#params + 1] = element.base.text
+                        else
+                            diag(entry.name, "NUPP3002", "cannot reify this array element type")
+                        end
+                    elseif t.kind == "tptr" then
+                        local inner = t.inner
+                        if inner.kind == "tname" and C_PRIM[inner.base.text] then
+                            cdecl[#cdecl + 1] = C_PRIM[inner.base.text] .. " *" .. fname .. ";"
+                        elseif inner.kind == "tname" and structTag[inner.base.text] then
+                            -- Forward-declared above, so the tag resolves even though
+                            -- the body may not have been emitted yet.
+                            cdecl[#cdecl + 1] = "struct " .. structTag[inner.base.text] .. " *" .. fname .. ";"
+                        elseif inner.kind == "tname" then
+                            cdecl[#cdecl + 1] = "$ *" .. fname .. ";"
+                            params[#params + 1] = inner.base.text
+                        else
+                            diag(entry.name, "NUPP3002", "cannot reify this pointer field type")
+                        end
+                    else
+                        diag(entry.name, "NUPP3002", "cannot reify this field type")
+                    end
+                end
+            end
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            local path = declPath(x)
+            local storage = path and "" or x.visibility == "global" and "" or "const "
+            -- The metatable is created up front so members declared later (function
+            -- S:m()) have somewhere to attach; ffi.metatype hands back the ctype, which
+            -- stays callable as the constructor.
+            local mt = "__nuppMt_" .. x.name.text
+            local tag = structTag[x.name.text]
+            local expr
+            if tag then
+                -- Named, so the body may refer to the tag it is defining. pcall because
+                -- the forward declaration above already introduced it, and because a
+                -- module may be loaded twice in one process.
+                expr = (
+                    "pcall(__nuppFfi.cdef, \"struct %s { %s };\") "
+                ):format(
+                    tag,
+                    table.concat(cdecl, " ")
+                ) .. "const " .. mt .. " = {__index = {}} " .. storage .. (
+                    path or x.name.text
+                ) .. (" = %s(__nuppFfi.typeof(\"struct %s\"), %s)"):format(metatypeHelper(), tag, mt)
+            else
+                expr = "const " .. mt .. " = {__index = {}} " .. storage .. (
+                    path or x.name.text
+                ) .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { " .. table.concat(cdecl, " ") .. " }\""
+                if #params > 0 then
+                    expr = expr .. ", " .. table.concat(params, ", ")
+                end
+                expr = expr .. "), " .. mt .. ")"
+            end
+            e(expr, line)
+            for _, entry in ipairs(x.entries or {}) do
+                if entry.kind == "inlineMethod" then
+                    entry.inlineRuntimeOwner = mt .. ".__index"
+                    emit(entry)
+                end
+            end
+            -- A struct's members hang off the metatype's index table rather than the
+            -- ctype, so a default it takes lands there too. Reading an unknown name on
+            -- cdata routes through exactly that table, which is what makes the call
+            -- work at all.
+            emitInheritedDefaults(x, mt .. ".__index")
+            return
+        end
+
+        if kind == "cdefStruct" then
+            needsFfi = true
+            local fields = {}
+            for _, entry in ipairs(x.entries) do
+                if entry.kind == "fieldDecl" then
+                    local ct = cdefCType(entry.type)
+                    if ct then
+                        fields[#fields + 1] = ct .. " " .. entry.name.text .. ";"
+                    else
+                        diag(entry.name, "NUPP3003", "cdef field type has no C spelling")
+                    end
+                end
+            end
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            -- pcall tolerates re-declaration when two modules cdef one struct
+            e(
+                (
+                    'pcall(__nuppFfi.cdef, "struct %s { %s };") const %s = __nuppFfi.typeof("struct %s")'
+                ):format(x.name.text, table.concat(fields, " "), x.name.text, x.name.text),
+                line
+            )
+            return
+
+        elseif kind == "cdefFunc" then
+            needsFfi = true
+            local params = {}
+            for _, p in ipairs(x.params) do
+                if p.type then
+                    local ct = cdefCType(p.type)
+                    if not ct then
+                        diag(p.name, "NUPP3003", "cdef parameter type has no C spelling")
+                        ct = "void *"
+                    end
+                    params[#params + 1] = ct
+                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                    params[#params + 1] = "..."
+                end
+            end
+            local rett = "void"
+            if x.ret then
+                rett = cdefCType(x.ret)
+                if not rett then
+                    diag(x.name, "NUPP3003", "cdef return type has no C spelling")
+                    rett = "void *"
+                end
+            end
+            local name = x.name.text
+            local sig = ("%s %s(%s);"):format(rett, name, #params > 0 and table.concat(params, ", ") or "void")
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            -- symbols come from the default namespace unless a library is named, in
+            -- which case they resolve through a cached ffi.load
+            local ns = "__nuppFfi.C"
+            if x.fromLib then
+                needsLibs = true
+                ns = ("__nuppLib(%s)"):format(x.fromLib.text)
+            end
+            e(('pcall(__nuppFfi.cdef, %q) const %s = %s.%s'):format(sig, name, ns, name), line)
+            return
+        end
+
+        if TYPE_KINDS[kind] or DECL_KINDS[kind] then
+            return -- erased entirely
+
+        elseif kind == "castExpr" then
+            emit(x.expr) -- `as T` vanishes; the operand keeps its grouping
+
+        elseif kind == "isExpr" then
+            local t = x.type
+            local firstTok = x[1] and (cst.isToken(x[1]) and x[1] or x[1][1])
+            if x.provenStatically then
+                -- The subject's own type already answers this, so there is nothing to
+                -- test. The checker only marks a subject that is a path, so dropping it
+                -- drops no effect; when the type admits nil, that is the one question
+                -- left.
+                if x.provenNeedsNil then
+                    e("(", firstTok and firstTok.line)
+                    emit(x.expr)
+                    e("~= nil )")
+                else
+                    e("( true )", firstTok and firstTok.line)
+                end
+            elseif x.refutedStatically then
+                -- Settled the other way, and by the same reasoning: the subject is a
+                -- path, so nothing is lost by not evaluating it.
+                e("( false )", firstTok and firstTok.line)
+            elseif t.kind == "tname" and t.base.kind == "nil" then
+                e("(", firstTok and firstTok.line)
+                emit(x.expr)
+                e("== nil )")
+            elseif t.kind == "tname" and #t == 1 and IS_TYPE[t.base.text] then
+                e("( type(", firstTok and firstTok.line)
+                emit(x.expr)
+                e(') == "' .. IS_TYPE[t.base.text] .. '" )')
+            elseif t.kind == "tfunc" then
+                e("( type(", firstTok and firstTok.line)
+                emit(x.expr)
+                e(') == "function" )')
+            elseif t.wherePredicate then
+                -- A `where` refinement is the declaration's own answer to `is`, and it
+                -- comes first: a type carrying one is saying that being stamped here is
+                -- not what makes a value one of these. It is also the only answer an
+                -- interface can have.
+                local line = firstTok and firstTok.line
+                local subject = x.expr and x.expr.kind == "name" and x.expr.token and x.expr.token.text or nil
+                if subject then
+                    -- A name is read as many times as the test names it, and reading a
+                    -- name twice is reading the same value twice.
+                    e("( " .. predicate.test(t.wherePredicate, subject) .. " )", line)
+                else
+                    -- Anything else is evaluated once and handed to the test, because a
+                    -- refinement may read the subject more than once and the expression
+                    -- may not be free to run twice.
+                    local temp = nextTemp()
+                    e(("((function(%s) return %s end)("):format(temp, predicate.test(t.wherePredicate, temp)), line)
+                    emit(x.expr)
+                    e("))")
+                end
+            elseif t.recordName then
+                -- A record is nominal: the question is whether the value came from this
+                -- declaration. `new R{...}` stamps the record itself, but a constructor
+                -- that links back rather than stamping directly is an ordinary Lua
+                -- shape — tecs builds its event instances that way, with a per-instance
+                -- metatable whose `__index` is the record — and those are instances
+                -- too.
+                --
+                -- Reaching the record through `__index` answers both, because the
+                -- record is its own prototype: `R.__index = R` is emitted with it, so a
+                -- directly stamped instance arrives at `R` by the same step a linked
+                -- one does. The subject is read once, and a value with no metatable at
+                -- all falls out as false rather than raising.
+                e("( getmetatable(", firstTok and firstTok.line)
+                emit(x.expr)
+                e(")?.__index == " .. t.recordName .. " )")
+            elseif t.reified then
+                -- struct target: real runtime identity via ffi.istype
+                needsFfi = true
+                e("__nuppFfi.istype(" .. t.reified .. ",", firstTok and firstTok.line)
+                emit(x.expr)
+                e(")")
+            else
+                -- An interface is not missing a feature here: it has no runtime table
+                -- by design, because it is conformance rather than provenance. Three
+                -- things can answer for one, so the message names them rather than
+                -- implying a fourth is coming.
+                local at = t[1] and (cst.isToken(t[1]) and t[1] or nil)
+                if t.interfaceName then
+                    diag(
+                        at,
+                        "NUPP3001",
+                        "an interface has no runtime identity of its own, so " .. "this `is` has nothing to test",
+                        "give it a literal-typed field and the tag becomes the "
+                        .. "test; or a `matches` block, which says the test "
+                        .. "outright; or test a subject whose own type declares "
+                        .. "the interface, which needs no test at all"
+                    )
+                else
+                    diag(
+                        at,
+                        "NUPP3001",
+                        "this type has no runtime identity, so `is` has " .. "nothing to test",
+                        "test against a record, a struct, or an interface that " .. "can say what it is"
+                    )
+                end
+                e("true")
+            end
+
+        elseif kind == "shortfn" then
+            -- The pipes and the arrow survive; only the parameter annotations go. A
+            -- named vararg does not: the runtime has no `...name`, so that one form
+            -- still becomes an ordinary function expression around the table it stands
+            -- for.
+            local first = x[1]
+            local line = first and (cst.isToken(first) and first.line or (first[1] and first[1].line))
+            if not x.varargParam then
+                local names = {}
+                for _, p in ipairs(x.params) do
+                    names[#names + 1] = p.name.text
+                end
+                e("|" .. table.concat(names, ", ") .. "| ->", line)
+                emitFunctionDepth = emitFunctionDepth + 1
+                if x.expr then
+                    -- Parentheses force the expression form to return exactly one
+                    -- result, as LuaJIT 3.0 specifies it; the 2.1 backport passes a
+                    -- multi-return body through.
+                    e("(")
+                    emit(x.expr)
+                    e(")")
+                else
+                    e("do")
+                    emit(x.body)
+                    e("end")
+                end
+                emitFunctionDepth = emitFunctionDepth - 1
+                return
+            end
+            local names = {}
+            for _, p in ipairs(x.params) do
+                names[#names + 1] = p.namedVararg and "..." or p.name.text
+            end
+            e("function(" .. table.concat(names, ", ") .. ")", line)
+            emitFunctionDepth = emitFunctionDepth + 1
+            e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+            if x.expr then
+                -- Parentheses force the expression form to return exactly one result,
+                -- even when its body is a multi-return call.
+                e("return (")
+                emit(x.expr)
+                e(")")
+            else
+                emit(x.body)
+            end
+            emitFunctionDepth = emitFunctionDepth - 1
+            e("end")
+
+        elseif kind == "funcbody" and x.varargParam then
+            emitFunctionDepth = emitFunctionDepth + 1
+            for _, child in ipairs(x) do
+                if child == x.body then
+                    e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+                end
+                emit(child)
+            end
+            emitFunctionDepth = emitFunctionDepth - 1
+
+        elseif kind == "istring" then
+            local piecesOpen = false
+            local line = x[1] and x[1].line
+            e("(", line)
+            for _, child in ipairs(x) do
+                if cst.isToken(child) then
+                    local text = child.text
+                    local chunk
+                    if child.kind == "istringOpen" then
+                        chunk = text:sub(2, -3)
+                    elseif child.kind == "istringMid" then
+                        chunk = text:sub(2, -3)
+                    elseif child.kind == "istringClose" then
+                        chunk = text:sub(2, -2)
+                    end
+                    if chunk and #chunk > 0 then
+                        if piecesOpen then
+                            e("..")
+                        end
+                        e(quoteChunk(chunk), child.line)
+                        piecesOpen = true
+                    end
+                else
+                    if piecesOpen then
+                        e("..")
+                    end
+                    e("tostring(")
+                    emit(child)
+                    e(")")
+                    piecesOpen = true
+                end
+            end
+            if not piecesOpen then
+                e('""')
+            end
+            e(")")
+
+        elseif kind == "binop" and x.op.kind == "//" then
+            e("math.floor((", x.op.line)
+            emit(x.lhs)
+            e(") / (")
+            emit(x.rhs)
+            e("))")
+
+        elseif kind == "compoundAssign" and LOWERED_COMPOUND[x.op.kind] then
+            -- Only the two the runtime lacks are lowered. Both read the target and then
+            -- write it, so an indexed target's prefix and key are bound to temporaries
+            -- first: `obj.f //= v` must not re-run whatever produced obj.
+            local base = x.op.kind:sub(1, -2)
+            local target = x.target
+            local first = target[1]
+            local line = first and cst.isToken(first) and first.line or (cst.isToken(target) and target.line or nil)
+            -- Writes the assignment for a target already reduced to a slot expression
+            -- that is cheap and safe to name twice. A `?.` slot suppresses both the
+            -- read and the write on a nil receiver, which is what the operator
+            -- promises.
+            local function assignTo(slot, at)
+                if base == "??" then
+                    e(("if %s == nil then %s = "):format(slot, slot), at)
+                    emit(x.value)
+                    e(" end")
+                else
+                    e(("%s = math.floor((%s) / ("):format(slot, slot), at)
+                    emit(x.value)
+                    e("))")
+                end
+            end
+
+            local tkind = target.kind
+            if tkind == "name" then
+                assignTo(target.token.text, line)
+                return
+            end
+            local safe = tkind == "safeIndex" or tkind == "safeBracket"
+            local dotted = tkind == "dotIndex" or tkind == "safeIndex"
+            local prefix = nextTemp()
+            e(("do const %s = "):format(prefix), line)
+            emit(target.obj)
+            e("; ")
+            local reach = safe and "?." or "."
+            if dotted then
+                assignTo(("%s%s%s"):format(prefix, reach, target.name.text))
+            else
+                local key = nextTemp()
+                e(("const %s = "):format(key))
+                emit(target.expr)
+                e("; ")
+                assignTo(("%s%s[%s]"):format(prefix, safe and "?." or "", key))
+            end
+            e(" end")
+            return
+
+        elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic == "dispose" then
+            e("do", sourceLine(x))
+            emit(x.expr)
+            e("end")
+            return
+
+        elseif kind == "call" and x.ffiOutContracts then
+            needsFfi = true
+            local line = sourceLine(x)
+            local holders = {}
+            e("(function() ", line)
+            for _, output in ipairs(x.ffiOutContracts) do
+                local holder = nextTemp()
+                holders[#holders + 1] = holder
+                local spelling = cdefCType(output.typeNode) or "void **"
+                spelling = spelling:gsub("%s*%*$", "") .. "[1]"
+                e(("const %s=__nuppFfi.new(%q); "):format(holder, spelling))
+            end
+            local hasStatus = x.ffiOutContracts[1].hasStatus
+            local status = hasStatus and nextTemp() or nil
+            if status then
+                e("const " .. status .. "=")
+            end
+            emit(x.obj)
+            e("(")
+            local args = x.args and x.args.exprs or {}
+            local outputAt = {}
+            for j, output in ipairs(x.ffiOutContracts) do
+                outputAt[output.cIndex] = holders[j]
+            end
+            local argumentIndex = 1
+            for cIndex = 1, #args + #holders do
+                if cIndex > 1 then
+                    e(",")
+                end
+                if outputAt[cIndex] then
+                    e(outputAt[cIndex])
+                else
+                    emit(args[argumentIndex])
+                    argumentIndex = argumentIndex + 1
+                end
+            end
+            e("); return ")
+            if status then
+                e(status)
+            end
+            for j, output in ipairs(x.ffiOutContracts) do
+                if status or j > 1 then
+                    e(",")
+                end
+                if output.success == "zero" then
+                    e(("(%s==0 and %s[0] or nil)"):format(status, holders[j]))
+                elseif output.success == "nonzero" then
+                    e(("(%s~=0 and %s[0] or nil)"):format(status, holders[j]))
+                elseif output.success:match("^equals:") then
+                    local literal = output.success:sub(#"equals:" + 1)
+                    e(("(%s==%s and %s[0] or nil)"):format(status, literal, holders[j]))
+                else
+                    e(holders[j] .. "[0]")
+                end
+            end
+            e(" end)()")
+            return
+
+        elseif kind == "call" and x.ownershipIntrinsic then
+            local args = x.args and x.args.exprs or {}
+            local line = sourceLine(x)
+            if x.ownershipIntrinsic == "borrow" then
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil", line)
+                end
+            elseif x.ownershipIntrinsic == "borrowFrom" then
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil", line)
+                end
+            elseif x.ownershipIntrinsic == "pin" then
+                e("{pointer=", line)
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+                e(",anchor=")
+                if args[2] then
+                    emit(args[2])
+                else
+                    e("nil")
+                end
+                e("}")
+            elseif x.ownershipIntrinsic == "intoRaw" then
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+            elseif x.ownershipIntrinsic == "fromRaw" then
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+            else -- dispose
+                e("(function(__p) if __p == nil then return end ", line)
+                for _, cleanup in ipairs(x.ownerCleanups or {}) do
+                    local method = cleanup:match("^@method:(.+)$")
+                    local field, fieldCleanup = cleanup:match("^@field|([^|]+)|(.+)$")
+                    if cleanup:match("^@dropfield|") then
+                    elseif field then
+                        local fieldMethod = fieldCleanup:match("^@method:(.+)$")
+                        if fieldMethod then
+                            e("__p." .. field .. ":" .. fieldMethod .. "(); ")
+                        else
+                            e(fieldCleanup .. "(__p." .. field .. "); ")
+                        end
+                    elseif method then
+                        e("__p:" .. method .. "(); ")
+                    else
+                        e(cleanup .. "(__p); ")
+                    end
+                end
+                e("end)(")
+                if args[1] then
+                    emit(args[1])
+                else
+                    e("nil")
+                end
+                e(")")
+            end
+            return
+
+        elseif kind == "call" and x.ffiIntrinsic then
+            -- the type argument becomes the ctype value the FFI expects
+            needsFfi = true
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            -- a declared struct is already a ctype value; anything else is named by its
+            -- C spelling
+            local ctypeExpr = x.ffiTypeName
+            if not ctypeExpr then
+                local typeNode = x.ffiTypeNode
+                -- Viewing memory as a C array is a pointer cast. LuaJIT refuses a cast
+                -- to `T[?]` outright, and for `T[N]` it would mean a pointer to the
+                -- whole array rather than to its first element, which is not what
+                -- indexing the result expects.
+                if x.ffiIntrinsic == "cast" and typeNode and typeNode.kind == "tcarray" then
+                    typeNode = typeNode.element
+                    local element = typeNode and cdefCType(typeNode)
+                    if element then
+                        e(("__nuppFfi.cast(%q"):format(element .. " *"), line)
+                        for _, arg in ipairs(x.args and x.args.exprs or {}) do
+                            e(",")
+                            emit(arg)
+                        end
+                        e(")")
+                        return
+                    end
+                end
+                local spelling = x.ffiTypeNode and cdefCType(x.ffiTypeNode)
+                if not spelling then
+                    diag(
+                        x.name or (x[1] and cst.isToken(x[1]) and x[1]),
+                        "NUPP3004",
+                        "this type has no C spelling for an ffi operation"
+                    )
+                    spelling = "void *"
+                end
+                ctypeExpr = ("%q"):format(spelling)
+            end
+            e(("__nuppFfi.%s(%s"):format(x.ffiIntrinsic, ctypeExpr), line)
+            for _, arg in ipairs(x.args and x.args.exprs or {}) do
+                e(",")
+                emit(arg)
+            end
+            e(")")
+            return
+
+        elseif kind == "call" and x.carrayElem then
+            -- one array ctype per element type, built once and reused
+            needsFfi = true
+            needsArrayCache = true
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            e(("__nuppArray(%s)("):format(x.carrayElem), line)
+            local args = x.args and x.args.exprs or {}
+            if args[2] then
+                emit(args[2])
+            end
+            e(")")
+            return
+
+        elseif kind == "call" and x.cheaderCdef then
+            -- the declarations go in, and the library namespace comes out; indexing it
+            -- resolves each symbol
+            needsFfi = true
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            local ns = x.cheaderLib and ("__nuppFfi.load(%q)"):format(x.cheaderLib) or "__nuppFfi.C"
+            -- pcall: a header may be declared twice in one process, and redeclaring a
+            -- type is an error rather than a no-op
+            e(("(function() pcall(__nuppFfi.cdef, %q) return %s end)()"):format(x.cheaderCdef, ns), line)
+            return
+
+        elseif kind == "newExpr" then
+            -- `new` is a compile-time word: it decides which lowering the call
+            -- underneath gets and then leaves, so a construction emits exactly the
+            -- stamp or the ctype call it always did.
+            if x.call then
+                emit(x.call)
+            end
+            return
+
+        elseif kind == "methodCall" and x.overloadMember then
+            -- The checker selected one overload statically. Its hidden member is a real
+            -- Lua method, so colon syntax evaluates the receiver once and calls that
+            -- exact body without a dispatcher.
+            local line = sourceLine(x)
+            emit(x.obj)
+            if x.safeObj then
+                e("?.:" .. x.overloadMember, line)
+            else
+                e(":" .. x.overloadMember, line)
+            end
+            if x.safeMethod then
+                e("?.")
+            end
+            if x.args then
+                emit(x.args)
+            end
+            return
+
+        elseif (kind == "call" or kind == "safeCall") and x.constructorCall then
+            -- A declared constructor is a direct call to the function minted for it,
+            -- resolved here rather than dispatched at run time.
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            e(x.constructorCall .. "." .. constructorMember(x.constructorIndex), line)
+            if x.args then
+                emit(x.args)
+            end
+            return
+
+        elseif (kind == "call" or kind == "safeCall") and x.recordConstruct then
+            -- R{...} builds an ordinary table carrying R as its metatable
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            e("setmetatable(", line)
+            local tbl = x.args and (x.args.table or (x.args.exprs or {})[1])
+            if tbl then
+                emit(tbl)
+            end
+            e(", " .. x.recordConstruct .. ")")
+            return
+
+        elseif kind == "constructorDecl" and x.inlineRuntimeOwner then
+            -- The instance is made before the body runs and returned after it, so the
+            -- body only fills fields in. Both halves sit on the lines the `constructor`
+            -- and its `end` already occupy, which is what keeps the generated file's
+            -- line count equal to the source's.
+            local body = x.body
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            local names = {}
+            for _, p in ipairs(body.params or {}) do
+                if p.namedVararg then
+                    names[#names + 1] = "..."
+                elseif p.name then
+                    names[#names + 1] = p.name.text
+                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                    names[#names + 1] = "..."
+                end
+            end
+            local owner = x.inlineRuntimeOwner
+            e(
+                (
+                    "function %s.%s(%s) local self = setmetatable({}, %s)"
+                ):format(owner, constructorMember(x.constructorIndex), table.concat(names, ", "), owner),
+                line
+            )
+            if body.varargParam then
+                e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+            end
+            emitFunctionDepth = emitFunctionDepth + 1
+            if body.body then
+                emit(body.body)
+            end
+            emitFunctionDepth = emitFunctionDepth - 1
+            local endTok
+            for j = #body, 1, -1 do
+                local child = body[j]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("return self end", endTok and endTok.line or nil)
+            return
+
+        elseif kind == "inlineMethod" and x.inlineRuntimeOwner then
+            local body = x.body
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            local names = {}
+            for _, p in ipairs(body.params or {}) do
+                if p.namedVararg then
+                    names[#names + 1] = "..."
+                elseif p.name then
+                    names[#names + 1] = p.name.text
+                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                    names[#names + 1] = "..."
+                end
+            end
+            if x.inlineDotted then
+                -- A default is written where its receiver is not yet known, so `self`
+                -- is an ordinary first parameter. Everything that takes the default
+                -- assigns this same function, and the colon call at the use site passes
+                -- the receiver as it always would.
+                table.insert(names, 1, "self")
+                e(
+                    (
+                        "function %s.%s(%s)"
+                    ):format(x.inlineRuntimeOwner, x.overloadMember or x.name.text, table.concat(names, ", ")),
+                    line
+                )
+            else
+                -- A method may write its receiver out, and the checker reads it as the
+                -- receiver either way. The colon already binds one, so emitting the
+                -- declared name beside it would declare `self` twice: the inner one
+                -- shadows the receiver with the first actual argument, which for
+                -- `obj:m()` is nil. Drop it here, and the two spellings generate the
+                -- same function.
+                if names[1] == "self" then
+                    table.remove(names, 1)
+                end
+                e(
+                    (
+                        "function %s:%s(%s)"
+                    ):format(x.inlineRuntimeOwner, x.overloadMember or x.name.text, table.concat(names, ", ")),
+                    line
+                )
+            end
+            if body.varargParam then
+                e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
+            end
+            emitFunctionDepth = emitFunctionDepth + 1
+            if body.body then
+                emit(body.body)
+            end
+            emitFunctionDepth = emitFunctionDepth - 1
+            local endTok
+            for j = #body, 1, -1 do
+                local child = body[j]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            return
+
+        elseif kind == "funcStmt" and x.structOwner and x.memberName then
+            needsFfi = true
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or nil
+            local names = {}
+            if x.name.method then
+                names[1] = "self"
+            end
+            for _, p in ipairs(x.body.params or {}) do
+                if p.namedVararg then
+                    names[#names + 1] = "..."
+                elseif p.name then
+                    names[#names + 1] = p.name.text
+                elseif p[1] and cst.isToken(p[1]) and p[1].kind == "..." then
+                    names[#names + 1] = "..."
+                end
+            end
+            e(
+                (
+                    "__nuppMt_%s.__index.%s = function(%s)"
+                ):format(x.structOwner, x.memberName, table.concat(names, ", ")),
+                line
+            )
+            if x.body.varargParam then
+                e(("const %s = { n = select(\"#\", ...), ... }"):format(x.body.varargParam.name.text))
+            end
+            emitFunctionDepth = emitFunctionDepth + 1
+            if x.body.body then
+                emit(x.body.body)
+            end
+            emitFunctionDepth = emitFunctionDepth - 1
+            -- close on the source's own `end` so the line count is unchanged
+            local endTok
+            for j = #x.body, 1, -1 do
+                local child = x.body[j]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            return
+
+        elseif kind == "withStmt" then
+            needsWith = true
+            if not withPackName then
+                withPackName = nextTemp()
+                withIdName = nextTemp()
+                withFailureName = nextTemp()
+                withCacheName = nextTemp()
+                withGlobals = {}
+                for _, name in ipairs({
+                    "pcall",
+                    "xpcall",
+                    "error",
+                    "unpack",
+                    "select",
+                    "setmetatable",
+                    "tostring",
+                    "ipairs"
+                }) do
+                    withGlobals[name] = nextTemp()
+                end
+            end
+            local count = nextTemp()
+            local ok = nextTemp()
+            -- On success this holds the completion tag; on failure, the error.
+            local tag = nextTemp()
+            local payload = nextTemp()
+            local cleanupError = nextTemp()
+            local hasCleanupError = nextTemp()
+            local owners = {}
+            for j = 1, #(x.bindings or {}) do
+                owners[j] = nextTemp()
+            end
+            local variadic = usesVararg(x.body)
+            local ctx = {
+                entryLoopDepth = emitLoopDepth,
+                functionDepth = emitFunctionDepth,
+                labels = labelsIn(x.body),
+                gotos = {},
+            }
+            -- A body that resolves nothing from an enclosing scope produces a region
+            -- with no upvalues, so one region can serve every execution. That is what
+            -- lets a loop around a `with` compile at all: building a closure per
+            -- execution is `NYI: bytecode FNEW` and aborts the enclosing trace whether
+            -- or not it captures. Acquisition moves out of the protected region because
+            -- a lone binding that fails to acquire leaves nothing to clean up.
+            local shared = not x.capturesEnclosing and #(x.bindings or {}) == 1
+            if shared then
+                withCacheSites = withCacheSites + 1
+                local slot = withCacheSites
+                local region = nextTemp()
+                local binding = x.bindings[1]
+                e("do const ", x.withTok and x.withTok.line or sourceLine(x))
+                e(("%s="):format(owners[1]), sourceLine(binding.expr))
+                emit(binding.expr)
+                e(
+                    (
+                        "; local %s=%s[%d]; if not %s then %s=function(%s%s)"
+                    ):format(region, withCacheName, slot, region, region, binding.name.text, variadic and ",..." or "")
+                )
+                withStack[#withStack + 1] = ctx
+                e("do")
+                if x.body then
+                    emit(x.body)
+                end
+                e(("end; return \"normal\" end; %s[%d]=%s end;"):format(withCacheName, slot, region))
+                e(
+                    (
+                        "const %s,%s,%s=%s(%s,%s,%s%s);"
+                    ):format(
+                        ok,
+                        tag,
+                        payload,
+                        withGlobals.xpcall,
+                        region,
+                        withIdName,
+                        owners[1],
+                        variadic and ",..." or ""
+                    )
+                )
+                withStack[#withStack] = nil
+                e(("const %s=1;"):format(count))
+            else
+                e(("do local %s=0; local "):format(count), x.withTok and x.withTok.line or sourceLine(x))
+                e(table.concat(owners, ","))
+                e(
+                    (
+                        "; const %s,%s,%s=%s(function(%s)"
+                    ):format(ok, tag, payload, withGlobals.xpcall, variadic and "..." or "")
+                )
+                withStack[#withStack + 1] = ctx
+                for j, binding in ipairs(x.bindings or {}) do
+                    e(("%s="):format(owners[j]), sourceLine(binding.expr))
+                    emit(binding.expr)
+                    e(("; %s=%d; const %s=%s;"):format(count, j, binding.name.text, owners[j]))
+                end
+                e("do")
+                if x.body then
+                    emit(x.body)
+                end
+                e(("end; return \"normal\" end,%s%s);"):format(withIdName, variadic and ",..." or ""))
+                withStack[#withStack] = nil
+            end
+            e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
+            for j = #(x.bindings or {}), 1, -1 do
+                local binding = x.bindings[j]
+                e(("if %s>=%d then "):format(count, j))
+                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
+                    if not cleanup:match("^@dropfield|") then
+                        local cok, cerr = nextTemp(), nextTemp()
+                        local method = cleanup:match("^@method:(.+)$")
+                        local field, fieldCleanup = cleanup:match("^@field|([^|]+)|(.+)$")
+                        if method then
+                            e(
+                                (
+                                    "const %s,%s=%s(function() %s:%s() end);"
+                                ):format(cok, cerr, withGlobals.pcall, owners[j], method)
+                            )
+                        elseif field then
+                            local fieldMethod = fieldCleanup:match("^@method:(.+)$")
+                            if fieldMethod then
+                                e(
+                                    (
+                                        "const %s,%s=%s(function() %s.%s:%s() end);"
+                                    ):format(cok, cerr, withGlobals.pcall, owners[j], field, fieldMethod)
+                                )
+                            else
+                                e(
+                                    (
+                                        "const %s,%s=%s(%s,%s.%s);"
+                                    ):format(cok, cerr, withGlobals.pcall, fieldCleanup, owners[j], field)
+                                )
+                            end
+                        else
+                            e(("const %s,%s=%s(%s,%s);"):format(cok, cerr, withGlobals.pcall, cleanup, owners[j]))
+                        end
+                        e(
+                            (
+                                " if not %s then %s=%s+1; %s[%s]=%s end;"
+                            ):format(cok, hasCleanupError, hasCleanupError, cleanupError, hasCleanupError, cerr)
+                        )
+                    end
+                end
+                e("end;")
+            end
+            e(
+                (
+                    "if not %s then if %s>0 then %s(%s(%s,%s,1),0) else %s(%s,0) end end;"
+                ):format(
+                    ok,
+                    hasCleanupError,
+                    withGlobals.error,
+                    withFailureName,
+                    tag,
+                    cleanupError,
+                    withGlobals.error,
+                    tag
+                )
+            )
+            e(
+                (
+                    "if %s>0 then if %s>1 then %s(%s(%s[1],%s,2),0) else %s(%s[1],0) end end;"
+                ):format(
+                    hasCleanupError,
+                    hasCleanupError,
+                    withGlobals.error,
+                    withFailureName,
+                    cleanupError,
+                    cleanupError,
+                    withGlobals.error,
+                    cleanupError
+                )
+            )
+            local parent = withStack[#withStack]
+            e(("if %s==\"return\" then "):format(tag))
+            if parent then
+                e(("return \"return\",%s"):format(payload))
+            else
+                e(("return %s(%s,1,%s.n)"):format(withGlobals.unpack, payload, payload))
+            end
+            e(" end;")
+            if ctx.breakExit then
+                e(("if %s==\"break\" then "):format(tag))
+                if parent and ctx.entryLoopDepth <= parent.entryLoopDepth then
+                    parent.breakExit = true
+                    e("return \"break\"")
+                else
+                    e("break")
+                end
+                e(" end;")
+            end
+            if ctx.continueExit then
+                e(("if %s==\"continue\" then "):format(tag))
+                if parent and ctx.entryLoopDepth <= parent.entryLoopDepth then
+                    parent.continueExit = true
+                    e("return \"continue\"")
+                else
+                    e("continue")
+                end
+                e(" end;")
+            end
+            local gotoTargets = {}
+            for target in pairs(ctx.gotos) do
+                gotoTargets[#gotoTargets + 1] = target
+            end
+            table.sort(gotoTargets)
+            for _, target in ipairs(gotoTargets) do
+                e(("if %s==%q then "):format(tag, "goto:" .. target))
+                if parent and not parent.labels[target] then
+                    parent.gotos[target] = true
+                    e(("return %q"):format("goto:" .. target))
+                else
+                    e("goto " .. target)
+                end
+                e(" end;")
+            end
+            e("end")
+
+        elseif kind == "returnStmt" and activeWith() then
+            emitPackedReturn(activeWith(), x)
+
+        elseif (
+            kind == "breakStmt" or kind == "continueStmt"
+        ) and activeWith() and emitLoopDepth <= activeWith().entryLoopDepth then
+            local completion = kind == "breakStmt" and "break" or "continue"
+            activeWith()[completion .. "Exit"] = true
+            e(("return %q"):format(completion), sourceLine(x))
+
+        elseif kind == "gotoStmt" and activeWith() and not activeWith().labels[x.name.text] then
+            local ctx = activeWith()
+            ctx.gotos[x.name.text] = true
+            e(("return %q"):format("goto:" .. x.name.text), sourceLine(x))
+
+        elseif kind == "forinStmt" and x.numericIpairs then
+            local operand = x.numericIpairs.operand
+            local names = x.names or {}
+            -- The first generic-for binding already is the numeric index. Use it as the
+            -- control variable instead of introducing a temporary and copying it into
+            -- the source binding on every iteration.
+            local index = names[1] and names[1].text or nextTemp()
+            local first = x[1]
+            local line = first and cst.isToken(first) and first.line or sourceLine(x)
+            e(("for %s=1,%d do"):format(index, x.numericIpairs.length), line)
+            if names[2] then
+                e(("local %s="):format(names[2].text))
+                emit(operand)
+                e(("[%s];"):format(index))
+            end
+            for j = 3, #names do
+                e(("local %s=nil;"):format(names[j].text))
+            end
+            emitLoopDepth = emitLoopDepth + 1
+            if x.body then
+                emit(x.body)
+            end
+            emitLoopDepth = emitLoopDepth - 1
+            local endTok
+            for j = #x, 1, -1 do
+                local child = x[j]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            finishConcatBuffer(x, endTok and endTok.line or nil)
+
+        elseif kind == "whileStmt" or kind == "fornumStmt" or kind == "forinStmt" or kind == "repeatStmt" then
+            local lastLine = nil
+            for _, child in ipairs(x) do
+                if child == x.body then
+                    emitLoopDepth = emitLoopDepth + 1
+                    emit(child)
+                    emitLoopDepth = emitLoopDepth - 1
+                else
+                    emit(child)
+                end
+                if cst.isToken(child) then
+                    lastLine = child.line
+                end
+            end
+            -- On the line the loop closes on. That line already belongs to this
+            -- statement, so nothing moves and the line count is unchanged.
+            finishConcatBuffer(x, lastLine)
+
+        elseif kind == "funcbody" then
+            emitFunctionDepth = emitFunctionDepth + 1
+            if x.varargParam then
+                for _, child in ipairs(x) do
+                    if child == x.body then
+                        if coverageOn then
+                            coverageHit("function", x)
+                        end
+                        e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
+                    end
+                    emit(child)
+                end
+            else
+                for _, child in ipairs(x) do
+                    if child == x.body then
+                        if coverageOn then
+                            coverageHit("function", x)
+                        end
+                    end
+                    emit(child)
+                end
+            end
+            emitFunctionDepth = emitFunctionDepth - 1
+
+        elseif kind == "pragmaStmt" then
+            if x.stat then
+                emit(x.stat)
+            end
+
+        elseif kind == "unsafeStmt" then
+            e("do", x.unsafeTok and x.unsafeTok.line or nil)
+            if x.body then
+                emit(x.body)
+            end
+            e("end", x.endTok and x.endTok.line or nil)
+
+        elseif kind == "tableExpr" and x.presize then
+            -- OPT-1: `{}` sized for the fields the optimizer counted. The call replaces
+            -- the constructor where it stands, so the line it is attributed to does not
+            -- move.
+            local name = tableIntrinsicName("new")
+            e(("%s(%d,%d)"):format(name, x.presize.narr, x.presize.nhash), sourceLine(x))
+
+        elseif kind == "param" then
+            -- name (or '...'); annotation tokens skip via the token rule
+            if x.namedVararg then
+                emit(x[1])
+            elseif x.name then
+                emit(x.name)
+            else
+                emitChildren(x)
+            end
+
+        elseif kind == "call" and x.layoutOf then
+            -- The compiler knows the name and the field spellings; sizes, offsets and
+            -- padding are this platform's, so the helper asks the FFI at run time and
+            -- caches per ctype. Emitted at the call site, so a program that never asks
+            -- carries nothing.
+            needsLayout = true
+            layoutName = layoutName or reservedName("__nuppLayout")
+            local line = sourceLine(x)
+            e(("%s("):format(layoutName), line)
+            emit(x.args and x.args.exprs and x.args.exprs[1] or x.obj)
+            e((", %q, %q, %q"):format(x.layoutOf.name, x.layoutOf.spec, x.layoutOf.printed))
+            for _, nestedName in ipairs(x.layoutOf.nested) do
+                e((", %s"):format(nestedName))
+            end
+            e(")")
+            return
+
+        elseif kind == "name" and x.bufferIntrinsic then
+            -- The module the checker resolved this name to, bound once per generated
+            -- module. `OPT-5` shares the same binding, so a file that both writes
+            -- `buffer` and has an accumulator lowered requires string.buffer once.
+            e(concatBufferName(), sourceLine(x))
+
+        elseif kind == "localStmt" and x.concatBuffer then
+            -- The accumulator keeps its declaration, so anything reading it after the
+            -- loop reads a string and needs no rewriting. The buffer is opened beside
+            -- it, on the same line.
+            emitChildren(x)
+            e(("local %s = %s.new()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
+
+        elseif kind == "assignStmt" and x.concatBuffer then
+            -- `s = s .. a .. b` becomes `buf:put(a, b)`. Lua's `..` is
+            -- right-associative, so the pieces arrive already in the order they are
+            -- concatenated, and appending them one after another builds the same
+            -- string. Only reached for a concatenation the checker proved primitive: a
+            -- `__concat` would not be run by `put`.
+            e(("%s:put("):format(x.concatBuffer.name), sourceLine(x))
+            for j, piece in ipairs(x.concatBuffer.pieces) do
+                if j > 1 then
+                    e(",")
+                end
+                emit(piece)
+            end
+            e(")")
+
+        else
+            emitChildren(x)
+        end
+    end
+
+    planStructTags()
+    for _, child in ipairs(result.root) do
+        emit(child)
+    end
+    raw("\n")
+
+    local code = table.concat(out)
+    -- `nupp` is an ambient namespace, not a module the application must require. A
+    -- feature only adds its bootstrap in modules that resolved it.
+    local nativeBootstrap = native.bootstrap(result.effects)
+    if nativeBootstrap ~= "" then
+        code = nativeBootstrap .. code
+    else
+        code = "_G.nupp=_G.nupp or {};" .. code
+    end
+    if needsWith then
+        local names, values = {}, {}
+        for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
+            names[#names + 1] = withGlobals[name]
+            values[#values + 1] = name
+        end
+        code = (
+            "const %s={}; "
+        ):format(
+            withCacheName
+        ) .. (
+            "const %s=%s; "
+        ):format(
+            table.concat(names, ","),
+            table.concat(values, ",")
+        ) .. (
+            "const function %s(...) return "
+        ):format(
+            withPackName
+        ) .. (
+            "{n=%s(\"#\",...),...} end; "
+        ):format(
+            withGlobals.select
+        ) .. (
+            "const function %s(value) return value end; "
+        ):format(
+            withIdName
+        ) .. (
+            "const function %s(primary,errors,start) "
+        ):format(
+            withFailureName
+        ) .. "const secondary={} for i=start,#errors do " .. (
+            "secondary[#secondary+1]=errors[i] end return %s("
+        ):format(
+            withGlobals.setmetatable
+        ) .. "{primary=primary,suppressed=secondary},{__tostring=function(v) " .. (
+            "local text=%s(v.primary) for _,reason in %s("
+        ):format(
+            withGlobals.tostring,
+            withGlobals.ipairs
+        ) .. (
+            "v.suppressed) do text=text..\"\\ncleanup: \"..%s(reason) "
+        ):format(withGlobals.tostring) .. "end return text end}) end; " .. code
+    end
+    -- A project global is created by the module that declares it, so naming one means
+    -- that module has to have been loaded. Nothing is bound: the declaration assigned
+    -- the global itself.
+    if result.implicitSideEffects and next(result.implicitSideEffects) then
+        local effects = {}
+        for moduleName in pairs(result.implicitSideEffects) do
+            effects[#effects + 1] = moduleName
+        end
+        table.sort(effects)
+        for j, moduleName in ipairs(effects) do
+            effects[j] = ("require(%q); "):format(moduleName)
+        end
+        code = table.concat(effects) .. code
+    end
+    if needsArrayCache then
+        code = "const __nuppArrayCache = {}; const function __nuppArray(ct) "
+            .. "local a = __nuppArrayCache[ct] if not a then "
+            .. 'a = __nuppFfi.typeof("$[?]", ct) __nuppArrayCache[ct] = a end '
+            .. "return a end; "
+            .. code
+    end
+    if needsLibs then
+        code = "const __nuppLibCache = {}; const function __nuppLib(n) "
+            .. "local l = __nuppLibCache[n] if not l then "
+            .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
+            .. code
+    end
+    if needsClearTab then
+        code = ("const %s = require(\"table.clear\"); "):format(clearTabName) .. code
+    end
+    if needsNewTab then
+        code = ("const %s = require(\"table.new\"); "):format(newTabName) .. code
+    end
+    if needsMetatypeOnce then
+        -- `ffi.metatype` claims a ctype once per process. A named struct's tag encodes
+        -- its body, so a second claim means the same declaration reached this process
+        -- twice and the ctype already carries the right metatable.
+        code = (
+            "const %s = function(ct, mt) const ok, got = pcall("
+        ):format(metatypeOnceName) .. "__nuppFfi.metatype, ct, mt) if ok then return got end return ct end; " .. code
+        needsFfi = true
+    end
+    if #structTagOrder > 0 then
+        -- Tags first, so a struct body and an anonymous ctype alike may point at one
+        -- whose body has not been emitted yet. `ffi.typeof` will not declare a tag
+        -- implicitly the way `ffi.cdef` does, so the declaration has to be explicit.
+        local forwards = {}
+        for _, tag in ipairs(structTagOrder) do
+            forwards[#forwards + 1] = ("pcall(__nuppFfi.cdef, \"struct %s;\"); "):format(tag)
+        end
+        code = table.concat(forwards) .. code
+        needsFfi = true
+    end
+    if needsLayout then
+        -- One layout per ctype, built on first ask. Weak keys so a ctype nothing else
+        -- holds is still collectable. `$` in the spec consumes the next ctype argument,
+        -- the way ffi.typeof spells a nested struct, because nupp emits anonymous
+        -- structs and a nested field's size cannot be resolved from a name.
+        code = (
+            "const %s = (function() const cache = setmetatable({}, {__mode = \"k\"}) "
+            .. "return function(ct, name, spec, printed, ...) "
+            .. "local hit = cache[ct] if hit then return hit end "
+            .. "const nested = {...} local at = 0 "
+            .. "const fields = {} "
+            .. "for fname, ctype in spec:gmatch(\"([^:,]+):([^,]+)\") do "
+            .. "local own local shown = ctype "
+            .. "if ctype:sub(1, 1) == \"$\" then at = at + 1 own = nested[at] "
+            .. "shown = ctype:sub(2) "
+            .. "const repeats = shown:match(\"%%[(%%d+)%%]$\") "
+            .. "if repeats then own = __nuppFfi.sizeof(own) * tonumber(repeats) end "
+            .. "elseif ctype:sub(-1) == \"*\" then own = \"void *\" "
+            .. "else own = ctype end "
+            .. "fields[#fields + 1] = {name = fname, ctype = shown, "
+            .. "offset = __nuppFfi.offsetof(ct, fname), size = type(own) == \"number\" and own or __nuppFfi.sizeof(own)} "
+            .. "end "
+            .. "const size = __nuppFfi.sizeof(ct) "
+            .. "for i = 1, #fields do "
+            .. "const after = fields[i + 1] and fields[i + 1].offset or size "
+            .. "fields[i].padding = after - fields[i].offset - fields[i].size end "
+            .. "const layout = {name = name, size = size, fields = fields, "
+            .. "fingerprint = printed .. \"|\" .. size} "
+            .. "cache[ct] = layout return layout end end)(); "
+        ):format(layoutName) .. code
+        needsFfi = true
+    end
+    if needsBuffer then
+        code = ("const %s = require(\"string.buffer\"); "):format(bufferName) .. code
+    end
+    if needsFfi then
+        -- joins line 1 without adding a line (the invariant holds)
+        code = 'const __nuppFfi = require("ffi"); ' .. code
+    end
+    if coverageOn and coverageName then
+        -- The recorder is self-contained so an instrumented application does not need
+        -- the compiler installed at runtime. Its plain table is intentionally public: a
+        -- custom runner may flush it just as this repository's runner does.
+        code = (
+            "local %s=_G.__nuppCoverage;if not %s then %s={hits={}};"
+            .. "function %s.hit(p,i)local f=%s.hits[p]or{};%s.hits[p]=f;"
+            .. "local k=tostring(i);f[k]=(f[k]or 0)+1 end;function %s.branch(p,i,v)local f=%s.hits[p]"
+            .. "or{};%s.hits[p]=f;local k=tostring(i)..(v and ':true'or ':false');"
+            .. "f[k]=(f[k]or 0)+1;return v end;_G.__nuppCoverage=%s end; "
+        ):format(
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName,
+            coverageName
+        ) .. code
+    end
+    local metadata = coverageOn and {path = coveragePath, sites = (coverageSites or {}) as {any}} or nil
+
+    return code, diags, metadata
+end
+
+return gen

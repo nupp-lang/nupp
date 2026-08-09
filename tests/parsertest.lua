@@ -1,5 +1,5 @@
-local parser = require("compiler.parser")
-local cst = require("compiler.cst")
+local parser = require("nupp.compiler.parser")
+local cst = require("nupp.compiler.cst")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -466,7 +466,7 @@ end
 
 function M.selfParseClean()
    for _, rel in ipairs({
-      "src/compiler/lexer.nupp", "src/compiler/cst.nupp", "src/compiler/parser.nupp",
+      "src/nupp/compiler/lexer.nupp", "src/nupp/compiler/cst.nupp", "src/nupp/compiler/parser.nupp",
       "tests/lexertest.lua", "tests/parsertest.lua", "tests/run.lua",
    }) do
       local f = assert(io.open(ROOT .. "/" .. rel))

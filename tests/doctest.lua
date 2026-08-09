@@ -1,4 +1,4 @@
-local doc = require("compiler.doc")
+local doc = require("nupp.compiler.doc")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -317,8 +317,8 @@ end
 
 function M.internalInitHidesItsDocumentationTree()
    local dir = tempProject({
-      ["src/compiler/init.nupp"] = "@!internal\nreturn {}\n",
-      ["src/compiler/parser.nupp"] = "function parse(): number return 1 end\n",
+      ["src/nupp/compiler/init.nupp"] = "@!internal\nreturn {}\n",
+      ["src/nupp/compiler/parser.nupp"] = "function parse(): number return 1 end\n",
       ["src/public.nupp"] = "function visible(): number return 2 end\n",
    })
    local config = {include = {"src"}}
@@ -326,14 +326,14 @@ function M.internalInitHidesItsDocumentationTree()
       {format = "markdown", output = "public.md"}) == 0)
    local public = readFile(dir .. "/public.md")
    assert(public:find("Module: `public`", 1, true), public)
-   assert(not public:find("Module: `compiler`", 1, true), public)
-   assert(not public:find("Module: `compiler.parser`", 1, true), public)
+   assert(not public:find("Module: `nupp.compiler`", 1, true), public)
+   assert(not public:find("Module: `nupp.compiler.parser`", 1, true), public)
 
    assert(doc.build(dir, config, {sources = {"src"}, includePrivate = true},
       {format = "markdown", output = "complete.md"}) == 0)
    local complete = readFile(dir .. "/complete.md")
-   assert(complete:find("Module: `compiler`", 1, true), complete)
-   assert(complete:find("Module: `compiler.parser`", 1, true), complete)
+   assert(complete:find("Module: `nupp.compiler`", 1, true), complete)
+   assert(complete:find("Module: `nupp.compiler.parser`", 1, true), complete)
    os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -846,7 +846,7 @@ end
 -- Markdown is lunamark's now. These are the cases the pattern-based renderer
 -- it replaced got wrong, so they are the ones worth pinning.
 function M.markdownIsRenderedByLunamark()
-   local html = require("compiler.doc.html")
+   local html = require("nupp.compiler.doc.html")
    local cases = {
       {"**a *nested* b**", "<strong>a <em>nested</em> b</strong>"},
       {"a \\*escaped\\* b", "a *escaped* b"},
@@ -869,7 +869,7 @@ end
 -- Fenced regions are lifted out before lunamark sees them, which is what keeps
 -- the fence options working: an info string is not something markdown parses.
 function M.fencedBlocksKeepTheirOptions()
-   local html = require("compiler.doc.html")
+   local html = require("nupp.compiler.doc.html")
    local labeled = html.markdownHtml(
       "```lua [example.lua] :line-numbers=12\nprint(1)\n```", {})
    assert(labeled:find("nuppdoc-labeled-code", 1, true), labeled)
@@ -891,7 +891,7 @@ end
 -- Lunamark does not parse `:::` containers itself. The container is lifted out,
 -- while its body goes through the same Lunamark parser as the surrounding page.
 function M.admonitionsKeepLunamarkMarkdown()
-   local html = require("compiler.doc.html")
+   local html = require("nupp.compiler.doc.html")
    local out = html.markdownHtml(table.concat({
       "::: warning Check this <title>",
       "Use **strong text**, [a link](https://example.com), and a list:",
@@ -926,7 +926,7 @@ end
 -- The id is Nupp's slug rather than lunamark's, and each heading keeps the
 -- anchor the stylesheet draws.
 function M.headingsKeepTheirAnchors()
-   local html = require("compiler.doc.html")
+   local html = require("nupp.compiler.doc.html")
    local out = html.markdownHtml("# One `two`\n\nbody", {})
    assert(out:find('id="one-two"', 1, true), out)
    assert(out:find('class="nuppdoc-header-anchor"', 1, true), out)

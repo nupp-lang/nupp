@@ -372,7 +372,7 @@ prerequisite it does not have.
 ### Semantic reflection
 
 `reflect(T)` returns an immutable public descriptor rather than the mutable
-tables used internally by `compiler.types`. It is target-independent and needs no
+tables used internally by `nupp.compiler.types`. It is target-independent and needs no
 layout model: everything in it is a fact the checker established while checking
 the declaration.
 

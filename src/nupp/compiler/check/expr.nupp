@@ -1,0 +1,713 @@
+--[[
+The type an expression has.
+
+One dispatch over the expression kinds, in the scope the walk is currently in and
+with what narrowing knows applied. It is called for effect as well as for the
+answer: it records what later passes need on the node, and reports what the
+expression itself gets wrong.
+
+The FFI intrinsics live here too. `ffi.new<T>` and the rest take a type rather
+than a value, and the constant type strings that ordinary LuaJIT code is written
+with are read the same way, so existing code types without being rewritten.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local narrowing = require("nupp.compiler.narrowing")
+local cst = require("nupp.compiler.cst")
+local lexer = require("nupp.compiler.lexer")
+local operators = require("nupp.compiler.check.operators")
+local index = require("nupp.compiler.check.index")
+local callexpr = require("nupp.compiler.check.callexpr")
+local state = require("nupp.compiler.check.state")
+local comptime = require("nupp.compiler.comptime")
+
+local expr = {}
+
+local isA = relations.isA
+local rawType = T.unwrapOwnership
+local subtract = narrowing.subtract
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A token, as the lexer produced it.
+local type Token = lexer.Token
+
+--- The expression kinds that produce more than one value, so a reader in a position
+--- that takes them all reads `node.valuePack` rather than the one type inference
+--- answered with. Only a call expands: `local a, b = f()` takes both of f's results,
+--- while `local a, b = g` takes g and nothing. Inferring anything else may still have
+--- run a call — a function expression whose body calls something does — so the
+--- expansion asks what the expression is rather than what ran last.
+local EXPANDS: {[string]: boolean} = {call = true, methodCall = true, safeCall = true, vararg = true}
+
+expr.EXPANDS = EXPANDS
+
+--- Installs the expression walk on one run. It answers through `c.infer`, which is what
+--- every other pass already asks, so there is nothing for it to hand back.
+---
+--- @param c the run's state
+function expr.install(c: state.Checker): nil
+
+    -- Expected types only flow into the expression being checked, never into a nested
+    -- short function it happens to contain.
+    local expectedShortfns: {[any]: Type} = {}
+
+    local function visibleNames()
+        local names = {}
+        local scope = c.scope
+        while scope do
+            for name in pairs(scope.vars or {}) do
+                names[name] = true
+            end
+            scope = scope.parent
+        end
+        for name in pairs(c.env and c.env.globals or {}) do
+            names[name] = true
+        end
+
+        return names
+    end
+
+    c.numericOperand = function(t, node, op)
+        if t == T.any or isA(t, T.number) then
+            return true
+        end
+        c.diag("NUPP2003", node, ("cannot apply '%s' to %s"):format(op, T.tostring(t)))
+
+        return false
+    end
+
+    -- Ordering follows LuaJIT's primitive families. The gradual checker also accepts
+    -- one optional numeric/string family: unannotated Lua routinely compares a tonumber
+    -- result after a lexical guard the facts engine cannot yet express. Unrelated union
+    -- members remain rejected.
+    local function orderingFamily(t)
+        if t == T.any then
+            return "any"
+        end
+        if isA(t, T.number) then
+            return "number"
+        end
+        if isA(t, T.string) then
+            return "string"
+        end
+        if t.tag == "union" then
+            local family = nil
+            for _, member in ipairs(t.members) do
+                if member ~= T.nil_ then
+                    local found = orderingFamily(member)
+                    if not found or found == "any" then
+                        return found
+                    end
+                    if family and family ~= found then
+                        return nil
+                    end
+                    family = found
+                end
+            end
+            return family
+        end
+
+        return nil
+    end
+
+    --- The type a numeric literal has, suffixes and radix included.
+    local function numberLiteralType(text: string): Type
+        local lower = text:gsub("_", ""):lower()
+        if lower:find("ull", 1, true) then
+            return T.uint64
+        end
+        if lower:find("ll", 1, true) then
+            return T.int64
+        end
+        if lower:sub(-1) == "i" then
+            return T.number
+        end -- imaginary: complex later
+        if lower:find("x", 1, true) then
+            if lower:find("%.") or lower:find("p") then
+                return T.number
+            end
+            return T.integer
+        end
+        if lower:find("%.") or lower:find("e") then
+            return T.number
+        end
+
+        return T.integer
+    end
+
+    -- Infers the type of a field access on `t`; returns nil if unknowable.
+
+    -- `comptime do ... end`: check the block, run it, and type what it produced.
+    --
+    -- The body is checked like any other block, so a mistake inside one is reported by
+    -- the ordinary machinery rather than by the evaluator. The return frame is what
+    -- differs: a comptime block's `return` leaves the block and not the function around
+    -- it, so a fresh permissive frame is pushed and the enclosing contract goes
+    -- unconsulted.
+    --
+    -- The result's type comes back from the evaluator, built the way a table literal's
+    -- is, so a comptime value obeys the same assignment, return and field rules as a
+    -- literal somebody typed out. Parsing the quoted text and inferring that would be
+    -- the more obviously faithful route, and is not available: reaching the parser from
+    -- the checker closes a module cycle.
+    local function comptimeType(untypedNode: Node): Type
+        local node = untypedNode as cst.ComptimeExpr
+        c.pushScope()
+        c.retStack[#c.retStack + 1] = false
+        c.retPackStack[#c.retPackStack + 1] = false
+        if node.body then
+            c.checkBlock(node.body as cst.Node, true)
+        end
+        c.retPackStack[#c.retPackStack] = nil
+        c.retStack[#c.retStack] = nil
+        c.popScope()
+
+        local quoted, resultType, failure = comptime.evaluate(untypedNode, node.body)
+        if failure then
+            c.diag(
+                failure.code,
+                failure.node or node,
+                failure.message,
+                nil,
+                failure.help and {help = failure.help} or nil
+            )
+            return T.any
+        end
+        node.comptimeValue = quoted
+
+        return resultType or T.any
+    end
+
+    -- Each expression family is its own module, installed here and reached through one
+    -- table. What is left in this file is the syntax whose type is the syntax itself:
+    -- the literals, a name, and the forms built directly out of other expressions.
+    local handlers = {}
+    for _, installed in ipairs({operators.install(c), index.install(c), callexpr.install(c),}) do
+        for kind, handle in pairs(installed) do
+            handlers[kind] = handle
+        end
+    end
+
+    -- The type of one expression, before the pack an expanding expression owes its
+    -- reader is settled. Reached through `c.infer`, never directly.
+    local function inferExpr(node: Node): Type
+        local handle = handlers[node.kind]
+        if handle then
+            return handle(node)
+        end
+        local kind = node.kind
+        if kind == "number" then
+            local literal = node.token
+            if not literal then
+                return T.number
+            end
+            local base = numberLiteralType(literal.text)
+            local value = tonumber((literal.text:gsub("_", "")))
+            if value and (base == T.integer or base == T.number) then
+                return T.literal(value, base)
+            end
+            return base
+        elseif kind == "string" then
+            local literal = node.token
+            if not literal then
+                return T.string
+            end
+            local text = literal.text
+            local body = text:match("^[\"']") and text:sub(2, -2) or nil
+            if body then
+                return T.literal(body, T.string)
+            end
+            return T.string
+        elseif kind == "nilExpr" then
+            return T.nil_
+        elseif kind == "trueExpr" then
+            return T.literal(true, T.boolean)
+        elseif kind == "falseExpr" then
+            return T.literal(false, T.boolean)
+        elseif kind == "vararg" then
+            local pack = c.varargPackStack[#c.varargPackStack]
+            if not pack then
+                return T.any
+            end
+            node.valuePack = pack
+            c.lastCallRets = pack.head
+            return T.packAt(pack, 1) or T.nil_
+        elseif kind == "name" then
+            local nameTok = node.token
+            if not nameTok then
+                return T.any
+            end
+            local nameText = nameTok.text
+            local entry = c.lookupEntry(nameText)
+            node.immutablePath = entry and entry.constant == true or false
+            if entry and entry.withBinding then
+                node.withBinding = entry.withBinding
+            end
+            if entry and entry.borrowOwner then
+                node.borrowOwner = entry.borrowOwner
+            end
+            if entry and entry.borrowOwners then
+                node.borrowOwners = entry.borrowOwners
+            end
+            if entry then
+                local state = c.ownershipState(entry)
+                if state.moved then
+                    local related = state.movedAt and c.related(state.movedAt, "owner was moved here") or nil
+                    c.diag(
+                        "NUPP2601",
+                        node,
+                        ("owner %q was moved and cannot be used"):format(nameText),
+                        nil,
+                        {
+                            related = related and {related} or nil,
+                            help = "use the owner before this transfer, or borrow it " .. "instead of moving it"
+                        }
+                    )
+                    node.ownershipUseReported = true
+                elseif c.ownershipKind(entry.t) and (entry.functionDepth or 0) < c.functionDepth then
+                    -- The branch above is what proves it has one.
+                    local capturedKind = c.ownershipKind(entry.t) as string
+                    c.diag(
+                        entry.withBinding and "NUPP2612" or "NUPP2603",
+                        node,
+                        ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
+                    )
+                end
+            end
+            if entry and entry.globalModule and entry.globalModule ~= c.result.moduleName then
+                c.result.implicitSideEffects[entry.globalModule] = true
+            end
+            if not entry and c.env and c.env.resolveProjectValue then
+                local valueType, valueDef, valueErr, sideEffectModule, conflicts = c.env.resolveProjectValue(
+                    c.env,
+                    c.filename,
+                    nameText
+                )
+                if valueType then
+                    -- A global struct's ctype is created by the module that declares
+                    -- it, so reaching the name means that module has to have been
+                    -- loaded.
+                    if sideEffectModule then
+                        c.result.implicitSideEffects[sideEffectModule] = true
+                    end
+                    c.markToken(nameTok, valueDef, valueType, valueDef and valueDef.kind or "variable")
+                    return valueType
+                elseif valueErr then
+                    local related, seen = {}, {}
+                    for _, conflict in ipairs(conflicts or {}) do
+                        local definition = conflict.definition
+                        local key = definition and (
+                            tostring(
+                                definition.filename
+                            ) .. ":" .. tostring(definition.token and definition.token.offset)
+                        ) or tostring(conflict)
+                        if not seen[key] then
+                            seen[key] = true
+                            local item = c.related(definition, "conflicting global value declared here")
+                            if item then
+                                related[#related + 1] = item
+                            end
+                        end
+                    end
+                    c.diag(
+                        "NUPP2104",
+                        node,
+                        ("ambiguous global %q; a project global must be unique"):format(nameText),
+                        nil,
+                        {
+                            related = related,
+                            help = "make all but one declaration local or attach " .. "them to their module tables"
+                        }
+                    )
+                    return T.any
+                end
+            end
+            -- `buffer` is the string.buffer module, without the require.
+            --
+            -- LuaJIT keeps it in `package.loaded` and puts nothing on the `string`
+            -- table, so `string.buffer.new` would be a member this runtime does not
+            -- have -- the reason `jit.util` and friends are modules here rather than
+            -- prelude fields (nupp.compiler.env). A compiler-provided global is the shape
+            -- that
+            -- already exists for `carray` and `cheader`, and it is the one used here.
+            --
+            -- Last, so anything actually named `buffer` wins: a local, a global, a
+            -- project value. Only a name nothing else claims becomes the module.
+            if not entry and nameText == "buffer" and c.env and c.env.resolveModule then
+                local moduleType = c.env.resolveModule(c.env, "string.buffer")
+                if moduleType then
+                    node.bufferIntrinsic = true
+                    c.markToken(nameTok, nil, moduleType, "variable")
+                    return moduleType
+                end
+            end
+            c.markToken(
+                nameTok,
+                entry and entry.definition,
+                entry and entry.t or T.any,
+                entry and entry.definition and entry.definition.kind or "variable"
+            )
+            if not entry then
+                -- An unknown name is `any` and says nothing, which is right for a name
+                -- nobody has heard of. When a project file is named after it, the
+                -- likely story is a missing `require`, and staying quiet defers that to
+                -- run time.
+                local advice, isModule, fixes = c.missingRequire(nameText)
+                if advice then
+                    c.diag("missing-require", node, advice, fixes)
+                elseif not isModule and c.opts and c.opts.strict then
+                    fixes = c.edits.nameSpellingFix(nameTok, visibleNames())
+                    c.diag(
+                        "NUPP2105",
+                        nameTok,
+                        ("unknown variable %q"):format(nameText),
+                        fixes,
+                        {
+                            help = fixes
+                            and "use the suggested visible name"
+                            or "declare the value, require its module, or correct "
+                            .. "the spelling"
+                        }
+                    )
+                end
+            end
+            if entry and entry.unassigned then
+                c.diag(
+                    "NUPP2207",
+                    nameTok,
+                    ("%s is read before it holds a value"):format(nameText),
+                    nil,
+                    {
+                        related = entry.unassignedAt and {
+                            c.related(
+                                {filename = c.filename, token = entry.unassignedAt, name = nameText},
+                                "declared here, with no value"
+                            )
+                        } or nil,
+                        help = (
+                            "assign it first, or declare it as %s? if it is " .. "meant to start empty"
+                        ):format(T.tostring(entry.t))
+                    }
+                )
+                -- Said once. A binding nobody assigned is usually read more than once,
+                -- and the second report adds nothing to the first.
+                entry.unassigned = nil
+            end
+            return entry and entry.t or T.any -- unknown names are any unless --strict
+        elseif kind == "paren" then
+            local inner = node.expr
+            local out = inner and c.infer(inner) or T.any
+            if inner and inner.valuePack then
+                c.checkPackDiscard(inner.valuePack, 2, node)
+            end
+            node.immutablePath = inner and inner.immutablePath or false
+            return out
+        elseif kind == "comptimeExpr" then
+            return comptimeType(node)
+        elseif kind == "newExpr" then
+            -- The construction is the call underneath. Marking it is most of what this
+            -- does: what a record or a struct construction means is one piece of code
+            -- in `calls`, and `new` decides that it runs rather than repeating it.
+            local call = node.call as cst.Call
+            if not call then
+                return T.any
+            end
+            call.isNew = true
+            -- `new` names a type, so an operand that names a declared one is answered
+            -- as a type. Going through the value would answer for an interface -- which
+            -- binds none -- with `any`, and say nothing.
+            local named = call.obj and c.pathKey(call.obj) or nil
+            local declared = named and c.lookupType(named) or nil
+            local buildable = declared and declared.tag == "nominal" and (
+                declared.declKind == "record" or declared.declKind == "struct"
+            )
+            if declared and not buildable then
+                local why = "`new` builds a record or a struct"
+                if declared.tag == "nominal" and declared.declKind == "interface" then
+                    why = "an interface declares a contract and has no runtime "
+                        .. "table to stamp; construct a record that declares it "
+                        .. "with `is`"
+                elseif declared.tag == "union" then
+                    why = "a union is one of its members, and a value of it is " .. "written as one of them"
+                end
+                c.diag("NUPP2206", call.obj or node, ("%s cannot be constructed"):format(named), nil, {help = why})
+                call.newReported = true
+            end
+            return c.infer(call)
+        elseif kind == "ternary" then
+            local cond, ifTrue, ifFalse = node.cond, node.ifTrue, node.ifFalse
+            if not cond or not ifTrue or not ifFalse then
+                return T.any
+            end
+            c.infer(cond)
+            local facts = c.analyzeCond(cond)
+            c.pushScope()
+            c.applyFacts(facts.t)
+            local tt = c.infer(ifTrue)
+            c.popScope()
+            c.pushScope()
+            c.applyFacts(facts.f)
+            local ft = c.infer(ifFalse)
+            c.popScope()
+            return T.union({tt, ft})
+        elseif kind == "castExpr" then
+            local cast = node.expr
+            if not cast then
+                return c.resolveType(node.type)
+            end
+            local source = c.infer(cast)
+            local target = c.resolveType(node.type)
+            if c.ownershipKind(target) then
+                if c.ownershipKind(target) == "pinned" and c.ownershipKind(source) ~= "pinned" then
+                    c.diag("NUPP2604", node, "a pinned<T> value must be constructed with pin(pointer, anchor)")
+                end
+                return target
+            end
+            if source.tag == "owned" then
+                return T.owned(target, source.cleanups)
+            elseif c.ownershipKind(source) == "borrowed" then
+                return T.borrowed(target)
+            elseif c.ownershipKind(source) == "pinned" then
+                return T.pinned(target)
+            end
+            return target
+        elseif kind == "isExpr" then
+            local subject = node.expr
+            local from = subject and c.infer(subject) or nil
+            local target = c.resolveType(node.type)
+            -- A test the declaration already answers is not worth running. This is what
+            -- makes `is` on an interface work for a value already known to implement
+            -- it, whatever the interface can or cannot test at run time.
+            --
+            -- Gradual types prove nothing: `any` and an unsubstituted parameter fit
+            -- everything, so eliding on them would turn every test true.
+            --
+            -- Only a subject that is a name or a path of them: anything computed has to
+            -- run whether or not its answer was already known, and a test that stands
+            -- in for a call is not the place to decide that.
+            if from and target and subject and c.pathKey(
+                subject
+            ) and from ~= T.any and from.tag ~= "typevar" and from ~= T.never and target ~= T.any then
+                -- The nil an optional admits is the only part its declaration does not
+                -- settle, so it is taken off before asking and put back as the one
+                -- question left.
+                local admitsNil = isA(T.nil_, from)
+                local present = admitsNil and subtract(from, T.nil_) or from
+                if present ~= T.never and present.tag ~= "typevar" and isA(present, target) then
+                    node.provenStatically = true
+                    node.provenNeedsNil = admitsNil
+                -- A declaration's own table is not one of the values it stamps, so this
+                -- pairing is settled the other way and the test would spend a metatable
+                -- lookup to say false. The only pairing answered so: `as` stays the way
+                -- to override what the checker decided.
+                elseif rawType(present).tag == "metatable" and target.tag == "nominal" then
+                    node.refutedStatically = true
+                end
+            end
+            return T.boolean
+        elseif kind == "funcExpr" then
+            local body = node.body
+            return body and c.checkFuncbody(body) or T.any
+        elseif kind == "shortfn" then
+            c.pushScope()
+            local params = {}
+            local vararg = false
+            local expectedParams: {Type}? = nil
+            local expected = expectedShortfns[node]
+            if expected then
+                local expectedFunc = rawType(expected)
+                if expectedFunc.tag == "func" then
+                    expectedParams = expectedFunc.params
+                end
+            end
+            for _, p in ipairs(node.params) do
+                if p.kind == "param" then
+                    local pt = p.type and c.resolveType(
+                        p.type
+                    ) or (expectedParams and expectedParams[#params + 1]) or T.any
+                    local pname = p.name
+                    if p.namedVararg then
+                        vararg = true
+                        if pname then
+                            c.bindVar(pname.text, T.table_, false, pname, "parameter", true)
+                        end
+                    else
+                        params[#params + 1] = pt
+                        if pname then
+                            c.bindVar(pname.text, pt, p.type ~= nil, pname, "parameter")
+                        end
+                    end
+                end
+            end
+            local rets
+            local retPack
+            -- A short function does not count itself into functionDepth, so the loop it
+            -- might sit in was seen at the depth still current here.
+            local loopClosure = c.loops.begin(c.functionDepth)
+            local wasReturning = c.loops.setReturning(false)
+            if node.expr then
+                local first = c.infer(node.expr)
+                retPack = node.expr.valuePack or T.pack({first})
+                rets = retPack.head
+            else
+                c.retStack[#c.retStack + 1] = false
+                c.retPackStack[#c.retPackStack + 1] = false
+                c.checkBlock(node.body, true)
+                c.retStack[#c.retStack] = nil
+                c.retPackStack[#c.retPackStack] = nil
+                rets = {T.any}
+                retPack = T.pack({}, {kind = "unknown", type = T.any})
+            end
+            c.loops.setReturning(wasReturning)
+            c.loops.finish(loopClosure, node)
+            c.popScope()
+            return T.func(
+                params,
+                rets,
+                vararg,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                T.pack(params, vararg and {kind = "unknown", type = T.any} or nil),
+                retPack
+            )
+        elseif kind == "istring" then
+            -- every ${...} part is tostring-ed; the whole literal is a string
+            for _, e in ipairs(node.parts) do
+                c.infer(e)
+            end
+            return T.string
+        elseif kind == "tableExpr" then
+            local positional, named = {}, {}
+            -- A positional entry widens: an array built from literals is an array of
+            -- their base type, or writing to it later would fail against the one value
+            -- it was built from. A named field keeps its literal, which is the only way
+            -- to build a value of a discriminated union. An unannotated local holding a
+            -- table literal becomes plain `table` below, so nothing is pinned to a
+            -- literal by accident.
+            local function widened(t)
+                if t.tag == "literal" then
+                    return t.base or T.string
+                end
+                return t
+            end
+
+            -- An owner stored in a table escapes the checking that tracks it, whichever
+            -- way the entry was written.
+            local function refuseOwner(value: Node, valueT: Type)
+                if not c.ownershipKind(valueT) then
+                    return
+                end
+                c.diag(
+                    value.withBinding and "NUPP2612" or "NUPP2603",
+                    value,
+                    (c.ownershipKind(valueT) as string) .. " value cannot be stored in a table"
+                )
+            end
+
+            for _, f in ipairs(node.fields) do
+                if f.kind == "fieldItem" then
+                    local value = f.value
+                    if value then
+                        local valueT = c.infer(value)
+                        refuseOwner(value, valueT)
+                        positional[#positional + 1] = widened(valueT)
+                    end
+                elseif f.kind == "fieldNamed" then
+                    local value, fieldName = f.value, f.name
+                    if value and fieldName then
+                        local valueT = c.infer(value)
+                        refuseOwner(value, valueT)
+                        -- A string literal in a named field is kept: that is how a
+                        -- discriminant is written, and keeping it is the only way to
+                        -- build a value of a discriminated union. Numbers widen, since
+                        -- a counter initialized to 1 is not a value of the type 1.
+                        local keep = valueT.tag == "literal" and (f.isConst or valueT.base == T.string)
+                        local fieldT = keep and valueT or widened(valueT)
+                        local field = {name = fieldName.text, read = fieldT}
+                        if not f.isConst then
+                            field.write = fieldT
+                        end
+                        named[#named + 1] = field
+                    end
+                elseif f.kind == "fieldBracket" then
+                    local value = f.value
+                    if f.key then
+                        c.infer(f.key)
+                    end
+                    if value then
+                        refuseOwner(value, c.infer(value))
+                    end
+                    return T.table_ -- computed keys: generic table in v0
+                end
+            end
+            if #named > 0 and #positional == 0 then
+                return T.shape(named, nil, true)
+            elseif #positional > 0 and #named == 0 then
+                return T.array(T.union(positional))
+            elseif #positional == 0 and #named == 0 then
+                return T.table_ -- {} is compatible with any table type
+            end
+            return T.table_
+        elseif kind == "errorExpr" then
+            return T.any
+        end
+
+        return T.any
+    end
+
+    --- The type an expression has, with the facts narrowing currently knows applied.
+    --- Called for effect as well as for the answer: it records what later passes need
+    --- on the node and reports what the expression itself gets wrong.
+    ---
+    --- @param node the expression
+    c.infer = function(node: Node): Type
+        if not EXPANDS[node.kind] then
+            return inferExpr(node)
+        end
+        -- A tree survives the check that read it, so what the last one concluded about
+        -- this call is dropped before this one asks. An incremental recheck reaches the
+        -- same node with its dependencies moved underneath it.
+        node.valuePack = nil
+        local first = inferExpr(node)
+        -- A reader that wants every value an expanding expression produces finds them
+        -- on the node. Some paths through a call answer with one type and publish
+        -- nothing — an unresolvable method, an intrinsic, a resolved `require` — and
+        -- without a pack of their own the reader would take whichever call ran last
+        -- while the arguments were inferred, which is one of this call's own arguments.
+        node.valuePack = node.valuePack or T.pack({first})
+
+        return first
+    end
+
+    c.apply.inferExpected = function(node, expected)
+        if not expected then
+            return c.infer(node)
+        end
+        if node.kind == "shortfn" then
+            expectedShortfns[node] = expected
+            local inferred = c.infer(node)
+            expectedShortfns[node] = nil
+            return inferred
+        elseif node.kind == "funcExpr" and node.body then
+            return c.apply.checkFuncbodyExpected(node.body, expected)
+        end
+
+        return c.infer(node)
+    end
+end
+
+return expr

@@ -1,4 +1,4 @@
-local rock = require("compiler.rock")
+local rock = require("nupp.compiler.rock")
 
 local function assertEq(got, want, label)
    if got ~= want then

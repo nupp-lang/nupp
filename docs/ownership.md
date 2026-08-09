@@ -57,35 +57,34 @@ occasional use-after-free.
 | `owned<T>` | A value carrying one affine discharge obligation. |
 | `borrowed<T>` | A non-escaping value tied to another live binding. |
 | `pinned<T>` | An affine pointer plus a strong Lua anchor for C retention. |
-| `dispose(x)` | Consume `x` and invoke its recorded cleanup list. |
-| `borrow(x)` | Create an explicit lexical borrow of `x`. |
-| `intoRaw(x)` | In `unsafe`, abandon tracking and return the underlying value. |
-| `fromRaw(x, cleanup...)` | In `unsafe`, assert fresh ownership of a raw value. |
-| `borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
-| `pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
+| `nupp.dispose(x)` | Consume `x` and invoke its recorded cleanup list. |
+| `nupp.borrow(x)` | Create an explicit lexical borrow of `x`. |
+| `nupp.intoRaw(x)` | In `unsafe`, abandon tracking and return the underlying value. |
+| `nupp.fromRaw(x, cleanup...)` | In `unsafe`, assert fresh ownership of a raw value. |
+| `nupp.borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
+| `nupp.pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
 | `with x = acquire() do ... end` | Deterministically clean an owner on every exit. |
 | `unsafe do ... end` | Permit operations whose lifetime proof is deliberately abandoned. |
 
 All ownership syntax is erased or lowered to direct Lua/FFI operations. It
 does not change the C ABI and does not install `ffi.gc` finalizers.
 
-### The intrinsics are also spelled `nupp.`
+### Intrinsics live under `nupp`
 
-`dispose`, `borrow`, `intoRaw`, `fromRaw`, `borrowFrom`, and `pin` are the only
-names Nupp itself puts at the top level, and every one of them answers to
-`nupp.` as well:
+`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.borrowFrom`, and `nupp.pin` are compiler-provided operations on the
+always-available `nupp` global:
 
 ```nupp
 local handle = openFile(path)
 nupp.dispose(handle)
 ```
 
-The two spellings mean the same thing, report the same diagnostics, and lower
-to the same code. The bare one is what the examples use; the qualified one is
-for a program that would rather say where a name comes from, or that has a
-binding of its own called `borrow`. Either can be shadowed, and a shadowing
-binding wins: a local `nupp` makes `nupp.dispose` an ordinary field call,
-exactly as a local `dispose` makes `dispose(x)` an ordinary call.
+The old bare spellings remain aliases. They report the same diagnostics and
+lower to the same code, but new code and these examples use `nupp.*` so the
+operation's origin is explicit. Either spelling can be shadowed: a local
+`nupp` makes `nupp.dispose` an ordinary field call, just as a local `dispose`
+makes `dispose(x)` an ordinary call.
 
 ## Owned results and deterministic cleanup
 
@@ -104,7 +103,7 @@ cdef function widget_new(): widget*
 
 local value = widget_new()
 print(value.value)
-dispose(value)              -- stop, then free
+nupp.dispose(value)              -- stop, then free
 print(value.value)          -- NUPP2601: use after move
 ```
 
@@ -117,7 +116,7 @@ cdef function widget_adopt(takes value: widget*)
 
 local value = widget_new()
 widget_adopt(value)
-dispose(value)              -- NUPP2601: value was moved
+nupp.dispose(value)              -- NUPP2601: value was moved
 ```
 
 Every live owner must be discharged along every checked path. The valid exits
@@ -158,7 +157,7 @@ cdef function submit_request(takes request: voidptr)
 
 local request = begin_request()
 submit_request(request)     -- valid
--- dispose(request)         -- no cleanup exists
+-- nupp.dispose(request)         -- no cleanup exists
 ```
 
 Bare `@owned` does not mean opaque. Opaque ownership must be conspicuous.
@@ -184,7 +183,7 @@ local function openFile(): File
 end
 
 local file = openFile()
-dispose(file)               -- calls File:close()
+nupp.dispose(file)               -- calls File:close()
 ```
 
 A free function can be the default as well, but its resource parameter must be
@@ -263,10 +262,10 @@ end
 
 local value = widget_new()
 do
-   local view = borrow(value)
+   local view = nupp.borrow(value)
    reset(value)              -- error: view overlaps exclusive access
 end
-dispose(value)
+nupp.dispose(value)
 ```
 
 Use `exclusive` only for operations that may invalidate derived views, replace
@@ -286,7 +285,7 @@ end
 
 local value = widget_new()
 inspect(value)               -- inferred borrows
-dispose(value)
+nupp.dispose(value)
 ```
 
 If a parameter is returned without a borrowing-return contract, stored,
@@ -302,10 +301,10 @@ end
 
 local value = widget_new()
 do
-   local view = borrow(value)
+   local view = nupp.borrow(value)
    stash(view)               -- NUPP2603: destination may retain it
 end
-dispose(value)
+nupp.dispose(value)
 ```
 
 Explicit `borrows` remains useful because it pins intent and improves error
@@ -331,20 +330,20 @@ inferred.
 
 ## Lexical borrows and result provenance
 
-`borrow(owner)` is the explicit lexical form. It is useful when a named view
+`nupp.borrow(owner)` is the explicit lexical form. It is useful when a named view
 must keep the owner immovable for part of a scope:
 
 ```nupp
 local value = widget_new()
 do
-   local view = borrow(value)
+   local view = nupp.borrow(value)
    inspect(view)
-   dispose(value)            -- error: view is still live
+   nupp.dispose(value)            -- error: view is still live
 end
-dispose(value)               -- valid after the borrow's scope
+nupp.dispose(value)               -- valid after the borrow's scope
 ```
 
-Most calls do not need `borrow(...)`: passing an owner to a `borrows`
+Most calls do not need `nupp.borrow(...)`: passing an owner to a `borrows`
 parameter and binding a resource inside `with` borrow implicitly.
 
 Borrows may be read, mutated stably, and reborrowed. They may not be returned
@@ -396,7 +395,7 @@ through opaque pointer manipulation, assert it at a narrow unsafe boundary:
 local function recover(borrows source: widget*, raw: widget*)
    : widget* borrows source
    unsafe do
-      return borrowFrom(raw, source)
+      return nupp.borrowFrom(raw, source)
    end
 end
 ```
@@ -451,9 +450,9 @@ local value = widget_new()
 local raw: widget*
 
 unsafe do
-   raw = intoRaw(value)                -- obligation deliberately abandoned
-   local restored = fromRaw(raw, widget_free)
-   dispose(restored)
+   raw = nupp.intoRaw(value)                -- obligation deliberately abandoned
+   local restored = nupp.fromRaw(raw, widget_free)
+   nupp.dispose(restored)
 end
 ```
 
@@ -482,7 +481,7 @@ cdef function posix_memalign(
 
 local status, pointer = posix_memalign(16, 4096)
 if pointer then
-   dispose(pointer)
+   nupp.dispose(pointer)
 end
 ```
 
@@ -524,7 +523,7 @@ cdef function forget_name(releases value: cstring)
 
 local text = "Nupp"
 local pointer = ffi.cast<cstring>(text)
-local handle = pin(pointer, text)
+local handle = nupp.pin(pointer, text)
 
 remember_name(handle)
 -- handle.anchor keeps text alive; handle cannot move while retained
@@ -543,7 +542,7 @@ then a pin restores a checked lifetime:
 unsafe do
    local callback = function() print("called") end
    local pointer = ffi.cast<voidptr>(callback)
-   local handle = pin(pointer, callback)
+   local handle = nupp.pin(pointer, callback)
    register_callback(handle) -- declared retains
 end
 ```
@@ -581,7 +580,7 @@ local bundle = new Bundle {
    output = openFile(),
 }
 
-dispose(bundle) -- output, then input
+nupp.dispose(bundle) -- output, then input
 ```
 
 When no custom default exists, cleanup is synthesized in reverse field
@@ -608,7 +607,7 @@ local record Bundle
 end
 ```
 
-`dispose(self.second)` does not work here. `dispose` needs a value whose static
+`nupp.dispose(self.second)` does not work here. `dispose` needs a value whose static
 type carries a cleanup list, and a field spelled `owned<File>` records the
 obligation without recording how to discharge it; that reports `NUPP2602` and
 names the fix. The same applies inside a function to a `takes` parameter.
@@ -628,7 +627,7 @@ handle, or `with` cleanup pending is therefore rejected:
 local function task()
    local file = openFile()
    coroutine.yield()         -- NUPP2603: cleanup could be abandoned
-   dispose(file)
+   nupp.dispose(file)
 end
 ```
 

@@ -30,7 +30,7 @@ async function boot() {
   // lexer, under real LuaJIT, rather than regexes here — to fix the two
   // places it uses LuaJIT-only syntax in its own implementation (not just
   // code it generates for a checked program), and to drop the trailing
-  // `os.exit(require("compiler.cli").main(arg))` full-CLI invocation this
+  // `os.exit(require("nupp.compiler.cli").main(arg))` full-CLI invocation this
   // playground doesn't need. See that script for what and why.
   const bootstrap = await res.text();
 
@@ -41,11 +41,11 @@ async function boot() {
   runOrThrow(
     `
     local json = require("cjson")
-    local parser = require("compiler.parser")
-    local check = require("compiler.check")
-    local tree = require("compiler.lsp.tree")
-    local T = require("compiler.types")
-    local env = require("compiler.env").new(".")
+    local parser = require("nupp.compiler.parser")
+    local check = require("nupp.compiler.check")
+    local tree = require("nupp.compiler.lsp.tree")
+    local T = require("nupp.compiler.types")
+    local env = require("nupp.compiler.env").new(".")
 
     -- Set at the end of a successful __playground_check, read by
     -- __playground_hover. Hover reuses the last check rather than
@@ -105,8 +105,8 @@ async function boot() {
         return json.encode({diagnostics = diagList(diags)})
     end
 
-    -- What textDocument/hover in compiler.lsp answers with, minus the parts
-    -- (compiler.lsp.navigate's documentationFor, doc comments) that need a live
+    -- What textDocument/hover in nupp.compiler.lsp answers with, minus the parts
+    -- (nupp.compiler.lsp.navigate's documentationFor, doc comments) that need a live
     -- LSP session rather than just a checked parse result. offset is a
     -- 1-based byte offset, same as every other position in this codebase.
     __playground_hover = function(offset)
@@ -135,7 +135,7 @@ async function boot() {
         })
     end
 
-    -- Mirrors compiler.cli.compile's compile.module, taking source text directly
+    -- Mirrors nupp.compiler.cli.compile's compile.module, taking source text directly
     -- instead of reading a path off disk.
     __playground_compile = function(source, filename, options)
         local settings = settingsOf(options)
@@ -152,15 +152,15 @@ async function boot() {
                 return json.encode({reason = "type errors", diagnostics = diagList(diags)})
             end
         end
-        -- Every pass compiler.optimize registers runs at level 1, so the Options
+        -- Every pass nupp.compiler.optimize registers runs at level 1, so the Options
         -- panel's one switch is the whole of the distinction there is: -O2 is
         -- accepted by the CLI and reserved for a stronger tier, but selects the
         -- same passes today and would compile byte-identically.
-        local okOpt, optErr = pcall(require("compiler.optimize").run, result,
+        local okOpt, optErr = pcall(require("nupp.compiler.optimize").run, result,
             {level = settings.optimize == true and 1 or 0, filename = filename,
              disabled = {}, relaxed = {}})
         if not okOpt then error(optErr, 0) end
-        local gen = require("compiler.gen")
+        local gen = require("nupp.compiler.gen")
         local okGen, code, genDiags = pcall(gen.generate, result, filename)
         if not okGen then error(code, 0) end
         if genDiags and #genDiags > 0 then

@@ -1,7 +1,7 @@
 #!/bin/sh
 # The nupp launcher.
 #
-# Runs build/compiler when it is there and no source is newer than it, and builds it
+# Runs build/nupp/compiler when it is there and no source is newer than it, and builds it
 # first when it is not, so an edit to the compiler is picked up by the next
 # command rather than by the next person who remembers to build.
 #
@@ -10,7 +10,7 @@
 # already lowered to Lua, and it is the one thing here that does not itself need
 # building. A checkout without it has no way in.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BUILT="$ROOT/build/compiler/main.lua"
+BUILT="$ROOT/build/nupp/compiler/main.lua"
 STAMP="$ROOT/build/.nupp-complete"
 BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
 LUAPATH="package.path=\"$ROOT/build/?.lua;\" .. package.path"

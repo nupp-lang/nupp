@@ -1,8 +1,8 @@
-local parser = require("compiler.parser")
+local parser = require("nupp.compiler.parser")
 local check = require("fragment")
-local envMod = require("compiler.env")
-local native = require("compiler.native")
-local optimize = require("compiler.optimize")
+local envMod = require("nupp.compiler.env")
+local native = require("nupp.compiler.native")
+local optimize = require("nupp.compiler.optimize")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 

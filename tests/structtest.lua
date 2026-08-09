@@ -1,6 +1,6 @@
-local parser = require("compiler.parser")
+local parser = require("nupp.compiler.parser")
 local check = require("fragment")
-local gen = require("compiler.gen")
+local gen = require("nupp.compiler.gen")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -51,7 +51,7 @@ local M = {}
 
 function M.groupedFieldsRejected()
    -- every field states its own type; "x, y: float" is not grammar
-   local result = require("compiler.parser").parse(
+   local result = require("nupp.compiler.parser").parse(
       "local struct V\n   x, y: float\nend", "test")
    assert(#result.errors > 0, "grouped fields must be a syntax error")
    assert(result.errors[1].msg:find("own explicit type", 1, true),

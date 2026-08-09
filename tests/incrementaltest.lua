@@ -1,5 +1,5 @@
-local query = require("compiler.query")
-local incremental = require("compiler.incremental")
+local query = require("nupp.compiler.query")
+local incremental = require("nupp.compiler.incremental")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -298,10 +298,10 @@ end
 -- has to be lazy, and it also has to happen at most once either way, because
 -- the miss is what an ordinary unresolved name hits on every lookup.
 function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
-   local envMod = require("compiler.env")
+   local envMod = require("nupp.compiler.env")
    -- The engine calls the checker module itself, so counting what it checks means
    -- replacing the function there rather than on the tests' fragment wrapper.
-   local check = require("compiler.check")
+   local check = require("nupp.compiler.check")
    local checked = {}
    local original = check.check
    check.check = function(result, filename, ...)

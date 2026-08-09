@@ -5,10 +5,10 @@
 -- code and compare it against the same answer reached another way. The rest are the
 -- guard rails, which are worth more here than usual: a block that quietly read the clock
 -- or quietly shared a table would produce a program that builds differently tomorrow.
-local parser = require("compiler.parser")
-local gen = require("compiler.gen")
+local parser = require("nupp.compiler.parser")
+local gen = require("nupp.compiler.gen")
 local check = require("fragment")
-local envMod = require("compiler.env")
+local envMod = require("nupp.compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

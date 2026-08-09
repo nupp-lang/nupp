@@ -1,0 +1,259 @@
+--[[
+Compiler-provided native features.
+
+A resolved language construct records an effect. Targets consume the union of
+those effects, rather than asking authors to mirror native-library switches in
+their manifests.
+]]
+
+local native = {}
+local stdlib = require("nupp.compiler.stdlib")
+
+--- One compiler-recognized runtime feature: what it is called, where its implementation
+--- comes from, and how a build has to stage it.
+type native.Feature = {
+    name: string,
+    globals: {string}?,
+    module: string?,
+    cargo: string?,
+    cargoFeature: string?,
+    library: string?,
+    binary: boolean?,
+    override: boolean?,
+
+    [string]: any
+}
+
+local FEATURES: {
+    [string]: native.Feature
+} = {[
+    "native.regex"
+] = {
+    name = "regex",
+    globals = {"nupp.regex"},
+    cargo = "runtime/regex/Cargo.toml",
+    library = "nupp_regex",
+    binary = true,
+}, ["native.lpeg"] = {name = "lpeg", module = "lpeg",
+    -- A Lua C module: a normal modules target uses its Lua path, while a binary host
+    -- chooses whether to preload it from this same effect.
+    host = "lpeg", binary = true,}, [
+    "native.cjson"
+] = {
+    name = "cjson",
+    globals = {
+        "nupp.data.encodeJSON",
+        "nupp.data.decodeJSON",
+        "nupp.data.newJSON",
+        "nupp.data.null",
+        "nupp.data.empty_array",
+        "nupp.data.array_mt",
+        "nupp.data.empty_array_mt",
+        "nupp.data.encode_empty_table_as_object",
+        "nupp.data.decode_array_with_array_mt",
+        "nupp.data.decode_allow_comment",
+        "nupp.data.encode_sparse_array",
+        "nupp.data.encode_max_depth",
+        "nupp.data.decode_max_depth",
+        "nupp.data.encode_number_precision",
+        "nupp.data.encode_keep_buffer",
+        "nupp.data.encode_invalid_numbers",
+        "nupp.data.decode_invalid_numbers",
+        "nupp.data.encode_escape_forward_slash",
+        "nupp.data.encode_skip_unsupported_value_types",
+        "nupp.data.encode_indent",
+    },
+    modules = {"cjson", "cjson.safe"},
+    host = "cjson",
+    binary = true,
+}, [
+    "native.lua_utf8"
+] = {
+    name = "lua_utf8",
+    globals = {"nupp.data.utf8"},
+    module = "lua-utf8",
+    host = "lua-utf8",
+    binary = true,
+}, [
+    "stdlib.io"
+] = {
+    name = "io",
+    globals = {"nupp.io.newBuffer", "nupp.io.newStringReader"},
+}, [
+    "stdlib.math"
+] = {
+    name = "math",
+    globals = {"nupp.math"},
+}, [
+    "stdlib.fnv1a64"
+] = {
+    name = "fnv1a64",
+    globals = {"nupp.data.fnv1a64"},
+}, [
+    "stdlib.checksums"
+] = {
+    name = "checksums",
+    globals = {"nupp.data.adler32", "nupp.data.crc32"},
+}, [
+    "native.path"
+] = {
+    name = "path",
+    globals = {"nupp.io.Path"},
+    cargo = "runtime/native/Cargo.toml",
+    cargoFeature = "path",
+    library = "nupp_native",
+    binary = true,
+}, [
+    "native.uri"
+] = {
+    name = "uri",
+    globals = {"nupp.io.URI"},
+    cargo = "runtime/native/Cargo.toml",
+    cargoFeature = "uri",
+    library = "nupp_native",
+    binary = true,
+}, [
+    "native.uuid"
+] = {
+    name = "uuid",
+    globals = {"nupp.data.uuid4", "nupp.data.uuid7"},
+    cargo = "runtime/native/Cargo.toml",
+    cargoFeature = "uuid",
+    library = "nupp_native",
+    binary = true,
+}, [
+    "native.sha256"
+] = {
+    name = "sha256",
+    globals = {"nupp.data.sha256"},
+    cargo = "runtime/native/Cargo.toml",
+    cargoFeature = "sha256",
+    library = "nupp_native",
+    binary = true,
+},}
+
+local byGlobal, byModule, byName = {}, {}, {}
+for effect, feature in pairs(FEATURES) do
+    if feature.binary then
+        byName[feature.name] = effect
+    end
+    for _, path in ipairs(feature.globals or {}) do
+        byGlobal[path] = effect
+    end
+    if feature.module then
+        byModule[feature.module] = effect
+    end
+    for _, moduleName in ipairs(feature.modules or {}) do
+        byModule[moduleName] = effect
+    end
+end
+
+function native.forGlobal(path: string): string?
+    return byGlobal[path]
+end
+
+--- Marks the prelude's exact member types with their runtime effects. The identity
+--- follows aliases, so `local json = nupp.data; json.encodeJSON(...)` remains as
+--- precise as spelling the ambient path directly.
+function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
+    local effects = {}
+    for path, effect in pairs(byGlobal) do
+        local parts = {}
+        for part in path:gmatch("[^.]+") do
+            parts[#parts + 1] = part
+        end
+        local entry = globals[parts[1]]
+        local t = entry and entry.t
+        for index = 2, #parts do
+            if index == #parts and t then
+                effects[t] = effects[t] or {}
+                effects[t][parts[index]] = effect
+            end
+            t = t and t.byname and t.byname[parts[index]] or nil
+        end
+    end
+
+    return effects
+end
+
+function native.forModule(name: string): string?
+    return byModule[name]
+end
+
+function native.feature(effect: string): native.Feature?
+    return FEATURES[effect]
+end
+
+function native.featureNames(): {string}
+    local names = {}
+    for name in pairs(byName) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+
+    return names
+end
+
+--- Applies a target's tri-state overrides to an automatically detected set. An absent
+--- name remains automatic, true forces it in, and false forces it out.
+function native.resolve(effects: {[string]: any}?, overrides: {[string]: boolean}?): {[string]: boolean}
+    local resolved = {}
+    for effect in pairs(effects or {}) do
+        resolved[effect] = true
+    end
+    for name, enabled in pairs(overrides or {}) do
+        local effect = byName[name]
+        if effect then
+            resolved[effect] = enabled and true or nil
+        end
+    end
+
+    return resolved
+end
+
+--- Finds native effects in an external Lua module by checking it under Nupp's ordinary
+--- prelude. Used for bundled rock modules, which are not project source files and
+--- therefore do not pass through the project's incremental checker.
+function native.sourceEffects(source: string, filename: string, env: {[string]: any}?): {[string]: any}
+    local parser = require("nupp.compiler.parser")
+    local parsed: any = parser.parse(source, filename)
+    if #parsed.errors > 0 then
+        return {}
+    end
+    local checker = require("nupp.compiler.check") as {
+        check: function(any, string?, any, any): any
+    }
+    checker.check(parsed, filename, env, {strict = false})
+
+    return parsed.effects or {}
+end
+
+function native.features(effects: {[string]: any}?): {native.Feature}
+    local out = {}
+    for effect in pairs(effects or {}) do
+        local feature = FEATURES[effect]
+        if feature then
+            out[#out + 1] = feature
+        end
+    end
+    table.sort(out, function(a, b)
+        return a.name < b.name
+    end)
+
+    return out
+end
+
+--- One physical output line, preserving source positions in generated modules.
+function native.bootstrap(effects: {[string]: any}?): string
+    local base = stdlib.bootstrap(effects)
+    if not effects or not effects["native.regex"] then
+        return base
+    end
+
+    return base
+        .. ";"
+        .. "__nuppLazy(__nupp);"
+        .. [=[local __nuppMeta=getmetatable(__nupp)or{};local __nuppLoaders=__nuppMeta.__nuppLoaders;if not __nuppLoaders then __nuppLoaders={};__nuppMeta.__nuppLoaders=__nuppLoaders;setmetatable(__nupp,__nuppMeta)end;if not rawget(__nupp,"regex")and not __nuppLoaders.regex then __nuppLoaders.regex=function()local regex={};local ffi=require("ffi");ffi.cdef[[typedef struct NuppRegex NuppRegex;typedef struct { size_t start; size_t end; bool matched; } NuppRegexSpan;typedef struct NuppBytes NuppBytes;NuppRegex *nuppRegexCompile(const uint8_t *,size_t);size_t nuppRegexCaptureCount(const NuppRegex *);const uint8_t *nuppRegexCaptureName(const NuppRegex *,size_t,size_t *);bool nuppRegexIsMatch(const NuppRegex *,const uint8_t *,size_t);bool nuppRegexFind(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *);bool nuppRegexCaptures(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *,size_t);NuppBytes *nuppRegexReplace(const NuppRegex *,const uint8_t *,size_t,const uint8_t *,size_t,size_t);void nuppRegexDestroy(NuppRegex *);const char *nuppRegexLastError(void);size_t nuppBytesLength(const NuppBytes *);const uint8_t *nuppBytesData(const NuppBytes *);void nuppBytesDestroy(NuppBytes *);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local C=(function()local wanted=os.getenv("NUPP_REGEX_LIBRARY");if wanted then return ffi.load(wanted)end local ok,lib=pcall(ffi.load,root.."/lib/nupp_regex");if ok then return lib end return ffi.load(root.."/../lib/nupp_regex")end)();local function start(s,i,l)if i==nil then return 0 end if type(i)~="number"or i~=math.floor(i)then error("nupp: regex init must be an integer",l)end if i<0 then i=#s+i+1 end if i<1 then i=1 end if i>#s+1 then return nil end return i-1 end;local function match(s,span,index,name)local first=tonumber(span.start)+1;return{value=s:sub(first,tonumber(span["end"])),first=first,last=tonumber(span["end"]),index=index,name=name}end;local R={};R.__index=R;function R:isMatch(s)return C.nuppRegexIsMatch(self._handle,s,#s)end;function R:find(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexFind(self._handle,s,#s,at,self._spans)then return nil end return match(s,self._spans[0],0,nil)end;function R:captures(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexCaptures(self._handle,s,#s,at,self._spans,self._captureCount)then return nil end local groups,named={},{};local whole=match(s,self._spans[0],0,nil);for n=1,self._captureCount-1 do local span=self._spans[n]if span.matched then local item=match(s,span,n,self._captureNames[n]);groups[n]=item;if item.name then named[item.name]=item end end end return{whole=whole,groups=groups,groupCount=self._captureCount-1,named=named}end;local function replace(self,s,r,limit)local bytes=C.nuppRegexReplace(self._handle,s,#s,r,#r,limit)if bytes==nil then return s end local out=ffi.string(C.nuppBytesData(bytes),tonumber(C.nuppBytesLength(bytes)));C.nuppBytesDestroy(bytes);return out end;function R:replace(s,r)return replace(self,s,r,1)end;function R:replaceAll(s,r)return replace(self,s,r,0)end;function regex.compile(pattern)local handle=C.nuppRegexCompile(pattern,#pattern)if handle==nil then error("nupp: invalid regex: "..ffi.string(C.nuppRegexLastError()),2)end handle=ffi.gc(handle,C.nuppRegexDestroy);local count=tonumber(C.nuppRegexCaptureCount(handle));local names,length={},ffi.new("size_t[1]");for i=1,count-1 do local name=C.nuppRegexCaptureName(handle,i,length)if name~=nil then names[i]=ffi.string(name,tonumber(length[0]))end end return setmetatable({pattern=pattern,_handle=handle,_spans=ffi.new("NuppRegexSpan[?]",count),_captureCount=count,_captureNames=names},R)end return regex end end;]=]
+end
+
+return native

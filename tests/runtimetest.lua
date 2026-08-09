@@ -1,8 +1,8 @@
-local parser = require("compiler.parser")
+local parser = require("nupp.compiler.parser")
 local check = require("fragment")
-local gen = require("compiler.gen")
-local envMod = require("compiler.env")
-local runtime = require("compiler.runtime")
+local gen = require("nupp.compiler.gen")
+local envMod = require("nupp.compiler.env")
+local runtime = require("nupp.compiler.runtime")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local cwdPipe = assert(io.popen("pwd"))

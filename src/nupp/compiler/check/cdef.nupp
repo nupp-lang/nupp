@@ -1,0 +1,225 @@
+--[[
+Declaring C to the checker.
+
+`cdef struct` and `cdef function` describe memory and entry points that already
+exist, so unlike the rest of the language nothing here is defined — it is
+asserted, and the assertion has to be one LuaJIT's FFI can honour. Every field
+must be laid out in C memory and every parameter must be a C type, which is what
+the reifiability test enforces.
+
+The ownership annotations matter more here than anywhere: a C function that
+returns a resource is the one place the checker cannot see the cleanup for
+itself.
+]]
+
+local T = require("nupp.compiler.types")
+local narrowing = require("nupp.compiler.narrowing")
+local cst = require("nupp.compiler.cst")
+local state = require("nupp.compiler.check.state")
+
+local subtract = narrowing.subtract
+
+local cdef = {}
+
+--- A type, as nupp.compiler.types builds them.
+local type Type = T.Type
+
+--- Installs the cdef statements on one run.
+---
+--- @param c the run's state
+--- @param reifiableField whether a field of that type can live in C memory, which the
+---     walk owns because a GC-managed declaration answers it differently
+--- @return the statement kinds this family answers
+function cdef.install(
+    c: state.Checker,
+    reifiableField: function(t: Type, isCdef: boolean?): boolean
+): state.StatHandlers
+    local own = c.own
+    local registerDefaultDisposer = own.registerDefaultDisposer
+    local resolvedOwnedCleanups = own.resolvedOwnedCleanups
+    local pointerShaped, validateCleanups = c.pointerShaped, c.validateCleanups
+
+    local handlers = {}
+
+    handlers.cdefStruct = function(stat: cst.CdefStruct)
+        local structName = stat.name
+        if not structName then
+            return
+        end
+        local n = T.nominal(structName.text, "struct")
+        n.cdefName = structName.text
+        c.bindType(structName.text, n, structName)
+        if structName.definition then
+            structName.definition.cdef = true
+        end
+        n.fieldOrder = {}
+        n.fieldDefs = {}
+        n.writeFieldDefs = {}
+        for _, e in ipairs(stat.entries) do
+            local fieldName, declaredType = nil, nil
+            if e.kind == "fieldDecl" then
+                fieldName, declaredType = e.name, e.type
+            end
+            if fieldName then
+                local ft = c.resolveType(declaredType)
+                local text = fieldName.text
+                n.byname[text] = ft
+                n.writeByname[text] = ft
+                local fieldDef = c.definition(fieldName, "property")
+                n.fieldDefs[text] = fieldDef
+                n.writeFieldDefs[text] = fieldDef
+                fieldDef.type = ft
+                fieldDef.cdef = true
+                c.markToken(fieldName, fieldDef, ft, "property")
+                n.fieldOrder[#n.fieldOrder + 1] = text
+                if not reifiableField(ft, true) then
+                    c.diag("NUPP2203", e, ("cdef field %q: %s is not a C type"):format(text, T.tostring(ft)))
+                end
+            else
+                c.diag("NUPP2203", e, "cdef struct bodies hold fields only")
+            end
+        end
+        c.bindVar(structName.text, n, true, structName)
+    end
+
+    handlers.cdefFunc = function(stat: cst.CdefFunc)
+        local params, paramModes = {}, {}
+        local outputByName = {}
+        for _, output in ipairs(stat.ownedOuts or {}) do
+            output.kind = "owned"
+            outputByName[output.name] = output
+        end
+        for _, output in ipairs(stat.borrowedOuts or {}) do
+            output.kind = "borrowed"
+            outputByName[output.name] = output
+        end
+        local ffiOut = {}
+        local logicalByName = {}
+        for parameterIndex, p in ipairs(stat.params) do
+            local declared, pname, modeTok = nil, nil, nil
+            if p.kind == "param" then
+                declared, pname, modeTok = p.type, p.name, p.modeTok
+            end
+            if declared then
+                local pt = c.resolveType(declared)
+                local mode = modeTok and modeTok.text or "plain"
+                local pdef = c.definition(pname, "parameter")
+                if pdef then
+                    pdef.type = pt
+                end
+                c.markToken(pname, pdef, pt, "parameter")
+                if not (reifiableField(pt, true) or pt == T.number or pt == T.string or pt.tag == "func") then
+                    c.diag("NUPP2203", p, ("cdef parameter: %s is not a C type"):format(T.tostring(pt)))
+                end
+                if mode ~= "plain" and not pointerShaped(pt) then
+                    c.diag("NUPP2602", p, mode .. " parameters must have a pointer-shaped type")
+                end
+                if mode == "out" then
+                    local output = outputByName[pname and pname.text or ""]
+                    if not output then
+                        c.diag("NUPP2602", p, "out parameter needs an @owned(out = ...) contract")
+                    elseif pt.tag ~= "ptr" then
+                        c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
+                    elseif not pointerShaped(pt.elem) then
+                        c.diag("NUPP2602", p, "out parameter must have pointer-to-pointer type")
+                    else
+                        output.typeNode = declared
+                        output.valueType = pt.elem
+                        output.cIndex = parameterIndex
+                        output.hasStatus = stat.ret ~= nil
+                        if output.success ~= "always" and not stat.ret then
+                            c.diag("NUPP2602", output.at or p, "conditional output needs a C status return")
+                        end
+                        ffiOut[#ffiOut + 1] = output
+                    end
+                    outputByName[pname and pname.text or ""] = nil
+                else
+                    params[#params + 1] = pt
+                    paramModes[#params] = mode
+                    logicalByName[pname and pname.text or ""] = #params
+                end
+            end
+        end
+        for name, output in pairs(outputByName) do
+            c.diag("NUPP2602", output.at or stat, ("output contract %q names no out parameter"):format(name))
+        end
+        local rets = {}
+        if stat.ownCleanups and not stat.ret then
+            c.diag("NUPP2602", stat.ownTok or stat, "@owned requires an annotated pointer return type")
+        end
+        if stat.ret then
+            local rt = c.resolveType(stat.ret)
+            rets[1] = rt
+            if stat.ownCleanups then
+                local base = rt
+                if base.tag == "union" then
+                    base = subtract(base, T.nil_)
+                end
+                if base.tag ~= "ptr" and base ~= T.cstring and base ~= T.voidptr then
+                    c.diag("NUPP2203", stat.ret, "@owned applies to pointer returns only")
+                end
+                stat.ownCleanups = resolvedOwnedCleanups(rt, stat.ownCleanups, stat.ownOpaque, stat.ownTok or stat)
+                rets[1] = T.owned(rt, stat.ownCleanups)
+            end
+            if not (reifiableField(rt, true) or rt == T.number) then
+                c.diag("NUPP2203", stat.ret, ("cdef return: %s is not a C type"):format(T.tostring(rt)))
+            end
+        end
+        for _, output in ipairs(ffiOut) do
+            local valueType = output.success == "always" and output.valueType or T.optional(output.valueType)
+            if output.kind == "borrowed" then
+                output.sourceParam = logicalByName[output.source]
+                if not output.sourceParam then
+                    c.diag(
+                        "NUPP2602",
+                        output.at or stat,
+                        ("borrowed output source %q is not an input parameter"):format(output.source)
+                    )
+                elseif paramModes[output.sourceParam] ~= "borrows" then
+                    c.diag("NUPP2602", output.at or stat, "a borrowed output source must be a borrows parameter")
+                end
+                rets[#rets + 1] = T.borrowed(valueType)
+            else
+                local ownedOutput = T.owned(valueType, output.cleanups)
+                validateCleanups(
+                    T.owned(output.valueType, output.cleanups),
+                    output.cleanups,
+                    output.at or stat,
+                    "NUPP2615"
+                )
+                rets[#rets + 1] = ownedOutput
+            end
+            output.returnIndex = #rets
+        end
+        local cdefType = T.func(
+            params,
+            rets,
+            stat.varargs or false,
+            paramModes,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            nil,
+            ffiOut,
+            nil,
+            false
+        )
+        local cdefName = stat.name
+        if not cdefName then
+            return
+        end
+        c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
+        if stat.disposeContract then
+            registerDefaultDisposer(cdefType, cdefName.text, stat.disposeTok or stat)
+        end
+        if cdefName.definition then
+            cdefName.definition.cdef = true
+        end
+    end
+
+    return handlers
+end
+
+return cdef

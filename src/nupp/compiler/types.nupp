@@ -1,0 +1,1455 @@
+--[[
+Type representation, with content-addressed interning.
+
+Structural types are hash-consed. Each is built bottom-up into a canonical string
+key — children are interned first, so a key embeds its children's keys — and
+identical structure yields the same Lua object. Type equality is therefore object
+identity, and the relation caches can key on identity pairs.
+
+Nominal types, meaning record, interface, and struct declarations,
+deliberately get a fresh identity per declaration; their fields may be populated
+after creation, while the declaration is still being processed.
+
+The recursion discipline follows from the keying: a structural type cannot be
+recursive, and recursion must pass through a nominal declaration, so building a
+key bottom-up never cycles.
+]]
+
+local types = {}
+
+--- A type.
+---
+--- One record per tag, and `Type` is their union. `tag` is a literal type on each, so
+--- testing it says which record is in hand and therefore which fields are there —
+--- including through a copy, which is how the checker and the subtyping relation are
+--- written.
+---
+--- Structural types are interned, so `id` doubles as identity: two types with the same
+--- `id` are the same Lua object. Nominal types get a fresh `id` per declaration, which
+--- is what makes them nominal.
+
+--- Which primitive: the tags that carry no parts.
+type types.PrimTag = 'any' | 'unknown' | 'never' | 'nil' | 'boolean' | 'string' | 'number' | 'integer' | 'table' | 'thread' | 'userdata' | 'float' | 'cdata' | 'cstring' | 'voidptr' | 'int8' | 'int16' | 'int32' | 'int64' | 'uint8' | 'uint16' | 'uint32' | 'uint64'
+
+--- A type with no parts: the primitives and the C-boundary scalars.
+record types.Prim
+    id: string
+    tag: types.PrimTag
+end
+
+--- A Lua array: one-based and dense.
+record types.Array
+    id: string
+    tag: 'array'
+    elem: types.Type
+end
+
+--- A table from one type to another.
+record types.Map
+    id: string
+    tag: 'map'
+    key: types.Type
+    value: types.Type
+
+    --- Whether indexing may read `value`; a write-only indexer keeps its accepted pair
+    --- in `key`/`value` for identity and rendering.
+    readable: boolean
+
+    --- The key and value accepted by writes. Absent together for a read-only indexer.
+    writeKey: types.Type?
+
+    writeValue: types.Type?
+end
+
+--- A fixed sequence, one type per position.
+record types.Tuple
+    id: string
+    tag: 'tuple'
+    elems: {types.Type}
+end
+
+--- A table known by the fields it has.
+record types.Shape
+    id: string
+    tag: 'shape'
+
+    --- In canonical (name) order, so one shape has one identity.
+    fields: {types.Field}
+
+    byname: {[string]: types.Type}
+
+    writeByname: {[string]: types.Type}
+
+    indexReadKey: types.Type?
+    indexReadValue: types.Type?
+    indexWriteKey: types.Type?
+    indexWriteValue: types.Type?
+
+    --- A table literal being contextually checked. Once bound without an annotation it
+    --- widens to `table`, so this marker cannot grant writes through a stored view.
+    fresh: boolean?
+end
+
+--- Any one of several types.
+record types.Union
+    id: string
+    tag: 'union'
+
+    --- Deduplicated and sorted by id.
+    members: {types.Type}
+
+    --- Whether nil is among them, which is what makes a field optional and a pointer
+    --- nullable.
+    hasNil: boolean
+end
+
+--- Values satisfying every member type.
+record types.Intersection
+    id: string
+    tag: 'intersection'
+
+    --- Deduplicated and sorted by id.
+    members: {types.Type}
+end
+
+--- A pointer to a value in C memory.
+record types.Ptr
+    id: string
+    tag: 'ptr'
+    elem: types.Type
+end
+
+--- A contiguous C array; `count` is nil for a variable-length one.
+record types.CArray
+    id: string
+    tag: 'carray'
+    elem: types.Type
+    count: integer?
+end
+
+--- An owned value: affine, and released by its cleanups.
+record types.Owned
+    id: string
+    tag: 'owned'
+    inner: types.Type
+    cleanups: {string}
+end
+
+--- A borrowed value, which may not escape its lexical owner.
+record types.Borrowed
+    id: string
+    tag: 'borrowed'
+    inner: types.Type
+end
+
+--- A pinned pointer, paired with a strong Lua anchor at run time.
+record types.Pinned
+    id: string
+    tag: 'pinned'
+    inner: types.Type
+end
+
+--- A read-only view.
+record types.Const
+    id: string
+    tag: 'const'
+    inner: types.Type
+end
+
+--- The runtime ctype object standing for a type.
+record types.CType
+    id: string
+    tag: 'ctype'
+    of: types.Type
+end
+
+--- A generic binder standing for zero or more heterogeneous values.
+record types.PackVar
+    id: string
+    tag: 'packvar'
+    name: string
+end
+
+--- How the rest of a value sequence is described. `kind` says which field beside it
+--- carries the answer: "homogeneous" reads `type` and its `mode`, "generic" reads
+--- `var`, and "unknown" is the gradual tail a call site could not pin down.
+type types.PackTail = {
+    kind: string,
+    type: types.Type?,
+    var: types.PackVar?,
+    mode: string?,
+    id: string?
+}
+
+--- A Lua value sequence. `tail` is homogeneous, generic, symbolic or unknown.
+record types.Pack
+    id: string
+    tag: 'pack'
+    head: {types.Type}
+    modes: {string}
+    tail: any
+    alternatives: {types.Pack}?
+end
+
+--- A coroutine protocol. Bare `thread` remains its gradual erased supertype.
+record types.ProtocolThread
+    id: string
+    tag: 'protocolThread'
+    startPack: types.Pack
+    resumePack: types.Pack
+    yieldPack: types.Pack
+    returnPack: types.Pack
+end
+
+--- A structural generic alias awaiting explicit type and pack arguments.
+record types.GenericAlias
+    id: string
+    tag: 'genericAlias'
+    name: string
+    body: types.Type
+    typeParams: {types.Type}
+    typeBounds: {types.Type}
+    packParams: {types.PackVar}
+end
+
+--- A function.
+record types.Func
+    id: string
+    tag: 'func'
+    params: {types.Type}
+    rets: {types.Type}
+
+    --- Whether it accepts extra arguments.
+    vararg: boolean
+
+    --- What each extra argument must be, when the signature said. `...: T` keeps `T`
+    --- here, so a call can check the arguments beyond the declared parameters and bind
+    --- a type parameter from them; an untyped `...` leaves it nil.
+    varargType: types.Type?
+
+    --- Whether calling it never comes back: it raises, exits, or loops forever. A call
+    --- to one leaves the block it stands in, which is what keeps a guard clause written
+    --- as a helper narrowing the way `error` does inline.
+    noreturn: boolean?
+
+    --- Per-parameter ownership mode, "plain" unless stated otherwise.
+    paramModes: {string}
+
+    --- What calling it proves about one of its arguments.
+    predicate: {
+        param: integer,
+        type: types.Type
+    }?
+
+    --- Generic binders and their aligned upper bounds.
+    typeParams: {types.TypeVar}?
+
+    typeBounds: {types.Type}?
+
+    --- The 1-based parameter its result borrows from. The result stays valid only while
+    --- that argument does, so the argument cannot move, be disposed, or be consumed
+    --- while the borrow is live.
+    borrowsParam: integer?
+
+    --- Every 1-based parameter a multi-source borrowed result depends on.
+    borrowsParams: {integer}?
+
+    --- Logical C output parameters appended to the Lua return list.
+    ffiOut: any
+
+    --- Whether its result borrows the receiver of a method call.
+    borrowsSelf: boolean?
+
+    --- First-class parameter and result sequences. The arrays above are compatibility
+    --- views during the migration and are derived from these packs.
+    paramPack: types.Pack
+
+    retPack: types.Pack
+
+    packParams: {types.PackVar}?
+    yieldPack: types.Pack?
+    resumePack: types.Pack?
+end
+
+--- The type containing exactly one value.
+record types.Literal
+    id: string
+    tag: 'literal'
+
+    --- The value it admits.
+    constant: any
+
+    --- What it behaves as wherever its exact value does not matter.
+    base: types.Type
+end
+
+--- A generic parameter, gradual until it is substituted.
+record types.TypeVar
+    id: string
+    tag: 'typevar'
+    name: string
+
+    --- Upper bound declared with `T is Bound`, when one exists.
+    bound: types.Type?
+end
+
+--- The metatable a receiver type carries, which is a record's own runtime table: the
+--- value its name holds, and what `new R {...}` stamps on the instances it builds.
+--- Reaching a member through it reaches the receiver's. It erases to an ordinary Lua
+--- table.
+record types.Metatable
+    id: string
+    tag: 'metatable'
+    of: types.Type
+end
+
+--- A declared type: record, interface or struct. One identity per declaration, never
+--- shared with another declaration of the same shape.
+record types.Nominal
+    id: string
+    tag: 'nominal'
+    name: string
+    declKind: string
+
+    --- Name to type, populated while the declaration is checked.
+    byname: {[string]: types.Type}
+
+    --- Member types accepted by assignment. A missing entry is read-only; a member
+    --- present only here is write-only.
+    writeByname: {[string]: types.Type}
+
+    indexReadKey: types.Type?
+    indexReadValue: types.Type?
+    indexWriteKey: types.Type?
+    indexWriteValue: types.Type?
+
+    --- Metamethod protocol contracts, deliberately separate from value members.
+    metamethods: {[string]: types.Type}
+
+    --- Nested declarations addressable through this nominal namespace.
+    nestedTypes: {[string]: types.Type}
+
+    --- Declared contract parents from `is`, in source order.
+    supertypes: {types.Type}?
+
+    --- The runtime test a `where` refinement named, as data. It is what `is` compiles
+    --- to for a declaration whose values need not have been stamped here, and for an
+    --- interface, which has no table to stamp at all. Its shape belongs to
+    --- `nupp.compiler.predicate`.
+    predicate: any
+
+    --- Member names this interface implements rather than only declaring, so a
+    --- declaration taking the contract takes the behaviour with it.
+    defaults: {[string]: boolean}?
+
+    --- The interface each inherited default came from, so the generator knows which
+    --- table to reference it out of.
+    inheritedDefaults: {[string]: types.Type}?
+
+    --- Default terminal operations inherited from `@dispose` contracts. Entries are
+    --- cleanup paths; `@method:name` invokes `value:name()`.
+    defaultDisposers: {string}?
+
+    --- Whether this nominal has appeared behind an `owned<T>` contract.
+    affineResource: boolean?
+
+    --- Declared fields that carry affine values, in declaration order.
+    affineFields: {string}?
+
+    --- Element type of a record's array part, when it declared one.
+    arrayOf: types.Type?
+
+    --- Type arguments a generic application was instantiated with, and the declaration
+    --- every instantiation shares.
+    typeArgs: {types.Type}?
+
+    origin: types.Type?
+
+    --- Declaration sites of the fields, for go-to-definition.
+    fieldDefs: any
+
+    writeFieldDefs: any
+
+    --- The fields in declaration order, which is the order a struct's positional
+    --- construction fills them.
+    fieldOrder: {string}?
+
+    --- The C name a cdef gave it.
+    cdefName: string?
+
+    --- Parameters of a generic declaration, and what it has been instantiated as so
+    --- far.
+    typeParams: {types.Type}?
+
+    typeBounds: {types.Type}?
+
+    --- The declaration-scoped binder used by the `self` type.
+    selfType: types.Type?
+
+    --- Constructor call contracts and their source/runtime provenance, kept aligned in
+    --- declaration order. Generic instantiation substitutes the signatures while
+    --- preserving each entry's declaration and generated member index.
+    constructors: {types.Func}?
+
+    constructorEntries: {any}?
+
+    --- Overloaded method contracts and their body/runtime provenance, by source member
+    --- name. The visible member type is still an intersection; these entries retain the
+    --- slot and declaration that an interned type cannot carry.
+    methodEntries: {[string]: {any}}?
+
+    methodDispatchEntries: {[string]: {any}}?
+
+    overloadedMethods: {[string]: boolean}?
+
+    defaultEntries: {[string]: any}?
+
+    --- Where the declaration's runtime table lives, when that is not simply its name: a
+    --- qualified declaration hangs off the table it was attached to, and a nested one
+    --- off its owner's. `is` compares against it, and the generator stamps it.
+    runtimePath: string?
+
+    instantiations: any
+end
+
+--- Any type.
+type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Metatable | types.Nominal | types.ProtocolThread | types.GenericAlias
+
+--- One field of a structural shape. `type` is accepted as the legacy spelling passed by
+--- compiler internals and means an ordinary read-write property.
+type types.Field = {
+    name: string,
+    type: types.Type?,
+    read: types.Type?,
+    write: types.Type?,
+    capability: string?
+}
+
+type types.Indexer = {
+    readKey: types.Type?,
+    readValue: types.Type?,
+    writeKey: types.Type?,
+    writeValue: types.Type?
+}
+
+--- What a predicate function asserts: that its parameter at 1-based index `param` holds
+--- `type`. Carried on a function type and part of its interning key.
+type types.Predicate = {
+    param: integer,
+    type: types.Type
+}
+
+--- Every structural type built so far, keyed by its canonical string.
+local arena: {[string]: types.Type} = {}
+
+local packArena: {[string]: types.Pack} = {}
+local packVarArena: {[string]: types.PackVar} = {}
+
+--- Returns the type interned under `key`, building it on first use.
+---
+--- @param key the canonical string; identical structure gives identical keys
+--- @param build makes the type when it is not there yet
+local function intern(key: string, build: function(): types.Type): types.Type
+    local found = arena[key]
+    if found then
+        return found
+    end
+    local made = build()
+    made.id = key
+    arena[key] = made
+
+    return made
+end
+
+--- A primitive type, interned under its own tag.
+local function prim(tag: types.PrimTag): types.Type
+    return intern(tag, function()
+        return new types.Prim {tag = tag}
+    end)
+end
+
+types.any = prim("any")
+-- The top type: every value fits it, but (unlike `any`) it does not fit anywhere else
+-- without narrowing or an explicit `as`. `any` is the gradual opt-out; `unknown` is the
+-- sound one, for genuinely untyped input such as a JSON decode.
+types.unknown = prim("unknown")
+-- The bottom type: uninhabited, so it fits anywhere any type is wanted, and nothing but
+-- itself fits it. It is what a function that never returns returns.
+types.never = prim("never")
+types.nil_ = prim("nil")
+types.boolean = prim("boolean")
+types.string = prim("string")
+types.number = prim("number") -- LuaJIT double
+types.integer = prim("integer") -- number known to be integral
+types.table_ = prim("table") -- any table shape
+types.thread = prim("thread")
+types.userdata = prim("userdata")
+
+-- cdata numeric tower (reified milestones give these real semantics; for checking they
+-- are numeric subtypes).
+types.float = prim("float")
+-- Every cdata value: what a dynamically-typed FFI operation yields, so leaving the
+-- typed path is visible rather than silent.
+types.cdata = prim("cdata")
+-- C-boundary types: cstring is "const char *" (Lua strings convert on the way in; use
+-- ffi.string coming back), voidptr is an opaque "void *".
+types.cstring = prim("cstring")
+types.voidptr = prim("voidptr")
+-- written out rather than looped, so each tag keeps its literal type
+types.int8 = prim("int8")
+types.int16 = prim("int16")
+types.int32 = prim("int32")
+types.int64 = prim("int64")
+types.uint8 = prim("uint8")
+types.uint16 = prim("uint16")
+types.uint32 = prim("uint32")
+types.uint64 = prim("uint64")
+
+-- The structures `table` is gradual toward, which is what makes it redundant beside one
+-- in a union. Kept in step with the pair of gradual rules in `relations.isA`.
+local TABLE_SHAPED: {
+    [string]: boolean
+} = {array = true, map = true, tuple = true, shape = true, metatable = true, nominal = true,}
+
+--- Name to type, for resolving an annotation that names a builtin.
+local builtins: {
+    [string]: types.Type
+} = {
+    any = types.any,
+    unknown = types.unknown,
+    never = types.never,
+    boolean = types.boolean,
+    string = types.string,
+    number = types.number,
+    integer = types.integer,
+    table = types.table_,
+    thread = types.thread,
+    userdata = types.userdata,
+    float = types.float,
+    int8 = types.int8,
+    int16 = types.int16,
+    int32 = types.int32,
+    int64 = types.int64,
+    uint8 = types.uint8,
+    uint16 = types.uint16,
+    uint32 = types.uint32,
+    uint64 = types.uint64,
+    cstring = types.cstring,
+    voidptr = types.voidptr,
+    cdata = types.cdata,
+    ["nil"] = types.nil_,
+}
+
+types.builtins = builtins
+
+---------------------------------------------------------------------------
+-- Structural constructors
+---------------------------------------------------------------------------
+
+--- A Lua array of `elem`: one-based and dense, unlike the C array a reified struct
+--- uses.
+function types.array(elem: types.Type): types.Type
+    return intern("{" .. elem.id .. "}", function()
+        return new types.Array {tag = "array", elem = elem}
+    end)
+end
+
+--- A table from `key` to `value`. Reading one yields an optional, since an absent key
+--- is the normal case for a map.
+function types.map(key: types.Type, value: types.Type): types.Type
+    return types.indexer(key, value, key, value)
+end
+
+--- An indexer with independently granted read and write capabilities.
+function types.indexer(
+    readKey: types.Type?,
+    readValue: types.Type?,
+    writeKey: types.Type?,
+    writeValue: types.Type?
+): types.Type
+    local key = readKey or writeKey or types.never
+    local value = readValue or writeValue or types.never
+    local id = "index(" .. (
+        readKey and readKey.id or "-"
+    ) .. ":" .. (
+        readValue and readValue.id or "-"
+    ) .. "," .. (writeKey and writeKey.id or "-") .. ":" .. (writeValue and writeValue.id or "-") .. ")"
+
+    return intern(id, function()
+        return new types.Map {
+            tag = "map",
+            key = key,
+            value = value,
+            readable = readValue ~= nil,
+            writeKey = writeKey,
+            writeValue = writeValue
+        }
+    end)
+end
+
+--- A fixed sequence of types, one per position.
+function types.tuple(elems: {types.Type}): types.Type
+    local ids: {string} = {}
+    for j, e in ipairs(elems) do
+        ids[j] = e.id
+    end
+
+    return intern("tuple(" .. table.concat(ids, ",") .. ")", function()
+        return new types.Tuple {tag = "tuple", elems = elems}
+    end)
+end
+
+--- A structural shape: a table known by the fields it has.
+---
+--- Fields are sorted by name, so the same shape written two ways interns to one type.
+---
+--- @param fields the fields, in any order
+function types.shape(fields: {types.Field}, indexer: types.Indexer?, fresh: boolean?): types.Type
+    local sorted: {types.Field} = {}
+    for j, f in ipairs(fields) do
+        sorted[j] = f
+    end
+    table.sort(sorted, function(a, b)
+        return a.name < b.name
+    end)
+    local parts: {string} = {}
+    local byname: {[string]: types.Type} = {}
+    local writeByname: {[string]: types.Type} = {}
+    for _, f in ipairs(sorted) do
+        local read = f.read
+        local write = f.write
+        if f.type then
+            if f.capability == "read" then
+                read = f.type
+            elseif f.capability == "write" then
+                write = f.type
+            else
+                read, write = f.type, f.type
+            end
+        end
+        f.read, f.write = read, write
+        parts[#parts + 1] = f.name .. ":r=" .. (read and read.id or "-") .. ":w=" .. (write and write.id or "-")
+        if read then
+            byname[f.name] = read
+        end
+        if write then
+            writeByname[f.name] = write
+        end
+    end
+    local irk = indexer and indexer.readKey or nil
+    local irv = indexer and indexer.readValue or nil
+    local iwk = indexer and indexer.writeKey or nil
+    local iwv = indexer and indexer.writeValue or nil
+    parts[
+        #parts + 1
+    ] = "[r=" .. (
+        irk and irk.id or "-"
+    ) .. ":" .. (irv and irv.id or "-") .. ":w=" .. (iwk and iwk.id or "-") .. ":" .. (iwv and iwv.id or "-") .. "]"
+    local key = "shape(" .. table.concat(parts, ",") .. ")" .. (fresh and "!fresh" or "")
+
+    return intern(key, function()
+        return new types.Shape {
+            tag = "shape",
+            fields = sorted,
+            byname = byname,
+            writeByname = writeByname,
+            indexReadKey = irk,
+            indexReadValue = irv,
+            indexWriteKey = iwk,
+            indexWriteValue = iwv,
+            fresh = fresh or nil
+        }
+    end)
+end
+
+--- A union of types.
+---
+--- Nested unions flatten, duplicates drop by identity, and members sort by id, so any
+--- way of writing the same union reaches one type. A single surviving member is
+--- returned unwrapped, `any` swallows the rest, and `table` drops beside a structure it
+--- is already gradual toward.
+function types.union(members: {types.Type}): types.Type
+    local seen: {[types.Type]: boolean} = {}
+    local flat: {types.Type} = {}
+    local function push(t: types.Type)
+        if t.tag == "union" then
+            for _, m in ipairs(t.members) do
+                push(m)
+            end
+        elseif not seen[t] then
+            seen[t] = true
+            flat[#flat + 1] = t
+        end
+    end
+
+    for _, m in ipairs(members) do
+        push(m)
+    end
+    if #flat == 1 then
+        return flat[1]
+    end
+    -- any swallows the union entirely
+    for _, m in ipairs(flat) do
+        if m == types.any then
+            return types.any
+        end
+    end
+    -- `table` is gradual toward every table-shaped type, so beside one it says nothing
+    -- that member does not already say, while leaving a union no field can be read
+    -- from. `x = x or {}` on a declared shape is the idiom that reaches here: the empty
+    -- literal is `table`, and without this the write hands the variable back a type its
+    -- own fields are missing from.
+    local structured = false
+    for _, m in ipairs(flat) do
+        if TABLE_SHAPED[m.tag] then
+            structured = true
+        end
+    end
+    if structured then
+        local kept: {types.Type} = {}
+        for _, m in ipairs(flat) do
+            if m ~= types.table_ then
+                kept[#kept + 1] = m
+            end
+        end
+        flat = kept
+        if #flat == 1 then
+            return flat[1]
+        end
+    end
+    table.sort(flat, function(a, b)
+        return a.id < b.id
+    end)
+    local ids: {string} = {}
+    for j, m in ipairs(flat) do
+        ids[j] = m.id
+    end
+
+    return intern("union(" .. table.concat(ids, "|") .. ")", function()
+        local hasNil = false
+        for _, m in ipairs(flat) do
+            if m == types.nil_ then
+                hasNil = true
+            end
+        end
+
+        return new types.Union {tag = "union", members = flat, hasNil = hasNil}
+    end)
+end
+
+--- An intersection of types.
+---
+--- Nested intersections flatten, duplicates drop by identity, and members sort by id.
+--- `never` annihilates the intersection; `unknown` and gradual `any` add no contract.
+function types.intersection(members: {types.Type}): types.Type
+    local seen: {[types.Type]: boolean} = {}
+    local flat: {types.Type} = {}
+    local function push(t: types.Type)
+        if t == types.never then
+            flat = {types.never}
+            seen = {[types.never] = true}
+        elseif t.tag == "intersection" then
+            for _, m in ipairs(t.members) do
+                push(m)
+            end
+        elseif t ~= types.unknown and t ~= types.any and not seen[t] and not seen[types.never] then
+            seen[t] = true
+            flat[#flat + 1] = t
+        end
+    end
+
+    for _, m in ipairs(members) do
+        push(m)
+    end
+    if #flat == 0 then
+        return types.unknown
+    end
+    if #flat == 1 then
+        return flat[1]
+    end
+    table.sort(flat, function(a, b)
+        return a.id < b.id
+    end)
+    local ids: {string} = {}
+    for j, m in ipairs(flat) do
+        ids[j] = m.id
+    end
+
+    return intern("intersection(" .. table.concat(ids, "&") .. ")", function()
+        return new types.Intersection {tag = "intersection", members = flat}
+    end)
+end
+
+--- `t` or nil: what an annotation writes `T?`.
+function types.optional(t: types.Type): types.Type
+    return types.union({t, types.nil_})
+end
+
+--- A pointer to `t`. Non-null unless wrapped in an optional.
+function types.ptr(t: types.Type): types.Type
+    return intern(t.id .. "*", function()
+        return new types.Ptr {tag = "ptr", elem = t}
+    end)
+end
+
+-- Ownership qualifiers exist only in the static model. Both erase to the wrapped cdata
+-- value, but owned values are affine and borrowed values may not escape their lexical
+-- owner. `cleanups` is an ordered array of function names supplied by @owned; an empty
+-- list is an opaque, transfer-only owner.
+function types.owned(t: types.Type, cleanups: {string}?): types.Type
+    local list: {string} = {}
+    for j, name in ipairs(cleanups or {}) do
+        list[j] = name
+    end
+
+    return intern("owned(" .. table.concat(list, ",") .. ":" .. t.id .. ")", function()
+        return new types.Owned {tag = "owned", inner = t, cleanups = list}
+    end)
+end
+
+function types.borrowed(t: types.Type): types.Type
+    return intern("borrowed(" .. t.id .. ")", function()
+        return new types.Borrowed {tag = "borrowed", inner = t}
+    end)
+end
+
+-- A pinned pointer is paired with a strong Lua anchor at runtime. It may be handed to C
+-- functions declared `retains`; the handle itself remains affine so the checker can
+-- account for every outstanding retained reference.
+function types.pinned(t: types.Type): types.Type
+    return intern("pinned(" .. t.id .. ")", function()
+        return new types.Pinned {tag = "pinned", inner = t}
+    end)
+end
+
+--- The value type inside an ownership qualifier, or `t` itself.
+function types.unwrapOwnership(t: types.Type): types.Type
+    if t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned" then
+        return t.inner
+    end
+    return t
+end
+
+local function packTailId(tail: any): string
+    if not tail then
+        return ""
+    end
+    if tail.kind == "homogeneous" then
+        return "..." .. tail.type.id
+    end
+    if tail.kind == "generic" then
+        return tail.var.id .. "..."
+    end
+    if tail.kind == "slice" then
+        return "slice(" .. tostring(tail.id) .. ")"
+    end
+
+    return "...unknown"
+end
+
+--- Interns a fixed-head pack with an optional tail.
+function types.pack(head: {types.Type}?, tail: types.PackTail?, modes: {string}?): types.Pack
+    local hs, ms, copied = {}, {}, {}
+    for j, t in ipairs(head or {}) do
+        copied[j], hs[j] = t, t.id
+        ms[j] = modes and modes[j] or "plain"
+    end
+    local keyParts = {}
+    for j, id in ipairs(hs) do
+        keyParts[j] = ms[j] .. ":" .. id
+    end
+    local key = "pack(" .. table.concat(keyParts, ",") .. packTailId(tail) .. ")"
+    local found = packArena[key]
+    if found then
+        return found
+    end
+    local made = new types.Pack {tag = "pack", head = copied, modes = ms, tail = tail}
+    made.id = key
+    packArena[key] = made
+
+    return made
+end
+
+function types.packvar(name: string, identity: string?): types.PackVar
+    local key = "pv(" .. (identity or name) .. ")"
+    local found = packVarArena[key]
+    if found then
+        return found
+    end
+    local made = new types.PackVar {tag = "packvar", name = name}
+    made.id = key
+    packVarArena[key] = made
+
+    return made
+end
+
+function types.packUnion(alternatives: {types.Pack}): types.Pack
+    local flat, seen, ids = {}, {}, {}
+    for _, p in ipairs(alternatives) do
+        for _, q in ipairs(p.alternatives or {p}) do
+            if not seen[q.id] then
+                seen[q.id] = true
+                ;
+                flat[#flat + 1] = q
+            end
+        end
+    end
+    table.sort(flat, function(a, b)
+        return a.id < b.id
+    end)
+    if #flat == 1 then
+        return flat[1]
+    end
+    for j, p in ipairs(flat) do
+        ids[j] = p.id
+    end
+    local key = "packunion(" .. table.concat(ids, "|") .. ")"
+    local found = packArena[key]
+    if found then
+        return found
+    end
+    local made = new types.Pack {tag = "pack", head = {}, modes = {}, alternatives = flat}
+    made.id = key
+    packArena[key] = made
+
+    return made
+end
+
+function types.packAt(pack: types.Pack, index: integer): types.Type?
+    if pack.alternatives then
+        local members = {}
+        for _, arm in ipairs(pack.alternatives) do
+            members[#members + 1] = types.packAt(arm, index) or types.nil_
+        end
+        return types.union(members)
+    end
+    if pack.head[index] then
+        return pack.head[index]
+    end
+    local tail = pack.tail
+    if tail and (tail.kind == "homogeneous" or tail.kind == "unknown") then
+        return tail.type or types.any
+    end
+
+    return nil
+end
+
+function types.packMayExpand(pack: types.Pack): boolean
+    return pack.tail ~= nil or pack.alternatives ~= nil
+end
+
+function types.protocolThread(
+    startPack: types.Pack,
+    resumePack: types.Pack,
+    yieldPack: types.Pack,
+    returnPack: types.Pack
+): types.Type
+    local key = "thread<" .. startPack.id .. "," .. resumePack.id .. "," .. yieldPack.id .. "," .. returnPack.id .. ">"
+    return intern(key, function()
+        return new types.ProtocolThread {
+            tag = "protocolThread",
+            startPack = startPack,
+            resumePack = resumePack,
+            yieldPack = yieldPack,
+            returnPack = returnPack
+        }
+    end)
+end
+
+function types.genericAlias(
+    name: string,
+    body: types.Type,
+    typeParams: {types.Type}?,
+    typeBounds: {types.Type}?,
+    packParams: {types.PackVar}?
+): types.Type
+    local parts = {"alias(" .. name, body.id}
+    for _, tv in ipairs(typeParams or {}) do
+        parts[#parts + 1] = tv.id
+    end
+    for _, pv in ipairs(packParams or {}) do
+        parts[#parts + 1] = pv.id
+    end
+    local key = table.concat(parts, "|") .. ")"
+
+    return intern(key, function()
+        return new types.GenericAlias {
+            tag = "genericAlias",
+            name = name,
+            body = body,
+            typeParams = typeParams or {},
+            typeBounds = typeBounds or {},
+            packParams = packParams or {}
+        }
+    end)
+end
+
+function types.tostringPack(pack: types.Pack): string
+    if pack.alternatives then
+        local arms = {}
+        for j, arm in ipairs(pack.alternatives) do
+            arms[j] = types.tostringPack(arm)
+        end
+        return "(" .. table.concat(arms, " | ") .. ")"
+    end
+    local parts = {}
+    for j, t in ipairs(pack.head) do
+        parts[j] = types.tostring(t)
+    end
+    if pack.tail then
+        if pack.tail.kind == "homogeneous" then
+            parts[#parts + 1] = "..." .. types.tostring(pack.tail.type)
+        elseif pack.tail.kind == "generic" then
+            parts[#parts + 1] = pack.tail.var.name .. "..."
+        else
+            parts[#parts + 1] = "...unknown"
+        end
+    end
+
+    return "(" .. table.concat(parts, ", ") .. ")"
+end
+
+-- params/rets: arrays of types; vararg: boolean (params accept extra values).
+
+--- `predicate`, when present, marks this function as answering whether its parameter
+--- `param` (a 1-based index) holds a `type`. It is part of the interning key: two
+--- signatures that narrow differently are different types, even where their parameters
+--- and returns agree.
+function types.func(
+    params: {types.Type},
+    rets: {types.Type},
+    vararg: boolean?,
+    paramModes: {string}?,
+    predicate: types.Predicate?,
+    typeParams: {types.TypeVar}?,
+    typeBounds: {types.Type}?,
+    borrowsParam: integer?,
+    borrowsSelf: boolean?,
+    borrowsParams: {integer}?,
+    ffiOut: {any}?,
+    varargType: types.Type?,
+    noreturn: boolean?,
+    paramPack: types.Pack?,
+    retPack: types.Pack?,
+    packParams: {types.PackVar}?,
+    yieldPack: types.Pack?,
+    resumePack: types.Pack?
+): types.Type
+    -- A single declared result of `never` is a promise the call never comes back, the
+    -- same promise `noreturn` records; deriving it here means a signature only has to
+    -- say `never` once; it does not also carry a parallel boolean.
+    if #rets == 1 and rets[1] == types.never then
+        noreturn = true
+    end
+    local pids: {string} = {}
+    local rids: {string} = {}
+    local modes: {string} = {}
+    for j, p in ipairs(params) do
+        pids[j] = p.id
+        modes[j] = paramModes and paramModes[j] or "plain"
+    end
+    for j, r in ipairs(rets) do
+        rids[j] = r.id
+    end
+    local keyedParams: {string} = {}
+    for j, id in ipairs(pids) do
+        keyedParams[j] = modes[j] .. ":" .. id
+    end
+    local varargPart = ""
+    if vararg then
+        varargPart = varargType and (",..." .. varargType.id) or ",..."
+    end
+    paramPack = paramPack or types.pack(
+        params,
+        vararg and {kind = varargType and "homogeneous" or "unknown", type = varargType or types.any} or nil,
+        modes
+    )
+    retPack = retPack or types.pack(rets)
+    local key = "fn" .. paramPack.id .. ":" .. retPack.id
+    if predicate then
+        key = key .. "|is" .. predicate.param .. ":" .. predicate.type.id
+    end
+    if typeParams and #typeParams > 0 then
+        local genericParts: {string} = {}
+        for j, tv in ipairs(typeParams) do
+            genericParts[j] = tv.id .. "<:" .. ((typeBounds and typeBounds[j]) and typeBounds[j].id or "any")
+        end
+        key = key .. "|<" .. table.concat(genericParts, ",") .. ">"
+    end
+    if packParams and #packParams > 0 then
+        local pp = {}
+        for j, pv in ipairs(packParams) do
+            pp[j] = pv.id
+        end
+        key = key .. "|<" .. table.concat(pp, ",") .. ">"
+    end
+    if yieldPack then
+        key = key .. "|yields" .. yieldPack.id
+    end
+    if resumePack then
+        key = key .. "|resumes" .. resumePack.id
+    end
+    if borrowsParam then
+        key = key .. "|borrows" .. borrowsParam
+    end
+    if borrowsParams and #borrowsParams > 0 then
+        key = key .. "|borrows(" .. table.concat(borrowsParams, ",") .. ")"
+    end
+    for _, output in ipairs(ffiOut or {}) do
+        key = key .. "|out:" .. (
+            output.kind or "owned"
+        ) .. ":" .. output.name .. ":" .. table.concat(
+            output.cleanups or {},
+            ","
+        ) .. ":" .. (output.success or "always") .. ":" .. tostring(output.sourceParam or "")
+    end
+    if borrowsSelf then
+        key = key .. "|borrowsself"
+    end
+    if noreturn then
+        key = key .. "|noreturn"
+    end
+
+    return intern(key, function()
+        return new types.Func {
+            tag = "func",
+            params = params,
+            rets = rets,
+            vararg = vararg or false,
+            varargType = vararg and varargType or nil,
+            paramModes = modes,
+            predicate = predicate,
+            typeParams = typeParams,
+            typeBounds = typeBounds,
+            borrowsParam = borrowsParam,
+            borrowsSelf = borrowsSelf,
+            borrowsParams = borrowsParams,
+            ffiOut = ffiOut,
+            noreturn = noreturn or nil,
+            paramPack = paramPack,
+            retPack = retPack,
+            packParams = packParams,
+            yieldPack = yieldPack,
+            resumePack = resumePack
+        }
+    end)
+end
+
+-- A string literal's own type: a subtype of string, and the bridge that lets a bare
+-- 'red' land in a union that lists it. `base` is the type the literal behaves as
+-- everywhere except where its exact value matters: a member of a union of literals, or
+-- a discriminant comparison.
+function types.literal(value: string | number | boolean, base: types.Type?): types.Type
+    local of = base or types.string
+    return intern("lit(" .. of.tag .. ":" .. tostring(value) .. ")", function()
+        return new types.Literal {tag = "literal", constant = value, base = of}
+    end)
+end
+
+-- A contiguous FFI array of `elem`: the layout that makes a struct worth reifying.
+-- Zero-indexed, like the C array it is, and distinct from a Lua table so the two
+-- indexing conventions never blur together. `count` is nil for a variable-length array
+-- (T[?]) and a number for a fixed one (T[N]); the two are different types.
+function types.carray(elem: types.Type, count: integer?): types.Type
+    return intern("carray(" .. elem.id .. "," .. tostring(count) .. ")", function()
+        return new types.CArray {tag = "carray", elem = elem, count = count}
+    end)
+end
+
+-- A read-only view of T. Const is carried so an imported signature keeps what the
+-- header said; it does not change the representation.
+function types.constOf(t: types.Type): types.Type
+    if t.tag == "const" then
+        return t
+    end
+    return intern("const(" .. t.id .. ")", function()
+        return new types.Const {tag = "const", inner = t}
+    end)
+end
+
+-- The runtime ctype object standing for T, as ffi.typeof returns.
+function types.ctype(t: types.Type): types.Type
+    return intern("ctype(" .. t.id .. ")", function()
+        return new types.CType {tag = "ctype", of = t}
+    end)
+end
+
+-- Generic type parameters. A declaration-derived identity keeps shadowed T binders
+-- distinct while occurrences within one signature share an object; substitution maps
+-- are built per call site.
+function types.typevar(name: string, identity: string?): types.Type
+    return intern("tv(" .. (identity or name) .. ")", function()
+        return new types.TypeVar {tag = "typevar", name = name}
+    end)
+end
+
+function types.metatable(t: types.Type): types.Type
+    return intern("metatable(" .. t.id .. ")", function()
+        return new types.Metatable {tag = "metatable", of = t}
+    end)
+end
+
+-- Cheap containment test used to decide whether instantiation is needed.
+function types.hasTypevar(t: types.Type): boolean
+    return t.id:find("tv(", 1, true) ~= nil or t.id:find("pv(", 1, true) ~= nil
+end
+
+---------------------------------------------------------------------------
+-- Nominal constructors (fresh identity per declaration)
+---------------------------------------------------------------------------
+
+local nominalCounter: integer = 0
+
+--- A nominal type: one identity per declaration, never shared with another declaration
+--- of the same shape. That is what makes it nominal.
+---
+--- @param name what the declaration called it
+--- @param declKind "record", "interface" or "struct"
+function types.nominal(name: string, declKind: string): types.Nominal
+    nominalCounter = nominalCounter + 1
+    local t = new types.Nominal {tag = "nominal", declKind = declKind, name = name, byname = {}, -- populated while the declaration is checked
+        writeByname = {}, metamethods = {}, nestedTypes = {}, defaultDisposers = {},}
+    t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
+
+    return t
+end
+
+---------------------------------------------------------------------------
+-- Rendering for diagnostics
+---------------------------------------------------------------------------
+
+--- Renders a type the way a diagnostic should show it.
+function types.tostring(t: types.Type): string
+    local tag = t.tag
+    if tag == "nominal" then
+        if t.typeArgs and #t.typeArgs > 0 then
+            local parts: {string} = {}
+            for j, a in ipairs(t.typeArgs) do
+                parts[j] = types.tostring(a)
+            end
+            return t.name .. "<" .. table.concat(parts, ", ") .. ">"
+        end
+        return t.name
+    elseif tag == "array" then
+        return "{" .. types.tostring(t.elem) .. "}"
+    elseif tag == "map" then
+        if t.readable and t.writeKey == t.key and t.writeValue == t.value then
+            return "{[" .. types.tostring(t.key) .. "]: " .. types.tostring(t.value) .. "}"
+        end
+        local parts = {}
+        if t.readable then
+            parts[#parts + 1] = "readonly [" .. types.tostring(t.key) .. "]: " .. types.tostring(t.value)
+        end
+        if t.writeKey and t.writeValue then
+            parts[#parts + 1] = "writeonly [" .. types.tostring(t.writeKey) .. "]: " .. types.tostring(t.writeValue)
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
+    elseif tag == "tuple" then
+        local parts = {}
+        for j, e in ipairs(t.elems) do
+            parts[j] = types.tostring(e)
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
+    elseif tag == "shape" then
+        local parts = {}
+        for j, f in ipairs(t.fields) do
+            if f.read and f.write and f.read == f.write then
+                parts[#parts + 1] = f.name .. ": " .. types.tostring(f.read)
+            else
+                if f.read then
+                    parts[#parts + 1] = "readonly " .. f.name .. ": " .. types.tostring(f.read)
+                end
+                if f.write then
+                    parts[#parts + 1] = "writeonly " .. f.name .. ": " .. types.tostring(f.write)
+                end
+            end
+        end
+        if t.indexReadKey and t.indexReadValue then
+            parts[
+                #parts + 1
+            ] = "readonly [" .. types.tostring(t.indexReadKey) .. "]: " .. types.tostring(t.indexReadValue)
+        end
+        if t.indexWriteKey and t.indexWriteValue then
+            parts[
+                #parts + 1
+            ] = "writeonly [" .. types.tostring(t.indexWriteKey) .. "]: " .. types.tostring(t.indexWriteValue)
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
+    elseif tag == "union" then
+        -- render "T | nil" as "T?" when it is a simple optional
+        if t.hasNil and #t.members == 2 then
+            local other = t.members[1] == types.nil_ and t.members[2] or t.members[1]
+            local rendered = types.tostring(other)
+            if other.tag == "intersection" then
+                rendered = "(" .. rendered .. ")"
+            end
+            return rendered .. "?"
+        end
+        local parts = {}
+        for j, m in ipairs(t.members) do
+            parts[j] = types.tostring(m)
+        end
+        return table.concat(parts, " | ")
+    elseif tag == "intersection" then
+        local parts = {}
+        for j, m in ipairs(t.members) do
+            local rendered = types.tostring(m)
+            if m.tag == "union" then
+                rendered = "(" .. rendered .. ")"
+            end
+            parts[j] = rendered
+        end
+        return table.concat(parts, " & ")
+    elseif tag == "const" then
+        return "const " .. types.tostring(t.inner)
+    elseif tag == "ctype" then
+        return "ctype<" .. types.tostring(t.of) .. ">"
+    elseif tag == "carray" then
+        local elem = types.tostring(t.elem)
+        if t.elem.tag == "union" or t.elem.tag == "intersection" then
+            elem = "(" .. elem .. ")"
+        end
+        return elem .. "[" .. (t.count and tostring(t.count) or "?") .. "]"
+    elseif tag == "ptr" then
+        local elem = types.tostring(t.elem)
+        if t.elem.tag == "union" or t.elem.tag == "intersection" then
+            elem = "(" .. elem .. ")"
+        end
+        return elem .. "*"
+    elseif tag == "owned" then
+        return "owned<" .. types.tostring(t.inner) .. ">"
+    elseif tag == "borrowed" then
+        return "borrowed<" .. types.tostring(t.inner) .. ">"
+    elseif tag == "pinned" then
+        return "pinned<" .. types.tostring(t.inner) .. ">"
+    elseif tag == "typevar" then
+        return t.name
+    elseif tag == "metatable" then
+        return "metatable<" .. types.tostring(t.of) .. ">"
+    elseif tag == "literal" then
+        if t.base == types.string then
+            return ("%q"):format(t.constant)
+        end
+        return tostring(t.constant)
+    elseif tag == "func" then
+        local ps: {string} = {}
+        for j, p in ipairs(t.params) do
+            local mode = t.paramModes and t.paramModes[j]
+            ps[j] = (mode and mode ~= "plain" and mode .. " " or "") .. types.tostring(p)
+        end
+        local paramTail = t.paramPack.tail
+        if paramTail then
+            if paramTail.kind == "homogeneous" then
+                ps[#ps + 1] = "...: " .. types.tostring(paramTail.type)
+            elseif paramTail.kind == "generic" then
+                ps[#ps + 1] = paramTail.var.name .. "..."
+            else
+                ps[#ps + 1] = "..."
+            end
+        end
+        local hasRet = #t.retPack.head > 0 or t.retPack.tail ~= nil or t.retPack.alternatives ~= nil
+        local ret = ""
+        if hasRet then
+            ret = ": " .. (
+                #t.retPack.head == 1 and not t.retPack.tail and not t.retPack.alternatives and types.tostring(
+                    t.retPack.head[1]
+                ) or types.tostringPack(t.retPack)
+            )
+        end
+        local protocol = t.yieldPack and (
+            " yields " .. types.tostringPack(
+                t.yieldPack
+            ) .. " resumes " .. types.tostringPack(t.resumePack or types.pack({}, {kind = "unknown", type = types.any}))
+        ) or ""
+        local binders = {}
+        for _, tv in ipairs(t.typeParams or {}) do
+            binders[#binders + 1] = tv.name
+        end
+        for _, pv in ipairs(t.packParams or {}) do
+            binders[#binders + 1] = pv.name .. "..."
+        end
+        local generic = #binders > 0 and "<" .. table.concat(binders, ", ") .. ">" or ""
+        return "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")" .. ret .. protocol
+    elseif tag == "protocolThread" then
+        return "thread<" .. types.tostringPack(
+            t.startPack
+        ) .. ", " .. types.tostringPack(
+            t.resumePack
+        ) .. ", " .. types.tostringPack(t.yieldPack) .. ", " .. types.tostringPack(t.returnPack) .. ">"
+    elseif tag == "genericAlias" then
+        return t.name
+    end
+
+    return tag
+end
+
+-- How each reifiable primitive is spelled in C. The same set `reifiableField` admits,
+-- and the same spellings codegen writes into the `ffi.typeof` string -- kept here
+-- because two places now need the answer and a second copy would be a second answer.
+local C_NAME: {
+    [string]: string
+} = {
+    number = "double",
+    float = "float",
+    boolean = "bool",
+    integer = "int32_t",
+    int8 = "int8_t",
+    int16 = "int16_t",
+    int32 = "int32_t",
+    int64 = "int64_t",
+    uint8 = "uint8_t",
+    uint16 = "uint16_t",
+    uint32 = "uint32_t",
+    uint64 = "uint64_t",
+    cstring = "const char *",
+    voidptr = "void *",
+}
+
+--- How a type is spelled in C, or nil when it has no spelling.
+---
+--- A nested struct answers `"$"`. Nupp emits anonymous struct ctypes, so
+--- `ffi.sizeof("Inner")` cannot resolve one by name -- the ctype itself has to be
+--- handed over, the way `ffi.typeof("struct { $ inner; }", Inner)` already does. The
+--- caller collects those in order and passes them alongside.
+---
+--- @param t the type to spell
+--- @return the C spelling, or nil
+function types.cName(t: types.Type): string?
+    if not t then
+        return nil
+    end
+    local tag = t.tag
+    if C_NAME[tag] then
+        return C_NAME[tag]
+    end
+    if tag == "nominal" and t.declKind == "struct" then
+        -- Its own name, so a fingerprint distinguishes two structs of one shape and a
+        -- reader sees the declaration rather than an encoding. Sizing it needs the
+        -- ctype instead, which the caller passes alongside.
+        return t.name
+    end
+    if tag == "ptr" then
+        -- A pointer is a pointer whatever it points at, and its size does not depend on
+        -- the pointee -- but the pointee is what tells two layouts apart, so it is kept
+        -- in the spelling and the size comes from the star.
+        local inner = types.cName(t.elem)
+        return (inner or "void") .. " *"
+
+    elseif tag == "carray" then
+        local elem = types.cName(t.elem)
+        if elem and t.count then
+            return elem .. "[" .. tostring(t.count) .. "]"
+        end
+        return nil
+    end
+    if tag == "union" and #t.members == 2 and t.hasNil then
+        -- The nullable spelling of a pointer: `T*?` is the same pointer, and NULL is
+        -- one of its values.
+        local other = t.members[1] == types.nil_ and t.members[2] or t.members[1]
+        return types.cName(other)
+    end
+
+    return nil
+end
+
+return types

@@ -1,6 +1,6 @@
 -- Generated stage-0 compiler. Update with: nupp fixpoint --update-bootstrap
-package.preload["compiler"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -12,8 +12,8 @@ _G.nupp=_G.nupp or {};
 return { }
 
 end
-package.preload["compiler.analysis"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.analysis"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -36,7 +36,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
+local cst = require ( "nupp.compiler.cst" )
 
 local analysis = { }
 
@@ -1091,8 +1091,8 @@ analysis . fromContract = fromContract
 return analysis
 
 end
-package.preload["compiler.annotations"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.annotations"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -1316,8 +1316,8 @@ end
 return annotations
 
 end
-package.preload["compiler.ansi"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.ansi"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -1543,8 +1543,8 @@ end
 return ansi
 
 end
-package.preload["compiler.build.cache"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.cache"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -1563,9 +1563,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local hash = require ( "compiler.build.hash" )
+local hash = require ( "nupp.compiler.build.hash" )
 local json = require ( "cjson" ) . new ( )
-local fs = require ( "compiler.fs" )
+local fs = require ( "nupp.compiler.fs" )
 
 local join = fs . join
 local dirname , basename = fs . dirname , fs . basename
@@ -1796,8 +1796,8 @@ cache . STATE_VERSION = STATE_VERSION
 return cache
 
 end
-package.preload["compiler.build.deps"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.deps"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -1808,12 +1808,12 @@ _G.nupp=_G.nupp or {};
 
 
 
-local hash = require ( "compiler.build.hash" )
-local importc = require ( "compiler.importc" )
+local hash = require ( "nupp.compiler.build.hash" )
+local importc = require ( "nupp.compiler.importc" )
 local json = require ( "cjson" ) . new ( )
-local process = require ( "compiler.build.process" )
-local fs = require ( "compiler.fs" )
-local cache = require ( "compiler.build.cache" )
+local process = require ( "nupp.compiler.build.process" )
+local fs = require ( "nupp.compiler.fs" )
+local cache = require ( "nupp.compiler.build.cache" )
 
 local normalize , join = fs . normalize , fs . join
 local dirname , basename = fs . dirname , fs . basename
@@ -2650,8 +2650,8 @@ deps . rockModules = rockModules
 return deps
 
 end
-package.preload["compiler.build.hash"] = function(...)
-const __nuppFfi = require("ffi"); _G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.hash"] = function(...)
+const __nuppFfi = require("ffi"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -2938,8 +2938,8 @@ hash . hex64 = hex64
 return hash
 
 end
-package.preload["compiler.build.manifest"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.manifest"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -2949,9 +2949,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local check = require ( "compiler.check" )
-local fs = require ( "compiler.fs" )
-local native = require ( "compiler.native" )
+local check = require ( "nupp.compiler.check" )
+local fs = require ( "nupp.compiler.fs" )
+local native = require ( "nupp.compiler.native" )
 
 local join = fs . join
 
@@ -3164,7 +3164,7 @@ local key = unknown [ 1 ]
 if not key then
 return true
 end
-local suggestion = require ( "compiler.check.fixits" ) . nearest ( key , known )
+local suggestion = require ( "nupp.compiler.check.fixits" ) . nearest ( key , known )
 if suggestion then
 return nil , ( "%s has no key %q; did you mean %q?" ) : format ( label , key , suggestion )
 end
@@ -3680,8 +3680,8 @@ manifest . validate = validateManifest
 return manifest
 
 end
-package.preload["compiler.build.modules"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.modules"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -3691,15 +3691,15 @@ _G.nupp=_G.nupp or {};
 
 
 
-local envMod = require ( "compiler.env" )
-local gen = require ( "compiler.gen" )
-local optimize = require ( "compiler.optimize" )
-local hash = require ( "compiler.build.hash" )
-local incremental = require ( "compiler.incremental" )
-local diagnosticMod = require ( "compiler.diagnostics" )
-local fs = require ( "compiler.fs" )
-local cache = require ( "compiler.build.cache" )
-local deps = require ( "compiler.build.deps" )
+local envMod = require ( "nupp.compiler.env" )
+local gen = require ( "nupp.compiler.gen" )
+local optimize = require ( "nupp.compiler.optimize" )
+local hash = require ( "nupp.compiler.build.hash" )
+local incremental = require ( "nupp.compiler.incremental" )
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
+local fs = require ( "nupp.compiler.fs" )
+local cache = require ( "nupp.compiler.build.cache" )
+local deps = require ( "nupp.compiler.build.deps" )
 
 local normalize , join = fs . normalize , fs . join
 local readFile , writeFile = fs . readFile , fs . writeFile
@@ -4056,10 +4056,12 @@ end
 local fatal = isFatalIn ( mine )
 local depNames = inc . moduleDependencies ( path )
 local effectNames = { }
+if fatal or checkOnly or external then
 for effect in pairs ( result . result . effects or { } ) do
 effectNames [ # effectNames + 1 ] = effect
 end
 table . sort ( effectNames )
+end
 local output = external and nil or join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
 local artifactHash , code , coverage
 if not external and not fatal and not checkOnly then
@@ -4073,6 +4075,11 @@ disabled = config . _disabledPasses ,
 relaxed = config . _relaxedGuarantees
 }
 )
+result . result . effects = optimize . liveEffects ( result . result )
+for effect in pairs ( result . result . effects ) do
+effectNames [ # effectNames + 1 ] = effect
+end
+table . sort ( effectNames )
 if config . _remarks then
 for _ , note in ipairs ( remarks ) do
 mine [ # mine + 1 ] = note
@@ -4307,8 +4314,8 @@ modules . build = buildModules
 return modules
 
 end
-package.preload["compiler.build.native"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.native"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -4316,11 +4323,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local envMod = require ( "compiler.env" )
-local native = require ( "compiler.native" )
-local fs = require ( "compiler.fs" )
-local process = require ( "compiler.build.process" )
-local deps = require ( "compiler.build.deps" )
+local envMod = require ( "nupp.compiler.env" )
+local native = require ( "nupp.compiler.native" )
+local fs = require ( "nupp.compiler.fs" )
+local process = require ( "nupp.compiler.build.process" )
+local deps = require ( "nupp.compiler.build.deps" )
 
 local stage = { }
 
@@ -4415,40 +4422,70 @@ end
 
 function stage . build ( root , outDir , effects )
 local outputs = { }
+local providers
+
+
+
+
+= { }
+local providerKeys = { }
 for _ , feature in ipairs ( native . features ( effects ) ) do
 if feature . cargo then
-local compilerRoot = envMod . compilerRoot ( )
-if not compilerRoot then
-return nil , (
-"native feature %q needs compiler source; use a source " .. "checkout to build this target"
-) : format ( feature . name )
+local libraryName = feature . library
+local key = feature . cargo .. "\0" .. libraryName
+local provider = providers [ key ]
+if not provider then
+provider = { cargo = feature . cargo , library = libraryName , names = { } , cargoFeatures = { } }
+providers [ key ] = provider
+providerKeys [ # providerKeys + 1 ] = key
 end
-local targetDir = join ( root , join ( outDir , "native/" .. feature . name ) )
-local code , text = process . capture ( {
+provider . names [ # provider . names + 1 ] = feature . name
+if feature . cargoFeature then
+provider . cargoFeatures [ # provider . cargoFeatures + 1 ] = feature . cargoFeature
+end
+end
+end
+local compilerRoot = envMod . compilerRoot ( )
+table . sort ( providerKeys )
+for _ , key in ipairs ( providerKeys ) do
+local provider = assert ( providers [ key ] )
+if not compilerRoot then
+return nil , "native facilities need compiler source; use a source checkout to build this target"
+end
+table . sort ( provider . names )
+table . sort ( provider . cargoFeatures )
+local targetDir = join ( root , join ( outDir , "native/" .. provider . library ) )
+local argv = {
 "cargo" ,
 "build" ,
 "--release" ,
 "--manifest-path" ,
-join ( compilerRoot , feature . cargo ) ,
+join ( compilerRoot , provider . cargo ) ,
 "--target-dir" ,
 targetDir
-} )
-if code ~= 0 then
-return nil , ( "cannot build native feature %q:\n%s" ) : format ( feature . name , text )
+}
+if # provider . cargoFeatures > 0 then
+argv [ # argv + 1 ] = "--no-default-features"
+argv [ # argv + 1 ] = "--features"
+argv [ # argv + 1 ] = table . concat ( provider . cargoFeatures , "," )
 end
-local libraryName = feature . library
-local filename = libraryFile ( libraryName )
+local code , captured = process . capture ( argv )
+if code ~= 0 then
+return nil , ( "cannot build native facilities %s:\n%s" ) : format ( table . concat ( provider . names , ", " ) , captured )
+end
+local filename = libraryFile ( provider . library )
 local built = join ( targetDir , join ( "release" , filename ) )
 
 
 
-local output = join ( root , join ( outDir , join ( "lib" , libraryName ) ) )
+local output = join ( root , join ( outDir , join ( "lib" , provider . library ) ) )
 local copied , err = fs . copyFile ( built , output )
 if not copied then
-return nil , ( "cannot stage native feature %q: %s" ) : format ( feature . name , tostring ( err ) )
+return nil , (
+"cannot stage native facilities %s: %s"
+) : format ( table . concat ( provider . names , ", " ) , tostring ( err ) )
 end
 outputs [ output ] = true
-end
 end
 
 return outputs
@@ -4457,8 +4494,8 @@ end
 return stage
 
 end
-package.preload["compiler.build.package"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.package"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -4468,11 +4505,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local hash = require ( "compiler.build.hash" )
-local process = require ( "compiler.build.process" )
-local fs = require ( "compiler.fs" )
-local deps = require ( "compiler.build.deps" )
-local modulesMod = require ( "compiler.build.modules" )
+local hash = require ( "nupp.compiler.build.hash" )
+local process = require ( "nupp.compiler.build.process" )
+local fs = require ( "nupp.compiler.fs" )
+local deps = require ( "nupp.compiler.build.deps" )
+local modulesMod = require ( "nupp.compiler.build.modules" )
 
 local normalize , join = fs . normalize , fs . join
 local dirname = fs . dirname
@@ -4505,7 +4542,7 @@ end
 
 
 local function entryModule ( root , outDir , target )
-local mainName = "compiler.main"
+local mainName = "nupp.compiler.main"
 local entries = target . entries or { }
 if entries [ 1 ] and not entries [ 1 ] : match ( "%.nupp$" ) then
 mainName = entries [ 1 ]
@@ -4734,8 +4771,8 @@ package_ . stampFile = stampFile
 return package_
 
 end
-package.preload["compiler.build.process"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.process"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -4854,8 +4891,8 @@ end
 return process
 
 end
-package.preload["compiler.build.project"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.project"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -4864,19 +4901,19 @@ _G.nupp=_G.nupp or {};
 
 
 
-local envMod = require ( "compiler.env" )
-local hash = require ( "compiler.build.hash" )
+local envMod = require ( "nupp.compiler.env" )
+local hash = require ( "nupp.compiler.build.hash" )
 local json = require ( "cjson" ) . new ( )
-local process = require ( "compiler.build.process" )
-local fs = require ( "compiler.fs" )
-local cache = require ( "compiler.build.cache" )
-local manifest = require ( "compiler.build.manifest" )
-local tasks = require ( "compiler.build.tasks" )
-local deps = require ( "compiler.build.deps" )
-local modules = require ( "compiler.build.modules" )
-local packaging = require ( "compiler.build.package" )
-local storeMod = require ( "compiler.build.store" )
-local native = require ( "compiler.build.native" )
+local process = require ( "nupp.compiler.build.process" )
+local fs = require ( "nupp.compiler.fs" )
+local cache = require ( "nupp.compiler.build.cache" )
+local manifest = require ( "nupp.compiler.build.manifest" )
+local tasks = require ( "nupp.compiler.build.tasks" )
+local deps = require ( "nupp.compiler.build.deps" )
+local modules = require ( "nupp.compiler.build.modules" )
+local packaging = require ( "nupp.compiler.build.package" )
+local storeMod = require ( "nupp.compiler.build.store" )
+local native = require ( "nupp.compiler.build.native" )
 
 local project = { }
 
@@ -5031,7 +5068,7 @@ io . stderr : write ( "nupp: " .. tostring ( depErr ) .. "\n" )
 return 1
 end
 return (
-require ( "compiler.doc" ) . build ( root , config , target , { checkOnly = opts . checkOnly , output = opts . outDir , } )
+require ( "nupp.compiler.doc" ) . build ( root , config , target , { checkOnly = opts . checkOnly , output = opts . outDir , } )
 )
 elseif target . kind and target . kind ~= "modules" and target . kind ~= "bundle" and target . kind ~= "binary" then
 
@@ -5566,11 +5603,11 @@ if project . build ( root , { target = targetName , outDir = stage1 } ) ~= 0 the
 return 1
 end
 local target = assert ( targetConfig ( config , targetName ) )
-local entry = ( target . entries or { } ) [ 1 ] or "compiler.main"
+local entry = ( target . entries or { } ) [ 1 ] or "nupp.compiler.main"
 local moduleName = entry : match (
 "%.nupp$"
 ) and envMod . moduleNameForPath ( envMod . new ( root , { config = config } ) , join ( root , entry ) ) or entry
-moduleName = moduleName or "compiler.main"
+moduleName = moduleName or "nupp.compiler.main"
 local mainPath = join ( root , join ( stage1 , moduleName : gsub ( "%." , "/" ) .. ".lua" ) )
 local packagePath = join ( root , stage1 ) .. "/?.lua;" .. package . path
 local argv = {
@@ -5631,8 +5668,8 @@ end
 return project
 
 end
-package.preload["compiler.build.store"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.store"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -5653,7 +5690,7 @@ _G.nupp=_G.nupp or {};
 
 
 local buffer = require ( "string.buffer" )
-local fs = require ( "compiler.fs" )
+local fs = require ( "nupp.compiler.fs" )
 
 local store = { }
 
@@ -5846,8 +5883,8 @@ end
 return store
 
 end
-package.preload["compiler.build.tasks"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.build.tasks"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -5857,8 +5894,8 @@ _G.nupp=_G.nupp or {};
 
 
 local json = require ( "cjson" ) . new ( )
-local cache = require ( "compiler.build.cache" )
-local manifest = require ( "compiler.build.manifest" )
+local cache = require ( "nupp.compiler.build.cache" )
+local manifest = require ( "nupp.compiler.build.manifest" )
 
 local jsonArray = cache . jsonArray
 
@@ -5965,7 +6002,7 @@ if target . outDir then
 return target . outDir
 end
 if target . kind == "docs" then
-return require ( "compiler.doc" ) . defaultOutDir ( target . format or "site" )
+return require ( "nupp.compiler.doc" ) . defaultOutDir ( target . format or "site" )
 end
 
 return "build"
@@ -6128,8 +6165,8 @@ tasks . configured = configuredTasks
 return tasks
 
 end
-package.preload["compiler.cdecl"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cdecl"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -6618,8 +6655,8 @@ end
 return cdecl
 
 end
-package.preload["compiler.cheader"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cheader"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -6634,8 +6671,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local cdecl = require ( "compiler.cdecl" )
+local T = require ( "nupp.compiler.types" )
+local cdecl = require ( "nupp.compiler.cdecl" )
 
 local cheader = { }
 
@@ -6958,8 +6995,8 @@ end
 return cheader
 
 end
-package.preload["compiler.check"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -6979,30 +7016,30 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local lints = require ( "compiler.lints" )
-local fixits = require ( "compiler.check.fixits" )
-local annotate = require ( "compiler.check.annotate" )
-local ownership = require ( "compiler.check.ownership" )
-local loopclosure = require ( "compiler.check.loopclosure" )
-local undocumentedraise = require ( "compiler.check.undocumentedraise" )
-local unused = require ( "compiler.check.unused" )
-local discard = require ( "compiler.check.discard" )
-local analysis = require ( "compiler.analysis" )
-local narrow = require ( "compiler.check.narrow" )
-local calls = require ( "compiler.check.calls" )
-local expr = require ( "compiler.check.expr" )
-local declare = require ( "compiler.check.declare" )
-local resolve = require ( "compiler.check.resolve" )
-local bindings = require ( "compiler.check.bindings" )
-local control = require ( "compiler.check.control" )
-local functions = require ( "compiler.check.functions" )
-local cdef = require ( "compiler.check.cdef" )
-local pragma = require ( "compiler.check.pragma" )
-local metatable = require ( "compiler.check.metatable" )
-local cst = require ( "compiler.cst" )
-local annotationMod = require ( "compiler.annotations" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local lints = require ( "nupp.compiler.lints" )
+local fixits = require ( "nupp.compiler.check.fixits" )
+local annotate = require ( "nupp.compiler.check.annotate" )
+local ownership = require ( "nupp.compiler.check.ownership" )
+local loopclosure = require ( "nupp.compiler.check.loopclosure" )
+local undocumentedraise = require ( "nupp.compiler.check.undocumentedraise" )
+local unused = require ( "nupp.compiler.check.unused" )
+local discard = require ( "nupp.compiler.check.discard" )
+local analysis = require ( "nupp.compiler.analysis" )
+local narrow = require ( "nupp.compiler.check.narrow" )
+local calls = require ( "nupp.compiler.check.calls" )
+local expr = require ( "nupp.compiler.check.expr" )
+local declare = require ( "nupp.compiler.check.declare" )
+local resolve = require ( "nupp.compiler.check.resolve" )
+local bindings = require ( "nupp.compiler.check.bindings" )
+local control = require ( "nupp.compiler.check.control" )
+local functions = require ( "nupp.compiler.check.functions" )
+local cdef = require ( "nupp.compiler.check.cdef" )
+local pragma = require ( "nupp.compiler.check.pragma" )
+local metatable = require ( "nupp.compiler.check.metatable" )
+local cst = require ( "nupp.compiler.cst" )
+local annotationMod = require ( "nupp.compiler.annotations" )
+local state = require ( "nupp.compiler.check.state" )
 
 local checkMod = { }
 
@@ -7694,7 +7731,7 @@ end
 
 
 c . cNamespaceType = function ( )
-local decls = require ( "compiler.cheader" ) . declaredFunctions ( function ( tag )
+local decls = require ( "nupp.compiler.cheader" ) . declaredFunctions ( function ( tag )
 local found = c . lookupType ( tag )
 if found and found . tag == "nominal" then
 return found
@@ -8261,8 +8298,8 @@ end
 return checkMod
 
 end
-package.preload["compiler.check.annotate"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.annotate"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -8274,10 +8311,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local cst = require ( "compiler.cst" )
-local relations = require ( "compiler.relations" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local relations = require ( "nupp.compiler.relations" )
+local state = require ( "nupp.compiler.check.state" )
 
 local annotate = { }
 
@@ -8658,8 +8695,8 @@ end
 return annotate
 
 end
-package.preload["compiler.check.bindings"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.bindings"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -8671,10 +8708,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 
@@ -9199,8 +9236,8 @@ end
 return bindings
 
 end
-package.preload["compiler.check.callexpr"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.callexpr"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -9213,15 +9250,15 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local generics = require ( "compiler.generics" )
-local lexer = require ( "compiler.lexer" )
-local cst = require ( "compiler.cst" )
-local ffiMod = require ( "compiler.check.ffi" )
-local methodslots = require ( "compiler.methodslots" )
-local native = require ( "compiler.native" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local generics = require ( "nupp.compiler.generics" )
+local lexer = require ( "nupp.compiler.lexer" )
+local cst = require ( "nupp.compiler.cst" )
+local ffiMod = require ( "nupp.compiler.check.ffi" )
+local methodslots = require ( "nupp.compiler.methodslots" )
+local native = require ( "nupp.compiler.native" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local packIsA = relations . packIsA
@@ -9455,6 +9492,7 @@ if modname then
 node . requiredModule = modname
 local effect = native . forModule ( modname )
 if effect and c . recordEffect then
+( node ) . compilerFeatureEffect = effect
 c . recordEffect ( effect )
 end
 local mt = c . env . resolveModule ( c . env , modname )
@@ -9950,8 +9988,8 @@ end
 return callexpr
 
 end
-package.preload["compiler.check.calls"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.calls"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -9962,11 +10000,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local generics = require ( "compiler.generics" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local generics = require ( "nupp.compiler.generics" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local calls = { }
 
@@ -11211,8 +11249,8 @@ end
 return calls
 
 end
-package.preload["compiler.check.cdef"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.cdef"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -11226,10 +11264,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local narrowing = require ( "compiler.narrowing" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local narrowing = require ( "nupp.compiler.narrowing" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local subtract = narrowing . subtract
 
@@ -11439,8 +11477,8 @@ end
 return cdef
 
 end
-package.preload["compiler.check.control"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.control"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -11450,11 +11488,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local narrowing = require ( "compiler.narrowing" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local narrowing = require ( "nupp.compiler.narrowing" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local packIsA = relations . packIsA
@@ -12111,8 +12149,8 @@ end
 return control
 
 end
-package.preload["compiler.check.declare"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.declare"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -12125,14 +12163,14 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local generics = require ( "compiler.generics" )
-local cst = require ( "compiler.cst" )
-local operators = require ( "compiler.check.operators" )
-local predicate = require ( "compiler.predicate" )
-local methodslots = require ( "compiler.methodslots" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local generics = require ( "nupp.compiler.generics" )
+local cst = require ( "nupp.compiler.cst" )
+local operators = require ( "nupp.compiler.check.operators" )
+local predicate = require ( "nupp.compiler.predicate" )
+local methodslots = require ( "nupp.compiler.methodslots" )
+local state = require ( "nupp.compiler.check.state" )
 
 local declare = { }
 
@@ -13453,8 +13491,8 @@ end
 return declare
 
 end
-package.preload["compiler.check.discard"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.discard"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -13497,9 +13535,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local discard = { }
 
@@ -13737,8 +13775,8 @@ end
 return discard
 
 end
-package.preload["compiler.check.expr"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.expr"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -13751,15 +13789,16 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local narrowing = require ( "compiler.narrowing" )
-local cst = require ( "compiler.cst" )
-local lexer = require ( "compiler.lexer" )
-local operators = require ( "compiler.check.operators" )
-local index = require ( "compiler.check.index" )
-local callexpr = require ( "compiler.check.callexpr" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local narrowing = require ( "nupp.compiler.narrowing" )
+local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
+local operators = require ( "nupp.compiler.check.operators" )
+local index = require ( "nupp.compiler.check.index" )
+local callexpr = require ( "nupp.compiler.check.callexpr" )
+local state = require ( "nupp.compiler.check.state" )
+local comptime = require ( "nupp.compiler.comptime" )
 
 local expr = { }
 
@@ -13881,6 +13920,47 @@ return T . integer
 end
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function comptimeType ( untypedNode )
+local node = untypedNode
+c . pushScope ( )
+c . retStack [ # c . retStack + 1 ] = false
+c . retPackStack [ # c . retPackStack + 1 ] = false
+if node . body then
+c . checkBlock ( node . body , true )
+end
+c . retPackStack [ # c . retPackStack ] = nil
+c . retStack [ # c . retStack ] = nil
+c . popScope ( )
+
+local quoted , resultType , failure = comptime . evaluate ( untypedNode , node . body )
+if failure then
+c . diag (
+failure . code ,
+failure . node or node ,
+failure . message ,
+nil ,
+failure . help and { help = failure . help } or nil
+)
+return T . any
+end
+node . comptimeValue = quoted
+
+return resultType or T . any
+end
 
 
 
@@ -14106,6 +14186,8 @@ c . checkPackDiscard ( inner . valuePack , 2 , node )
 end
 node . immutablePath = inner and inner . immutablePath or false
 return out
+elseif kind == "comptimeExpr" then
+return comptimeType ( node )
 elseif kind == "newExpr" then
 
 
@@ -14409,8 +14491,8 @@ end
 return expr
 
 end
-package.preload["compiler.check.ffi"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.ffi"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -14424,12 +14506,12 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local narrowing = require ( "compiler.narrowing" )
-local cst = require ( "compiler.cst" )
-local operators = require ( "compiler.check.operators" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local narrowing = require ( "nupp.compiler.narrowing" )
+local cst = require ( "nupp.compiler.cst" )
+local operators = require ( "nupp.compiler.check.operators" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local subtract = narrowing . subtract
@@ -14509,7 +14591,7 @@ end
 
 return nil
 end
-local t , err = require ( "compiler.cheader" ) . typeFromString ( spec , resolver )
+local t , err = require ( "nupp.compiler.cheader" ) . typeFromString ( spec , resolver )
 if t then
 resolved = t
 else
@@ -14724,7 +14806,7 @@ local candidates = { dir .. "/" .. headerPath , headerPath }
 for _ , root in ipairs ( c . env and c . env . roots or { } ) do
 candidates [ # candidates + 1 ] = root .. "/" .. headerPath
 end
-local cheaderMod = require ( "compiler.cheader" )
+local cheaderMod = require ( "nupp.compiler.cheader" )
 local loaded , err
 for _ , candidate in ipairs ( candidates ) do
 loaded , err = cheaderMod . load ( candidate , { preprocess = literal ( args [ 3 ] ) == "preprocess" , } )
@@ -14759,7 +14841,7 @@ local body = text : match (
 "^%[%[(.*)%]%]$"
 ) or text : match ( '^"(.*)"$' ) or text : match ( "^'(.*)'$" ) or text : match ( "^%[=+%[(.*)%]=+%]$" )
 if body then
-local ok , err = require ( "compiler.cheader" ) . declare ( body )
+local ok , err = require ( "nupp.compiler.cheader" ) . declare ( body )
 if not ok then
 c . diag (
 "NUPP2303" ,
@@ -14802,8 +14884,8 @@ end
 return ffi
 
 end
-package.preload["compiler.check.fixits"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.fixits"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -14816,8 +14898,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local fixits = { }
 
@@ -15143,8 +15225,8 @@ end
 return fixits
 
 end
-package.preload["compiler.check.functions"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.functions"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -15154,10 +15236,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
@@ -15915,8 +15997,8 @@ end
 return functions
 
 end
-package.preload["compiler.check.index"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.index"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -15928,11 +16010,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local cst = require ( "compiler.cst" )
-local native = require ( "compiler.native" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
@@ -15991,15 +16072,6 @@ return declared . t
 end
 end
 local trackedObject = c . infer ( target )
-
-
-local global = c . env and c . env . globals and c . env . globals [ holderName ]
-if target . kind == "name" and global and target . token and target . token . definition == global . definition then
-local effect = native . forGlobal ( holderName , memberName )
-if effect and c . recordEffect then
-c . recordEffect ( effect )
-end
-end
 local ot = trackedObject
 local base = kind == "safeIndex" and ot . tag == "union" and T . union ( ot . members ) or ot
 base = rawType ( base )
@@ -16151,6 +16223,12 @@ member ,
 nil ,
 { help = "call it with `:` so the arguments select one body" }
 )
+end
+local featureFields = c . env and c . env . featureEffects and c . env . featureEffects [ base ] or nil
+local effect = featureFields and featureFields [ memberName ] or nil
+if effect and c . recordEffect then
+( node ) . compilerFeatureEffect = effect
+c . recordEffect ( effect )
 end
 c . markToken ( member , fieldDef , ft , "property" )
 member . additionalDefinitions = fieldDefs
@@ -16381,8 +16459,8 @@ end
 return index
 
 end
-package.preload["compiler.check.loopclosure"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.loopclosure"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -16408,7 +16486,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local state = require ( "compiler.check.state" )
+local state = require ( "nupp.compiler.check.state" )
 
 local loopclosure = { }
 
@@ -16542,8 +16620,8 @@ end
 return loopclosure
 
 end
-package.preload["compiler.check.metatable"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.metatable"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -16560,11 +16638,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local cst = require ( "compiler.cst" )
-local operators = require ( "compiler.check.operators" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local cst = require ( "nupp.compiler.cst" )
+local operators = require ( "nupp.compiler.check.operators" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
@@ -16775,8 +16853,8 @@ end
 return metatable
 
 end
-package.preload["compiler.check.narrow"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.narrow"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -16790,12 +16868,12 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local narrowing = require ( "compiler.narrowing" )
-local cst = require ( "compiler.cst" )
-local lexer = require ( "compiler.lexer" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local narrowing = require ( "nupp.compiler.narrowing" )
+local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
+local state = require ( "nupp.compiler.check.state" )
 
 local narrow = { }
 
@@ -17470,8 +17548,8 @@ end
 return narrow
 
 end
-package.preload["compiler.check.operators"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.operators"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -17573,12 +17651,12 @@ __pairs = true ,
 __ipairs = true ,
 }
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local narrowing = require ( "compiler.narrowing" )
-local cst = require ( "compiler.cst" )
-local lexer = require ( "compiler.lexer" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local narrowing = require ( "nupp.compiler.narrowing" )
+local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
+local state = require ( "nupp.compiler.check.state" )
 
 local isA = relations . isA
 local subtract = narrowing . subtract
@@ -17827,8 +17905,8 @@ end
 return operators
 
 end
-package.preload["compiler.check.ownership"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.ownership"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -17839,10 +17917,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local ownership = { }
 
@@ -18317,8 +18395,8 @@ end
 return ownership
 
 end
-package.preload["compiler.check.pragma"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.pragma"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -18331,9 +18409,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local lints = require ( "compiler.lints" )
-local state = require ( "compiler.check.state" )
+local cst = require ( "nupp.compiler.cst" )
+local lints = require ( "nupp.compiler.lints" )
+local state = require ( "nupp.compiler.check.state" )
 
 local pragma = { }
 
@@ -18695,8 +18773,8 @@ end
 return pragma
 
 end
-package.preload["compiler.check.resolve"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.resolve"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -18710,11 +18788,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local generics = require ( "compiler.generics" )
-local relations = require ( "compiler.relations" )
-local cst = require ( "compiler.cst" )
-local state = require ( "compiler.check.state" )
+local T = require ( "nupp.compiler.types" )
+local generics = require ( "nupp.compiler.generics" )
+local relations = require ( "nupp.compiler.relations" )
+local cst = require ( "nupp.compiler.cst" )
+local state = require ( "nupp.compiler.check.state" )
 
 local resolve = { }
 
@@ -19399,8 +19477,8 @@ end
 return resolve
 
 end
-package.preload["compiler.check.state"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.state"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -19414,9 +19492,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local cst = require ( "compiler.cst" )
-local lexer = require ( "compiler.lexer" )
+local T = require ( "nupp.compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
 
 local state = { }
 
@@ -19894,8 +19972,8 @@ state.Checker = {} state.Checker.__index = state.Checker
 return state
 
 end
-package.preload["compiler.check.undocumentedraise"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.undocumentedraise"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -19927,9 +20005,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local docblock = require ( "compiler.docblock" )
-local state = require ( "compiler.check.state" )
+local cst = require ( "nupp.compiler.cst" )
+local docblock = require ( "nupp.compiler.docblock" )
+local state = require ( "nupp.compiler.check.state" )
 
 local undocumentedraise = { }
 
@@ -20011,8 +20089,8 @@ end
 return undocumentedraise
 
 end
-package.preload["compiler.check.unused"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.check.unused"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -20040,7 +20118,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local state = require ( "compiler.check.state" )
+local state = require ( "nupp.compiler.check.state" )
 
 local unused = { }
 
@@ -20132,8 +20210,8 @@ end
 return unused
 
 end
-package.preload["compiler.cli"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -20152,9 +20230,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local specMod = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
-local ansi = require ( "compiler.ansi" )
+local specMod = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
+local ansi = require ( "nupp.compiler.ansi" )
 
 local cli = { }
 
@@ -20167,43 +20245,43 @@ local REGISTRY
 
 
 = { { name = "ast" , load = function ( )
-return require ( "compiler.cli.ast" )
+return require ( "nupp.compiler.cli.ast" )
 end } , { name = "check" , load = function ( )
-return require ( "compiler.cli.check" )
+return require ( "nupp.compiler.cli.check" )
 end } , { name = "fmt" , load = function ( )
-return require ( "compiler.cli.fmt" )
+return require ( "nupp.compiler.cli.fmt" )
 end } , { name = "build" , load = function ( )
-return require ( "compiler.cli.build" )
+return require ( "nupp.compiler.cli.build" )
 end } , { name = "clean" , load = function ( )
-return require ( "compiler.cli.clean" )
+return require ( "nupp.compiler.cli.clean" )
 end } , { name = "tasks" , load = function ( )
-return require ( "compiler.cli.tasks" )
+return require ( "nupp.compiler.cli.tasks" )
 end } , { name = "lints" , load = function ( )
-return require ( "compiler.cli.lints" )
+return require ( "nupp.compiler.cli.lints" )
 end } , { name = "explain" , load = function ( )
-return require ( "compiler.cli.explain" )
+return require ( "nupp.compiler.cli.explain" )
 end } , { name = "reference" , load = function ( )
-return require ( "compiler.cli.reference" )
+return require ( "nupp.compiler.cli.reference" )
 end } , { name = "completions" , load = function ( )
-return require ( "compiler.cli.completions_command" )
+return require ( "nupp.compiler.cli.completions_command" )
 end } , { name = "test" , load = function ( )
-return require ( "compiler.cli.test" )
+return require ( "nupp.compiler.cli.test" )
 end } , { name = "coverage" , load = function ( )
-return require ( "compiler.cli.coverage" )
+return require ( "nupp.compiler.cli.coverage" )
 end } , { name = "task" , load = function ( )
-return require ( "compiler.cli.task" )
+return require ( "nupp.compiler.cli.task" )
 end } , { name = "doc" , load = function ( )
-return require ( "compiler.cli.doc" )
+return require ( "nupp.compiler.cli.doc" )
 end } , { name = "fixpoint" , load = function ( )
-return require ( "compiler.cli.fixpoint" )
+return require ( "nupp.compiler.cli.fixpoint" )
 end } , { name = "run" , load = function ( )
-return require ( "compiler.cli.run" )
+return require ( "nupp.compiler.cli.run" )
 end } , { name = "import-c" , load = function ( )
-return require ( "compiler.cli.importc" )
+return require ( "nupp.compiler.cli.importc" )
 end } , { name = "rock" , load = function ( )
-return require ( "compiler.cli.rock" )
+return require ( "nupp.compiler.cli.rock" )
 end } , { name = "lsp" , load = function ( )
-return require ( "compiler.cli.lsp" )
+return require ( "nupp.compiler.cli.lsp" )
 end } , }
 
 
@@ -20334,7 +20412,7 @@ io . write ( command . spec : help ( ) )
 return 0
 end
 if rest [ 1 ] == "--schema" and command . spec . schema then
-require ( "compiler.cli.report" ) . write ( command . spec . schema )
+require ( "nupp.compiler.cli.report" ) . write ( command . spec . schema )
 return 0
 end
 return command . run ( rest )
@@ -20351,7 +20429,7 @@ end
 if parsed . values . schema then
 
 
-require ( "compiler.cli.report" ) . write ( command . spec . schema )
+require ( "nupp.compiler.cli.report" ) . write ( command . spec . schema )
 return 0
 end
 
@@ -20388,8 +20466,8 @@ end
 return cli
 
 end
-package.preload["compiler.cli.ast"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.ast"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -20398,8 +20476,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
 
 local command = spec . command {
 name = "ast" ,
@@ -20501,14 +20579,14 @@ if # paths ~= 1 then
 return command : usageError ( "exactly one source file is required" )
 end
 local path = paths [ 1 ]
-local fs = require ( "compiler.fs" )
+local fs = require ( "nupp.compiler.fs" )
 local source , readErr = fs . readFile ( path )
 if not source then
 io . stderr : write ( "nupp: " .. tostring ( readErr ) .. "\n" )
 return 1
 end
-local parser = require ( "compiler.parser" )
-local cst = require ( "compiler.cst" )
+local parser = require ( "nupp.compiler.parser" )
+local cst = require ( "nupp.compiler.cst" )
 local result = parser . parse ( source , path )
 if ( parsed . values . format or "text" ) == "text" then
 io . write ( cst . pretty ( result . root ) .. "\n" )
@@ -20533,14 +20611,14 @@ json . encode_invalid_numbers ( false )
 io . write ( json . encode ( { file = path , root = syntaxTreeValue ( cst , result . root ) , errors = errors } ) .. "\n" )
 end
 
-return require ( "compiler.diagnostics" ) . report ( result . errors ) and 1 or 0
+return require ( "nupp.compiler.diagnostics" ) . report ( result . errors ) and 1 or 0
 end
 
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.build"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.build"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -20549,8 +20627,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
 
 local command = spec . command { name = "build" , summary = "Build source files or a configured project target" , usage = {
 "nupp build [--strict] [-O<n>] [--target NAME] [--out-dir DIR]" .. " [--format text|json]" ,
@@ -20573,7 +20651,7 @@ help = "Output directory for explicit source-file builds"
 type = "object" ,
 description = "What a build reported and what it produced." ,
 properties = {
-diagnostics = require ( "compiler.cli.report" ) . DIAGNOSTICS ,
+diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS ,
 target = {
 type = "string" ,
 description = "The manifest target that was built. Absent for a "
@@ -20609,12 +20687,12 @@ end
 if # paths == 0 and outDir then
 return command : usageError ( "-o requires at least one explicit source file" )
 end
-local reportMod = require ( "compiler.cli.report" )
+local reportMod = require ( "nupp.compiler.cli.report" )
 local asJson = values . format == "json"
 
 
 local diagnostics = { }
-local compile = require ( "compiler.cli.compile" )
+local compile = require ( "nupp.compiler.cli.compile" )
 local settings = compile . settings ( values , asJson and diagnostics or nil )
 local function finish ( code , builtTarget , outputs )
 if asJson then
@@ -20630,7 +20708,7 @@ return code
 end
 
 if # paths == 0 then
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 local produced = { }
 local code = project . build (
 "." ,
@@ -20648,12 +20726,12 @@ produced = asJson and produced or nil
 )
 return finish ( code , produced . target , produced . outputs or { } )
 end
-local process = require ( "compiler.build.process" )
+local process = require ( "nupp.compiler.build.process" )
 if outDir and process . run ( process . mkdirCommand ( outDir ) ) ~= 0 then
 io . stderr : write ( "nupp: cannot create output directory " .. outDir .. "\n" )
 return finish ( 1 , nil , { } )
 end
-local env = require ( "compiler.env" ) . new ( "." )
+local env = require ( "nupp.compiler.env" ) . new ( "." )
 local failed = false
 local written = { }
 local outputs = { }
@@ -20722,8 +20800,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.check"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.check"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -20731,8 +20809,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
 
 local command = spec . command {
 name = "check" ,
@@ -20745,7 +20823,7 @@ optionsMod . format ( )
 ) ,
 schema = {
 type = "object" ,
-properties = { diagnostics = require ( "compiler.cli.report" ) . DIAGNOSTICS } ,
+properties = { diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS } ,
 required = { "diagnostics" } ,
 } ,
 detail = "With no files, checks the default target from nupp.lua." ,
@@ -20759,10 +20837,10 @@ if target and # paths > 0 then
 return command : usageError ( "--target cannot be combined with source files" )
 end
 local asJson = values . format == "json"
-local reportMod = require ( "compiler.cli.report" )
+local reportMod = require ( "nupp.compiler.cli.report" )
 local diagnostics = { }
 if # paths == 0 then
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 local code = project . check (
 "." ,
 { strict = values . strict , target = target , diagnostics = asJson and diagnostics or nil }
@@ -20772,11 +20850,11 @@ reportMod . json ( diagnostics )
 end
 return code
 end
-local fs = require ( "compiler.fs" )
-local parser = require ( "compiler.parser" )
-local check = require ( "compiler.check" )
-local diagnosticMod = require ( "compiler.diagnostics" )
-local env = require ( "compiler.env" ) . new ( "." )
+local fs = require ( "nupp.compiler.fs" )
+local parser = require ( "nupp.compiler.parser" )
+local check = require ( "nupp.compiler.check" )
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
+local env = require ( "nupp.compiler.env" ) . new ( "." )
 local failed = false
 for _ , path in ipairs ( paths ) do
 local source , err = fs . readFile ( path )
@@ -20827,7 +20905,7 @@ end
 
 
 
-require ( "compiler.env" ) . persist ( env )
+require ( "nupp.compiler.env" ) . persist ( env )
 if asJson then
 reportMod . json ( diagnostics )
 end
@@ -20838,8 +20916,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.clean"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.clean"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -20847,18 +20925,18 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "clean" ,
 summary = "Remove build outputs configured in nupp.lua" ,
 usage = { "nupp clean [--target NAME] [--dry-run] [--format text|json]" } ,
 options = require (
-"compiler.cli.options"
+"nupp.compiler.cli.options"
 ) . join (
 { name = "--target" , value = "NAME" , help = "Clean only the named build target" } ,
 { name = "--dry-run" , help = "Print output paths without removing them" } ,
-require ( "compiler.cli.options" ) . format ( )
+require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
 type = "object" ,
@@ -20886,14 +20964,14 @@ end
 local values = parsed . values
 local asJson = values . format == "json"
 local dryRun = values . dryRun and true or false
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 local removed = { }
 local code = project . clean (
 "." ,
 { target = values . target , dryRun = values . dryRun , removed = asJson and removed or nil }
 )
 if asJson then
-require ( "compiler.cli.report" ) . write ( { ok = code == 0 , removed = removed , dryRun = dryRun } )
+require ( "nupp.compiler.cli.report" ) . write ( { ok = code == 0 , removed = removed , dryRun = dryRun } )
 end
 
 return code
@@ -20902,8 +20980,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.compile"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.compile"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -20913,8 +20991,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local diagnosticMod = require ( "compiler.diagnostics" )
-local fs = require ( "compiler.fs" )
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
+local fs = require ( "nupp.compiler.fs" )
 
 local compile = { }
 
@@ -21007,19 +21085,19 @@ io . stderr : write ( "nupp: " .. tostring ( readErr ) .. "\n" )
 end
 return nil , readErr
 end
-local parser = require ( "compiler.parser" )
+local parser = require ( "nupp.compiler.parser" )
 local result = parser . parse ( source , path )
 if # result . errors > 0 then
 say ( result . errors )
 return nil , "syntax errors"
 end
-local check = require ( "compiler.check" )
+local check = require ( "nupp.compiler.check" )
 local diags = check . check ( result , path , env , { strict = settings . strict } )
 if say ( diags ) then
 return nil , "type errors"
 end
 local remarks = require (
-"compiler.optimize"
+"nupp.compiler.optimize"
 ) . run (
 result ,
 { level = settings . optLevel , filename = path , disabled = settings . disabled , relaxed = settings . relaxed }
@@ -21027,7 +21105,7 @@ result ,
 if settings . remarks then
 say ( remarks )
 end
-local gen = require ( "compiler.gen" )
+local gen = require ( "nupp.compiler.gen" )
 local code , genDiags = gen . generate ( result , path , settings . coverage and { path = path } or nil )
 if # genDiags > 0 then
 say ( genDiags )
@@ -21040,8 +21118,8 @@ end
 return compile
 
 end
-package.preload["compiler.cli.completions"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.completions"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -21050,7 +21128,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local completions = { }
 
@@ -21127,7 +21205,7 @@ local names = { }
 local lines
 
 = {
-"# Bash completion for nupp; generated from compiler.cli.spec." ,
+"# Bash completion for nupp; generated from nupp.compiler.cli.spec." ,
 "_nupp() {" ,
 "  local cur prev command options" ,
 "  cur=\"${COMP_WORDS[COMP_CWORD]}\"" ,
@@ -21173,7 +21251,7 @@ local lines
 
 = {
 "#compdef nupp" ,
-"# Zsh completion for nupp; generated from compiler.cli.spec." ,
+"# Zsh completion for nupp; generated from nupp.compiler.cli.spec." ,
 "local -a commands" ,
 "commands=(" ,
 }
@@ -21214,7 +21292,7 @@ local function fish ( commands )
 local lines
 
 = {
-"# Fish completion for nupp; generated from compiler.cli.spec." ,
+"# Fish completion for nupp; generated from nupp.compiler.cli.spec." ,
 "function __fish_nupp_using_command" ,
 "    set -l words (commandline -opc)" ,
 "    test (count $words) -ge 2; and test $words[2] = $argv[1]" ,
@@ -21293,10 +21371,10 @@ end
 return completions
 
 end
-package.preload["compiler.cli.completions_command"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.completions_command"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "completions" ,
@@ -21314,10 +21392,10 @@ end
 if shell ~= "bash" and shell ~= "zsh" and shell ~= "fish" then
 return command : usageError ( "unknown shell " .. shell .. "; expected bash, zsh, or fish" )
 end
-local cli = require ( "compiler.cli" )
+local cli = require ( "nupp.compiler.cli" )
 
 
-io . write ( require ( "compiler.cli.completions" ) . render ( shell , cli . commands ( ) ) )
+io . write ( require ( "nupp.compiler.cli.completions" ) . render ( shell , cli . commands ( ) ) )
 
 return 0
 end
@@ -21325,11 +21403,11 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.coverage"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.coverage"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
-local spec = require ( "compiler.cli.spec" )
-local fs = require ( "compiler.fs" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local fs = require ( "nupp.compiler.fs" )
 
 local command = spec . command {
 name = "coverage" ,
@@ -21381,7 +21459,7 @@ if not fs . mkdir ( outDir ) then
 io . stderr : write ( "nupp: cannot create coverage output " .. outDir .. "\n" )
 return 1
 end
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 local testCode = project . test (
 "." ,
 parsed . positional ,
@@ -21391,11 +21469,11 @@ outDir = buildDir ,
 env = { NUPP_COVERAGE = "1" , NUPP_COVERAGE_BUILD = buildDir , NUPP_COVERAGE_FILE = raw }
 }
 )
-local report = require ( "compiler.coverage" )
+local report = require ( "nupp.compiler.coverage" )
 local model = report . collect ( buildDir .. "/.nupp-state.json" , raw )
 local summary = report . write ( model , outDir )
 if parsed . values . json then
-require ( "compiler.cli.report" ) . write ( summary )
+require ( "nupp.compiler.cli.report" ) . write ( summary )
 else
 io . write (
 (
@@ -21415,8 +21493,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.doc"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.doc"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -21424,7 +21502,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local FORMATS = { site = "site" , markdown = "markdown" , md = "markdown" , both = "both" , }
 
@@ -21433,12 +21511,12 @@ name = "doc" ,
 summary = "Generate API documentation from source comments" ,
 usage = { "nupp doc [site|markdown|both] [-o PATH] [--title TITLE] [--all]" .. " [--format text|json] [path...]" } ,
 options = require (
-"compiler.cli.options"
+"nupp.compiler.cli.options"
 ) . join (
 { names = { "-o" , "--output" } , value = "PATH" , key = "output" , help = "Output file or directory" } ,
 { name = "--title" , value = "TITLE" , help = "Documentation title" } ,
 { name = "--all" , help = "Include private declarations" } ,
-require ( "compiler.cli.options" ) . format ( )
+require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
 type = "object" ,
@@ -21465,7 +21543,7 @@ documentation format, which is the positional word.]] ,
 local function run ( parsed )
 local positional = parsed . positional
 local values = parsed . values
-local doc = require ( "compiler.doc" )
+local doc = require ( "nupp.compiler.doc" )
 local config , configErr = doc . loadConfig ( "." )
 if not config then
 io . stderr : write ( "nupp: " .. tostring ( configErr ) .. "\n" )
@@ -21475,7 +21553,7 @@ local settings = doc . manifestSettings ( config )
 
 
 
-local deps = require ( "compiler.build.deps" )
+local deps = require ( "nupp.compiler.build.deps" )
 local installed , depErr = deps . build (
 "." ,
 settings . outDir or "build" ,
@@ -21518,7 +21596,7 @@ opts
 )
 if asJson then
 require (
-"compiler.cli.report"
+"nupp.compiler.cli.report"
 ) . write ( { ok = code == 0 , files = written , output = output or "" , format = resolved or "" } )
 end
 
@@ -21528,8 +21606,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.explain"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.explain"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -21537,9 +21615,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
-local ansi = require ( "compiler.ansi" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
+local ansi = require ( "nupp.compiler.ansi" )
 
 local command = spec . command {
 name = "explain" ,
@@ -21590,14 +21668,14 @@ with `family: true`, rather than an example being invented to fit it.]] ,
 }
 
 local function run ( parsed )
-local explain = require ( "compiler.explain" )
+local explain = require ( "nupp.compiler.explain" )
 local values = parsed . values
 local asJson = values . format == "json"
 local positional = parsed . positional
 if values . list then
 local codes = explain . codes ( )
 if asJson then
-require ( "compiler.cli.report" ) . write ( { codes = codes } )
+require ( "nupp.compiler.cli.report" ) . write ( { codes = codes } )
 else
 io . write ( table . concat ( codes , "\n" ) , "\n" )
 end
@@ -21615,7 +21693,7 @@ return command : usageError ( "unknown diagnostic code " .. positional [ 1 ] )
 end
 if asJson then
 require (
-"compiler.cli.report"
+"nupp.compiler.cli.report"
 ) . write ( {
 code = entry . code ,
 summary = entry . summary ,
@@ -21677,8 +21755,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.fixpoint"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.fixpoint"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -21687,7 +21765,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "fixpoint" ,
@@ -21699,11 +21777,11 @@ intro = [[By default the compiler compiles itself twice and the two must agree.
 selfHost.binary is stamped, and the binary that comes out stamps another
 identical to itself. It is what the payload format's determinism rests on.]] ,
 options = require (
-"compiler.cli.options"
+"nupp.compiler.cli.options"
 ) . join (
 { name = "--update-bootstrap" , help = "Refresh the tracked stage-0 bundle after verification" } ,
 { name = "--binary" , help = "Verify the packaged binary instead of the compiler" } ,
-require ( "compiler.cli.options" ) . format ( )
+require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
 type = "object" ,
@@ -21734,7 +21812,7 @@ if values . binary and values . updateBootstrap then
 return command : usageError ( "--binary verifies the packaged binary and has no bootstrap to refresh" )
 end
 local asJson = values . format == "json"
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 
 
 local result = { }
@@ -21747,7 +21825,7 @@ end
 if asJson then
 result . ok = code == 0
 result . kind = values . binary and "binary" or "compiler"
-require ( "compiler.cli.report" ) . write ( result )
+require ( "nupp.compiler.cli.report" ) . write ( result )
 end
 
 return code
@@ -21756,8 +21834,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.fmt"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.fmt"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -21770,7 +21848,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "fmt" ,
@@ -21787,7 +21865,7 @@ formatted are listed and the exit status is 1, so a build can gate on it;
 the files a change touched. Nothing is written and nothing goes to stdout but
 the list; the exit status is 1 if it is not empty.]] ,
 options = require (
-"compiler.cli.options"
+"nupp.compiler.cli.options"
 ) . join (
 { names = { "-w" , "--write" } , help = "Rewrite files in place instead of writing to stdout" } ,
 { name = "--check" , help = "Report which files are not formatted; write nothing" } ,
@@ -21795,7 +21873,7 @@ options = require (
 name = "--no-method-parens" ,
 help = "Leave obj:m{...} and obj:m\"...\" written without " .. "parentheses, instead of adding them"
 } ,
-require ( "compiler.cli.options" ) . format ( )
+require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
 type = "object" ,
@@ -21818,7 +21896,7 @@ description = "Files that could not be formatted at all, which "
 .. "is a different answer from being unformatted." ,
 items = {
 type = "object" ,
-properties = { file = { type = "string" } , diagnostics = require ( "compiler.cli.report" ) . DIAGNOSTICS } ,
+properties = { file = { type = "string" } , diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS } ,
 required = { "file" , "diagnostics" } ,
 } ,
 } ,
@@ -21843,11 +21921,11 @@ return command : usageError (
 "--write and --check ask for opposite things: one fixes the " .. "formatting, the other reports it"
 )
 end
-local fs = require ( "compiler.fs" )
-local fmt = require ( "compiler.fmt" )
-local envMod = require ( "compiler.env" )
-local diagnosticMod = require ( "compiler.diagnostics" )
-local reportMod = require ( "compiler.cli.report" )
+local fs = require ( "nupp.compiler.fs" )
+local fmt = require ( "nupp.compiler.fmt" )
+local envMod = require ( "nupp.compiler.env" )
+local diagnosticMod = require ( "nupp.compiler.diagnostics" )
+local reportMod = require ( "nupp.compiler.cli.report" )
 local asJson = values . format == "json"
 local env = envMod . new ( "." )
 
@@ -21897,7 +21975,7 @@ end
 
 local settled = reporting and envMod . formatStore ( env ) or nil
 local textNeeded = write and true or false
-local hashMod = require ( "compiler.build.hash" )
+local hashMod = require ( "nupp.compiler.build.hash" )
 local optionsKey = nil
 local function verdictKey ( path , source )
 if not optionsKey then
@@ -21997,8 +22075,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.importc"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.importc"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -22006,18 +22084,18 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "import-c" ,
 summary = "Generate typed Nupp bindings from a C header" ,
 usage = { "nupp import-c [-o FILE] [-l NAME|--lib NAME] [--format text|json]" .. " <header.h>" } ,
 options = require (
-"compiler.cli.options"
+"nupp.compiler.cli.options"
 ) . join (
 { name = "-o" , value = "FILE" , key = "out" , help = "Write the generated module to FILE" } ,
 { names = { "-l" , "--lib" } , value = "NAME" , key = "lib" , help = "Name the native library loaded by the bindings" } ,
-require ( "compiler.cli.options" ) . format ( )
+require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
 type = "object" ,
@@ -22046,8 +22124,8 @@ return command : usageError ( "exactly one C header is required" )
 end
 local header = paths [ 1 ]
 local asJson = parsed . values . format == "json"
-local reportMod = require ( "compiler.cli.report" )
-local importc = require ( "compiler.importc" )
+local reportMod = require ( "nupp.compiler.cli.report" )
+local importc = require ( "nupp.compiler.importc" )
 local text , warnings = importc . import ( header , { lib = parsed . values . lib } )
 local function fail ( )
 if asJson then
@@ -22093,8 +22171,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.lints"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.lints"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -22102,8 +22180,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local ansi = require ( "compiler.ansi" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local ansi = require ( "nupp.compiler.ansi" )
 
 local command = spec . command {
 name = "lints" ,
@@ -22115,7 +22193,7 @@ project moves one in nupp.lua by name or by category:
   lints = { ["missing-require"] = "warning", pedantic = "warning" }
 
 A statement waves one away with @allow("missing-require"). See docs/lints.md.]] ,
-options = require ( "compiler.cli.options" ) . format ( ) ,
+options = require ( "nupp.compiler.cli.options" ) . format ( ) ,
 schema = {
 type = "object" ,
 properties = {
@@ -22160,8 +22238,8 @@ required = { "lints" } ,
 local LEVEL_SEVERITY = { error = "error" , warning = "warning" , note = "note" , }
 
 local function run ( parsed )
-local lints = require ( "compiler.lints" )
-local project = require ( "compiler.build.project" )
+local lints = require ( "nupp.compiler.lints" )
+local project = require ( "nupp.compiler.build.project" )
 
 
 local config , err = project . loadManifest ( "." )
@@ -22197,7 +22275,7 @@ table . sort ( rows , function ( a , b )
 return a . name < b . name
 end )
 if parsed . values . format == "json" then
-require ( "compiler.cli.report" ) . write ( { lints = rows } )
+require ( "nupp.compiler.cli.report" ) . write ( { lints = rows } )
 return 0
 end
 
@@ -22236,8 +22314,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.lsp"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.lsp"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -22253,8 +22331,8 @@ _G.nupp=_G.nupp or {};
 
 
 local json = require ( "cjson" ) . new ( )
-local lsp = require ( "compiler.lsp" )
-local spec = require ( "compiler.cli.spec" )
+local lsp = require ( "nupp.compiler.lsp" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 
 
@@ -22397,11 +22475,11 @@ end
 return { line = line , column = offset - start + 1 , offset = offset }
 end
 
-local optionsMod = require ( "compiler.cli.options" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
 
 
 
-local reportMod = require ( "compiler.cli.report" )
+local reportMod = require ( "nupp.compiler.cli.report" )
 
 local function operationSpec ( name , summary , usage , extra , schema )
 local declared = { { name = "--root" , value = "DIR" , help = "Project root (default: current directory)" } , }
@@ -23233,7 +23311,7 @@ if opts . schema then
 reportMod . write ( grammar . schema )
 return 0
 end
-local ansi = require ( "compiler.ansi" )
+local ansi = require ( "nupp.compiler.ansi" )
 if type ( opts . color ) == "string" then
 ansi . setMode ( opts . color )
 end
@@ -23256,8 +23334,8 @@ end
 return setmetatable( { spec = command , raw = true , run = dispatch } , spec.Handler)
 
 end
-package.preload["compiler.cli.options"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.options"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -23370,8 +23448,8 @@ end
 return options
 
 end
-package.preload["compiler.cli.reference"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.reference"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -23384,7 +23462,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "reference" ,
@@ -23470,7 +23548,7 @@ required = { "title" , "sections" , "chapters" , "tooling" , "markdown" } ,
 }
 
 local function run ( parsed )
-local reference = require ( "compiler.reference" )
+local reference = require ( "nupp.compiler.reference" )
 local format = parsed . values . format or "markdown"
 local positional = parsed . positional
 if # positional > 1 then
@@ -23517,11 +23595,11 @@ if not file then
 io . stderr : write ( tostring ( err ) .. "\n" )
 return 1
 end
-file : write ( require ( "compiler.cli.report" ) . encode ( payload ) , "\n" )
+file : write ( require ( "nupp.compiler.cli.report" ) . encode ( payload ) , "\n" )
 file : close ( )
 return 0
 end
-require ( "compiler.cli.report" ) . write ( payload )
+require ( "nupp.compiler.cli.report" ) . write ( payload )
 return 0
 end
 
@@ -23543,8 +23621,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.report"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.report"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -23556,8 +23634,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local fs = require ( "compiler.fs" )
-local explain = require ( "compiler.explain" )
+local fs = require ( "nupp.compiler.fs" )
+local explain = require ( "nupp.compiler.explain" )
 
 local report = { }
 
@@ -23775,10 +23853,10 @@ report . DIAGNOSTICS = { type = "array" , items = report . DIAGNOSTIC }
 return report
 
 end
-package.preload["compiler.cli.rock"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.rock"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "rock" ,
@@ -23852,7 +23930,7 @@ if not result then
 return answered
 end
 local positional = result . positional
-local library = require ( "compiler.rock" )
+local library = require ( "nupp.compiler.rock" )
 if name == "init" then
 if not positional [ 1 ] then
 return operation : usageError ( "a rock name is required" )
@@ -23889,8 +23967,8 @@ end
 return setmetatable( { spec = command , raw = true , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.run"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.run"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -23905,8 +23983,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
 
 local command = spec . command {
 name = "run" ,
@@ -23989,9 +24067,9 @@ for index = 2 , # positional do
 programArgs [ # programArgs + 1 ] = positional [ index ]
 end
 
-local compile = require ( "compiler.cli.compile" )
+local compile = require ( "nupp.compiler.cli.compile" )
 local settings = compile . settings ( values )
-local projectEnv = require ( "compiler.env" ) . new ( "." )
+local projectEnv = require ( "nupp.compiler.env" ) . new ( "." )
 local chunk , err
 if path : find ( "%.nupp$" ) then
 local code = compile . module ( path , projectEnv , settings )
@@ -24022,7 +24100,7 @@ tracing = profile . trace ( )
 end
 end
 
-local runtime = require ( "compiler.runtime" )
+local runtime = require ( "nupp.compiler.runtime" )
 local removeLoader = runtime . install ( projectEnv , function ( modulePath , env )
 return compile . module ( modulePath , env , settings )
 end )
@@ -24060,8 +24138,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.spec"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.spec"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -24082,7 +24160,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local ansi = require ( "compiler.ansi" )
+local ansi = require ( "nupp.compiler.ansi" )
 
 local spec = { }
 
@@ -24668,8 +24746,8 @@ spec . wrap = wrap
 return spec
 
 end
-package.preload["compiler.cli.task"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.task"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -24684,7 +24762,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "task" ,
@@ -24707,7 +24785,7 @@ local name = table . remove ( args , 1 )
 if not name or name == "" then
 return command : usageError ( "a task name is required; see `nupp tasks`" )
 end
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 
 return project . runTask ( "." , name , args )
 end
@@ -24715,8 +24793,8 @@ end
 return setmetatable( { spec = command , raw = true , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.tasks"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.tasks"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -24724,9 +24802,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
-local optionsMod = require ( "compiler.cli.options" )
-local ansi = require ( "compiler.ansi" )
+local spec = require ( "nupp.compiler.cli.spec" )
+local optionsMod = require ( "nupp.compiler.cli.options" )
+local ansi = require ( "nupp.compiler.ansi" )
 
 local command = spec . command {
 name = "tasks" ,
@@ -24861,7 +24939,7 @@ if # positional > 1 then
 return command : usageError ( "only one task name may be queried" )
 end
 local name = positional [ 1 ]
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 local info , err = project . describeTasks ( "." , name )
 if not info then
 io . stderr : write ( tostring ( err ) .. "\n" )
@@ -24897,8 +24975,8 @@ end
 return setmetatable( { spec = command , run = run } , spec.Handler)
 
 end
-package.preload["compiler.cli.test"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cli.test"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -24907,7 +24985,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local spec = require ( "compiler.cli.spec" )
+local spec = require ( "nupp.compiler.cli.spec" )
 
 local command = spec . command {
 name = "test" ,
@@ -24993,7 +25071,7 @@ local function run ( args )
 if args [ 1 ] == "--" then
 table . remove ( args , 1 )
 end
-local project = require ( "compiler.build.project" )
+local project = require ( "nupp.compiler.build.project" )
 
 return project . test ( "." , args )
 end
@@ -25001,8 +25079,1061 @@ end
 return setmetatable( { spec = command , raw = true , run = run } , spec.Handler)
 
 end
-package.preload["compiler.coverage"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.comptime"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local cst = require ( "nupp.compiler.cst" )
+local T = require ( "nupp.compiler.types" )
+
+local comptime = { }
+
+local isToken = cst . isToken
+
+
+
+
+
+comptime . limits = {
+
+steps = 2000000 ,
+
+
+depth = 200 ,
+
+
+entries = 65536 ,
+
+
+bytes = 1048576 , }
+
+
+
+local MAX_EXACT_INTEGER = 9007199254740991
+
+
+
+
+local FAILURE = { }
+
+local function fail ( code , node , message , help )
+error ( { [ FAILURE ] = true , code = code , node = node , message = message , help = help } , 0 )
+end
+
+
+
+
+
+local function keyLess ( a , b )
+local ta , tb = type ( a ) , type ( b )
+if ta ~= tb then
+return ta < tb
+end
+if ta == "number" or ta == "string" then
+return a < b
+end
+if ta == "boolean" then
+return ( not a ) and b
+end
+
+return false
+end
+
+local function sortedKeys ( t )
+local keys = { }
+for key in pairs ( t ) do
+keys [ # keys + 1 ] = key
+end
+table . sort ( keys , keyLess )
+
+return keys
+end
+
+
+
+
+local function arrayLength ( t )
+local n = 0
+while t [ n + 1 ] ~= nil do
+n = n + 1
+end
+
+return n
+end
+
+
+
+
+
+
+
+
+local function quoteNumber ( value , node )
+if value ~= value then
+fail ( "NUPP2405" , node , "NaN has no literal spelling" )
+end
+if value == math . huge or value == - math . huge then
+fail ( "NUPP2405" , node , "an infinity has no literal spelling" )
+end
+if value == 0 then
+
+
+return 1 / value < 0 and "-0.0" or "0"
+end
+if value == math . floor ( value ) and math . abs ( value ) <= MAX_EXACT_INTEGER then
+return ( "%.0f" ) : format ( value )
+end
+for _ , format in ipairs ( { "%.14g" , "%.15g" , "%.16g" , "%.17g" } ) do
+local text = format : format ( value )
+if tonumber ( text ) == value then
+return text
+end
+end
+
+fail ( "NUPP2405" , node , "this number has no spelling that reads back unchanged" )
+end
+
+
+
+
+
+
+
+
+
+local function quote ( value , node , seen , budget )
+local kind = type ( value )
+if value == nil then
+return "nil"
+elseif kind == "boolean" then
+return tostring ( value )
+elseif kind == "number" then
+return quoteNumber ( value , node )
+elseif kind == "string" then
+return ( "%q" ) : format ( value )
+elseif kind ~= "table" then
+fail ( "NUPP2405" , node , ( "a %s is not a quotable result" ) : format ( kind ) )
+end
+if seen [ value ] then
+fail (
+"NUPP2405" ,
+node ,
+"this table is reachable by more than one path" ,
+"build a separate table for each position, or return the shared part on its own"
+)
+end
+seen [ value ] = true
+if getmetatable ( value ) ~= nil then
+fail ( "NUPP2405" , node , "a table with a metatable is not a quotable result" )
+end
+local parts = { }
+local count = arrayLength ( value )
+for index = 1 , count do
+budget . entries = budget . entries + 1
+parts [ # parts + 1 ] = quote ( value [ index ] , node , seen , budget )
+end
+for _ , key in ipairs ( sortedKeys ( value ) ) do
+local skip = type ( key ) == "number" and key == math . floor ( key ) and key >= 1 and key <= count
+if not skip then
+budget . entries = budget . entries + 1
+local keyText
+if type ( key ) == "string" and key : find ( "^[%a_][%w_]*$" ) then
+keyText = key
+else
+keyText = "[" .. quote ( key , node , seen , budget ) .. "]"
+end
+parts [ # parts + 1 ] = keyText .. " = " .. quote ( value [ key ] , node , seen , budget )
+end
+end
+if budget . entries > comptime . limits . entries then
+fail ( "NUPP2404" , node , ( "the result exceeds %d entries" ) : format ( comptime . limits . entries ) )
+end
+
+
+
+local text = "{" .. table . concat ( parts , ", " ) .. "}"
+if # text > comptime . limits . bytes then
+fail ( "NUPP2404" , node , ( "the result exceeds %d bytes of source" ) : format ( comptime . limits . bytes ) )
+end
+
+return text
+end
+
+
+local function quoteValue ( value , node )
+return quote ( value , node , { } , { entries = 0 } )
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function buildEnvironment ( )
+local env = { }
+
+env . assert = assert
+env . error = error
+env . select = select
+env . tonumber = tonumber
+env . type = type
+
+
+
+env . tostring = function ( value )
+local kind = type ( value )
+if kind == "string" then
+return value
+end
+if kind == "number" or kind == "boolean" or kind == "nil" then
+return tostring ( value )
+end
+
+error ( ( "tostring is unavailable for a %s at comptime" ) : format ( kind ) , 0 )
+end
+
+env . ipairs = ipairs
+
+
+
+env . pairs = function ( t )
+if type ( t ) ~= "table" then
+error ( "pairs expects a table" , 0 )
+end
+local keys , index = sortedKeys ( t ) , 0
+
+return function ( )
+index = index + 1
+local key = keys [ index ]
+if key == nil then
+return nil
+end
+
+return key , t [ key ]
+end
+end
+
+env . math = {
+abs = math . abs ,
+ceil = math . ceil ,
+floor = math . floor ,
+fmod = math . fmod ,
+max = math . max ,
+min = math . min ,
+modf = math . modf ,
+sqrt = math . sqrt ,
+huge = math . huge ,
+pi = math . pi ,
+}
+
+env . string = { byte = string . byte , char = string . char , find = string . find , format = string . format , len = string . len , lower = string . lower , match = string . match , rep = string . rep , reverse = string . reverse , sub = string . sub , upper = string . upper ,
+
+
+
+gsub = function ( subject , pattern , replacement , n )
+if type ( replacement ) ~= "string" and type ( replacement ) ~= "number" then
+error ( "gsub needs a string replacement at comptime" , 0 )
+end
+
+return string . gsub ( subject , pattern , replacement , n )
+end , gmatch = string . gmatch , }
+
+env . table = { concat = table . concat , insert = table . insert , remove = table . remove , }
+
+env . bit = {
+band = bit . band ,
+bor = bit . bor ,
+bxor = bit . bxor ,
+bnot = bit . bnot ,
+lshift = bit . lshift ,
+rshift = bit . rshift ,
+arshift = bit . arshift ,
+rol = bit . rol ,
+ror = bit . ror ,
+bswap = bit . bswap ,
+tobit = bit . tobit ,
+tohex = bit . tohex ,
+}
+
+
+
+
+
+local libraries = { [ env . math ] = "math" , [ env . string ] = "string" , [ env . table ] = "table" , [ env . bit ] = "bit" , }
+
+return env , libraries
+end
+
+
+
+
+local BREAK = { }
+local RETURN = { }
+
+
+local function newState ( env , libraries )
+return { env = env , libraries = libraries , steps = 0 , depth = 0 , result = nil }
+end
+
+local function scope ( parent )
+return { parent = parent , names = { } }
+end
+
+local function lookup ( current , name )
+while current do
+local slot = current . names [ name ]
+if slot ~= nil then
+return slot
+end
+current = current . parent
+end
+
+return nil
+end
+
+local function declare ( current , name , value )
+current . names [ name ] = { value = value }
+end
+
+local function step ( state , node )
+state . steps = state . steps + 1
+if state . steps > comptime . limits . steps then
+fail ( "NUPP2404" , node , ( "evaluation exceeded %d steps" ) : format ( comptime . limits . steps ) )
+end
+end
+
+local function enter ( state , node )
+state . depth = state . depth + 1
+if state . depth > comptime . limits . depth then
+fail ( "NUPP2404" , node , ( "evaluation nested deeper than %d" ) : format ( comptime . limits . depth ) )
+end
+end
+
+local function leave ( state )
+state . depth = state . depth - 1
+end
+
+local unsupported = function ( node , what )
+fail (
+"NUPP2402" ,
+node ,
+( "%s is unavailable at comptime" ) : format ( what ) ,
+"compute the value with the constructs comptime supports, or move this to run time"
+)
+end
+
+local evalExpr , execBlock , evalMulti
+
+
+
+
+
+
+
+
+local function pack ( ... )
+return { n = select ( "#" , ... ) , ... }
+end
+
+local function callValues ( state , node , callee , args )
+if type ( callee ) ~= "function" then
+fail ( "NUPP2402" , node , ( "a %s is not callable at comptime" ) : format ( type ( callee ) ) )
+end
+local produced = pack ( pcall ( callee , unpack ( args , 1 , args . n ) ) )
+if not produced [ 1 ] then
+local message = produced [ 2 ]
+fail ( "NUPP2403" , node , type ( message ) == "string" and message or "the call failed" )
+end
+local values = { n = produced . n - 1 }
+for index = 2 , produced . n do
+values [ index - 1 ] = produced [ index ]
+end
+
+return values
+end
+
+
+
+local function expands ( node )
+if not node or isToken ( node ) then
+return false
+end
+local kind = node . kind
+
+return kind == "call" or kind == "safeCall" or kind == "methodCall"
+end
+
+
+
+local function evalList ( state , exprs )
+local values = { n = 0 }
+local count = # ( exprs or { } )
+for index = 1 , count do
+local expr = exprs [ index ]
+if index == count and expands ( expr ) then
+local produced = evalMulti ( state , expr )
+for offset = 1 , produced . n do
+values [ values . n + offset ] = produced [ offset ]
+end
+values . n = values . n + produced . n
+else
+values . n = values . n + 1
+values [ values . n ] = evalExpr ( state , expr )
+end
+end
+
+return values
+end
+
+local function evalArgs ( state , argsNode )
+return evalList ( state , argsNode and argsNode . exprs or { } )
+end
+
+
+evalExpr = function ( state , node )
+if not node or isToken ( node ) then
+return nil
+end
+step ( state , node )
+enter ( state , node )
+local kind = node . kind
+local answer
+if kind == "number" then
+local text = node . token and node . token . text or "0"
+local lower = text : lower ( )
+if lower : find ( "ll" , 1 , true ) or lower : sub ( - 1 ) == "i" then
+unsupported ( node , "a boxed integer literal" )
+end
+answer = tonumber ( ( text : gsub ( "_" , "" ) ) )
+elseif kind == "string" then
+local chunk = loadstring ( "return " .. ( node . token and node . token . text or '""' ) )
+answer = chunk and chunk ( ) or ""
+elseif kind == "nilExpr" then
+answer = nil
+elseif kind == "trueExpr" then
+answer = true
+elseif kind == "falseExpr" then
+answer = false
+elseif kind == "paren" or kind == "castExpr" then
+answer = evalExpr ( state , node . expr )
+elseif kind == "name" then
+local name = node . token and node . token . text or ""
+local slot = lookup ( state . scope , name )
+if slot then
+answer = slot . value
+else
+local fromEnv = state . env [ name ]
+if fromEnv == nil then
+fail (
+"NUPP2401" ,
+node ,
+( "%q is not available at comptime" ) : format ( name ) ,
+"a comptime block reads only its own locals and the compile-time environment"
+)
+end
+answer = fromEnv
+end
+elseif kind == "unop" then
+local operand = evalExpr ( state , node . operand )
+local op = node . op and node . op . kind
+if op == "not" then
+answer = not operand
+elseif op == "-" then
+answer = - operand
+elseif op == "#" then
+answer = # operand
+elseif op == "~" then
+answer = bit . bnot ( operand )
+else
+unsupported ( node , ( "the %s operator" ) : format ( tostring ( op ) ) )
+end
+elseif kind == "binop" then
+local op = node . op and node . op . kind
+if op == "and" then
+local left = evalExpr ( state , node . lhs )
+answer = left and evalExpr ( state , node . rhs ) or left
+elseif op == "or" then
+local left = evalExpr ( state , node . lhs )
+if left then
+answer = left
+else
+answer = evalExpr ( state , node . rhs )
+end
+elseif op == "??" then
+local left = evalExpr ( state , node . lhs )
+if left == nil then
+answer = evalExpr ( state , node . rhs )
+else
+answer = left
+end
+else
+local left , right = evalExpr ( state , node . lhs ) , evalExpr ( state , node . rhs )
+if op == "+" then
+answer = left + right
+elseif op == "-" then
+answer = left - right
+elseif op == "*" then
+answer = left * right
+elseif op == "/" then
+answer = left / right
+elseif op == "%" then
+answer = left % right
+elseif op == "^" then
+answer = left ^ right
+elseif op == "//" then
+
+
+answer = math . floor ( left / right )
+elseif op == ".." then
+answer = left .. right
+elseif op == "==" then
+answer = left == right
+elseif op == "~=" then
+answer = left ~= right
+elseif op == "<" then
+answer = left < right
+elseif op == "<=" then
+answer = left <= right
+elseif op == ">" then
+answer = left > right
+elseif op == ">=" then
+answer = left >= right
+elseif op == "&" then
+answer = bit . band ( left , right )
+elseif op == "|" then
+answer = bit . bor ( left , right )
+elseif op == "~" then
+answer = bit . bxor ( left , right )
+elseif op == "<<" then
+answer = bit . lshift ( left , right )
+elseif op == ">>" then
+answer = bit . rshift ( left , right )
+elseif op == "~>>" then
+answer = bit . arshift ( left , right )
+else
+unsupported ( node , ( "the %s operator" ) : format ( tostring ( op ) ) )
+end
+end
+elseif kind == "ternary" then
+if evalExpr ( state , node . cond ) then
+answer = evalExpr ( state , node . ifTrue )
+else
+answer = evalExpr ( state , node . ifFalse )
+end
+elseif kind == "tableExpr" then
+local built , nextIndex = { } , 1
+for _ , field in ipairs ( node . fields or { } ) do
+if field . kind == "fieldItem" then
+built [ nextIndex ] = evalExpr ( state , field . value )
+nextIndex = nextIndex + 1
+elseif field . kind == "fieldNamed" then
+built [ field . name and field . name . text or "" ] = evalExpr ( state , field . value )
+else
+local key = evalExpr ( state , field . key )
+if key == nil then
+fail ( "NUPP2403" , field , "a table key evaluated to nil" )
+end
+built [ key ] = evalExpr ( state , field . value )
+end
+end
+answer = built
+elseif kind == "istring" then
+local pieces = { }
+for _ , child in ipairs ( node ) do
+if isToken ( child ) then
+local text = child . text
+local chunk
+if child . kind == "istringOpen" or child . kind == "istringMid" then
+chunk = text : sub ( 2 , - 3 )
+elseif child . kind == "istringClose" then
+chunk = text : sub ( 2 , - 2 )
+end
+if chunk and # chunk > 0 then
+pieces [ # pieces + 1 ] = chunk
+end
+else
+pieces [ # pieces + 1 ] = state . env . tostring ( evalExpr ( state , child ) )
+end
+end
+answer = table . concat ( pieces )
+elseif kind == "dotIndex" or kind == "safeIndex" then
+local object = evalExpr ( state , node . obj )
+if object == nil and kind == "safeIndex" then
+answer = nil
+else
+if type ( object ) ~= "table" then
+fail ( "NUPP2403" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
+end
+local field = node . name and node . name . text or ""
+answer = object [ field ]
+local library = state . libraries [ object ]
+if answer == nil and library then
+fail (
+"NUPP2402" ,
+node ,
+( "%s.%s is unavailable at comptime" ) : format ( library , field ) ,
+"the comptime library surface is an allowlist; see plans/comptime.md"
+)
+end
+end
+elseif kind == "bracketIndex" or kind == "safeBracket" then
+local object = evalExpr ( state , node . obj )
+if object == nil and kind == "safeBracket" then
+answer = nil
+else
+if type ( object ) ~= "table" then
+fail ( "NUPP2403" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
+end
+answer = object [ evalExpr ( state , node . expr ) ]
+end
+elseif kind == "call" or kind == "safeCall" or kind == "methodCall" then
+answer = evalMulti ( state , node ) [ 1 ]
+elseif kind == "funcExpr" or kind == "shortfn" then
+unsupported ( node , "defining a function inside a comptime block" )
+elseif kind == "newExpr" then
+unsupported ( node , "a construction" )
+elseif kind == "isExpr" then
+unsupported ( node , "an `is` test" )
+elseif kind == "vararg" then
+unsupported ( node , "varargs" )
+elseif kind == "comptimeExpr" then
+unsupported ( node , "a nested comptime block" )
+else
+unsupported ( node , ( "a %s expression" ) : format ( tostring ( kind ) ) )
+end
+leave ( state )
+
+return answer
+end
+
+
+
+evalMulti = function ( state , node )
+step ( state , node )
+enter ( state , node )
+local kind = node . kind
+local values
+if kind == "methodCall" then
+local object = evalExpr ( state , node . obj )
+if object == nil and node . safeObj then
+values = { n = 0 }
+else
+if type ( object ) ~= "table" and type ( object ) ~= "string" then
+fail ( "NUPP2403" , node , ( "a %s has no methods at comptime" ) : format ( type ( object ) ) )
+end
+
+
+local from = type ( object ) == "string" and state . env . string or object
+local method = from [ node . name and node . name . text or "" ]
+local args = evalArgs ( state , node . args )
+for index = args . n , 1 , - 1 do
+args [ index + 1 ] = args [ index ]
+end
+args [ 1 ] = object
+args . n = args . n + 1
+values = callValues ( state , node , method , args )
+end
+else
+local callee = evalExpr ( state , node . obj )
+if callee == nil and kind == "safeCall" then
+values = { n = 0 }
+else
+values = callValues ( state , node , callee , evalArgs ( state , node . args ) )
+end
+end
+leave ( state )
+
+return values
+end
+
+
+local function assign ( state , target , value )
+if isToken ( target ) then
+return
+end
+if target . kind == "name" then
+local name = target . token and target . token . text or ""
+local slot = lookup ( state . scope , name )
+if not slot then
+fail (
+"NUPP2401" ,
+target ,
+( "%q is not a comptime local, so it cannot be assigned" ) : format ( name ) ,
+"a comptime block may not write to anything declared outside it"
+)
+end
+slot . value = value
+elseif target . kind == "dotIndex" then
+local object = evalExpr ( state , target . obj )
+if type ( object ) ~= "table" then
+fail ( "NUPP2403" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
+end
+object [ target . name and target . name . text or "" ] = value
+elseif target . kind == "bracketIndex" then
+local object = evalExpr ( state , target . obj )
+if type ( object ) ~= "table" then
+fail ( "NUPP2403" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
+end
+local key = evalExpr ( state , target . expr )
+if key == nil then
+fail ( "NUPP2403" , target , "a table key evaluated to nil" )
+end
+object [ key ] = value
+else
+unsupported ( target , ( "assigning to a %s" ) : format ( tostring ( target . kind ) ) )
+end
+end
+
+local execStatement
+
+
+
+
+
+
+
+
+
+local function execStats ( state , block )
+for _ , stat in ipairs ( block and block . stats or { } ) do
+execStatement ( state , stat )
+end
+end
+
+
+
+
+
+
+execStatement = function ( state , stat )
+if isToken ( stat ) then
+return
+end
+step ( state , stat )
+local kind = stat . kind
+if kind == "localStmt" then
+local values = evalList ( state , stat . exprs or { } )
+for index , name in ipairs ( stat . names or { } ) do
+declare ( state . scope , name . text , values [ index ] )
+end
+elseif kind == "assignStmt" then
+local values = evalList ( state , stat . exprs or { } )
+for index , target in ipairs ( stat . targets or { } ) do
+assign ( state , target , values [ index ] )
+end
+elseif kind == "compoundAssign" then
+local op = stat . op and stat . op . kind or ""
+local base = op : sub ( 1 , - 2 )
+local current = evalExpr ( state , stat . target )
+local operand = evalExpr ( state , stat . value )
+local answer
+if base == "+" then
+answer = current + operand
+elseif base == "-" then
+answer = current - operand
+elseif base == "*" then
+answer = current * operand
+elseif base == "/" then
+answer = current / operand
+elseif base == "%" then
+answer = current % operand
+elseif base == "//" then
+answer = math . floor ( current / operand )
+elseif base == ".." then
+answer = current .. operand
+elseif base == "??" then
+answer = current == nil and operand or current
+else
+unsupported ( stat , ( "the %s operator" ) : format ( op ) )
+end
+assign ( state , stat . target , answer )
+elseif kind == "returnStmt" then
+local exprs = stat . exprs or { }
+if # exprs > 1 then
+fail (
+"NUPP2402" ,
+stat ,
+"a comptime block returns exactly one value" ,
+"return a table holding them, until multi-value results are specified"
+)
+end
+state . result = # exprs == 1 and evalExpr ( state , exprs [ 1 ] ) or nil
+state . returned = true
+error ( RETURN , 0 )
+elseif kind == "breakStmt" then
+error ( BREAK , 0 )
+elseif kind == "callStmt" then
+evalExpr ( state , stat . expr )
+elseif kind == "doStmt" or kind == "unsafeStmt" then
+execBlock ( state , stat . body )
+elseif kind == "ifStmt" then
+for _ , clause in ipairs ( stat . clauses or { } ) do
+if evalExpr ( state , clause . cond ) then
+execBlock ( state , clause . body )
+return
+end
+end
+if stat . elseClause then
+execBlock ( state , stat . elseClause . body )
+end
+elseif kind == "whileStmt" then
+while evalExpr ( state , stat . cond ) do
+local ok , err = pcall ( execBlock , state , stat . body )
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+step ( state , stat )
+end
+elseif kind == "repeatStmt" then
+repeat
+
+
+local inner = scope ( state . scope )
+local saved = state . scope
+state . scope = inner
+local ok , err = pcall ( execStats , state , stat . body )
+local done = ok and evalExpr ( state , stat . cond ) or false
+state . scope = saved
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+step ( state , stat )
+if done then
+break
+end
+until false
+elseif kind == "fornumStmt" then
+local from , to = evalExpr ( state , stat . start ) , evalExpr ( state , stat . stop )
+local by = stat . step and evalExpr ( state , stat . step ) or 1
+if type ( from ) ~= "number" or type ( to ) ~= "number" or type ( by ) ~= "number" then
+fail ( "NUPP2403" , stat , "a numeric loop needs numeric bounds" )
+end
+if by == 0 then
+fail ( "NUPP2403" , stat , "a numeric loop with a zero step does not terminate" )
+end
+local index = from
+while ( by > 0 and index <= to ) or ( by < 0 and index >= to ) do
+local inner = scope ( state . scope )
+if stat . var then
+declare ( inner , stat . var . text , index )
+end
+local saved = state . scope
+state . scope = inner
+local ok , err = pcall ( execStats , state , stat . body )
+state . scope = saved
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+step ( state , stat )
+index = index + by
+end
+elseif kind == "forinStmt" then
+
+
+
+
+local produced = evalList ( state , stat . exprs or { } )
+local iterator , invariant , control = produced [ 1 ] , produced [ 2 ] , produced [ 3 ]
+if type ( iterator ) ~= "function" then
+fail (
+"NUPP2402" ,
+stat ,
+"a generic for needs an iterator comptime can call" ,
+"`ipairs`, `pairs` and `string.gmatch` are available"
+)
+end
+while true do
+local got = callValues ( state , stat , iterator , { n = 2 , invariant , control } )
+if got [ 1 ] == nil then
+break
+end
+control = got [ 1 ]
+local inner = scope ( state . scope )
+for index , name in ipairs ( stat . names or { } ) do
+declare ( inner , name . text , got [ index ] )
+end
+local saved = state . scope
+state . scope = inner
+local ok , err = pcall ( execStats , state , stat . body )
+state . scope = saved
+if not ok then
+if err == BREAK then
+break
+end
+error ( err , 0 )
+end
+step ( state , stat )
+end
+elseif kind == "emptyStmt" then
+return
+elseif kind == "localFuncStmt" or kind == "funcStmt" then
+unsupported ( stat , "declaring a function inside a comptime block" )
+elseif kind == "gotoStmt" or kind == "labelStmt" then
+unsupported ( stat , "goto" )
+elseif kind == "continueStmt" then
+unsupported ( stat , "continue" )
+elseif kind == "pragmaStmt" then
+execStatement ( state , stat . stat )
+else
+unsupported ( stat , ( "a %s statement" ) : format ( tostring ( kind ) ) )
+end
+end
+
+
+execBlock = function ( state , block )
+if not block then
+return
+end
+enter ( state , block )
+local saved = state . scope
+state . scope = scope ( saved )
+local ok , err = pcall ( execStats , state , block )
+state . scope = saved
+leave ( state )
+if not ok then
+error ( err , 0 )
+end
+end
+
+
+
+
+
+
+local function typeOf ( value )
+local kind = type ( value )
+if value == nil then
+return T . nil_
+elseif kind == "boolean" then
+return T . literal ( value , T . boolean )
+elseif kind == "string" then
+return T . literal ( value , T . string )
+elseif kind == "number" then
+local exact = value == math . floor ( value ) and math . abs ( value ) <= MAX_EXACT_INTEGER
+return T . literal ( value , exact and T . integer or T . number )
+elseif kind ~= "table" then
+return T . any
+end
+local count = arrayLength ( value )
+local elements , named = { } , { }
+for index = 1 , count do
+elements [ # elements + 1 ] = typeOf ( value [ index ] )
+end
+for _ , key in ipairs ( sortedKeys ( value ) ) do
+local inArray = type ( key ) == "number" and key == math . floor ( key ) and key >= 1 and key <= count
+if not inArray then
+if type ( key ) == "string" then
+named [ # named + 1 ] = { name = key , read = typeOf ( value [ key ] ) , write = typeOf ( value [ key ] ) }
+else
+
+return T . table_
+end
+end
+end
+if # named > 0 and # elements == 0 then
+return T . shape ( named , nil , true )
+elseif # elements > 0 and # named == 0 then
+return T . array ( T . union ( elements ) )
+elseif # elements == 0 and # named == 0 then
+return T . table_
+end
+
+return T . table_
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function comptime . evaluate ( node , block )
+local env , libraries = buildEnvironment ( )
+local state = newState ( env , libraries )
+state . scope = scope ( nil )
+local ok , err = pcall ( execBlock , state , block )
+if not ok and err ~= RETURN then
+if type ( err ) == "table" and err [ FAILURE ] then
+return nil , nil , err
+end
+
+return nil , nil , { code = "NUPP2403" , node = node , message = tostring ( err ) }
+end
+if not state . returned then
+return nil , nil , {
+code = "NUPP2403" ,
+node = node ,
+message = "a comptime block must return a value" ,
+help = "every path out of the block needs a `return`" ,
+}
+end
+local quoted
+ok , quoted = pcall ( quoteValue , state . result , node )
+if not ok then
+if type ( quoted ) == "table" and quoted [ FAILURE ] then
+return nil , nil , quoted
+end
+
+return nil , nil , { code = "NUPP2405" , node = node , message = tostring ( quoted ) }
+end
+
+return quoted , typeOf ( state . result ) , nil
+end
+
+return comptime
+
+end
+package.preload["nupp.compiler.coverage"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -25012,9 +26143,9 @@ _G.nupp=_G.nupp or {};
 
 
 local cjson = require ( "cjson" )
-local fs = require ( "compiler.fs" )
-local cache = require ( "compiler.build.cache" )
-local highlight = require ( "compiler.doc.highlight" )
+local fs = require ( "nupp.compiler.fs" )
+local cache = require ( "nupp.compiler.build.cache" )
+local highlight = require ( "nupp.compiler.doc.highlight" )
 
 local coverage = { }
 local readFile , writeFile , normalize = fs . readFile , fs . writeFile , fs . normalize
@@ -25605,8 +26736,8 @@ end
 return coverage
 
 end
-package.preload["compiler.cst"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.cst"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -25623,9 +26754,14 @@ _G.nupp=_G.nupp or {};
 
 
 
-local lexer = require ( "compiler.lexer" )
+local lexer = require ( "nupp.compiler.lexer" )
 
 local cst = { }
+
+
+
+
+
 
 
 
@@ -26799,6 +27935,23 @@ cst.Paren = {} cst.Paren.__index = cst.Paren
 
 
 
+cst.ComptimeExpr = {} cst.ComptimeExpr.__index = cst.ComptimeExpr
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 cst.NewExpr = {} cst.NewExpr.__index = cst.NewExpr
 
@@ -27524,14 +28677,11 @@ cst . isToken = isToken
 
 
 
-local OWNERSHIP_INTRINSICS = {
-borrow = true ,
-borrowFrom = true ,
-dispose = true ,
-fromRaw = true ,
-intoRaw = true ,
-pin = true ,
-}
+
+local OWNERSHIP_INTRINSICS
+
+= { borrow = true , borrowFrom = true , dispose = true , fromRaw = true , intoRaw = true , pin = true , }
+
 
 
 
@@ -27762,8 +28912,8 @@ end
 return cst
 
 end
-package.preload["compiler.diagnostics"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.diagnostics"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -27785,7 +28935,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local ansi = require ( "compiler.ansi" )
+local ansi = require ( "nupp.compiler.ansi" )
 
 local diagnostics = { }
 
@@ -27916,8 +29066,8 @@ end
 return diagnostics
 
 end
-package.preload["compiler.doc"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -27928,16 +29078,16 @@ _G.nupp=_G.nupp or {};
 
 
 
-local stringsMod = require ( "compiler.doc.strings" )
-local filesMod = require ( "compiler.doc.files" )
-local extractMod = require ( "compiler.doc.extract" )
-local markdownMod = require ( "compiler.doc.markdown" )
-local highlightMod = require ( "compiler.doc.highlight" )
-local htmlMod = require ( "compiler.doc.html" )
-local assetsMod = require ( "compiler.doc.assets" )
-local urlsMod = require ( "compiler.doc.urls" )
-local apiMod = require ( "compiler.doc.api" )
-local pageMod = require ( "compiler.doc.page" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local filesMod = require ( "nupp.compiler.doc.files" )
+local extractMod = require ( "nupp.compiler.doc.extract" )
+local markdownMod = require ( "nupp.compiler.doc.markdown" )
+local highlightMod = require ( "nupp.compiler.doc.highlight" )
+local htmlMod = require ( "nupp.compiler.doc.html" )
+local assetsMod = require ( "nupp.compiler.doc.assets" )
+local urlsMod = require ( "nupp.compiler.doc.urls" )
+local apiMod = require ( "nupp.compiler.doc.api" )
+local pageMod = require ( "nupp.compiler.doc.page" )
 
 local trim , htmlEscape = stringsMod . trim , stringsMod . htmlEscape
 local escapeJs = stringsMod . escapeJs
@@ -28041,8 +29191,14 @@ end
 
 
 
-function doc . markdown ( modules , title , all )
-return markdownMod . render ( modules , title , all )
+
+function doc . markdown (
+modules ,
+title ,
+all ,
+overview
+)
+return markdownMod . render ( modules , title , all , overview )
 end
 
 local function sourceFiles ( root , config , settings , requested )
@@ -28322,24 +29478,43 @@ pages , err = configuredPages ( root , settings , title )
 if not pages then
 return nil , err
 end
-local claimedRoutes = { }
+
+
+
+
+
+local configured , moduleRoutes , ordered = { } , { } , { }
 for _ , candidate in ipairs ( pages ) do
-claimedRoutes [ candidate . path ] = true
+configured [ candidate . path ] = candidate
 end
 for _ , module in ipairs ( modules ) do
 local route = moduleFile ( module . name ) : gsub ( "/index%.html$" , "" )
-if claimedRoutes [ route ] then
-return nil , "documentation page path collides with module: " .. route
+if moduleRoutes [ route ] then
+return nil , "two modules document to the same page: " .. route
 end
-claimedRoutes [ route ] = true
-pages [
-# pages + 1
+moduleRoutes [ route ] = true
+end
+for _ , candidate in ipairs ( pages ) do
+if not moduleRoutes [ candidate . path ] then
+ordered [ # ordered + 1 ] = candidate
+end
+end
+for _ , module in ipairs ( modules ) do
+local route = moduleFile ( module . name ) : gsub ( "/index%.html$" , "" )
+local overview = configured [ route ]
+ordered [
+# ordered + 1
 ] = {
 path = route ,
-title = ( module . namespace and "Namespace: " or "Module: " ) .. module . name ,
+title = overview and overview . title or (
+module . namespace and "Namespace: " or "Module: "
+) .. module . name ,
 module = module ,
+overview = overview and overview . markdown or nil ,
+source = overview and overview . source or nil ,
 }
 end
+pages = ordered
 
 local allMarkdown , linkIndex , searchEntries = { } , symbolLinkIndex ( modules ) , { }
 for _ , candidate in ipairs ( pages ) do
@@ -28349,6 +29524,9 @@ if candidate . module then
 local module = candidate . module
 local children = childModules ( modules , module . name )
 current , items = module . name , { }
+for _ , heading in ipairs ( markdownOutline ( candidate . overview ) ) do
+items [ # items + 1 ] = heading
+end
 if # children > 0 then
 items [ # items + 1 ] = { path = "modules" , name = "Modules" }
 end
@@ -28358,20 +29536,30 @@ end
 for _ , item in ipairs ( module . items ) do
 items [ # items + 1 ] = item
 end
-markdown = doc . markdown ( { module } , nil , modules )
+local overview = candidate . overview or ""
+markdown = doc . markdown ( { module } , nil , modules , overview )
 local links = symbolLinks ( linkIndex , module , relativePrefix ( file ) )
 body [
 # body + 1
 ] = '<h1>' .. (
 module . namespace and "Namespace: " or "Module: "
 ) .. '<code>' .. htmlEscape ( module . name ) .. '</code></h1>'
-if module . namespace then
+
+
+if overview ~= "" then
+body [
+# body + 1
+] = markdownHtml ( rewriteConfiguredPageLinks ( overview , candidate , pages , file ) , links , 0 )
+elseif module . namespace then
 body [
 # body + 1
 ] = '<p class="nuppdoc-namespace-note">Modules nested under <code>' .. htmlEscape (
 module . name
 ) .. '</code>. Nothing is required by this name itself.</p>'
 elseif module . text ~= "" then
+body [ # body + 1 ] = markdownHtml ( module . text , links )
+end
+if overview ~= "" and module . text ~= "" then
 body [ # body + 1 ] = markdownHtml ( module . text , links )
 end
 body [ # body + 1 ] = nestedModules ( children , relativePrefix ( file ) , modules )
@@ -28648,18 +29836,18 @@ doc . highlight = highlightMod . nuppSource
 return doc
 
 end
-package.preload["compiler.doc.api"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.api"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
-local stringsMod = require ( "compiler.doc.strings" )
-local htmlMod = require ( "compiler.doc.html" )
-local highlightMod = require ( "compiler.doc.highlight" )
-local extractMod = require ( "compiler.doc.extract" )
-local urlsMod = require ( "compiler.doc.urls" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local htmlMod = require ( "nupp.compiler.doc.html" )
+local highlightMod = require ( "nupp.compiler.doc.highlight" )
+local extractMod = require ( "nupp.compiler.doc.extract" )
+local urlsMod = require ( "nupp.compiler.doc.urls" )
 
 local htmlEscape = stringsMod . htmlEscape
 local summaryText = stringsMod . summaryText
@@ -28905,8 +30093,8 @@ api . renderHtmlItem = renderHtmlItem
 return api
 
 end
-package.preload["compiler.doc.assets"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.assets"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -29238,8 +30426,8 @@ assets . ICONS = ICONS
 return assets
 
 end
-package.preload["compiler.doc.extract"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.extract"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -29247,11 +30435,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local parser = require ( "compiler.parser" )
-local docblock = require ( "compiler.docblock" )
-local stringsMod = require ( "compiler.doc.strings" )
-local filesMod = require ( "compiler.doc.files" )
+local cst = require ( "nupp.compiler.cst" )
+local parser = require ( "nupp.compiler.parser" )
+local docblock = require ( "nupp.compiler.docblock" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local filesMod = require ( "nupp.compiler.doc.files" )
 
 local trim = stringsMod . trim
 local normalize , join = filesMod . normalize , filesMod . join
@@ -29807,16 +30995,16 @@ extract . splitMembers = splitMembers
 return extract
 
 end
-package.preload["compiler.doc.files"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.files"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
 
-local process = require ( "compiler.build.process" )
-local fs = require ( "compiler.fs" )
+local process = require ( "nupp.compiler.build.process" )
+local fs = require ( "nupp.compiler.fs" )
 
 local files = { }
 
@@ -29944,8 +31132,8 @@ files . copyPublicFiles = copyPublicFiles
 return files
 
 end
-package.preload["compiler.doc.highlight"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.highlight"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -29974,9 +31162,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local lexer = require ( "compiler.lexer" )
-local stringsMod = require ( "compiler.doc.strings" )
-local filesMod = require ( "compiler.doc.files" )
+local lexer = require ( "nupp.compiler.lexer" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local filesMod = require ( "nupp.compiler.doc.files" )
 
 local htmlEscape = stringsMod . htmlEscape
 local join , dirname , exists = filesMod . join , filesMod . dirname , filesMod . exists
@@ -30457,8 +31645,8 @@ highlight . configureScintillua = configureScintillua
 return highlight
 
 end
-package.preload["compiler.doc.html"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.html"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -30483,9 +31671,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local stringsMod = require ( "compiler.doc.strings" )
-local highlightMod = require ( "compiler.doc.highlight" )
-local urlsMod = require ( "compiler.doc.urls" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local highlightMod = require ( "nupp.compiler.doc.highlight" )
+local urlsMod = require ( "nupp.compiler.doc.urls" )
 
 local trim , htmlEscape = stringsMod . trim , stringsMod . htmlEscape
 local headingId = stringsMod . headingId
@@ -30904,17 +32092,17 @@ html . markdownOutline = markdownOutline
 return html
 
 end
-package.preload["compiler.doc.markdown"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.markdown"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
 
-local stringsMod = require ( "compiler.doc.strings" )
-local extractMod = require ( "compiler.doc.extract" )
-local urlsMod = require ( "compiler.doc.urls" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local extractMod = require ( "nupp.compiler.doc.extract" )
+local urlsMod = require ( "nupp.compiler.doc.urls" )
 
 local markdownEscape , markdownCell = stringsMod . markdownEscape , stringsMod . markdownCell
 local summaryText = stringsMod . summaryText
@@ -31096,10 +32284,14 @@ end
 
 
 
+
+
+
 function markdown . render (
 modules ,
 title ,
-all
+all ,
+overview
 )
 local all = all or modules
 anchors = symbolLinkIndex ( modules , function ( module , path )
@@ -31118,7 +32310,16 @@ for moduleIndex , module in ipairs ( modules ) do
 out [ # out + 1 ] = '<a id="' .. module . name .. '"></a>'
 out [ # out + 1 ] = ( module . namespace and "# Namespace: `" or "# Module: `" ) .. module . name .. "`"
 out [ # out + 1 ] = ""
-if module . namespace then
+
+
+if overview and overview ~= "" then
+out [ # out + 1 ] = overview
+out [ # out + 1 ] = ""
+if module . text ~= "" then
+out [ # out + 1 ] = prose ( module . text )
+out [ # out + 1 ] = ""
+end
+elseif module . namespace then
 out [ # out + 1 ] = "Modules nested under `" .. module . name .. "`. Nothing is required by this name itself."
 out [ # out + 1 ] = ""
 elseif module . text ~= "" then
@@ -31172,17 +32373,17 @@ end
 return markdown
 
 end
-package.preload["compiler.doc.page"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.page"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
-local stringsMod = require ( "compiler.doc.strings" )
-local urlsMod = require ( "compiler.doc.urls" )
-local htmlMod = require ( "compiler.doc.html" )
-local assetsMod = require ( "compiler.doc.assets" )
+local stringsMod = require ( "nupp.compiler.doc.strings" )
+local urlsMod = require ( "nupp.compiler.doc.urls" )
+local htmlMod = require ( "nupp.compiler.doc.html" )
+local assetsMod = require ( "nupp.compiler.doc.assets" )
 
 local htmlEscape = stringsMod . htmlEscape
 local moduleFile , pageLink = urlsMod . moduleFile , urlsMod . pageLink
@@ -31707,9 +32908,9 @@ prefix
 )
 .. '<div class="nuppdoc-top-nav"><a href="'
 .. prefix
-.. 'index.html">Overview</a><a href="'
+.. 'getting-started/installation/index.html">Overview</a><a href="'
 .. prefix
-.. 'index.html#modules">API</a></div><div class="nuppdoc-actions">'
+.. 'index.html#modules">API</a><a href="/playground/">Playground</a></div><div class="nuppdoc-actions">'
 .. table . concat (
 actions
 ) .. search .. '</div></nav></header>' .. (
@@ -31737,8 +32938,8 @@ page . homeFeatures = homeFeatures
 return page
 
 end
-package.preload["compiler.doc.strings"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.strings"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -31822,8 +33023,8 @@ strings . escapeJs = escapeJs
 return strings
 
 end
-package.preload["compiler.doc.urls"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.doc.urls"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -31832,7 +33033,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local filesMod = require ( "compiler.doc.files" )
+local filesMod = require ( "nupp.compiler.doc.files" )
 
 local normalize , join , dirname = filesMod . normalize , filesMod . join , filesMod . dirname
 
@@ -32073,8 +33274,8 @@ urls . rewriteConfiguredPageLinks = rewriteConfiguredPageLinks
 return urls
 
 end
-package.preload["compiler.docblock"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.docblock"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -32087,7 +33288,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
+local cst = require ( "nupp.compiler.cst" )
 
 local docblock = { }
 
@@ -32258,8 +33459,8 @@ end
 return docblock
 
 end
-package.preload["compiler.env"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.env"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -32275,13 +33476,17 @@ _G.nupp=_G.nupp or {};
 
 
 
-local parser = require ( "compiler.parser" )
-local check = require ( "compiler.check" )
-local cst = require ( "compiler.cst" )
-local T = require ( "compiler.types" )
-local annotationMod = require ( "compiler.annotations" )
+local parser = require ( "nupp.compiler.parser" )
+local check = require ( "nupp.compiler.check" )
+local cst = require ( "nupp.compiler.cst" )
+local T = require ( "nupp.compiler.types" )
+local annotationMod = require ( "nupp.compiler.annotations" )
+local native = require ( "nupp.compiler.native" )
 
 local envMod = { }
+
+
+
 
 
 
@@ -32545,7 +33750,7 @@ end
 
 function envMod . compilerRoot ( )
 local dir = moduleDir ( ) : gsub ( "\\" , "/" )
-return dir : match ( "^(.*)/src/compiler$" ) or os . getenv ( "NUPP_COMPILER_ROOT" )
+return dir : match ( "^(.*)/src/nupp/compiler$" ) or os . getenv ( "NUPP_COMPILER_ROOT" )
 end
 
 local function readFile ( path )
@@ -32941,8 +34146,8 @@ env . headerStoreOpened = true
 if env . cacheDisabled then
 return nil
 end
-local storeMod = require ( "compiler.build.store" )
-local cacheMod = require ( "compiler.build.cache" )
+local storeMod = require ( "nupp.compiler.build.store" )
+local cacheMod = require ( "nupp.compiler.build.cache" )
 
 
 
@@ -32964,7 +34169,7 @@ end
 
 
 function envMod . headerKey ( env , path , text )
-local hashMod = require ( "compiler.build.hash" )
+local hashMod = require ( "nupp.compiler.build.hash" )
 if not env . headerRootsKey then
 local roots = { }
 for index , root in ipairs ( env . roots or { } ) do
@@ -33004,7 +34209,7 @@ parts [ # parts + 1 ] = name .. "\0" .. tostring ( entry . path ) .. "\0" .. tos
 end
 end
 table . sort ( parts )
-env . annotationKeyMemo = require ( "compiler.build.hash" ) . digest ( table . concat ( parts , "\1" ) )
+env . annotationKeyMemo = require ( "nupp.compiler.build.hash" ) . digest ( table . concat ( parts , "\1" ) )
 
 return env . annotationKeyMemo
 end
@@ -33022,8 +34227,8 @@ env . formatStoreOpened = true
 if env . cacheDisabled then
 return nil
 end
-local storeMod = require ( "compiler.build.store" )
-local cacheMod = require ( "compiler.build.cache" )
+local storeMod = require ( "nupp.compiler.build.store" )
+local cacheMod = require ( "nupp.compiler.build.cache" )
 env . formatStore = storeMod . open (
 ( env . cacheDir or ( outDirFor ( env ) .. "/cache" ) ) .. "/format.buf" ,
 cacheMod . toolFingerprint ( )
@@ -33446,8 +34651,8 @@ if not typeRoots then
 
 
 
-local target = require ( "compiler.build.tasks" ) . targetConfig ( env . config )
-local rocks = target and require ( "compiler.build.deps" ) . rockPaths ( rootDir , env . config , target ) or nil
+local target = require ( "nupp.compiler.build.tasks" ) . targetConfig ( env . config )
+local rocks = target and require ( "nupp.compiler.build.deps" ) . rockPaths ( rootDir , env . config , target ) or nil
 typeRoots = rocks and rocks . typeRoots or { }
 end
 env . typeRoots = { }
@@ -33500,6 +34705,7 @@ local diags = check . check ( result , preludePath , env , { declareGlobals = tr
 assert ( # diags == 0 , "internal error: prelude has type errors: " .. ( diags [ 1 ] and diags [ 1 ] . msg or "?" ) )
 local strlib = env . globals [ "string" ]
 env . stringLib = strlib and strlib . t or nil
+env . featureEffects = native . decorateGlobals ( env . globals )
 end
 
 
@@ -33606,8 +34812,8 @@ end
 return envMod
 
 end
-package.preload["compiler.explain"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.explain"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -34055,7 +35261,7 @@ end
 
 
 local function lintFor ( code )
-local lints = require ( "compiler.lints" )
+local lints = require ( "nupp.compiler.lints" )
 for _ , lint in ipairs ( lints . all ) do
 if lint . code == code then
 return lint
@@ -34149,8 +35355,8 @@ explain . entries = ENTRIES
 return explain
 
 end
-package.preload["compiler.fmt"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.fmt"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -34187,10 +35393,10 @@ _G.nupp=_G.nupp or {};
 
 
 
-local parser = require ( "compiler.parser" )
-local lexer = require ( "compiler.lexer" )
-local cst = require ( "compiler.cst" )
-local displayWidth = require ( "compiler.fmt.displaywidth" )
+local parser = require ( "nupp.compiler.parser" )
+local lexer = require ( "nupp.compiler.lexer" )
+local cst = require ( "nupp.compiler.cst" )
+local displayWidth = require ( "nupp.compiler.fmt.displaywidth" )
 
 local fmt = { }
 
@@ -35398,8 +36604,8 @@ end
 return fmt
 
 end
-package.preload["compiler.fmt.displaywidth"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.fmt.displaywidth"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -35894,8 +37100,8 @@ end
 return displayWidth
 
 end
-package.preload["compiler.fs"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.fs"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -35908,7 +37114,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local process = require ( "compiler.build.process" )
+local process = require ( "nupp.compiler.build.process" )
 
 local fs = { }
 
@@ -36057,8 +37263,8 @@ fs . listFiles = listFiles
 return fs
 
 end
-package.preload["compiler.gen"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.gen"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -36093,9 +37299,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local predicate = require ( "compiler.predicate" )
-local native = require ( "compiler.native" )
+local cst = require ( "nupp.compiler.cst" )
+local predicate = require ( "nupp.compiler.predicate" )
+local native = require ( "nupp.compiler.native" )
 
 local gen = { }
 
@@ -36785,6 +37991,15 @@ e ( "(" , sourceLine ( x ) )
 emit ( x )
 e ( ").pointer" )
 x . passPinnedPointer = true
+return
+end
+if x . comptimeValue then
+
+
+
+
+
+e ( x . comptimeValue , sourceLine ( x ) )
 return
 end
 if x . folded then
@@ -38349,8 +39564,8 @@ end
 return gen
 
 end
-package.preload["compiler.generics"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.generics"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -38363,8 +39578,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local narrowing = require ( "compiler.narrowing" )
+local T = require ( "nupp.compiler.types" )
+local narrowing = require ( "nupp.compiler.narrowing" )
 
 local generics = { }
 
@@ -38937,8 +40152,8 @@ end
 return generics
 
 end
-package.preload["compiler.importc"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.importc"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -38956,8 +40171,8 @@ _G.nupp=_G.nupp or {};
 
 
 local importc = { }
-local cdecl = require ( "compiler.cdecl" )
-local process = require ( "compiler.build.process" )
+local cdecl = require ( "nupp.compiler.cdecl" )
+local process = require ( "nupp.compiler.build.process" )
 
 local function readFile ( path )
 local f = io . open ( path , "rb" )
@@ -39469,8 +40684,8 @@ end
 return importc
 
 end
-package.preload["compiler.incremental"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.incremental"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -39487,11 +40702,11 @@ _G.nupp=_G.nupp or {};
 
 
 
-local query = require ( "compiler.query" )
-local parser = require ( "compiler.parser" )
-local check = require ( "compiler.check" )
-local envMod = require ( "compiler.env" )
-local storeMod = require ( "compiler.build.store" )
+local query = require ( "nupp.compiler.query" )
+local parser = require ( "nupp.compiler.parser" )
+local check = require ( "nupp.compiler.check" )
+local envMod = require ( "nupp.compiler.env" )
+local storeMod = require ( "nupp.compiler.build.store" )
 
 local incremental = { }
 
@@ -39903,8 +41118,8 @@ end
 return incremental
 
 end
-package.preload["compiler.lexer"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lexer"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -40540,8 +41755,8 @@ end
 return lexer
 
 end
-package.preload["compiler.lints"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lints"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -40740,8 +41955,8 @@ end
 return lints
 
 end
-package.preload["compiler.lsp"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -40753,27 +41968,27 @@ _G.nupp=_G.nupp or {};
 
 
 
-local incremental = require ( "compiler.incremental" )
+local incremental = require ( "nupp.compiler.incremental" )
 
-local cst = require ( "compiler.cst" )
-local envMod = require ( "compiler.env" )
-local fmt = require ( "compiler.fmt" )
-local lexer = require ( "compiler.lexer" )
-local T = require ( "compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local envMod = require ( "nupp.compiler.env" )
+local fmt = require ( "nupp.compiler.fmt" )
+local lexer = require ( "nupp.compiler.lexer" )
+local T = require ( "nupp.compiler.types" )
 
 local lsp = { }
 
 
 
-local text = require ( "compiler.lsp.text" )
-local lspDiagnostics = require ( "compiler.lsp.diagnostics" )
-local navigate = require ( "compiler.lsp.navigate" )
-local tree = require ( "compiler.lsp.tree" )
-local wire = require ( "compiler.lsp.wire" )
-local symbols = require ( "compiler.lsp.symbols" )
-local complete = require ( "compiler.lsp.complete" )
-local semantic = require ( "compiler.lsp.semantic" )
-local actions = require ( "compiler.lsp.actions" )
+local text = require ( "nupp.compiler.lsp.text" )
+local lspDiagnostics = require ( "nupp.compiler.lsp.diagnostics" )
+local navigate = require ( "nupp.compiler.lsp.navigate" )
+local tree = require ( "nupp.compiler.lsp.tree" )
+local wire = require ( "nupp.compiler.lsp.wire" )
+local symbols = require ( "nupp.compiler.lsp.symbols" )
+local complete = require ( "nupp.compiler.lsp.complete" )
+local semantic = require ( "nupp.compiler.lsp.semantic" )
+local actions = require ( "nupp.compiler.lsp.actions" )
 
 local documentationAt = tree . documentationAt
 local enclosingChain = tree . enclosingChain
@@ -41746,8 +42961,8 @@ end
 return lsp
 
 end
-package.preload["compiler.lsp.actions"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.actions"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -41755,8 +42970,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local tree = require ( "compiler.lsp.tree" )
+local cst = require ( "nupp.compiler.cst" )
+local tree = require ( "nupp.compiler.lsp.tree" )
 
 local actions = { }
 
@@ -42025,18 +43240,18 @@ end
 return actions
 
 end
-package.preload["compiler.lsp.complete"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.complete"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
 
-local T = require ( "compiler.types" )
-local tree = require ( "compiler.lsp.tree" )
-local wire = require ( "compiler.lsp.wire" )
-local semantic = require ( "compiler.lsp.semantic" )
+local T = require ( "nupp.compiler.types" )
+local tree = require ( "nupp.compiler.lsp.tree" )
+local wire = require ( "nupp.compiler.lsp.wire" )
+local semantic = require ( "nupp.compiler.lsp.semantic" )
 
 local complete = { }
 
@@ -42447,8 +43662,8 @@ end
 return complete
 
 end
-package.preload["compiler.lsp.diagnostics"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.diagnostics"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -42462,8 +43677,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local text = require ( "compiler.lsp.text" )
-local wire = require ( "compiler.lsp.wire" )
+local text = require ( "nupp.compiler.lsp.text" )
+local wire = require ( "nupp.compiler.lsp.wire" )
 
 local uriToPath , pathToUri = text . uriToPath , text . pathToUri
 local positionAtOffset = text . positionAtOffset
@@ -42631,8 +43846,8 @@ end
 return diagnostics
 
 end
-package.preload["compiler.lsp.navigate"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.navigate"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -42646,13 +43861,13 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local lexer = require ( "compiler.lexer" )
-local T = require ( "compiler.types" )
-local text = require ( "compiler.lsp.text" )
-local tree = require ( "compiler.lsp.tree" )
-local complete = require ( "compiler.lsp.complete" )
-local wire = require ( "compiler.lsp.wire" )
+local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
+local T = require ( "nupp.compiler.types" )
+local text = require ( "nupp.compiler.lsp.text" )
+local tree = require ( "nupp.compiler.lsp.tree" )
+local complete = require ( "nupp.compiler.lsp.complete" )
+local wire = require ( "nupp.compiler.lsp.wire" )
 
 local uriToPath , pathToUri = text . uriToPath , text . pathToUri
 local positionAtOffset , offsetAtPosition = text . positionAtOffset , text . offsetAtPosition
@@ -43138,20 +44353,20 @@ end
 return navigate
 
 end
-package.preload["compiler.lsp.semantic"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.semantic"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
 
-local cst = require ( "compiler.cst" )
-local tree = require ( "compiler.lsp.tree" )
-local text = require ( "compiler.lsp.text" )
-local wire = require ( "compiler.lsp.wire" )
-local lexer = require ( "compiler.lexer" )
-local T = require ( "compiler.types" )
+local cst = require ( "nupp.compiler.cst" )
+local tree = require ( "nupp.compiler.lsp.tree" )
+local text = require ( "nupp.compiler.lsp.text" )
+local wire = require ( "nupp.compiler.lsp.wire" )
+local lexer = require ( "nupp.compiler.lexer" )
+local T = require ( "nupp.compiler.types" )
 
 local semantic = { }
 
@@ -43576,17 +44791,17 @@ end
 return semantic
 
 end
-package.preload["compiler.lsp.symbols"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.symbols"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
 
 
 
-local wire = require ( "compiler.lsp.wire" )
-local tree = require ( "compiler.lsp.tree" )
-local text = require ( "compiler.lsp.text" )
+local wire = require ( "nupp.compiler.lsp.wire" )
+local tree = require ( "nupp.compiler.lsp.tree" )
+local text = require ( "nupp.compiler.lsp.text" )
 
 local symbols = { }
 
@@ -43747,8 +44962,8 @@ end
 return symbols
 
 end
-package.preload["compiler.lsp.text"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.text"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -43757,7 +44972,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local lexer = require ( "compiler.lexer" )
+local lexer = require ( "nupp.compiler.lexer" )
 
 local text = { }
 
@@ -43939,8 +45154,8 @@ end
 return text
 
 end
-package.preload["compiler.lsp.tree"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.tree"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -43949,8 +45164,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
-local lexer = require ( "compiler.lexer" )
+local cst = require ( "nupp.compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
 
 local tree = { }
 
@@ -44459,8 +45674,8 @@ end
 return tree
 
 end
-package.preload["compiler.lsp.wire"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.lsp.wire"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
 
 
@@ -44491,8 +45706,8 @@ end
 return wire
 
 end
-package.preload["compiler.methodslots"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.methodslots"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -44502,7 +45717,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local hash = require ( "compiler.build.hash" )
+local hash = require ( "nupp.compiler.build.hash" )
 
 
 
@@ -44632,8 +45847,8 @@ end
 return methodslots
 
 end
-package.preload["compiler.narrowing"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.narrowing"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -44643,8 +45858,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
-local relations = require ( "compiler.relations" )
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
 
 local narrowing = { }
 
@@ -44815,8 +46030,8 @@ end
 return narrowing
 
 end
-package.preload["compiler.native"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.native"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -44825,7 +46040,7 @@ _G.nupp=_G.nupp or {};
 
 
 local native = { }
-
+local stdlib = require ( "nupp.compiler.stdlib" )
 
 
 
@@ -44848,7 +46063,7 @@ local FEATURES
 "native.regex"
 ] = {
 name = "regex" ,
-global = { holder = "nupp" , member = "regex" } ,
+globals = { "nupp.regex" } ,
 cargo = "runtime/regex/Cargo.toml" ,
 library = "nupp_regex" ,
 binary = true ,
@@ -44859,16 +46074,104 @@ host = "lpeg" , binary = true , } , [
 "native.cjson"
 ] = {
 name = "cjson" ,
+globals = {
+"nupp.data.encodeJSON" ,
+"nupp.data.decodeJSON" ,
+"nupp.data.newJSON" ,
+"nupp.data.null" ,
+"nupp.data.empty_array" ,
+"nupp.data.array_mt" ,
+"nupp.data.empty_array_mt" ,
+"nupp.data.encode_empty_table_as_object" ,
+"nupp.data.decode_array_with_array_mt" ,
+"nupp.data.decode_allow_comment" ,
+"nupp.data.encode_sparse_array" ,
+"nupp.data.encode_max_depth" ,
+"nupp.data.decode_max_depth" ,
+"nupp.data.encode_number_precision" ,
+"nupp.data.encode_keep_buffer" ,
+"nupp.data.encode_invalid_numbers" ,
+"nupp.data.decode_invalid_numbers" ,
+"nupp.data.encode_escape_forward_slash" ,
+"nupp.data.encode_skip_unsupported_value_types" ,
+"nupp.data.encode_indent" ,
+} ,
 modules = { "cjson" , "cjson.safe" } ,
 host = "cjson" ,
 binary = true ,
-} , [ "native.lua_utf8" ] = { name = "lua_utf8" , module = "lua-utf8" , host = "lua-utf8" , binary = true , } , }
+} , [
+"native.lua_utf8"
+] = {
+name = "lua_utf8" ,
+globals = { "nupp.data.utf8" } ,
+module = "lua-utf8" ,
+host = "lua-utf8" ,
+binary = true ,
+} , [
+"stdlib.io"
+] = {
+name = "io" ,
+globals = { "nupp.io.newBuffer" , "nupp.io.newStringReader" } ,
+} , [
+"stdlib.math"
+] = {
+name = "math" ,
+globals = { "nupp.math" } ,
+} , [
+"stdlib.fnv1a64"
+] = {
+name = "fnv1a64" ,
+globals = { "nupp.data.fnv1a64" } ,
+} , [
+"stdlib.checksums"
+] = {
+name = "checksums" ,
+globals = { "nupp.data.adler32" , "nupp.data.crc32" } ,
+} , [
+"native.path"
+] = {
+name = "path" ,
+globals = { "nupp.io.Path" } ,
+cargo = "runtime/native/Cargo.toml" ,
+cargoFeature = "path" ,
+library = "nupp_native" ,
+binary = true ,
+} , [
+"native.uri"
+] = {
+name = "uri" ,
+globals = { "nupp.io.URI" } ,
+cargo = "runtime/native/Cargo.toml" ,
+cargoFeature = "uri" ,
+library = "nupp_native" ,
+binary = true ,
+} , [
+"native.uuid"
+] = {
+name = "uuid" ,
+globals = { "nupp.data.uuid4" , "nupp.data.uuid7" } ,
+cargo = "runtime/native/Cargo.toml" ,
+cargoFeature = "uuid" ,
+library = "nupp_native" ,
+binary = true ,
+} , [
+"native.sha256"
+] = {
+name = "sha256" ,
+globals = { "nupp.data.sha256" } ,
+cargo = "runtime/native/Cargo.toml" ,
+cargoFeature = "sha256" ,
+library = "nupp_native" ,
+binary = true ,
+} , }
 
 local byGlobal , byModule , byName = { } , { } , { }
 for effect , feature in pairs ( FEATURES ) do
+if feature . binary then
 byName [ feature . name ] = effect
-if feature . global then
-byGlobal [ feature . global . holder .. "." .. feature . global . member ] = effect
+end
+for _ , path in ipairs ( feature . globals or { } ) do
+byGlobal [ path ] = effect
 end
 if feature . module then
 byModule [ feature . module ] = effect
@@ -44878,8 +46181,32 @@ byModule [ moduleName ] = effect
 end
 end
 
-function native . forGlobal ( holder , member )
-return byGlobal [ holder .. "." .. member ]
+function native . forGlobal ( path )
+return byGlobal [ path ]
+end
+
+
+
+
+function native . decorateGlobals ( globals )
+local effects = { }
+for path , effect in pairs ( byGlobal ) do
+local parts = { }
+for part in path : gmatch ( "[^.]+" ) do
+parts [ # parts + 1 ] = part
+end
+local entry = globals [ parts [ 1 ] ]
+local t = entry and entry . t
+for index = 2 , # parts do
+if index == # parts and t then
+effects [ t ] = effects [ t ] or { }
+effects [ t ] [ parts [ index ] ] = effect
+end
+t = t and t . byname and t . byname [ parts [ index ] ] or nil
+end
+end
+
+return effects
 end
 
 function native . forModule ( name )
@@ -44921,12 +46248,12 @@ end
 
 
 function native . sourceEffects ( source , filename , env )
-local parser = require ( "compiler.parser" )
+local parser = require ( "nupp.compiler.parser" )
 local parsed = parser . parse ( source , filename )
 if # parsed . errors > 0 then
 return { }
 end
-local checker = require ( "compiler.check" )
+local checker = require ( "nupp.compiler.check" )
 
 
 checker . check ( parsed , filename , env , { strict = false } )
@@ -44951,17 +46278,22 @@ end
 
 
 function native . bootstrap ( effects )
+local base = stdlib . bootstrap ( effects )
 if not effects or not effects [ "native.regex" ] then
-return ""
+return base
 end
-return [=[local __nupp=_G.nupp or {};_G.nupp=__nupp;local __nuppMeta=getmetatable(__nupp)or{};local __nuppLoaders=__nuppMeta.__nuppLoaders;if not __nuppLoaders then __nuppLoaders={};local __nuppPrior=__nuppMeta.__index;__nuppMeta.__nuppLoaders=__nuppLoaders;__nuppMeta.__index=function(t,k)local load=__nuppLoaders[k];if load then __nuppLoaders[k]=nil;local value=load();rawset(t,k,value);return value end;if type(__nuppPrior)=="function"then return __nuppPrior(t,k)elseif __nuppPrior then return __nuppPrior[k]end end;setmetatable(__nupp,__nuppMeta)end;if not rawget(__nupp,"regex")and not __nuppLoaders.regex then __nuppLoaders.regex=function()local regex={};local ffi=require("ffi");ffi.cdef[[typedef struct NuppRegex NuppRegex;typedef struct { size_t start; size_t end; bool matched; } NuppRegexSpan;typedef struct NuppBytes NuppBytes;NuppRegex *nuppRegexCompile(const uint8_t *,size_t);size_t nuppRegexCaptureCount(const NuppRegex *);const uint8_t *nuppRegexCaptureName(const NuppRegex *,size_t,size_t *);bool nuppRegexIsMatch(const NuppRegex *,const uint8_t *,size_t);bool nuppRegexFind(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *);bool nuppRegexCaptures(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *,size_t);NuppBytes *nuppRegexReplace(const NuppRegex *,const uint8_t *,size_t,const uint8_t *,size_t,size_t);void nuppRegexDestroy(NuppRegex *);const char *nuppRegexLastError(void);size_t nuppBytesLength(const NuppBytes *);const uint8_t *nuppBytesData(const NuppBytes *);void nuppBytesDestroy(NuppBytes *);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local C=(function()local wanted=os.getenv("NUPP_REGEX_LIBRARY");if wanted then return ffi.load(wanted)end local ok,lib=pcall(ffi.load,root.."/lib/nupp_regex");if ok then return lib end return ffi.load(root.."/../lib/nupp_regex")end)();local function start(s,i,l)if i==nil then return 0 end if type(i)~="number"or i~=math.floor(i)then error("nupp: regex init must be an integer",l)end if i<0 then i=#s+i+1 end if i<1 then i=1 end if i>#s+1 then return nil end return i-1 end;local function match(s,span,index,name)local first=tonumber(span.start)+1;return{value=s:sub(first,tonumber(span["end"])),first=first,last=tonumber(span["end"]),index=index,name=name}end;local R={};R.__index=R;function R:isMatch(s)return C.nuppRegexIsMatch(self._handle,s,#s)end;function R:find(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexFind(self._handle,s,#s,at,self._spans)then return nil end return match(s,self._spans[0],0,nil)end;function R:captures(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexCaptures(self._handle,s,#s,at,self._spans,self._captureCount)then return nil end local groups,named={},{};local whole=match(s,self._spans[0],0,nil);for n=1,self._captureCount-1 do local span=self._spans[n]if span.matched then local item=match(s,span,n,self._captureNames[n]);groups[n]=item;if item.name then named[item.name]=item end end end return{whole=whole,groups=groups,groupCount=self._captureCount-1,named=named}end;local function replace(self,s,r,limit)local bytes=C.nuppRegexReplace(self._handle,s,#s,r,#r,limit)if bytes==nil then return s end local out=ffi.string(C.nuppBytesData(bytes),tonumber(C.nuppBytesLength(bytes)));C.nuppBytesDestroy(bytes);return out end;function R:replace(s,r)return replace(self,s,r,1)end;function R:replaceAll(s,r)return replace(self,s,r,0)end;function regex.compile(pattern)local handle=C.nuppRegexCompile(pattern,#pattern)if handle==nil then error("nupp: invalid regex: "..ffi.string(C.nuppRegexLastError()),2)end handle=ffi.gc(handle,C.nuppRegexDestroy);local count=tonumber(C.nuppRegexCaptureCount(handle));local names,length={},ffi.new("size_t[1]");for i=1,count-1 do local name=C.nuppRegexCaptureName(handle,i,length)if name~=nil then names[i]=ffi.string(name,tonumber(length[0]))end end return setmetatable({pattern=pattern,_handle=handle,_spans=ffi.new("NuppRegexSpan[?]",count),_captureCount=count,_captureNames=names},R)end return regex end end;]=]
+
+return base
+.. ";"
+.. "__nuppLazy(__nupp);"
+.. [=[local __nuppMeta=getmetatable(__nupp)or{};local __nuppLoaders=__nuppMeta.__nuppLoaders;if not __nuppLoaders then __nuppLoaders={};__nuppMeta.__nuppLoaders=__nuppLoaders;setmetatable(__nupp,__nuppMeta)end;if not rawget(__nupp,"regex")and not __nuppLoaders.regex then __nuppLoaders.regex=function()local regex={};local ffi=require("ffi");ffi.cdef[[typedef struct NuppRegex NuppRegex;typedef struct { size_t start; size_t end; bool matched; } NuppRegexSpan;typedef struct NuppBytes NuppBytes;NuppRegex *nuppRegexCompile(const uint8_t *,size_t);size_t nuppRegexCaptureCount(const NuppRegex *);const uint8_t *nuppRegexCaptureName(const NuppRegex *,size_t,size_t *);bool nuppRegexIsMatch(const NuppRegex *,const uint8_t *,size_t);bool nuppRegexFind(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *);bool nuppRegexCaptures(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *,size_t);NuppBytes *nuppRegexReplace(const NuppRegex *,const uint8_t *,size_t,const uint8_t *,size_t,size_t);void nuppRegexDestroy(NuppRegex *);const char *nuppRegexLastError(void);size_t nuppBytesLength(const NuppBytes *);const uint8_t *nuppBytesData(const NuppBytes *);void nuppBytesDestroy(NuppBytes *);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local C=(function()local wanted=os.getenv("NUPP_REGEX_LIBRARY");if wanted then return ffi.load(wanted)end local ok,lib=pcall(ffi.load,root.."/lib/nupp_regex");if ok then return lib end return ffi.load(root.."/../lib/nupp_regex")end)();local function start(s,i,l)if i==nil then return 0 end if type(i)~="number"or i~=math.floor(i)then error("nupp: regex init must be an integer",l)end if i<0 then i=#s+i+1 end if i<1 then i=1 end if i>#s+1 then return nil end return i-1 end;local function match(s,span,index,name)local first=tonumber(span.start)+1;return{value=s:sub(first,tonumber(span["end"])),first=first,last=tonumber(span["end"]),index=index,name=name}end;local R={};R.__index=R;function R:isMatch(s)return C.nuppRegexIsMatch(self._handle,s,#s)end;function R:find(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexFind(self._handle,s,#s,at,self._spans)then return nil end return match(s,self._spans[0],0,nil)end;function R:captures(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexCaptures(self._handle,s,#s,at,self._spans,self._captureCount)then return nil end local groups,named={},{};local whole=match(s,self._spans[0],0,nil);for n=1,self._captureCount-1 do local span=self._spans[n]if span.matched then local item=match(s,span,n,self._captureNames[n]);groups[n]=item;if item.name then named[item.name]=item end end end return{whole=whole,groups=groups,groupCount=self._captureCount-1,named=named}end;local function replace(self,s,r,limit)local bytes=C.nuppRegexReplace(self._handle,s,#s,r,#r,limit)if bytes==nil then return s end local out=ffi.string(C.nuppBytesData(bytes),tonumber(C.nuppBytesLength(bytes)));C.nuppBytesDestroy(bytes);return out end;function R:replace(s,r)return replace(self,s,r,1)end;function R:replaceAll(s,r)return replace(self,s,r,0)end;function regex.compile(pattern)local handle=C.nuppRegexCompile(pattern,#pattern)if handle==nil then error("nupp: invalid regex: "..ffi.string(C.nuppRegexLastError()),2)end handle=ffi.gc(handle,C.nuppRegexDestroy);local count=tonumber(C.nuppRegexCaptureCount(handle));local names,length={},ffi.new("size_t[1]");for i=1,count-1 do local name=C.nuppRegexCaptureName(handle,i,length)if name~=nil then names[i]=ffi.string(name,tonumber(length[0]))end end return setmetatable({pattern=pattern,_handle=handle,_spans=ffi.new("NuppRegexSpan[?]",count),_captureCount=count,_captureNames=names},R)end return regex end end;]=]
 end
 
 return native
 
 end
-package.preload["compiler.optimize"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.optimize"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -44981,7 +46313,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
+local cst = require ( "nupp.compiler.cst" )
 
 local optimize = { }
 
@@ -45453,7 +46785,7 @@ end
 
 
 local function concatBufferWalk ( result , remarks )
-local facts = require ( "compiler.analysis" ) . queries ( result . analysis )
+local facts = require ( "nupp.compiler.analysis" ) . queries ( result . analysis )
 if not facts then
 return
 end
@@ -45516,7 +46848,7 @@ end
 end
 
 local function numericIpairsWalk ( result , remarks )
-local facts = require ( "compiler.analysis" ) . queries ( result . analysis )
+local facts = require ( "nupp.compiler.analysis" ) . queries ( result . analysis )
 if not facts then
 return
 end
@@ -46227,11 +47559,42 @@ end
 return remarks
 end
 
+
+
+
+function optimize . liveEffects ( result )
+local effects = { }
+local function visit ( node )
+if not node or isToken ( node ) then
+return
+end
+if node . compilerFeatureEffect then
+effects [ node . compilerFeatureEffect ] = true
+end
+if node . constantLoopNone then
+return
+end
+if node . kind == "ifStmt" and ( node . constantBranch or node . constantBranchNone ) then
+if node . constantBranch then
+visit ( node . constantBranch )
+end
+return
+end
+for _ , child in ipairs ( node ) do
+visit ( child )
+end
+end
+
+visit ( result . root )
+
+return effects
+end
+
 return optimize
 
 end
-package.preload["compiler.parser"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.parser"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -46243,8 +47606,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local lexer = require ( "compiler.lexer" )
-local cst = require ( "compiler.cst" )
+local lexer = require ( "nupp.compiler.lexer" )
+local cst = require ( "nupp.compiler.cst" )
 
 local parser = { }
 
@@ -47415,6 +48778,22 @@ end
 
 
 
+local function atComptimeexp ( )
+local tok = cur ( )
+if tok . kind ~= "name" or tok . text ~= "comptime" then
+return false
+end
+local after = tokens [ i + 1 ]
+
+return after ~= nil and after . kind == "do" and after . line == tok . line
+end
+
+
+
+
+
+
+
 
 local function parseNewexp ( )
 local n = setmetatable( { kind = "newExpr" } , cst.NewExpr)
@@ -47480,6 +48859,13 @@ elseif kind == "{" then
 return parseTableconstructor ( )
 elseif atNewexp ( ) then
 return parseNewexp ( )
+elseif atComptimeexp ( ) then
+local n = setmetatable( { kind = "comptimeExpr" } , cst.ComptimeExpr)
+add ( n , advance ( ) ) . contextualOp = true
+add ( n , advance ( ) )
+n . body = add ( n , parseBlock ( ) )
+add ( n , expect ( "end" , "to close 'comptime do'" ) )
+return n
 else
 return parseSuffixedexp ( )
 end
@@ -48422,8 +49808,8 @@ end
 return parser
 
 end
-package.preload["compiler.predicate"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.predicate"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -48445,7 +49831,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local cst = require ( "compiler.cst" )
+local cst = require ( "nupp.compiler.cst" )
 
 local predicate = { }
 
@@ -48984,8 +50370,8 @@ end
 return predicate
 
 end
-package.preload["compiler.query"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.query"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -49225,8 +50611,8 @@ end
 return query
 
 end
-package.preload["compiler.reference"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.reference"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -49247,8 +50633,8 @@ _G.nupp=_G.nupp or {};
 
 
 
-local lints = require ( "compiler.lints" )
-local explain = require ( "compiler.explain" )
+local lints = require ( "nupp.compiler.lints" )
+local explain = require ( "nupp.compiler.explain" )
 
 local reference = { }
 
@@ -49932,10 +51318,11 @@ Parameter modes say what a call does with what it is given: `takes` consumes,
 other view live, and `retains`/`releases` describe C holding a pointer across a
 call.
 
-`dispose`, `borrow`, `intoRaw`, `fromRaw`, `borrowFrom`, and `pin` are the only
-names Nupp itself puts at the top level, and each also answers to `nupp.`:
-`nupp.dispose(handle)` is the same call as `dispose(handle)`. Either spelling is
-shadowed by a binding of that name, `nupp` included.
+The ownership intrinsics live under the always-available `nupp` global:
+`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.borrowFrom`, and `nupp.pin`. The old bare spellings remain aliases and
+lower identically. Either spelling is shadowed by a binding of that name,
+`nupp` included.
 ]=] ,
 example = [=[
 local m = {}
@@ -50227,6 +51614,77 @@ function m.toggle(flag: boolean): boolean
     @allow("customary-operator")
     local inverted = !flag
     return inverted
+end
+
+return m
+]=] ,
+} , reference.Section) , setmetatable(
+
+{
+title = "Comptime" ,
+codes = { "NUPP2401" , "NUPP2402" , "NUPP2403" , "NUPP2404" , "NUPP2405" } ,
+body = [=[
+`comptime do ... end` is an expression whose value is computed while the file is
+compiled. The block is ordinary Nupp, and what it returns is written into the
+generated Lua as a literal, so nothing of the work survives into the program.
+`comptime` opens a block only when `do` follows it on the same line; everywhere
+else it is an ordinary name.
+
+Its reason to exist is the loop that accumulates: a table built by iterating,
+which no rewrite of an expression can produce. A constant expression does not
+need it, because `-O1` already folds one.
+
+A block returns exactly one value, and that value is checked where it lands, so
+a result that does not fit its declared type is the ordinary error it would be
+if you had typed the literal out. Quotable results are nil, booleans, numbers
+that read back unchanged, strings, and acyclic tables of those with no
+metatable. A table reachable by two paths is **NUPP2405** rather than two
+tables; NaN and the infinities have no literal spelling.
+
+A block reads only its own locals and the compile-time environment. A runtime
+local, an upvalue, module state, or a global is **NUPP2401**, and it may not
+write to one either. The environment is an allowlist: `assert`, `error`,
+`ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members of
+`math`, `string`, `table` and `bit`. A member the allowlist leaves out is
+**NUPP2402** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
+`load`, clock, or randomness.
+
+Two absences are deliberate rather than incidental. The transcendental functions
+are libm's, and libm differs between platforms, so a block using one would
+produce a different constant on a different machine. `tostring` of a table is a
+process address, so it would differ between two builds of one file; the
+`tostring` provided answers for scalars and refuses the rest. `pairs` iterates in
+sorted order for the same reason.
+
+Evaluation is bounded. A block that does not finish is **NUPP2404** rather than a
+compiler that does not finish, which is what keeps an editor responsive.
+
+Comptime is not a macro system: it produces data, never declarations or source
+text. Reusable `@comptime` helpers, type reflection, and layout intrinsics are
+specified but not yet built; declaring a function inside a block is NUPP2402
+today.
+]=] ,
+example = [=[
+local m = {}
+
+const CRC32 = comptime do
+    const entries = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            acc = acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+        end
+        entries[byte + 1] = acc
+    end
+    return entries
+end
+
+function m.checksum(text: string): integer
+    local acc = 0xffffffff
+    for index = 1, #text do
+        acc = CRC32[(acc ~ text:byte(index)) & 0xff + 1] ~ (acc >> 8)
+    end
+    return acc ~ 0xffffffff
 end
 
 return m
@@ -50527,8 +51985,8 @@ end
 return reference
 
 end
-package.preload["compiler.relations"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.relations"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -50540,7 +51998,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local T = require ( "compiler.types" )
+local T = require ( "nupp.compiler.types" )
 
 local relations = { }
 
@@ -51425,7 +52883,7 @@ if atag == "func" and btag == "func" then
 if (
 # ( a . typeParams or { } ) > 0 or # ( a . packParams or { } ) > 0
 ) and # ( b . typeParams or { } ) == 0 and # ( b . packParams or { } ) == 0 then
-local generic = require ( "compiler.generics" )
+local generic = require ( "nupp.compiler.generics" )
 local map = { }
 generic . unifyPack ( a . paramPack , b . paramPack , map )
 for j , tv in ipairs ( a . typeParams or { } ) do
@@ -51541,8 +52999,8 @@ relations . isA = isA
 return relations
 
 end
-package.preload["compiler.rock"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.rock"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -51552,9 +53010,9 @@ _G.nupp=_G.nupp or {};
 
 
 
-local fs = require ( "compiler.fs" )
-local process = require ( "compiler.build.process" )
-local diagnostics = require ( "compiler.diagnostics" )
+local fs = require ( "nupp.compiler.fs" )
+local process = require ( "nupp.compiler.build.process" )
+local diagnostics = require ( "nupp.compiler.diagnostics" )
 
 local join , normalize = fs . join , fs . normalize
 local readFile , writeFile = fs . readFile , fs . writeFile
@@ -51753,7 +53211,7 @@ return modules
 end
 
 local function validateDeclarations ( root , modules )
-local incremental = require ( "compiler.incremental" )
+local incremental = require ( "nupp.compiler.incremental" )
 local inc = incremental . new (
 join ( root , ".nupp-rock-check" ) ,
 { cache = false , config = { include = { } } , typeRoots = { join ( root , "nupp" ) } , }
@@ -51800,7 +53258,7 @@ local valid , validErr = validateDeclarations ( root , modules )
 if not valid then
 return nil , validErr
 end
-if require ( "compiler.build.project" ) . build ( root ) ~= 0 then
+if require ( "nupp.compiler.build.project" ) . build ( root ) ~= 0 then
 return nil , "project build failed"
 end
 local relativeRockspec = meta . rockspec
@@ -51896,7 +53354,7 @@ if not ok then
 removeTree ( temp )
 return nil , writeErr
 end
-local checked = require ( "compiler.build.project" ) . build ( consumer , { checkOnly = true } )
+local checked = require ( "nupp.compiler.build.project" ) . build ( consumer , { checkOnly = true } )
 removeTree ( temp )
 if checked ~= 0 then
 return nil , "the clean consumer could not check the installed rock"
@@ -51908,8 +53366,8 @@ end
 return rock
 
 end
-package.preload["compiler.runtime"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.runtime"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -51920,7 +53378,7 @@ _G.nupp=_G.nupp or {};
 
 
 
-local envMod = require ( "compiler.env" )
+local envMod = require ( "nupp.compiler.env" )
 
 local runtime = { }
 
@@ -51986,8 +53444,233 @@ end
 return runtime
 
 end
-package.preload["compiler.types"] = function(...)
-_G.nupp=_G.nupp or {};
+package.preload["nupp.compiler.stdlib"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+local stdlib = { }
+
+local function compact ( source )
+return ( source : gsub ( "[\r\n]+%s*" , " " ) : gsub ( "%s+$" , "" ) )
+end
+
+local BASE = compact (
+[=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+]=]
+)
+
+local LAZY = compact (
+[=[
+local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end
+]=]
+)
+
+local JSON = compact (
+[=[
+local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end
+for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+]=]
+)
+
+local IO = compact (
+[=[
+local function __nuppInstallIO()local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer
+local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end
+local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end
+local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end
+local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end
+function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end
+function Buffer:length()opened(self,"io.Buffer",2);return #self._bytes end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._bytes="" end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);minimum=integer(minimum,"io.Buffer capacity",2);if minimum>self._capacity then self._capacity=minimum end end
+function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);local current=#self._bytes;if length<current then self._bytes=self._bytes:sub(1,length)elseif length>current then self._bytes=self._bytes..string.rep("\0",length-current)end;if length>self._capacity then self._capacity=length end end
+function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(#self._bytes,offset,count,"io.Buffer",2);return self._bytes:sub(offset+1,offset+count)end
+function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);if offset>#self._bytes then self._bytes=self._bytes..string.rep("\0",offset-#self._bytes)end;local tail=offset+#bytes+1;self._bytes=self._bytes:sub(1,offset)..bytes..self._bytes:sub(tail);if #self._bytes>self._capacity then self._capacity=#self._bytes end end
+function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(#self._bytes,offset,count,"io.Buffer",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._bytes="";self._capacity=0;return true end
+function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end
+function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end
+function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end
+local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end
+function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end
+function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end
+function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end
+function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end
+local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;return setmetatable({_bytes=bytes,_capacity=capacity,_closed=false},Buffer)end
+__nuppIO.newBuffer=newBuffer;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end
+for _,__name in ipairs({"newBuffer","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end
+]=]
+)
+
+local UTF8 = compact (
+[=[
+__nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end
+function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end)
+]=]
+)
+
+local MATH = compact (
+[=[
+local m=__nuppMath;local pi,tau=math.pi,2*math.pi
+function m.wrapAngle(radians)return(radians+pi)%tau-pi end
+function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
+local v={};m.vec2=v
+function v.add(ax,ay,bx,by)return ax+bx,ay+by end
+function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end
+function v.scale(x,y,f)return x*f,y*f end
+function v.dot(ax,ay,bx,by)return ax*bx+ay*by end
+function v.cross(ax,ay,bx,by)return ax*by-ay*bx end
+function v.lengthSquared(x,y)return x*x+y*y end
+function v.length(x,y)return math.sqrt(x*x+y*y)end
+function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end
+function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end
+function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end
+function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end
+function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end
+function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end
+function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end
+function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end
+function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end
+function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end
+function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end
+]=]
+)
+
+local FNV = compact (
+[=[
+__nuppLazy(__nuppData,"fnv1a64",function()local bit=require("bit");return function(value)local s=type(value)=="string"and value or value:getString();local hi,lo=0xcbf29ce4,0x84222325;for i=1,#s do lo=bit.bxor(lo,s:byte(i));local low=lo<0 and lo+4294967296 or lo;local high=hi<0 and hi+4294967296 or hi;local product=low*435;local carry=math.floor(product/4294967296);lo=bit.tobit(product);hi=bit.tobit(high*435+low*256+carry)end;local high=hi<0 and hi+4294967296 or hi;local low=lo<0 and lo+4294967296 or lo;return string.format("%08x%08x",high,low)end end)
+]=]
+)
+
+local CHECKSUMS = compact (
+[=[
+local function __nuppChecksums()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;local function bytes(value)return type(value)=="string"and value or value:getString()end;local function seed(value,name,default)if value==nil then return default end;if type(value)~="number"or value~=math.floor(value)or value<0 or value>4294967295 then error("nupp: "..name.." previous checksum must be an unsigned 32-bit integer",3)end;return value end;__nuppData.adler32=function(value,previous)local s=bytes(value);previous=seed(previous,"adler32",1);local a,b=previous%65536,math.floor(previous/65536)%65536;for i=1,#s do a=(a+s:byte(i))%65521;b=(b+a)%65521 end;return b*65536+a end;__nuppData.crc32=function(value,previous)local c=bit.bnot(seed(previous,"crc32",0));local s=bytes(value);for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end;return __nuppData end
+for _,__name in ipairs({"adler32","crc32"})do __nuppLazy(__nuppData,__name,function(name)__nuppChecksums();return rawget(__nuppData,name)end)end
+]=]
+)
+
+local NATIVE = compact (
+[=[
+local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local ok,lib=pcall(ffi.load,root.."/lib/nupp_native");if ok then C=lib else C=ffi.load(root.."/../lib/nupp_native")end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end
+]=]
+)
+
+local PATH = compact (
+[=[
+__nuppLazy(__nuppIO,"Path",function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;local Path={};Path.__index=Path;Path.__tostring=function(self)return self._text end;Path.__eq=function(a,b)return a._text==b._text end
+local function value(v)return type(v)=="table"and getmetatable(v)==Path and v._text or v end
+local function path(text)return setmetatable({_text=text},Path)end
+local function returned(bytes,optional)local text=native.bytes(bytes,optional);return text and path(text)or nil end
+local function call(method,self,...)local out=C[method](self._text,#self._text,...);if out==nil then return nil,native.error()end;return returned(out)end
+function Path:toString()return self._text end
+function Path:join(...)local count=select("#",...);local views=ffi.new("NuppStringView[?]",count+1);local keep={self._text};for i=1,count do keep[i+1]=value(select(i,...))end;for i=1,#keep do views[i-1].data=keep[i];views[i-1].length=#keep[i]end;return returned(C.nuppPathJoin(views,#keep))end
+function Path:normalize()return call("nuppPathNormalize",self)end
+function Path:absolute()return call("nuppPathAbsolute",self)end
+function Path:resolve(...)local absolute,reason=self:absolute();if not absolute then return nil,reason end;return absolute:join(...):normalize()end
+function Path:canonicalize()return call("nuppPathCanonicalize",self)end
+function Path:relativeTo(base)local b=value(base);local out=C.nuppPathRelative(self._text,#self._text,b,#b);if out==nil then return nil,native.error()end;return returned(out)end
+function Path:parent()return returned(C.nuppPathPart(self._text,#self._text,0),true)end
+local parts={fileName=1,stem=2,extension=3};for name,kind in pairs(parts)do Path[name]=function(self)return native.bytes(C.nuppPathPart(self._text,#self._text,kind),true)end end
+function Path:withFileName(name)return returned(C.nuppPathWith(self._text,#self._text,name,#name,false))end
+function Path:withExtension(extension)return returned(C.nuppPathWith(self._text,#self._text,extension,#extension,true))end
+function Path:isAbsolute()return C.nuppPathIsAbsolute(self._text,#self._text)end
+function Path:isRelative()return not self:isAbsolute()end
+local library={};function library.new(first,...)return path(first):join(...)end
+function library.currentDirectory()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
+function library.separator()return package.config:sub(1,1)end;return library end)
+]=]
+)
+
+local URI = compact (
+[=[
+__nuppLazy(__nuppIO,"URI",function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end
+local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
+local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
+local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end
+function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end
+function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end
+function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end
+local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end
+local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end
+function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end
+function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end
+function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end
+function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end
+local library={};local function compose(c)if type(c)~="table"then return nil,"nupp: URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
+function library.new(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
+function library.validate(text)if type(text)~="string"then return false,"nupp: URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
+function library.isURI(value)return type(value)=="table"and getmetatable(value)==URI end;return library end)
+]=]
+)
+
+local UUID = compact (
+[=[
+local function __nuppUUID(which)local native=__nuppNative();local output=native.ffi.new("char[37]");if not native.C[which](output)then error("nupp: UUID generation failed",2)end;return native.ffi.string(output)end;__nuppLazy(__nuppData,"uuid4",function()return function()return __nuppUUID("nuppUuid4")end end);__nuppLazy(__nuppData,"uuid7",function()return function()return __nuppUUID("nuppUuid7")end end)
+]=]
+)
+
+local SHA256 = compact (
+[=[
+__nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
+]=]
+)
+
+function stdlib . bootstrap ( effects )
+local out = { BASE }
+if effects and next ( effects ) then
+out [ # out + 1 ] = LAZY
+end
+effects = effects or { }
+if effects [ "native.cjson" ] then
+out [ # out + 1 ] = JSON
+end
+if effects [ "stdlib.io" ] then
+out [ # out + 1 ] = IO
+end
+if effects [ "native.lua_utf8" ] then
+out [ # out + 1 ] = UTF8
+end
+if effects [ "stdlib.math" ] then
+out [ # out + 1 ] = MATH
+end
+if effects [ "stdlib.fnv1a64" ] then
+out [ # out + 1 ] = FNV
+end
+if effects [ "stdlib.checksums" ] then
+out [ # out + 1 ] = CHECKSUMS
+end
+local hasNative = effects [
+"native.path"
+] or effects [ "native.uri" ] or effects [ "native.uuid" ] or effects [ "native.sha256" ]
+if hasNative then
+out [ # out + 1 ] = NATIVE
+end
+if effects [ "native.path" ] then
+out [ # out + 1 ] = PATH
+end
+if effects [ "native.uri" ] then
+out [ # out + 1 ] = URI
+end
+if effects [ "native.uuid" ] then
+out [ # out + 1 ] = UUID
+end
+if effects [ "native.sha256" ] then
+out [ # out + 1 ] = SHA256
+end
+
+return table . concat ( out , ";" )
+end
+
+return stdlib
+
+end
+package.preload["nupp.compiler.types"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -53445,7 +55128,7 @@ return types
 
 end
 package.preload["nupp.profile"] = function(...)
-_G.nupp=_G.nupp or {};
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -54295,7 +55978,7 @@ return profile
 
 end
 package.preload["nupp.resources"] = function(...)
-_G.nupp=_G.nupp or {};
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -54349,7 +56032,7 @@ return resources
 
 end
 package.preload["nupp.zone"] = function(...)
-_G.nupp=_G.nupp or {};
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -55173,8 +56856,225 @@ local require: function(name: string): any
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
 local nupp: {
+    data: {
+        encodeJSON: function(value: any): string,
+        decodeJSON: function(text: string): any,
+        newJSON: function(): nupp.JSON,
+        null: any,
+        empty_array: any,
+        array_mt: metatable<{any}>,
+        empty_array_mt: metatable<{any}>,
+        encode_empty_table_as_object: function(setting: boolean | string?): boolean,
+        decode_array_with_array_mt: function(setting: boolean | string?): boolean,
+        decode_allow_comment: function(setting: boolean | string?): boolean,
+        encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
+        encode_max_depth: function(depth: integer?): integer,
+        decode_max_depth: function(depth: integer?): integer,
+        encode_number_precision: function(precision: integer?): integer,
+        encode_keep_buffer: function(keep: boolean | string?): boolean,
+        encode_invalid_numbers: function(setting: boolean | string?): boolean | string,
+        decode_invalid_numbers: function(setting: boolean | string?): boolean,
+        encode_escape_forward_slash: function(setting: boolean | string?): boolean,
+        encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean,
+        encode_indent: function(indent: string?): string,
+        utf8: nupp.UTF8Library,
+        uuid4: function(): string,
+        uuid7: function(): string,
+        fnv1a64: function(value: string | nupp.ByteView): string,
+        sha256: function(value: string | nupp.ByteView): string,
+        adler32: function(value: string | nupp.ByteView, previous: integer?): integer,
+        crc32: function(value: string | nupp.ByteView, previous: integer?): integer
+    },
+    io: {
+        newBuffer: function(initial: integer | string?): nupp.Buffer,
+        newStringReader: function(text: string): nupp.Reader,
+        Path: nupp.PathLibrary,
+        URI: nupp.URILibrary
+    },
+    math: nupp.MathLibrary,
     regex: nupp.RegexLibrary
 }
+
+--- One independently configured JSON encoder and decoder.
+interface nupp.JSON
+    encodeJSON: function(value: any): string
+    decodeJSON: function(text: string): any
+    null: any
+    empty_array: any
+    array_mt: metatable<{any}>
+    empty_array_mt: metatable<{any}>
+    encode_empty_table_as_object: function(setting: boolean | string?): boolean
+    decode_array_with_array_mt: function(setting: boolean | string?): boolean
+    decode_allow_comment: function(setting: boolean | string?): boolean
+    encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
+    encode_max_depth: function(depth: integer?): integer
+    decode_max_depth: function(depth: integer?): integer
+    encode_number_precision: function(precision: integer?): integer
+    encode_keep_buffer: function(keep: boolean | string?): boolean
+    encode_invalid_numbers: function(setting: boolean | string?): boolean | string
+    decode_invalid_numbers: function(setting: boolean | string?): boolean
+    encode_escape_forward_slash: function(setting: boolean | string?): boolean
+    encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean
+    encode_indent: function(indent: string?): string
+end
+
+--- UTF-8 codepoint operations over strings and immutable byte views.
+record nupp.UTF8Library
+    length: function(value: string | nupp.ByteView): integer
+    decodeAt: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
+    decodeBefore: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
+    encode: function(codepoint: integer): string
+    isValid: function(value: string | nupp.ByteView): boolean
+    validPrefixLength: function(value: string | nupp.ByteView, maxBytes: integer): integer
+    truncate: function(text: string, maxBytes: integer): string
+end
+
+--- An immutable snapshot of bytes.
+interface nupp.ByteView
+    newReader: function(self: nupp.ByteView): nupp.Reader
+    length: function(self: nupp.ByteView): integer
+    getString: function(self: nupp.ByteView): string
+    view: function(self: nupp.ByteView, offset: integer?, count: integer?): nupp.ByteView
+    isReleased: function(self: nupp.ByteView): boolean
+    close: function(self: nupp.ByteView): (boolean, string?)
+end
+
+--- A forward-only byte source. An empty read or zero-byte readInto is EOF.
+interface nupp.Reader
+    read: function(self: nupp.Reader, count: integer): (string?, string?)
+    readInto: function(
+        self: nupp.Reader,
+        destination: nupp.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+    transferTo: function(self: nupp.Reader, destination: nupp.Writer): (integer?, string?)
+    close: function(self: nupp.Reader): (boolean, string?)
+end
+
+--- A forward-only byte destination.
+interface nupp.Writer
+    write: function(self: nupp.Writer, bytes: string): (boolean, string?)
+    writeFrom: function(self: nupp.Writer, source: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    writeView: function(
+        self: nupp.Writer,
+        source: nupp.ByteView,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+    flush: function(self: nupp.Writer): (boolean, string?)
+    close: function(self: nupp.Writer): (boolean, string?)
+end
+
+--- An owned growable byte sequence. All offsets are zero-based.
+interface nupp.Buffer
+    newReader: function(self: nupp.Buffer): nupp.Reader
+    newWriter: function(self: nupp.Buffer): nupp.Writer
+    length: function(self: nupp.Buffer): integer
+    capacity: function(self: nupp.Buffer): integer
+    clear: function(self: nupp.Buffer)
+    ensureCapacity: function(self: nupp.Buffer, minimum: integer)
+    resize: function(self: nupp.Buffer, length: integer)
+    getString: function(self: nupp.Buffer, offset: integer?, count: integer?): string
+    setString: function(self: nupp.Buffer, bytes: string, offset: integer?)
+    view: function(self: nupp.Buffer, offset: integer?, count: integer?): nupp.ByteView
+    isReleased: function(self: nupp.Buffer): boolean
+    close: function(self: nupp.Buffer): (boolean, string?)
+end
+
+--- An immutable platform-native UTF-8 filesystem path.
+record nupp.Path
+    toString: function(self: nupp.Path): string
+    join: function(self: nupp.Path, ...: string | nupp.Path): nupp.Path
+    normalize: function(self: nupp.Path): nupp.Path
+    absolute: function(self: nupp.Path): (nupp.Path?, string?)
+    resolve: function(self: nupp.Path, ...: string | nupp.Path): (nupp.Path?, string?)
+    canonicalize: function(self: nupp.Path): (nupp.Path?, string?)
+    relativeTo: function(self: nupp.Path, base: string | nupp.Path): (nupp.Path?, string?)
+    parent: function(self: nupp.Path): nupp.Path?
+    fileName: function(self: nupp.Path): string?
+    stem: function(self: nupp.Path): string?
+    extension: function(self: nupp.Path): string?
+    withFileName: function(self: nupp.Path, name: string): nupp.Path
+    withExtension: function(self: nupp.Path, extension: string): nupp.Path
+    isAbsolute: function(self: nupp.Path): boolean
+    isRelative: function(self: nupp.Path): boolean
+end
+
+record nupp.PathLibrary
+    new: function(first: string, ...: string): nupp.Path
+    currentDirectory: function(): (nupp.Path?, string?)
+    separator: function(): string
+end
+
+--- An immutable normalized absolute URI.
+record nupp.URI
+    toString: function(self: nupp.URI): string
+    scheme: function(self: nupp.URI): string
+    authority: function(self: nupp.URI): string?
+    username: function(self: nupp.URI): string
+    password: function(self: nupp.URI): string?
+    host: function(self: nupp.URI): string?
+    port: function(self: nupp.URI): integer?
+    path: function(self: nupp.URI): string
+    query: function(self: nupp.URI): string?
+    fragment: function(self: nupp.URI): string?
+    userInfo: function(self: nupp.URI): string?
+    withScheme: function(self: nupp.URI, scheme: string): nupp.URI
+    withUserInfo: function(self: nupp.URI, userInfo: string?): nupp.URI
+    withHost: function(self: nupp.URI, host: string?): nupp.URI
+    withPort: function(self: nupp.URI, port: integer?): nupp.URI
+    withPath: function(self: nupp.URI, path: string): nupp.URI
+    withQuery: function(self: nupp.URI, query: string?): nupp.URI
+    withFragment: function(self: nupp.URI, fragment: string?): nupp.URI
+    concatPath: function(self: nupp.URI, path: string): nupp.URI
+    withEndpoint: function(self: nupp.URI, endpoint: nupp.URI): nupp.URI
+    resolve: function(self: nupp.URI, reference: string): (nupp.URI?, string?)
+end
+
+record nupp.URIComponents
+    scheme: string
+    userInfo: string?
+    host: string?
+    port: integer?
+    path: string?
+    query: string?
+    fragment: string?
+end
+
+record nupp.URILibrary
+    new: function(value: string | nupp.URIComponents): (nupp.URI?, string?)
+    validate: function(text: string): (boolean, string?)
+    isURI: function(value: any): boolean
+end
+
+--- Scalar helpers and two-dimensional vector operations on number pairs.
+record nupp.Vec2Library
+    add: function(ax: number, ay: number, bx: number, by: number): (number, number)
+    subtract: function(ax: number, ay: number, bx: number, by: number): (number, number)
+    scale: function(x: number, y: number, factor: number): (number, number)
+    dot: function(ax: number, ay: number, bx: number, by: number): number
+    cross: function(ax: number, ay: number, bx: number, by: number): number
+    lengthSquared: function(x: number, y: number): number
+    length: function(x: number, y: number): number
+    distanceSquared: function(ax: number, ay: number, bx: number, by: number): number
+    distance: function(ax: number, ay: number, bx: number, by: number): number
+    normalize: function(x: number, y: number): (number, number)
+    lerp: function(ax: number, ay: number, bx: number, by: number, t: number): (number, number)
+    moveTowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+    rotate: function(x: number, y: number, radians: number): (number, number)
+    angle: function(x: number, y: number): number
+    angleBetween: function(ax: number, ay: number, bx: number, by: number): number
+    signedAngleBetween: function(ax: number, ay: number, bx: number, by: number): number
+    project: function(x: number, y: number, ontoX: number, ontoY: number): (number, number)
+    reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
+end
+
+record nupp.MathLibrary
+    vec2: nupp.Vec2Library
+    wrapAngle: function(radians: number): number
+    deltaAngle: function(from: number, to: number): number
+end
 
 --- One byte-range match from a compiler-provided regular expression.
 record nupp.RegexMatch
@@ -57483,7 +59383,7 @@ return zone
 ]=],
 }
 end
-_G.nupp=_G.nupp or {};
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
 
 
@@ -57493,4 +59393,4 @@ _G.nupp=_G.nupp or {};
 
 
 
-os . exit ( require ( "compiler.cli" ) . main ( arg ) )
+os . exit ( require ( "nupp.compiler.cli" ) . main ( arg ) )

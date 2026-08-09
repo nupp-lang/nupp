@@ -3,9 +3,9 @@
 -- an `_`, an owned value with a rule of its own -- since a lint that reported
 -- those would be one a project learned to turn off.
 
-local parser = require("compiler.parser")
-local check = require("compiler.check")
-local envMod = require("compiler.env")
+local parser = require("nupp.compiler.parser")
+local check = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.env")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -105,7 +105,7 @@ end
 
 function M.readingThroughATypeAnnotationIsAUse()
    assertQuiet([[
-local T = require("compiler.types")
+local T = require("nupp.compiler.types")
 
 local function widen(t: T.Type): T.Type
    return t

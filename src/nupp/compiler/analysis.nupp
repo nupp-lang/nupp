@@ -1,0 +1,1076 @@
+--[[
+Conservative effect and alias facts for optimization.
+
+The lattice is intentionally one-sided: a fact may widen to `top`, but an
+unknown operation never becomes harmless. Function summaries are expressed in
+parameter-rooted paths so a direct call can substitute its arguments. Alias
+classes are flow-insensitive within one body; that loses opportunities after a
+reassignment, but cannot manufacture a proof.
+
+Two surfaces come out of this. `run` computes the facts, once per module. The
+`queries` below are how a pass or a lint asks about them, and exist because the
+alternative turned out badly: for a while the only consumer was a prover living
+in this file that decided one question and stamped the answer on a node, so the
+second consumer's cheapest route was a second prover beside it, hand-rolling the
+same reasoning against the same summaries. Every question a pass asks belongs
+here; what it decides to do with the answer does not.
+
+What this does not answer yet: `escapes` records parameter-rooted paths leaving
+a function, which is the interprocedural half. Whether a local escapes its own
+body -- what table promotion needs -- is a different question and nothing here
+computes it. See plans/optimizations.md.
+]]
+
+local cst = require("nupp.compiler.cst")
+
+local analysis = {}
+
+--- One function's facts. Every entry `LISTS` names is a set of parameter-rooted paths,
+--- every entry `FLAGS` names is a boolean that widens to true and never back, and `top`
+--- is the top of the lattice: nothing is known, so nothing may be assumed.
+---
+--- A map rather than a shape because every operation here reaches the entries by name,
+--- walking `LISTS` and `FLAGS`, rather than one field at a time.
+type analysis.Summary = {[string]: any}
+
+local LISTS = {"reads", "writes", "shapes", "metatables", "escapes", "calls"}
+local FLAGS = {"allocates", "yields", "raises", "external"}
+
+local function setOf(values)
+    local out = {}
+    for _, value in ipairs(values or {}) do
+        out[value] = true
+    end
+
+    return out
+end
+
+local function summary(): analysis.Summary
+    return {
+        reads = {},
+        writes = {},
+        shapes = {},
+        metatables = {},
+        escapes = {},
+        calls = {},
+        returns = {},
+        allocates = false,
+        yields = false,
+        raises = false,
+        external = false,
+        top = false,
+    }
+end
+
+local function fromContract(contract: {[string]: any}): analysis.Summary
+    local out = summary()
+    for _, name in ipairs(LISTS) do
+        out[name] = setOf(contract[name])
+    end
+    for _, value in ipairs(contract.returns or {}) do
+        out.returns[value] = true
+    end
+    for _, name in ipairs(FLAGS) do
+        out[name] = contract[name] == true
+    end
+
+    return out
+end
+
+local function copy(value)
+    local out = summary()
+    out.top = value.top == true
+    for _, name in ipairs(LISTS) do
+        for path in pairs(value[name] or {}) do
+            out[name][path] = true
+        end
+    end
+    for value2 in pairs(value.returns or {}) do
+        out.returns[value2] = true
+    end
+    for _, name in ipairs(FLAGS) do
+        out[name] = value[name] == true
+    end
+
+    return out
+end
+
+local function join(into: analysis.Summary, other: analysis.Summary): boolean
+    local changed = false
+    if other.top and not into.top then
+        into.top, changed = true, true
+    end
+    for _, name in ipairs(LISTS) do
+        for path in pairs(other[name] or {}) do
+            if not into[name][path] then
+                into[name][path], changed = true, true
+            end
+        end
+    end
+    for value in pairs(other.returns or {}) do
+        if not into.returns[value] then
+            into.returns[value], changed = true, true
+        end
+    end
+    for _, name in ipairs(FLAGS) do
+        if other[name] and not into[name] then
+            into[name], changed = true, true
+        end
+    end
+
+    return changed
+end
+
+local function same(a, b)
+    local left, right = copy(a), copy(b)
+    return not join(left, right) and not join(right, left)
+end
+
+local function unwrap(stat)
+    while stat and stat.kind == "pragmaStmt" do
+        stat = stat.stat
+    end
+    return stat
+end
+
+local function directName(expr)
+    while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+        expr = expr.expr
+    end
+    return expr and expr.kind == "name" and expr.token or nil
+end
+
+local function callName(call)
+    local callee = call and call.obj
+    if not callee then
+        return nil
+    end
+    if callee.kind == "name" then
+        return callee.token and callee.token.text
+    end
+    if callee.kind == "dotIndex" and callee.obj and callee.obj.kind == "name" then
+        return callee.obj.token.text .. "." .. callee.name.text
+    end
+
+    return nil
+end
+
+local function callArgs(call)
+    local args = call and call.args
+    if not args or args.kind ~= "args" then
+        return {}
+    end
+    if args.table then
+        return {args.table}
+    end
+
+    return args.exprs or {}
+end
+
+-- A constructor call resolves through the overload entry selected by the checker, not
+-- through the record name's definition. Keep that distinction behind the same lookup
+-- used for ordinary calls so every effect consumer sees the chosen body.
+local function knownCall(call, byDefinition)
+    local selected = call and (call.constructorEntry or call.methodEntry) or nil
+    local declaration = selected and selected.declaration or nil
+    if declaration and declaration.effectInfo then
+        return declaration.effectInfo
+    end
+    local callee = call and call.obj
+    local token = callee and (callee.token or callee.name)
+
+    return token and byDefinition[token.definition] or nil
+end
+
+local function definitionOfFunction(stat)
+    if stat.kind == "localFuncStmt" then
+        return stat.name and stat.name.definition
+    elseif stat.kind == "funcStmt" then
+        local name = stat.name
+        if not name then
+            return nil
+        end
+        local token = name.method or name.base
+        for _, child in ipairs(name) do
+            if cst.isToken(child) and child.kind == "name" then
+                token = child
+            end
+        end
+        return token and token.definition
+    elseif stat.kind == "inlineMethod" or stat.kind == "cdefFunc" then
+        return stat.name and stat.name.definition
+    end
+
+    return nil
+end
+
+local function collectFunctions(root)
+    local functions, byDefinition = {}, {}
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local target = unwrap(node)
+        local kind = target and target.kind
+        if kind == "localFuncStmt" or kind == "funcStmt" or kind == "inlineMethod" or kind == "constructorDecl" then
+            local body = target.body
+            local info = {
+                node = target,
+                body = body,
+                definition = definitionOfFunction(target),
+                params = {},
+                paramNames = {},
+                contract = target.effectContract or body and body.effectContract,
+                summary = summary(),
+            }
+            if target.name and target.name.method then
+                info.paramNames[1] = "self"
+            end
+            for _, param in ipairs(body and body.params or {}) do
+                if param.name and not param.namedVararg then
+                    local at = #info.paramNames + 1
+                    if param.name.definition then
+                        info.params[param.name.definition] = at
+                    end
+                    info.paramNames[at] = param.name.text
+                end
+            end
+            functions[#functions + 1] = info
+            target.effectInfo = info
+            if info.definition then
+                byDefinition[info.definition] = info
+            end
+            if body and body.body then
+                walk(body.body)
+            end
+            return
+        elseif kind == "cdefFunc" then
+            local info = {
+                node = target,
+                definition = definitionOfFunction(target),
+                params = {},
+                paramNames = {},
+                contract = target.effectContract,
+                summary = target.effectContract and fromContract(target.effectContract) or summary(),
+                external = true,
+            }
+            if not target.effectContract then
+                info.summary.top = true
+            end
+            for _, param in ipairs(target.params or {}) do
+                if param.name then
+                    local at = #info.paramNames + 1
+                    if param.name.definition then
+                        info.params[param.name.definition] = at
+                    end
+                    info.paramNames[at] = param.name.text
+                end
+            end
+            functions[#functions + 1] = info
+            if info.definition then
+                byDefinition[info.definition] = info
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(root)
+
+    return functions, byDefinition
+end
+
+local PURE_BUILTINS = {
+    type = true,
+    tonumber = true,
+    select = true,
+    rawequal = true,
+    rawget = true,
+    rawlen = true,
+    ipairs = true,
+    pairs = true,
+    next = true,
+}
+
+local function inferFunction(info, byDefinition)
+    local out = summary()
+    local parent, localDefinitions = {}, {}
+    local function find(value)
+        if not value then
+            return nil
+        end
+        parent[value] = parent[value] or value
+        if parent[value] ~= value then
+            parent[value] = find(parent[value])
+        end
+
+        return parent[value]
+    end
+
+    local function union(a, b)
+        a, b = find(a), find(b)
+        if a and b and a ~= b then
+            parent[b] = a
+        end
+    end
+
+    for definition, index in pairs(info.params) do
+        localDefinitions[definition] = true
+    end
+
+    -- Direct local aliases keep a parameter-rooted effect parameter-rooted. This is
+    -- flow-insensitive on purpose: merging aliases that existed at different times only
+    -- makes a summary more conservative.
+    local function collectBindings(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt" then
+            if node.name and node.name.definition then
+                localDefinitions[node.name.definition] = true
+            end
+            return
+        elseif kind == "funcStmt"
+            or kind == "inlineMethod"
+            or kind == "constructorDecl"
+            or kind == "funcExpr"
+            or kind == "shortfn"
+        then
+            return
+        elseif kind == "localStmt" then
+            for j, name in ipairs(node.names or {}) do
+                if name.definition then
+                    localDefinitions[name.definition] = true
+                end
+                local source = directName(node.exprs and node.exprs[j])
+                if source then
+                    union(name.definition, source.definition)
+                end
+            end
+        elseif kind == "fornumStmt" then
+            if node.name and node.name.definition then
+                localDefinitions[node.name.definition] = true
+            end
+        elseif kind == "forinStmt" then
+            for _, name in ipairs(node.names or {}) do
+                if name.definition then
+                    localDefinitions[name.definition] = true
+                end
+            end
+        elseif kind == "assignStmt" then
+            for j, target in ipairs(node.targets or {}) do
+                local targetName = directName(target)
+                local source = directName(node.exprs and node.exprs[j])
+                if targetName and source then
+                    union(targetName.definition, source.definition)
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            collectBindings(child)
+        end
+    end
+
+    collectBindings(info.body and info.body.body)
+    local rooted = {}
+    for definition, index in pairs(info.params) do
+        rooted[find(definition)] = info.paramNames[index]
+    end
+
+    local function rootOf(expr)
+        local token = directName(expr)
+        return token and rooted[find(token.definition)] or nil
+    end
+
+    local function substitute(path, callee, args)
+        if path:sub(1, 1) == "$" then
+            return path
+        end
+        local root, rest = path:match("^([%a_][%w_]*)(.*)$")
+        if not root then
+            return "$capture"
+        end
+        local index
+        for j, name in ipairs(callee.paramNames or {}) do
+            if name == root then
+                index = j
+                ;
+                break
+            end
+        end
+        if not index then
+            return "$capture"
+        end
+        local actual = rootOf(args[index])
+        if actual then
+            return actual .. rest
+        end
+        local token = directName(args[index])
+        if token and localDefinitions[token.definition] then
+            return nil
+        end
+
+        return "$capture"
+    end
+
+    local function applyCall(call)
+        local known = knownCall(call, byDefinition)
+        local args = callArgs(call)
+        if known then
+            local effects = known.summary
+            if effects.top then
+                out.top = true
+            end
+            for _, list in ipairs(LISTS) do
+                for path in pairs(effects[list] or {}) do
+                    local mapped = substitute(path, known, args)
+                    if mapped then
+                        out[list][mapped] = true
+                    end
+                end
+            end
+            for _, flag in ipairs(FLAGS) do
+                if effects[flag] then
+                    out[flag] = true
+                end
+            end
+            return
+        end
+        local name = callName(call)
+        if PURE_BUILTINS[name or ""] then
+            local root = rootOf(args[1])
+            if root then
+                out.reads[root .. "[*]"] = true
+            end
+        elseif name == "error" or name == "assert" then
+            out.raises = true
+        elseif name == "coroutine.yield" then
+            out.yields = true
+        else
+            out.top = true
+        end
+    end
+
+    local function returnedRoots(expr)
+        local direct = rootOf(expr)
+        if direct then
+            return {[1] = direct}
+        end
+        if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
+            return {}
+        end
+        local known = knownCall(expr, byDefinition)
+        if not known or known.summary.top then
+            return {}
+        end
+        local args, roots = callArgs(expr), {}
+        for value in pairs(known.summary.returns or {}) do
+            local resultIndex, root = value:match("^(%d+)=([%a_][%w_]*)$")
+            if resultIndex and root then
+                for j, name in ipairs(known.paramNames or {}) do
+                    if name == root then
+                        local actual = rootOf(args[j])
+                        if actual then
+                            roots[tonumber(resultIndex)] = actual
+                        end
+                    end
+                end
+            end
+        end
+
+        return roots
+    end
+
+    local walk
+    walk = function(node, targetContext)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt"
+            or kind == "funcStmt"
+            or kind == "inlineMethod"
+            or kind == "constructorDecl"
+            or kind == "funcExpr"
+            or kind == "shortfn"
+        then
+            out.allocates = true
+            return
+        elseif kind == "tableExpr" then
+            out.allocates = true
+        elseif kind == "call" or kind == "methodCall" then
+            applyCall(node)
+        elseif kind == "name" and not targetContext then
+            local root = node.token and rooted[find(node.token.definition)]
+            if root then
+                out.reads[root] = true
+            end
+        elseif kind == "assignStmt" then
+            for _, target in ipairs(node.targets or {}) do
+                local base = target
+                while base and (
+                    base.kind == "dotIndex"
+                    or base.kind == "bracketIndex"
+                    or base.kind == "safeIndex"
+                    or base.kind == "safeBracket"
+                ) do
+                    base = base.obj
+                end
+                local token = directName(base)
+                local root = token and rooted[find(token.definition)]
+                if root and target ~= base then
+                    out.writes[root .. "[*]"] = true
+                    out.shapes[root] = true
+                elseif target ~= base and token and not localDefinitions[token.definition] then
+                    out.writes["$capture[*]"] = true
+                    out.shapes["$capture"] = true
+                end
+                walk(target, true)
+            end
+            for j, expr in ipairs(node.exprs or {}) do
+                local escaped = rootOf(expr)
+                local target = node.targets and node.targets[j]
+                local targetName = directName(target)
+                if escaped and target and (
+                    (targetName and not localDefinitions[targetName.definition]) or not targetName
+                ) then
+                    out.escapes[escaped] = true
+                end
+                walk(expr, false)
+            end
+            return
+        elseif kind == "compoundAssign" then
+            local base = node.target
+            while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
+                base = base.obj
+            end
+            local token = directName(base)
+            local root = token and rooted[find(token.definition)]
+            if root and node.target ~= base then
+                out.writes[root .. "[*]"] = true
+            end
+            if root and node.target ~= base then
+                out.shapes[root] = true
+            end
+            if node.target ~= base and token and not localDefinitions[token.definition] then
+                out.writes["$capture[*]"] = true
+                out.shapes["$capture"] = true
+            end
+        elseif kind == "returnStmt" then
+            local exprs = node.exprs or {}
+            for index, expr in ipairs(exprs) do
+                local roots = returnedRoots(expr)
+                if index == #exprs then
+                    for resultIndex, root in pairs(roots) do
+                        local output = index + resultIndex - 1
+                        out.returns[tostring(output) .. "=" .. root] = true
+                    end
+                elseif roots[1] then
+                    out.returns[tostring(index) .. "=" .. roots[1]] = true
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(child, targetContext)
+            end
+        end
+    end
+    walk(info.body and info.body.body, false)
+
+    return out
+end
+
+local function contractContains(contract, inferred)
+    local declared = fromContract(contract)
+    if inferred.top then
+        return false, "calls code with unknown effects"
+    end
+    for _, list in ipairs(LISTS) do
+        for path in pairs(inferred[list]) do
+            if not declared[list][path] then
+                return false, ("is missing %s = %q"):format(list, path)
+            end
+        end
+    end
+    for _, flag in ipairs(FLAGS) do
+        if inferred[flag] and not declared[flag] then
+            return false, "is missing " .. flag .. " = true"
+        end
+    end
+    for value in pairs(inferred.returns) do
+        if not declared.returns[value] then
+            return false, "is missing returns = " .. string.format("%q", value)
+        end
+    end
+
+    return true
+end
+
+-- A flow-insensitive alias class is enough to refuse structural writes through any
+-- spelling of the iterated table. Reassignment may merge classes that never coexist;
+-- that is a conservative missed optimization.
+local function aliasClasses(body, byDefinition)
+    local parent = {}
+    local function find(value)
+        if not value then
+            return nil
+        end
+        parent[value] = parent[value] or value
+        if parent[value] ~= value then
+            parent[value] = find(parent[value])
+        end
+
+        return parent[value]
+    end
+
+    local function union(a, b)
+        a, b = find(a), find(b)
+        if a and b and a ~= b then
+            parent[b] = a
+        end
+    end
+
+    local function returnedAlias(expr, resultIndex)
+        local direct = directName(expr)
+        if direct then
+            return {direct}
+        end
+        if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
+            return {}
+        end
+        local known = knownCall(expr, byDefinition)
+        local args = callArgs(expr)
+        local aliases = {}
+        if known and not known.summary.top then
+            local prefix = tostring(resultIndex or 1) .. "="
+            for value in pairs(known.summary.returns or {}) do
+                if value:sub(1, #prefix) == prefix then
+                    local root = value:sub(#prefix + 1):match("^([%a_][%w_]*)")
+                    for j, name in ipairs(known.paramNames or {}) do
+                        if name == root then
+                            local actual = directName(args[j])
+                            if actual then
+                                aliases[#aliases + 1] = actual
+                            end
+                        end
+                    end
+                end
+            end
+        else
+            -- An opaque call may hand any direct argument back. Treating all of them as
+            -- aliases loses opportunities but prevents a later mutation through its
+            -- result from evading the proof.
+            for _, arg in ipairs(args) do
+                local actual = directName(arg)
+                if actual then
+                    aliases[#aliases + 1] = actual
+                end
+            end
+        end
+
+        return aliases
+    end
+
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        local kind = node.kind
+        if kind == "localFuncStmt"
+            or kind == "funcStmt"
+            or kind == "inlineMethod"
+            or kind == "constructorDecl"
+            or kind == "funcExpr"
+            or kind == "shortfn"
+        then
+            return
+        elseif kind == "localStmt" then
+            for j, name in ipairs(node.names or {}) do
+                local exprs = node.exprs or {}
+                local expr = exprs[j] or (#exprs == 1 and exprs[1] or nil)
+                local resultIndex = #exprs == 1 and j or 1
+                for _, source in ipairs(returnedAlias(expr, resultIndex)) do
+                    union(name.definition, source.definition)
+                end
+            end
+        elseif kind == "assignStmt" then
+            for j, target in ipairs(node.targets or {}) do
+                local targetName = directName(target)
+                local exprs = node.exprs or {}
+                local expr = exprs[j] or (#exprs == 1 and exprs[1] or nil)
+                local resultIndex = #exprs == 1 and j or 1
+                for _, source in ipairs(returnedAlias(expr, resultIndex)) do
+                    if targetName then
+                        union(targetName.definition, source.definition)
+                    end
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(body)
+
+    return find
+end
+
+-- The questions asked of the summaries, in one place.
+--
+-- The facts above are computed once for the whole module and were, for a while, read by
+-- exactly one thing: a prover living in this file that walked a body, decided the one
+-- question numeric `ipairs` lowering cared about, and stamped its verdict on the loop
+-- node. Nothing else could ask anything, so the next consumer's only route was a second
+-- prover beside the first -- its own traversal, its own conservative reasoning, its own
+-- node field. Two arrived before this was written: that prover, and the
+-- `discarded-result` lint, which hand-rolled its own "does this call reach anything"
+-- predicate over the same summaries.
+--
+-- Hand-rolled proofs are the thing to avoid rather than the duplicated walking. There
+-- is no deoptimization here (plans/optimizations.md), so a proof that is subtly wrong
+-- is a miscompilation with no runtime signal, and three of them are three chances.
+-- These answer once.
+--
+-- Every question answers `true`, or `false` with the reason and the node to point at,
+-- because a pass that declines has to say why: a remark and a lint both need the
+-- sentence and the caret, and a boolean cannot carry either.
+local queries = {}
+
+--- Whether a summary describes something the compiler can see all of.
+---
+--- Two ways it cannot, and they are different enough to say separately: `top` is this
+--- analysis giving up, and `external` is the body belonging to somebody else.
+---
+--- @param summary the callee's summary, or nil when the callee did not resolve
+--- @return true, or false with a reason
+function queries.visible(summary: any): boolean, string?
+    if not summary then
+        return false, "the callee is not known here"
+    end
+    if summary.top then
+        return false, "the callee reaches code with unknown effects"
+    end
+    if summary.external then
+        return false, "the callee's body is foreign"
+    end
+
+    return true
+end
+
+--- Whether a summary reaches any of the named effects.
+---
+--- The caller names which ones disqualify it, because that differs by question and is
+--- the part worth stating at each site: numeric `ipairs` cares that a call cannot yield
+--- or install a metatable, while a discarded result cares that it does nothing at all.
+--- Both flags and lists are addressed by name.
+---
+--- @param summary the callee's summary
+--- @param kinds the flag or list names that would disqualify it
+--- @return true when it reaches none of them, or false with the one it reached
+function queries.free(summary: any, kinds: {string}): boolean, string?
+    if not summary then
+        return false, "the callee is not known here"
+    end
+    for _, kind in ipairs(kinds) do
+        local value = summary[kind]
+        if value == true then
+            return false, "the callee " .. kind
+        elseif type(value) == "table" and next(value) then
+            return false, "the callee " .. kind .. " " .. tostring((next(value)))
+        end
+    end
+
+    return true
+end
+
+-- Nodes that own their own body. Every walk below stops at one, because a function
+-- written here runs at a time this walk cannot place.
+local NESTED_FUNCTION = {
+    localFuncStmt = true,
+    funcStmt = true,
+    inlineMethod = true,
+    constructorDecl = true,
+    funcExpr = true,
+    shortfn = true,
+}
+
+--- The facts that are about one body rather than about the module.
+---
+--- Alias classes cost a walk to build, so a body is prepared once and its questions
+--- share the result. The returned table is the thing a pass holds while it decides.
+---
+--- @param body the block to prepare
+--- @param byDefinition the run's definition-to-summary map
+--- @return a table of questions about this body
+function queries.body(body: any, byDefinition: any): any
+    local find = aliasClasses(body, byDefinition)
+    local facts = {}
+
+    --- The alias class a name belongs to, which is what a question about a value has to
+    --- be asked in terms of: two spellings of one table answer alike.
+    function facts.aliasOf(token: any): any
+        return token and find(token.definition) or nil
+    end
+
+    --- The number of times a definition is named, in the body or in part of it.
+    ---
+    --- A blunt stand-in for "does this value get out", and deliberately so: the
+    --- summaries record escapes for parameter-rooted paths, not for a local's own
+    --- lifetime, so nothing here can answer the real question yet. A count is honest
+    --- about being a proxy in a way a named `escapes` query would not be.
+    ---
+    --- @param definition the binding to look for
+    --- @param region optional, a part of the body to count within
+    function facts.uses(definition: any, region: any): number
+        local function count(node: any): number
+            if not node then
+                return 0
+            end
+            if cst.isToken(node) then
+                return node.kind == "name" and node.definition == definition and 1 or 0
+            end
+            local total = 0
+            for _, child in ipairs(node) do
+                total = total + count(child)
+            end
+
+            return total
+        end
+
+        return count(region or body)
+    end
+
+    --- Whether anything in `region` can change the shape of the value in `class`.
+    ---
+    --- Shape rather than contents: an assignment through an index, or a call whose
+    --- summary declares a shape change reaching one of its arguments. A call the
+    --- summaries cannot see through disqualifies the region outright, which is the
+    --- one-sided lattice showing up as a refusal rather than as a guess.
+    ---
+    --- `instead` lets a caller redirect the walk at one node -- a loop asking about its
+    --- own operand has to skip its header, or the `ipairs` call in it answers the
+    --- question against itself.
+    ---
+    --- @param region the node to inspect, usually the whole containing body
+    --- @param class the alias class the value belongs to
+    --- @param instead optional, maps a node to what to descend into in its place
+    --- @return true, or false with a reason and the node to point at
+    function facts.shapeStable(region: any, class: any, instead: any): boolean, string?, any
+        local stable, reason, related = true, nil, nil
+        local function inspect(value: any)
+            if not value or cst.isToken(value) or not stable then
+                return
+            end
+            local swap = instead and instead(value)
+            if swap then
+                inspect(swap)
+                return
+            end
+            local kind = value.kind
+            if NESTED_FUNCTION[kind] then
+                return
+            end
+            if kind == "assignStmt" then
+                for _, target in ipairs(value.targets or {}) do
+                    local base = target
+                    while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
+                        base = base.obj
+                    end
+                    local token = directName(base)
+                    if target ~= base and token and find(token.definition) == class then
+                        stable, reason, related = false, "the array may change shape in the loop", target
+                        return
+                    end
+                end
+            elseif kind == "compoundAssign" then
+                local base = value.target
+                while base and (base.kind == "dotIndex" or base.kind == "bracketIndex") do
+                    base = base.obj
+                end
+                local token = directName(base)
+                if value.target ~= base and token and find(token.definition) == class then
+                    stable, reason, related = false, "the array may change shape in the loop", value.target
+                    return
+                end
+            elseif kind == "call" or kind == "methodCall" then
+                local known = knownCall(value, byDefinition)
+                local summary = known and known.summary or nil
+                if not queries.visible(summary) or not queries.free(summary, {"yields", "metatables"}) then
+                    stable, reason, related = false, "a call in the loop may mutate or expose the array", value
+                    return
+                end
+                local args = callArgs(value)
+                for path in pairs(summary.shapes) do
+                    if path:sub(1, 1) == "$" then
+                        stable, reason, related = false, "a call may change a captured table's shape", value
+                        return
+                    end
+                    local root = path:match("^([%a_][%w_]*)")
+                    local index
+                    for j, name in ipairs(known.paramNames) do
+                        if name == root then
+                            index = j
+                            ;
+                            break
+                        end
+                    end
+                    local actual = index and directName(args[index]) or nil
+                    if not actual then
+                        stable, reason, related = false, "a call may change an unresolved argument's shape", value
+                        return
+                    elseif find(actual.definition) == class then
+                        stable, reason, related = false, "a call may change the array's shape", value
+                        return
+                    end
+                end
+            end
+            for _, child in ipairs(value) do
+                inspect(child)
+            end
+        end
+
+        inspect(region)
+
+        return stable, reason, related
+    end
+
+    return facts
+end
+
+--- What one run worked out, and what a pass is handed to ask about.
+type analysis.Facts = {
+    functions: {any},
+    byDefinition: {[any]: any},
+
+    --- Every top-level block and every function's, so a pass can iterate without
+    --- knowing how the functions were found.
+    bodies: {any}
+}
+
+--- The questions, as `analysis.queries` binds them to one run's facts.
+type analysis.Queries = {
+    visible: function(summary: any): (boolean, string?),
+    free: function(summary: any, kinds: {string}): (boolean, string?),
+    known: function(token: any): any,
+    body: function(body: any): any
+}
+
+--- What `run` annotates and reports through: a checked parse, and the checker to say a
+--- broken `@effects` contract to.
+type analysis.Target = {
+    readonly root: any,
+    analysis: analysis.Facts?
+}
+
+--- The checker, as this file uses it: somewhere to say a contract the body does not
+--- hold up. Taken as a shape because `nupp.compiler.check` reaches this module, so naming
+--- its
+--- record here would close the require graph into a loop.
+type analysis.Reporter = {
+    readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)
+}
+
+--- The questions, bound to what one run worked out.
+---
+--- @param facts what `analysis.run` returned
+--- @return the query surface, or nil when the run produced nothing
+function analysis.queries(facts: analysis.Facts?): analysis.Queries?
+    if not facts or not facts.byDefinition then
+        return nil
+    end
+    local bound = {}
+    local prepared = {}
+    bound.visible = queries.visible
+    bound.free = queries.free
+
+    --- What a name resolves to, or nil when this run never saw its body.
+    ---
+    --- Both consumers reached into `byDefinition` themselves to get here, which is the
+    --- smallest of the duplications and the one most likely to be repeated.
+    ---
+    --- @param token the name a call is made through
+    --- @return the callee's record, carrying `summary`, `paramNames` and `body`
+    function bound.known(token: any): any
+        return token and token.definition and facts.byDefinition[token.definition] or nil
+    end
+
+    --- What a checked call resolves to, including a selected constructor overload.
+    ---
+    --- @param call the call expression
+    --- @return the callee's record, or nil when no unique body was selected
+    function bound.callee(call: any): any
+        return knownCall(call, facts.byDefinition)
+    end
+
+    --- One body prepared once, however many passes ask about it.
+    function bound.body(body: any): any
+        if not prepared[body] then
+            prepared[body] = queries.body(body, facts.byDefinition)
+        end
+        return prepared[body]
+    end
+
+    return bound
+end
+
+function analysis.run(result: analysis.Target, checker: analysis.Reporter?): analysis.Facts
+    local functions, byDefinition = collectFunctions(result.root)
+    for _, info in ipairs(functions) do
+        if info.contract then
+            info.summary = fromContract(info.contract)
+        end
+    end
+    for _ = 1, #functions + 1 do
+        local changed = false
+        for _, info in ipairs(functions) do
+            if info.body then
+                local inferred = inferFunction(info, byDefinition)
+                local nextSummary = info.contract and fromContract(info.contract) or inferred
+                if not same(info.summary, nextSummary) then
+                    info.summary, changed = nextSummary, true
+                end
+                info.inferred = inferred
+                info.body.effectSummary = nextSummary
+            end
+        end
+        if not changed then
+            break
+        end
+    end
+    if checker then
+        for _, info in ipairs(functions) do
+            if info.body and info.contract then
+                local ok, why = contractContains(info.contract, info.inferred)
+                if not ok then
+                    checker.diag("NUPP2112", info.node, "@effects contract " .. tostring(why))
+                end
+            end
+        end
+    end
+    -- The bodies a pass may ask about: every top-level block, and every function's.
+    -- Gathering them here rather than in each caller keeps "what counts as a body" one
+    -- answer, and lets a pass iterate without knowing how functions were found.
+    local bodies = {}
+    for _, block in ipairs(result.root.blocks or {}) do
+        bodies[#bodies + 1] = block
+    end
+    for _, info in ipairs(functions) do
+        if info.body and info.body.body then
+            bodies[#bodies + 1] = info.body.body
+        end
+    end
+    result.analysis = {functions = functions, byDefinition = byDefinition, bodies = bodies}
+
+    return result.analysis
+end
+
+analysis.summary = summary
+analysis.join = join
+analysis.fromContract = fromContract
+
+return analysis

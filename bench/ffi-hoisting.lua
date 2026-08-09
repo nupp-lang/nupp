@@ -18,7 +18,7 @@
 -- per lookup on a warm trace, so the local binding is a real win. There is
 -- still nothing to build, for the other reason -- codegen already emits it. A
 -- `cdef function` lowers to `const foo = ffi.C.foo` once per module
--- (src/compiler/gen.nupp), so nupp never writes the slow form in the first place.
+-- (src/nupp/compiler/gen.nupp), so nupp never writes the slow form in the first place.
 --
 -- Both columns are measured so the difference is visible rather than asserted,
 -- and so a LuaJIT release that folds the clib index would show up here as the

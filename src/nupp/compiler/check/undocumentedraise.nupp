@@ -1,0 +1,114 @@
+--[[
+Whether a function that raises on purpose said so.
+
+Raising is part of how a function is called. A caller who does not know has no
+reason to be ready for it, and Lua has no signature to find it out from, so the
+`---` run is the only place it can be said. `@raises` is where it is said, and
+this asks a documented function that calls `error` to write one.
+
+Three rules decide what is judged, and each of them is a choice:
+
+Only a documented function. One with no `---` run has promised nothing, and a
+lint that asked every function in a gradually typed language for a docblock
+would be a different lint under a different name.
+
+`error` counts and `assert` does not. There is no reason to write `error` except
+to raise. Lua writes `assert` both for a caller who passed the wrong thing and
+for an invariant its author believes cannot fail, and the call does not say
+which; reading the second as a documented raise would ask for a promise about
+something that never happens. Measured on this compiler, that spelling was a
+caller's business one time in three, and a lint wrong that often is one a
+project learns to silence.
+
+A nested function's raises are its own, so the walk stops where a new body
+begins. That is also what excuses a function handing a raising body to `pcall`.
+
+It does not propagate through calls. Documenting what a callee raises is a claim
+this checker cannot verify, and enforcing an unverified claim at every
+intermediate frame is the trade that made `throws Exception` ubiquitous. A
+caller gets the same fact by retrieval instead: `nupp lsp inspect` on the call
+returns the callee's `@raises`. See `docs/lints.md`.
+]]
+
+local cst = require("nupp.compiler.cst")
+local docblock = require("nupp.compiler.docblock")
+local state = require("nupp.compiler.check.state")
+
+local undocumentedraise = {}
+
+--- What the walk calls into this judgement with: one call per named function body, at
+--- the three places one is declared with a `---` run to read.
+type undocumentedraise.Ops = {
+    --- Reports when a documented function raises and its documentation does not say so.
+    check: function(stat: any, body: any)
+}
+
+-- Where this body raises on its own account, or nil if it does not. `error` is
+-- recognized by name, the way `neverReturns` already recognizes it, so that untyped
+-- code keeps the meaning it always had.
+local function raisesAt(node: any): any
+    if not node or cst.isToken(node) then
+        return nil
+    end
+    local kind = node.kind
+    if kind == "funcbody" or kind == "shortfn" then
+        return nil
+    end
+    if kind == "call" then
+        local callee = node.obj
+        if callee and callee.kind == "name" and callee.token and callee.token.text == "error" then
+            return callee.token
+        end
+    end
+    for _, child in ipairs(node) do
+        local at = raisesAt(child)
+        if at then
+            return at
+        end
+    end
+
+    return nil
+end
+
+--- Installs the undocumented-raise judgement on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk calls
+function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
+    local ops = {}
+
+    --- Reports `undocumented-raise` when a documented function raises and its run does
+    --- not say so. The three places that call it are the three places a function body
+    --- is declared with a name to document.
+    ---
+    --- @param stat the declaration, which is what carries the `---` run
+    --- @param body its funcbody
+    function ops.check(stat: any, body: any)
+        if not stat or not body then
+            return
+        end
+        local raiseTok = raisesAt(body.body)
+        if not raiseTok then
+            return
+        end
+        local info, documented = docblock.of(stat)
+        if not documented or #info.raises > 0 then
+            return
+        end
+        local label = stat.name and (cst.textOf(stat.name):gsub("%s+", "")) or "this function"
+        -- The name it answers to, not the table it hangs off: `function query.Q:get` is
+        -- reported at `get`, the way every other diagnostic about a member is.
+        local at = stat.name and cst.lastToken(stat.name) or stat
+        c.diag(
+            "NUPP2506",
+            at,
+            ("%s raises, but its documentation does not say when"):format(label),
+            nil,
+            {help = "add an @raises line saying what makes it raise", related = {c.related(raiseTok, "raises here")}}
+        )
+    end
+
+    return ops
+end
+
+return undocumentedraise

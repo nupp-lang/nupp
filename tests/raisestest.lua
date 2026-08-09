@@ -1,9 +1,9 @@
 -- `@raises`, and the lint that asks a documented function to write one.
 
-local parser = require("compiler.parser")
+local parser = require("nupp.compiler.parser")
 local check = require("fragment")
-local envMod = require("compiler.env")
-local docblock = require("compiler.docblock")
+local envMod = require("nupp.compiler.env")
+local docblock = require("nupp.compiler.docblock")
 
 local function assertEq(got, want, label)
    if got ~= want then

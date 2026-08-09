@@ -1,11 +1,11 @@
-local project = require("compiler.build.project")
-local deps = require("compiler.build.deps")
-local hash = require("compiler.build.hash")
-local process = require("compiler.build.process")
-local store = require("compiler.build.store")
-local nativeStage = require("compiler.build.native")
-local fs = require("compiler.fs")
-local compilerEnv = require("compiler.env")
+local project = require("nupp.compiler.build.project")
+local deps = require("nupp.compiler.build.deps")
+local hash = require("nupp.compiler.build.hash")
+local process = require("nupp.compiler.build.process")
+local store = require("nupp.compiler.build.store")
+local nativeStage = require("nupp.compiler.build.native")
+local fs = require("nupp.compiler.fs")
+local compilerEnv = require("nupp.compiler.env")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -112,7 +112,7 @@ end
 function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
    local function fingerprintUnder(prefix)
       local script = ("package.path=%q..package.path "
-         .. "print(require('compiler.build.cache').toolFingerprint())")
+         .. "print(require('nupp.compiler.build.cache').toolFingerprint())")
          :format(prefix .. "build/?.lua;")
       local pipe = assert(io.popen("luajit -e " .. ("%q"):format(script)))
       local out = pipe:read("*l")

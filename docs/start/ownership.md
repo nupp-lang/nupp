@@ -74,7 +74,7 @@ There are four ordinary ways out.
 
 ```nupp
 local f = openFile()
-dispose(f)
+nupp.dispose(f)
 ```
 
 **Scope it**, which is the usual answer:
@@ -99,9 +99,9 @@ enqueue(s)
 **Return it** from a function that is itself `@owned`.
 
 Inside a function, a `takes` parameter is discharged by passing it to another
-`takes` parameter — the disposer, or something that adopts it. `dispose()`
+`takes` parameter — the disposer, or something that adopts it. `nupp.dispose()`
 needs a value whose *static type* carries a cleanup list, and a bare `takes`
-binding does not have one, so `dispose(session)` there reports NUPP2602 and
+binding does not have one, so `nupp.dispose(session)` there reports NUPP2602 and
 names the fix.
 
 ## Borrowing
@@ -174,7 +174,7 @@ local record Bundle
 end
 
 local bundle = new Bundle {input = openSession(1), output = openSession(2)}
-dispose(bundle)
+nupp.dispose(bundle)
 ```
 
 A custom `@dispose` method has to discharge every affine field, and it does

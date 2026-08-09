@@ -137,7 +137,7 @@ and prevents compilation through that call path.
 unsafe do
     local callback = function() end
     local pointer = ffi.cast<voidptr>(callback)
-    local handle = pin(pointer, callback)
+    local handle = nupp.pin(pointer, callback)
 end
 ```
 
@@ -474,7 +474,7 @@ Two edits. Nothing about the level lives where the lint is raised, so a default
 is changed in one place and `nupp lints` cannot drift from what the checker
 does.
 
-**1. Declare it** in the `lints.all` registry in `src/compiler/lints.nupp`:
+**1. Declare it** in the `lints.all` registry in `src/nupp/compiler/lints.nupp`:
 
 ```nupp
 new lints.Lint {
@@ -520,7 +520,7 @@ That is the whole of it. The level resolves through the registry, the project's
 
 A lint that a build should refuse but an editor should not shout about — one
 whose fix is usually the next thing the author types — gets a row in
-`EDITOR_ADVICE` in `src/compiler/lsp/diagnostics.nupp`:
+`EDITOR_ADVICE` in `src/nupp/compiler/lsp/diagnostics.nupp`:
 
 ```nupp
 local EDITOR_ADVICE = {

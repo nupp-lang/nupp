@@ -1,4 +1,4 @@
-local cdecl = require("compiler.cdecl")
+local cdecl = require("nupp.compiler.cdecl")
 
 local function assertEq(got, want, label)
    if got ~= want then

@@ -1,9 +1,9 @@
-local parser = require("compiler.parser")
-local cst = require("compiler.cst")
+local parser = require("nupp.compiler.parser")
+local cst = require("nupp.compiler.cst")
 local check = require("fragment")
-local envMod = require("compiler.env")
-local T = require("compiler.types")
-local relations = require("compiler.relations")
+local envMod = require("nupp.compiler.env")
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -55,7 +55,7 @@ function M.intersectionsCanonicalizeAndRenderWithPrecedence()
    assertEq(T.intersection({T.unknown, T.string}), T.string)
    assertEq(T.intersection({T.never, T.string}), T.never)
    local tv = T.typevar("T", "intersection-test")
-   assertEq(T.tostring(require("compiler.generics").subst(
+   assertEq(T.tostring(require("nupp.compiler.generics").subst(
       T.intersection({tv, T.string}), {[tv] = T.literal("ok", T.string)})),
       '"ok" & string')
 end

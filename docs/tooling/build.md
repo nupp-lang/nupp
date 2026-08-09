@@ -55,8 +55,8 @@ A page's keys are checked the same way, and so are the keys of its
 
 Elsewhere in the manifest an unrecognized key is still ignored.
 
-The implementation lives under the internal `compiler.build.*` submodule namespace in
-`src/compiler/build/`: `project` owns orchestration, `hash` owns cache digests, and
+The implementation lives under the internal `nupp.compiler.build.*` submodule namespace in
+`src/nupp/compiler/build/`: `project` owns orchestration, `hash` owns cache digests, and
 `process` owns argv-based subprocess execution.
 
 ```lua

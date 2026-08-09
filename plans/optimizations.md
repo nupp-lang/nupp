@@ -215,7 +215,7 @@ Each entry is tagged with where its win lands:
 - ~~`ffi.C` **symbol hoisting.**~~ Real and already emitted. A clib index
   costs about 0.6ns on a warm trace (`bench/ffi-hoisting.lua`), so the
   local binding is worth having, and a `cdef function` has lowered to
-  `const foo = ffi.C.foo` since codegen was written (`src/compiler/gen.nupp`).
+  `const foo = ffi.C.foo` since codegen was written (`src/nupp/compiler/gen.nupp`).
   There is no pass to build.
 - `cold` **ctype caching.** `ffi.typeof` results bound once, rather than a
   declaration string spelled at each `ffi.cast` or `ffi.new`. Measured at
@@ -463,7 +463,7 @@ individual transformation being hard.
 ### ~~An effect system, pessimistic by default~~ — built
 
 Nearly every entry reduces to a single question: can this call observe or
-invalidate what I am about to cache. `src/compiler/analysis.nupp` answers it,
+invalidate what I am about to cache. `src/nupp/compiler/analysis.nupp` answers it,
 and has since numeric `ipairs` needed it. Summaries carry reads, writes,
 shapes, metatables, escapes and calls, with `allocates`, `yields`,
 `raises` and `external` flags and a `top` widening. `analysis.run`
@@ -713,7 +713,7 @@ could be told whether a declared struct was reified. That was wrong in
 both directions, and what replaced it is worth recording.
 
 A `struct` always reifies. The lowering is unconditional
-(`src/compiler/gen.nupp`) and a field with no C spelling is NUPP2201 at the
+(`src/nupp/compiler/gen.nupp`) and a field with no C spelling is NUPP2201 at the
 field name, so there is no silent fallback and a per-declaration remark
 would fire on every struct in the program saying the same thing.
 

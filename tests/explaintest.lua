@@ -3,7 +3,7 @@
 -- An example that no longer reports the code it is filed under is worse than no
 -- example, because it is read as authoritative. So every `wrong` is compiled and
 -- has to report its code, and every `right` is compiled and has to not.
-local explain = require("compiler.explain")
+local explain = require("nupp.compiler.explain")
 local json = require("cjson").new()
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

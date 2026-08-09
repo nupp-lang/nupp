@@ -622,10 +622,11 @@ Parameter modes say what a call does with what it is given: `takes` consumes,
 other view live, and `retains`/`releases` describe C holding a pointer across a
 call.
 
-`dispose`, `borrow`, `intoRaw`, `fromRaw`, `borrowFrom`, and `pin` are the only
-names Nupp itself puts at the top level, and each also answers to `nupp.`:
-`nupp.dispose(handle)` is the same call as `dispose(handle)`. Either spelling is
-shadowed by a binding of that name, `nupp` included.
+The ownership intrinsics live under the always-available `nupp` global:
+`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.borrowFrom`, and `nupp.pin`. The old bare spellings remain aliases and
+lower identically. Either spelling is shadowed by a binding of that name,
+`nupp` included.
 
 ```nupp
 local m = {}
