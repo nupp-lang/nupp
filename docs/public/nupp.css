@@ -75,6 +75,14 @@
   margin: clamp(4rem, 10vw, 8rem) 0;
 }
 
+#nupp-features {
+  margin-bottom: 0;
+}
+
+#nupp-features + .nuppdoc-feature-showcase {
+  margin-top: 1.75rem;
+}
+
 .nuppdoc-showcase-feature {
   display: grid;
   align-items: center;
