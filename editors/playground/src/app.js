@@ -30,6 +30,7 @@ const diagListEl = el("diagnostics");
 const outputHost = el("output-editor");
 const outputEl = el("output");
 const outputToggle = el("output-toggle");
+const outputResizer = el("output-resizer");
 const outputBody = el("output-body");
 const outputMain = el("output-main");
 const outputSummary = el("output-summary");
@@ -227,7 +228,20 @@ const outputView = outputHost
         // Generated output is plain LuaJIT, a subset of what nuppLanguage
         // highlights — reusing it here means one language definition covers
         // both panels rather than a second one for a subset of the first.
-        extensions: [basicSetup, nuppEditorTheme, nuppLanguage, EditorView.editable.of(false)],
+        //
+        // Wrapped, unlike the source editor. Generated Lua keeps one line per
+        // source line so positions still line up, which puts the whole runtime
+        // preamble on line 1 and a comptime table on however few lines the
+        // program declared it in — thousands of columns wide, and off the right
+        // edge of an unwrapped pane. A reader who scrolls past the first screen
+        // of that reasonably concludes the output arrived without line breaks.
+        extensions: [
+          basicSetup,
+          nuppEditorTheme,
+          nuppLanguage,
+          EditorView.lineWrapping,
+          EditorView.editable.of(false),
+        ],
       }),
     })
   : null;
@@ -251,6 +265,8 @@ function setOutputExpanded(expanded) {
   outputEl.classList.toggle("is-open", expanded);
   outputBody.hidden = !expanded;
   outputToggle.setAttribute("aria-expanded", String(expanded));
+  if (outputResizer) outputResizer.hidden = !expanded;
+  applyDrawerHeight();
 }
 
 function isOutputExpanded() {
@@ -259,6 +275,94 @@ function isOutputExpanded() {
 
 if (outputToggle) {
   outputToggle.addEventListener("click", () => setOutputExpanded(!isOutputExpanded()));
+}
+
+// --- Drawer height ----------------------------------------------------------
+
+// How much of the window the answer deserves is the reader's call, not the
+// stylesheet's: a two-line diagnostic and a thousand lines of generated Lua
+// both land here. The stylesheet's 40% is only where the drag starts from.
+//
+// The height is held here rather than on the element because a collapsed
+// drawer must go back to being one bar — an inline height would keep it tall
+// with nothing in it — so the element's style is cleared on collapse and put
+// back on expand.
+let drawerHeight = null;
+
+// Enough of the drawer to see its bar and a couple of lines, and enough of the
+// editor above it to still be editing rather than peering. Measured against
+// the column the two of them share, so a short window narrows the range
+// instead of letting either side be dragged out of existence.
+const DRAWER_MIN = 88;
+const EDITOR_MIN = 120;
+
+function clampDrawerHeight(px) {
+  const column = outputEl && outputEl.parentElement;
+  if (!column) return px;
+  const available = column.getBoundingClientRect().height - EDITOR_MIN;
+  return Math.max(DRAWER_MIN, Math.min(px, Math.max(DRAWER_MIN, available)));
+}
+
+function applyDrawerHeight() {
+  if (!outputEl) return;
+  // A collapsed drawer, or one never dragged, is whatever the stylesheet says.
+  if (drawerHeight === null || !isOutputExpanded()) {
+    outputEl.style.removeProperty("flex");
+    return;
+  }
+  drawerHeight = clampDrawerHeight(drawerHeight);
+  outputEl.style.flex = `0 0 ${drawerHeight}px`;
+}
+
+function setDrawerHeight(px) {
+  drawerHeight = clampDrawerHeight(px);
+  applyDrawerHeight();
+}
+
+// The window shrinking can leave a dragged height taller than what is left to
+// give, so the clamp runs again rather than only at drag time.
+addEventListener("resize", applyDrawerHeight);
+
+if (outputResizer && outputEl) {
+  outputResizer.hidden = !isOutputExpanded();
+
+  // Pointer events rather than mouse: one path covers a trackpad and a touch
+  // screen, and capture means a fast drag that outruns the 6px strip keeps
+  // going instead of stopping the moment the cursor leaves it.
+  outputResizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = outputEl.getBoundingClientRect().height;
+    outputResizer.setPointerCapture(event.pointerId);
+    outputResizer.classList.add("is-dragging");
+    // Dragging up grows the drawer, so the delta is subtracted: the drawer's
+    // top edge is what the pointer is holding.
+    const onMove = (move) => setDrawerHeight(startHeight - (move.clientY - startY));
+    const onUp = () => {
+      outputResizer.removeEventListener("pointermove", onMove);
+      outputResizer.classList.remove("is-dragging");
+    };
+    outputResizer.addEventListener("pointermove", onMove);
+    outputResizer.addEventListener("pointerup", onUp, { once: true });
+    outputResizer.addEventListener("pointercancel", onUp, { once: true });
+  });
+
+  // A separator that only answers to a drag is one a keyboard cannot reach.
+  outputResizer.addEventListener("keydown", (event) => {
+    const step = event.shiftKey ? 48 : 16;
+    if (event.key === "ArrowUp") setDrawerHeight(outputEl.getBoundingClientRect().height + step);
+    else if (event.key === "ArrowDown") setDrawerHeight(outputEl.getBoundingClientRect().height - step);
+    else return;
+    event.preventDefault();
+  });
+
+  // Back to the stylesheet's share — the way out of a drag that went somewhere
+  // unhelpful, without having to drag it back by eye.
+  outputResizer.addEventListener("dblclick", () => {
+    drawerHeight = null;
+    applyDrawerHeight();
+  });
 }
 
 // `file:line:col: severity: CODE: message`, which is what nupp check writes to

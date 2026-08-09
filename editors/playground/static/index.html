@@ -46,6 +46,12 @@
     <div id="source-editor" class="editor-host"></div>
   </section>
 
+  <!-- Drag to give the drawer more or less of the window; double-click to put
+       it back. app.js hides this while the drawer is collapsed, when there is
+       nothing to size. -->
+  <div id="output-resizer" class="output-resizer" role="separator"
+       aria-orientation="horizontal" aria-label="Resize the output" tabindex="0"></div>
+
   <!-- The same drawer the embed has, open on arrival: there is room for it
        here, and a playground with its answer already showing is one fewer
        click before the first thing worth seeing. -->

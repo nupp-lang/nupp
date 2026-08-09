@@ -381,7 +381,25 @@ body {
   background: var(--pg-background-alt);
   flex: none;
 }
+/* 40% until someone drags it; see app.js, which then sets an inline height. */
 .output.is-open { flex: 0 1 40%; }
+
+/* The grab strip, just above the drawer. It carries no line of its own: the
+   drawer's existing 1px top border stays the divider, so collapsing the drawer
+   — which takes this strip away — does not take the divider with it. Six
+   pixels, because a one-pixel target is a target you miss. */
+.output-resizer {
+  height: 6px;
+  background: transparent;
+  cursor: ns-resize;
+  flex: none;
+  /* Or a touch drag scrolls the page instead of moving the drawer. */
+  touch-action: none;
+}
+.output-resizer[hidden] { display: none; }
+.output-resizer:hover,
+.output-resizer.is-dragging { background: var(--pg-accent-soft); }
+.output-resizer:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
 
 .output-head {
   display: flex;
@@ -430,10 +448,13 @@ body {
   font-family: var(--pg-font-mono);
   font-size: .74rem;
   line-height: 1.5;
-  white-space: pre;
+  /* Wrapped for the same reason the full playground's output editor is (see
+     app.js): generated Lua keeps one line per source line, which leaves the
+     runtime preamble and any comptime table thousands of columns wide. */
+  white-space: pre-wrap;
 }
 /* Generated Lua reads as code; a diagnostic run reads as a report. */
-.output-main:not(.is-code) { color: var(--pg-muted); white-space: pre-wrap; }
+.output-main:not(.is-code) { color: var(--pg-muted); }
 
 .output-side {
   border-left: 1px solid var(--pg-border);
