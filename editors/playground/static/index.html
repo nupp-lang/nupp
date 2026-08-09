@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nupp Playground</title>
+<meta name="description" content="Check and compile Nupp in the browser — the real self-hosted compiler, running client-side.">
+<link rel="icon" href="./nupp.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body class="is-busy">
+<header class="header">
+  <a class="brand" href="https://github.com/nupp-lang/nupp" target="_blank" rel="noopener">
+    <img class="brand-mark" src="./nupp.svg" alt="" width="24" height="24">
+    <span>Nupp Playground</span>
+  </a>
+  <div class="header-actions">
+    <span id="status" class="status">starting…</span>
+    <button id="compile-button" class="button">Compile</button>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="panel panel-source">
+    <div class="panel-head">
+      <span>main.nupp</span>
+      <span id="check-time" class="panel-head-note"></span>
+    </div>
+    <div id="source-editor" class="editor-host"></div>
+  </section>
+
+  <section class="panel panel-side">
+    <div class="tabs">
+      <button class="tab is-active" data-tab="diagnostics">Diagnostics</button>
+      <button class="tab" data-tab="output">Generated Lua</button>
+    </div>
+    <div id="diagnostics-panel" class="tab-panel is-active">
+      <ul id="diagnostics" class="diagnostics"></ul>
+    </div>
+    <div id="output-panel" class="tab-panel">
+      <div id="output-editor" class="editor-host"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  Runs the real, self-hosted Nupp compiler client-side — see
+  <a href="./README.md">how</a> and what it can't do.
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

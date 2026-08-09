@@ -1,0 +1,24 @@
+-- A quick tour of Nupp: gradual types over plain LuaJIT Lua.
+
+local type Priority = "low" | "normal" | "high"
+
+local function describe(name: string, priority: Priority): string
+    return name .. " is " .. priority .. " priority"
+end
+
+local function filter<V>(xs: {V}, keep: function(V): boolean): {V}
+    local out: {V} = {}
+    for _, x in ipairs(xs) do
+        if keep(x) then table.insert(out, x) end
+    end
+    return out
+end
+
+local names = {"wash the car", "pay rent", "read a book"}
+local long = filter(names, function(n) return #n > 10 end)
+
+print(describe("pay rent", "high"))
+for _, n in ipairs(long) do print(n) end
+
+-- try breaking it: uncomment this and re-check
+-- local bad: Priority = "urgent"

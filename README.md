@@ -354,6 +354,22 @@ it builds its file-type-to-server table when a session starts. See
 [editors/claude-code/plugins/nupp-lsp](editors/claude-code/plugins/nupp-lsp)
 for what that tool does and does not get.
 
+## Browser playground
+
+`editors/playground` checks and compiles Nupp in the browser with the real,
+self-hosted compiler — `bootstrap/nupp.lua` running client-side in a pure-JS
+Lua VM, no server round-trip:
+
+    cd editors/playground
+    npm install
+    npm run serve
+
+`embed.html` is the same checker with none of the surrounding page — an
+editor with inline diagnostics, meant for `<iframe>`. See
+[editors/playground/README.md](editors/playground/README.md) for how running
+LuaJIT-authored source client-side works at all, and the one class of program
+(real C structs/FFI) it can't check.
+
 ## The language in one piece
 
 No model has been trained on Nupp, and every one of them is fluent in Lua. So
