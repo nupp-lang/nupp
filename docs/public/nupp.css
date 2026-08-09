@@ -20,6 +20,7 @@
   --nuppdoc-dark-text: #f4f3ed;
   --nuppdoc-dark-muted: #b9c0b8;
   --nuppdoc-accent-contrast: #ffffff;
+  --nuppdoc-feature-heading: #9b4e3d;
   --nuppdoc-playground-border: #9d8e5e;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
   --nuppdoc-syntax-boolean: #8c5f22;
@@ -157,7 +158,7 @@
   margin: 0 0 0.8rem;
   padding: 0;
   border: 0;
-  color: var(--nuppdoc-text);
+  color: var(--nuppdoc-feature-heading);
   font-size: clamp(1.7rem, 3vw, 2.35rem);
   line-height: 1.08;
 }
@@ -204,6 +205,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --nuppdoc-feature-heading: #dc9384;
     --nuppdoc-playground-border: #3a7a6f;
     --nuppdoc-syntax-boolean: #d7a45a;
     --nuppdoc-syntax-comment: #718c87;
@@ -221,6 +223,7 @@
 }
 
 :root[data-theme="dark"] {
+  --nuppdoc-feature-heading: #dc9384;
   --nuppdoc-playground-border: #3a7a6f;
   --nuppdoc-syntax-boolean: #d7a45a;
   --nuppdoc-syntax-comment: #718c87;
@@ -237,6 +240,7 @@
 }
 
 :root[data-theme="light"] {
+  --nuppdoc-feature-heading: #9b4e3d;
   --nuppdoc-playground-border: #9d8e5e;
   --nuppdoc-syntax-boolean: #8c5f22;
   --nuppdoc-syntax-comment: #7b806a;
