@@ -12,6 +12,7 @@ local T = require("nupp.types")
 local relations = require("nupp.relations")
 local narrowing = require("nupp.narrowing")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -23,7 +24,8 @@ local control = {}
 --- Installs the control-flow statements on one run.
 ---
 --- @param c the run's state
-function control.install(c: any): any
+--- @return the statement kinds this family answers
+function control.install(c: state.Checker): state.StatHandlers
     local own, facts = c.own, c.facts
     local mergeFacts, snapshotNarrowed = facts.mergeFacts, facts.snapshotNarrowed
     local optionalOwned, provenanceOwners = own.optionalOwned, own.provenanceOwners
@@ -84,7 +86,8 @@ function control.install(c: any): any
                     or "borrowed value cannot be returned")
             elseif ownershipKind(valueT) == "owned"
                 or ownershipKind(valueT) == "pinned" then
-                local valueKind = ownershipKind(valueT)
+                -- The branch above is what proves it has one.
+                local valueKind = ownershipKind(valueT) as string
                 local expected = annotatedPack and T.packAt(annotatedPack, j)
                     or (c.retStack[#c.retStack]
                     and c.retStack[#c.retStack][j] or nil)
@@ -95,7 +98,7 @@ function control.install(c: any): any
                     c.diag("NUPP2603", stat.exprs[j] or stat,
                         valueKind .. " return needs a matching annotation")
                 else
-                    local source = ownershipState(c.ownershipEntry(stat.exprs[j]))
+                    local source = ownershipState((c.ownershipEntry(stat.exprs[j])))
                     local promoted = j == 1
                         and c.ownReturnStack[#c.ownReturnStack]
                         and source and ownershipKind(source.t) ~= valueKind

@@ -14,6 +14,7 @@ local T = require("nupp.types")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
 local native = require("nupp.native")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -29,7 +30,8 @@ local type Node = cst.Node
 --- Installs the index expressions on one run.
 ---
 --- @param c the run's state
-function index.install(c: any): any
+--- @return the expression kinds this family answers
+function index.install(c: state.Checker): state.ExprHandlers
     local handlers = {}
 
     handlers.dotIndex = function(node: cst.DotIndex | cst.SafeIndex): Type

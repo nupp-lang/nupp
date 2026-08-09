@@ -19,6 +19,7 @@ local cst = require("nupp.cst")
 local ffiMod = require("nupp.check.ffi")
 local methodslots = require("nupp.methodslots")
 local native = require("nupp.native")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -40,7 +41,8 @@ local type Token = lexer.Token
 --- Installs the call expressions on one run.
 ---
 --- @param c the run's state
-function callexpr.install(c: any): any
+--- @return the expression kinds this family answers
+function callexpr.install(c: state.Checker): state.ExprHandlers
     local inferFfiIntrinsic = ffiMod.install(c)
 
     local handlers = {}
@@ -106,7 +108,7 @@ function callexpr.install(c: any): any
                     c.diag("NUPP2602", node, "borrow expects one live owned value")
                 end
                 node.ownershipIntrinsic = "borrow"
-                node.borrowOwner = c.borrowRoot(c.ownershipEntry(args[1]))
+                node.borrowOwner = c.borrowRoot((c.ownershipEntry(args[1])))
                 return T.borrowed(rawType(valueT))
             elseif intrinsic == "borrowFrom" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
@@ -181,6 +183,10 @@ function callexpr.install(c: any): any
                 return T.owned(rawType(valueT), cleanups)
             elseif intrinsic == "dispose" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
+                -- Disposing something that is not an owner is reported below rather
+                -- than refused here, so the cleanup list is read off whatever was
+                -- passed and comes back empty when there is none.
+                local disposed = valueT as T.Owned
                 if #args ~= 1 then
                     c.diag("NUPP2602", node, "dispose expects one owned value")
                 end
@@ -193,7 +199,7 @@ function callexpr.install(c: any): any
                     c.moveExpression(args[1] or node, valueT, "dispose")
                 end
                 if c.ownershipKind(valueT) == "owned"
-                    and #(valueT.cleanups or {}) == 0 then
+                    and #(disposed.cleanups or {}) == 0 then
                     c.diag("NUPP2602", args[1] or node,
                         "dispose needs @owned cleanup functions; transfer this owner "
                         .. "to a declared takes parameter")
@@ -202,12 +208,12 @@ function callexpr.install(c: any): any
                 -- name is not re-reported as a declaration error here. What a dispose
                 -- does have to establish is that the cleanup can be called from this
                 -- module, since that is what it emits.
-                c.validateCleanups(valueT, valueT.cleanups,
+                c.validateCleanups(valueT, disposed.cleanups,
                     args[1] or node, nil, true)
-                c.own.requireReachableCleanups(valueT, valueT.cleanups,
+                c.own.requireReachableCleanups(valueT, disposed.cleanups,
                     args[1] or node)
                 node.ownershipIntrinsic = "dispose"
-                node.ownerCleanups = valueT.cleanups or {}
+                node.ownerCleanups = disposed.cleanups or {}
                 return T.nil_
             end
         end

@@ -24,7 +24,30 @@ The walk reaches this through `c.loops`, and the three places that call it are
 the three places a function body is checked.
 ]]
 
+local state = require("nupp.check.state")
+
 local loopclosure = {}
+
+--- What the walk calls into this judgement with: a loop is opened and closed around its
+--- body, and a function written inside one is watched from where its scope begins to
+--- where it ends.
+type loopclosure.Ops = {
+    --- Opens a loop for the duration of its body.
+    push: function(body: any),
+
+    --- Closes the innermost loop.
+    pop: function(),
+
+    --- Sets whether a `return`'s values are being checked, answering what it was.
+    setReturning: function(value: boolean): boolean,
+
+    --- Starts judging a function body written inside a loop, or answers nil.
+    begin: function(enclosing: integer): any,
+
+    --- Ends that judgement, reporting when nothing the body read came from the
+    --- iteration.
+    finish: function(watch: any, at: any),
+}
 
 -- Whether a loop body leaves on its first pass. `continue` is deliberately not one of
 -- these: it ends an iteration, not the loop.
@@ -41,7 +64,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function loopclosure.install(c: any): any
+function loopclosure.install(c: state.Checker): loopclosure.Ops
     local ops = {}
 
     -- The loops open in the current function, innermost last. Each carries the scope

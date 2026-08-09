@@ -74,6 +74,7 @@ local relations = require("nupp.relations")
 local narrowing = require("nupp.narrowing")
 local cst = require("nupp.cst")
 local lexer = require("nupp.lexer")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -91,7 +92,7 @@ local type Token = lexer.Token
 --- forms mean exactly the same thing, so this is a house style question and nothing
 --- more: a project that prefers `&&` turns the lint off, and a file that wants it once
 --- writes `@allow("customary-operator")`.
-local function customaryOperator(c: any, opTok: Token)
+local function customaryOperator(c: state.Checker, opTok: Token)
     -- The lexer folds both spellings into one token kind, so the text is all that is
     -- left to say which one the author chose.
     local classic = lexer.CUSTOMARY[opTok.text]
@@ -108,7 +109,8 @@ end
 --- Installs the operator expressions on one run.
 ---
 --- @param c the run's state
-function operators.install(c: any): any
+--- @return the expression kinds this family answers
+function operators.install(c: state.Checker): state.ExprHandlers
 
     local function orderingFamily(t)
         if t == T.any then
@@ -217,8 +219,10 @@ function operators.install(c: any): any
             local mm = mmName and (c.metamethodOf(lt, mmName)
                 or c.metamethodOf(rt, mmName)) or nil
             if mm then
+                -- A contract was only looked for under a name, so finding one is what
+                -- proves there was one.
                 return c.applyContract(mm, {lt, rt}, {lhs, rhs},
-                    node, mmName)
+                    node, mmName as string)
             end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
@@ -245,7 +249,9 @@ function operators.install(c: any): any
             -- (`OPT-5`) must refuse it, while the check above must allow it.
             local plain = true
             for _, pair in ipairs({{lt, lhs}, {rt, rhs}}) do
-                local t = pair[1]
+                -- Each pair holds a type beside the expression it came from, which is
+                -- one list of two kinds of thing rather than two lists.
+                local t = pair[1] as Type
                 if not (t == T.any or isA(t, T.number) or isA(t, T.string)) then
                     c.diag("NUPP2003", pair[2],
                         ("cannot concatenate %s"):format(T.tostring(t)))

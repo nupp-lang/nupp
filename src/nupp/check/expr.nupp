@@ -19,6 +19,7 @@ local lexer = require("nupp.lexer")
 local operators = require("nupp.check.operators")
 local index = require("nupp.check.index")
 local callexpr = require("nupp.check.callexpr")
+local state = require("nupp.check.state")
 
 local expr = {}
 
@@ -45,10 +46,11 @@ local EXPANDS: {[string]: boolean} = {call = true, methodCall = true,
     safeCall = true, vararg = true}
 expr.EXPANDS = EXPANDS
 
---- Installs the expression walk on one run.
+--- Installs the expression walk on one run. It answers through `c.infer`, which is what
+--- every other pass already asks, so there is nothing for it to hand back.
 ---
 --- @param c the run's state
-function expr.install(c: any)
+function expr.install(c: state.Checker): nil
 
     local function visibleNames()
         local names = {}
@@ -214,9 +216,11 @@ function expr.install(c: any)
                     node.ownershipUseReported = true
                 elseif c.ownershipKind(entry.t)
                     and (entry.functionDepth or 0) < c.functionDepth then
+                    -- The branch above is what proves it has one.
+                    local capturedKind = c.ownershipKind(entry.t) as string
                     c.diag(entry.withBinding and "NUPP2612" or "NUPP2603", node,
                         ("%s value %q cannot be captured by a closure")
-                        :format(c.ownershipKind(entry.t), nameText))
+                        :format(capturedKind, nameText))
                 end
             end
             if entry and entry.globalModule
@@ -506,7 +510,8 @@ function expr.install(c: any)
                     return
                 end
                 c.diag(value.withBinding and "NUPP2612" or "NUPP2603", value,
-                    c.ownershipKind(valueT) .. " value cannot be stored in a table")
+                    (c.ownershipKind(valueT) as string)
+                    .. " value cannot be stored in a table")
             end
             for _, f in ipairs(node.fields) do
                 if f.kind == "fieldItem" then

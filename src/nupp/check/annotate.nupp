@@ -13,6 +13,7 @@ See `docs/annotations.md`.
 local T = require("nupp.types")
 local cst = require("nupp.cst")
 local relations = require("nupp.relations")
+local state = require("nupp.check.state")
 
 local annotate = {}
 
@@ -21,11 +22,27 @@ local isA = relations.isA
 --- A type, as nupp.types builds them.
 local type Type = T.Type
 
+--- What the walk asks about an annotation. The pragma statement reaches all three, and
+--- a declaration reaches `validateAnnotation` for whatever is attached to it.
+type annotate.Ops = {
+    --- The text a string literal holds, quotes removed, or nil for anything else. A
+    --- member's value is a compile-time constant, so this is how one is read.
+    stringValue: function(expr: any): string?,
+
+    --- Checks one application against the definition it names, answering that
+    --- definition and whether the application held up.
+    validateAnnotation: function(application: any, target: any,
+    owner: any?): (any, boolean),
+
+    --- Registers the definition an `@annotation` declaration introduces.
+    defineAnnotation: function(application: any, declaration: any),
+}
+
 --- Installs the annotation checking on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function annotate.install(c: any): any
+function annotate.install(c: state.Checker): annotate.Ops
     local ops = {}
 
     --- The identifier an expression names, or nil where it names none. Error recovery

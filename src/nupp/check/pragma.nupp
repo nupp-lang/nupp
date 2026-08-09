@@ -13,6 +13,7 @@ through the chain to reach the declaration underneath.
 
 local cst = require("nupp.cst")
 local lints = require("nupp.lints")
+local state = require("nupp.check.state")
 
 local pragma = {}
 
@@ -22,7 +23,8 @@ local type Node = cst.Node
 --- Installs the pragma statement on one run.
 ---
 --- @param c the run's state
-function pragma.install(c: any): any
+--- @return the statement kinds this family answers
+function pragma.install(c: state.Checker): state.StatHandlers
     local marks = c.marks
     local defineAnnotation = marks.defineAnnotation
     local validateAnnotation = marks.validateAnnotation

@@ -38,6 +38,9 @@ type cache.ModuleRecord = {
     interfaceHash: string?,
     artifactHash: string?,
     dependencies: {string}?,
+
+    --- The compiler-recognized runtime features this module needs staging for.
+    effects: {[string]: any}?,
     output: string?,
 
     --- What checking the module had to say, kept so that reusing the record says it

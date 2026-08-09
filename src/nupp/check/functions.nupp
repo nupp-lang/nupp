@@ -11,6 +11,7 @@ method.
 local T = require("nupp.types")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -20,7 +21,8 @@ local functions = {}
 --- Installs the function statements on one run.
 ---
 --- @param c the run's state
-function functions.install(c: any): any
+--- @return the statement kinds this family answers
+function functions.install(c: state.Checker): state.StatHandlers
     local registerDefaultDisposer = c.own.registerDefaultDisposer
 
     local resolvedOwnedCleanups = c.own.resolvedOwnedCleanups

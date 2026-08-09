@@ -17,6 +17,7 @@ local relations = require("nupp.relations")
 local narrowing = require("nupp.narrowing")
 local cst = require("nupp.cst")
 local operators = require("nupp.check.operators")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local subtract = narrowing.subtract
@@ -30,10 +31,18 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+--- The one question this pass answers, asked of every call before the ordinary path
+--- takes it: the type an intrinsic has, or nil when the call is not one. It is handed
+--- the names the callee was written with rather than the callee's type, because an
+--- intrinsic is recognized by its spelling and its type argument.
+type ffi.Intrinsic = function(node: Node, calleeName: string, baseName: string,
+    memberName: string, typeArg: Node?, argExprs: {Node}, argStr: any): Type?
+
 --- Installs the FFI intrinsics on one run.
 ---
 --- @param c the run's state
-function ffi.install(c: any): any
+--- @return the intrinsic dispatch the call path asks first
+function ffi.install(c: state.Checker): ffi.Intrinsic
 
     --- The type an intrinsic call has, or nil when this call is not one and the
     --- ordinary call path should carry on with it. The call site is described by the

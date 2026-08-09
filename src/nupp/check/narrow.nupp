@@ -17,6 +17,7 @@ local relations = require("nupp.relations")
 local narrowing = require("nupp.narrowing")
 local cst = require("nupp.cst")
 local lexer = require("nupp.lexer")
+local state = require("nupp.check.state")
 
 local narrow = {}
 
@@ -40,11 +41,41 @@ type narrow.Facts = {
     exhausted: string?,
 }
 
+--- What the walk and the statement families ask narrowing. Four of these are promoted
+--- onto the run, since every family applies facts; the rest are reached through
+--- `c.facts` by the ones that branch, join, or invalidate what was proved.
+type narrow.Ops = {
+    --- One map holding everything two maps held, the second winning a collision.
+    mergeFacts: function(a: {[string]: Type}, b: {[string]: Type}): {[string]: Type},
+
+    --- The key narrowing tracks a reference under, or nil when it has none.
+    pathKey: function(node: Node): string?,
+
+    --- What narrowing currently knows about a reference.
+    lookupNarrowed: function(key: string): Type?,
+
+    --- Forgets what was known about a reference and anything under it.
+    clearNarrowed: function(key: string),
+
+    --- Forgets that a copy still speaks for what it was copied from.
+    clearAliases: function(key: string),
+
+    --- What a condition proves, on each side of it.
+    analyzeCond: function(cond: Node): narrow.Facts,
+
+    --- Everything narrowing knows here, flattened innermost-first, which is what a
+    --- branch leaves behind for the join.
+    snapshotNarrowed: function(): {[string]: Type},
+
+    --- Applies a narrowing map inside the current scope.
+    applyFacts: function(facts: {[string]: Type}),
+}
+
 --- Installs the narrowing on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function narrow.install(c: any): any
+function narrow.install(c: state.Checker): narrow.Ops
     local facts = {}
 
     function facts.mergeFacts(a, b)

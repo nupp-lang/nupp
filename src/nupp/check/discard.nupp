@@ -43,8 +43,19 @@ in scope — and the sweep runs after the fixpoint. See `docs/lints.md`.
 
 local T = require("nupp.types")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local discard = {}
+
+--- What the walk calls into this judgement with: one call as each statement call is
+--- found, and one once effect inference has reached its fixpoint.
+type discard.Ops = {
+    --- Registers a call statement to judge at the end of the file.
+    statement: function(call: any),
+
+    --- Reports every registered statement whose callee turned out to be inert.
+    sweep: function(queries: any),
+}
 
 -- What gives a call a reason to exist, in the spelling `nupp.analysis` answers about.
 -- `reads` and the `allocates` flag are deliberately not among them: reading state and
@@ -183,7 +194,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function discard.install(c: any): any
+function discard.install(c: state.Checker): discard.Ops
     local ops = {}
 
     -- Call statements to judge once effect inference has settled, in source order.

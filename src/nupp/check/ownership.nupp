@@ -12,6 +12,7 @@ See `docs/ownership.md` and `docs/with.md`.
 local T = require("nupp.types")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local ownership = {}
 
@@ -21,11 +22,61 @@ local rawType = T.unwrapOwnership
 --- A type, as nupp.types builds them.
 local type Type = T.Type
 
+--- The affine bookkeeping, as the walk and the other passes call it. Half of these are
+--- promoted onto the run as well, because every statement family asks them; the rest
+--- are reached through `c.own` by the families that need provenance or cleanups.
+type ownership.Ops = {
+    --- Which ownership qualifier a type carries, if any.
+    ownershipKind: function(t: Type?): string?,
+
+    --- The entry an ownership fact is recorded on, following a narrowed copy back.
+    ownershipState: function(entry: any): any,
+
+    --- The owner a chain of borrows ultimately came from.
+    borrowRoot: function(entry: any): any,
+
+    --- Whether values of this type are pointers at run time.
+    pointerShaped: function(t: Type): boolean,
+
+    --- Whether an owner may also be nil, which `with` has to see narrowed first.
+    optionalOwned: function(t: Type?): boolean,
+
+    --- Checks that a value's cleanups can be called from where it is discharged.
+    requireReachableCleanups: function(valueT: Type?, cleanups: any, at: any),
+
+    --- Checks that a value's declared cleanups exist and take it.
+    validateCleanups: function(valueT: Type?, cleanups: any, at: any,
+    code: string?, allowUnknown: boolean?),
+
+    --- The cleanups an `@owned` carries once an inherited `@dispose` has been read.
+    resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any,
+    at: any): {string},
+
+    --- Records a `@dispose` operation as the default cleanup of what it takes.
+    registerDefaultDisposer: function(ft: Type?, path: string, at: any),
+
+    --- The binding an expression's ownership is recorded on, and the name it was
+    --- reached through.
+    ownershipEntry: function(expr: any): (any, any),
+
+    --- The owner one expression came from, and every owner a whole expression did.
+    provenanceOwner: function(expr: any): any,
+
+    provenanceOwners: function(expr: any, out: {any}?, seen: any?): {any},
+
+    --- The obligation a coroutine suspension would strand, if any.
+    liveSuspensionObligation: function(): string?,
+
+    --- Records that an expression's owner has been handed over.
+    moveExpression: function(expr: any, t: Type?, reason: string,
+    expectedKind: string?): boolean,
+}
+
 --- Installs the ownership bookkeeping on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function ownership.install(c: any): any
+function ownership.install(c: state.Checker): ownership.Ops
     local own = {}
 
     function own.ownershipKind(t)

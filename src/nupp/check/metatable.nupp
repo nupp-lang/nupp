@@ -19,6 +19,7 @@ local T = require("nupp.types")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
 local operators = require("nupp.check.operators")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -31,11 +32,22 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
+--- What the other passes call into the metatable checks with. Both are also promoted
+--- onto the run, since a metatable is written in more places than one pass reaches.
+type metatable.Ops = {
+    --- Checks one metamethod value against the contract its receiver declares.
+    checkContract: function(at: any, name: string, valueT: Type, contract: Type,
+    of: Type?),
+
+    --- Checks a table literal standing where a metatable is expected.
+    checkLiteral: function(node: Node?, literalType: Type?, target: Type?),
+}
+
 --- Installs the metatable literal checks on one run.
 ---
 --- @param c the run's state
 --- @return the operations the other passes call
-function metatable.install(c: any): any
+function metatable.install(c: state.Checker): metatable.Ops
     local ops = {}
 
     --- The receiver a `metatable<T>` describes, through whatever the annotation wrapped

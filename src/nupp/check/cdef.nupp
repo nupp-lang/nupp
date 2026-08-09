@@ -15,15 +15,24 @@ itself.
 local T = require("nupp.types")
 local narrowing = require("nupp.narrowing")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local subtract = narrowing.subtract
 
 local cdef = {}
 
+--- A type, as nupp.types builds them.
+local type Type = T.Type
+
 --- Installs the cdef statements on one run.
 ---
 --- @param c the run's state
-function cdef.install(c: any, reifiableField: any): any
+--- @param reifiableField whether a field of that type can live in C memory, which the
+---     walk owns because a GC-managed declaration answers it differently
+--- @return the statement kinds this family answers
+function cdef.install(c: state.Checker,
+    reifiableField: function(t: Type, isCdef: boolean?): boolean
+): state.StatHandlers
     local own = c.own
     local registerDefaultDisposer = own.registerDefaultDisposer
     local resolvedOwnedCleanups = own.resolvedOwnedCleanups

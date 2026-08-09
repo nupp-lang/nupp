@@ -13,6 +13,7 @@ the module's own table — what publishes a member of it.
 local T = require("nupp.types")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local isA = relations.isA
 
@@ -27,7 +28,8 @@ local bindings = {}
 --- Installs the binding and assignment statements on one run.
 ---
 --- @param c the run's state
-function bindings.install(c: any): any
+--- @return the statement kinds this family answers
+function bindings.install(c: state.Checker): state.StatHandlers
     local apply, facts = c.apply, c.facts
     local applyContract, metamethodOf = apply.applyContract, apply.metamethodOf
     local clearNarrowed, clearAliases = facts.clearNarrowed, facts.clearAliases
@@ -87,7 +89,7 @@ function bindings.install(c: any): any
                 if ownershipKind(init) and ownershipKind(init)
                     ~= ownershipKind(ann) then
                     c.diag("NUPP2603", initializers[j] or stat,
-                        ownershipKind(init)
+                        (ownershipKind(init) as string)
                         .. " value needs a matching ownership annotation")
                 end
             end
@@ -362,7 +364,8 @@ function bindings.install(c: any): any
                 end
                 if entry and et and (ownershipKind(et) == "owned"
                     or ownershipKind(et) == "pinned") then
-                    local incomingKind = ownershipKind(et)
+                    -- The branch above is what proves it has one.
+                    local incomingKind = ownershipKind(et) as string
                     if entry.ann and ownershipKind(entry.t) ~= incomingKind then
                         c.diag("NUPP2603", written or stat,
                             incomingKind .. " assignment needs a matching destination")
@@ -407,7 +410,7 @@ function bindings.install(c: any): any
                 end
                 if et and ownershipKind(et) then
                     c.diag("NUPP2603", written or stat,
-                        ownershipKind(et)
+                        (ownershipKind(et) as string)
                         .. " value cannot be stored through a reference")
                 end
                 -- Writing nil to a table entry is how Lua removes it, so an array or

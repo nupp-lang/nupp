@@ -26,13 +26,25 @@ free to correct. A name beginning with `_` says the binding is deliberate and
 the value is not wanted. See `docs/lints.md`.
 ]]
 
+local state = require("nupp.check.state")
+
 local unused = {}
+
+--- What the walk calls into this judgement with: one call as each binding is made, and
+--- one at the end of the file when every use that could excuse them has been seen.
+type unused.Ops = {
+    --- Registers a binding to judge once the file is read.
+    declared: function(tok: any, entry: any, kind: string),
+
+    --- Reports every registered binding that nothing read.
+    sweep: function(),
+}
 
 --- Installs the unused-binding judgement on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function unused.install(c: any): any
+function unused.install(c: state.Checker): unused.Ops
     local ops = {}
 
     -- Definitions something has read. Keyed by the definition rather than the entry,

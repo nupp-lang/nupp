@@ -18,6 +18,7 @@ local cst = require("nupp.cst")
 local operators = require("nupp.check.operators")
 local predicate = require("nupp.predicate")
 local methodslots = require("nupp.methodslots")
+local state = require("nupp.check.state")
 
 local declare = {}
 
@@ -32,11 +33,24 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
---- Installs the declaration checking on one run.
+--- Installs the declaration checking on one run. It answers through `c.checkTypedecl`
+--- and the publishing operations beside it, so there is nothing to hand back.
+---
+--- The last four are handed in rather than reached through `c`: the reifiability test
+--- and the two edit builders belong to the walk, and the annotation check is one member
+--- of a pass this one is installed before.
 ---
 --- @param c the run's state
-function declare.install(c: any, reifiableField: any, fix: any,
-    insertBefore: any, validateAnnotation: any)
+--- @param reifiableField whether a field of that type can live in C memory
+--- @param fix a named fix, and the edits applying it makes
+--- @param insertBefore an edit putting text in front of a token
+--- @param validateAnnotation checks one application against what it names
+function declare.install(c: state.Checker,
+    reifiableField: function(t: Type, isCdef: boolean?): boolean,
+    fix: function(title: string, ...: any): any,
+    insertBefore: function(tok: any, text: string): any,
+    validateAnnotation: function(application: any, target: any,
+    owner: any?): (any, boolean)): nil
 
     --- Whether `t` reaches `target` by value, and through which declaration.
     ---
@@ -402,7 +416,8 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 "a constructor returns the value it builds, so it declares no "
                 .. "return type", nil, {help = "remove the return annotation"})
         end
-        local ft = c.checkFuncbody(e.body, n)
+        -- A funcbody's type is a function, whatever a body in general may be.
+        local ft = c.checkFuncbody(e.body, n) as T.Func
         c.raises.check(e, e.body)
 
         for _, prior in ipairs(n.constructorEntries or {}) do
@@ -698,12 +713,16 @@ function declare.install(c: any, reifiableField: any, fix: any,
                             n.writeByname[name] = substType(inherited, selfMap)
                         end
                     end
+                    -- An indexer is declared as a key and a value together, so the
+                    -- value being there is what says the key is.
                     if not n.indexReadValue and super.indexReadValue then
-                        n.indexReadKey = substType(super.indexReadKey, selfMap)
+                        n.indexReadKey = substType(super.indexReadKey as Type,
+                            selfMap)
                         n.indexReadValue = substType(super.indexReadValue, selfMap)
                     end
                     if not n.indexWriteValue and super.indexWriteValue then
-                        n.indexWriteKey = substType(super.indexWriteKey, selfMap)
+                        n.indexWriteKey = substType(super.indexWriteKey as Type,
+                            selfMap)
                         n.indexWriteValue = substType(super.indexWriteValue, selfMap)
                     end
                     for name, inherited in pairs(super.metamethods or {}) do

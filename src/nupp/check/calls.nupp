@@ -13,6 +13,7 @@ local T = require("nupp.types")
 local relations = require("nupp.relations")
 local generics = require("nupp.generics")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local calls = {}
 
@@ -126,11 +127,31 @@ local function signaturesText(signatures: {T.Func}): string
     return table.concat(parts, "; ")
 end
 
+--- What applying something to arguments is asked. All four are promoted onto the run as
+--- well, since an operator, an index and a call each reach a different one of them, and
+--- none of those passes is lexically inside this one.
+type calls.Ops = {
+    --- The contract a receiver declares under one metamethod name, or nil.
+    metamethodOf: function(t: Type?, name: string): Type?,
+
+    --- Checks a generic application's arguments against the bounds declared for them.
+    validateTypeBounds: function(params: any, bounds: any, map: any, node: any),
+
+    --- Checks one declared operation contract against arguments already inferred.
+    --- Unlike `inferCall` this never evaluates an expression again.
+    applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any,
+    operation: string): Type,
+
+    --- Checks a call against its callee: the first result, all of them, and the pack.
+    inferCall: function(node: any, calleeT: Type, argsNode: any,
+    knownAts: {Type}?): (Type, {Type}?, any),
+}
+
 --- Installs the call machinery on one run.
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function calls.install(c: any): any
+function calls.install(c: state.Checker): calls.Ops
     local ops = {}
 
     local function callDetails(node)

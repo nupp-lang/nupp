@@ -16,6 +16,7 @@ local T = require("nupp.types")
 local generics = require("nupp.generics")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local resolve = {}
 
@@ -27,10 +28,12 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
---- Installs type-annotation resolution on one run.
+--- Installs type-annotation resolution on one run. It answers through the run rather
+--- than through a table of its own, because everything that resolves an annotation
+--- already has the run in hand.
 ---
 --- @param c the run's state
-function resolve.install(c: any)
+function resolve.install(c: state.Checker): nil
     local edits = c.edits
     local fix, insertBefore = edits.fix, edits.insertBefore
     local requiredAs, requireBindsName = edits.requiredAs, edits.requireBindsName

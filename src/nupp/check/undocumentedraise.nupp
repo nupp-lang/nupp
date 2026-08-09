@@ -32,8 +32,16 @@ returns the callee's `@raises`. See `docs/lints.md`.
 
 local cst = require("nupp.cst")
 local docblock = require("nupp.docblock")
+local state = require("nupp.check.state")
 
 local undocumentedraise = {}
+
+--- What the walk calls into this judgement with: one call per named function body, at
+--- the three places one is declared with a `---` run to read.
+type undocumentedraise.Ops = {
+    --- Reports when a documented function raises and its documentation does not say so.
+    check: function(stat: any, body: any),
+}
 
 -- Where this body raises on its own account, or nil if it does not. `error` is
 -- recognized by name, the way `neverReturns` already recognizes it, so that untyped
@@ -66,7 +74,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function undocumentedraise.install(c: any): any
+function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
     local ops = {}
 
     --- Reports `undocumented-raise` when a documented function raises and its run does

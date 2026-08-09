@@ -12,8 +12,44 @@ so it is built once per file and asked, rather than threaded through the walk.
 ]]
 
 local cst = require("nupp.cst")
+local state = require("nupp.check.state")
 
 local fixits = {}
+
+--- The edits one file's diagnostics can offer. Built once per file and asked, since
+--- none of it reads the walk's scopes — only the parse and the project index.
+type fixits.Edits = {
+    --- A named fix, and the edits applying it makes. Applying one is all-or-nothing.
+    fix: function(title: string, ...: any): any,
+
+    --- An edit that puts text in front of a token, leaving the token alone.
+    insertBefore: function(tok: any, text: string): any,
+
+    --- Replaces one token without disturbing its leading trivia.
+    replaceToken: function(tok: any, text: string): any,
+
+    --- A fix for a misspelled metamethod, and one for an ordinary name, when exactly
+    --- one candidate is close enough to be the one that was meant.
+    spellingFix: function(tok: any, candidates: any): {any}?,
+
+    nameSpellingFix: function(tok: any, candidates: any): {any}?,
+
+    --- Makes a narrowing explicit around a complete initializer.
+    castFix: function(expr: any, target: any): {any}?,
+
+    --- An edit adding a require where this file keeps them.
+    requireEdit: function(name: string, moduleName: string): any?,
+
+    --- The local this file already binds a module to, and whether a top-level require
+    --- already binds a name at all.
+    requiredAs: function(moduleName: string): string?,
+
+    requireBindsName: function(name: string): boolean,
+
+    --- Advice for an unknown name a project module is named after, whether it is such a
+    --- name at all, and a fix per candidate module.
+    missingRequire: function(name: string): (string?, boolean, {any}?),
+}
 
 --- Damerau-Levenshtein distance for short language names. Treating an adjacent
 --- transposition as one edit catches `__idnex` without making the spelling threshold
@@ -43,7 +79,8 @@ end
 ---
 --- @param result the parse the diagnostics are about
 --- @param env the project environment, when there is one
-function fixits.new(result: any, env: any): any
+--- @return the edits those diagnostics can carry
+function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
     local self = {}
 
     function self.fix(title: string, ...): any

@@ -49,7 +49,12 @@ type modules.Stats = {
 ---
 --- A check produces none of them and says so with an empty one, which is what lets the
 --- caller treat both the same way.
-type modules.Result = {outputs: {[string]: boolean}}
+type modules.Result = {
+    outputs: {[string]: boolean},
+
+    --- Every native feature the built modules asked for, merged.
+    effects: {[string]: any}?,
+}
 
 local function typeFingerprint(t: nupp.types.Type?,
     active: {[nupp.types.Type]: boolean}?): string

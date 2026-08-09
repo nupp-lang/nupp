@@ -75,7 +75,8 @@ local function libraryFile(name: string): string
 end
 
 --- Builds and stages every native feature in `effects`, returning its files.
-function stage.build(root: string, outDir: string, effects: any): any, string?
+function stage.build(root: string, outDir: string,
+    effects: {[string]: any}?): {string}?, string?
     local outputs = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.cargo then
