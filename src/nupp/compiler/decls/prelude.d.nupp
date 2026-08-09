@@ -185,6 +185,7 @@ local require: function(name: string): any
 ---
 --- @namespace nupp
 local nupp: {
+    --- JSON, UTF-8, UUIDs, hashes and checksums.
     data: {
         encodeJSON: function(value: any): string,
         decodeJSON: function(text: string): any,
@@ -214,13 +215,19 @@ local nupp: {
         adler32: function(value: string | nupp.ByteView, previous: integer?): integer,
         crc32: function(value: string | nupp.ByteView, previous: integer?): integer
     },
+
+    --- Buffers, byte views, readers and writers.
     io: {
         newBuffer: function(initial: integer | string?): nupp.Buffer,
         newStringReader: function(text: string): nupp.Reader,
         Path: nupp.PathLibrary,
         URI: nupp.URILibrary
     },
+
+    --- Scalar helpers and two-dimensional vectors.
     math: nupp.MathLibrary,
+
+    --- Compiled Rust regular expressions.
     regex: nupp.RegexLibrary
 }
 
