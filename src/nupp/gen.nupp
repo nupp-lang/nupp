@@ -1269,6 +1269,15 @@ function gen.generate(result, filename)
                 e(("function %s.%s(%s)"):format(x.inlineRuntimeOwner,
                     x.name.text, table.concat(names, ", ")), line)
             else
+                -- A method may write its receiver out, and the checker reads it
+                -- as the receiver either way. The colon already binds one, so
+                -- emitting the declared name beside it would declare `self`
+                -- twice: the inner one shadows the receiver with the first
+                -- actual argument, which for `obj:m()` is nil. Drop it here, and
+                -- the two spellings generate the same function.
+                if names[1] == "self" then
+                    table.remove(names, 1)
+                end
                 e(("function %s:%s(%s)"):format(x.inlineRuntimeOwner,
                     x.name.text, table.concat(names, ", ")), line)
             end

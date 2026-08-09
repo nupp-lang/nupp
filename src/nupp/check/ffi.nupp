@@ -42,6 +42,16 @@ function ffi.install(c: any): any
         memberName: string, typeArg: Node?, argExprs: {Node},
         argStr: any): Type?
 
+        -- Every test below asks what the callee was written as rather than what it
+        -- resolves to, which is what lets `ffi.new` be recognized. That skips
+        -- `lookupEntry`, the one place a read is recorded, so the `local ffi =
+        -- require("ffi")` the call depends on looked unread and `unused-binding`
+        -- said to delete it. Codegen emits that binding, so taking the advice left
+        -- the program indexing a nil global. Resolve the name for its own sake.
+        if baseName == "ffi" then
+            c.lookupEntry(baseName)
+        end
+
         if not typeArg and baseName == "ffi"
             and operators.ffiTypeFirst[memberName] then
             local name = memberName

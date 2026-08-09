@@ -31,10 +31,12 @@ answer.
 
 ## What the port found
 
-Two of these are compiler bugs and were found by **running** the port, not by
-checking it. Both files check clean in states that do not work.
+Two of these were compiler bugs, both found by **running** the port rather than
+checking it — each file checked clean in a state that did not work. Both are
+fixed, and each carries a regression test that runs the generated code rather
+than reading it.
 
-### 1. A record's inline method is generated with a doubled `self`
+### 1. A record's inline method is generated with a doubled `self` — FIXED
 
 `function name(self)` inside a record body emits `function T:name(self)` — the
 `:` binds the receiver and the declared parameter then shadows it with the first
@@ -62,11 +64,15 @@ local origin = new m.Point {x = 0, y = 0}
 print(corner.x, origin:lengthSquared())
 ```
 
-That program does not run. The reference is generated from the compiler and is
-the first thing a reader or an agent is told to read, so this is worse than an
-ordinary defect: it teaches the broken form.
+That program did not run. The reference is generated from the compiler and is
+the first thing a reader or an agent is told to read, so this was worse than an
+ordinary defect: it taught the broken form.
 
-### 2. `unused-binding` tells you to delete a `require("ffi")` that is load-bearing
+Codegen now drops a leading parameter named `self`, since the colon already
+binds one, and both spellings generate the same function.
+`tests/inlinemethodtest.lua` covers them by running the result.
+
+### 2. `unused-binding` said to delete a load-bearing `require("ffi")` — FIXED
 
 A module whose only use of `ffi` is `ffi.new(...)` is reported:
 
@@ -80,8 +86,13 @@ and codegen passes the bare global through, so the program indexes a nil `ffi`
 at run time. In a context that does not index the result, it checks clean and
 fails only when it runs.
 
-There is no machine-applicable fix attached (`fixes` is empty), so nothing
-auto-applies it; the wrong instruction is advice only.
+There was no machine-applicable fix attached (`fixes` was empty), so nothing
+auto-applied it; the wrong instruction was advice only.
+
+The cause: the intrinsic path recognizes `ffi.new` by the name it was written
+with rather than by resolving it, which skips `lookupEntry` — the one place a
+read is recorded. It now resolves the name for its own sake.
+`tests/unusedtest.lua` covers it.
 
 ### 3. A table literal never infers into a tuple type
 

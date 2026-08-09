@@ -21,7 +21,7 @@ record M.ChunkedArray
     alive: {[integer]: boolean}
 
     --- Allocate a new slot and return its 1-based id.
-    function alloc(): integer
+    function alloc(self): integer
         local id: integer
         const freeIds = self.freeIds
         const n = #freeIds
@@ -42,7 +42,7 @@ record M.ChunkedArray
     end
 
     --- Free a slot for reuse. No-op if id is invalid or already freed.
-    function free(id: integer): nil
+    function free(self, id: integer): nil
         if id < 1 or id >= self.nextId or not self.alive[id] then
             return
         end
@@ -52,7 +52,7 @@ record M.ChunkedArray
 
     --- Get the live element stored at an id.
     --- Returns nil for dead or never-allocated ids.
-    function get(id: integer): any
+    function get(self, id: integer): any
         if not self.alive[id] then
             return nil
         end

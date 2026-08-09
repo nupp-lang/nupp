@@ -216,4 +216,36 @@ function M.aProjectMovesItsLevel()
       {lints = {suspicious = "off"}}), 0, "and by category")
 end
 
+function M.anFfiIntrinsicCountsAsUsingTheRequire()
+   -- The intrinsic path recognizes `ffi.new` by the name it was written with
+   -- rather than by resolving it, which skips the one place a read is recorded.
+   -- The binding looked unread, and codegen emits it, so taking the advice left
+   -- the program indexing a nil global -- while still checking clean.
+   assertQuiet([[
+const ffi = require("ffi")
+
+local M = {}
+
+function M.make(n: integer): cdata
+    return ffi.new("double[?]", n)
+end
+
+return M
+]], "ffi.new is a use of the ffi binding")
+end
+
+function M.otherFfiEntryPointsCountToo()
+   assertQuiet([[
+const ffi = require("ffi")
+
+local M = {}
+
+function M.size(): integer
+    return ffi.sizeof("double")
+end
+
+return M
+]], "ffi.sizeof is a use as well")
+end
+
 return M
