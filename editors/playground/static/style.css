@@ -7,7 +7,17 @@
    which is why there's no separate dark vermilion below either.
    --pg-accent departs from it deliberately: nupp.css's own accent is the
    teal at --nuppdoc-*-accent, kept for links there, but here it's that
-   file's string-syntax green instead, doing UI-accent duty too. */
+   file's string-syntax green instead, doing UI-accent duty too.
+
+   --pg-border departs too, and for a reason worth writing down. The site's
+   own value is a hairline between long runs of prose, where barely-there is
+   the point. This page is panes: a head bar, an editor, an output drawer,
+   and a list beside it, and the border is the only thing saying where one
+   ends. At the site's #d4cda8 that is 1.5:1 against the page and 1.4:1
+   against the alt surface -- under the 3:1 WCAG asks of a boundary that
+   carries meaning, and it read as no edge at all. These are the same hues
+   carried down (light) and up (dark) to about 3:1, which is a visible edge
+   without becoming a drawn line. */
 :root {
   color-scheme: light;
   --pg-accent: #607331;
@@ -17,7 +27,7 @@
   --pg-button-hover: #8d3829;
   --pg-background: #faf7e8;
   --pg-background-alt: #f2eed8;
-  --pg-border: #d4cda8;
+  --pg-border: #9d8e5e;
   --pg-code-background: #ded7b9;
   --pg-text: #173333;
   --pg-muted: #626956;
@@ -45,7 +55,7 @@
     --pg-button-hover: #c25a41;
     --pg-background: #081e27;
     --pg-background-alt: #0d2931;
-    --pg-border: #2b4943;
+    --pg-border: #3a7a6f;
     --pg-code-background: #0a252b;
     --pg-text: #f4f3ed;
     --pg-muted: #b9c0b8;

@@ -153,7 +153,9 @@ async function boot() {
             end
         end
         -- Every pass compiler.optimize registers runs at level 1, so the Options
-        -- panel's one switch is the whole of -O0 against -O1.
+        -- panel's one switch is the whole of the distinction there is: -O2 is
+        -- accepted by the CLI and reserved for a stronger tier, but selects the
+        -- same passes today and would compile byte-identically.
         local okOpt, optErr = pcall(require("compiler.optimize").run, result,
             {level = settings.optimize == true and 1 or 0, filename = filename,
              disabled = {}, relaxed = {}})

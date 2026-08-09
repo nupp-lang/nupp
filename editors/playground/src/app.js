@@ -57,7 +57,11 @@ const OPTION_FIELDS = [
   {
     key: "optimize",
     label: "Optimize",
-    hint: "Run the -O1 passes before generating Lua.",
+    // One switch rather than a level, because one is all the optimizer
+    // currently distinguishes: every pass it registers runs at -O1, and -O2 is
+    // reserved for a stronger tier that does not exist yet. See
+    // docs/tooling/optimization.md.
+    hint: "Run every optimizer pass (-O1). Off is -O0, which rewrites nothing.",
   },
 ];
 
