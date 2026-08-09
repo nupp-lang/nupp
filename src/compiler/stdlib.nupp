@@ -1,0 +1,222 @@
+--[[
+Runtime installers for compiler-provided standard facilities.
+
+They are kept as readable Lua here and compacted to one physical output line so
+prepending one never moves an application's source positions.
+]]
+
+local stdlib = {}
+
+local function compact(source: string): string
+    return (source:gsub("[\r\n]+%s*", " "):gsub("%s+$", ""))
+end
+
+local BASE = compact(
+    [=[
+local __nupp=_G.nupp or {};_G.nupp=__nupp
+local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+]=]
+)
+
+local LAZY = compact(
+    [=[
+local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end
+]=]
+)
+
+local JSON = compact(
+    [=[
+local function __nuppLoadJSON()local source=require("cjson");local names={"encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;target.empty_array=json.empty_array;target.array_mt=json.array_mt;target.empty_array_mt=json.empty_array_mt;for _,name in ipairs(names)do target[name]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end
+for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","empty_array","array_mt","empty_array_mt","encode_empty_table_as_object","decode_array_with_array_mt","decode_allow_comment","encode_sparse_array","encode_max_depth","decode_max_depth","encode_number_precision","encode_keep_buffer","encode_invalid_numbers","decode_invalid_numbers","encode_escape_forward_slash","encode_skip_unsupported_value_types","encode_indent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
+]=]
+)
+
+local IO = compact(
+    [=[
+local function __nuppInstallIO()local Buffer,View,Reader,Writer={},{},{},{};Buffer.__index=Buffer;View.__index=View;Reader.__index=Reader;Writer.__index=Writer
+local function integer(value,what,level)if type(value)~="number"or value~=math.floor(value)or value<0 then error("nupp: "..what.." must be a non-negative integer",level)end;return value end
+local function whole(value,what,level)if type(value)~="number"or value~=math.floor(value)then error("nupp: "..what.." must be an integer",level)end;return value end
+local function opened(self,what,level)if self._closed then error("nupp: "..what.." is closed",level)end end
+local function range(length,offset,count,what,level)offset=integer(offset or 0,what.." offset",level);if offset>length then error("nupp: "..what.." offset is past the end",level)end;count=integer(count==nil and length-offset or count,what.." count",level);if offset+count>length then error("nupp: "..what.." range is past the end",level)end;return offset,count end
+function View:length()opened(self,"io.ByteView",2);return #self._bytes end;function View:getString()opened(self,"io.ByteView",2);return self._bytes end;function View:newReader()opened(self,"io.ByteView",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function View:view(offset,count)opened(self,"io.ByteView",2);offset,count=range(#self._bytes,offset,count,"io.ByteView",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function View:isReleased()return self._closed end;function View:close()self._closed=true;self._bytes="";return true end
+function Buffer:length()opened(self,"io.Buffer",2);return #self._bytes end;function Buffer:capacity()opened(self,"io.Buffer",2);return self._capacity end;function Buffer:clear()opened(self,"io.Buffer",2);self._bytes="" end;function Buffer:ensureCapacity(minimum)opened(self,"io.Buffer",2);minimum=integer(minimum,"io.Buffer capacity",2);if minimum>self._capacity then self._capacity=minimum end end
+function Buffer:resize(length)opened(self,"io.Buffer",2);length=integer(length,"io.Buffer length",2);local current=#self._bytes;if length<current then self._bytes=self._bytes:sub(1,length)elseif length>current then self._bytes=self._bytes..string.rep("\0",length-current)end;if length>self._capacity then self._capacity=length end end
+function Buffer:getString(offset,count)opened(self,"io.Buffer",2);offset,count=range(#self._bytes,offset,count,"io.Buffer",2);return self._bytes:sub(offset+1,offset+count)end
+function Buffer:setString(bytes,offset)opened(self,"io.Buffer",2);if type(bytes)~="string"then error("nupp: io.Buffer bytes must be a string",2)end;offset=integer(offset or 0,"io.Buffer offset",2);if offset>#self._bytes then self._bytes=self._bytes..string.rep("\0",offset-#self._bytes)end;local tail=offset+#bytes+1;self._bytes=self._bytes:sub(1,offset)..bytes..self._bytes:sub(tail);if #self._bytes>self._capacity then self._capacity=#self._bytes end end
+function Buffer:view(offset,count)opened(self,"io.Buffer",2);offset,count=range(#self._bytes,offset,count,"io.Buffer",2);return setmetatable({_bytes=self._bytes:sub(offset+1,offset+count),_closed=false},View)end;function Buffer:isReleased()return self._closed end;function Buffer:close()self._closed=true;self._bytes="";self._capacity=0;return true end
+function Reader:read(count)if self._closed then return nil,"the reader is closed"end;count=whole(count,"Reader:read count",2);if self._at>#self._bytes then return ""end;local taking=math.min(math.max(1,count),#self._bytes-self._at+1);local out=self._bytes:sub(self._at,self._at+taking-1);self._at=self._at+taking;return out end
+function Reader:readInto(destination,offset,count)if self._closed then return nil,"the reader is closed"end;offset=integer(offset or 0,"Reader:readInto offset",2);count=integer(count or 65536,"Reader:readInto count",2);if self._at>#self._bytes or count==0 then return 0 end;local taking=math.min(count,#self._bytes-self._at+1);destination:setString(self._bytes:sub(self._at,self._at+taking-1),offset);self._at=self._at+taking;return taking end
+function Reader:transferTo(destination)if self._closed then return nil,"the reader is closed"end;local remaining=self._bytes:sub(self._at);local ok,reason=destination:write(remaining);if not ok then return nil,reason end;self._at=#self._bytes+1;return #remaining end;function Reader:close()self._closed=true;self._bytes="";return true end
+local function slice(source,offset,count,what)offset,count=range(source:length(),offset,count,what,3);return source:getString(offset,count),count end
+function Writer:write(bytes)if self._closed then return false,"the writer is closed"end;if self._buffer:isReleased()then return false,"the destination buffer is closed"end;self._buffer:setString(bytes,self._at);self._at=self._at+#bytes;return true end
+function Writer:writeFrom(source,offset,count)if self._closed then return nil,"the writer is closed"end;if source==self._buffer then return nil,"cannot write a buffer into itself"end;local bytes,n=slice(source,offset,count,"io.Buffer");local ok,reason=self:write(bytes);if not ok then return nil,reason end;return n end
+function Writer:writeView(source,offset,count)if self._closed then return nil,"the writer is closed"end;offset,count=range(source:length(),offset,count,"io.ByteView",2);local ok,reason=self:write(source:getString():sub(offset+1,offset+count));if not ok then return nil,reason end;return count end;function Writer:flush()if self._closed then return false,"the writer is closed"end;return true end;function Writer:close()self._closed=true;return not self._buffer:isReleased(),self._buffer:isReleased()and"the destination buffer is closed"or nil end
+function Buffer:newReader()opened(self,"io.Buffer",2);return setmetatable({_bytes=self._bytes,_at=1,_closed=false},Reader)end;function Buffer:newWriter()opened(self,"io.Buffer",2);self:clear();return setmetatable({_buffer=self,_at=0,_closed=false},Writer)end
+local function newBuffer(initial)if initial~=nil and type(initial)~="number"and type(initial)~="string"then error("nupp: io.newBuffer initial value must be bytes or a capacity",2)end;local bytes=type(initial)=="string"and initial or"";local capacity=type(initial)=="number"and integer(initial,"io.newBuffer capacity",2)or#bytes;return setmetatable({_bytes=bytes,_capacity=capacity,_closed=false},Buffer)end
+__nuppIO.newBuffer=newBuffer;__nuppIO.newStringReader=function(text)if type(text)~="string"then error("nupp: io.newStringReader needs a string",2)end;return setmetatable({_bytes=text,_at=1,_closed=false},Reader)end;return __nuppIO end
+for _,__name in ipairs({"newBuffer","newStringReader"})do __nuppLazy(__nuppIO,__name,function(name)__nuppInstallIO();return rawget(__nuppIO,name)end)end
+]=]
+)
+
+local UTF8 = compact(
+    [=[
+__nuppLazy(__nuppData,"utf8",function()local native=require("lua-utf8");local u={};local function bytes(value)if type(value)=="string"then return value end;return value:getString()end;local function offset(value,at,allowEnd)if type(at)~="number"or at~=math.floor(at)then error("nupp: UTF-8 byte offset must be an integer",3)end;local limit=#value+(allowEnd and 1 or 0);if at<1 or at>limit then error("nupp: UTF-8 byte offset is out of range",3)end;return at end;local function decode(s,at)local first=s:byte(at);if not first then return nil,at end;if first<128 then return first,at+1 end;local need,code,min;if first>=194 and first<=223 then need,code,min=1,first-192,128 elseif first>=224 and first<=239 then need,code,min=2,first-224,2048 elseif first>=240 and first<=244 then need,code,min=3,first-240,65536 else return 65533,at+1 end;for i=1,need do local b=s:byte(at+i);if not b or b<128 or b>191 then return 65533,at+1 end;code=code*64+b-128 end;if code<min or code>1114111 or(code>=55296 and code<=57343)then return 65533,at+1 end;return code,at+need+1 end
+function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do local _,nextAt=decode(s,at);at=nextAt;n=n+1 end;return n end;function u.decodeAt(value,at)local s=bytes(value);at=offset(s,at,true);return decode(s,at)end;function u.decodeBefore(value,at)local s=bytes(value);at=offset(s,at,true);if at==1 then return nil,1 end;local start=at-1;while start>1 and s:byte(start)>=128 and s:byte(start)<=191 do start=start-1 end;local cp,nextAt=decode(s,start);if nextAt~=at then return 65533,at-1 end;return cp,start end;function u.encode(codepoint)return native.char(codepoint)end;function u.isValid(value)return native.isvalid(bytes(value))end;function u.validPrefixLength(value,maxBytes)local s=bytes(value);maxBytes=math.max(0,math.min(#s,maxBytes));while maxBytes>0 and not native.isvalid(s:sub(1,maxBytes))do maxBytes=maxBytes-1 end;return maxBytes end;function u.truncate(text,maxBytes)return text:sub(1,u.validPrefixLength(text,maxBytes))end;return u end)
+]=]
+)
+
+local MATH = compact(
+    [=[
+local m=__nuppMath;local pi,tau=math.pi,2*math.pi
+function m.wrapAngle(radians)return(radians+pi)%tau-pi end
+function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
+local v={};m.vec2=v
+function v.add(ax,ay,bx,by)return ax+bx,ay+by end
+function v.subtract(ax,ay,bx,by)return ax-bx,ay-by end
+function v.scale(x,y,f)return x*f,y*f end
+function v.dot(ax,ay,bx,by)return ax*bx+ay*by end
+function v.cross(ax,ay,bx,by)return ax*by-ay*bx end
+function v.lengthSquared(x,y)return x*x+y*y end
+function v.length(x,y)return math.sqrt(x*x+y*y)end
+function v.distanceSquared(ax,ay,bx,by)local x,y=bx-ax,by-ay;return x*x+y*y end
+function v.distance(ax,ay,bx,by)return math.sqrt(v.distanceSquared(ax,ay,bx,by))end
+function v.normalize(x,y)local length=v.length(x,y);if length==0 then return 0,0 end;return x/length,y/length end
+function v.lerp(ax,ay,bx,by,t)if t==0 then return ax,ay elseif t==1 then return bx,by end;return ax+(bx-ax)*t,ay+(by-ay)*t end
+function v.moveTowards(ax,ay,bx,by,d)if d<=0 then return ax,ay end;local x,y=bx-ax,by-ay;local squared=x*x+y*y;if squared==0 or squared<=d*d then return bx,by end;local f=d/math.sqrt(squared);return ax+x*f,ay+y*f end
+function v.rotate(x,y,r)local c,s=math.cos(r),math.sin(r);return x*c-y*s,x*s+y*c end
+function v.angle(x,y)if x==0 and y==0 then return 0 end;return math.atan2(y,x)end
+function v.angleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;return math.atan2(math.abs(v.cross(ax,ay,bx,by)),v.dot(ax,ay,bx,by))end
+function v.signedAngleBetween(ax,ay,bx,by)if(ax==0 and ay==0)or(bx==0 and by==0)then return 0 end;local a=math.atan2(v.cross(ax,ay,bx,by),v.dot(ax,ay,bx,by));return a==pi and-pi or a end
+function v.project(x,y,ox,oy)local d=ox*ox+oy*oy;if d==0 then return 0,0 end;local f=(x*ox+y*oy)/d;return ox*f,oy*f end
+function v.reflect(x,y,nx,ny)local d=nx*nx+ny*ny;if d==0 then return x,y end;local f=2*(x*nx+y*ny)/d;return x-nx*f,y-ny*f end
+]=]
+)
+
+local FNV = compact(
+    [=[
+__nuppLazy(__nuppData,"fnv1a64",function()local bit=require("bit");return function(value)local s=type(value)=="string"and value or value:getString();local hi,lo=0xcbf29ce4,0x84222325;for i=1,#s do lo=bit.bxor(lo,s:byte(i));local low=lo<0 and lo+4294967296 or lo;local high=hi<0 and hi+4294967296 or hi;local product=low*435;local carry=math.floor(product/4294967296);lo=bit.tobit(product);hi=bit.tobit(high*435+low*256+carry)end;local high=hi<0 and hi+4294967296 or hi;local low=lo<0 and lo+4294967296 or lo;return string.format("%08x%08x",high,low)end end)
+]=]
+)
+
+local CHECKSUMS = compact(
+    [=[
+local function __nuppChecksums()local bit=require("bit");local crcTable={};for n=0,255 do local c=n;for _=1,8 do c=bit.bxor(bit.rshift(c,1),bit.band(c,1)~=0 and 0xedb88320 or 0)end;crcTable[n]=c end;local function bytes(value)return type(value)=="string"and value or value:getString()end;local function seed(value,name,default)if value==nil then return default end;if type(value)~="number"or value~=math.floor(value)or value<0 or value>4294967295 then error("nupp: "..name.." previous checksum must be an unsigned 32-bit integer",3)end;return value end;__nuppData.adler32=function(value,previous)local s=bytes(value);previous=seed(previous,"adler32",1);local a,b=previous%65536,math.floor(previous/65536)%65536;for i=1,#s do a=(a+s:byte(i))%65521;b=(b+a)%65521 end;return b*65536+a end;__nuppData.crc32=function(value,previous)local c=bit.bnot(seed(previous,"crc32",0));local s=bytes(value);for i=1,#s do c=bit.bxor(bit.rshift(c,8),crcTable[bit.band(bit.bxor(c,s:byte(i)),255)])end;local out=bit.bnot(c);return out<0 and out+4294967296 or out end;return __nuppData end
+for _,__name in ipairs({"adler32","crc32"})do __nuppLazy(__nuppData,__name,function(name)__nuppChecksums();return rawget(__nuppData,name)end)end
+]=]
+)
+
+local NATIVE = compact(
+    [=[
+local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local ok,lib=pcall(ffi.load,root.."/lib/nupp_native");if ok then C=lib else C=ffi.load(root.."/../lib/nupp_native")end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end
+]=]
+)
+
+local PATH = compact(
+    [=[
+__nuppLazy(__nuppIO,"Path",function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;local Path={};Path.__index=Path;Path.__tostring=function(self)return self._text end;Path.__eq=function(a,b)return a._text==b._text end
+local function value(v)return type(v)=="table"and getmetatable(v)==Path and v._text or v end
+local function path(text)return setmetatable({_text=text},Path)end
+local function returned(bytes,optional)local text=native.bytes(bytes,optional);return text and path(text)or nil end
+local function call(method,self,...)local out=C[method](self._text,#self._text,...);if out==nil then return nil,native.error()end;return returned(out)end
+function Path:toString()return self._text end
+function Path:join(...)local count=select("#",...);local views=ffi.new("NuppStringView[?]",count+1);local keep={self._text};for i=1,count do keep[i+1]=value(select(i,...))end;for i=1,#keep do views[i-1].data=keep[i];views[i-1].length=#keep[i]end;return returned(C.nuppPathJoin(views,#keep))end
+function Path:normalize()return call("nuppPathNormalize",self)end
+function Path:absolute()return call("nuppPathAbsolute",self)end
+function Path:resolve(...)local absolute,reason=self:absolute();if not absolute then return nil,reason end;return absolute:join(...):normalize()end
+function Path:canonicalize()return call("nuppPathCanonicalize",self)end
+function Path:relativeTo(base)local b=value(base);local out=C.nuppPathRelative(self._text,#self._text,b,#b);if out==nil then return nil,native.error()end;return returned(out)end
+function Path:parent()return returned(C.nuppPathPart(self._text,#self._text,0),true)end
+local parts={fileName=1,stem=2,extension=3};for name,kind in pairs(parts)do Path[name]=function(self)return native.bytes(C.nuppPathPart(self._text,#self._text,kind),true)end end
+function Path:withFileName(name)return returned(C.nuppPathWith(self._text,#self._text,name,#name,false))end
+function Path:withExtension(extension)return returned(C.nuppPathWith(self._text,#self._text,extension,#extension,true))end
+function Path:isAbsolute()return C.nuppPathIsAbsolute(self._text,#self._text)end
+function Path:isRelative()return not self:isAbsolute()end
+local library={};function library.new(first,...)return path(first):join(...)end
+function library.currentDirectory()local out=C.nuppPathAbsolute("",0);if out==nil then return nil,native.error()end;return returned(out)end
+function library.separator()return package.config:sub(1,1)end;return library end)
+]=]
+)
+
+local URI = compact(
+    [=[
+__nuppLazy(__nuppIO,"URI",function()
+local native=__nuppNative();local ffi,C=native.ffi,native.C;local URI={};URI.__index=URI;URI.__tostring=function(self)return self:toString()end;URI.__eq=function(a,b)return a:toString()==b:toString()end
+local function wrap(handle)if handle==nil then return nil,native.error()end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
+local function changed(handle)if handle==nil then error("nupp: cannot modify URI: "..native.error(),3)end;return setmetatable({_handle=ffi.gc(handle,C.nuppUriDestroy)},URI)end
+local function part(self,kind)local length=ffi.new("size_t[1]");local data=C.nuppUriPart(self._handle,kind,length);if data==nil then return nil end;return ffi.string(data,tonumber(length[0]))end
+function URI:toString()return part(self,0)end;function URI:scheme()return part(self,1)end;function URI:authority()return part(self,2)end;function URI:username()return part(self,3)end;function URI:password()return part(self,4)end;function URI:host()return part(self,5)end;function URI:path()return part(self,6)end;function URI:query()return part(self,7)end;function URI:fragment()return part(self,8)end
+function URI:userInfo()local username=self:username();local password=self:password();if username==""and password==nil then return nil end;return password and(username..":"..password)or username end
+function URI:port()local value=ffi.new("uint16_t[1]");return C.nuppUriPort(self._handle,value)and tonumber(value[0])or nil end
+local function required(value,what)if type(value)~="string"then error("nupp: "..what.." needs a string",3)end;return value end
+local kinds={withScheme={0,"scheme",true},withUserInfo={1,"userInfo"},withHost={2,"host"},withPath={3,"path",true},withQuery={4,"query"},withFragment={5,"fragment"}};for name,spec in pairs(kinds)do URI[name]=function(self,value)if spec[3]then value=required(value,"URI "..spec[2])elseif value~=nil then value=required(value,"URI "..spec[2])end;if value==self[spec[2]](self)then return self end;return changed(C.nuppUriWithText(self._handle,spec[1],value or"",value and#value or 0,value~=nil))end end
+function URI:withPort(port)if port~=nil and(type(port)~="number"or port~=math.floor(port)or port<0 or port>65535)then error("nupp: URI port must be an integer from 0 through 65535 or nil",2)end;if port==self:port()then return self end;return changed(C.nuppUriWithPort(self._handle,port or-1))end
+function URI:concatPath(path)path=required(path,"URI path");if path==""then return self end;return changed(C.nuppUriConcatPath(self._handle,path,#path))end
+function URI:resolve(reference)if type(reference)~="string"then return nil,"nupp: URI reference needs a string"end;return wrap(C.nuppUriResolve(self._handle,reference,#reference))end
+function URI:withEndpoint(endpoint)if type(endpoint)~="table"or getmetatable(endpoint)~=URI then error("nupp: URI endpoint must be an io.URI",2)end;return changed(C.nuppUriWithEndpoint(self._handle,endpoint._handle))end
+local library={};local function compose(c)if type(c)~="table"then return nil,"nupp: URI.new needs absolute text or URI components"end;if type(c.scheme)~="string"or c.scheme==""then return nil,"nupp: URI components need a non-empty scheme"end;for _,name in ipairs({"userInfo","host","path","query","fragment"})do if c[name]~=nil and type(c[name])~="string"then return nil,"nupp: URI component "..name.." must be a string or nil"end end;if c.port~=nil and(type(c.port)~="number"or c.port~=math.floor(c.port)or c.port<0 or c.port>65535)then return nil,"nupp: URI component port must be an integer from 0 through 65535 or nil"end;local out=c.scheme..":";if c.host or c.userInfo or c.port then out=out.."//";if c.userInfo then out=out..c.userInfo.."@"end;out=out..(c.host or"");if c.port then out=out..":"..c.port end end;out=out..(c.path or"");if c.query then out=out.."?"..c.query end;if c.fragment then out=out.."#"..c.fragment end;return out end
+function library.new(value)local text,problem;if type(value)=="string"then text=value else text,problem=compose(value);if not text then return nil,problem end end;return wrap(C.nuppUriParse(text,#text))end
+function library.validate(text)if type(text)~="string"then return false,"nupp: URI.validate needs a string"end;local handle=C.nuppUriParse(text,#text);if handle==nil then return false,native.error()end;C.nuppUriDestroy(handle);return true end
+function library.isURI(value)return type(value)=="table"and getmetatable(value)==URI end;return library end)
+]=]
+)
+
+local UUID = compact(
+    [=[
+local function __nuppUUID(which)local native=__nuppNative();local output=native.ffi.new("char[37]");if not native.C[which](output)then error("nupp: UUID generation failed",2)end;return native.ffi.string(output)end;__nuppLazy(__nuppData,"uuid4",function()return function()return __nuppUUID("nuppUuid4")end end);__nuppLazy(__nuppData,"uuid7",function()return function()return __nuppUUID("nuppUuid7")end end)
+]=]
+)
+
+local SHA256 = compact(
+    [=[
+__nuppLazy(__nuppData,"sha256",function()local native=__nuppNative();return function(value)local bytes=type(value)=="string"and value or value:getString();local output=native.ffi.new("char[65]");if not native.C.nuppSha256(bytes,#bytes,output)then error("nupp: SHA-256 input is invalid",2)end;return native.ffi.string(output)end end)
+]=]
+)
+
+function stdlib.bootstrap(effects: {[string]: any}?): string
+    local out = {BASE}
+    if effects and next(effects) then
+        out[#out + 1] = LAZY
+    end
+    effects = effects or {}
+    if effects["native.cjson"] then
+        out[#out + 1] = JSON
+    end
+    if effects["stdlib.io"] then
+        out[#out + 1] = IO
+    end
+    if effects["native.lua_utf8"] then
+        out[#out + 1] = UTF8
+    end
+    if effects["stdlib.math"] then
+        out[#out + 1] = MATH
+    end
+    if effects["stdlib.fnv1a64"] then
+        out[#out + 1] = FNV
+    end
+    if effects["stdlib.checksums"] then
+        out[#out + 1] = CHECKSUMS
+    end
+    local hasNative = effects[
+        "native.path"
+    ] or effects["native.uri"] or effects["native.uuid"] or effects["native.sha256"]
+    if hasNative then
+        out[#out + 1] = NATIVE
+    end
+    if effects["native.path"] then
+        out[#out + 1] = PATH
+    end
+    if effects["native.uri"] then
+        out[#out + 1] = URI
+    end
+    if effects["native.uuid"] then
+        out[#out + 1] = UUID
+    end
+    if effects["native.sha256"] then
+        out[#out + 1] = SHA256
+    end
+
+    return table.concat(out, ";")
+end
+
+return stdlib

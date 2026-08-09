@@ -345,6 +345,32 @@ nupp lsp            # start the language server]],
                },
 
                {
+                  path = "standard-library/overview",
+                  title = "Standard library",
+                  source = "docs/stdlib.md",
+               },
+               {
+                  path = "standard-library/data",
+                  title = "Data and text",
+                  source = "docs/data.md",
+               },
+               {
+                  path = "standard-library/io",
+                  title = "Buffers and byte I/O",
+                  source = "docs/io.md",
+               },
+               {
+                  path = "standard-library/path-uri",
+                  title = "Paths and URIs",
+                  source = "docs/path-uri.md",
+               },
+               {
+                  path = "standard-library/math",
+                  title = "Math helpers",
+                  source = "docs/math.md",
+               },
+
+               {
                   path = "tooling/cli",
                   title = "nupp command",
                   source = "docs/tooling/cli.md",

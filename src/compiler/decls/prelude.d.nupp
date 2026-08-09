@@ -183,8 +183,225 @@ local require: function(name: string): any
 --- Compiler-provided facilities. The namespace is always present; native members are
 --- linked automatically when source reaches them.
 local nupp: {
+    data: {
+        encodeJSON: function(value: any): string,
+        decodeJSON: function(text: string): any,
+        newJSON: function(): nupp.JSON,
+        null: any,
+        empty_array: any,
+        array_mt: metatable<{any}>,
+        empty_array_mt: metatable<{any}>,
+        encode_empty_table_as_object: function(setting: boolean | string?): boolean,
+        decode_array_with_array_mt: function(setting: boolean | string?): boolean,
+        decode_allow_comment: function(setting: boolean | string?): boolean,
+        encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
+        encode_max_depth: function(depth: integer?): integer,
+        decode_max_depth: function(depth: integer?): integer,
+        encode_number_precision: function(precision: integer?): integer,
+        encode_keep_buffer: function(keep: boolean | string?): boolean,
+        encode_invalid_numbers: function(setting: boolean | string?): boolean | string,
+        decode_invalid_numbers: function(setting: boolean | string?): boolean,
+        encode_escape_forward_slash: function(setting: boolean | string?): boolean,
+        encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean,
+        encode_indent: function(indent: string?): string,
+        utf8: nupp.UTF8Library,
+        uuid4: function(): string,
+        uuid7: function(): string,
+        fnv1a64: function(value: string | nupp.ByteView): string,
+        sha256: function(value: string | nupp.ByteView): string,
+        adler32: function(value: string | nupp.ByteView, previous: integer?): integer,
+        crc32: function(value: string | nupp.ByteView, previous: integer?): integer
+    },
+    io: {
+        newBuffer: function(initial: integer | string?): nupp.Buffer,
+        newStringReader: function(text: string): nupp.Reader,
+        Path: nupp.PathLibrary,
+        URI: nupp.URILibrary
+    },
+    math: nupp.MathLibrary,
     regex: nupp.RegexLibrary
 }
+
+--- One independently configured JSON encoder and decoder.
+interface nupp.JSON
+    encodeJSON: function(value: any): string
+    decodeJSON: function(text: string): any
+    null: any
+    empty_array: any
+    array_mt: metatable<{any}>
+    empty_array_mt: metatable<{any}>
+    encode_empty_table_as_object: function(setting: boolean | string?): boolean
+    decode_array_with_array_mt: function(setting: boolean | string?): boolean
+    decode_allow_comment: function(setting: boolean | string?): boolean
+    encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
+    encode_max_depth: function(depth: integer?): integer
+    decode_max_depth: function(depth: integer?): integer
+    encode_number_precision: function(precision: integer?): integer
+    encode_keep_buffer: function(keep: boolean | string?): boolean
+    encode_invalid_numbers: function(setting: boolean | string?): boolean | string
+    decode_invalid_numbers: function(setting: boolean | string?): boolean
+    encode_escape_forward_slash: function(setting: boolean | string?): boolean
+    encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean
+    encode_indent: function(indent: string?): string
+end
+
+--- UTF-8 codepoint operations over strings and immutable byte views.
+record nupp.UTF8Library
+    length: function(value: string | nupp.ByteView): integer
+    decodeAt: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
+    decodeBefore: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
+    encode: function(codepoint: integer): string
+    isValid: function(value: string | nupp.ByteView): boolean
+    validPrefixLength: function(value: string | nupp.ByteView, maxBytes: integer): integer
+    truncate: function(text: string, maxBytes: integer): string
+end
+
+--- An immutable snapshot of bytes.
+interface nupp.ByteView
+    newReader: function(self: nupp.ByteView): nupp.Reader
+    length: function(self: nupp.ByteView): integer
+    getString: function(self: nupp.ByteView): string
+    view: function(self: nupp.ByteView, offset: integer?, count: integer?): nupp.ByteView
+    isReleased: function(self: nupp.ByteView): boolean
+    close: function(self: nupp.ByteView): (boolean, string?)
+end
+
+--- A forward-only byte source. An empty read or zero-byte readInto is EOF.
+interface nupp.Reader
+    read: function(self: nupp.Reader, count: integer): (string?, string?)
+    readInto: function(
+        self: nupp.Reader,
+        destination: nupp.Buffer,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+    transferTo: function(self: nupp.Reader, destination: nupp.Writer): (integer?, string?)
+    close: function(self: nupp.Reader): (boolean, string?)
+end
+
+--- A forward-only byte destination.
+interface nupp.Writer
+    write: function(self: nupp.Writer, bytes: string): (boolean, string?)
+    writeFrom: function(self: nupp.Writer, source: nupp.Buffer, offset: integer?, count: integer?): (integer?, string?)
+    writeView: function(
+        self: nupp.Writer,
+        source: nupp.ByteView,
+        offset: integer?,
+        count: integer?
+    ): (integer?, string?)
+    flush: function(self: nupp.Writer): (boolean, string?)
+    close: function(self: nupp.Writer): (boolean, string?)
+end
+
+--- An owned growable byte sequence. All offsets are zero-based.
+interface nupp.Buffer
+    newReader: function(self: nupp.Buffer): nupp.Reader
+    newWriter: function(self: nupp.Buffer): nupp.Writer
+    length: function(self: nupp.Buffer): integer
+    capacity: function(self: nupp.Buffer): integer
+    clear: function(self: nupp.Buffer)
+    ensureCapacity: function(self: nupp.Buffer, minimum: integer)
+    resize: function(self: nupp.Buffer, length: integer)
+    getString: function(self: nupp.Buffer, offset: integer?, count: integer?): string
+    setString: function(self: nupp.Buffer, bytes: string, offset: integer?)
+    view: function(self: nupp.Buffer, offset: integer?, count: integer?): nupp.ByteView
+    isReleased: function(self: nupp.Buffer): boolean
+    close: function(self: nupp.Buffer): (boolean, string?)
+end
+
+--- An immutable platform-native UTF-8 filesystem path.
+record nupp.Path
+    toString: function(self: nupp.Path): string
+    join: function(self: nupp.Path, ...: string | nupp.Path): nupp.Path
+    normalize: function(self: nupp.Path): nupp.Path
+    absolute: function(self: nupp.Path): (nupp.Path?, string?)
+    resolve: function(self: nupp.Path, ...: string | nupp.Path): (nupp.Path?, string?)
+    canonicalize: function(self: nupp.Path): (nupp.Path?, string?)
+    relativeTo: function(self: nupp.Path, base: string | nupp.Path): (nupp.Path?, string?)
+    parent: function(self: nupp.Path): nupp.Path?
+    fileName: function(self: nupp.Path): string?
+    stem: function(self: nupp.Path): string?
+    extension: function(self: nupp.Path): string?
+    withFileName: function(self: nupp.Path, name: string): nupp.Path
+    withExtension: function(self: nupp.Path, extension: string): nupp.Path
+    isAbsolute: function(self: nupp.Path): boolean
+    isRelative: function(self: nupp.Path): boolean
+end
+
+record nupp.PathLibrary
+    new: function(first: string, ...: string): nupp.Path
+    currentDirectory: function(): (nupp.Path?, string?)
+    separator: function(): string
+end
+
+--- An immutable normalized absolute URI.
+record nupp.URI
+    toString: function(self: nupp.URI): string
+    scheme: function(self: nupp.URI): string
+    authority: function(self: nupp.URI): string?
+    username: function(self: nupp.URI): string
+    password: function(self: nupp.URI): string?
+    host: function(self: nupp.URI): string?
+    port: function(self: nupp.URI): integer?
+    path: function(self: nupp.URI): string
+    query: function(self: nupp.URI): string?
+    fragment: function(self: nupp.URI): string?
+    userInfo: function(self: nupp.URI): string?
+    withScheme: function(self: nupp.URI, scheme: string): nupp.URI
+    withUserInfo: function(self: nupp.URI, userInfo: string?): nupp.URI
+    withHost: function(self: nupp.URI, host: string?): nupp.URI
+    withPort: function(self: nupp.URI, port: integer?): nupp.URI
+    withPath: function(self: nupp.URI, path: string): nupp.URI
+    withQuery: function(self: nupp.URI, query: string?): nupp.URI
+    withFragment: function(self: nupp.URI, fragment: string?): nupp.URI
+    concatPath: function(self: nupp.URI, path: string): nupp.URI
+    withEndpoint: function(self: nupp.URI, endpoint: nupp.URI): nupp.URI
+    resolve: function(self: nupp.URI, reference: string): (nupp.URI?, string?)
+end
+
+record nupp.URIComponents
+    scheme: string
+    userInfo: string?
+    host: string?
+    port: integer?
+    path: string?
+    query: string?
+    fragment: string?
+end
+
+record nupp.URILibrary
+    new: function(value: string | nupp.URIComponents): (nupp.URI?, string?)
+    validate: function(text: string): (boolean, string?)
+    isURI: function(value: any): boolean
+end
+
+--- Scalar helpers and two-dimensional vector operations on number pairs.
+record nupp.Vec2Library
+    add: function(ax: number, ay: number, bx: number, by: number): (number, number)
+    subtract: function(ax: number, ay: number, bx: number, by: number): (number, number)
+    scale: function(x: number, y: number, factor: number): (number, number)
+    dot: function(ax: number, ay: number, bx: number, by: number): number
+    cross: function(ax: number, ay: number, bx: number, by: number): number
+    lengthSquared: function(x: number, y: number): number
+    length: function(x: number, y: number): number
+    distanceSquared: function(ax: number, ay: number, bx: number, by: number): number
+    distance: function(ax: number, ay: number, bx: number, by: number): number
+    normalize: function(x: number, y: number): (number, number)
+    lerp: function(ax: number, ay: number, bx: number, by: number, t: number): (number, number)
+    moveTowards: function(ax: number, ay: number, bx: number, by: number, distance: number): (number, number)
+    rotate: function(x: number, y: number, radians: number): (number, number)
+    angle: function(x: number, y: number): number
+    angleBetween: function(ax: number, ay: number, bx: number, by: number): number
+    signedAngleBetween: function(ax: number, ay: number, bx: number, by: number): number
+    project: function(x: number, y: number, ontoX: number, ontoY: number): (number, number)
+    reflect: function(x: number, y: number, normalX: number, normalY: number): (number, number)
+end
+
+record nupp.MathLibrary
+    vec2: nupp.Vec2Library
+    wrapAngle: function(radians: number): number
+    deltaAngle: function(from: number, to: number): number
+end
 
 --- One byte-range match from a compiler-provided regular expression.
 record nupp.RegexMatch

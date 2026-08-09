@@ -373,10 +373,12 @@ local function buildModules(
         local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
         local effectNames = {}
-        for effect in pairs(result.result.effects or {}) do
-            effectNames[#effectNames + 1] = effect
+        if fatal or checkOnly then
+            for effect in pairs(result.result.effects or {}) do
+                effectNames[#effectNames + 1] = effect
+            end
+            table.sort(effectNames)
         end
-        table.sort(effectNames)
         local output = external and nil or join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash, code, coverage
         if not external and not fatal and not checkOnly then
@@ -390,6 +392,11 @@ local function buildModules(
                     relaxed = config._relaxedGuarantees
                 }
             )
+            result.result.effects = optimize.liveEffects(result.result)
+            for effect in pairs(result.result.effects) do
+                effectNames[#effectNames + 1] = effect
+            end
+            table.sort(effectNames)
             if config._remarks then
                 for _, note in ipairs(remarks) do
                     mine[#mine + 1] = note

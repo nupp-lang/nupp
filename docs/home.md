@@ -22,7 +22,11 @@
 - [Effect contracts](effects.md) — what calls may observe, change, or expose.
 - [Tooling](start/tooling.md) — the checker, build system, formatter, language
   server, documentation generator, and profiler.
+- [The `nupp` standard library](stdlib.md) — JSON, UTF-8, buffers, readers,
+  writers, paths, URIs, identifiers, hashes, checksums, math and vectors.
 - [`nupp.regex`](regex.md) — compiled Rust regular expressions over Lua byte
-  strings, linked only when used.
+  strings, automatically omitted when unused.
+- [The language reference](reference.md) — every construct and the codes that
+  report getting it wrong, generated from the compiler.
 
 The generated API reference for the compiler's own modules follows.

@@ -3,6 +3,9 @@ local deps = require("compiler.build.deps")
 local hash = require("compiler.build.hash")
 local process = require("compiler.build.process")
 local store = require("compiler.build.store")
+local nativeStage = require("compiler.build.native")
+local fs = require("compiler.fs")
+local compilerEnv = require("compiler.env")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -284,10 +287,12 @@ return {include = {"src"}, build = {targets = {app = {
       return config, err, task
    end
 
-   local config, err, task = load("{cjson = true, lua_utf8 = false}")
+   local config, err, task = load("{cjson = true, lua_utf8 = false, path = true, sha256 = false}")
    assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
    assertEq(task.nativeFeatures.cjson, true, "task reports forced inclusion")
    assertEq(task.nativeFeatures.lua_utf8, false, "task reports forced removal")
+   assertEq(task.nativeFeatures.path, true, "new native providers can be forced in")
+   assertEq(task.nativeFeatures.sha256, false, "new native providers can be forced out")
 
    local _, unknown = load("{cjsoon = true}")
    assert(unknown and unknown:find("nativeFeatures names no feature cjsoon", 1, true),
@@ -295,6 +300,38 @@ return {include = {"src"}, build = {targets = {app = {
    local _, wrongType = load("{cjson = 'yes'}")
    assert(wrongType and wrongType:find(
       "nativeFeatures.cjson must be true or false", 1, true), tostring(wrongType))
+end
+
+function M.sharedNativeFacilitiesBuildOneFeatureGatedProvider()
+   local originalCapture, originalCopy = process.capture, fs.copyFile
+   local originalCompilerRoot = compilerEnv.compilerRoot
+   local calls, copies = {}, {}
+   process.capture = function(argv)
+      calls[#calls + 1] = argv
+      return 0, ""
+   end
+   fs.copyFile = function(source, destination)
+      copies[#copies + 1] = {source, destination}
+      return true
+   end
+   compilerEnv.compilerRoot = function() return "." end
+   local ok, outputs, problem = pcall(nativeStage.build, ".", "out", {
+      ["native.path"] = true,
+      ["native.sha256"] = true,
+   })
+   process.capture, fs.copyFile = originalCapture, originalCopy
+   compilerEnv.compilerRoot = originalCompilerRoot
+   assert(ok, outputs)
+   assert(outputs, problem)
+   assertEq(#calls, 1, "one Cargo provider build serves both facilities")
+   assertEq(#copies, 1, "the shared library is staged once")
+   local command = table.concat(calls[1], "\n")
+   assert(command:find("--no-default-features", 1, true),
+      "provider disables unselected Cargo features")
+   assert(command:find("path,sha256", 1, true),
+      "provider enables the selected feature union")
+   assert(copies[1][2]:find("out/lib/nupp_native", 1, true),
+      "provider has one stable public sidecar name")
 end
 
 -- A docs target with no outDir does not land in the manifest's default

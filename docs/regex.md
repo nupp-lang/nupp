@@ -2,6 +2,8 @@
 
 `nupp.regex` provides compiled Rust regular expressions over Lua byte strings.
 It is available through the global `nupp` namespace; no `require` is needed.
+See the [standard-library overview](stdlib.md) for the namespace's selection,
+lazy-loading, and provider-hiding rules.
 
 Patterns use the Rust [`regex` crate syntax](https://docs.rs/regex/latest/regex/#syntax).
 Compilation builds the automaton once, and every method on the returned

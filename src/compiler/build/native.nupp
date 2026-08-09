@@ -105,40 +105,70 @@ end
 --- Builds and stages every native feature in `effects`, returning its files.
 function stage.build(root: string, outDir: string, effects: {[string]: any}?): {[string]: boolean}?, string?
     local outputs = {}
+    local providers: {[string]: {
+        cargo: string,
+        library: string,
+        names: {string},
+        cargoFeatures: {string}
+    }} = {}
+    local providerKeys = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.cargo then
-            local compilerRoot = envMod.compilerRoot()
-            if not compilerRoot then
-                return nil, (
-                    "native feature %q needs compiler source; use a source " .. "checkout to build this target"
-                ):format(feature.name)
-            end
-            local targetDir = join(root, join(outDir, "native/" .. feature.name))
-            local code, text = process.capture({
-                "cargo",
-                "build",
-                "--release",
-                "--manifest-path",
-                join(compilerRoot, feature.cargo),
-                "--target-dir",
-                targetDir
-            })
-            if code ~= 0 then
-                return nil, ("cannot build native feature %q:\n%s"):format(feature.name, text)
-            end
             local libraryName = feature.library as string
-            local filename = libraryFile(libraryName)
-            local built = join(targetDir, join("release", filename))
-            -- ffi.load treats a path containing a slash as an exact filename; staging
-            -- the loader name without a platform suffix lets the same generated
-            -- bootstrap work on every supported host.
-            local output = join(root, join(outDir, join("lib", libraryName)))
-            local copied, err = fs.copyFile(built, output)
-            if not copied then
-                return nil, ("cannot stage native feature %q: %s"):format(feature.name, tostring(err))
+            local key = feature.cargo .. "\0" .. libraryName
+            local provider = providers[key]
+            if not provider then
+                provider = {cargo = feature.cargo, library = libraryName, names = {}, cargoFeatures = {}}
+                providers[key] = provider
+                providerKeys[#providerKeys + 1] = key
             end
-            outputs[output] = true
+            provider.names[#provider.names + 1] = feature.name
+            if feature.cargoFeature then
+                provider.cargoFeatures[#provider.cargoFeatures + 1] = feature.cargoFeature
+            end
         end
+    end
+    local compilerRoot = envMod.compilerRoot()
+    table.sort(providerKeys)
+    for _, key in ipairs(providerKeys) do
+        local provider = assert(providers[key])
+        if not compilerRoot then
+            return nil, "native facilities need compiler source; use a source checkout to build this target"
+        end
+        table.sort(provider.names)
+        table.sort(provider.cargoFeatures)
+        local targetDir = join(root, join(outDir, "native/" .. provider.library))
+        local argv = {
+            "cargo",
+            "build",
+            "--release",
+            "--manifest-path",
+            join(compilerRoot, provider.cargo),
+            "--target-dir",
+            targetDir
+        }
+        if #provider.cargoFeatures > 0 then
+            argv[#argv + 1] = "--no-default-features"
+            argv[#argv + 1] = "--features"
+            argv[#argv + 1] = table.concat(provider.cargoFeatures, ",")
+        end
+        local code, captured = process.capture(argv)
+        if code ~= 0 then
+            return nil, ("cannot build native facilities %s:\n%s"):format(table.concat(provider.names, ", "), captured)
+        end
+        local filename = libraryFile(provider.library)
+        local built = join(targetDir, join("release", filename))
+        -- ffi.load treats a path containing a slash as an exact filename; staging
+        -- the loader name without a platform suffix lets the same generated
+        -- bootstrap work on every supported host.
+        local output = join(root, join(outDir, join("lib", provider.library)))
+        local copied, err = fs.copyFile(built, output)
+        if not copied then
+            return nil, (
+                "cannot stage native facilities %s: %s"
+            ):format(table.concat(provider.names, ", "), tostring(err))
+        end
+        outputs[output] = true
     end
 
     return outputs

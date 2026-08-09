@@ -253,6 +253,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     node.requiredModule = modname
                     local effect = native.forModule(modname)
                     if effect and c.recordEffect then
+                        (node as any).compilerFeatureEffect = effect
                         c.recordEffect(effect)
                     end
                     local mt = c.env.resolveModule(c.env, modname)

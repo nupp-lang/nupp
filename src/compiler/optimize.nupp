@@ -1264,4 +1264,35 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): {any}
     return remarks
 end
 
+--- Recomputes compiler runtime effects from the tree that generation will emit.
+--- Constant-folded branches and loops are deliberately skipped, so their providers
+--- disappear along with their code.
+function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
+    local effects = {}
+    local function visit(node)
+        if not node or isToken(node) then
+            return
+        end
+        if node.compilerFeatureEffect then
+            effects[node.compilerFeatureEffect] = true
+        end
+        if node.constantLoopNone then
+            return
+        end
+        if node.kind == "ifStmt" and (node.constantBranch or node.constantBranchNone) then
+            if node.constantBranch then
+                visit(node.constantBranch)
+            end
+            return
+        end
+        for _, child in ipairs(node) do
+            visit(child)
+        end
+    end
+
+    visit(result.root)
+
+    return effects
+end
+
 return optimize

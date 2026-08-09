@@ -2,6 +2,7 @@ local parser = require("compiler.parser")
 local check = require("fragment")
 local envMod = require("compiler.env")
 local native = require("compiler.native")
+local optimize = require("compiler.optimize")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -163,6 +164,110 @@ function M.nativeFeaturesAreResolvedEffects()
    }, "\n"))
    assert(not shadowedRequire["native.lpeg"],
       "a local require is not the native module loader")
+
+   local expected = {
+      ["nupp.data.encodeJSON({answer = 42})"] = "native.cjson",
+      ["nupp.data.utf8.length('hello')"] = "native.lua_utf8",
+      ["nupp.io.newBuffer('hello')"] = "stdlib.io",
+      ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
+      ["nupp.data.fnv1a64('hello')"] = "stdlib.fnv1a64",
+      ["nupp.data.crc32('hello')"] = "stdlib.checksums",
+      ["nupp.io.Path.new('hello')"] = "native.path",
+      ["nupp.io.URI.new('https://example.com')"] = "native.uri",
+      ["nupp.data.uuid7()"] = "native.uuid",
+      ["nupp.data.sha256('hello')"] = "native.sha256",
+   }
+   for source, effect in pairs(expected) do
+      local found = effectsOf(source)
+      assert(found[effect], source .. " records " .. effect)
+      local count = 0
+      for _ in pairs(found) do count = count + 1 end
+      assertEq(count, 1, source .. " records only its own facility")
+   end
+
+   local aliased = effectsOf(table.concat({
+      "local data = nupp.data",
+      "local digest = data.sha256",
+      "digest('hello')",
+   }, "\n"))
+   assert(aliased["native.sha256"], "aliases retain exact feature identity")
+   assert(not aliased["native.uuid"], "equal function signatures do not share effects")
+
+   local namespaceOnly = effectsOf("local data = nupp.data")
+   assert(next(namespaceOnly) == nil, "reaching a namespace alone has no effect")
+end
+
+function M.optimizedDeadCodeDropsItsNativeFeatures()
+   local source = table.concat({
+      "if false then",
+      "    print(nupp.data.sha256('unreachable'))",
+      "else",
+      "    print(nupp.data.uuid4())",
+      "end",
+   }, "\n")
+   local result = parser.parse(source, "dead-native-feature")
+   check.check(result, "dead-native-feature", sharedEnv)
+   assert(result.effects["native.sha256"] and result.effects["native.uuid"],
+      "checking sees both source-level uses")
+   optimize.run(result, {level = 1})
+   local live = optimize.liveEffects(result)
+   assert(not live["native.sha256"], "a folded-away branch loses its provider")
+   assert(live["native.uuid"], "the selected branch retains its provider")
+end
+
+function M.compilerProvidedPureLibraries()
+   local bootstrap = native.bootstrap({
+      ["stdlib.io"] = true,
+      ["stdlib.math"] = true,
+      ["stdlib.fnv1a64"] = true,
+      ["stdlib.checksums"] = true,
+   })
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local chunk = assert(loadstring(bootstrap .. [[
+      local buffer = nupp.io.newBuffer("hello")
+      local writer = buffer:newWriter()
+      assert(writer:write("world"))
+      assert(buffer:getString() == "world")
+      local viewReader = buffer:view():newReader()
+      assert(viewReader:read(0) == "w")
+      local reader = buffer:newReader()
+      assert(reader:read(3) == "wor")
+      assert(reader:read(8) == "ld")
+      assert(reader:read(1) == "")
+      assert(reader:read(0) == "")
+      local x, y = nupp.math.vec2.normalize(3, 4)
+      assert(math.abs(x - 0.6) < 0.000001 and math.abs(y - 0.8) < 0.000001)
+      assert(nupp.data.fnv1a64("hello") == "a430d84680aabd0b")
+      assert(nupp.data.adler32("Wikipedia") == 300286872)
+      assert(nupp.data.crc32("123456789") == 3421780262)
+      assert(not pcall(nupp.data.crc32, "bytes", 4294967296))
+   ]]))
+   local ok, problem = pcall(chunk)
+   _G.nupp = previous
+   assert(ok, problem)
+end
+
+function M.hiddenDataDependenciesLoadLazily()
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local bootstrap = native.bootstrap({
+      ["native.cjson"] = true,
+      ["native.lua_utf8"] = true,
+   })
+   local chunk = assert(loadstring(bootstrap .. [[
+      assert(package.loaded.cjson == nil)
+      assert(package.loaded["lua-utf8"] == nil)
+      assert(nupp.data.encodeJSON({answer = 42}):find('"answer":42', 1, true))
+      assert(nupp.data.utf8.length("A€") == 2)
+      return package.loaded.cjson ~= nil, package.loaded["lua-utf8"] ~= nil
+   ]]))
+   package.loaded.cjson = nil
+   package.loaded["lua-utf8"] = nil
+   local ok, jsonLoaded, utf8Loaded = pcall(chunk)
+   _G.nupp = previous
+   assert(ok, jsonLoaded)
+   assert(jsonLoaded and utf8Loaded, "access loads the hidden implementation modules")
 end
 
 function M.nativeGlobalMembersLoadOnFirstAccess()
@@ -176,6 +281,24 @@ function M.nativeGlobalMembersLoadOnFirstAccess()
    local namespace, regex = chunk()
    assert(type(namespace) == "table", "nupp is always present")
    assertEq(regex, nil, "registering regex does not load its native dependency")
+
+   local loadedFFI = package.loaded.ffi
+   package.loaded.ffi = {
+      cdef = function() end,
+      load = function() return {} end,
+   }
+   assert(type(_G.nupp.regex.compile) == "function",
+      "reading regex dispatches its registered lazy loader")
+   package.loaded.ffi = loadedFFI
+
+   _G.nupp = nil
+   loadedFFI = package.loaded.ffi
+   package.loaded.ffi = nil
+   local pathChunk = assert(loadstring(native.bootstrap({["native.path"] = true})
+      .. " return rawget(nupp.io, 'Path')"))
+   assertEq(pathChunk(), nil, "registering Path does not load its Rust provider")
+   assertEq(package.loaded.ffi, nil, "native FFI initializes only on first access")
+   package.loaded.ffi = loadedFFI
    _G.nupp = previous
 end
 
