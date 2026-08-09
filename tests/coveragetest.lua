@@ -38,6 +38,11 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     local detail = read(out .. "/files/src/nupp/gen.nupp.html")
     test.matches(detail, "Nupp source")
     test.matches(detail, "Generated Lua")
+    assert(detail:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
+    assert(detail:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
+    assert(detail:find("<a aria-current=page href='files/src/nupp/gen.nupp.html'", 1, true),
+        "coverage tree marks the selected file")
+    assert(detail:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     test.matches(read(out .. "/lcov.info"), "SF:src/nupp/")
     assert(os.execute("rm -rf " .. string.format("%q", out)) == 0)
 end
