@@ -43,6 +43,12 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     assert(detail:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
     assert(detail:find("<a class='file partial' aria-current=page href='files/src/nupp/gen.nupp.html'", 1, true),
         "coverage tree marks the selected file")
+    assert(detail:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true),
+        "coverage pages have breadcrumbs")
+    assert(detail:find("<a href='files/src/index.html'>src</a>", 1, true),
+        "coverage breadcrumbs link each parent layer")
+    assert(detail:find("<a href='files/src/nupp/index.html'>nupp</a>", 1, true),
+        "coverage breadcrumbs link nested parent layers")
     assert(detail:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
     assert(index:find("aria-sort=none", 1, true), "sortable headings expose their state")
