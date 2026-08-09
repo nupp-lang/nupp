@@ -106,9 +106,8 @@
   padding: 1rem 1.1rem;
 }
 
-/* The home page's long-form feature tour appears after the playground. Each
- * feature keeps its code beside its explanation, then reverses in the next row
- * so the page has a clear reading rhythm without a grid of badges. */
+/* The home page's long-form feature tour keeps every explanation on the left
+ * and its code or illustration on the right for a predictable reading rhythm. */
 .nuppdoc-feature-showcase {
   display: grid;
   gap: clamp(3.5rem, 9vw, 7rem);
@@ -127,25 +126,18 @@
   display: grid;
   align-items: center;
   gap: clamp(2rem, 7vw, 6rem);
-  grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
-}
-
-.nuppdoc-showcase-feature:nth-child(even) {
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
-}
-
-.nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-visual {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-copy {
-  grid-column: 1;
-  grid-row: 1;
 }
 
 .nuppdoc-showcase-visual {
   min-width: 0;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.nuppdoc-showcase-copy {
+  grid-column: 1;
+  grid-row: 1;
 }
 
 .nuppdoc-showcase-visual pre {
@@ -214,8 +206,8 @@
     grid-template-columns: 1fr;
   }
 
-  .nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-visual,
-  .nuppdoc-showcase-feature:nth-child(even) .nuppdoc-showcase-copy {
+  .nuppdoc-showcase-visual,
+  .nuppdoc-showcase-copy {
     grid-column: auto;
     grid-row: auto;
   }
