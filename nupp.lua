@@ -370,6 +370,11 @@ nupp lsp            # start the language server]],
                   title = "Math helpers",
                   source = "docs/math.md",
                },
+               {
+                  path = "standard-library/regex",
+                  title = "Regular expressions",
+                  source = "docs/regex.md",
+               },
 
                {
                   path = "tooling/cli",
@@ -434,11 +439,6 @@ nupp lsp            # start the language server]],
                   path = "reference/language",
                   title = "Language reference",
                   source = "docs/reference.md",
-               },
-               {
-                  path = "reference/regex",
-                  title = "nupp.regex",
-                  source = "docs/regex.md",
                },
                {
                   path = "reference/grammar",

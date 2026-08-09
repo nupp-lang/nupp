@@ -1,47 +1,54 @@
-`nupp` is where everything the compiler provides is spelled. Two different
-things live under that one name, and telling them apart is the whole of what
-this page is for.
+`nupp` is the always-available standard-library namespace. Reach its fields
+directly without `require`; each implementation loads only if the checked
+program actually uses it.
 
 ## The `nupp` global
 
 `nupp` is a table the prelude declares, so it is in scope everywhere without a
-`require`. Nothing loads it and nothing can shadow it by accident — a binding
-called `nupp` shadows it deliberately, the way a binding called `string` would.
+`require`. A binding called `nupp` shadows it deliberately, the way a binding
+called `string` would.
 
-It holds the parts of the language that are values rather than syntax:
+Its public namespaces are:
 
-```
- Name             What it is
- ───────────────  ────────────────────────────────────────────────
- nupp.regex       Compiled Rust regular expressions
- nupp.dispose     Consume an owner and run its cleanup list
- nupp.borrow      Take an explicit lexical borrow
- nupp.intoRaw     Abandon tracking, in unsafe
- nupp.fromRaw     Assert fresh ownership of a raw value, in unsafe
- nupp.borrowFrom  Assert raw provenance from a named source, in unsafe
- nupp.pin         Bind a managed pointer to its Lua anchor
-```
+| Namespace | What it provides |
+| --- | --- |
+| [`nupp.data`](data.md) | JSON, UTF-8, UUIDs, hashes and checksums. |
+| [`nupp.io`](io.md) | Buffers, byte views, readers and writers. |
+| [`nupp.io.Path` and `nupp.io.URI`](path-uri.md) | Filesystem paths and resource identifiers. |
+| [`nupp.math`](math.md) | Scalar helpers and two-dimensional vectors. |
+| [`nupp.regex`](regex.md) | Compiled Rust regular expressions. |
+
+See the [standard-library overview](stdlib.md) for lazy loading, automatic
+native-feature detection, dead-code elimination, and provider hiding.
+
+## Ownership intrinsics
+
+The compiler-provided ownership operations also live under this global:
+
+| Intrinsic | Operation |
+| --- | --- |
+| `nupp.dispose(value)` | Consume an owner and run its cleanup list. |
+| `nupp.borrow(value)` | Take an explicit lexical borrow. |
+| `nupp.intoRaw(value)` | Abandon tracking inside `unsafe`. |
+| `nupp.fromRaw(value, cleanup...)` | Assert fresh ownership inside `unsafe`. |
+| `nupp.borrowFrom(raw, source)` | Assert raw provenance inside `unsafe`. |
+| `nupp.pin(pointer, anchor)` | Bind a managed pointer to its Lua anchor. |
 
 The six ownership entries are intrinsics: the compiler implements them, so they
 type nothing like ordinary functions and are not values you can pass around.
-Each is also spelled bare — `dispose(handle)` is `nupp.dispose(handle)` — and
-the two produce the same diagnostics and the same generated Lua. See
-[ownership](ownership.md#the-intrinsics-are-also-spelled-nupp) for which
-spelling to reach for.
+The old bare spellings remain aliases, but new code should use `nupp.*`. See
+[ownership](ownership.md#intrinsics-live-under-nupp) for their lifetime rules.
 
-## The `nupp` modules
+## Shipped modules
 
-`nupp` is also the prefix of the library modules below, which are ordinary
-modules reached with `require`. They are not fields of the global above:
-`nupp.zone` names a module, while `nupp.dispose` names an intrinsic, and only
-the `require` tells you which kind of name you are looking at.
+The API tree below also contains ordinary modules shipped with the compiler,
+including `nupp.profile`, `nupp.resources`, and `nupp.zone`. Those are reached
+with `require` and are separate from the fields of the ambient global:
 
 ```nupp
 local zone = require("nupp.zone")
 ```
 
-There is no module to require by the bare name `nupp` — nothing sits above them
-to hold them together, because they have nothing in common beyond being shipped
-with the compiler. They are typed Nupp rather than a description of someone
-else's C, and the source that goes into the binary is the source this reference
-is generated from, so there is no second copy to drift.
+There is no module to require by the bare name `nupp`. `nupp.compiler` contains
+the self-hosted compiler implementation and is hidden from public API
+documentation by its `@!internal` namespace root.
