@@ -311,6 +311,20 @@ Run the same benchmarks with:
     luajit bench/constant-propagation.lua
     luajit bench/static-callable.lua
 
+Two more measure passes that do not exist, which is the point of them: a
+benchmark decides whether one is worth writing, so the ones that argue against
+a pass are kept beside the ones that argued for the passes above.
+
+    luajit bench/ffi-hoisting.lua
+    luajit bench/concat.lua
+
+`ffi-hoisting` finds that caching a ctype is the interpreter's win alone, so
+that pass stays unbuilt, while the clib symbol binding it also measures is real
+and already emitted. `concat` finds that lowering a loop-carried accumulator to
+`string.buffer` wins several-fold and grows with the length, because an O(n²)
+algorithm is not something a trace compiler can fold away. Both exit non-zero if
+the finding stops holding.
+
 ## Inspecting and controlling passes
 
     nupp build -O1 --remarks

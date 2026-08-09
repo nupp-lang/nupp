@@ -18,7 +18,13 @@ structurally cannot do:
   an object the collector never walks. Reification already does this for
   declared structs (6–9x on `bench/aos.nupp`, 5.6x on memory); the
   remaining work is extending it to values the user did not declare as
-  structs.
+  structs, and telling the user when a declaration is one keyword away
+  from it (`reifiable-record`, NUPP2509).
+- **Algorithmic shape.** A trace compiler makes each step of an O(n²)
+  loop fast and cannot make there be fewer steps. String building is the
+  case that matters (`bench/concat.lua`), and it is worth naming
+  separately from GC pressure because it is the one place where the
+  compiler is not competing with the JIT at all.
 - **FFI overhead.** Boxed `int64_t` cdata, `ffi.C` symbol lookups,
   repeated `ffi.typeof`, pin machinery — all paid before the JIT sees
   anything, and all statically known to nupp.
@@ -94,8 +100,23 @@ Each entry is tagged with where its win lands:
   — not heap, since LuaJIT rounds a hash part to a power of two and
   frees a replaced one immediately. Presizing is not a GC optimization,
   which is worth remembering before grouping it with the ones below.
-- `real` **Concat lowering.** String building in a loop lowers to
-  `string.buffer`.
+- `real` **Concat lowering.** A loop-carried string accumulator lowers to
+  `string.buffer`. The one entry the trace compiler structurally cannot
+  absorb for a reason other than GC: `s = s .. piece` is O(n²), and a JIT
+  makes each step fast without making there be fewer steps. Measured at
+  1.8x over eight pieces rising to 3.6x over sixty-four, and it keeps
+  climbing with the length (`bench/concat.lua`).
+
+  Two decisions the benchmark settles. The lowering is **per-site**, not a
+  module-scope buffer pool: pooling measures 4–14x, better throughout, and
+  is only correct where the site cannot be re-entered, which recursion, a
+  coroutine yield in the body, or any call reaching the same function all
+  break. Pooling is therefore an upgrade gated on `yields`/`calls`/
+  `external` from the effect summaries, not a default. And the trigger is
+  loop-carried accumulation alone: creating a buffer costs about two
+  concatenations, so the rewrite is a pessimization below three pieces, and
+  straight-line `a .. b .. c` must never be touched — Lua already does a
+  multi-operand concat in one operation.
 - `core` **Scratch reuse.** An `ffi.new` inside a loop is hoisted and
   reused when ownership proves the value does not escape the iteration.
   This is what `@owned` and non-escaping borrows already establish
@@ -146,11 +167,17 @@ Each entry is tagged with where its win lands:
 
 ### FFI
 
-- `real` **`ffi.C` symbol hoisting.** Every `ffi.C.foo` is a lookup
-  through a metatable. The hand-written idiom is a local binding; nupp
-  knows the symbol statically and can always emit it.
-- `real` **ctype caching.** `ffi.typeof` results bound once. Mechanical
-  given that struct types are static.
+- ~~`ffi.C` **symbol hoisting.**~~ Real and already emitted. A clib index
+  costs about 0.6ns on a warm trace (`bench/ffi-hoisting.lua`), so the
+  local binding is worth having, and a `cdef function` has lowered to
+  `const foo = ffi.C.foo` since codegen was written (`src/nupp/gen.nupp`).
+  There is no pass to build.
+- `cold` **ctype caching.** `ffi.typeof` results bound once, rather than a
+  declaration string spelled at each `ffi.cast` or `ffi.new`. Measured at
+  1.6–2.5x in the interpreter and **nothing** with the JIT on
+  (`bench/ffi-hoisting.lua`): a constant string argument is resolved at
+  record time and folded, so both forms compile to the same trace. Fails
+  the benchmark gate below; not worth building.
 - `core` **Pin elision.** Drop `pinned<T>` machinery where the checker
   proves no GC point falls between the pin and the use.
 - `core` **`with`-scope pooling.** Deterministic reuse of `@owned`
@@ -332,23 +359,60 @@ contracts themselves.
 Most of the catalog is blocked on infrastructure rather than on any
 individual transformation being hard.
 
-### An effect system, pessimistic by default
+### ~~An effect system, pessimistic by default~~ — built
 
-Nearly every entry reduces to a single question: can this call observe
-or invalidate what I am about to cache. Parameter-effect inference
-(docs/ownership.md) is the seed. It needs to carry reads, writes,
-allocations, yields, and calls-to-unknown, propagated across the call
-graph, defaulting to the worst case for anything it cannot see. An
-effect system that is optimistic about unknown callees is worse than no
-effect system, because it produces confident wrong answers.
+Nearly every entry reduces to a single question: can this call observe or
+invalidate what I am about to cache. `src/nupp/analysis.nupp` answers it,
+and has since numeric `ipairs` needed it. Summaries carry reads, writes,
+shapes, metatables, escapes and calls, with `allocates`, `yields`,
+`raises` and `external` flags and a `top` widening. `analysis.run`
+iterates them to a fixed point over the call graph. The lattice is
+one-sided by construction — "a fact may widen to `top`, but an unknown
+operation never becomes harmless" — which is the pessimism this section
+asked for. Alias classes are union-find within a body, with return
+aliasing propagated through known summaries. `@effects` contracts are
+checked against inference (NUPP2112) and trusted for bodyless
+declarations; see docs/effects.md.
 
-### Aliasing and escape analysis beyond resources
+### ~~Aliasing and escape analysis beyond resources~~ — built
 
-This is the structural advantage. Affine ownership with non-escaping
-borrows is an aliasing discipline, and a compiler for untyped Lua has
-none. The work is extending the analysis from C resources to plain
-tables and locals, so that table promotion and scratch reuse can ask the
-questions the resource checker already answers for `@owned` values.
+`escapes` is a member of every summary, computed for plain locals and
+tables rather than only for `@owned` values. This section described
+extending the resource checker's questions to ordinary bindings, and that
+extension exists.
+
+### A query API onto the analysis
+
+This is what is actually missing, and it is smaller than either section
+it replaces.
+
+The facts above have exactly one consumer. `proveLoops` walks a body and
+stamps `numericIpairsProof` or `numericIpairsDeclined` on a loop node,
+inside `analysis.nupp` itself; `optimize.nupp` reads that field and
+mentions nothing else. Escapes, allocates and writes are computed on
+every build and discarded.
+
+So the cost of the second consumer is not the analysis — it is that the
+current shape makes every new consumer a new prover written inside
+`analysis.nupp`, hand-rolling its own traversal and its own conservative
+reasoning, stamping its own bespoke node field. Three such provers are
+three places to be subtly wrong in a language with no deoptimization to
+recover.
+
+What replaces it is a small set of questions asked of the summaries:
+whether a binding escapes its scope, whether anything in a region may
+write a path, whether a region can yield or re-enter, whether a call
+allocates. Pooled concat lowering wants the third, table promotion and
+scratch reuse want the first, `reifiable-record` (NUPP2509) wants the
+first to stop being purely syntactic, and numeric `ipairs` is the second
+expressed as a caller rather than as a prover. It should be designed
+against the query core so answers are cacheable per function and
+participate in cutoff.
+
+Concat lowering (§Allocation) is the natural first caller: it has a
+measured payoff, it needs exactly one question, and it is small enough
+that the API is designed against a real consumer rather than in advance
+of one.
 
 ### Immutability must be declared
 
@@ -410,6 +474,14 @@ interpreter microbenchmark and approximately none in a real measurement,
 because the trace compiler already did the work. An optimization that
 cannot demonstrate a win under realistic conditions is complexity and
 risk with nothing on the other side of the ledger.
+
+The gate earns its keep by being run before the work, not after it. The
+FFI group sat in priority slot 2 of this document, tagged `real`, until
+`bench/ffi-hoisting.lua` was written and showed 1.00x. A benchmark that
+argues against a pass belongs in `bench` beside the ones that argued for
+the passes that landed, and should exit non-zero if its finding stops
+holding — otherwise the same entry gets rediscovered and re-prioritised
+on the same wrong intuition.
 
 ### The observability contract
 
@@ -511,29 +583,57 @@ value escapes at this related location, and this is the change that
 would let it. Remarks stay off by default and are requested per
 category.
 
-This is worth building ahead of most of the catalog, because it applies
-to work already landed. Reification exists and nothing reports whether
-it fired; a user could be told today that a declared struct is or is not
-being reified, and why.
+This section originally said reification reported nothing and that a user
+could be told whether a declared struct was reified. That was wrong in
+both directions, and what replaced it is worth recording.
+
+A `struct` always reifies. The lowering is unconditional
+(`src/nupp/gen.nupp`) and a field with no C spelling is NUPP2201 at the
+field name, so there is no silent fallback and a per-declaration remark
+would fire on every struct in the program saying the same thing.
+
+The silent case is the opposite one: a `record` whose fields would all
+reify is a hash table forever, and nothing said so. That is now
+`reifiable-record` (NUPP2509). It is a lint rather than an optimizer
+remark because nothing is rewritten and the advice holds at `-O0`, and it
+is the first member of an opt-in category (docs/lints.md) because whether
+reifying pays depends on how many values are built and where — which no
+declaration states, so reported unprompted it fires on every small record
+of numbers.
+
+That last point is the honest limit of the current version: the test is
+syntactic. The question it cannot ask — do instances of this escape, and
+are they built in bulk — is `escapes` on a summary that already exists,
+and wants §A query API onto the analysis.
 
 ## Priority
 
 0. ~~Table presizing.~~ Landed as `OPT-1`, together with the harness
    everything below reuses: the pass registry, `-O` levels in the build
    key, `-Zno-opt`, remarks, and the differential check.
-1. Exact constant folding and `const` propagation, plus remarks for the
-   optimizations that already exist. Reification has
-   landed and nothing reports on it. The reporting path exists now, so
-   this is a matter of deciding what reification should say.
-2. The FFI group. Real wins, small analyses, no new IR, and they target
-   costs the JIT never sees.
-3. NYI rewriting and call-site monomorphization. Largest measured effect
-   on real programs; aligns with the trace-aware checker already on the
-   roadmap.
-4. Effect system, then escape analysis beyond resources.
-5. Declared module immutability.
-6. The IR, and the `core` catalog behind it.
-7. The `cold` catalog, only where a benchmark justifies it.
+1. ~~Exact constant folding and `const` propagation.~~ Landed as `OPT-3`.
+   Reporting on what already exists landed too, though not as this list
+   expected it to: `reifiable-record` (NUPP2509), not a reification
+   remark. See §Remarks for why the item as written was wrong.
+2. ~~The FFI group.~~ Struck. Measured cold — the ctype half wins nothing
+   with the JIT on, and the symbol half was already emitted
+   (`bench/ffi-hoisting.lua`). It sat here on the assumption that a lookup
+   the JIT cannot see is a lookup worth hoisting, which the benchmark gate
+   below exists to catch.
+3. Concat lowering, and the query API it is the first caller of. The
+   payoff is measured and superlinear (`bench/concat.lua`), the analysis
+   it needs already exists, and it is small enough to design the API
+   against one real consumer.
+4. The rest of the query API's callers: scratch reuse, then table
+   promotion — the highest-value entry in this document, and no longer
+   behind an unbuilt escape analysis.
+5. NYI rewriting and call-site monomorphization. Largest likely effect on
+   real programs, and still unmeasurable: it wants the tecs `FFIStorage`
+   port (plans/todo.md) to have something to measure against.
+6. Declared module immutability.
+7. The IR, and the rest of the `core` catalog behind it.
+8. The `cold` catalog, only where a benchmark justifies it. Nothing in it
+   has cleared that bar yet, and one entry has now failed it.
 
 ## Non-goals
 
