@@ -136,6 +136,59 @@ return m
 
 Reports: `NUPP2002`, `NUPP2106`. `nupp explain <code>` says more.
 
+### Named arguments and value expansion
+
+Inside a parenthesized call, `name = value` fills that parameter directly.
+Named arguments follow every positional argument and appear in parameter order.
+They erase to ordinary positional Lua arguments; an omitted optional slot before
+a later named argument is emitted as `nil`.
+
+A record, interface, or struct may declare ordered readable-field projections
+with `expands (field, ...)`. `...value` explicitly contributes one of those
+projections to a call's positional prefix. A plain `value` remains one argument.
+The named suffix reserves its parameter slots, and the checker selects the one
+expansion arity that makes the complete call fit. No match is **NUPP2125** and
+more than one is **NUPP2126**.
+
+Interfaces pass expansions to declarations that take their contract. A bounded
+type parameter sees its interface bound's projections, so generic adapters use
+the same syntax. An expansion operand is a name or dotted field path, such as
+`...entity.position`. Bind calls, computed indexes, and other producing
+expressions to a local before expanding them.
+
+```nupp
+local interface XY
+    readonly x: number
+    readonly y: number
+    expands (x, y)
+end
+
+local record Vec3 is XY
+    x: number
+    y: number
+    z: number
+
+    expands (x, y, z)
+end
+
+local record Entity
+    position: Vec3
+end
+
+local function draw(x: number, y: number, color: string?): nil
+    print(x, y, color)
+end
+
+local position = new Vec3 {x = 1, y = 2, z = 3}
+local entity = new Entity {position = position}
+draw(...entity.position, color = "blue")
+draw(x = position.x, y = position.y)
+
+return position
+```
+
+Reports: `NUPP2006`, `NUPP2118`, `NUPP2125`, `NUPP2126`. `nupp explain <code>` says more.
+
 ### Generics and bounds
 
 Type parameters go in angle brackets after the name. `T is Bound` constrains one,
@@ -164,9 +217,10 @@ Reports: `NUPP2101`. `nupp explain <code>` says more.
 ### Type packs and variadic generics
 
 `A...` declares a heterogeneous generic value sequence. A pack may have a fixed
-head and a generic or homogeneous tail. Only a final unparenthesized call or
-`...` expands in an argument, assignment, or return list; parentheses project
-one value.
+head and a generic or homogeneous tail. Under Lua's ordinary value adjustment,
+only a final unparenthesized call or bare `...` expands in an argument,
+assignment, or return list; parentheses project one value. The explicit
+`...value` field projection described above is resolved before that adjustment.
 
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's

@@ -45,6 +45,22 @@ local function callableMembers(t: Type): {T.Func}?
     return members
 end
 
+--- Whether `node` names a place whose evaluation has no call or computed-key
+--- boundary. Expansion emits one read of this path for each projected field, so
+--- accepting only names and dotted fields keeps an effectful producer from being
+--- evaluated several times while covering embedded-record paths such as
+--- `entity.transform.position`.
+local function isExpansionPath(node: cst.Node?): boolean
+    if not node then
+        return false
+    end
+    if node.kind == "name" then
+        return true
+    end
+
+    return node.kind == "dotIndex" and isExpansionPath(node.obj)
+end
+
 local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func?, string?
     local map = {}
     if T.hasTypevar(ft) and (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0) then
@@ -997,13 +1013,16 @@ function calls.install(c: state.Checker): calls.Ops
                         c.diag("NUPP2006", argument, "a positional expansion cannot follow a named argument")
                     end
                     local value = argument.value or argument
-                    if value.kind ~= "name" then
+                    if not isExpansionPath(value) then
                         c.diag(
                             "NUPP2006",
                             value,
-                            "an expansion operand must be a name",
+                            "an expansion operand must be a name or dotted field path",
                             nil,
-                            {help = "bind the producing expression to a local, then expand that local"}
+                            {
+                                help = "bind the producing expression to a local, then expand "
+                                .. "that local or one of its dotted fields",
+                            }
                         )
                     end
                     local valueType = c.infer(value)

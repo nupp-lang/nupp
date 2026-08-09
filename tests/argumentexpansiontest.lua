@@ -80,6 +80,44 @@ function M.expansionAndNamedSuffixEraseToAPositionalCall()
    assert(not code:find("expands", 1, true), code)
 end
 
+function M.dottedPlaceExpansionLowersThroughEmbeddedRecords()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Body",
+      "   position: Vec3",
+      "end",
+      "local record Entity",
+      "   body: Body",
+      "end",
+      "local function draw(x: number, y: number, color: string?): string",
+      "   return tostring(x) .. tostring(y) .. (color or '')",
+      "end",
+      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local body = new Body {position = position}",
+      "local entity = new Entity {body = body}",
+      "return draw(...entity.body.position, color = 'r')",
+   }, "\n"))
+   assertEq(answer, "12r")
+   assert(code:find(
+      "draw ( entity . body . position .x , entity . body . position .y , 'r' )",
+      1,
+      true
+   ), code)
+end
+
+function M.expansionRejectsEffectfulAndComputedPlaceOperands()
+   local declaration = vector .. "\n" .. table.concat({
+      "local function draw(x: number, y: number): nil end",
+      "local function make(): Vec3",
+      "   return new Vec3 {x = 1, y = 2, z = 3}",
+      "end",
+   }, "\n")
+   assertEq(diagnostics(declaration .. "\ndraw(...make())"), "NUPP2006")
+   assertEq(diagnostics(declaration .. "\n" .. table.concat({
+      "local positions: {Vec3} = {make()}",
+      "draw(...positions[1])",
+   }, "\n")), "NUPP2006")
+end
+
 function M.namedArgumentsCanFillAnOptionalGap()
    local answer = run(table.concat({
       "local function label(value: number, prefix: string?, suffix: string?): string",
@@ -196,6 +234,8 @@ function M.formattingKeepsExpansionTightAndNamesReadable()
       "draw(...position, color = 'red')\n")
    assertEq(fmt.format("local record P\nx:number\ny:number\nexpands(x,y)\nend"),
       "local record P\n    x: number\n    y: number\n    expands (x, y)\nend\n")
+   assertEq(fmt.format("draw(...entity.body.position,color='red')"),
+      "draw(...entity.body.position, color = 'red')\n")
 end
 
 return M

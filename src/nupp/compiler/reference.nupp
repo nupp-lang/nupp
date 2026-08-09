@@ -223,8 +223,9 @@ more than one is **NUPP2126**.
 
 Interfaces pass expansions to declarations that take their contract. A bounded
 type parameter sees its interface bound's projections, so generic adapters use
-the same syntax. The expansion operand is currently a name; bind a producing
-expression to a local before expanding it.
+the same syntax. An expansion operand is a name or dotted field path, such as
+`...entity.position`. Bind calls, computed indexes, and other producing
+expressions to a local before expanding them.
 ]=],
         example = [=[
 local interface XY
@@ -241,12 +242,17 @@ local record Vec3 is XY
     expands (x, y, z)
 end
 
+local record Entity
+    position: Vec3
+end
+
 local function draw(x: number, y: number, color: string?): nil
     print(x, y, color)
 end
 
 local position = new Vec3 {x = 1, y = 2, z = 3}
-draw(...position, color = "blue")
+local entity = new Entity {position = position}
+draw(...entity.position, color = "blue")
 draw(x = position.x, y = position.y)
 
 return position

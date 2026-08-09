@@ -60,11 +60,13 @@ and a field may appear only once in one expansion.
 The expansion is an ordered field projection, not record iteration. Adding or
 reordering unrelated fields cannot change it.
 
-An expansion operand is initially required to be a stable value path. The
-implemented first slice accepts a local or other name, which covers the common
-`...position` form and guarantees that projecting several fields does not
-evaluate a producing expression more than once. A later lowering IR may admit
-arbitrary expressions by introducing a temporary without changing this design.
+An expansion operand is required to be a stable value path: a local or other
+name followed by zero or more ordinary dotted field accesses. This covers both
+`...position` and flattened embedded values such as
+`...entity.transform.position`. Calls, safe navigation, computed indexing, and
+other producing expressions are rejected because lowering reads the path once
+for every projected field. A later lowering IR may admit arbitrary expressions
+by introducing a temporary without changing this design.
 
 ## Selection
 
@@ -155,8 +157,9 @@ round-tripping remain exact.
 - Positional arguments never follow a named argument.
 - Named arguments appear in declaration order.
 - Expansion is explicit at both declaration and use sites.
-- The first implementation accepts a name as the expansion operand; arbitrary
-  producing expressions await temporary-aware lowering.
+- Expansion operands are names or dotted field paths; calls, safe navigation,
+  computed indexing, and other producing expressions await temporary-aware
+  lowering.
 - Expansion fields are non-affine until the ownership model tracks partial
   moves of containers.
 - There is no dot-count arity syntax. One `...` works for every pack size, and
