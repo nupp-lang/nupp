@@ -1,15 +1,7 @@
 ## Try Nupp
 
-This is the real compiler, running in your browser: `bootstrap/nupp.lua` in a
-Lua VM, not a round-trip to a server. It re-checks on every edit, so breaking a
-program is the quickest way to see what the checker actually says. Pick another
-from the menu, or edit this one.
-
 ```playground
 ```
-
-[Open the full playground](/playground/) for the diagnostics list and the Lua
-each program compiles to.
 
 ## Getting started
 

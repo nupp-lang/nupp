@@ -106,8 +106,7 @@ return {
             outDir = "build/docs",
             title = "Nupp API",
             name = "Nupp",
-            description = "LuaJIT, sharpened: types, ownership, an optimizing compiler, "
-               .. "and effortless C FFI in one toolchain.",
+            description = "Typed, safe, fast LuaJIT.",
             github = "https://github.com/nupp-lang/nupp",
             logo = "images/nupp.svg",
             favicon = "images/nupp-icon-32.png",
@@ -121,8 +120,7 @@ return {
                   source = "docs/home.md",
                   layout = "home",
                   heroTitle = "Nupp",
-                  heroText = "LuaJIT, sharpened: types, ownership, an optimizing compiler, "
-                     .. "and effortless C FFI in one toolchain.",
+                  heroText = "Typed, safe, fast LuaJIT.",
                   heroImage = "images/nupp.png",
                   heroImageAlt = "A nuppeppo in a moonlit forest",
                   heroActions = {

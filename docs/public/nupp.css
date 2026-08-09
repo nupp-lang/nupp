@@ -46,6 +46,11 @@
   background: var(--nupp-woodblock-vermilion-hover);
 }
 
+.nuppdoc-hero-action {
+  min-height: 44px;
+  padding: 0.75rem 1.35rem;
+}
+
 .nuppdoc-content pre {
   padding: 1rem 1.1rem;
 }
