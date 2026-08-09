@@ -160,6 +160,7 @@ local function breakCarriedIfCondition(clause)
             walk(child)
         end
     end
+
     walk(clause.cond)
     if not firstAnd or not carried then
         return
@@ -184,6 +185,7 @@ local function breakIfArms(n)
             tok.forceBreak = true
         end
     end
+
     for idx, clause in ipairs(n.clauses or {}) do
         breakCarriedIfCondition(clause)
         if idx > 1 then
@@ -220,6 +222,15 @@ local function markFinalFunctionReturn(n)
     end
 end
 
+-- Function declarations form a visual unit. Rendering suppresses the mark when the next
+-- line closes the surrounding scope, since that closing `end` belongs with it.
+local function markFunctionEnd(n)
+    local close = lastToken(n)
+    if close and close.kind == "end" then
+        close.blankAfter = true
+    end
+end
+
 -- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
 -- statement spans.
 local function annotate(root)
@@ -250,6 +261,9 @@ local function annotate(root)
             breakIfArms(n)
         elseif kind == "funcbody" then
             markFinalFunctionReturn(n)
+        elseif kind == "funcStmt" or kind == "localFuncStmt"
+            or kind == "inlineMethod" then
+            markFunctionEnd(n)
         end
 
         local openIdx, closeIdx
@@ -552,6 +566,7 @@ local function collectItems(tokens)
         pending = 0
         items[#items + 1] = item
     end
+
     for _, tok in ipairs(tokens) do
         for _, tr in ipairs(tok.trivia) do
             if tr.kind == "whitespace" then
@@ -758,6 +773,7 @@ local function splitLine(line)
             out[#out + 1] = {items = items, indent = indent}
         end
     end
+
     local function slice(from, to)
         local part = {}
         for j = from, to do part[#part + 1] = line.items[j] end
@@ -871,6 +887,7 @@ local function render(lines)
     local out = {}
     local prevIndent = 0
     local function push(text) out[#out + 1] = text end
+
     for idx, line in ipairs(lines) do
         local indentStr = INDENT:rep(line.indent)
         local flowed = line.items[1]
@@ -966,6 +983,7 @@ local function canonicalizeSingleValueAnnotations(result, opts)
             end
         end
     end
+
     walk(result.root)
 
     -- Annotation declarations in the file are order-independent for formatting: collect
@@ -1007,6 +1025,7 @@ local function canonicalizeSingleValueAnnotations(result, opts)
 
         return true
     end
+
     for _, application in ipairs(applications) do
         local name = application.name.text
         local member = singleValues[name]
@@ -1068,6 +1087,7 @@ local function parenthesizeMethodCalls(result, opts)
             end
         end
     end
+
     walk(result.root)
     if not next(before) then
         return

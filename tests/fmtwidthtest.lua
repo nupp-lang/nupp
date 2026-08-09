@@ -164,6 +164,29 @@ function M.finalReturnsInLongFunctionsAreSeparated()
       "end"))
 end
 
+function M.functionDeclarationsHaveBlankAfterTheirEnd()
+   check(lines(
+      "local function first()",
+      "end",
+      "local function second()",
+      "end"), lines(
+      "local function first()",
+      "end",
+      "",
+      "local function second()",
+      "end"))
+
+   check(lines(
+      "local function outer()",
+      "local function inner()",
+      "end",
+      "end"), lines(
+      "local function outer()",
+      "    local function inner()",
+      "    end",
+      "end"))
+end
+
 function M.unbreakableLineIsLeftLong()
    -- a single enormous string literal has nothing to break on
    local src = "local s = '" .. ("x"):rep(140) .. "'\n"
