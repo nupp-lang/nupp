@@ -37,21 +37,52 @@ work makes sense in.
       answers everything else, and NUPP3001 now names all three where it fires.
       That is a better trade than paying runtime weight across the language for
       the case a reader can resolve by writing one of the three.
-- [ ] **Check metatable bodies, not just key spellings**
-      ([design](metatables.md)). A declared metamethod contract is not held to
-      the value that fulfils it: `metatable<T>` accepts any table shape
-      (`src/nupp/relations.nupp:415`), and the only checking that exists reads
-      keys rather than values (`src/nupp/check/callexpr.nupp:281`). Four
-      positions, one helper — call arguments, annotated bindings, a record's own
-      table, and a bounded generic receiver, the last of which is the
-      `newEvent<E is Event>` case and needs no new mechanism because
-      `ops.metamethodOf` already resolves through a bound.
+- [x] **Check metatable bodies, not just key spellings**
+      ([design](metatables.md)). A declared contract is held to the value that
+      fulfils it, wherever a literal meets a `metatable<T>`: a call argument, an
+      annotated binding or assignment, and a bounded receiver, which needed no
+      new mechanism because `ops.metamethodOf` already resolves through a bound.
+      A registrar taking `E is Event` therefore checks its own body rather than
+      relying on its call sites. Where a declaration contracts for nothing,
+      LuaJIT's own requirements are held instead, and a table written under
+      `__index` is checked against the members it stands in for. NUPP2123 is the
+      new code; unknown keys keep NUPP2118 and its spelling repair, now applied
+      wherever a literal appears rather than at `setmetatable` alone.
 
-      One of the four is a live wrong answer rather than a gap:
-      `I64.__tostring = <correct function>` is refused as "no field", because a
-      record's runtime table *is* the metatable and contracts are deliberately
-      kept out of `byname`. A typo gets the same message, so the diagnostic
-      cannot tell the mistakes apart.
+      The fourth position was a live wrong answer rather than a gap.
+      `I64.__tostring = <correct function>` was refused as "no field", and a
+      typo got the same message. Installing on a record's own table is now the
+      installation it reads as, and a double-underscore name that matches
+      nothing is spelled against the contracts the receiver declares, so the two
+      mistakes no longer read alike.
+
+      Left open: a contract that is declared and never installed is legal and
+      unreported. It would have to be a lint rather than an error, since
+      installation may be split across statements or modules, which is the tecs
+      shape.
+- [x] **Type a record's own table** ([design](prototype-types.md)). A record
+      bound its name twice, as a type and as the runtime table, and both held
+      the same type — so the table and the instances it stamps were
+      interchangeable, though the runtime never agreed: `is` compiles to
+      `getmetatable(x)?.__index == R`. The value binding now holds
+      `metatable<R>`, which is what that table is, and so do a nested record
+      reached through its owner and one exported from another module.
+
+      That closes `setmetatable(t, R)` — the oldest way to write a class in Lua,
+      and the one use of a metatable the checker refused — and lets a metamethod
+      written on an instance be refused, where the function would land somewhere
+      the operator never looks. `R is R` is answered without running.
+
+      A registrar says which it takes: `newEvent<E is Event>(event: metatable<E>)`
+      rather than `event: E`. There is no deprecation path, so anything written
+      to the old shape needs the edit; in this tree it was four sites.
+
+      Left open: `metatable<R>` exposes instance fields as well as what lives on
+      the table, because the tecs registrar fills a declared field (`event.init`)
+      on it. Separating the two would catch `R.field` as the nil read it is, but
+      needs a way to say a field is filled on the table after declaration.
+      Structs keep their bare nominal: their identity is a ctype and
+      `ffi.istype` already answers it exactly.
 - [ ] **Intersection types, including overloads as function intersections**
       ([design](intersections.md)).
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,

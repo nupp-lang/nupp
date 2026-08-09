@@ -199,7 +199,8 @@ and running the real subsystem rather than only its focused fixtures.
 The working list, ordered by user impact, lives in **plans/todo.md**. Tier 1 and
 Tier 2 language baselines are landed: manifest builds, record/struct methods,
 generic nominals and upper bounds, structural and declared interface
-contracts, metamethod dispatch, literal/discriminant narrowing, literal
+contracts, metamethod dispatch and the checking of the metatables that fulfil
+it, literal/discriminant narrowing, literal
 and tagged unions,
 coalescing/compound assignment, and strict mode. Active Tier 3 work includes:
 
@@ -207,7 +208,6 @@ coalescing/compound assignment, and strict mode. Active Tier 3 work includes:
 - deterministic
   [comptime](comptime.md) data evaluation with target-aware layout and
   read-only reflection (no macros or declaration splicing);
-- stronger checking of generic metatable assembly;
 - tooling completion, codegen polish, struct unions/bitfields, malloc-backed
   arrays, dialect import/translation, and import-c hardening;
 - the full tecs subsystem translation and runtime-equivalence acceptance test.
