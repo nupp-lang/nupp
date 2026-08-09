@@ -1,11 +1,12 @@
-/* A small subset of docs/nupp.doc's palette (src/nupp/doc/assets.nupp), so
-   the playground reads as part of the same project rather than a bolted-on
-   tool. */
+/* The accent is the docs site's own string-syntax green
+   (src/nupp/doc/assets.nupp's --nuppdoc-syntax-string), reused for UI accents
+   here too rather than just code. The rest of that file's syntax palette is
+   reused as-is below. */
 :root {
   color-scheme: light;
-  --pg-accent: #087f8c;
-  --pg-accent-hover: #086a75;
-  --pg-accent-soft: #dff3f5;
+  --pg-accent: #587539;
+  --pg-accent-hover: #46602e;
+  --pg-accent-soft: #e7eee0;
   --pg-background: #fff;
   --pg-background-alt: #f6f6f7;
   --pg-border: #e2e2e3;
@@ -15,6 +16,13 @@
   --pg-error: #cf222e;
   --pg-warning: #9a6700;
   --pg-info: #0969da;
+  --pg-syntax-keyword: #9854f1;
+  --pg-syntax-string: #587539;
+  --pg-syntax-comment: #848cb5;
+  --pg-syntax-number: #b15c00;
+  --pg-syntax-function: #2e7de9;
+  --pg-syntax-meta: #007197;
+  --pg-syntax-variable: #3760bf;
   --pg-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --pg-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -22,9 +30,9 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --pg-accent: #5ad9e0;
-    --pg-accent-hover: #7ce4e9;
-    --pg-accent-soft: #173a3f;
+    --pg-accent: #9ece6a;
+    --pg-accent-hover: #b3dc8a;
+    --pg-accent-soft: #26301c;
     --pg-background: #1b1b1f;
     --pg-background-alt: #161618;
     --pg-border: #2e2e32;
@@ -34,6 +42,13 @@
     --pg-error: #ff7b72;
     --pg-warning: #ff9e64;
     --pg-info: #7dcfff;
+    --pg-syntax-keyword: #bb9af7;
+    --pg-syntax-string: #9ece6a;
+    --pg-syntax-comment: #565f89;
+    --pg-syntax-number: #ff9e64;
+    --pg-syntax-function: #7aa2f7;
+    --pg-syntax-meta: #7dcfff;
+    --pg-syntax-variable: #c0caf5;
   }
 }
 
@@ -259,8 +274,8 @@ body {
 }
 .embed-status.status-error { color: var(--pg-error); border-color: var(--pg-error); }
 
-/* CodeMirror theme tweaks to sit on the palette above. */
-.cm-editor { color: var(--pg-text); background: var(--pg-background); }
-.cm-gutters { color: var(--pg-muted); background: var(--pg-background-alt); border-right: 1px solid var(--pg-border); }
-.cm-activeLine, .cm-activeLineGutter { background: var(--pg-background-alt); }
-.cm-selectionBackground { background: var(--pg-accent-soft) !important; }
+/* The editor's own colors (background, gutters, selection, syntax) are set
+   properly via CodeMirror's theme API in src/cm-theme.js — an
+   EditorView.theme extension, not loose CSS here — because loose overrides
+   of .cm-* classes lose the specificity fight against the stylesheet
+   basicSetup's default HighlightStyle injects. */

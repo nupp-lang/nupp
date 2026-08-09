@@ -21,14 +21,28 @@ stands in for each. See [`src/host-runtime.lua`](src/host-runtime.lua) for
 the implementations and the exact reasoning at each one, and
 [`src/worker.js`](src/worker.js) for how it's wired to `bootstrap/nupp.lua`.
 
- Piece            Where it's used                        Stand-in
- ────────────────  ──────────────────────────────────────  ─────────────────────────────
- `0x..ULL` literals nupp.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints
- `bit.*`            nupp.cdecl (C-declaration decoding)     real bitwise ops, Lua 5.3 native
- `string.buffer`    nupp.build.store (project-index cache)  a plain string-accumulator
- `cjson`            build cache, `--json`-shaped output     a small JSON codec
- `ffi`              nupp.cdecl, nupp.check.ffi              stub — see below
- disk I/O           manifest/config lookup, project cache   `io.open`/`io.popen` return "not found"
+ Piece               Where it's used                        Stand-in
+ ───────────────────  ──────────────────────────────────────  ─────────────────────────────
+ `const NAME = value` nupp.build.hash's own top-level locals   rewritten to `local`, at build time
+ `0x..ULL` literals    nupp.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
+ `bit.*`               nupp.cdecl (C-declaration decoding)     real bitwise ops, Lua 5.3 native
+ `string.buffer`       nupp.build.store (project-index cache)  a plain string-accumulator
+ `cjson`               build cache, `--json`-shaped output     a small JSON codec
+ `ffi`                 nupp.cdecl, nupp.check.ffi              stub — see below
+ disk I/O              manifest/config lookup, project cache   `io.open`/`io.popen` return "not found"
+
+The first two rows are fixed at *build* time, by
+[`tools/patch-bootstrap-for-browser.lua`](tools/patch-bootstrap-for-browser.lua)
+— run under real LuaJIT by `build.mjs`, using the bootstrap compiler's own
+lexer to tell "real `const` keyword" from "the five characters c-o-n-s-t
+inside a string that happens to hold generated-code *text*" (nupp.gen emits
+literal `const` into the Lua it generates for a checked program, and doing
+this with a regex over the raw file, as an earlier version of this script
+did, means either missing that distinction — breaking on `const` used as an
+ordinary field or variable name elsewhere in the compiler's own code — or
+corrupting a string it shouldn't touch. `const` and `local` are the same
+length, so the rewrite can't shift any later byte offset the ULL edits also
+need). Needs this project's own `.rocks` on `LUA_PATH`, same as `bin/nupp`.
 
 The `io.open` shim is why running with no manifest, no other files, and no
 warm cache isn't a degraded mode here — it's the same "cache miss, recompute"
@@ -95,17 +109,30 @@ its own script.
                            panel, debounced check-on-edit — shared by both
                            pages, see "Two pages" above
       example.nupp          the starter snippet
+      cm-theme.js            the editor's colors — see "Colors" below
       empty-shim.js         stands in for the Node built-ins (fs, path, os,
                            …) fengari's package statically requires but this
                            playground never reaches — see build.mjs
     static/                 index.html, embed.html, style.css, favicon
+    tools/
+      patch-bootstrap-for-browser.lua  the const/ULL fix above, run by build.mjs
     build.mjs                esbuild bundle: app.js and worker.js to dist/,
-                             plus bootstrap/nupp.lua copied in as a fetched
-                             asset (worker.js applies the ULL-literal and
-                             trailing-CLI-call patches at load time, not this
-                             build step, so dist/nupp-bootstrap.lua is the
-                             untouched file)
+                             plus bootstrap/nupp.lua patched and copied in as
+                             a fetched asset — dist/nupp-bootstrap.lua is
+                             browser-safe, worker.js does no further patching
     serve.mjs                 a static file server for dist/, nothing more
+
+## Colors
+
+The accent and syntax colors both come from `src/nupp/doc/assets.nupp` — the
+generated docs site's own palette (`--nuppdoc-syntax-*`, plus the
+string-syntax green reused as the UI accent) — not an invented scheme, so the
+playground reads as part of the same project. `src/cm-theme.js` is a real
+CodeMirror `EditorView.theme` and `HighlightStyle`, not loose CSS layered on
+top of `basicSetup`'s default one: a plain `.cm-*` class override in
+`style.css` loses that specificity fight, which is why the very first version
+of this file had it (a white gutter and default reddish/orange token colors,
+regardless of the page's own dark background).
 
 ## Development
 

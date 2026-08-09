@@ -2,6 +2,7 @@ import { EditorView, basicSetup } from "codemirror";
 import { EditorState } from "@codemirror/state";
 import { linter, lintGutter, setDiagnostics } from "@codemirror/lint";
 import { nuppLanguage } from "./nupp-lang.js";
+import { nuppEditorTheme } from "./cm-theme.js";
 import EXAMPLE from "./example.nupp";
 
 const FILENAME = "playground.nupp";
@@ -73,6 +74,7 @@ const sourceView = new EditorView({
     doc: EXAMPLE,
     extensions: [
       basicSetup,
+      nuppEditorTheme,
       nuppLanguage,
       // The worker drives when diagnostics get recomputed (debounced, off
       // the main thread), so the linter source itself never runs — results
@@ -94,7 +96,7 @@ const outputView = outputHost
       parent: outputHost,
       state: EditorState.create({
         doc: "",
-        extensions: [basicSetup, EditorView.editable.of(false)],
+        extensions: [basicSetup, nuppEditorTheme, EditorView.editable.of(false)],
       }),
     })
   : null;

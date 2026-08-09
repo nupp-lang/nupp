@@ -25,26 +25,14 @@ async function boot() {
   postMessage({ type: "status", message: "fetching the compiler…" });
   const res = await fetch(new URL("./nupp-bootstrap.lua", import.meta.url));
   if (!res.ok) throw new Error(`fetching nupp-bootstrap.lua: ${res.status}`);
-  let bootstrap = await res.text();
-
-  // nupp.build.hash uses LuaJIT's 64-bit cdata integer literal syntax
-  // (0x...ULL) for an xxhash implementation used only by incremental build
-  // caching, which this playground never exercises. Standard Lua 5.3+ has
-  // native 64-bit integers, so the same hex digits parse fine once the
-  // LuaJIT-only suffix is stripped — only the parse needs to succeed, the
-  // build cache is never actually reached.
-  bootstrap = bootstrap.replace(/\b(0[xX][0-9A-Fa-f]+|[0-9]+)U?LL\b/g, "$1");
-
-  // The file ends by running the full CLI
-  // (os.exit(require("nupp.cli").main(arg))), which eagerly requires every
-  // subcommand — including ones this playground never calls and that pull in
-  // more than the checker needs. The driver below requires only what
-  // checking and compiling a buffer actually touch.
-  const trailer = 'os . exit ( require ( "nupp.cli" ) . main ( arg ) )';
-  if (!bootstrap.includes(trailer)) {
-    throw new Error("bootstrap/nupp.lua's trailing CLI call has changed shape");
-  }
-  bootstrap = bootstrap.replace(trailer, "");
+  // Already browser-safe: build.mjs runs tools/patch-bootstrap-for-browser.lua
+  // over bootstrap/nupp.lua at build time — using the bootstrap compiler's own
+  // lexer, under real LuaJIT, rather than regexes here — to fix the two
+  // places it uses LuaJIT-only syntax in its own implementation (not just
+  // code it generates for a checked program), and to drop the trailing
+  // `os.exit(require("nupp.cli").main(arg))` full-CLI invocation this
+  // playground doesn't need. See that script for what and why.
+  const bootstrap = await res.text();
 
   postMessage({ type: "status", message: "loading the compiler…" });
   runOrThrow(bootstrap, "bootstrap");

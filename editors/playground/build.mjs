@@ -2,6 +2,7 @@
 // Bundles the playground into dist/. See README.md for what each piece is.
 import { build, context } from "esbuild";
 import { mkdirSync, copyFileSync, cpSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -67,11 +68,29 @@ async function run() {
 
   cpSync(path.join(root, "static"), dist, { recursive: true });
 
-  const bootstrapSrc = path.join(root, "../../bootstrap/nupp.lua");
+  const repoRoot = path.join(root, "../..");
+  const bootstrapSrc = path.join(repoRoot, "bootstrap/nupp.lua");
   if (!existsSync(bootstrapSrc)) {
     throw new Error(`expected ${bootstrapSrc} — run from a full checkout`);
   }
-  copyFileSync(bootstrapSrc, path.join(dist, "nupp-bootstrap.lua"));
+  // See tools/patch-bootstrap-for-browser.lua for why this needs real
+  // LuaJIT (not just any Lua) and this project's own rock tree: it loads
+  // bootstrap/nupp.lua to reach the bootstrap compiler's own lexer, the same
+  // way bin/nupp does.
+  const rocks = path.join(repoRoot, ".rocks");
+  execFileSync(
+    "luajit",
+    [path.join(root, "tools/patch-bootstrap-for-browser.lua"), bootstrapSrc, path.join(dist, "nupp-bootstrap.lua")],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        LUA_PATH: `${rocks}/share/lua/5.1/?.lua;${rocks}/share/lua/5.1/?/init.lua;;`,
+        LUA_CPATH: `${rocks}/lib/lua/5.1/?.so;;`,
+      },
+    }
+  );
 
   copyFileSync(path.join(root, "README.md"), path.join(dist, "README.md"));
 }
