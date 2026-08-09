@@ -142,9 +142,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 defineAnnotation(stat, target)
             end
             return
-        end
 
-        if written == "effects" then
+        elseif written == "effects" then
             if valid and target then
                 local contract = effectContract(stat)
                 target.effectContract = contract
@@ -163,9 +162,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 end
             end
             return
-        end
 
-        if written == "relax" then
+        elseif written == "relax" then
             local relaxed = {}
             for _, arg in ipairs(stat.annotationArgs or {}) do
                 local expr = arg.expr
@@ -191,9 +189,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 c.checkStat(stat.stat)
             end
             return
-        end
 
-        if written == "owned" then
+        elseif written == "owned" then
             local cleanups = {}
             local opaque, outName, success = false, nil, "always"
             for _, arg in ipairs(stat.annotationArgs or {}) do
@@ -270,9 +267,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 c.checkStat(stat.stat)
             end
             return
-        end
 
-        if written == "borrowed" then
+        elseif written == "borrowed" then
             local outName, sourceName, success = nil, nil, "always"
             for _, arg in ipairs(stat.annotationArgs or {}) do
                 local expr = arg.expr
@@ -304,9 +300,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 c.checkStat(stat.stat)
             end
             return
-        end
 
-        if written == "dispose" then
+        elseif written == "dispose" then
             local ownerKey = nil
             if target and target.kind == "funcStmt" then
                 local fname = target.name

@@ -162,11 +162,11 @@ end
 local function tokenClasses(style, text)
     if style == "type" then
         return "token class-name nuppdoc-token-type"
-    end
-    if style == "meta" then
+
+    elseif style == "meta" then
         return "token directive nuppdoc-token-meta"
-    end
-    if style == "keyword" then
+
+    elseif style == "keyword" then
         return "token keyword keyword-" .. text:gsub("[^%w%-]", "-") .. " nuppdoc-token-keyword"
     end
 
@@ -412,8 +412,8 @@ local function scintilluaStyle(tag)
     end
     if base == "comment" then
         return "comment"
-    end
-    if base == "keyword" then
+
+    elseif base == "keyword" then
         return "keyword"
     end
     if base == "string" or base == "regex" then
@@ -433,11 +433,11 @@ local function scintilluaStyle(tag)
     end
     if base == "operator" then
         return "operator"
-    end
-    if base == "constant" then
+
+    elseif base == "constant" then
         return "boolean"
-    end
-    if base == "property" then
+
+    elseif base == "property" then
         return "property"
     end
     if base == "identifier" or base == "variable" then

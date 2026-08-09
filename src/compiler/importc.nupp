@@ -93,8 +93,8 @@ local function statements(text)
     for ch in text:gmatch(".") do
         if ch == "{" then
             depth = depth + 1
-        end
-        if ch == "}" then
+
+        elseif ch == "}" then
             depth = depth - 1
         end
         if ch == ";" and depth == 0 then

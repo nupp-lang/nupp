@@ -103,8 +103,8 @@ local function cdefCType(t)
         local name = t.base.text
         if name == "cstring" then
             return "const char *"
-        end
-        if name == "voidptr" then
+
+        elseif name == "voidptr" then
             return "void *"
         end
         if t.cdefName then

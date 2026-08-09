@@ -348,8 +348,8 @@ local function luaTypeOf(t: any): string?
     local tag = t.tag
     if tag == "literal" then
         return luaTypeOf(t.base)
-    end
-    if tag == "prim" then
+
+    elseif tag == "prim" then
         local name = t.id
         if name == "string" or name == "cstring" then
             return "string"
@@ -359,19 +359,19 @@ local function luaTypeOf(t: any): string?
         end
         if name == "boolean" then
             return "boolean"
-        end
-        if name == "table" then
+
+        elseif name == "table" then
             return "table"
-        end
-        if name == "thread" then
+
+        elseif name == "thread" then
             return "thread"
-        end
-        if name == "userdata" then
+
+        elseif name == "userdata" then
             return "userdata"
         end
         return nil
-    end
-    if tag == "nominal" then
+
+    elseif tag == "nominal" then
         if t.declKind == "struct" then
             return "cdata"
         end
@@ -409,8 +409,8 @@ function predicate.satisfiedBy(node: predicate.Node?, fieldAt: function(path: {s
 
     if op == "const" then
         return node.value
-    end
-    if op == "not" then
+
+    elseif op == "not" then
         local inner = predicate.satisfiedBy(node.a, fieldAt)
         if inner == nil then
             return nil
@@ -516,8 +516,8 @@ function predicate.render(node: predicate.Node?, subject: string): string
 
     if op == "const" then
         return node.value and "true" or "false"
-    end
-    if op == "not" then
+
+    elseif op == "not" then
         return "not (" .. predicate.render(node.a, subject) .. ")"
     end
     if op == "and" or op == "or" then

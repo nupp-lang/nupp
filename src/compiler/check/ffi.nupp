@@ -117,8 +117,8 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             end
             if name == "typeof" then
                 return T.ctype(resolved)
-            end
-            if name == "cast" then
+
+            elseif name == "cast" then
                 -- a cast is the programmer asserting a type, so the result is the
                 -- non-null form
                 return subtract(resolved, T.nil_)
@@ -194,7 +194,6 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             end
             node.carrayElem = elemT.name
             return T.carray(elemT, nil)
-        end
 
         -- layoutof(Struct) answers how one is laid out in C memory: the fields in
         -- declaration order with their offsets, sizes and padding, the whole size, and
@@ -207,7 +206,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         -- Only the spec is built here, because only the checker knows the declared
         -- field order and types. Everything numeric is this platform's and is asked of
         -- the FFI at run time.
-        if calleeName == "layoutof" then
+        elseif calleeName == "layoutof" then
             local args = argExprs
             local subject = args[1] and c.infer(args[1]) or nil
             if not subject or subject.tag ~= "nominal" or subject.declKind ~= "struct" then
@@ -287,12 +286,11 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 nested = nested
             }
             return c.lookupType("Layout") or T.any
-        end
 
         -- cheader("path.h" [, "lib"]) types a pinned C header at compile time: LuaJIT
         -- parses it and reports back what it declares, so there is no generated file to
         -- keep in step and the sizes are the ones this platform actually uses.
-        if calleeName == "cheader" then
+        elseif calleeName == "cheader" then
             local args = argExprs
             local function literal(e)
                 if e and e.kind == "string" then

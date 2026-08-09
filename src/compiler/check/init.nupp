@@ -949,11 +949,11 @@ function checkMod.check(
         local kind = last.kind
         if kind == "callStmt" then
             return neverReturns(last.expr)
-        end
-        if kind == "doStmt" then
+
+        elseif kind == "doStmt" then
             return alwaysRaises(last.body)
-        end
-        if kind == "ifStmt" then
+
+        elseif kind == "ifStmt" then
             local otherwise = last.elseClause
             if not otherwise then
                 return false

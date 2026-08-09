@@ -488,22 +488,22 @@ local function check(a: Type, b: Type): boolean, string?
                 return fail(a, b)
             end
             return isA(a.inner, b.inner)
-        end
-        if btag == "borrowed" then
+
+        elseif btag == "borrowed" then
             return isA(a.inner, b.inner)
         end
         return isA(a.inner, b)
-    end
-    if atag == "borrowed" then
+
+    elseif atag == "borrowed" then
         if btag == "borrowed" then
             return isA(a.inner, b.inner)
-        end
-        if btag == "owned" then
+
+        elseif btag == "owned" then
             return fail(a, b)
         end
         return isA(a.inner, b)
-    end
-    if atag == "pinned" then
+
+    elseif atag == "pinned" then
         if btag == "pinned" then
             return isA(a.inner, b.inner)
         end
@@ -532,12 +532,11 @@ local function check(a: Type, b: Type): boolean, string?
             end
         end
         return fail(a, b)
-    end
 
     -- An expected intersection requires every contract. A source intersection fits
     -- through any member that already proves the target, or through the composed
     -- structural surface when several members jointly provide it.
-    if btag == "intersection" then
+    elseif btag == "intersection" then
         for _, m in ipairs(b.members) do
             local ok, why = isA(a, m)
             if not ok then
@@ -558,12 +557,11 @@ local function check(a: Type, b: Type): boolean, string?
             return isA(intersectionSurface(a), b)
         end
         return fail(a, b)
-    end
 
     -- A declared `is` edge is a trusted contract inclusion. Runtime registration may
     -- fill the inherited surface later (as tecs does for component and event type
     -- tables), so it is not re-proved structurally.
-    if atag == "nominal" then
+    elseif atag == "nominal" then
         for _, parent in ipairs(a.supertypes or {}) do
             if parent == b or isA(parent, b) then
                 return true

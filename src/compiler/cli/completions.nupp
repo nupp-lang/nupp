@@ -239,8 +239,8 @@ end
 function completions.render(shell: string, commands: {Command}): string
     if shell == "bash" then
         return bash(commands)
-    end
-    if shell == "zsh" then
+
+    elseif shell == "zsh" then
         return zsh(commands)
     end
 

@@ -1434,8 +1434,8 @@ function types.cName(t: types.Type): string?
         -- in the spelling and the size comes from the star.
         local inner = types.cName(t.elem)
         return (inner or "void") .. " *"
-    end
-    if tag == "carray" then
+
+    elseif tag == "carray" then
         local elem = types.cName(t.elem)
         if elem and t.count then
             return elem .. "[" .. tostring(t.count) .. "]"

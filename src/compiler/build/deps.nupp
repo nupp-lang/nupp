@@ -100,8 +100,8 @@ local function sharedLibraryName(name)
     local osName = (jit and jit.os or ""):lower()
     if osName == "windows" then
         return name .. ".dll"
-    end
-    if osName == "osx" then
+
+    elseif osName == "osx" then
         return "lib" .. name .. ".dylib"
     end
 
