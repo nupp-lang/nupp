@@ -43,7 +43,7 @@ function M.launcherFallsBackToTrackedBootstrap()
 
    local commands = {
       "ast", "check", "fmt", "build", "clean", "tasks", "test", "doc", "fixpoint",
-      "run", "import-c", "lsp", "help",
+      "run", "import-c", "rock", "lsp", "help",
    }
    for _, command in ipairs(commands) do
       p = assert(io.popen(("'%s/bin/nupp' %s --help 2>&1")

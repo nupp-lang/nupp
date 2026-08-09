@@ -1636,6 +1636,13 @@ local cache = { }
 
 
 
+
+
+
+
+
+
+
 local function jsonArray ( items )
 return setmetatable ( items , json . array_mt )
 end
@@ -1816,6 +1823,9 @@ local copyFile , listFiles = fs . copyFile , fs . listFiles
 local stable , hashFiles = cache . stable , cache . hashFiles
 
 local deps = { }
+
+
+
 
 
 
@@ -2289,6 +2299,13 @@ cpath = tree .. "/lib/lua/" .. luaVersion .. ( windows and "/?.dll" or "/?.so" )
 }
 end
 
+local function rockTypeRoot ( tree , luaVersion , rock , version )
+if not version or version == "installed" then
+return nil
+end
+return join ( tree , "lib/luarocks/rocks-" .. luaVersion .. "/" .. rock .. "/" .. version .. "/nupp" )
+end
+
 
 
 
@@ -2482,7 +2499,8 @@ version = installed [ rock ] ,
 tree = tree ,
 luaVersion = luaVersion ,
 path = paths . path ,
-cpath = paths . cpath
+cpath = paths . cpath ,
+typeRoot = rockTypeRoot ( tree , luaVersion , rock , installed [ rock ] ) ,
 }
 end
 
@@ -2492,8 +2510,13 @@ end
 
 
 
-local function rockPaths ( root , config , target )
-local paths , cpaths , seen = { } , { } , { }
+local function rockPaths (
+root ,
+config ,
+target ,
+records
+)
+local paths , cpaths , typeRoots , seen = { } , { } , { } , { }
 for _ , name in ipairs ( target and target . dependencies or { } ) do
 local dep = ( config . dependencies or { } ) [ name ]
 if type ( dep ) == "table" and dep . kind == "luarocks" then
@@ -2505,13 +2528,21 @@ local entries = treePaths ( tree , luaVersion )
 paths [ # paths + 1 ] = entries . path
 cpaths [ # cpaths + 1 ] = entries . cpath
 end
+local record = records and records [ name ] or nil
+local rock = dep . rock or name
+local rockspec = dep . rockspec and absolute ( join ( root , dep . rockspec ) ) or nil
+local version = record and record . version or dep . version or declaredVersion ( rockspec )
+local typeRoot = record and record . typeRoot or rockTypeRoot ( tree , luaVersion , rock , version )
+if typeRoot then
+typeRoots [ # typeRoots + 1 ] = typeRoot
+end
 end
 end
 if # paths == 0 then
 return nil
 end
 
-return { path = table . concat ( paths , ";" ) , cpath = table . concat ( cpaths , ";" ) }
+return { path = table . concat ( paths , ";" ) , cpath = table . concat ( cpaths , ";" ) , typeRoots = typeRoots , }
 end
 
 
@@ -3882,6 +3913,7 @@ artifactHash = record . artifactHash ,
 dependencies = dependencies ,
 effects = effects ,
 output = record . output ,
+external = record . external ,
 diags = record . diags ,
 coverage = record . coverage ,
 }
@@ -3909,7 +3941,11 @@ for _ , include in ipairs ( config . include or { } ) do
 envConfig . include [ # envConfig . include + 1 ] = include
 end
 envConfig . include [ # envConfig . include + 1 ] = join ( outDir , "generated" )
-local inc = incremental . new ( root , { config = envConfig , strict = strict } )
+local rocks = deps . rockPaths ( root , config , target , newState . dependencies )
+local inc = incremental . new (
+root ,
+{ config = envConfig , strict = strict , typeRoots = rocks and rocks . typeRoots or { } , }
+)
 newState . projectIndexHash = projectIndexFingerprint ( inc )
 
 
@@ -4010,6 +4046,7 @@ return false
 end
 
 local function compile ( name , path , sourceHash )
+local external = envMod . isDependencyTypePath ( inc . env , path )
 local result = inc . checkFile ( path )
 stats . checkedModules = stats . checkedModules + 1
 local mine = { }
@@ -4023,9 +4060,9 @@ for effect in pairs ( result . result . effects or { } ) do
 effectNames [ # effectNames + 1 ] = effect
 end
 table . sort ( effectNames )
-local output = join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
+local output = external and nil or join ( root , join ( outDir , name : gsub ( "%." , "/" ) .. ".lua" ) )
 local artifactHash , code , coverage
-if not fatal and not checkOnly then
+if not external and not fatal and not checkOnly then
 local genDiags
 local remarks = optimize . run (
 result . result ,
@@ -4054,10 +4091,10 @@ said [ name ] = mine
 records [
 name
 ] = { sourceHash = sourceHash , interfaceHash = hash . digest (
-typeFingerprint ( result . moduleType )
+typeFingerprint ( result . moduleType ) .. ( external and ( "\0" .. sourceHash ) or "" )
 ) , artifactHash = artifactHash , dependencies = jsonArray (
 depNames
-) , effects = jsonArray ( effectNames ) , output = output ,
+) , effects = jsonArray ( effectNames ) , output = output , external = external or nil ,
 
 
 
@@ -4080,7 +4117,8 @@ paths [ item . name ] = path
 order [ # order + 1 ] = item . name
 local sourceHash = hashFile ( path )
 local previous = oldState . modules [ item . name ]
-local output = join ( root , join ( outDir , item . name : gsub ( "%." , "/" ) .. ".lua" ) )
+local external = envMod . isDependencyTypePath ( inc . env , path )
+local output = external and nil or join ( root , join ( outDir , item . name : gsub ( "%." , "/" ) .. ".lua" ) )
 
 
 
@@ -4091,12 +4129,13 @@ and previous . interfaceHash
 and type (
 previous . dependencies
 ) == "table" and type ( previous . effects ) == "table" and type ( previous . diags ) == "table"
-if usable and previous and not checkOnly then
+if usable and previous and not checkOnly and not external then
 usable = previous . artifactHash and hashFile ( output ) == previous . artifactHash
 end
 if usable and previous then
 records [ item . name ] = copyModuleRecord ( previous )
 records [ item . name ] . output = output
+records [ item . name ] . external = external or nil
 reused [ item . name ] = true
 
 
@@ -4214,8 +4253,10 @@ newState . modules [ name ] = record
 for _ , effect in ipairs ( record . effects or { } ) do
 effects [ effect ] = true
 end
+if record . output then
 outputs [ record . output ] = true
-if not reused [ name ] then
+end
+if not record . external and not reused [ name ] then
 local code = codeFor [ name ]
 if code and hashFile ( record . output ) ~= record . artifactHash then
 pending [ # pending + 1 ] = { path = record . output , text = code }
@@ -4224,7 +4265,7 @@ end
 end
 
 for _ , name in ipairs ( order ) do
-if not records [ name ] . artifactHash then
+if not records [ name ] . external and not records [ name ] . artifactHash then
 return nil , "code generation failed"
 end
 end
@@ -20135,6 +20176,8 @@ end } , { name = "run" , load = function ( )
 return require ( "compiler.cli.run" )
 end } , { name = "import-c" , load = function ( )
 return require ( "compiler.cli.importc" )
+end } , { name = "rock" , load = function ( )
+return require ( "compiler.cli.rock" )
 end } , { name = "lsp" , load = function ( )
 return require ( "compiler.cli.lsp" )
 end } , }
@@ -23706,6 +23749,120 @@ required = { "severity" , "message" , "range" , "fixes" , "notes" , "related" } 
 report . DIAGNOSTICS = { type = "array" , items = report . DIAGNOSTIC }
 
 return report
+
+end
+package.preload["compiler.cli.rock"] = function(...)
+_G.nupp=_G.nupp or {};
+
+local spec = require ( "compiler.cli.spec" )
+
+local command = spec . command {
+name = "rock" ,
+summary = "Create and package typed LuaRocks libraries" ,
+usage = { "nupp rock init <name> [directory]" , "nupp rock pack [rockspec]" , "nupp rock test [rockspec]" , } ,
+universal = false ,
+options = { spec . helpOption } ,
+detail = [[A Nupp rock installs runtime Lua normally and carries matching public
+declarations in its versioned `nupp/` directory. `pack` validates and builds that
+layout; `test` installs the result into a fresh tree and checks a fresh consumer.]] ,
+}
+
+local function operation ( name , summary , usage , detail )
+return spec . command {
+name = "rock " .. name ,
+helpName = "rock" ,
+summary = summary ,
+usage = { usage } ,
+universal = false ,
+options = { spec . helpOption } ,
+detail = detail ,
+}
+end
+
+local INIT = operation (
+"init" ,
+"Create a typed Nupp library rock" ,
+"nupp rock init <name> [directory]" ,
+"The directory defaults to the rock name and must not already exist."
+)
+local PACK = operation (
+"pack" ,
+"Build and pack the current Nupp library" ,
+"nupp rock pack [rockspec]" ,
+"With no path, the one rockspec in the current directory is used."
+)
+local TEST = operation (
+"test" ,
+"Install and check the rock from a clean consumer" ,
+"nupp rock test [rockspec]" ,
+"Packs first, installs into a temporary tree, and checks every declared module."
+)
+
+local OPERATIONS = { init = INIT , pack = PACK , test = TEST }
+
+local function parsed ( operation , args )
+local result , err = operation : parse ( args )
+if not result then
+return nil , operation : usageError ( err )
+end
+if result . values . help then
+io . write ( operation : help ( ) )
+return nil , 0
+end
+
+return result
+end
+
+local function run ( args )
+local name = table . remove ( args , 1 )
+if not name then
+io . write ( command : help ( ) )
+return 0
+end
+local operation = OPERATIONS [ name ]
+if not operation then
+return command : usageError ( "unknown rock operation " .. name )
+end
+local result , answered = parsed ( operation , args )
+if not result then
+return answered
+end
+local positional = result . positional
+local library = require ( "compiler.rock" )
+if name == "init" then
+if not positional [ 1 ] then
+return operation : usageError ( "a rock name is required" )
+end
+if positional [ 3 ] then
+return operation : usageError ( "init accepts a name and optional directory" )
+end
+local ok , err = library . init ( positional [ 1 ] , positional [ 2 ] )
+if not ok then
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+return 1
+end
+io . write ( "Created " .. ( positional [ 2 ] or positional [ 1 ] ) .. "\n" )
+return 0
+end
+if positional [ 2 ] then
+return operation : usageError ( name .. " accepts at most one rockspec" )
+end
+local packed , err
+if name == "pack" then
+packed , err = library . pack ( "." , positional [ 1 ] )
+else
+packed , err = library . test ( "." , positional [ 1 ] )
+end
+if not packed then
+io . stderr : write ( "nupp: " .. tostring ( err ) .. "\n" )
+return 1
+end
+io . write ( ( name == "pack" and "Packed " or "Checked " ) .. packed .. "\n" )
+
+return 0
+end
+
+return setmetatable( { spec = command , raw = true , run = run } , spec.Handler)
 
 end
 package.preload["compiler.cli.run"] = function(...)
@@ -32202,6 +32359,15 @@ local envMod = { }
 
 
 
+
+
+
+
+
+
+
+
+
 local modulePatterns = {
 "/%s.d.nupp" ,
 "/%s.nupp" ,
@@ -32438,6 +32604,24 @@ rel = rel : gsub ( "/init$" , "" )
 local name = rel : gsub ( "/" , "." )
 if name ~= "" and ( not best or # name < # best ) then
 best = name
+end
+end
+end
+
+
+
+
+for _ , rawRoot in ipairs ( env . typeRoots or { } ) do
+local root = normalizePath ( rawRoot )
+local rel = nil
+if path : sub ( 1 , # root + 1 ) == root .. "/" then
+rel = path : sub ( # root + 2 )
+end
+if rel and rel : match ( "%.d%.nupp$" ) then
+rel = rel : gsub ( "%.d%.nupp$" , "" ) : gsub ( "/init$" , "" )
+local name = rel : gsub ( "/" , "." )
+if name ~= "" then
+return name
 end
 end
 end
@@ -32783,8 +32967,30 @@ return candidate
 end
 end
 end
+for _ , root in ipairs ( env . typeRoots or { } ) do
+for _ , pattern in ipairs ( patterns ) do
+local candidate = root .. pattern : format ( rel )
+local f = io . open ( candidate , "rb" )
+if f then
+f : close ( )
+return candidate
+end
+end
+end
 
 return nil
+end
+
+function envMod . isDependencyTypePath ( env , path )
+path = normalizePath ( path )
+for _ , rawRoot in ipairs ( env . typeRoots or { } ) do
+local root = normalizePath ( rawRoot )
+if path : sub ( 1 , # root + 1 ) == root .. "/" then
+return true
+end
+end
+
+return false
 end
 
 
@@ -33079,6 +33285,20 @@ cacheDisabled = opts and opts . cache == false or nil , cacheDir = opts and opts
 
 local config = opts and opts . config or configAt ( rootDir )
 env . config = config or { }
+
+local typeRoots = opts and opts . typeRoots or nil
+if not typeRoots then
+
+
+
+local target = require ( "compiler.build.tasks" ) . targetConfig ( env . config )
+local rocks = target and require ( "compiler.build.deps" ) . rockPaths ( rootDir , env . config , target ) or nil
+typeRoots = rocks and rocks . typeRoots or { }
+end
+env . typeRoots = { }
+for _ , dir in ipairs ( typeRoots or { } ) do
+env . typeRoots [ # env . typeRoots + 1 ] = normalizePath ( dir )
+end
 
 env . roots = { rootDir }
 for _ , dir in ipairs ( env . config . include or { } ) do
@@ -39391,12 +39611,14 @@ return self : get ( "moduleInterface" , name )
 end , resolveModuleExports = function ( _ , name )
 return self : get ( "moduleExports" , name )
 end , } , { __index = env } )
-local diags , moduleType , exports = check . check (
-result ,
-path ,
-qenv ,
-{ moduleName = envMod . moduleNameForPath ( env , path ) , strict = strict , }
-)
+local external = envMod . isDependencyTypePath ( env , path )
+local diags , moduleType , exports = check . check ( result , path , qenv , { moduleName = envMod . moduleNameForPath (
+env ,
+path
+) ,
+
+
+strict = external and false or strict , } )
 
 return { diags = diags , moduleType = moduleType , exports = exports , result = result }
 end )
@@ -51155,6 +51377,373 @@ end
 relations . isA = isA
 
 return relations
+
+end
+package.preload["compiler.rock"] = function(...)
+_G.nupp=_G.nupp or {};
+
+
+
+
+
+
+
+
+
+local fs = require ( "compiler.fs" )
+local process = require ( "compiler.build.process" )
+local diagnostics = require ( "compiler.diagnostics" )
+
+local join , normalize = fs . join , fs . normalize
+local readFile , writeFile = fs . readFile , fs . writeFile
+
+local rock = { }
+
+
+
+
+
+
+
+local function validName ( name )
+return name : match ( "^[a-z0-9][a-z0-9_-]*$" ) ~= nil
+end
+
+local function moduleName ( name )
+return name : gsub ( "-" , "_" )
+end
+
+local function quote ( value )
+return string . format ( "%q" , value )
+end
+
+local function manifestText ( name , module )
+return (
+[[return {
+   include = { "src" },
+   build = {
+      outDir = "build",
+      entries = { %s },
+   },
+   test = {
+      argv = { "luajit", "tests/run.lua" },
+      env = { LUA_PATH = "build/?.lua;;" },
+   },
+}
+]]
+) : format ( quote ( module ) )
+end
+
+local function sourceText ( name )
+return (
+[[local %s = {}
+
+function %s.greet(name: string): string
+    return "Hello, " .. name .. "!"
+end
+
+return %s
+]]
+) : format ( name , name , name )
+end
+
+local function declarationText ( )
+return [[local greet: function(name: string): string
+
+return {greet = greet}
+]]
+end
+
+local function rockspecText ( name , module )
+return (
+[[rockspec_format = "3.0"
+package = %s
+version = "dev-1"
+
+source = {
+   url = "git+https://example.invalid/%s.git",
+}
+
+description = {
+   summary = "A Nupp library",
+   license = "MIT",
+}
+
+dependencies = {
+   "lua >= 5.1",
+}
+
+build = {
+   type = "builtin",
+   modules = {
+      [%s] = %s,
+   },
+   copy_directories = { "nupp" },
+}
+]]
+) : format ( quote ( name ) , name , quote ( module ) , quote ( "build/" .. module : gsub ( "%." , "/" ) .. ".lua" ) )
+end
+
+local function testText ( module )
+return ( [[local library = require(%s)
+assert(library.greet("Nupp") == "Hello, Nupp!")
+]] ) : format ( quote ( module ) )
+end
+
+local function pathExists ( path )
+if fs . exists ( path ) then
+return true
+end
+return # fs . listFiles ( path ) > 0
+end
+
+
+function rock . init ( name , directory )
+if not validName ( name ) then
+return nil , "rock name must use lowercase letters, digits, hyphens, or underscores"
+end
+local root = normalize ( directory or name )
+if pathExists ( root ) then
+return nil , root .. " already exists"
+end
+local module = moduleName ( name )
+local files = {
+[ "nupp.lua" ] = manifestText ( name , module ) ,
+[ "src/" .. module .. ".nupp" ] = sourceText ( module ) ,
+[ "nupp/" .. module .. ".d.nupp" ] = declarationText ( ) ,
+[ "tests/run.lua" ] = testText ( module ) ,
+[ name .. "-dev-1.rockspec" ] = rockspecText ( name , module ) ,
+}
+for path , text in pairs ( files ) do
+local ok , err = writeFile ( join ( root , path ) , text )
+if not ok then
+return nil , err
+end
+end
+
+return true
+end
+
+local function rootRockspec ( root , asked )
+if asked then
+local path = join ( root , asked )
+if not fs . exists ( path ) then
+return nil , asked .. " is not there"
+end
+return path
+end
+local found = { }
+for _ , path in ipairs ( fs . listFiles ( root ) ) do
+local relative = normalize ( path ) : sub ( # normalize ( root ) + ( root == "." and 0 or 2 ) )
+if not relative : find ( "/" , 1 , true ) and relative : match ( "%.rockspec$" ) then
+found [ # found + 1 ] = path
+end
+end
+if # found == 0 then
+return nil , "no rockspec found in " .. root
+end
+if # found > 1 then
+return nil , "more than one rockspec found; name the one to use"
+end
+
+return found [ 1 ]
+end
+
+local function metadata ( root , asked )
+local rockspec , err = rootRockspec ( root , asked )
+if not rockspec then
+return nil , err
+end
+local text , readErr = readFile ( rockspec )
+if not text then
+return nil , readErr
+end
+local name = text : match (
+"[\r\n]package%s*=%s*[\"']([^\"']+)[\"']"
+) or text : match ( "^package%s*=%s*[\"']([^\"']+)[\"']" )
+local version = text : match (
+"[\r\n]version%s*=%s*[\"']([^\"']+)[\"']"
+) or text : match ( "^version%s*=%s*[\"']([^\"']+)[\"']" )
+if not name or not version then
+return nil , rockspec .. " must declare literal package and version strings"
+end
+
+return { name = name , version = version , rockspec = rockspec }
+end
+
+local function declarationModules ( root )
+local base = join ( root , "nupp" )
+local modules = { }
+for _ , path in ipairs ( fs . listFiles ( base ) ) do
+local relative = normalize ( path ) : sub ( # normalize ( base ) + 2 )
+local name = relative : match ( "^(.*)%.d%.nupp$" )
+if name then
+name = name : gsub ( "/init$" , "" ) : gsub ( "/" , "." )
+modules [ # modules + 1 ] = name
+end
+end
+table . sort ( modules )
+if # modules == 0 then
+return nil , "nupp/ contains no .d.nupp module declarations"
+end
+
+return modules
+end
+
+local function validateDeclarations ( root , modules )
+local incremental = require ( "compiler.incremental" )
+local inc = incremental . new (
+join ( root , ".nupp-rock-check" ) ,
+{ cache = false , config = { include = { } } , typeRoots = { join ( root , "nupp" ) } , }
+)
+local failed = { }
+for _ , name in ipairs ( modules ) do
+local path = inc . modulePath ( name )
+local result = path and inc . checkFile ( path ) or nil
+for _ , diag in ipairs ( result and result . diags or { } ) do
+failed [ # failed + 1 ] = diag
+end
+end
+if # failed > 0 then
+diagnostics . report ( failed )
+return nil , "rock declarations have errors"
+end
+
+return true
+end
+
+local function packedPath ( output )
+for line in output : gmatch ( "[^\r\n]+" ) do
+local path = line : match ( "Packed:%s*(.+%.rock)%s*$" )
+if path then
+return normalize ( path )
+end
+end
+
+return nil
+end
+
+
+function rock . pack ( root , asked )
+root = normalize ( root or "." )
+local meta , err = metadata ( root , asked )
+if not meta then
+return nil , err
+end
+local modules , modulesErr = declarationModules ( root )
+if not modules then
+return nil , modulesErr
+end
+local valid , validErr = validateDeclarations ( root , modules )
+if not valid then
+return nil , validErr
+end
+if require ( "compiler.build.project" ) . build ( root ) ~= 0 then
+return nil , "project build failed"
+end
+local relativeRockspec = meta . rockspec
+if root ~= "." and relativeRockspec : sub ( 1 , # root + 1 ) == root .. "/" then
+relativeRockspec = relativeRockspec : sub ( # root + 2 )
+end
+local code , output = process . capture (
+{ "luarocks" , "--lua-version=5.1" , "make" , "--pack-binary-rock" , relativeRockspec } ,
+{ cwd = root }
+)
+if code ~= 0 then
+io . stderr : write ( output )
+return nil , "LuaRocks could not pack " .. meta . name
+end
+local path = packedPath ( output )
+if not path then
+return nil , "LuaRocks packed the project but did not report the output path"
+end
+if path : sub ( 1 , 1 ) ~= "/" and root ~= "." then
+path = join ( root , path )
+end
+
+return path
+end
+
+local function removeTree ( path )
+if package . config : sub ( 1 , 1 ) == "\\" then
+return process . run ( { "cmd" , "/d" , "/c" , "rmdir" , "/s" , "/q" , path } )
+end
+return process . run ( { "rm" , "-rf" , path } )
+end
+
+
+function rock . test ( root , asked )
+root = normalize ( root or "." )
+local meta , err = metadata ( root , asked )
+if not meta then
+return nil , err
+end
+local packed , packErr = rock . pack ( root , asked )
+if not packed then
+return nil , packErr
+end
+local temp = os . tmpname ( )
+os . remove ( temp )
+if not fs . mkdir ( temp ) then
+return nil , "cannot create temporary rock tree"
+end
+local code , output = process . capture ( { "luarocks" , "--lua-version=5.1" , "--tree=" .. temp , "install" , packed } )
+if code ~= 0 then
+io . stderr : write ( output )
+removeTree ( temp )
+return nil , "the packed rock could not be installed"
+end
+local modules , modulesErr = declarationModules (
+join ( temp , "lib/luarocks/rocks-5.1/" .. meta . name .. "/" .. meta . version )
+)
+if not modules then
+removeTree ( temp )
+return nil , modulesErr
+end
+local consumer = join ( temp , "consumer" )
+local dependency = moduleName ( meta . name )
+local requires = { }
+local returned = { }
+for index , name in ipairs ( modules ) do
+local runtime = join ( temp , "share/lua/5.1/" .. name : gsub ( "%." , "/" ) )
+if not fs . exists ( runtime .. ".lua" ) and not fs . exists ( runtime .. "/init.lua" ) then
+removeTree ( temp )
+return nil , "declaration " .. name .. " has no installed runtime module"
+end
+requires [ # requires + 1 ] = ( "local module%d = require(%s)\n" ) : format ( index , quote ( name ) )
+returned [ # returned + 1 ] = "module" .. index
+end
+local consumerManifest = (
+[[return {
+   include = { "src" },
+   dependencies = {
+      [%s] = { kind = "luarocks", rock = %s, version = %s, tree = %s },
+   },
+   build = { entries = { "main" }, dependencies = { %s } },
+}
+]]
+) : format ( quote ( dependency ) , quote ( meta . name ) , quote ( meta . version ) , quote ( temp ) , quote ( dependency ) )
+local ok , writeErr = writeFile ( join ( consumer , "nupp.lua" ) , consumerManifest )
+if ok then
+ok , writeErr = writeFile (
+join ( consumer , "src/main.nupp" ) ,
+table . concat ( requires ) .. "return {" .. table . concat ( returned , ", " ) .. "}\n"
+)
+end
+if not ok then
+removeTree ( temp )
+return nil , writeErr
+end
+local checked = require ( "compiler.build.project" ) . build ( consumer , { checkOnly = true } )
+removeTree ( temp )
+if checked ~= 0 then
+return nil , "the clean consumer could not check the installed rock"
+end
+
+return packed
+end
+
+return rock
 
 end
 package.preload["compiler.runtime"] = function(...)

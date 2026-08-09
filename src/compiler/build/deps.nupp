@@ -35,7 +35,10 @@ local type Dependency = compiler.build.manifest.Dependency
 --- The search-path entries one rock tree adds.
 type deps.RockPaths = {
     path: string,
-    cpath: string
+    cpath: string,
+
+    --- Installed package directories containing module-shaped `.d.nupp` files.
+    typeRoots: {string}
 }
 
 --- One rock module a bundle carries: the name `require` reaches it by, and the file it
@@ -497,6 +500,13 @@ local function treePaths(tree, luaVersion)
     }
 end
 
+local function rockTypeRoot(tree, luaVersion, rock, version)
+    if not version or version == "installed" then
+        return nil
+    end
+    return join(tree, "lib/luarocks/rocks-" .. luaVersion .. "/" .. rock .. "/" .. version .. "/nupp")
+end
+
 -- A rock this build installs is one this process may be about to require -- `nupp doc`
 -- renders with lunamark moments after installing it -- and the search path was fixed
 -- when the interpreter started. Prepending is what makes the install take effect now
@@ -690,7 +700,8 @@ local function buildRock(root, outDir, name, dep, previous)
         tree = tree,
         luaVersion = luaVersion,
         path = paths.path,
-        cpath = paths.cpath
+        cpath = paths.cpath,
+        typeRoot = rockTypeRoot(tree, luaVersion, rock, installed[rock]),
     }
 end
 
@@ -700,8 +711,13 @@ end
 --- starts afterwards -- the configured test command above all -- has to be told where
 --- that tree is; inside this process the provider has already said so. Returns nil when
 --- the target depends on no rocks.
-local function rockPaths(root: string, config: Config, target: Target?): deps.RockPaths?
-    local paths, cpaths, seen = {}, {}, {}
+local function rockPaths(
+    root: string,
+    config: Config,
+    target: Target?,
+    records: {[string]: cache.DependencyRecord}?
+): deps.RockPaths?
+    local paths, cpaths, typeRoots, seen = {}, {}, {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
         local dep = (config.dependencies or {})[name] as manifest.Dependency
         if type(dep) == "table" and dep.kind == "luarocks" then
@@ -713,13 +729,21 @@ local function rockPaths(root: string, config: Config, target: Target?): deps.Ro
                 paths[#paths + 1] = entries.path
                 cpaths[#cpaths + 1] = entries.cpath
             end
+            local record = records and records[name] or nil
+            local rock = dep.rock or name
+            local rockspec = dep.rockspec and absolute(join(root, dep.rockspec)) or nil
+            local version = record and record.version or dep.version or declaredVersion(rockspec)
+            local typeRoot = record and record.typeRoot or rockTypeRoot(tree, luaVersion, rock, version)
+            if typeRoot then
+                typeRoots[#typeRoots + 1] = typeRoot
+            end
         end
     end
     if #paths == 0 then
         return nil
     end
 
-    return {path = table.concat(paths, ";"), cpath = table.concat(cpaths, ";")}
+    return {path = table.concat(paths, ";"), cpath = table.concat(cpaths, ";"), typeRoots = typeRoots,}
 end
 
 --- The rock modules a target asks a bundle to carry, as name -> file.

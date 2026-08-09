@@ -20,6 +20,7 @@ reference each command's `-h` does.
  fixpoint     Verify a byte-identical self-hosting rebuild
  run          Compile and run a Nupp or Lua program
  import-c     Generate typed Nupp bindings from a C header
+ rock         Create and package typed Lua rocks
  lsp          Language-server and semantic source operations
  completions  Print a shell completion script
  help         Show general or command-specific help
@@ -258,6 +259,19 @@ nupp import-c [-o FILE] [-l NAME|--lib NAME] <header.h>
 Writes a committed, hand-editable module of `cdef` declarations. Without `-o`
 it writes `<header basename>.nupp` into the current directory. See
 [C interop](../c-interop.md).
+
+### `rock`
+
+```
+nupp rock init <name> [directory]
+nupp rock pack [rockspec]
+nupp rock test [rockspec]
+```
+
+`init` scaffolds a library whose runtime Lua and Nupp declaration share a
+module path. `pack` builds and validates an installable rock. `test` installs
+that artifact into a fresh tree and checks it from a fresh consumer. See
+[Working with LuaRocks](luarocks.md).
 
 ### `ast`
 

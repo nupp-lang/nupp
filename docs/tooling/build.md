@@ -300,6 +300,10 @@ directory before passing its header through `import-c`.
 nothing is generated: what the provider produces is a populated tree and the
 two search-path entries that reach it.
 
+An installed rock may also carry typed module declarations in its versioned
+`nupp/` directory. [Working with LuaRocks](luarocks.md) covers authoring,
+packing, testing, and publishing that layout.
+
 ```lua
 dependencies = {
    -- From the LuaRocks server, at the version named here.

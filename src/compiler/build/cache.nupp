@@ -49,6 +49,10 @@ type cache.ModuleRecord = {
     }?,
     output: string?,
 
+    --- A declaration carried by an installed rock. It participates in interface
+    --- invalidation, but it is not project source and produces no Lua artifact.
+    external: boolean?,
+
     --- What checking the module had to say, kept so that reusing the record says it
     --- again rather than reporting a clean file.
     diags: {any}?
@@ -68,7 +72,10 @@ type cache.DependencyRecord = {
     tree: string?,
     luaVersion: string?,
     path: string?,
-    cpath: string?
+    cpath: string?,
+
+    --- Where this installed rock carries its Nupp module declarations.
+    typeRoot: string?
 }
 
 --- Everything one build wrote down about what it did.

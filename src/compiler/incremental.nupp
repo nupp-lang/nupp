@@ -294,12 +294,14 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         end, resolveModuleExports = function(_, name)
             return self:get("moduleExports", name)
         end,}, {__index = env})
-        local diags, moduleType, exports = check.check(
-            result,
-            path,
-            qenv,
-            {moduleName = envMod.moduleNameForPath(env, path), strict = strict,}
-        )
+        local external = envMod.isDependencyTypePath(env, path)
+        local diags, moduleType, exports = check.check(result, path, qenv, {moduleName = envMod.moduleNameForPath(
+            env,
+            path
+        ),
+            -- A dependency owns the judgement of its declaration surface. A
+            -- consumer's `--strict` must not reinterpret that foreign contract.
+            strict = external and false or strict,})
 
         return {diags = diags, moduleType = moduleType, exports = exports, result = result}
     end)

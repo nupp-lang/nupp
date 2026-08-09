@@ -230,6 +230,7 @@ local function copyModuleRecord(record)
         dependencies = dependencies,
         effects = effects,
         output = record.output,
+        external = record.external,
         diags = record.diags,
         coverage = record.coverage,
     }
@@ -257,7 +258,11 @@ local function buildModules(
         envConfig.include[#envConfig.include + 1] = include
     end
     envConfig.include[#envConfig.include + 1] = join(outDir, "generated")
-    local inc = incremental.new(root, {config = envConfig, strict = strict})
+    local rocks = deps.rockPaths(root, config, target, newState.dependencies)
+    local inc = incremental.new(
+        root,
+        {config = envConfig, strict = strict, typeRoots = rocks and rocks.typeRoots or {},}
+    )
     newState.projectIndexHash = projectIndexFingerprint(inc)
     -- A check reuses on the same terms a build does. It used to be excluded, and had to
     -- be: reuse produced no diagnostics, so the second `nupp check` over a project with
@@ -358,6 +363,7 @@ local function buildModules(
     end
 
     local function compile(name, path, sourceHash)
+        local external = envMod.isDependencyTypePath(inc.env, path)
         local result = inc.checkFile(path)
         stats.checkedModules = stats.checkedModules + 1
         local mine = {}
@@ -371,9 +377,9 @@ local function buildModules(
             effectNames[#effectNames + 1] = effect
         end
         table.sort(effectNames)
-        local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
+        local output = external and nil or join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash, code, coverage
-        if not fatal and not checkOnly then
+        if not external and not fatal and not checkOnly then
             local genDiags
             local remarks = optimize.run(
                 result.result,
@@ -402,10 +408,10 @@ local function buildModules(
         records[
             name
         ] = {sourceHash = sourceHash, interfaceHash = hash.digest(
-            typeFingerprint(result.moduleType)
+            typeFingerprint(result.moduleType) .. (external and ("\0" .. sourceHash) or "")
         ), artifactHash = artifactHash, dependencies = jsonArray(
             depNames
-        ), effects = jsonArray(effectNames), output = output,
+        ), effects = jsonArray(effectNames), output = output, external = external or nil,
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
@@ -428,7 +434,8 @@ local function buildModules(
                 order[#order + 1] = item.name
                 local sourceHash = hashFile(path)
                 local previous = oldState.modules[item.name]
-                local output = join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
+                local external = envMod.isDependencyTypePath(inc.env, path)
+                local output = external and nil or join(root, join(outDir, item.name:gsub("%.", "/") .. ".lua"))
                 -- A build has to find the artifact it would have written still sitting
                 -- there and still what it wrote; a check writes no artifact and so has
                 -- nothing to confirm but the record.
@@ -439,12 +446,13 @@ local function buildModules(
                     and type(
                     previous.dependencies
                 ) == "table" and type(previous.effects) == "table" and type(previous.diags) == "table"
-                if usable and previous and not checkOnly then
+                if usable and previous and not checkOnly and not external then
                     usable = previous.artifactHash and hashFile(output) == previous.artifactHash
                 end
                 if usable and previous then
                     records[item.name] = copyModuleRecord(previous)
                     records[item.name].output = output
+                    records[item.name].external = external or nil
                     reused[item.name] = true
                     -- A file that is still exactly as it was still has whatever it had
                     -- to say about itself. Silent reuse would make `nupp check` mean
@@ -562,8 +570,10 @@ local function buildModules(
         for _, effect in ipairs(record.effects or {}) do
             effects[effect] = true
         end
-        outputs[record.output] = true
-        if not reused[name] then
+        if record.output then
+            outputs[record.output] = true
+        end
+        if not record.external and not reused[name] then
             local code = codeFor[name]
             if code and hashFile(record.output) ~= record.artifactHash then
                 pending[#pending + 1] = {path = record.output, text = code}
@@ -572,7 +582,7 @@ local function buildModules(
     end
 
     for _, name in ipairs(order) do
-        if not records[name].artifactHash then
+        if not records[name].external and not records[name].artifactHash then
             return nil, "code generation failed"
         end
     end

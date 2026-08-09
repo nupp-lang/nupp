@@ -57,6 +57,7 @@ parameters, parameter-effect inference, and raw coroutine suspension. See
     nupp run <file> [args]      compile and run; require project .nupp/.lua
     nupp run --profile <file>   sample it; --jit-aborts records what the JIT refused
     nupp import-c <header.h>    eject typed C bindings as a module [--lib name]
+    nupp rock init|pack|test    create and package typed Lua rocks
     nupp lints                  list the lints and the level each runs at
     nupp explain CODE           the rule behind a diagnostic, either way round
     nupp reference              print the whole language in ~4k tokens
@@ -236,6 +237,8 @@ wanted, rather than letting a run fail on a line nobody wrote.
 
 The project build, C and Cargo dependency providers, cache behavior, and
 bootstrap workflow are documented in [docs/tooling/build.md](docs/tooling/build.md).
+[Working with LuaRocks](docs/tooling/luarocks.md) covers typed library layout,
+clean-consumer testing, and publication.
 Metamethod contracts, `self`, contract inheritance, bounded generics, and
 inline record methods are documented in
 [docs/metamethods.md](docs/metamethods.md).

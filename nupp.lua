@@ -355,6 +355,11 @@ nupp lsp            # start the language server]],
                   source = "docs/tooling/build.md",
                },
                {
+                  path = "tooling/luarocks",
+                  title = "Working with LuaRocks",
+                  source = "docs/tooling/luarocks.md",
+               },
+               {
                   path = "tooling/fmt",
                   title = "Formatter",
                   source = "docs/tooling/fmt.md",

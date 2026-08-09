@@ -912,6 +912,70 @@ return {
    remove(dir)
 end
 
+-- A rock's `nupp` directory is copied into its versioned installation beside the
+-- rockspec. It is not on Lua's runtime path; Nupp alone reads the declaration that
+-- mirrors the module LuaRocks installed.
+function M.installedRocksProvideTypedModuleDeclarations()
+   local rockspec = [[
+rockspec_format = "3.0"
+package = "typedrock"
+version = "1.0-1"
+source = { url = "file://typedrock.lua" }
+description = { summary = "A typed rock that ships with the project." }
+dependencies = { "lua >= 5.1" }
+build = {
+   type = "builtin",
+   modules = { typedrock = "typedrock.lua" },
+   copy_directories = { "nupp" },
+}
+]]
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   dependencies = {
+      typedrock = {kind = "luarocks", path = "vendor/typedrock",
+         rockspec = "vendor/typedrock/typedrock-1.0-1.rockspec"},
+   },
+   build = {outDir = "out", entries = {"main"},
+      dependencies = {"typedrock"}},
+}
+]],
+      ["src/main.nupp"] = [[
+local typedrock = require("typedrock")
+local answer: integer = typedrock.answer
+print(answer)
+]],
+      ["vendor/typedrock/typedrock.lua"] = "return {answer = 42}\n",
+      ["vendor/typedrock/nupp/typedrock.d.nupp"] = [[
+local answer: integer
+return {answer = answer}
+]],
+      ["vendor/typedrock/typedrock-1.0-1.rockspec"] = rockspec,
+   })
+   local first = {}
+   assertEq(project.build(dir, {checkOnly = true, stats = first}), 0,
+      "the installed declaration is a valid module surface")
+   local warm = {}
+   assertEq(project.build(dir, {checkOnly = true, stats = warm}), 0,
+      "an unchanged rock declaration is warm")
+   assertEq(warm.reusedModules, 2,
+      "the project module and external declaration are both reusable")
+
+   write(dir .. "/vendor/typedrock/nupp/typedrock.d.nupp", [[
+local answer: string
+return {answer = answer}
+]])
+   local diagnostics = {}
+   assertEq(project.build(dir, {checkOnly = true, diagnostics = diagnostics}), 1,
+      "changing the installed declaration invalidates its consumer")
+   assertEq(diagnostics[1] and diagnostics[1].code, "NUPP2001",
+      "the rock's changed string surface rejects an integer binding")
+   assert(exists(dir .. "/.rocks/lib/luarocks/rocks-5.1/typedrock/1.0-1/"
+      .. "nupp/typedrock.d.nupp"), "LuaRocks carried the Nupp declaration")
+   remove(dir)
+end
+
 function M.rockDependenciesAreRefusedUnlessTheyArePinned()
    local loose = tempProject({
       ["nupp.lua"] = [[
@@ -1017,6 +1081,9 @@ function M.rockPathsNameTheTreesATargetDependsOn()
       "the tree's Lua templates, in the order require reads them")
    assertEq(paths.cpath, "/project/vendor/rocks/lib/lua/5.1/"
       .. (jit.os == "Windows" and "?.dll" or "?.so"))
+   assertEq(paths.typeRoots[1], "/project/vendor/rocks/lib/luarocks/"
+      .. "rocks-5.1/tiny/1.0-1/nupp",
+      "the pinned rock version names its declaration root without installing it")
    assertEq(deps.rockPaths("/project", config, {dependencies = {"native"}}), nil,
       "a target with no rocks needs nothing added to its path")
 end

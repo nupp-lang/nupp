@@ -200,7 +200,7 @@ function M.cliProvidesHelpForMainAndEverySubcommand()
 
    local commands = {
       "ast", "check", "fmt", "build", "clean", "tasks", "test", "doc", "fixpoint",
-      "run", "import-c", "lsp", "help",
+      "run", "import-c", "rock", "lsp", "help",
    }
    for _, command in ipairs(commands) do
       local out = capture(("'%s' %s --help"):format(NUPP, command))

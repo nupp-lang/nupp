@@ -18,6 +18,7 @@ about what your code means.
  explain       Describe a diagnostic code              ../diagnostics.md
  lints         List the lints and their levels         ../lints.md
  import-c      Turn a C header into declarations       ../c-interop.md
+ rock          Create and package typed Lua rocks      luarocks.md
  tasks         List or inspect manifest targets        build.md
  clean         Remove configured build outputs         build.md
  fixpoint      Verify the self-hosting rebuild         ../distribution.md
