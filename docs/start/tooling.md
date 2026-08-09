@@ -30,7 +30,7 @@ Every command takes `-h`, and `nupp help <command>` prints the same reference.
 
 ```bash
 nupp check              # the whole configured project
-nupp check --strict     # plus unknown variables and untyped exports
+nupp check --strict     # hold every file to the strict floor, .g.nupp included
 nupp check src/app.nupp # one file
 ```
 

@@ -98,7 +98,6 @@ type manifest.Task = {description: string?, argv: {string}?, build: string?, env
 --- the artifacts built under the old value.
 type manifest.Config = {
     include: {string}?,
-    strict: boolean?,
     fmt: {methodParens: boolean?}?,
     lints: {[string]: string}?,
     dependencies: {[string]: manifest.Dependency}?,
@@ -373,8 +372,15 @@ local function validateManifest(config: manifest.Config): boolean?, string?
     if not valid then
         return nil, err
     end
-    if config.strict ~= nil and type(config.strict) ~= "boolean" then
-        return nil, "strict must be a boolean"
+    -- A key nothing reads takes effect silently, which is the one way a configuration
+    -- file can lie to the person who wrote it. `strict` used to set the floor for a
+    -- whole project; a file's extension answers that now, so a manifest still carrying
+    -- it is describing a build that no longer happens.
+    if config.strict ~= nil then
+        return nil, "strict is no longer a manifest key: a file's extension "
+            .. "decides its floor, so `.nupp` is strict and `.g.nupp` is not. "
+            .. "Rename the files that are not ready, or pass --strict to hold "
+            .. "every file to it regardless"
     end
 
     if config.fmt ~= nil then

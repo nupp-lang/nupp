@@ -7,8 +7,22 @@ Every construct, the shortest program that uses it, and the diagnostic codes tha
 ### What Nupp is
 
 A gradually typed superset of LuaJIT's Lua dialect. Every valid LuaJIT program is
-a valid Nupp program, and unannotated code checks silently — annotations are what
-turn checking on, one declaration at a time.
+a valid Nupp program: a `.lua` file is required, built and run unchanged, and the
+typed layer is refused in one (NUPP1006).
+
+The extension says which floor a file is held to, so it is visible where the file
+is rather than in a setting that governs everything at once:
+
+    .nupp     strict    unknown variables and untyped exports are errors
+    .g.nupp   gradual   the same typed syntax, without that floor
+    .d.nupp   gradual   declares an interface somebody else implements
+    .lua      gradual   plain Lua; the typed layer is refused
+
+Write `.g.nupp` while a file is being typed and rename it to `.nupp` when it is
+ready. The marker is not part of the module's name — `models.g.nupp` is the
+module `models` — so nothing that requires it changes when it moves.
+`nupp check --strict` holds every file to the floor whatever it is called, which
+is how to see what a rename would cost.
 
 Two things are not erased. A `struct` lowers to FFI cdata with a fixed layout,
 and C headers import as checked declarations. Everything else is ordinary Lua at
@@ -90,7 +104,8 @@ Reports: `NUPP2101`, `NUPP2001`. `nupp explain <code>` says more.
 Parameters and results are annotated in the usual place. Several results are
 listed comma-separated; inside a function *type* a multi-result needs parentheses.
 
-Under `--strict`, an exported function whose signature mentions `any` anywhere is
+In a strict file — `.nupp`, or any file under `--strict` — an exported function
+whose signature mentions `any` anywhere is
 treated as unannotated and reported: `any` is the absence of a type, not a type.
 A function that returns nothing still needs to say so, as `: nil`.
 

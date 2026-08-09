@@ -61,8 +61,8 @@ survives renaming and what tooling keys on. Either is accepted everywhere.
 marking any the project has moved. The text table has no code column;
 `nupp lints --json` carries `code`, `default` and `moved` as well.
 
-`lossy-narrowing` is checked only under `--strict`; moving its level does not
-enable strict checking by itself.
+`lossy-narrowing` is checked only in a strict file — a `.nupp` one, or any file
+under `--strict`. Moving its level does not raise a file's floor by itself.
 
 ## Built-in lints
 

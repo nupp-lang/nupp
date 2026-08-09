@@ -181,8 +181,8 @@ return M
 `beforeAll` failure prevents the suite's cases from running and is reported as
 `beforeAll`; `afterAll` still runs. A failing `afterEach` is reported with the
 case failure, if there was one, so cleanup failures do not hide the original
-problem. The same four names work in Nupp; give each hook a `: nil` return
-annotation under strict checking.
+problem. The same four names work in Nupp; a hook in a `.nupp` file needs a `: nil`
+return annotation, since that is a strict file and its exports are typed.
 
 The same shape works in Nupp; save this as `tests/mathstest.nupp`:
 

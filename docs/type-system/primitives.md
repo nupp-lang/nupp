@@ -182,9 +182,9 @@ local z: int32 = x     -- accepted
 
 So `number → integer` is refused while `number → int32` is allowed. The sized
 types are a C boundary, where truncation is the expected arithmetic; `integer`
-is a claim about a Lua value. Under `--strict`, narrowing a wider numeric into
-a small sized type raises the `lossy-narrowing` lint, and the suggested fix is
-an explicit `as`.
+is a claim about a Lua value. In a strict file — a `.nupp` one, or any file
+under `--strict` — narrowing a wider numeric into a small sized type raises the
+`lossy-narrowing` lint, and the suggested fix is an explicit `as`.
 
 Literals type as you would expect: `1` is an `integer` literal, `1.5` and `1e3`
 are `number`, `1LL` is `int64`, `1ULL` is `uint64`, `0xff` is `integer`.

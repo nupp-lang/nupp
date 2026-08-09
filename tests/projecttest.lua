@@ -374,31 +374,22 @@ return {include = {"src"}, build = {entries = {"main"}}}
    remove(strictDir)
 end
 
-function M.manifestStrictnessIsTheProjectAndEditorDefault()
+function M.theRetiredStrictManifestKeyIsRefusedByName()
+   -- A key nothing reads takes effect silently, which is the one way a
+   -- configuration file can lie to the person who wrote it. `strict` set the
+   -- floor for a whole project before the extension answered that per file, so a
+   -- manifest still carrying it is describing a build that no longer happens.
    local dir = tempProject({
       ["nupp.lua"] = [[
 return {include = {"src"}, strict = true, build = {entries = {"main"}}}
 ]],
-      ["src/main.nupp"] = "return unknown_project_value\n",
+      ["src/main.nupp"] = "return true\n",
    })
-   local errorPath = os.tmpname()
-   local originalStderr = io.stderr
-   io.stderr = assert(io.open(errorPath, "wb"))
-   local status = project.check(dir)
-   io.stderr:close()
-   io.stderr = originalStderr
-   os.remove(errorPath)
-   assertEq(status, 1, "manifest strict mode reaches project checking")
+   local config, err = project.loadManifest(dir)
+   assertEq(config, nil, "a retired key is refused rather than ignored")
+   assert(err:find("no longer a manifest key", 1, true), err)
+   assert(err:find(".g.nupp", 1, true), "and says what replaced it: " .. err)
    remove(dir)
-
-   local invalid = tempProject({
-      ["nupp.lua"] = [[return {strict = "yes", build = {entries = {"main"}}}]],
-      ["main.nupp"] = "return true\n",
-   })
-   local config, err = project.loadManifest(invalid)
-   assertEq(config, nil, "non-boolean strictness is rejected")
-   assert(err:find("strict must be a boolean", 1, true), err)
-   remove(invalid)
 end
 
 function M.manifestBuildDiscoversModulesAndPreservesPaths()
