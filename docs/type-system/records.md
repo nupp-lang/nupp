@@ -186,12 +186,76 @@ The field type has to be reifiable — something with a C layout:
 - the numeric primitives: `number`, `float`, `boolean`, `integer`, and the
   sized integers `int8` through `uint64`;
 - another struct, by value;
-- any pointer `T*`, and the nullable `T*?`.
+- any pointer `T*`, and the nullable `T*?`;
+- a fixed C array `T[N]`.
 
 Everything GC-managed is refused with NUPP2201: `string`, `{T}`, function
 types, and even `number?`, because an optional needs a representation the C
 layout does not have. `cstring` and `voidptr` are allowed in a `cdef struct`
 but not in a Nupp `struct`, since a GC-managed struct gives them no anchor.
+
+#### Fixed arrays
+
+`T[N]` sits inline — N elements in the struct's own bytes, with no
+indirection, which is how a C struct carries a vector:
+
+```nupp
+local struct Vertex
+    pos: float[3]
+    uv: float[2]
+    id: int32
+end
+
+local v = new Vertex {}
+v.pos[0] = 1.5
+v.pos[2] = 3.5
+print(v.pos[0] + v.pos[2])
+```
+
+`Vertex` is 24 bytes: twelve for `pos`, eight for `uv`, four for `id`, and no
+padding. The elements are zero-based, like every C array.
+
+The element may itself be a struct, and it is stored by value:
+
+```nupp
+local struct Cell
+    a: float
+    b: float
+end
+
+local struct Grid
+    cells: Cell[4]
+    n: int32
+end
+
+local g = new Grid {}
+g.cells[0].a = 1
+g.cells[3].b = 9
+```
+
+`T[?]` is **not** a field. A variable-length array has no size, so a struct
+holding one would have none either; that is NUPP2201. Use a pointer and hold
+the count yourself, which is what C does.
+
+#### Pointing at itself
+
+A struct may hold a pointer to its own declaration, which is how a linked
+structure is written:
+
+```nupp
+local struct Node
+    next: Node*?
+    value: int32
+end
+
+local head = new Node {next = nil, value = 1}
+local tail = new Node {next = nil, value = 2}
+head.next = tail
+print(head.next.value)
+```
+
+By value it cannot — `next: Node` would have to contain a copy of itself and so
+has no size. That is NUPP2201, and the repair it names is the pointer.
 
 ### Value or reference
 
@@ -208,6 +272,12 @@ metamethod contracts, or ordinary GC. That is most application code.
 Reach for a **struct** when the layout matters: interop with C, a large array
 of small values, or a hot field access you want to be an offset instead of a
 hash lookup.
+
+`layoutof(T)` reports how one is laid out — see
+[C interop](../c-interop.md). That is what lets a codec, a snapshot writer or a
+GPU vertex-attribute descriptor be derived from the declaration rather than
+maintained beside it, and it is worth knowing about before writing the second
+one by hand.
 
 Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record does erode into a structural shape

@@ -523,6 +523,21 @@ A `struct` reifies: it lowers to `ffi.typeof`, so it has a fixed layout and no
 hash lookup per field. `T[?]` and `T[N]` give contiguous arrays of them. This is
 the one place a type changes what the program does at run time rather than only
 what the checker accepts.
+
+Fields are what fits in C memory: the numeric types, `boolean`, another struct
+by value, a pointer, and a fixed array `T[N]`, which sits inline as N elements
+of the struct's own bytes. A `T[?]` field is refused — a struct whose size
+depends on a count nobody wrote has none. A GC-managed type is refused too, so
+a `string` field means this wants to be a `record`; that is **NUPP2201**.
+
+A struct may point at itself, which is how a linked structure is written. By
+value it cannot: that would have no size.
+
+`layoutof(T)` answers how one is laid out — the fields in declaration order
+with their C types, offsets, sizes and padding, the struct's size, and a
+fingerprint over all of it. Reifying puts a value where nothing that walks a
+table can reach it, and this is what reaches it again without the language
+choosing a serialization format.
 ]=],
         example = [=[
 local m = {}
@@ -533,8 +548,24 @@ struct m.Vec3
     z: float
 end
 
+--- A fixed array sits inline; a pointer to this declaration links one to the next.
+struct m.Vertex
+    pos: float[3]
+    uv: float[2]
+    next: m.Vertex*?
+end
+
 local type Buffer = m.Vec3[?]
 local type Fixed = m.Vec3[16]
+
+local vertex = new m.Vertex {}
+vertex.pos[0] = 1.5
+
+local layout = layoutof(m.Vertex)
+print(layout.size, layout.fingerprint)
+for _, field in ipairs(layout.fields) do
+    print(field.name, field.ctype, field.offset, field.size, field.padding)
+end
 
 return m
 ]=],
