@@ -157,14 +157,14 @@ local mode = "auto"
 
 -- Answers cached per stream. Detection touches the environment and the FFI, and neither
 -- can change under a running process, so it is asked once.
-local decided: {[any]: boolean} = {}
+local decided: {[LuaFile]: boolean} = {}
 
 local DESCRIPTOR = {[io.stdout] = 1, [io.stderr] = 2}
 
 --- Sets what `--color` asked for: "auto" to decide per stream, or "always" or "never"
 --- to answer without looking. Clears what was already decided, so a flag parsed after
 --- something has printed still governs what follows.
-function ansi.setMode(wanted: string)
+function ansi.setMode(wanted: string): nil
     if wanted ~= mode then
         mode = wanted
         decided = {}
@@ -184,7 +184,7 @@ function ansi.withMode(wanted: string, body: function(): nil): nil
 end
 
 --- Whether `stream` should be written to in colour.
-function ansi.enabled(stream: any): boolean
+function ansi.enabled(stream: LuaFile): boolean
     local known = decided[stream]
     if known ~= nil then
         return known
@@ -208,7 +208,7 @@ end
 
 --- The style table for `stream`. Two tables exist for the life of the process and this
 --- hands back whichever one applies, so styling never builds anything.
-function ansi.style(stream: any): ansi.Style
+function ansi.style(stream: LuaFile): ansi.Style
     return ansi.enabled(stream) and COLOURED or PLAIN
 end
 
