@@ -189,10 +189,14 @@ end
 --- still has to name the ones nested under it, and only the whole set says which those
 --- are; rendering the whole set at once, as `nupp doc markdown` does, is the case where
 --- the two arguments are the same list.
+---
+--- `overview` is the handwritten prose a page opens with, which is why it only makes
+--- sense for a single module: it belongs to one page rather than to the set.
 function markdown.render(
     modules: {compiler.doc.extract.Module},
     title: string?,
-    all: {compiler.doc.extract.Module}?
+    all: {compiler.doc.extract.Module}?,
+    overview: string?
 ): string
     local all = all or modules
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
@@ -211,7 +215,16 @@ function markdown.render(
         out[#out + 1] = '<a id="' .. module.name .. '"></a>'
         out[#out + 1] = (module.namespace and "# Namespace: `" or "# Module: `") .. module.name .. "`"
         out[#out + 1] = ""
-        if module.namespace then
+        -- An overview is what the author wanted said here, so it replaces the line that
+        -- stands in for one rather than repeating the subject above it.
+        if overview and overview ~= "" then
+            out[#out + 1] = overview
+            out[#out + 1] = ""
+            if module.text ~= "" then
+                out[#out + 1] = prose(module.text)
+                out[#out + 1] = ""
+            end
+        elseif module.namespace then
             out[#out + 1] = "Modules nested under `" .. module.name .. "`. Nothing is required by this name itself."
             out[#out + 1] = ""
         elseif module.text ~= "" then

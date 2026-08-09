@@ -476,12 +476,21 @@ function M.siteMatchesTheNuppdocPageModel()
             {path = "guide", title = "Guide", source = "docs/guide.md"},
             {path = "reference/details", title = "Details",
                source = "docs/details.md"},
+            {path = "modules/math", title = "Arithmetic",
+               source = "docs/math-overview.md"},
          },
       },
    }},
 }
 ]],
       ["docs/index.md"] = "Welcome to the project.\n\n<!-- nupp:features -->\n\n## More details\n",
+      ["docs/math-overview.md"] = table.concat({
+         "Hand-written prose above the generated API.",
+         "",
+         "## Where to start",
+         "",
+         "With [](math.add), and then the [guide](guide.md).",
+      }, "\n") .. "\n",
       ["docs/public/images/project.svg"] = "<svg><title>Example</title></svg>\n",
       ["docs/site.css"] = ":root{--example-project-accent:#315f58}\n",
       ["docs/guide.md"] = table.concat({
@@ -673,6 +682,31 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(module:find("Types", 1, true), module)
    assert(module:find("nuppdoc%-kind%-badge"), module)
    assert(module:find("Previous", 1, true), module)
+
+   -- a configured page whose path is a module's route is that module's
+   -- overview: prose above the generated API rather than a second page beside it
+   assert(module:find("<h1>Module: <code>math</code></h1>", 1, true), module)
+   assert(module:find("Hand-written prose above the generated API.", 1, true),
+      module)
+   assert(module:find('<h2 id="where-to-start">Where to start', 1, true), module)
+   -- it is ordinary page markdown, so both kinds of link still resolve
+   assert(module:find('<a href="../../modules/math/index.html#math.add">'
+      .. "<code>math.add</code></a>", 1, true), module)
+   assert(module:find('<a href="../../guide/index.html">guide</a>', 1, true),
+      module)
+   -- the prose comes before the generated contents, and its headings are in the
+   -- outline above them
+   assert(module:find("Where to start", 1, true) < module:find("Module contents",
+      1, true), "the overview must open the page")
+   assert(module:find('<a href="#where-to-start" title="Where to start">',
+      1, true), module)
+   -- and there is one page at that route, not two
+   assert(not io.open(dir .. "/site/modules/math/index.html/index.html"))
+   local homePage = readFile(dir .. "/site/index.html")
+   assert(not homePage:find(">Arithmetic</a>", 1, true),
+      "the overview was also listed as a standalone page")
+   assert(readFile(dir .. "/site/modules/math/llms.txt")
+      :find("Hand-written prose above the generated API.", 1, true))
    local nestedModule = readFile(dir .. "/site/modules/engine/render/index.html")
    assert(nestedModule:find('class="nuppdoc-module-branch"', 1, true),
       nestedModule)

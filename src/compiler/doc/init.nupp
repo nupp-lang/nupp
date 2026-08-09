@@ -121,9 +121,15 @@ end
 
 --- Renders extracted modules as a single markdown document. `all` is every module the
 --- run documented, which is what says which modules are nested under the ones being
---- rendered; it defaults to the modules themselves.
-function doc.markdown(modules: {extractMod.Module}, title: string?, all: {extractMod.Module}?): string
-    return markdownMod.render(modules, title, all)
+--- rendered; it defaults to the modules themselves. `overview` is handwritten prose to
+--- open with, which only a single module's page has.
+function doc.markdown(
+    modules: {extractMod.Module},
+    title: string?,
+    all: {extractMod.Module}?,
+    overview: string?
+): string
+    return markdownMod.render(modules, title, all, overview)
 end
 
 local function sourceFiles(root, config, settings, requested)
@@ -403,24 +409,43 @@ local function renderSite(root, outDir, modules, title, settings)
     if not pages then
         return nil, err
     end
-    local claimedRoutes = {}
+    -- A configured page whose route is a module's is that module's overview: prose an
+    -- author wants above the generated API, written where prose is written rather than
+    -- in a doc comment that would have to hold a page. It is carried onto the module's
+    -- own entry rather than kept beside it, so the module keeps its place in the
+    -- navigation and one page still answers at that route.
+    local configured, moduleRoutes, ordered = {}, {}, {}
     for _, candidate in ipairs(pages) do
-        claimedRoutes[candidate.path] = true
+        configured[candidate.path] = candidate
     end
     for _, module in ipairs(modules) do
         local route = moduleFile(module.name):gsub("/index%.html$", "")
-        if claimedRoutes[route] then
-            return nil, "documentation page path collides with module: " .. route
+        if moduleRoutes[route] then
+            return nil, "two modules document to the same page: " .. route
         end
-        claimedRoutes[route] = true
-        pages[
-            #pages + 1
+        moduleRoutes[route] = true
+    end
+    for _, candidate in ipairs(pages) do
+        if not moduleRoutes[candidate.path] then
+            ordered[#ordered + 1] = candidate
+        end
+    end
+    for _, module in ipairs(modules) do
+        local route = moduleFile(module.name):gsub("/index%.html$", "")
+        local overview = configured[route]
+        ordered[
+            #ordered + 1
         ] = {
             path = route,
-            title = (module.namespace and "Namespace: " or "Module: ") .. module.name,
+            title = overview and overview.title or (
+                module.namespace and "Namespace: " or "Module: "
+            ) .. module.name,
             module = module,
+            overview = overview and overview.markdown or nil,
+            source = overview and overview.source or nil,
         }
     end
+    pages = ordered
 
     local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
     for _, candidate in ipairs(pages) do
@@ -430,6 +455,9 @@ local function renderSite(root, outDir, modules, title, settings)
             local module = candidate.module
             local children = childModules(modules, module.name)
             current, items = module.name, {}
+            for _, heading in ipairs(markdownOutline(candidate.overview)) do
+                items[#items + 1] = heading
+            end
             if #children > 0 then
                 items[#items + 1] = {path = "modules", name = "Modules"}
             end
@@ -439,20 +467,30 @@ local function renderSite(root, outDir, modules, title, settings)
             for _, item in ipairs(module.items) do
                 items[#items + 1] = item
             end
-            markdown = doc.markdown({module}, nil, modules)
+            local overview = candidate.overview or ""
+            markdown = doc.markdown({module}, nil, modules, overview)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[
                 #body + 1
             ] = '<h1>' .. (
                 module.namespace and "Namespace: " or "Module: "
             ) .. '<code>' .. htmlEscape(module.name) .. '</code></h1>'
-            if module.namespace then
+            -- An overview is what the author wanted said here, so it replaces the line
+            -- that stands in for one rather than repeating the subject above it.
+            if overview ~= "" then
+                body[
+                    #body + 1
+                ] = markdownHtml(rewriteConfiguredPageLinks(overview, candidate, pages, file), links, 0)
+            elseif module.namespace then
                 body[
                     #body + 1
                 ] = '<p class="nuppdoc-namespace-note">Modules nested under <code>' .. htmlEscape(
                     module.name
                 ) .. '</code>. Nothing is required by this name itself.</p>'
             elseif module.text ~= "" then
+                body[#body + 1] = markdownHtml(module.text, links)
+            end
+            if overview ~= "" and module.text ~= "" then
                 body[#body + 1] = markdownHtml(module.text, links)
             end
             body[#body + 1] = nestedModules(children, relativePrefix(file), modules)

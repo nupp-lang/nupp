@@ -265,6 +265,24 @@ match a different convention, or to `""` to leave every function in Functions.
 Deciding by result type instead would file every accessor and query under
 Constructors, so the name is what answers.
 
+### Overviews
+
+A configured page whose `path` is a module's route is that module's overview,
+rendered above the generated API rather than as a second page beside it:
+
+```lua
+{ path = "modules/nupp", title = "Namespace: nupp", source = "docs/nupp.md" },
+```
+
+The route is `modules/` followed by the module name with its dots as slashes.
+This is where prose longer than a blurb belongs — a page a doc comment would
+have to hold, or the orientation a namespace has no source file to put anywhere
+else. It is ordinary page Markdown, so cross-references, links to other pages,
+code groups, and admonitions all work, and its headings join the page outline
+above the generated ones. `title` overrides the generated `Module:` or
+`Namespace:` one. A module with both an overview and a blurb shows the overview
+first.
+
 ## Output
 
 **`site`** writes a page per route, `assets/style.css`, `assets/site.js`, a

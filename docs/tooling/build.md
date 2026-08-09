@@ -213,6 +213,9 @@ constructor, defaulting to `^new`; `""` leaves every function in Functions.
 A Markdown link whose target names a module, a declaration, or a member —
 `[](nupp.zone)` — is resolved to whatever documents it, in handwritten
 pages and doc comments alike.
+A page whose `path` is a module's route — `modules/` followed by the module
+name with its dots as slashes — is that module's overview, rendered above the
+generated API rather than as a second page beside it.
 Handwritten pages and generated module pages share the navigation, breadcrumb,
 outline, and collapsible side columns. Each page emits and links `llms.txt`;
 the output root adds `llms-full.txt` and an LLM-oriented page index.

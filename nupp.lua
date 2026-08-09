@@ -428,6 +428,14 @@ nupp lsp            # start the language server]],
                   title = "Metamethods",
                   source = "docs/metamethods.md",
                },
+               -- A page whose path is a module's route is that module's
+               -- overview, rendered above its generated API rather than
+               -- beside it.
+               {
+                  path = "modules/nupp",
+                  title = "Namespace: nupp",
+                  source = "docs/nupp.md",
+               },
                {
                   path = "reference/ownership",
                   title = "Ownership",
