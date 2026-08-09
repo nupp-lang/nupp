@@ -54,6 +54,24 @@ function M.mathAndBit()
    assertEq((diagsOf("math.floor('x')")), "NUPP2006:1")
 end
 
+function M.mathRandomOverloadsMatchLuaJitArities()
+   assertClean(table.concat({
+      "local unit: number = math.random()",
+      "local upper: number = math.random(10)",
+      "local range: number = math.random(1.5, 4.5)",
+   }, "\n"))
+   assertEq((diagsOf("math.random(nil, 2)")), "NUPP2125:1")
+
+   local unit = math.random()
+   local upper = math.random(10)
+   local fractional = math.random(1.5, 4.5)
+   assert(type(unit) == "number" and type(upper) == "number"
+      and type(fractional) == "number",
+      "every documented math.random arity returns a Lua number")
+   assertEq(pcall(math.random, nil, 2), false,
+      "the rejected nil hole also fails in LuaJIT")
+end
+
 -- min and max are one homogeneous bounded type in, the same type out, so
 -- comparing integers gives an integer rather than widening to number.
 function M.mathMinMaxKeepIntegers()
@@ -100,6 +118,46 @@ function M.coreFunctions()
    assertClean("local v: number = assert(tonumber('42'))")
    assertClean("local ok, err = pcall(function() end)\nlocal b: boolean = ok")
    assertClean("local t = setmetatable({}, {__index = {}})")
+end
+
+function M.selectOverloadsSeparateCountFromPackSelection()
+   assertClean(table.concat({
+      "local count: integer = select('#', 1, 'two', true)",
+      "local text, flag = select(2, 1, 'two', true)",
+      "local s: string = text",
+      "local b: boolean = flag",
+   }, "\n"))
+   assertEq((diagsOf("select('bad', 1, 2)")), "NUPP2125:1")
+
+   assertEq(select("#", 1, "two", true), 3,
+      "the count overload matches LuaJIT")
+   local text, flag = select(2, 1, "two", true)
+   assertEq(text, "two", "the numeric overload starts at its index")
+   assertEq(flag, true, "and preserves the rest of the pack")
+   assertEq(pcall(select, "bad", 1, 2), false,
+      "the rejected selector also fails in LuaJIT")
+end
+
+function M.collectgarbageOverloadsTrackResultKinds()
+   assertClean(table.concat({
+      "local collected: number = collectgarbage()",
+      "local size: number = collectgarbage('count')",
+      "local oldPause: number = collectgarbage('setpause', 200)",
+      "local stepped: boolean = collectgarbage('step', 0)",
+      "local running: boolean = collectgarbage('isrunning')",
+   }, "\n"))
+   assertEq((diagsOf("collectgarbage('unknown')")), "NUPP2125:1")
+
+   assertEq(type(collectgarbage()), "number",
+      "the default collection reports a number")
+   assertEq(type(collectgarbage("count")), "number",
+      "count reports a number")
+   assertEq(type(collectgarbage("step", 0)), "boolean",
+      "step reports a boolean")
+   assertEq(type(collectgarbage("isrunning")), "boolean",
+      "isrunning reports a boolean")
+   assertEq(pcall(collectgarbage, "unknown"), false,
+      "the rejected operation also fails in LuaJIT")
 end
 
 function M.pairsTyping()

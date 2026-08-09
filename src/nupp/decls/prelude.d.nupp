@@ -81,7 +81,8 @@ local next: function(t: table, k: any?): (any, any)
 --- @param n the 1-based index to select from, or the string "#"
 --- @param ... the arguments to select from
 --- @return the selected arguments, or their count
-local select: function<A...>(n: any, A...): A...
+local select: function<A...>(n: '#', A...): integer
+    & function<A...>(n: number, A...): A...
 
 --- Reads `t[k]` without consulting an `__index` metamethod.
 ---
@@ -179,12 +180,16 @@ local unpack: function<T>(t: {T}, i: number?, j: number?): ...T
 local require: function(name: string): any
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
---- "stop", "restart", "count", "step", "setpause" or "setstepmul".
+--- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
 ---
 --- @param opt the operation to perform
 --- @param arg the step size or parameter that the operation takes
---- @return what the operation reports: "count" gives the kilobytes in use
-local collectgarbage: function(opt: string?, arg: number?): number
+--- @return what the operation reports: "count" gives the kilobytes in use, while
+---     "step" and "isrunning" answer a boolean
+local collectgarbage: function(): number
+    & function(opt: 'collect' | 'stop' | 'restart' | 'count'
+    | 'setpause' | 'setstepmul', arg: number?): number
+    & function(opt: 'step' | 'isrunning', arg: number?): boolean
 
 --- Compiles a chunk read piecewise from `chunk`, a function returning successive pieces
 --- of source, without running it.
@@ -581,13 +586,15 @@ local math: {
     --- @return the largest of them
     max: function<N is number>(...: N): N,
 
-    --- Returns a pseudo-random number: a float in [0,1) with no arguments, an integer
-    --- in [1,`m`] with one, or an integer in [`m`,`n`] with two.
+    --- Returns a pseudo-random number: a float in [0,1) with no arguments, a bounded
+    --- number with one, or a number between `m` and `n` with two.
     ---
     --- @param m the upper bound, or the lower bound when `n` is given too
     --- @param n the upper bound
     --- @return the generated number
-    random: function(m: number?, n: number?): number,
+    random: function(): number
+    & function(m: number): number
+    & function(m: number, n: number): number,
 
     --- Seeds the pseudo-random generator, which starts from a fixed state.
     ---
