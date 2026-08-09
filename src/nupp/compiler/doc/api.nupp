@@ -40,6 +40,20 @@ local function isConstructor(item, pattern)
     return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
 end
 
+-- A function is written `function profile.sample(...)`, so its name carries the table it
+-- was assigned into. A record or a local is declared with one identifier and never does.
+-- Stripping that one prefix, when the module's own tail spells it, leaves every row of a
+-- module's own page as bare as the type and value rows already are.
+local function unqualifiedName(moduleName, name)
+    local tail = moduleName:match("([^.]+)$") or moduleName
+    local prefix = tail .. "."
+    if name:sub(1, #prefix) == prefix then
+        return name:sub(#prefix + 1)
+    end
+
+    return name
+end
+
 --- A name with no module behind it has no blurb to summarize, so it is described by
 --- what it holds. Left to the ordinary path it would be the one row saying nothing.
 local function namespaceSummary(modules: {extractMod.Module}, name: string): string
@@ -100,7 +114,9 @@ local function moduleSummary(module: extractMod.Module, constructorPattern: stri
             local rows = {}
             for _, item in ipairs(group.items) do
                 local row = {
-                    '<a href="#' .. htmlEscape(item.path) .. '"><code>' .. htmlEscape(item.name) .. '</code></a>'
+                    '<a href="#' .. htmlEscape(item.path) .. '"><code>' .. htmlEscape(
+                        unqualifiedName(module.name, item.name)
+                    ) .. '</code></a>'
                 }
                 -- A constructor's kind is the word "function" on every row of the
                 -- table, which says nothing the heading has not said already.
