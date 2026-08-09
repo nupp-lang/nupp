@@ -102,6 +102,20 @@ function M.tableConstructorsBreak()
          "}"))
 end
 
+function M.parenthesizedTablesKeepTheirCloserTogether()
+   check("local t = ({ alphaValue = 1, betaValue = 2, gammaValue = 3, "
+      .. "deltaValue = 4, epsilonValue = 5, zetaValue = 6, etaValue = 77 })\n",
+      lines("local t = ({",
+         "    alphaValue = 1,",
+         "    betaValue = 2,",
+         "    gammaValue = 3,",
+         "    deltaValue = 4,",
+         "    epsilonValue = 5,",
+         "    zetaValue = 6,",
+         "    etaValue = 77",
+         "})"))
+end
+
 function M.multilineShapesCloseAndDropTrailingComma()
    local src = lines(
       "type Options = {anExceptionallyLongOptionNameOne: string,",

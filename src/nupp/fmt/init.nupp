@@ -754,8 +754,9 @@ local function indexOfToken(items, tok)
 end
 
 -- Splits one over-long line. Prefers the leftmost (outermost) bracket group fully
--- present on the line; falls back to breaking before low-precedence operators. Returns
--- a list of lines, or nil when nothing can be split.
+-- present on the line, except parentheses that only wrap a table; falls back to
+-- breaking before low-precedence operators. Returns a list of lines, or nil when
+-- nothing can be split.
 local function splitLine(line)
     local openIdx, closeIdx, group
     for idx, item in ipairs(line.items) do
@@ -763,8 +764,17 @@ local function splitLine(line)
             local g = item.token.opensGroup
             local cIdx = indexOfToken(line.items, g.close)
             if cIdx and cIdx > idx + 1 then
-                openIdx, closeIdx, group = idx, cIdx, g
-                break
+                local nextItem = line.items[idx + 1]
+                local wrapsTable = item.token.kind == "("
+                    and nextItem and nextItem.kind == "token"
+                    and nextItem.token.kind == "{"
+                    and nextItem.token.opensGroup
+                    and indexOfToken(line.items, nextItem.token.opensGroup.close)
+                        == cIdx - 1
+                if not wrapsTable then
+                    openIdx, closeIdx, group = idx, cIdx, g
+                    break
+                end
             end
         end
     end
