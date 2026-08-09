@@ -1,7 +1,7 @@
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
-local fmt = require("nupp.fmt")
+local envMod = require("compiler.env")
+local fmt = require("compiler.fmt")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local cwdPipe = assert(io.popen("pwd"))
@@ -566,7 +566,7 @@ return a.balance
       assertEq(#diags, 0, "the consumer checks: "
          .. (diags[1] and diags[1].msg or ""))
 
-      local gen = require("nupp.gen")
+      local gen = require("compiler.gen")
       local code = gen.generate(parsed, path)
       assert(code:find("model.Account.__nuppCtor", 1, true),
          "the call resolves to the minted constructor: " .. code)
@@ -619,7 +619,7 @@ return Person
       assertEq(#diags, 0, "the implementor checks: "
          .. (diags[1] and diags[1].msg or ""))
 
-      local gen = require("nupp.gen")
+      local gen = require("compiler.gen")
       local code = gen.generate(parsed, path)
       assert(code:find('require("greet").Greeter.hello', 1, true),
          "the default is referenced out of its own module: " .. code)
@@ -643,7 +643,7 @@ return shape
       local path = dir .. "/src/shape.g.nupp"
       local parsed = parser.parse(readFile(path), path)
       check.check(parsed, path, projectEnv(dir))
-      local gen = require("nupp.gen")
+      local gen = require("compiler.gen")
       local code = gen.generate(parsed, path)
       assert(not code:find("Named", 1, true),
          "an interface with no defaults emits nothing: " .. code)

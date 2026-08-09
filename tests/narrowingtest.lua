@@ -1,8 +1,8 @@
 -- Narrowing through paths, discriminated unions, literal types, and the
 -- strict-mode module boundary.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

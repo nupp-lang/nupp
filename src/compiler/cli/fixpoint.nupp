@@ -1,0 +1,76 @@
+--[[
+`nupp fixpoint`: the claim that the compiler reproduces itself.
+
+Two claims, really. The default one is about the compiler: it compiles itself
+twice and the two results must agree. `--binary` is about packaging: the stamped
+binary must stamp another identical to itself, which is what the payload format's
+determinism rests on.
+]]
+
+local spec = require("compiler.cli.spec")
+
+local command = spec.command{
+    name = "fixpoint",
+    summary = "Verify a byte-identical self-hosting rebuild",
+    usage = {"nupp fixpoint [--update-bootstrap] [--format text|json]", "nupp fixpoint --binary [--format text|json]"},
+    intro = [[By default the compiler compiles itself twice and the two must agree.
+
+--binary makes the same claim about packaging: the target named by
+selfHost.binary is stamped, and the binary that comes out stamps another
+identical to itself. It is what the payload format's determinism rests on.]],
+    options = require(
+        "compiler.cli.options"
+    ).join(
+        {name = "--update-bootstrap", help = "Refresh the tracked stage-0 bundle after verification"},
+        {name = "--binary", help = "Verify the packaged binary instead of the compiler"},
+        require("compiler.cli.options").format()
+    ),
+    schema = {
+        type = "object",
+        properties = {
+            ok = {type = "boolean", description = "Whether the rebuild reproduced itself."},
+            kind = {
+                type = "string",
+                enum = {"compiler", "binary"},
+                description = "Which claim was checked: the compiler compiling "
+                .. "itself twice, or the packaged binary stamping another."
+            },
+            target = {type = "string", description = "The manifest target that was verified."},
+            bytes = {type = "integer", description = "The size of the verified binary, for --binary."},
+            updatedBootstrap = {type = "boolean", description = "Whether the tracked stage-0 bundle was refreshed."},
+            reason = {type = "string", description = "Why it failed. Absent when ok is true."},
+        },
+        required = {"ok", "kind"},
+    },
+}
+
+local function run(parsed: any): integer
+    local positional: {string} = parsed.positional
+    if #positional > 0 then
+        return command:usageError("unexpected argument " .. positional[1])
+    end
+    local values = parsed.values
+    if values.binary and values.updateBootstrap then
+        return command:usageError("--binary verifies the packaged binary and has no bootstrap to refresh")
+    end
+    local asJson = values.format == "json"
+    local project = require("compiler.build.project")
+    -- The collector doubles as the request to stay quiet: what it fills is what gets
+    -- said, so the human line does not land in front of the document.
+    local result: {[string]: any} = {}
+    local code: integer
+    if values.binary then
+        code = project.binaryFixpoint(".", {result = asJson and result or nil})
+    else
+        code = project.fixpoint(".", {updateBootstrap = values.updateBootstrap, result = asJson and result or nil})
+    end
+    if asJson then
+        result.ok = code == 0
+        result.kind = values.binary and "binary" or "compiler"
+        require("compiler.cli.report").write(result)
+    end
+
+    return code
+end
+
+return new spec.Handler {spec = command, run = run}

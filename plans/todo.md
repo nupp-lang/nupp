@@ -7,7 +7,7 @@ work makes sense in.
 ## Type system
 
 - [x] **Enforce `where` predicates.** A refinement is read into plain data on
-      the nominal (`src/nupp/predicate.nupp`), held to the declaration's own
+      the nominal (`src/compiler/predicate.nupp`), held to the declaration's own
       fields, and compiled: `x is T` becomes the test. That gives an interface a
       runtime identity it never had — `is` on one was NUPP3001 — so a value this
       program did not build can answer `is`, which a stamped metatable cannot
@@ -115,7 +115,7 @@ work makes sense in.
 - [ ] **Comptime** ([design](comptime.md)): deterministic data evaluation,
       deliberately not a macro or declaration-generation system. Unstarted —
       `comptime` is not a token, and `@comptime` is a reserved annotation that
-      errors with NUPP2113 (`src/nupp/annotations.nupp:214`).
+      errors with NUPP2113 (`src/compiler/annotations.nupp:214`).
   - [ ] C1: `comptime do ... end` expression blocks; compile-time-known
         literals and `const` bindings; capability-limited evaluation; canonical
         literal/table quoting; line-count-preserving generation; in-memory
@@ -134,9 +134,9 @@ work makes sense in.
       question wearing two faces, and it is a design call rather than a bug.
       Declarations reached only through a private sibling header are invisible:
       macOS puts `strlen` in `_string.h`, so importing `string.h` correctly
-      yields nothing (`filterToHeader`, `src/nupp/importc.nupp:41`). The same
+      yields nothing (`filterToHeader`, `src/compiler/importc.nupp:41`). The same
       cut applies to constants, which are read from the target file's own text
-      (`headerMacroNames`, `src/nupp/importc.nupp:213`), so `errno.h` — which
+      (`headerMacroNames`, `src/compiler/importc.nupp:213`), so `errno.h` — which
       defines `EPERM` in `sys/errno.h` — imports none at all.
 
       This is now the whole of the real-header sweep. Everything else that used
@@ -151,9 +151,9 @@ work makes sense in.
       trace corrupts or panics — but only past the trace threshold, so it
       survives every test that runs the path fewer than ~56 times. NUPP2502
       exists but fires only syntactically, at an `ffi.cast<ptr>(fn)` inside
-      `unsafe` (`src/nupp/check/ffi.nupp:113`). The real check needs C function
+      `unsafe` (`src/compiler/check/ffi.nupp:113`). The real check needs C function
       types *marked*: types are structurally interned, and `cheader` builds a
-      plain `T.func` (`src/nupp/cheader.nupp:93`), so a C callback is today
+      plain `T.func` (`src/compiler/cheader.nupp:93`), so a C callback is today
       indistinguishable from an ordinary Lua function. Mark them where they are
       built — cdef signatures, `cheader` exports, C function pointers — then
       flag a Lua function reaching one without `jit.off`, and the variadic FFI
@@ -162,9 +162,9 @@ work makes sense in.
       argument shape.
 - [ ] **Propagate string-pointer provenance past a bare name.** A pointer cast
       from a named string binding is a lexical borrow already
-      (`src/nupp/check/ffi.nupp:107`), and string literals get the NUPP2501
+      (`src/compiler/check/ffi.nupp:107`), and string literals get the NUPP2501
       lint. But `ownershipEntry` unwraps only `paren`/`castExpr` and then
-      requires a `name` (`src/nupp/check/ownership.nupp:196`), so a concat, an
+      requires a `name` (`src/compiler/check/ownership.nupp:196`), so a concat, an
       index, an alias, or a call result produces a `borrowed` type with a nil
       owner — borrowed in name, untracked in fact. Non-`local` assignments get
       no NUPP2501 at all.
@@ -182,7 +182,7 @@ work makes sense in.
       Use the real tecs compression, process-I/O, mapped-buffer, and
       pointer-plus-length APIs as the acceptance corpus.
 - [ ] **`@jit` trace checker.** NYI analysis behind the pragma, which is
-      likewise reserved and erroring today (`src/nupp/annotations.nupp:208`).
+      likewise reserved and erroring today (`src/compiler/annotations.nupp:208`).
       Depends on nothing above except the marking pass it shares with the
       callback lint.
 - [ ] Struct unions and bitfields (tagged C union lowering); malloc-backed big
@@ -293,10 +293,10 @@ work makes sense in.
 ## Ownership and resource scopes
 
 - [ ] **A cleanup is a spelling, not a resolved reference.** `Type.cleanups` is
-      `{string}` (`src/nupp/types.nupp:110`), so every reader re-resolves it in
+      `{string}` (`src/compiler/types.nupp:110`), so every reader re-resolves it in
       its own scope: the checker through `lookupVar`
-      (`src/nupp/check/ownership.nupp:96`), the generator as a bare identifier
-      (`src/nupp/gen.nupp:752`). They agree only inside the declaring module,
+      (`src/compiler/check/ownership.nupp:96`), the generator as a bare identifier
+      (`src/compiler/gen.nupp:752`). They agree only inside the declaring module,
       which is why letting an owner cross produced a program that checked clean
       and crashed. It is a linking problem wearing a codegen costume — source
       spellings written into object files and resolved again at each use.
@@ -348,9 +348,9 @@ work makes sense in.
           res.nupp:11:2: error: NUPP2602: bare @owned has multiple inherited
           @dispose operations; choose one with @owned(cleanup)
 
-      `src/nupp/check/declare.nupp:394` appends `"@method:" .. name` to
+      `src/compiler/check/declare.nupp:394` appends `"@method:" .. name` to
       `n.defaultDisposers` unconditionally, where the free-function path
-      `own.registerDefaultDisposer` (`src/nupp/check/ownership.nupp:188`)
+      `own.registerDefaultDisposer` (`src/compiler/check/ownership.nupp:188`)
       dedups first. Re-checking the declaring module against the same nominal
       appends twice and `ownership.nupp:169` fires on `#defaults > 1`. It needs
       the record to be a table member (`record res.File`) to show up; a
@@ -359,8 +359,8 @@ work makes sense in.
       trusts, and `@dispose` is the repair NUPP2620 tells people to reach for,
       so it has to work across modules before that advice is honest.
 - [ ] **A cleanup takes the owner and nothing else.** `@owned(cleanup)` emits
-      exactly `cleanup(__p)` (`src/nupp/gen.nupp:737`), and the annotation
-      accepts only function names (`src/nupp/check/pragma.nupp:102`), so a
+      exactly `cleanup(__p)` (`src/compiler/gen.nupp:737`), and the annotation
+      accepts only function names (`src/compiler/check/pragma.nupp:102`), so a
       cleanup needing context — an allocator, an arena, a parent handle,
       `ctx_free(ctx, ptr)` — has nowhere to put it. Capturing the context would
       mean a closure per owner, which is the allocation this model exists to
@@ -375,11 +375,11 @@ work makes sense in.
       filters by source offset alone, so every file symbol is offered
       regardless of enclosing block; imported declarations and import-c
       namespaces, which `resolveReceiver` cannot reach
-      (`src/nupp/lsp/navigate.nupp:314`) even though cdef structs already carry
+      (`src/compiler/lsp/navigate.nupp:314`) even though cdef structs already carry
       `byname`; callable snippets, which need `insertTextFormat` and are
       absent entirely; and module-path completion inside a `require` string.
 - [ ] **Cancellation, stale results and multi-root.** `$/cancelRequest` is
-      registered as a no-op (`src/nupp/lsp/init.nupp:868`), so it is understood
+      registered as a no-op (`src/compiler/lsp/init.nupp:868`), so it is understood
       only in the sense of not erroring; cancelling work in flight needs input
       readable without blocking, which this loop does not have. Graceful
       stale-request results need request-id tracking, which nothing does.
@@ -387,22 +387,22 @@ work makes sense in.
       session, so real multi-root remains — see
       [plan.md](plan.md#lsp-follow-up).
 - [ ] **Doc comments as checked grammar.** `@param` parses
-      (`src/nupp/docblock.nupp:23`) and renders, but nothing verifies the names
+      (`src/compiler/docblock.nupp:23`) and renders, but nothing verifies the names
       against the real parameter list — `@raises` is the only tag any checker
       reads. `[[Type]]` cross-references do not exist as syntax yet.
 - [ ] **Docgen JSON output mode.** Static HTML landed (`nupp doc site`,
-      `src/nupp/doc/html.nupp`). What external site generators need is a
+      `src/compiler/doc/html.nupp`). What external site generators need is a
       doc-model JSON emitter; `--format json` today is only the CLI's own
-      report shape, which `src/nupp/cli/doc.nupp:43` says outright.
+      report shape, which `src/compiler/cli/doc.nupp:43` says outright.
 - [ ] **`nupp doc` never removes what it stopped writing.** A module build
       records its outputs and deletes the ones a later build did not produce
-      (`src/nupp/build/project.nupp:202`); the docs target returns at line 93,
+      (`src/compiler/build/project.nupp:202`); the docs target returns at line 93,
       before any of that runs. So a page keeps its rendered HTML after its
       route changes or its source is deleted. Restructuring this site left a
       whole `build/docs/guide/` tree behind, still serving pages whose links
       pointed at files that had moved — a link checker run over the output
       found them and they looked real, which is worse than a 404. The list is
-      already in hand: `doc.files.collect` (`src/nupp/doc/files.nupp:20`)
+      already in hand: `doc.files.collect` (`src/compiler/doc/files.nupp:20`)
       records every written path for `--json`. The docs path needs to store it
       and remove the difference.
 
@@ -414,7 +414,7 @@ work makes sense in.
 - [ ] **`nupp doc` picks between two docs targets by hash order.** With no
       top-level `docs` table, `manifestSettings` returns the first
       `kind = "docs"` target `pairs()` reaches
-      (`src/nupp/doc/init.nupp:392`), and `pairs()` does not promise an order.
+      (`src/compiler/doc/init.nupp:392`), and `pairs()` does not promise an order.
       Two targets named `alpha` and `zulu` sent five consecutive runs to
       `out-zulu`, `out-alpha`, `out-zulu`, `out-alpha`, `out-alpha`. The
       command has no `--target`, so there is no way to say which was meant
@@ -422,7 +422,7 @@ work makes sense in.
       names a docs target, or refuse and ask — but not this.
 - [ ] **An unknown key in most of the manifest is still ignored.** Closed key
       sets cover the docs target, its pages, hero actions, features, and
-      `config.fmt` (`src/nupp/build/manifest.nupp:75,97,228`). Everywhere else
+      `config.fmt` (`src/compiler/build/manifest.nupp:75,97,228`). Everywhere else
       — top level, module targets, dependencies — a typo is silently accepted.
       The docs target got the closed set because the generator reads keys the
       build's validation knows nothing about; the argument is weaker elsewhere,
@@ -435,7 +435,7 @@ work makes sense in.
       revision and SHA-256 and built from source by `host/build.rs`, not
       committed; `cjson`/`cjson.safe` are registered in `package.preload`
       (`host/src/lua.rs:68`); the binary container, trailer and stamping are
-      implemented (`src/nupp/build/package.nupp:154`, `host/src/payload.rs`).
+      implemented (`src/compiler/build/package.nupp:154`, `host/src/payload.rs`).
       What remains:
   - [ ] decide whether pinned-and-fetched is enough or the sources should be
         vendored in-tree (plan.md §Distribution said vendored)
@@ -477,7 +477,7 @@ in module resolution, no translator subcommand, no `.tl` build input mode.
       moves nothing. (`style` has one now, `customary-operator`.)
 - [ ] **Report an `@allow` that silenced nothing**, so stale suppressions get
       removed rather than accumulating. Nothing tracks whether a suppression
-      fired (`src/nupp/check/pragma.nupp:226`).
+      fired (`src/compiler/check/pragma.nupp:226`).
 - [ ] **Grow the worked examples in `explain.nupp`.** Nine entries, seven with
       a `wrong`/`right` pair (NUPP1002, NUPP2001, NUPP2004, NUPP2106, NUPP2107,
       NUPP2119, NUPP2122); every other code answers through its family, which
@@ -551,7 +551,7 @@ in module resolution, no translator subcommand, no `.tl` build input mode.
 
 Landed: cache keys are digested with XXH64 rather than a pure-Lua SHA-256, the
 prelude no longer builds the project index on the way to every command, project
-headers are stored between commands (`nupp.build.store`, plain data via
+headers are stored between commands (`compiler.build.store`, plain data via
 `string.buffer`, in the gitignored build directory), `nupp check` reuses
 unchanged modules and replays their diagnostics, bundled module declarations are
 checked when something asks for one, `nupp fmt` stores each file's formatting
@@ -569,29 +569,29 @@ What is left, in the order the numbers justify:
       listings.** A warm check is ~20 ms of interpreter start, ~45 ms of actual
       work, and six `find` invocations plus a `mkdir`. `./src` and
       `./build/generated` are each listed twice
-      (`src/nupp/env.nupp:95`, `src/nupp/fs.nupp:85`), and `bin/nupp` spawns
+      (`src/compiler/env.nupp:95`, `src/compiler/fs.nupp:85`), and `bin/nupp` spawns
       about four more before it execs. `process.capture` also creates and
-      removes an `os.tmpname` file per call. `nupp.fs` shells out because Lua
+      removes an `os.tmpname` file per call. `compiler.fs` shells out because Lua
       has no directory API and the FFI would need one implementation per
       platform; that reasoning still holds, but the price is now most of what a
       warm command costs. Memoizing per environment removes the duplicates —
       except that an editor session lives for hours and files appear in it, so
       the memo needs an invalidation story before it is safe.
 - [ ] **`nupp check FILE` has no per-module reuse at all.**
-      `src/nupp/cli/check.nupp:76` re-parses and re-checks the named file
+      `src/compiler/cli/check.nupp:76` re-parses and re-checks the named file
       unconditionally; only the header index is cached. The 0.14 s figure is
-      the startup-plus-index floor measured on a small file — `src/nupp/env.nupp`
+      the startup-plus-index floor measured on a small file — `src/compiler/env.nupp`
       costs 0.82–0.93 s on every warm run. This is the largest single number
       left and the one an editor hits most.
 - [ ] **Cross-process cutoff is at the module, not the interface.** A body edit
       stops at an unchanged interface, because the interface digest is recorded
       and compared. But any edit to an exported *type declaration* changes
       `projectIndexHash`, which disables reuse for the whole project: the digest
-      covers each declaration's `cst.textOf` (`src/nupp/env.nupp:299`), which
+      covers each declaration's `cst.textOf` (`src/compiler/env.nupp:299`), which
       emits leading trivia, so reformatting a docblock above a record rechecks
       everything. The other half of the same mechanism is `typeFingerprint`,
       which describes a nominal by its declaration kind and name and
-      deliberately does not expand members (`src/nupp/build/modules.nupp:37`) —
+      deliberately does not expand members (`src/compiler/build/modules.nupp:37`) —
       correct in itself, but it means the interface digest leans entirely on
       `projectIndexHash` to notice a changed record. Narrow the digest to what
       a dependent can actually observe and make the two one mechanism rather
@@ -610,7 +610,7 @@ What is left, in the order the numbers justify:
       identity-sensitive machinery in the compiler is a bad trade today; it
       becomes a good one if the floor drops further or the graph grows.
 - [ ] **The store never shrinks below what a run touched.** `KEEP_COLD = 2048`
-      (`src/nupp/build/store.nupp:35`) bounds the cold entries, which is fine
+      (`src/compiler/build/store.nupp:35`) bounds the cold entries, which is fine
       for a project this size and unmeasured for a large one.
 
 ## Testing and CI
@@ -620,7 +620,7 @@ What is left, in the order the numbers justify:
       `__unm`, `__sub`, `__mul`, `__div`, `__mod`, `__pow`, `__lt`, `__le`,
       `__concat` or `__eq` dispatch. The table under test is
       `operators.metamethod`/`contractMetamethod`
-      (`src/nupp/check/operators.nupp:45`). Needed: unary minus, subtraction,
+      (`src/compiler/check/operators.nupp:45`). Needed: unary minus, subtraction,
       multiplication, division, modulo, power, right-hand fallback, and
       comparison reversal/`__lt` fallback for `<=`.
 - [ ] **CI matrix** (GitHub Actions). There is no `.github/` at all. macOS +

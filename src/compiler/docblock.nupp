@@ -1,0 +1,182 @@
+--[[
+The `---` run above a declaration, read as its tags.
+
+Two readers ask this the same question and have to get the same answer.
+Documentation renders the tags, and the checker asks whether a function that
+raises said so. Parsing the run in one place is what keeps `@raises` meaning one
+thing in `nupp doc` and in `undocumented-raise`.
+
+Nothing here consults the checker. Which run belongs to a declaration, and what
+its tags are, is answered by the parse alone, which is why documentation has
+never needed a type to render a page.
+]]
+
+local cst = require("compiler.cst")
+
+local docblock = {}
+
+--- One `---` run, read as its prose and its tags.
+record docblock.Doc
+    --- The prose, with every tag line taken out of it.
+    text: string
+
+    --- `@param name description`, by the parameter it names.
+    params: {[string]: string}
+
+    --- `@return`, one entry per occurrence, in the order written.
+    returns: {string}
+
+    --- `@raises`, one entry per occurrence, in the order written.
+    raises: {string}
+
+    --- `@field name description`, by the field it names.
+    fields: {[string]: string}
+
+    --- `@typearg name description`, by the type parameter it names.
+    typeargs: {[string]: string}
+
+    --- Every other tag, by name, holding its value or `true` when it had none.
+    tags: {[string]: any}
+end
+
+local function trim(text: string): string
+    return (text:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+-- The first token under a node, trying every child rather than only the first, so a
+-- node whose leading child carries no token still finds the one that follows it.
+local function firstToken(node: cst.Child?)
+    if not node then
+        return nil
+    end
+    if cst.isToken(node) then
+        return node
+    end
+    for _, child in ipairs(node) do
+        local token = firstToken(child)
+        if token then
+            return token
+        end
+    end
+
+    return nil
+end
+
+--- The `---` run attached to a node, one line per entry with the marker stripped.
+---
+--- Only the final adjacent run counts. An ordinary comment or a blank line is a hard
+--- boundary, so a copyright header cannot become the documentation of the first
+--- declaration under it.
+---
+--- @param node the node whose leading trivia to read
+--- @return the run's lines, empty when the node carries no documentation
+function docblock.linesOf(node: cst.Child?): {string}
+    local token = firstToken(node)
+    local lines: {string} = {}
+    local pending: {string} = {}
+    for _, trivia in ipairs(token and token.trivia or {}) do
+        if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
+            pending[#pending + 1] = trivia.text:gsub("^%-%-%- ?", "", 1)
+        elseif trivia.kind == "comment" then
+            pending = {}
+        elseif trivia.kind == "whitespace" then
+            local _, newlines = trivia.text:gsub("\n", "")
+            if newlines > 1 then
+                pending = {}
+            end
+        end
+    end
+    for _, line in ipairs(pending) do
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+--- One `---` run read as its prose and its tags.
+---
+--- A line opening with `@name` starts a tag and runs until the next tag or the next
+--- unindented line, so a description may be wrapped across as many lines as it needs.
+--- Anything outside a tag is prose.
+---
+--- @param lines the run's lines, as `linesOf` returns them
+--- @return what the run said
+function docblock.parse(lines: {string}): docblock.Doc
+    local params: {[string]: string} = {}
+    local fields: {[string]: string} = {}
+    local typeargs: {[string]: string} = {}
+    local returns: {string} = {}
+    local raises: {string} = {}
+    local tags: {[string]: any} = {}
+    -- A tag is routed by where its value goes rather than by its own name. `@raises`
+    -- already ends in the letter that pluralizing `@return` adds, so deriving the
+    -- destination from the spelling is what would have to be special-cased.
+    local named: {[string]: {[string]: string}} = {param = params, field = fields, typearg = typeargs}
+    local listed: {[string]: {string}} = {["return"] = returns, returns = returns, raises = raises}
+
+    local body: {string} = {}
+    local active: string? = nil
+    local activeName: string? = nil
+    for _, line in ipairs(lines) do
+        local tag, value = line:match("^@([%w_-]+)%s*(.*)$")
+        if tag then
+            local text = value or ""
+            active, activeName = tag, nil
+            local into, list = named[tag], listed[tag]
+            if into then
+                local name, description = text:match("^(%S+)%s*(.*)$")
+                if name then
+                    activeName = name
+                    into[name] = description or ""
+                end
+            elseif list then
+                list[#list + 1] = text
+            else
+                tags[tag] = text ~= "" and text or true
+            end
+        elseif active and line:match("^%s+") then
+            local continuation = trim(line)
+            local into, list = named[active], listed[active]
+            if list then
+                local index = #list
+                list[index] = trim((list[index] or "") .. " " .. continuation)
+            elseif into and activeName then
+                into[activeName] = trim((into[activeName] or "") .. " " .. continuation)
+            else
+                body[#body + 1] = line
+            end
+        else
+            active, activeName = nil, nil
+            body[#body + 1] = line
+        end
+    end
+    while #body > 0 and trim(body[1]) == "" do
+        table.remove(body, 1)
+    end
+    while #body > 0 and trim(body[#body]) == "" do
+        table.remove(body)
+    end
+
+    return new docblock.Doc {
+        text = table.concat(body, "\n"),
+        params = params,
+        returns = returns,
+        raises = raises,
+        fields = fields,
+        typeargs = typeargs,
+        tags = tags,
+    }
+end
+
+--- The tags of the run attached to a node, in one call.
+---
+--- @param node the node whose leading trivia to read
+--- @return what the run said
+--- @return whether the node carried a run at all, which is how a caller tells an
+---     empty docblock from an absent one
+function docblock.of(node: cst.Child?): docblock.Doc, boolean
+    local lines = docblock.linesOf(node)
+    return docblock.parse(lines), #lines > 0
+end
+
+return docblock

@@ -1,4 +1,4 @@
-; Nupp formal grammar — normative reference for src/nupp/parser.lua
+; Nupp formal grammar — normative reference for src/compiler/parser.nupp
 ;
 ; Notation: ABNF per RFC 5234 with RFC 7405 case-sensitivity — every quoted
 ; terminal here is CASE-SENSITIVE (read "if" as %s"if"). Rule layering encodes
@@ -23,7 +23,9 @@
 ;;; Syntactic grammar
 ;;; ------------------------------------------------------------------
 
-chunk          = block
+chunk          = *inner-annotation block
+
+inner-annotation = "@" "!" ("nofmt" / "internal")
 
 block          = *stat [retstat]
 

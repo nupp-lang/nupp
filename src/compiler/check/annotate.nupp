@@ -1,0 +1,394 @@
+--[[
+Whether an annotation is well formed, and what one defines.
+
+An annotation is typed, extensible metadata: `@annotation` on a record declares a
+name, its members, and where it may attach, and every use is checked against that
+declaration. None of this is about types flowing through a program, so it is
+separated from the walk that checks them; it reaches the run through the checker
+it is installed on.
+
+See `docs/annotations.md`.
+]]
+
+local T = require("compiler.types")
+local cst = require("compiler.cst")
+local relations = require("compiler.relations")
+local state = require("compiler.check.state")
+
+local annotate = {}
+
+local isA = relations.isA
+
+--- A type, as compiler.types builds them.
+local type Type = T.Type
+
+--- What the walk asks about an annotation. The pragma statement reaches all three, and
+--- a declaration reaches `validateAnnotation` for whatever is attached to it.
+type annotate.Ops = {
+    --- The text a string literal holds, quotes removed, or nil for anything else. A
+    --- member's value is a compile-time constant, so this is how one is read.
+    stringValue: function(expr: any): string?,
+
+    --- Checks one application against the definition it names, answering that
+    --- definition and whether the application held up.
+    validateAnnotation: function(application: any, target: any, owner: any?): (any, boolean),
+
+    --- Registers the definition an `@annotation` declaration introduces.
+    defineAnnotation: function(application: any, declaration: any)
+}
+
+--- Installs the annotation checking on one run.
+---
+--- @param c the run's state
+--- @return the operations the walk calls
+function annotate.install(c: state.Checker): annotate.Ops
+    local ops = {}
+
+    --- The identifier an expression names, or nil where it names none. Error recovery
+    --- can leave a name node without its token, so an annotation argument written
+    --- against a half-parsed declaration reads as absent rather than crashing the run.
+    function ops.nameText(expr: cst.Node?): string?
+        if not expr or expr.kind ~= "name" then
+            return nil
+        end
+        local tok = expr.token
+
+        return tok and tok.text or nil
+    end
+
+    --- The source text of a literal, quotes and all, or nil where the node is not one.
+    function ops.literalText(expr: cst.Node?): string?
+        if not expr then
+            return nil
+        end
+        local tok = expr.kind == "number" and expr.token or expr.kind == "string" and expr.token or nil
+
+        return tok and tok.text or nil
+    end
+
+    function ops.stringValue(expr)
+        if not expr or expr.kind ~= "string" then
+            return nil
+        end
+        local text = expr.token.text
+        local quote = text:sub(1, 1)
+        if (quote == '"' or quote == "'") and text:sub(-1) == quote then
+            return text:sub(2, -2)
+        end
+
+        return nil
+    end
+
+    local function constantAnnotationExpr(expr)
+        if not expr then
+            return false
+        end
+        local kind = expr.kind
+        if kind == "string" or kind == "number" or kind == "nilExpr" or kind == "trueExpr" or kind == "falseExpr" then
+            return true
+        end
+        if kind ~= "tableExpr" then
+            return false
+        end
+        for _, field in ipairs(expr.fields or {}) do
+            if field.kind == "fieldItem" or field.kind == "fieldNamed" then
+                if not constantAnnotationExpr(field.value) then
+                    return false
+                end
+            else
+                return false
+            end
+        end
+
+        return true
+    end
+
+    local function annotationReferencePath(expr)
+        if not expr then
+            return nil
+        end
+        if expr.kind == "name" then
+            return {expr.token.text}, {expr.token}
+        end
+        if expr.kind ~= "dotIndex" then
+            return nil
+        end
+        local names, tokens = annotationReferencePath(expr.obj)
+        if not names then
+            return nil
+        end
+        names[#names + 1] = expr.name.text
+        tokens[#tokens + 1] = expr.name
+
+        return names, tokens
+    end
+
+    -- Resolves an @ref member in the type namespace. Annotation arguments are parsed as
+    -- expressions so ordinary metadata remains expression-shaped, but a reference is
+    -- deliberately a bare or module-qualified type name. Marking its final token with
+    -- the type definition gives the LSP the same navigation data as a type annotation
+    -- in source code.
+    local function resolveAnnotationReference(application, member, arg)
+        local names, tokens = annotationReferencePath(arg.expr)
+        if not names then
+            c.diag("NUPP2115", arg.expr, ("@%s.%s must be a type reference"):format(application.name.text, member.name))
+            return nil, false
+        end
+
+        local name = names[#names]
+        local tok = tokens[#tokens]
+        local t, def, lookupErr
+        if #names == 1 then
+            t = T.builtins[name]
+            if not t then
+                t, def, lookupErr = c.lookupType(name)
+            end
+        else
+            local moduleNames = {}
+            for j = 1, #names - 1 do
+                moduleNames[j] = names[j]
+            end
+            local moduleName = table.concat(moduleNames, ".")
+            if #moduleNames == 1 then
+                local holder = c.lookupEntry(moduleNames[1])
+                if holder and holder.requiredModule then
+                    moduleName = holder.requiredModule
+                end
+            end
+            if c.env and c.env.resolveQualifiedType then
+                t, def = c.env.resolveQualifiedType(c.env, c.filename, moduleName, name)
+            end
+        end
+
+        c.markToken(tok, def, t, def and def.kind or "type")
+        if t then
+            arg.annotationReferenceType = t
+            return t, true
+        end
+        local message = lookupErr and (
+            "ambiguous type reference %q; use a module-qualified name"
+        ):format(table.concat(names, ".")) or ("unknown type reference %q"):format(table.concat(names, "."))
+        c.diag("NUPP2115", arg.expr, message)
+
+        return nil, false
+    end
+
+    local function annotationTargets(application)
+        local targets = nil
+        for _, arg in ipairs(application.annotationArgs or {}) do
+            if not arg.name or arg.name.text ~= "targets" or targets then
+                c.diag("NUPP2114", arg, "@annotation accepts one named argument: targets")
+            elseif not arg.expr or arg.expr.kind ~= "tableExpr" then
+                c.diag("NUPP2114", arg, "@annotation targets must be an array of target names")
+            else
+                targets = {}
+                for _, field in ipairs(arg.expr.fields or {}) do
+                    local value = field.kind == "fieldItem" and ops.stringValue(field.value) or nil
+                    if not value then
+                        c.diag("NUPP2114", field, "annotation targets must be string literals")
+                    else
+                        targets[#targets + 1] = value
+                    end
+                end
+            end
+        end
+        if not targets or #targets == 0 then
+            c.diag("NUPP2114", application, "@annotation requires a non-empty targets array")
+            return nil
+        end
+
+        return targets
+    end
+
+    local function validateTypedAnnotation(application, definition2)
+        local members = definition2.members or {}
+        local provided = {}
+        local positional = nil
+
+        for _, arg in ipairs(application.annotationArgs or {}) do
+            local member
+            if arg.name then
+                member = members[arg.name.text]
+                if not member then
+                    c.diag("NUPP2115", arg.name, ("@%s has no member %q"):format(definition2.name, arg.name.text))
+                elseif provided[arg.name.text] then
+                    c.diag(
+                        "NUPP2115",
+                        arg.name,
+                        ("@%s member %q was supplied twice"):format(definition2.name, arg.name.text)
+                    )
+                end
+            elseif positional then
+                c.diag("NUPP2115", arg, ("@%s accepts at most one positional value"):format(definition2.name))
+            elseif not definition2.singleValue then
+                c.diag("NUPP2115", arg, ("@%s has no single-value member; use named values"):format(definition2.name))
+            else
+                positional = arg
+                member = members[definition2.singleValue]
+            end
+
+            if member and not provided[member.name] then
+                provided[member.name] = arg
+                local actual, hasActual
+                if member.reference then
+                    actual, hasActual = resolveAnnotationReference(application, member, arg)
+                else
+                    if not constantAnnotationExpr(arg.expr) then
+                        c.diag("NUPP2115", arg.expr, "annotation values must be compile-time constants")
+                    end
+                    actual, hasActual = c.infer(arg.expr), true
+                end
+                if hasActual then
+                    local ok, why = isA(actual, member.type)
+                    if not ok then
+                        c.diag(
+                            "NUPP2115",
+                            arg.expr,
+                            (
+                                "@%s.%s: %s is not a %s%s"
+                            ):format(
+                                definition2.name,
+                                member.name,
+                                T.tostring(actual),
+                                T.tostring(member.type),
+                                why and (" (" .. why .. ")") or ""
+                            )
+                        )
+                    end
+                end
+            end
+        end
+
+        for _, name in ipairs(definition2.memberOrder or {}) do
+            local member = members[name]
+            if member and not member.optional and not provided[name] then
+                c.diag("NUPP2115", application, ("@%s requires member %q"):format(definition2.name, name))
+            end
+        end
+        application.annotationValues = provided
+    end
+
+    function ops.validateAnnotation(application, target, owner)
+        local annotation = c.annotationRegistry:get(application.name.text)
+        local resolutionError = nil
+        if c.env and c.env.resolveProjectAnnotation and (
+            not annotation or annotation.source and annotation.source ~= c.filename
+        ) then
+            annotation, resolutionError = c.env.resolveProjectAnnotation(c.env, c.filename, application.name.text)
+        end
+        if not annotation then
+            if resolutionError then
+                c.diag("NUPP2111", application.name, resolutionError)
+            else
+                c.diag("NUPP2111", application.name, ("unknown annotation @%s"):format(application.name.text))
+            end
+            return nil, false
+        end
+        application.annotationDefinition = annotation
+
+        local valid = true
+        if not target or not c.annotationRegistry:accepts(annotation, target) then
+            c.diag(
+                "NUPP2112",
+                application.name,
+                (
+                    "@%s may attach only to: %s"
+                ):format(application.name.text, c.annotationRegistry:describeTargets(annotation))
+            )
+            valid = false
+        end
+        if annotation.arguments == "none" and application.open then
+            c.diag("NUPP2112", application.name, ("@%s does not take arguments"):format(application.name.text))
+            valid = false
+        elseif annotation.arguments == "names" then
+            for _, arg in ipairs(application.annotationArgs or {}) do
+                if arg.name or not arg.expr or (arg.expr.kind ~= "name" and arg.expr.kind ~= "string") then
+                    c.diag("NUPP2112", arg, ("@%s arguments must be names or strings"):format(application.name.text))
+                    valid = false
+                end
+            end
+        elseif annotation.arguments == "typed" then
+            validateTypedAnnotation(application, annotation)
+        end
+        if annotation.reserved and valid then
+            c.diag(
+                "NUPP2113",
+                application.name,
+                ("@%s is reserved for %s, which is not implemented"):format(application.name.text, annotation.reserved)
+            )
+        end
+        if (
+            application.name.text == "annotationValue" or application.name.text == "ref"
+        ) and not (owner and owner.isAnnotationDefinition) then
+            c.diag(
+                "NUPP2114",
+                application,
+                ("@%s is valid only on an annotation definition member"):format(application.name.text)
+            )
+            valid = false
+        end
+
+        return annotation, valid
+    end
+
+    function ops.defineAnnotation(application, declaration)
+        local name = declaration.name.text
+        if c.annotationDefinitions[name] then
+            c.diag("NUPP2114", declaration.name, ("annotation @%s is already defined in this file"):format(name))
+            return
+        end
+        c.annotationDefinitions[name] = true
+        local targets = annotationTargets(application)
+        if not targets then
+            return
+        end
+        local nominal = declaration.resolvedType
+        local members, order = {}, {}
+        local singleValue = nil
+        for _, entry in ipairs(declaration.entries or {}) do
+            if entry.kind == "fieldDecl" then
+                local name = entry.name.text
+                local member = {
+                    name = name,
+                    type = nominal and nominal.byname[name] or T.any,
+                    optional = nominal and nominal.byname[
+                        name
+                    ] and nominal.byname[name].tag == "union" and nominal.byname[name].hasNil or false,
+                }
+                members[name] = member
+                order[#order + 1] = name
+                for _, attached in ipairs(entry.annotations or {}) do
+                    if attached.name.text == "annotationValue" then
+                        if singleValue then
+                            c.diag("NUPP2114", attached, "an annotation has only one @annotationValue member")
+                        else
+                            singleValue = name
+                        end
+                    elseif attached.name.text == "ref" then
+                        member.reference = true
+                    end
+                end
+            end
+        end
+        local definition2, err = c.annotationRegistry:define({
+            name = name,
+            arguments = "typed",
+            targets = targets,
+            members = members,
+            memberOrder = order,
+            singleValue = singleValue,
+            declaration = declaration,
+            source = c.filename,
+        })
+        if not definition2 then
+            c.diag("NUPP2114", declaration.name, err)
+            return
+        end
+        declaration.annotationDefinition = definition2
+        application.definesAnnotation = definition2
+    end
+
+    return ops
+end
+
+return annotate

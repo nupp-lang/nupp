@@ -1,5 +1,5 @@
-local fmt = require("nupp.fmt")
-local lexer = require("nupp.lexer")
+local fmt = require("compiler.fmt")
+local lexer = require("compiler.lexer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -40,9 +40,9 @@ end
 
 function M.propertyCapabilities()
    assertEq(fmt1("local x:{readonly value:string,writeonly value:string|integer}"),
-      "local x: {readonly value: string, writeonly value: string | integer}\n")
+      "local x: {\n    readonly value: string,\n    writeonly value: string | integer\n}\n")
    assertEq(fmt1("local x:{readonly [string]:string,writeonly [string]:integer}"),
-      "local x: {readonly [string]: string, writeonly [string]: integer}\n")
+      "local x: {\n    readonly [string]: string,\n    writeonly [string]: integer\n}\n")
    assertEq(fmt1("local interface Cell\nreadonly value:string\nwriteonly value:integer\nend"),
       "local interface Cell\n    readonly value: string\n    writeonly value: integer\nend\n")
 end
@@ -179,7 +179,7 @@ end
 -- must not take them for one.
 function M.contextualOperatorsAreNotCallees()
    assertEq(fmt1("local a = t as {number}"), "local a = t as {number}\n")
-   assertEq(fmt1("local a = t as {p: number}"), "local a = t as {p: number}\n")
+   assertEq(fmt1("local a = t as {p: number}"), "local a = t as {\n    p: number\n}\n")
    assertEq(fmt1('local b = v is "red"'), 'local b = v is "red"\n')
    assertEq(fmt1("local c = v is {string}"), "local c = v is {string}\n")
    -- and the sugar still hugs a real callee
@@ -228,11 +228,11 @@ function M.idempotentAndParseStable()
 end
 
 function M.selfFormatStable()
-   local parser = require("nupp.parser")
+   local parser = require("compiler.parser")
    for _, rel in ipairs({
-      "src/nupp/lexer.nupp", "src/nupp/cst.nupp", "src/nupp/parser.nupp",
-      "src/nupp/fmt/displaywidth.nupp", "src/nupp/fmt/init.nupp",
-      "src/nupp/main.nupp",
+      "src/compiler/lexer.nupp", "src/compiler/cst.nupp", "src/compiler/parser.nupp",
+      "src/compiler/fmt/displaywidth.nupp", "src/compiler/fmt/init.nupp",
+      "src/compiler/main.nupp",
    }) do
       local f = assert(io.open(ROOT .. "/" .. rel))
       local src = f:read("*a")

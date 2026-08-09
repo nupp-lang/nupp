@@ -1,8 +1,8 @@
 -- Curated diagnostic messages are reviewed as one artifact. Codes alone catch
 -- behavior; this corpus catches wording, spans, help, and fix titles.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -73,7 +73,7 @@ fix: cast to `int32`]]
 -- or not a test happens to exercise that diagnostic.
 local function stringLiteralsMentioningContext()
    local found = {}
-   local list = io.popen("find '" .. ROOT .. "/src/nupp' -name '*.nupp'")
+   local list = io.popen("find '" .. ROOT .. "/src/compiler' -name '*.nupp'")
    for path in list:lines() do
       local line = 0
       for text in io.lines(path) do
@@ -81,7 +81,7 @@ local function stringLiteralsMentioningContext()
          for literal in text:gmatch('"([^"]*)"') do
             if literal:find("%f[%w]c%.%a") then
                found[#found + 1] = ("%s:%d: %s"):format(
-                  path:gsub("^.*/src/nupp/", ""), line, literal)
+                  path:gsub("^.*/src/compiler/", ""), line, literal)
             end
          end
       end

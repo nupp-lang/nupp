@@ -26,7 +26,7 @@ byte indices. An empty match has `last == first - 1`.
 ## Compile a pattern
 
 ```nupp
-local expression: NuppRegex = nupp.regex.compile(pattern)
+local expression: nupp.Regex = nupp.regex.compile(pattern)
 ```
 
 `pattern` uses Rust regex syntax and must be UTF-8. NUL bytes are accepted
@@ -43,7 +43,7 @@ the native regex provider only when the resolved program uses it. See
 [Compiler-native features](tooling/build.md#compiler-native-features) for
 automatic detection and target overrides.
 
-## `NuppRegex` API
+## `nupp.Regex` API
 
 A compiled expression has the following fields and methods.
 
@@ -66,7 +66,7 @@ Reports whether any part of the arbitrary-byte `subject` matches.
 ### `find`
 
 ```nupp
-local match: NuppRegexMatch? = expression:find(subject, init)
+local match: nupp.RegexMatch? = expression:find(subject, init)
 ```
 
 Finds the first match at or after `init`, or returns nil. The optional `init`
@@ -86,7 +86,7 @@ assert(found.last == 6)
 ### `captures`
 
 ```nupp
-local captures: NuppRegexCaptures? = expression:captures(subject, init)
+local captures: nupp.RegexCaptures? = expression:captures(subject, init)
 ```
 
 Finds the first match and every capture group it populated. `init` follows the
@@ -94,7 +94,7 @@ same rules as `find`.
 
 `groups` may contain holes when optional groups do not participate. Iterate
 from 1 through `groupCount`, rather than using `#groups`. Each named entry
-aliases the same `NuppRegexMatch` stored at its numbered index.
+aliases the same `nupp.RegexMatch` stored at its numbered index.
 
 ```nupp
 local pair = nupp.regex.compile([[(?<key>\w+)=(\d+)]])
@@ -107,7 +107,7 @@ assert(captures.named.key.value == "hp")
 ```
 
 Capture names are pattern-defined, so the static type of `named` is gradual.
-Numbered groups retain their precise `NuppRegexMatch` type.
+Numbered groups retain their precise `nupp.RegexMatch` type.
 
 ### `replace`
 
@@ -145,7 +145,7 @@ When nothing matches, it returns the original string unchanged.
 
 ## Result records
 
-### `NuppRegexMatch`
+### `nupp.RegexMatch`
 
 One matched byte range:
 
@@ -157,13 +157,13 @@ One matched byte range:
 | `index` | `integer` | Capture index, with zero for the whole match. |
 | `name` | `string?` | Capture name, or nil for an unnamed group. |
 
-### `NuppRegexCaptures`
+### `nupp.RegexCaptures`
 
 The result of one capture search:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `whole` | `NuppRegexMatch` | Group zero, covering the whole match. |
-| `groups` | `{NuppRegexMatch}` | Explicit groups by 1-based index; unmatched groups leave holes. |
+| `whole` | `nupp.RegexMatch` | Group zero, covering the whole match. |
+| `groups` | `{nupp.RegexMatch}` | Explicit groups by 1-based index; unmatched groups leave holes. |
 | `groupCount` | `integer` | Number of explicit groups, including ones that did not match. |
 | `named` | `any` | Matched names mapped to the same values in `groups`. |

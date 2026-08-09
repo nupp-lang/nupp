@@ -1,0 +1,2189 @@
+--[[
+The error-tolerant recursive-descent parser.
+
+It never throws and never drops a token. Every token, including garbage, ends up
+in exactly one node's array part, so reprinting the root reproduces the source
+for arbitrary input — which is what the formatter and the language server rely
+on. A syntax error becomes an error record plus an error node and zero-width
+missing tokens, and parsing continues to the end of the file.
+
+The grammar is `docs/grammar.abnf`, whose level 0 is the untyped LuaJIT 3.0 base.
+]]
+
+local lexer = require("compiler.lexer")
+local cst = require("compiler.cst")
+
+local parser = {}
+
+--- A token, as the lexer produced it or the parser inserted it.
+local type Token = lexer.Token
+
+--- A node of the tree being built.
+local type Node = cst.Node
+
+--- What a node holds: another node, or a token.
+local type Child = cst.Child
+
+--- What parsing a file yields.
+type parser.ParseResult = {
+    --- The root node, which is always a chunk. Printing it reproduces the source
+    --- exactly.
+    root: cst.Chunk,
+
+    --- Every token, in order, trivia attached.
+    tokens: {Token},
+
+    --- Syntax errors, in source order. Parsing continued past all of them.
+    errors: {lexer.LexError}
+}
+
+local add = cst.add
+
+-- Binary operator priorities {left, right}; right < left means right-assoc. Layering
+-- follows docs/grammar.abnf (Lua 5.3-style placement of bit ops).
+local BINPRI = {["or"] = {1, 1}, ["??"] = {1, 1}, -- nil-coalescing, alongside `or`
+    [
+    "and"
+] = {
+    2,
+    2
+}, [
+    "<"
+] = {
+    3,
+    3
+}, [
+    ">"
+] = {
+    3,
+    3
+}, [
+    "<="
+] = {
+    3,
+    3
+}, [
+    ">="
+] = {
+    3,
+    3
+}, [
+    "~="
+] = {
+    3,
+    3
+}, [
+    "=="
+] = {
+    3,
+    3
+}, [
+    "|"
+] = {
+    4,
+    4
+}, [
+    "~"
+] = {
+    5,
+    5
+}, [
+    "&"
+] = {
+    6,
+    6
+}, [
+    "<<"
+] = {
+    7,
+    7
+}, [
+    ">>"
+] = {
+    7,
+    7
+}, ["~>>"] = {7, 7}, [".."] = {9, 8}, ["+"] = {10, 10}, ["-"] = {10, 10}, ["*"] = {11, 11}, ["/"] = {11, 11}, ["//"] = {11, 11}, ["%"] = {11, 11}, ["^"] = {14, 13},}
+local UNARY_PRI = 12
+local UNOPS = {["not"] = true, ["#"] = true, ["-"] = true, ["~"] = true}
+
+local BLOCK_FOLLOW = {["eof"] = true, ["end"] = true, ["else"] = true, ["elseif"] = true, ["until"] = true,}
+
+local EXPR_START = {
+    ["number"] = true,
+    ["string"] = true,
+    ["nil"] = true,
+    ["true"] = true,
+    ["false"] = true,
+    ["..."] = true,
+    ["function"] = true,
+    ["{"] = true,
+    ["name"] = true,
+    ["("] = true,
+    ["|"] = true,
+    ["istringOpen"] = true,
+}
+
+--- Parses one file into a lossless tree.
+---
+--- Never throws and never drops a token: every token, garbage included, ends up in
+--- exactly one node's array part, so printing the root reproduces the input for
+--- arbitrary text.
+---
+--- @param source the file's bytes
+--- @param filename what to call it in diagnostics
+function parser.parse(source: string, filename: string?): parser.ParseResult
+    local tokens, errors = lexer.lex(source, filename)
+    local i: integer = 1
+    -- Depth counter for the ternary second arm: while > 0, a ":" method-call suffix is
+    -- not consumed (grammar note [CS-2]). Reset inside any parenthesized/bracketed
+    -- context.
+    local noMethod = 0
+    -- `continue` is a soft keyword, but once recognized it must belong to the innermost
+    -- loop. Function bodies reset this depth because a loop outside a closure cannot be
+    -- continued from inside it.
+    local loopDepth = 0
+
+    --- The token about to be consumed.
+    local function cur(): Token
+        return tokens[i]
+    end
+
+    --- True when the cursor is the `||` written for a short function's empty parameter
+    --- list. The lexer folds `||` into an `or` token because that is what it means
+    --- everywhere else; only operand position gives it the other reading, and only the
+    --- parser knows which position it is in.
+    local function atEmptyPipes(): boolean
+        local tok = tokens[i]
+        return tok.kind == "or" and tok.text == "||"
+    end
+
+    --- True when an expression could begin at the cursor.
+    local function atExprStart(): boolean
+        local kind = tokens[i].kind
+        return EXPR_START[kind] or UNOPS[kind] or kind == "error" or atEmptyPipes()
+    end
+
+    --- Consumes the current token and returns it.
+    local function advance(): Token
+        local tok = tokens[i]
+        if tok.kind ~= "eof" then
+            i = i + 1
+        end
+
+        return tok
+    end
+
+    --- How to name a token in a message. The kind, which for an operator is its own
+    --- spelling — except for a customary one, where the kind is the classic form and
+    --- quoting it back would name something the file does not contain.
+    local function spelling(tok: Token): string
+        return lexer.CUSTOMARY[tok.text] and tok.text or tok.kind
+    end
+
+    --- Reports a syntax error at a token, and keeps going.
+    local function found(tok: Token): string
+        if tok.kind == "eof" then
+            return "end of file"
+        end
+        if tok.text == "" then
+            return tok.kind
+        end
+
+        return ("%q"):format(tok.text)
+    end
+
+    local function errAt(tok: Token, msg: string, code: string?, help: string?)
+        if msg:find("expected", 1, true) and not msg:find("found", 1, true) then
+            msg = msg .. "; found " .. found(tok)
+        elseif msg == "unexpected symbol" then
+            msg = msg .. "; found " .. found(tok)
+        end
+        errors[
+            #errors + 1
+        ] = {
+            code = code or "NUPP1005",
+            offset = tok.offset,
+            length = #tok.text,
+            line = tok.line,
+            col = tok.col,
+            msg = msg,
+            filename = filename,
+            help = help
+        }
+    end
+
+    --- A zero-width stand-in for a token that should have been there. It prints as
+    --- nothing, so recovery does not disturb the round trip.
+    local function missing(kind: string): Token
+        local at = cur()
+        return {kind = kind, text = "", missing = true, trivia = {}, offset = at.offset, line = at.line, col = at.col}
+    end
+
+    --- Consumes the expected token, or reports and inserts a missing one.
+    local function expect(kind: string, what: string): Token
+        if cur().kind == kind then
+            return advance()
+        end
+        errAt(cur(), ("'%s' expected%s; found %s"):format(kind, what and (" " .. what) or "", found(cur())), "NUPP1002")
+
+        return missing(kind)
+    end
+
+    --- The same, for a name.
+    local function expectName(what: string): Token
+        if cur().kind == "name" then
+            return advance()
+        end
+        errAt(cur(), ("name expected%s; found %s"):format(what and (" " .. what) or "", found(cur())), "NUPP1003")
+
+        return missing("name")
+    end
+
+    -- Runs fn with the no-method restriction lifted (inside (), [], {}, args).
+
+    --- Runs `fn` with the ternary depth cleared, as a bracketed context does, then
+    --- restores it.
+    local function resetNoMethod(fn: any, ...: any): any
+        local saved = noMethod
+        noMethod = 0
+        local r = fn(...)
+        noMethod = saved
+
+        return r
+    end
+
+    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parseTypePack, parseStatement, parseReturnType
+
+    -- Tokens that can begin a type expression.
+    local TYPE_START = {
+        ["name"] = true,
+        ["nil"] = true,
+        ["{"] = true,
+        ["function"] = true,
+        ["("] = true,
+        ["string"] = true,
+        ["true"] = true,
+        ["false"] = true,
+    }
+
+    -- FFI operations that take a type rather than a value, so the checker can give them
+    -- a return type that depends on it.
+    local FFI_INTRINSIC = {
+        ["new"] = true,
+        ["cast"] = true,
+        ["istype"] = true,
+        ["typeof"] = true,
+        ["sizeof"] = true,
+        ["alignof"] = true,
+    }
+
+    -- Compound assignment: statement-only, so there is no ambiguity with the expression
+    -- operators they are built from. That is also what lets `~=` mean xor-assign here
+    -- while it stays inequality in an expression: Lua has no assignment expression, so
+    -- the two never meet.
+    local COMPOUND_ASSIGN = {[
+        "+="
+    ] = "+", [
+        "-="
+    ] = "-", [
+        "*="
+    ] = "*", [
+        "/="
+    ] = "/", [
+        "//="
+    ] = "//", [
+        "%="
+    ] = "%", ["&="] = "&", ["|="] = "|", ["<<="] = "<<", [">>="] = ">>", ["~>>="] = "~>>", ["..="] = "..", ["~="] = "~",
+        -- `??=` is a Nupp extension: LuaJIT lists it among the extensions it has not
+        -- taken, so it is lowered rather than passed through.
+        ["??="] = "??",}
+
+    --- The binary operator a compound assignment at the cursor is built from, or nil
+    --- when there is no compound assignment there. Only `~=` needs the second look:
+    --- `!=` is the same token kind, but it spells inequality and nothing else, so `a !=
+    --- b` stays what it was — a statement that is not one.
+    local function compoundOp(): string?
+        local tok = tokens[i]
+        if tok.kind == "~=" and tok.text ~= "~=" then
+            return nil
+        end
+
+        return COMPOUND_ASSIGN[tok.kind]
+    end
+
+    -- Contextual declaration introducers at statement position [CS-5].
+    local TYPEDECL_KW = {["type"] = true, ["record"] = true, ["interface"] = true, ["struct"] = true,}
+    -- `type` names a type alias and takes `= <type>`; the others open a body.
+    local ALIAS_KW = {["type"] = true}
+
+    -- True when the tokens at `at` begin a declaration rather than an ordinary use of
+    -- the name. Two tokens are not enough to tell: in
+    --     local record
+    --     i, typeargs = f()
+    -- the introducer is followed by a name and still is not a declaration. An alias
+    -- form must continue with '='; a body form must not continue with '=' or ',',
+    -- either of which makes the name an assignment target.
+
+    -- Skips a possibly-qualified declaration name at `at`, returning the index just
+    -- past it. A trailing dot with no name after it is not one.
+    local function afterDeclName(at: integer): integer?
+        if not tokens[at] or tokens[at].kind ~= "name" then
+            return nil
+        end
+        local j = at + 1
+        while tokens[j] and tokens[j].kind == "." do
+            if not tokens[j + 1] or tokens[j + 1].kind ~= "name" then
+                return nil
+            end
+            j = j + 2
+        end
+
+        return j
+    end
+
+    --- Whether a contextual declaration keyword really introduces one here, which is
+    --- what keeps `local record = 5` ordinary Lua.
+    local function startsTypedecl(at: integer): boolean
+        local kw = tokens[at]
+        if not kw or kw.kind ~= "name" or not TYPEDECL_KW[kw.text] then
+            return false
+        end
+        local name = tokens[at + 1]
+        if not name or name.kind ~= "name" then
+            return false
+        end
+        -- The declared name must sit on the introducer's own line. Without this, `local
+        -- type` followed by `i = i + 2` on the next line reads as an alias declaration;
+        -- the same-line rule is the one already used to keep `as` and `is` contextual
+        -- [CS-6].
+        if name.line ~= kw.line then
+            return false
+        end
+        local past = afterDeclName(at + 1)
+        if not past then
+            return false
+        end
+        local after = tokens[past]
+        if not after then
+            return false
+        end
+        if ALIAS_KW[kw.text] then
+            return after.kind == "=" or after.kind == "<"
+        end
+
+        return after.kind ~= "=" and after.kind ~= ","
+    end
+
+    --- Whether a contextual `with` begins an explicit resource scope here.
+    local function startsWith(at: integer): boolean
+        local kw, name, after = tokens[at], tokens[at + 1], tokens[at + 2]
+        return kw and kw.kind == "name" and kw.text == "with" and name and name.kind == "name" and after and (
+            after.kind == "=" or after.kind == ":"
+        )
+    end
+
+    -- Consumes ':' as a type-annotation colon (formatted as "x: T").
+
+    --- Consumes the `:` of an annotation, marked so it erases with the type it
+    --- introduces.
+    local function annotationColon(n: Node, what: string): Token
+        local colon = add(n, expect(":", what))
+        colon.typeColon = true
+        return colon
+    end
+
+    -- Optional generics clause: '<' Name ['is' Type] {',' ...} '>'. Tokens are marked
+    -- for tight formatting (List<T>).
+
+    --- An optional generics clause.
+    local function parseGenerics(n: cst.Generic): cst.Generics?
+        if cur().kind ~= "<" then
+            return nil
+        end
+        local g = new cst.Generics {kind = "generics"}
+        add(g, advance()).generic = true
+        g.names, g.bounds, g.packs = {}, {}, {}
+        repeat
+            local at = #g.names + 1
+            g.names[at] = add(g, expectName("in generic parameter list"))
+            if cur().kind == "..." then
+                g.packs[at] = true
+                add(g, advance()).generic = true
+            end
+            if cur().kind == "name" and cur().text == "is" then
+                add(g, advance())
+                g.bounds[at] = add(g, parseType())
+            end
+            if cur().kind ~= "," then
+                break
+            end
+            add(g, advance())
+        until false
+        add(g, expect(">", "to close generic parameter list")).generic = true
+        n.generics = add(n, g)
+
+        return g
+    end
+
+    -- Tokens that can begin a type, used to tell the `const` modifier from an ordinary
+    -- type that happens to be named `const` [CS-12].
+
+    --- Whether a type could begin at this token.
+    local function startsType(tok: Token?): boolean
+        if not tok then
+            return false
+        end
+        local k = tok.kind
+
+        return k == "name" or k == "nil" or k == "{" or k == "function" or k == "(" or k == "string"
+    end
+
+    --- A type without its postfixes.
+    local function parseTypePrimary(): Node
+        local kind = cur().kind
+        -- `const T` is a read-only view of T. `const` is only a modifier when a type
+        -- follows it; on its own it is a type name like any other, which is what keeps
+        -- `local x: const` meaning what it did.
+        if kind == "name" and cur().text == "const" and startsType(tokens[i + 1]) then
+            local n = new cst.Tconst {kind = "tconst"}
+            add(n, advance())
+            n.inner = add(n, parseTypePrimary())
+            return n
+        end
+        if kind == "string" or kind == "true" or kind == "false" then
+            -- a literal type: the set containing exactly this value, which is what
+            -- makes a discriminated union declarable. `false` earns its place here
+            -- because a function that returns a result or false is a Lua idiom, and
+            -- truth-testing it should leave the result behind.
+            local n = new cst.Tliteral {kind = "tliteral"}
+            n.token = add(n, advance())
+            return n
+        end
+        if kind == "name" or kind == "nil" then
+            local n = new cst.Tname {kind = "tname"}
+            n.base = add(n, advance())
+            while cur().kind == "." do
+                add(n, advance())
+                add(n, expectName("after '.' in type name"))
+            end
+            if cur().kind == "<" then
+                add(n, advance()).generic = true
+                local packArgs = n.base and n.base.text == "thread"
+                n.typeArgs = {add(n, packArgs and parseTypePack(false) or parseType())}
+                while cur().kind == "," do
+                    add(n, advance())
+                    n.typeArgs[#n.typeArgs + 1] = add(n, packArgs and parseTypePack(false) or parseType())
+                end
+                add(n, expect(">", "to close type arguments")).generic = true
+            end
+            return n
+        elseif kind == "(" then
+            local open = advance()
+            local first = parseType()
+            if cur().kind == "," then
+                local pack = new cst.Tpack {kind = "tpack", types = {}}
+                add(pack, open)
+                pack.types[1] = add(pack, first)
+                while cur().kind == "," do
+                    add(pack, advance())
+                    pack.types[#pack.types + 1] = add(pack, parseType())
+                end
+                add(pack, expect(")", "to close type pack"))
+                return pack
+            end
+            local n = new cst.Tparen {kind = "tparen"}
+            add(n, open)
+            n.inner = add(n, first)
+            add(n, expect(")", "to close type"))
+            return n
+        elseif kind == "{" then
+            local n
+            local addOpen = advance()
+            local function shapeMember(): Node
+                local capability = nil
+                if cur().kind == "name" and (
+                    cur().text == "readonly" or cur().text == "writeonly"
+                ) and tokens[i + 1] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "[") then
+                    capability = advance()
+                    capability.propertyCapability = capability.text == "readonly" and "read" or "write"
+                end
+                local member
+                if cur().kind == "[" then
+                    member = new cst.Tmap {kind = "tmap", capability = capability}
+                    if capability then
+                        add(member, capability)
+                    end
+                    add(member, advance())
+                    member.key = add(member, parseType())
+                    add(member, expect("]", "to close indexer key type"))
+                    annotationColon(member, "in indexer type")
+                    member.value = add(member, parseType())
+                else
+                    member = new cst.TshapeField {kind = "tshapeField", capability = capability}
+                    if capability then
+                        add(member, capability)
+                    end
+                    member.name = add(member, expectName("in shape field"))
+                    annotationColon(member, "in shape field")
+                    member.type = add(member, parseType())
+                end
+
+                return member
+            end
+
+            if cur().kind == "[" then
+                -- map: { [K]: V } [CS-8]
+                local first = shapeMember()
+                if cur().kind == "," then
+                    n = new cst.Tshape {kind = "tshape", fields = {}}
+                    add(n, addOpen)
+                    n.fields[1] = add(n, first)
+                    while cur().kind == "," do
+                        add(n, advance())
+                        n.fields[#n.fields + 1] = add(n, shapeMember())
+                    end
+                else
+                    n = first
+                    table.insert(n, 1, addOpen)
+                end
+            elseif cur().kind == "name" and tokens[
+                i + 1
+            ] and (
+                tokens[
+                    i + 1
+                ].kind == ":" or (
+                    (
+                        cur().text == "readonly" or cur().text == "writeonly"
+                    ) and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "[")
+                )
+            ) then
+                -- Inline shape members and capability indexers. `readonly` and
+                -- `writeonly` remain contextual: `{readonly: T}` is still a field.
+                n = new cst.Tshape {kind = "tshape"}
+                add(n, addOpen)
+                n.fields = {}
+                repeat
+                    local f = shapeMember()
+                    n.fields[#n.fields + 1] = add(n, f)
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until cur().kind == "}" or cur().kind == "eof"
+            else
+                -- array {T} or tuple {T, U, ...}
+                local first = parseType()
+                if cur().kind == "," then
+                    n = new cst.Ttuple {kind = "ttuple"}
+                    add(n, addOpen)
+                    n.types = {add(n, first)}
+                    while cur().kind == "," do
+                        add(n, advance())
+                        n.types[#n.types + 1] = add(n, parseType())
+                    end
+                else
+                    n = new cst.Tarray {kind = "tarray"}
+                    add(n, addOpen)
+                    n.element = add(n, first)
+                end
+            end
+            add(n, expect("}", "to close table type"))
+            return n
+        elseif kind == "function" then
+            local n = new cst.Tfunc {kind = "tfunc"}
+            add(n, advance())
+            parseGenerics(n)
+            add(n, expect("(", "in function type"))
+            n.params = {}
+            if cur().kind ~= ")" then
+                repeat
+                    local p = new cst.TfuncParam {kind = "tfuncParam"}
+                    if cur().kind == "..." then
+                        add(p, advance())
+                        if cur().kind == ":" then
+                            annotationColon(p, "in vararg type")
+                            if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                                p.type = add(p, parseTypePack())
+                                p.pack = true
+                            else
+                                p.type = add(p, parseType())
+                            end
+                        end
+                        n.params[#n.params + 1] = add(n, p)
+                        break
+                    elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                        local pack = new cst.Tpack {kind = "tpack", types = {}}
+                        local tail = new cst.Tname {kind = "tname"}
+                        tail.base = add(tail, advance())
+                        pack.tail = add(pack, tail)
+                        pack.tailKind = "generic"
+                        add(pack, advance()).generic = true
+                        p.type, p.pack = add(p, pack), true
+                        n.params[#n.params + 1] = add(n, p)
+                        break
+                    elseif cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
+                        or cur().text == "exclusive"
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                    ) and tokens[
+                        i + 1
+                    ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
+                        p.modeTok = add(p, advance())
+                        p.name = add(p, advance())
+                        annotationColon(p, "in parameter type")
+                        p.type = add(p, parseType())
+                    elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == ":" then
+                        p.name = add(p, advance())
+                        annotationColon(p, "in parameter type")
+                        p.type = add(p, parseType())
+                    else
+                        p.type = add(p, parseType())
+                    end
+                    n.params[#n.params + 1] = add(n, p)
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
+            end
+            add(n, expect(")", "to close function type parameters"))
+            if cur().kind == ":" then
+                annotationColon(n, "before return type")
+                -- `function(...): R & function(...)` is a callable intersection. A
+                -- return type that itself intersects with a function remains available
+                -- by parenthesizing it.
+                local returnPack = parseTypePack(false, true)
+                n.returnPack = returnPack
+                if returnPack.kind == "tpack" and not returnPack.tail then
+                    for _, child in ipairs(returnPack) do
+                        add(n, child)
+                    end
+                else
+                    add(n, returnPack)
+                end
+                n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+            end
+            if cur().kind == "name" and cur().text == "yields" then
+                add(n, advance())
+                n.yieldPack = add(n, parseTypePack(false))
+                if not (cur().kind == "name" and cur().text == "resumes") then
+                    errAt(cur(), "'resumes' must follow a coroutine yield pack")
+                else
+                    add(n, advance())
+                    n.resumePack = add(n, parseTypePack(false))
+                end
+            end
+            return n
+        end
+        errAt(cur(), "type expected")
+        local n = new cst.ErrorType {kind = "errorType"}
+        add(n, missing("type"))
+
+        return n
+    end
+
+    -- primtype with postfix '?'/'*' applied ('T*?' = nullable pointer).
+
+    --- A type with `?`, `*` and `[N]` applied.
+    local function parsePosttype(): Node
+        local t = parseTypePrimary()
+        while true do
+            local k = cur().kind
+            if k == "?" or k == "*" then
+                local n: cst.Topt | cst.Tptr
+                if k == "?" then
+                    n = new cst.Topt {kind = "topt"}
+                else
+                    n = new cst.Tptr {kind = "tptr"}
+                end
+                n.inner = add(n, t)
+                add(n, advance()).typePostfix = true
+                t = n
+            elseif k == "[" then
+                -- C array types: T[?] is variable-length, T[N] fixed. Both are
+                -- zero-based cdata, unlike the one-based new Lua {T}.
+                local n = new cst.Tcarray {kind = "tcarray"}
+                n.element = add(n, t)
+                add(n, advance()).typePostfix = true
+                if cur().kind == "?" then
+                    add(n, advance()).typePostfix = true
+                elseif cur().kind == "number" then
+                    n.count = add(n, advance())
+                else
+                    errAt(cur(), "C array length: write T[?] for a " .. "variable-length array or T[N] for a fixed one")
+                end
+                add(n, expect("]", "to close a C array type")).typePostfix = true
+                t = n
+            else
+                return t
+            end
+        end
+    end
+
+    --- A type intersection. `&` binds more tightly than `|`.
+    local function parseIntersection(stopAtFunctionMember: boolean?): Node
+        local t = parsePosttype()
+        if cur().kind ~= "&" or (stopAtFunctionMember and tokens[i + 1] and tokens[i + 1].kind == "function") then
+            return t
+        end
+        local n = new cst.Tintersection {kind = "tintersection"}
+        n.types = {add(n, t)}
+        while cur().kind == "&" and not (stopAtFunctionMember and tokens[i + 1] and tokens[i + 1].kind == "function") do
+            add(n, advance())
+            n.types[#n.types + 1] = add(n, parsePosttype())
+        end
+
+        return n
+    end
+
+    -- noUnion: inside short-function pipes a top-level '|' would be ambiguous with the
+    -- closing pipe; unions there need parentheses. Intersections remain available.
+
+    --- A type, including a union unless the caller is parsing one.
+    parseType = function(noUnion: boolean?, stopAtFunctionMember: boolean?): Node
+        local t = parseIntersection(stopAtFunctionMember)
+        if noUnion or cur().kind ~= "|" then
+            return t
+        end
+        local n = new cst.Tunion {kind = "tunion"}
+        n.types = {add(n, t)}
+        while cur().kind == "|" do
+            add(n, advance())
+            n.types[#n.types + 1] = add(n, parseIntersection(stopAtFunctionMember))
+        end
+
+        return n
+    end
+
+    --- A complete value sequence in a function signature.
+    parseTypePack = function(allowBareList: boolean?, stopAtFunctionMember: boolean?): Node
+        if cur().kind == "..." then
+            local n = new cst.Tpack {kind = "tpack", types = {}, tailKind = "homogeneous"}
+            local dots = add(n, advance())
+            dots.generic, dots.homogeneousPack = true, true
+            n.tail = add(n, parseType(nil, stopAtFunctionMember))
+            return n
+        end
+        if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+            local n = new cst.Tpack {kind = "tpack", types = {}, tailKind = "generic"}
+            local tail = new cst.Tname {kind = "tname"}
+            tail.base = add(tail, advance())
+            n.tail = add(n, tail)
+            add(n, advance()).generic = true
+            return n
+        end
+        if cur().kind ~= "(" then
+            local n = new cst.Tpack {kind = "tpack", types = {}}
+            n.types[1] = add(n, parseReturnType(stopAtFunctionMember))
+            while allowBareList and cur().kind == "," and tokens[i + 1] and TYPE_START[tokens[i + 1].kind] do
+                add(n, advance()).typeSeparator = true
+                n.types[#n.types + 1] = add(n, parseType(nil, stopAtFunctionMember))
+            end
+            return n
+        end
+        local n = new cst.Tpack {kind = "tpack", types = {}}
+        add(n, advance())
+        if cur().kind == ")" then
+            add(n, advance())
+            ;
+            return n
+        end
+        if cur().kind == "(" then
+            local first = add(n, parseTypePack(false))
+            if cur().kind == "|" then
+                local union = new cst.TpackUnion {kind = "tpackUnion", packs = {first}}
+                for _, child in ipairs(n) do
+                    add(union, child)
+                end
+                while cur().kind == "|" do
+                    add(union, advance())
+                    union.packs[#union.packs + 1] = add(union, parseTypePack(false))
+                end
+                add(union, expect(")", "to close pack union"))
+                return union
+            end
+            n.types[1] = first
+        else
+            while true do
+                if cur().kind == "..." then
+                    local dots = add(n, advance())
+                    dots.generic, dots.homogeneousPack = true, true
+                    n.tailKind = "homogeneous"
+                    n.tail = add(n, parseType(nil, stopAtFunctionMember))
+                    break
+                end
+                local item = add(n, parseType(nil, stopAtFunctionMember))
+                if cur().kind == "..." then
+                    if item.kind ~= "tname" then
+                        errAt(cur(), "only a generic pack name may precede '...'")
+                    end
+                    add(n, advance()).generic = true
+                    n.tail, n.tailKind = item, "generic"
+                    break
+                end
+                n.types[#n.types + 1] = item
+                if cur().kind ~= "," then
+                    break
+                end
+                add(n, advance())
+            end
+        end
+        add(n, expect(")", "to close type pack"))
+
+        return n
+    end
+
+    --- A comma-separated expression list, appended to `n`.
+    local function parseExplist(n: Node): {Node}
+        local exprs: {Node} = {}
+        exprs[1] = add(n, parseExp())
+        while cur().kind == "," do
+            add(n, advance())
+            exprs[#exprs + 1] = add(n, parseExp())
+        end
+
+        return exprs
+    end
+
+    --- A call's arguments: parenthesized, a string, or a table.
+    local function parseCallargs(): Node?
+        local kind = cur().kind
+        if kind == "(" then
+            local n = new cst.Args {kind = "args"}
+            add(n, advance())
+            if cur().kind ~= ")" then
+                n.exprs = resetNoMethod(parseExplist, n)
+            else
+                n.exprs = {}
+            end
+            add(n, expect(")", "to close arguments"))
+            return n
+        elseif kind == "{" then
+            local n = new cst.Args {kind = "args"}
+            n.table = add(n, resetNoMethod(parseTableconstructor))
+            return n
+        elseif kind == "string" then
+            local n = new cst.Args {kind = "args"}
+            n.str = add(n, advance())
+            return n
+        end
+
+        return nil
+    end
+
+    --- A method call, `obj:m(...)`, with either of its two safe-navigation checks.
+    --- `safeObj` is the `?.` token of `obj?.:m(...)`, which checks the receiver; a `?.`
+    --- between the name and the arguments checks the method itself. Both may be
+    --- present, as in `obj?.:m?.(...)`.
+    local function parseMethodCall(obj: Node, safeObj: Token?): Node
+        local n = new cst.MethodCall {kind = "methodCall"}
+        n.obj = add(n, obj)
+        if safeObj then
+            n.safeObj = add(n, safeObj)
+        end
+        add(n, advance()) -- ':'
+        n.name = add(n, expectName("for method call"))
+        if cur().kind == "?." then
+            n.safeMethod = add(n, advance())
+        end
+        local args = parseCallargs()
+        if args then
+            n.args = add(n, args)
+        else
+            errAt(cur(), "function arguments expected")
+            add(n, missing("args"))
+        end
+
+        return n
+    end
+
+    --- A name or a parenthesized expression.
+    local function parsePrimaryexp(): Node
+        local kind = cur().kind
+        if kind == "name" then
+            local n = new cst.NameExpr {kind = "name"}
+            n.token = add(n, advance())
+            return n
+        elseif kind == "(" then
+            local n = new cst.Paren {kind = "paren"}
+            add(n, advance())
+            n.expr = add(n, resetNoMethod(parseExp))
+            add(n, expect(")", "to close parenthesized expression"))
+            return n
+        elseif kind == "error" then
+            local n = new cst.ErrorExpr {kind = "errorExpr"}
+            add(n, advance())
+            return n
+        end
+        errAt(cur(), ("expression expected; found %s"):format(found(cur())), "NUPP1004")
+        local n = new cst.ErrorExpr {kind = "errorExpr"}
+        add(n, missing("expr"))
+
+        return n
+    end
+
+    --- A primary with calls, indexes and method calls applied.
+    parseSuffixedexp = function(): Node
+        local e = parsePrimaryexp()
+        while true do
+            local kind = cur().kind
+            if kind == "." then
+                local n = new cst.DotIndex {kind = "dotIndex"}
+                n.obj = add(n, e)
+                add(n, advance())
+                n.name = add(n, expectName("after '.'"))
+                e = n
+                -- ffi.new<T>() and friends take an explicit type argument. Only these
+                -- names accept one: `a < b > (c)` is ordinary Lua everywhere else, so
+                -- the ambiguity never arises. [CS-11]
+                local member = n.name
+                local base = n.obj
+                local baseTok = base and base.kind == "name" and base.token
+                if cur().kind == "<" and member and baseTok and FFI_INTRINSIC[
+                    member.text
+                ] and baseTok.text == "ffi" then
+                    add(n, advance()).generic = true
+                    n.ffiTypeArg = add(n, parseType())
+                    add(n, expect(">", "to close a type argument")).generic = true
+                end
+            elseif kind == "[" then
+                local n = new cst.BracketIndex {kind = "bracketIndex"}
+                n.obj = add(n, e)
+                add(n, advance())
+                n.expr = add(n, resetNoMethod(parseExp))
+                add(n, expect("]", "to close index"))
+                e = n
+            elseif kind == ":" then
+                if noMethod > 0 then
+                    -- [CS-2]: this ':' belongs to an enclosing ternary.
+                    return e
+                end
+                e = parseMethodCall(e, nil)
+            elseif kind == "?." then
+                local qtok = advance()
+                local nk = cur().kind
+                if nk == ":" then
+                    -- `obj?.:m(...)`: the check is on the receiver, so the method is
+                    -- never looked up when it is nil.
+                    if noMethod > 0 then
+                        -- [CS-2]: this ':' belongs to an enclosing ternary.
+                        errAt(
+                            qtok,
+                            "a safe method call cannot appear in the " .. "second arm of a ternary; parenthesize it"
+                        )
+                    end
+                    e = parseMethodCall(e, qtok)
+                elseif nk == "name" then
+                    local n = new cst.SafeIndex {kind = "safeIndex"}
+                    n.obj = add(n, e)
+                    add(n, qtok)
+                    n.name = add(n, advance())
+                    e = n
+                elseif nk == "[" then
+                    local n = new cst.SafeBracket {kind = "safeBracket"}
+                    n.obj = add(n, e)
+                    add(n, qtok)
+                    add(n, advance())
+                    n.expr = add(n, resetNoMethod(parseExp))
+                    add(n, expect("]", "to close index"))
+                    e = n
+                else
+                    local args = parseCallargs()
+                    if args then
+                        local n = new cst.SafeCall {kind = "safeCall"}
+                        n.obj = add(n, e)
+                        add(n, qtok)
+                        n.args = add(n, args)
+                        e = n
+                    else
+                        errAt(cur(), "name, index, or arguments expected after '?.'")
+                        local n = new cst.ErrorExpr {kind = "errorExpr"}
+                        n.obj = add(n, e)
+                        add(n, qtok)
+                        e = n
+                    end
+                end
+            else
+                local args = parseCallargs()
+                if args then
+                    local n = new cst.Call {kind = "call"}
+                    n.obj = add(n, e)
+                    n.args = add(n, args)
+                    e = n
+                else
+                    return e
+                end
+            end
+        end
+    end
+
+    --- A table constructor.
+    parseTableconstructor = function(): Node
+        local n = new cst.TableExpr {kind = "tableExpr"}
+        add(n, expect("{"))
+        n.fields = {}
+        while cur().kind ~= "}" and cur().kind ~= "eof" do
+            local f
+            if cur().kind == "[" then
+                f = new cst.FieldBracket {kind = "fieldBracket"}
+                add(f, advance())
+                f.key = add(f, resetNoMethod(parseExp))
+                add(f, expect("]", "to close field key"))
+                add(f, expect("=", "in table field"))
+                f.value = add(f, resetNoMethod(parseExp))
+            elseif cur().kind == "name" and cur().text == "const" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == "=" then
+                f = new cst.FieldNamed {kind = "fieldNamed"}
+                f.isConst = true
+                add(f, advance())
+                f.name = add(f, advance())
+                add(f, advance()) -- '='
+                f.value = add(f, resetNoMethod(parseExp))
+            elseif cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
+                f = new cst.FieldNamed {kind = "fieldNamed"}
+                f.name = add(f, advance())
+                add(f, advance()) -- '='
+                f.value = add(f, resetNoMethod(parseExp))
+            elseif atExprStart() then
+                f = new cst.FieldItem {kind = "fieldItem"}
+                f.value = add(f, resetNoMethod(parseExp))
+            else
+                errAt(cur(), "unexpected symbol in table constructor")
+                f = new cst.ErrorExpr {kind = "errorExpr"}
+                add(f, advance())
+            end
+            n.fields[#n.fields + 1] = add(n, f)
+            if cur().kind == "," or cur().kind == ";" then
+                add(n, advance())
+            elseif cur().kind ~= "}" then
+                break
+            end
+        end
+        add(n, expect("}", "to close table constructor"))
+
+        return n
+    end
+
+    -- Short function expression (LuaJIT 3.0): |a, b| -> expr, x -> expr, || -> expr
+    -- (one token, shared with `or`), and -> do ... end. Nupp extends the params with
+    -- optional type annotations.
+
+    --- A short function, `|a, b| -> e`.
+    local function parseShortfn(): Node
+        local n = new cst.Shortfn {kind = "shortfn"}
+        n.params = {}
+        if atEmptyPipes() then
+            -- `||` is one token, so it opens and closes the list at once. Neither
+            -- hugging flag applies: there are no parameters between the pipes for them
+            -- to hug.
+            add(n, advance())
+        elseif cur().kind == "|" then
+            local open = add(n, advance())
+            open._shortfnOpen = true
+            if cur().kind ~= "|" then
+                repeat
+                    local p = new cst.Param {kind = "param"}
+                    if cur().kind == "..." then
+                        local dots = add(p, advance())
+                        if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
+                            local nameTok = advance()
+                            p.name = add(p, nameTok)
+                            p.namedVararg = true
+                            nameTok.namedVararg = true
+                            n.varargParam = p
+                        end
+                        if not p.namedVararg then
+                            errAt(dots, "named vararg expected in short function")
+                        end
+                    else
+                        p.name = add(p, expectName("in short function parameters"))
+                    end
+                    if cur().kind == ":" then
+                        annotationColon(p, "in parameter annotation")
+                        p.type = add(p, parseType(true)) -- '|' closes the params
+                    end
+                    n.params[#n.params + 1] = add(n, p)
+                    if p.namedVararg and cur().kind == "," then
+                        errAt(cur(), "named vararg must be the last parameter")
+                    end
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
+            end
+            local close = add(n, expect("|", "to close short function parameters"))
+            close._shortfnClose = true
+        else
+            local p = new cst.Param {kind = "param"}
+            p.name = add(p, expectName("in short function"))
+            n.params[1] = add(n, p)
+        end
+        add(n, expect("->", "in short function"))
+        if cur().kind == "do" then
+            add(n, advance())
+            local savedLoopDepth = loopDepth
+            loopDepth = 0
+            n.body = add(n, parseBlock())
+            loopDepth = savedLoopDepth
+            add(n, expect("end", "to close short function"))
+        else
+            n.expr = add(n, parseExp())
+        end
+
+        return n
+    end
+
+    -- Interpolated string: `text ${expr} more ${expr} end`.
+
+    --- An interpolated string and everything inside it.
+    local function parseIstring(): Node
+        local n = new cst.Istring {kind = "istring"}
+        add(n, advance()) -- istringOpen
+        n.parts = {}
+        while true do
+            n.parts[#n.parts + 1] = add(n, resetNoMethod(parseExp))
+            local k = cur().kind
+            if k == "istringMid" then
+                add(n, advance())
+            elseif k == "istringClose" then
+                add(n, advance())
+                return n
+            else
+                errAt(cur(), "'}' expected to close interpolation")
+                add(n, missing("istringClose"))
+                return n
+            end
+        end
+    end
+
+    -- "new" is contextual [CS-12]: it introduces a construction only when a name
+    -- follows it on the same line. That is what keeps `local new = 1`, `f(new)` and a
+    -- `new` left at the end of a line meaning what they always did — a name is a name
+    -- everywhere the next token does not make it an operator.
+
+    --- Whether a construction begins at the cursor.
+    local function atNewexp(): boolean
+        local tok = cur()
+        if tok.kind ~= "name" or tok.text ~= "new" then
+            return false
+        end
+        local after = tokens[i + 1]
+
+        return after ~= nil and after.kind == "name" and after.line == tok.line
+    end
+
+    --- `new T(...)`, `new T {...}`: a construction.
+    ---
+    --- The operand is parsed as an ordinary suffixed expression, so a qualified name
+    --- and every call-argument spelling come from the machinery that already reads
+    --- them. What `new` adds is the requirement that it end in a call: a bare `new T`
+    --- would be a second way to write `new T()`, and one spelling per meaning is the
+    --- whole reason the keyword exists.
+    local function parseNewexp(): Node
+        local n = new cst.NewExpr {kind = "newExpr"}
+        local kw = advance()
+        add(n, kw)
+        local call = parseSuffixedexp()
+        n.call = add(n, call)
+        if call.kind == "call" or call.kind == "safeCall" then
+            -- A construction is not the call sugar it is spelled as, so its brace
+            -- stands off the type rather than hugging it the way `f{...}` does.
+            local calleeEnd = cst.lastToken(call.obj)
+            if calleeEnd then
+                calleeEnd.constructTarget = true
+            end
+        end
+        if call.kind ~= "call" and call.kind ~= "safeCall" then
+            errAt(
+                kw,
+                "'new' needs a construction; write new T(...) or new T {...}",
+                "NUPP1004",
+                "add the constructor arguments, or `()` when there are none"
+            )
+        end
+
+        return n
+    end
+
+    --- A literal, constructor, function, or suffixed expression.
+    local function parseSimpleexp(): Node
+        local kind = cur().kind
+        if kind == "number" or kind == "string" then
+            local n: cst.NumberLit | cst.StringLit
+            if kind == "number" then
+                n = new cst.NumberLit {kind = "number"}
+            else
+                n = new cst.StringLit {kind = "string"}
+            end
+            n.token = add(n, advance())
+            return n
+        elseif kind == "|" or atEmptyPipes() or (kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "->") then
+            return parseShortfn()
+        elseif kind == "istringOpen" then
+            return parseIstring()
+        elseif kind == "nil" or kind == "true" or kind == "false" or kind == "..." then
+            local n: cst.Vararg | cst.NilExpr | cst.TrueExpr | cst.FalseExpr
+            if kind == "..." then
+                n = new cst.Vararg {kind = "vararg"}
+            elseif kind == "nil" then
+                n = new cst.NilExpr {kind = "nilExpr"}
+            elseif kind == "true" then
+                n = new cst.TrueExpr {kind = "trueExpr"}
+            else
+                n = new cst.FalseExpr {kind = "falseExpr"}
+            end
+            n.token = add(n, advance())
+            return n
+        elseif kind == "function" then
+            local n = new cst.FuncExpr {kind = "funcExpr"}
+            add(n, advance())
+            n.body = add(n, parseFuncbody())
+            return n
+        elseif kind == "{" then
+            return parseTableconstructor()
+        elseif atNewexp() then
+            return parseNewexp()
+        else
+            return parseSuffixedexp()
+        end
+    end
+
+    -- "as"/"is" are contextual operators [CS-6]: recognized only in binary- operator
+    -- position AND on the same line as the preceding token, so that level-0 statement
+    -- sequences like "x = a\nis(b)" keep their meaning.
+
+    --- Which contextual operator (`as`, `is`) is at the cursor, if any.
+    local function contextualOp(prevLine: integer): string?
+        local tok = cur()
+        if tok.kind == "name" and tok.line == prevLine and (tok.text == "as" or tok.text == "is") then
+            return tok.text
+        end
+
+        return nil
+    end
+
+    --- Operator-precedence parsing down to `limit`.
+    local function parseBinexp(limit: integer): Node
+        local left
+        if UNOPS[cur().kind] then
+            local n = new cst.Unop {kind = "unop"}
+            n.op = add(n, advance())
+            n.operand = add(n, parseBinexp(UNARY_PRI))
+            left = n
+        else
+            left = parseSimpleexp()
+        end
+        while true do
+            local prevLine = tokens[i - 1] and tokens[i - 1].line or cur().line
+            local ctx = contextualOp(prevLine)
+            if ctx == "as" and 11 > limit then
+                local n = new cst.CastExpr {kind = "castExpr"}
+                n.expr = add(n, left)
+                add(n, advance()).contextualOp = true
+                n.type = add(n, parseType())
+                left = n
+            elseif ctx == "is" and 3 > limit then
+                local n = new cst.IsExpr {kind = "isExpr"}
+                n.expr = add(n, left)
+                add(n, advance()).contextualOp = true
+                n.type = add(n, parseType())
+                left = n
+            else
+                local pri = BINPRI[cur().kind]
+                if not (pri and pri[1] > limit) then
+                    break
+                end
+                local n = new cst.Binop {kind = "binop"}
+                n.lhs = add(n, left)
+                n.op = add(n, advance())
+                n.rhs = add(n, parseBinexp(pri[2]))
+                left = n
+            end
+        end
+
+        return left
+    end
+
+    --- Any expression, ternary included.
+    parseExp = function(): Node
+        local e = parseBinexp(0)
+        if cur().kind == "?" then
+            local n = new cst.Ternary {kind = "ternary"}
+            n.cond = add(n, e)
+            add(n, advance()) -- '?'
+            noMethod = noMethod + 1
+            n.ifTrue = add(n, parseExp())
+            noMethod = noMethod - 1
+            add(n, expect(":", "in ternary expression"))
+            n.ifFalse = add(n, parseExp()) -- right-associative
+            return n
+        end
+
+        return e
+    end
+
+    --- Parameters, return annotation and body of a function.
+    parseFuncbody = function(): Node
+        local n = new cst.Funcbody {kind = "funcbody"}
+        parseGenerics(n)
+        add(n, expect("(", "to begin parameter list"))
+        n.params = {}
+        if cur().kind ~= ")" then
+            repeat
+                local p = new cst.Param {kind = "param"}
+                if cur().kind == "..." then
+                    local dots = add(p, advance())
+                    if cur().kind == "name" and cur().offset == dots.offset + #dots.text then
+                        local nameTok = advance()
+                        p.name = add(p, nameTok)
+                        p.namedVararg = true
+                        nameTok.namedVararg = true
+                        n.varargParam = p
+                    end
+                    if cur().kind == ":" then
+                        annotationColon(p, "in vararg annotation")
+                        if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                            p.type = add(p, parseTypePack())
+                        else
+                            p.type = add(p, parseType())
+                        end
+                    end
+                    n.params[#n.params + 1] = add(n, p)
+                    if cur().kind == "," then
+                        errAt(cur(), "'...' must be the last parameter")
+                    end
+                    break
+                end
+                if cur().kind == "name" and (
+                    cur().text == "takes"
+                    or cur().text == "borrows"
+                    or cur().text == "exclusive"
+                    or cur().text == "retains"
+                    or cur().text == "releases"
+                ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                    p.modeTok = add(p, advance())
+                end
+                p.name = add(p, expectName("as parameter"))
+                if cur().kind == ":" then
+                    annotationColon(p, "in parameter annotation")
+                    p.type = add(p, parseType())
+                end
+                n.params[#n.params + 1] = add(n, p)
+                if cur().kind ~= "," then
+                    break
+                end
+                add(n, advance())
+            until false
+        end
+        add(n, expect(")", "to close parameter list"))
+        if cur().kind == ":" then
+            -- Statement-position return annotation: unparenthesized list [CS-7].
+            annotationColon(n, "before return types")
+            local returnPack = parseTypePack(true)
+            n.returnPack = returnPack
+            if returnPack.kind == "tpack" and not returnPack.tail then
+                for _, child in ipairs(returnPack) do
+                    add(n, child)
+                end
+            else
+                add(n, returnPack)
+            end
+            n.rets = returnPack.kind == "tpack" and returnPack.types or {}
+        end
+        if cur().kind == "name" and cur().text == "yields" then
+            add(n, advance())
+            n.yieldPack = add(n, parseTypePack(true))
+            if not (cur().kind == "name" and cur().text == "resumes") then
+                errAt(cur(), "'resumes' must follow a coroutine yield pack")
+            else
+                add(n, advance())
+                n.resumePack = add(n, parseTypePack(true))
+            end
+        end
+        local savedLoopDepth = loopDepth
+        loopDepth = 0
+        n.body = add(n, parseBlock())
+        loopDepth = savedLoopDepth
+        add(n, expect("end", "to close function"))
+
+        return n
+    end
+
+    -- Typed declarations are contextual [CS-5]. `modifierTok` is an already- consumed
+    -- `local` or `global`; bare declarations have no modifier.
+    local parseTypedecl
+
+    -- A predicate return type: `x is T` says the function answers whether its parameter
+    -- `x` is a T. At a call site used as a condition that narrows the argument, which
+    -- is what keeps casts out of code that dispatches on a union. [CS-13]
+    parseReturnType = function(stopAtFunctionMember: boolean?): Node
+        local after = tokens[i + 1]
+        if cur().kind == "name" and after and after.kind == "name" and after.text == "is" then
+            local n = new cst.Tpredicate {kind = "tpredicate"}
+            n.param = add(n, advance())
+            add(n, advance()) -- 'is'
+            n.type = add(n, parseType(nil, stopAtFunctionMember))
+            return n
+        end
+        local result = parseType(nil, stopAtFunctionMember)
+        -- `T borrows p`: the result is a borrow of parameter `p` and cannot outlive it.
+        -- `borrows` stays contextual — it opens this form only directly after a return
+        -- type and directly before a name, and no statement can begin that way. [CS-18]
+        if cur().kind == "name" and cur().text == "borrows" and tokens[
+            i + 1
+        ] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "(") then
+            local n = new cst.Tborrows {kind = "tborrows"}
+            n.type = add(n, result)
+            add(n, advance()) -- 'borrows'
+            n.params = {}
+            if cur().kind == "(" then
+                add(n, advance())
+                repeat
+                    local param = add(n, expectName("as borrowed-result source"))
+                    n.params[#n.params + 1] = param
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
+                add(n, expect(")", "to close borrowed-result sources"))
+            else
+                n.params[1] = add(n, advance())
+            end
+            n.param = n.params[1]
+            return n
+        end
+
+        return result
+    end
+
+    -- Parses the `@name(...)` part shared by statement and record-member annotations.
+    -- Arguments are ordinary expressions required to be compile-time constants by the
+    -- checker, except that an @ref definition member accepts a type name; `name =
+    -- value` records a structured annotation member while a positional value is the
+    -- annotation's designated single-value member.
+    local function parseAnnotationApplication(n)
+        add(n, expect("@"))
+        n.name = add(n, expectName("after '@'"))
+        if cur().kind ~= "(" then
+            return n
+        end
+
+        n.open = add(n, advance())
+        n.annotationArgs = {}
+        if cur().kind ~= ")" then
+            repeat
+                local arg = new cst.AnnotationArg {kind = "annotationArg"}
+                if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "=" then
+                    arg.name = add(arg, advance())
+                    arg.eq = add(arg, advance())
+                end
+                arg.expr = add(arg, resetNoMethod(parseExp))
+                n.annotationArgs[#n.annotationArgs + 1] = add(n, arg)
+                if cur().kind ~= "," then
+                    break
+                end
+                add(n, advance())
+            until false
+        end
+        n.close = add(n, expect(")", "to close annotation arguments"))
+
+        return n
+    end
+
+    local function parseRecordBody(n)
+        n.entries = {}
+        while cur().kind ~= "end" and cur().kind ~= "eof" do
+            local attached = {}
+            while cur().kind == "@" do
+                local application = parseAnnotationApplication(new cst.AnnotationApply {kind = "annotationApply"})
+                attached[#attached + 1] = add(n, application)
+            end
+            local e
+            if startsTypedecl(i) then
+                e = parseTypedecl(nil, "nested")
+            elseif cur().kind == "function" then
+                e = new cst.InlineMethod {kind = "inlineMethod"}
+                add(e, advance())
+                e.name = add(e, expectName("after 'function' in declaration"))
+                e.body = add(e, parseFuncbody())
+            elseif cur().kind == "name" and cur().text == "constructor" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "(" then
+                -- Contextual, like every other word this grammar adds: a field named
+                -- `constructor` is followed by a colon, never a paren.
+                e = new cst.ConstructorDecl {kind = "constructorDecl"}
+                add(e, advance())
+                e.body = add(e, parseFuncbody())
+            elseif cur().kind == "name" and cur().text == "matches" and tokens[i + 1] and tokens[i + 1].kind ~= ":" then
+                -- Contextual: a field named `matches` is followed by a colon, because
+                -- every field states its own type.
+                e = new cst.MatchesDecl {kind = "matchesDecl"}
+                add(e, advance())
+                e.expr = add(e, parseExp())
+                add(e, expect("end", "to close 'matches'"))
+            elseif cur().kind == "name" and cur().text == "metamethod" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "name" then
+                e = new cst.MetamethodDecl {kind = "metamethodDecl"}
+                add(e, advance())
+                e.name = add(e, expectName("after 'metamethod'"))
+                annotationColon(e, "in metamethod declaration")
+                e.type = add(e, parseType())
+            elseif cur().kind == "{" then
+                -- the array part, written as the array type it is: a record that is
+                -- also a sequence declares `{T}` among its fields
+                e = new cst.ArrayPart {kind = "arrayPart"}
+                e.type = add(e, parseType())
+            elseif cur().kind == "[" or (
+                cur().kind == "name" and (
+                    cur().text == "readonly" or cur().text == "writeonly"
+                ) and tokens[i + 1] and tokens[i + 1].kind == "["
+            ) then
+                e = new cst.IndexerDecl {kind = "indexerDecl"}
+                if cur().kind == "name" then
+                    e.capability = add(e, advance())
+                    e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
+                end
+                add(e, expect("[", "to open indexer key type"))
+                e.key = add(e, parseType())
+                add(e, expect("]", "to close indexer key type"))
+                annotationColon(e, "in indexer declaration")
+                e.value = add(e, parseType())
+            elseif cur().kind == "name" then
+                e = new cst.FieldDecl {kind = "fieldDecl"}
+                if (
+                    cur().text == "readonly" or cur().text == "writeonly"
+                ) and tokens[
+                    i + 1
+                ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":" then
+                    e.capability = add(e, advance())
+                    e.capability.propertyCapability = e.capability.text == "readonly" and "read" or "write"
+                end
+                e.name = add(e, advance())
+                if cur().kind == "," then
+                    -- grouped fields ("x, y: float") are deliberately not part of the
+                    -- grammar: every field states its own type
+                    errAt(
+                        cur(),
+                        "each field needs its own explicit type " .. "annotation (grouped fields are not supported)"
+                    )
+                end
+                annotationColon(e, "in field declaration")
+                e.type = add(e, parseType())
+            else
+                errAt(cur(), "field or nested declaration expected")
+                e = new cst.ErrorStmt {kind = "errorStmt"}
+                add(e, advance())
+            end
+            e.annotations = attached
+            n.entries[#n.entries + 1] = add(n, e)
+        end
+        add(n, expect("end", "to close declaration"))
+    end
+
+    --- Parses a declaration's name, which may be qualified by the table it is assigned
+    --- to (`type M.Alias`). The last segment is the declaration's own name, so
+    --- everything downstream still reads `n.name`; the segments before it land in
+    --- `n.qualifiers`, outermost first.
+    local function parseDeclName(n: cst.Declaration, what: string)
+        n.name = add(n, expectName(what))
+        while cur().kind == "." do
+            add(n, advance())
+            n.qualifiers = n.qualifiers or {}
+            n.qualifiers[#n.qualifiers + 1] = n.name
+            n.name = add(n, expectName("after '.' in declaration name"))
+        end
+    end
+
+    --- A `type`, `record`, `interface` or `struct` declaration.
+    parseTypedecl = function(modifierTok: Token?, visibility: string?): Node
+        local kw = advance() -- the contextual keyword (a name token)
+        local which = kw.text
+        -- Records where the declaration begins in source. A visibility fix writes
+        -- `local`/`global` before the introducer or deletes a modifier that is already
+        -- there, and neither is findable from the name alone.
+        local function introduce<D is cst.Declaration>(n: D): D
+            n.visibility = visibility
+            n.keyword = kw
+            n.modifier = modifierTok
+            if modifierTok then
+                add(n, modifierTok)
+            end
+            add(n, kw)
+
+            return n
+        end
+
+        if which == "type" then
+            local n = introduce(new cst.TypeAlias {kind = "typeAlias"})
+            parseDeclName(n, "after '" .. which .. "'")
+            parseGenerics(n)
+            add(n, expect("=", "in " .. which .. " declaration"))
+            n.value = add(n, parseType())
+            return n
+        else -- record / interface / struct
+            local n = introduce(new cst.RecordDecl {kind = "recordDecl"})
+            n.declKind = which
+            parseDeclName(n, "after '" .. which .. "'")
+            parseGenerics(n)
+            n.supertypes = {}
+            if cur().kind == "name" and cur().text == "is" then
+                add(n, advance())
+                repeat
+                    n.supertypes[#n.supertypes + 1] = add(n, parseType())
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
+            end
+            if cur().kind == "name" and cur().text == "where" then
+                local where = new cst.WhereClause {kind = "whereClause"}
+                add(where, advance())
+                where.expr = add(where, parseExp())
+                n.whereClause = add(n, where)
+            end
+            parseRecordBody(n)
+            return n
+        end
+    end
+
+    -- cdef declarations [CS-10]: "cdef" is contextual; the forms cdef struct Name
+    -- <fields> end @owned(cleanup, ...) cdef function name(params): ret declare C ABI
+    -- entities: a named C struct, or a C function bound from the default namespace. C
+    -- varargs are written "...".
+
+    --- A `cdef` declaration.
+    local function parseCdef(): Node
+        local cdefTok = advance()
+        if cur().kind == "function" then
+            local n = new cst.CdefFunc {kind = "cdefFunc"}
+            add(n, cdefTok)
+            add(n, advance())
+            n.name = add(n, expectName("after 'cdef function'"))
+            add(n, expect("(", "in cdef function"))
+            n.params = {}
+            if cur().kind ~= ")" then
+                repeat
+                    local p = new cst.Param {kind = "param"}
+                    if cur().kind == "..." then
+                        add(p, advance())
+                        n.varargs = true
+                        n.params[#n.params + 1] = add(n, p)
+                        break
+                    end
+                    if cur().kind == "name" and (
+                        cur().text == "takes"
+                        or cur().text == "borrows"
+                        or cur().text == "exclusive"
+                        or cur().text == "retains"
+                        or cur().text == "releases"
+                        or cur().text == "out"
+                    ) and tokens[i + 1] and tokens[i + 1].kind == "name" then
+                        p.modeTok = add(p, advance())
+                    end
+                    p.name = add(p, expectName("as cdef parameter"))
+                    annotationColon(p, "in cdef parameter")
+                    p.type = add(p, parseType())
+                    n.params[#n.params + 1] = add(n, p)
+                    if cur().kind ~= "," then
+                        break
+                    end
+                    add(n, advance())
+                until false
+            end
+            add(n, expect(")", "to close cdef parameters"))
+            if cur().kind == ":" then
+                annotationColon(n, "before cdef return type")
+                n.ret = add(n, parseType())
+            end
+            -- optional library clause [CS-10]: cdef function f(...) from "z"
+            if cur().kind == "name" and cur().text == "from" and tokens[i + 1] and tokens[i + 1].kind == "string" then
+                add(n, advance())
+                n.fromLib = add(n, advance())
+            end
+            return n
+        end
+        local n = new cst.CdefStruct {kind = "cdefStruct"}
+        add(n, cdefTok)
+        add(n, advance()) -- the contextual 'struct' name token
+        n.name = add(n, expectName("after 'cdef struct'"))
+        parseRecordBody(n)
+
+        return n
+    end
+
+    --- One statement of any kind.
+    parseStatement = function(): Node
+        local kind = cur().kind
+
+        if kind == "name" and cur().text == "cdef" and tokens[
+            i + 1
+        ] and (
+            tokens[
+                i + 1
+            ].kind == "function" or (
+                tokens[
+                    i + 1
+                ].kind == "name" and tokens[i + 1].text == "struct" and tokens[i + 2] and tokens[i + 2].kind == "name"
+            )
+        ) then
+            return parseCdef()
+        end
+
+        if kind == "@" then
+            local n = new cst.PragmaStmt {kind = "pragmaStmt"}
+            parseAnnotationApplication(n)
+            n.stat = add(n, parseStatement())
+            return n
+        end
+
+        if kind == ";" then
+            local n = new cst.EmptyStmt {kind = "emptyStmt"}
+            add(n, advance())
+            return n
+
+        elseif startsWith(i) then
+            local n = new cst.WithStmt {kind = "withStmt"}
+            n.withTok = add(n, advance())
+            n.bindings = {}
+            local function binding()
+                local b = new cst.WithBinding {kind = "withBinding"}
+                b.name = add(b, expectName("in 'with' binding"))
+                if cur().kind == ":" then
+                    annotationColon(b, "in 'with' binding")
+                    b.type = add(b, parseType())
+                end
+                b.eq = add(b, expect("=", "in 'with' binding"))
+                b.expr = add(b, parseExp())
+                n.bindings[#n.bindings + 1] = add(n, b)
+            end
+
+            binding()
+            while cur().kind == "," do
+                add(n, advance())
+                binding()
+            end
+            n.doTok = add(n, expect("do", "after 'with' acquisitions"))
+            n.body = add(n, parseBlock())
+            n.endTok = add(n, expect("end", "to close 'with'"))
+            return n
+
+        elseif kind == "if" then
+            local n = new cst.IfStmt {kind = "ifStmt"}
+            n.clauses = {}
+            local clause = new cst.IfClause {kind = "ifClause"}
+            add(clause, advance()) -- 'if'
+            clause.cond = add(clause, parseExp())
+            add(clause, expect("then", "after condition"))
+            clause.body = add(clause, parseBlock())
+            n.clauses[1] = add(n, clause)
+            while cur().kind == "elseif" do
+                clause = new cst.ElseifClause {kind = "elseifClause"}
+                add(clause, advance())
+                clause.cond = add(clause, parseExp())
+                add(clause, expect("then", "after condition"))
+                clause.body = add(clause, parseBlock())
+                n.clauses[#n.clauses + 1] = add(n, clause)
+            end
+            if cur().kind == "else" then
+                clause = new cst.ElseClause {kind = "elseClause"}
+                add(clause, advance())
+                clause.body = add(clause, parseBlock())
+                n.elseClause = add(n, clause)
+            end
+            add(n, expect("end", "to close 'if'"))
+            return n
+
+        elseif kind == "while" then
+            local n = new cst.WhileStmt {kind = "whileStmt"}
+            add(n, advance())
+            n.cond = add(n, parseExp())
+            add(n, expect("do", "after condition"))
+            loopDepth = loopDepth + 1
+            n.body = add(n, parseBlock())
+            loopDepth = loopDepth - 1
+            add(n, expect("end", "to close 'while'"))
+            return n
+
+        elseif kind == "do" then
+            local n = new cst.DoStmt {kind = "doStmt"}
+            add(n, advance())
+            n.body = add(n, parseBlock())
+            add(n, expect("end", "to close 'do'"))
+            return n
+
+        elseif kind == "for" then
+            local fortok = advance()
+            local name1 = expectName("after 'for'")
+            if cur().kind == "=" then
+                local n = new cst.FornumStmt {kind = "fornumStmt"}
+                add(n, fortok)
+                n.var = add(n, name1)
+                add(n, advance()) -- '='
+                n.start = add(n, parseExp())
+                add(n, expect(",", "in numeric for"))
+                n.stop = add(n, parseExp())
+                if cur().kind == "," then
+                    add(n, advance())
+                    n.step = add(n, parseExp())
+                end
+                add(n, expect("do", "in numeric for"))
+                loopDepth = loopDepth + 1
+                n.body = add(n, parseBlock())
+                loopDepth = loopDepth - 1
+                add(n, expect("end", "to close 'for'"))
+                return n
+            else
+                local n = new cst.ForinStmt {kind = "forinStmt"}
+                add(n, fortok)
+                n.names = {add(n, name1)}
+                while cur().kind == "," do
+                    add(n, advance())
+                    n.names[#n.names + 1] = add(n, expectName("in for name list"))
+                end
+                add(n, expect("in", "in generic for"))
+                n.exprs = parseExplist(n)
+                add(n, expect("do", "in generic for"))
+                loopDepth = loopDepth + 1
+                n.body = add(n, parseBlock())
+                loopDepth = loopDepth - 1
+                add(n, expect("end", "to close 'for'"))
+                return n
+            end
+
+        elseif kind == "repeat" then
+            local n = new cst.RepeatStmt {kind = "repeatStmt"}
+            add(n, advance())
+            loopDepth = loopDepth + 1
+            n.body = add(n, parseBlock())
+            loopDepth = loopDepth - 1
+            add(n, expect("until", "to close 'repeat'"))
+            n.cond = add(n, parseExp())
+            return n
+
+        elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then
+            local n = new cst.UnsafeStmt {kind = "unsafeStmt"}
+            n.unsafeTok = add(n, advance())
+            n.doTok = add(n, advance())
+            n.body = add(n, parseBlock())
+            n.endTok = add(n, expect("end", "to close 'unsafe do'"))
+            return n
+
+        elseif startsTypedecl(i) then
+            return parseTypedecl(nil, "module")
+
+        elseif kind == "name" and cur().text == "global" and startsTypedecl(i + 1) then
+            local globalTok = advance()
+            return parseTypedecl(globalTok, "global")
+
+        elseif kind == "function" then
+            local n = new cst.FuncStmt {kind = "funcStmt"}
+            add(n, advance())
+            local fn = new cst.Funcname {kind = "funcname"}
+            fn.base = add(fn, expectName("after 'function'"))
+            while cur().kind == "." do
+                add(fn, advance())
+                add(fn, expectName("after '.'"))
+            end
+            if cur().kind == ":" then
+                add(fn, advance())
+                fn.method = add(fn, expectName("after ':'"))
+            end
+            n.name = add(n, fn)
+            n.body = add(n, parseFuncbody())
+            return n
+
+        elseif kind == "name" and cur().text == "const" and tokens[
+            i + 1
+        ] and (
+            tokens[i + 1].kind == "..." or tokens[i + 1].kind == "name"
+        ) and (
+            (
+                tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == "."
+            ) or (
+                tokens[
+                    i + 1
+                ].kind == "..." and tokens[
+                    i + 2
+                ] and tokens[i + 2].kind == "name" and tokens[i + 3] and tokens[i + 3].kind == "."
+            )
+        ) then
+            local n = new cst.AssignStmt {kind = "assignStmt"}
+            n.isConst = true
+            add(n, advance())
+            if cur().kind == "..." then
+                n.deepConst = true
+                add(n, advance())
+            end
+            n.targets = {add(n, parseSuffixedexp())}
+            local function plainFieldPath(target)
+                if target.kind ~= "dotIndex" then
+                    return false
+                end
+                local base = target.obj
+
+                return base and (base.kind == "name" or plainFieldPath(base))
+            end
+
+            if not plainFieldPath(n.targets[1]) then
+                errAt(cst.firstToken(n.targets[1]) or cur(), "const field declaration needs a dotted field path")
+            end
+            add(n, expect("=", "in const field declaration"))
+            n.exprs = parseExplist(n)
+            if n.deepConst then
+                local function markDeep(value)
+                    if not value or value.kind ~= "tableExpr" then
+                        return
+                    end
+                    for _, field in ipairs(value.fields or {}) do
+                        if field.kind == "fieldNamed" then
+                            field.isConst = true
+                        else
+                            errAt(cst.firstToken(field) or cur(), "const... table requires named fields")
+                        end
+                        if field.value then
+                            markDeep(field.value)
+                        end
+                    end
+                end
+
+                for _, value in ipairs(n.exprs) do
+                    markDeep(value)
+                end
+            end
+            return n
+
+        elseif kind == "local" or (
+            kind == "name" and cur().text == "const" and tokens[
+                i + 1
+            ] and (tokens[i + 1].kind == "name" or tokens[i + 1].kind == "function")
+        ) then
+            -- LuaJIT's `const` declaration is a soft-keyword form of `local`. Keep it
+            -- lexed as a name so `local const`, `const = value`, and `const(...)`
+            -- retain their ordinary identifier meanings.
+            local isConst = kind == "name"
+            local loctok = advance()
+            if cur().kind == "function" then
+                local n = new cst.LocalFuncStmt {kind = "localFuncStmt"}
+                n.isConst = isConst
+                add(n, loctok)
+                add(n, advance())
+                n.name = add(n, expectName(isConst and "after 'const function'" or "after 'local function'"))
+                n.body = add(n, parseFuncbody())
+                return n
+            end
+            -- Contextual typed declaration [CS-5]: 'local record R ... end' etc. Only
+            -- when the introducer is followed by a name, so that 'local record = 5'
+            -- stays a plain local.
+            if not isConst and startsTypedecl(i) then
+                return parseTypedecl(loctok, "local")
+            end
+            local n = new cst.LocalStmt {kind = "localStmt"}
+            n.isConst = isConst
+            add(n, loctok)
+            n.names = {}
+            n.types = {}
+            local function bind()
+                n.names[#n.names + 1] = add(n, expectName(isConst and "after 'const'" or "after 'local'"))
+                if cur().kind == ":" then
+                    annotationColon(n, "in variable annotation")
+                    n.types[#n.names] = add(n, parseType())
+                end
+            end
+
+            bind()
+            while cur().kind == "," do
+                add(n, advance())
+                bind()
+            end
+            if cur().kind == "=" then
+                add(n, advance())
+                n.exprs = parseExplist(n)
+            end
+            return n
+
+        elseif kind == "::" then
+            local n = new cst.LabelStmt {kind = "labelStmt"}
+            add(n, advance())
+            n.name = add(n, expectName("in label"))
+            add(n, expect("::", "to close label"))
+            return n
+
+        elseif kind == "goto" then
+            local n = new cst.GotoStmt {kind = "gotoStmt"}
+            add(n, advance())
+            n.name = add(n, expectName("after 'goto'"))
+            return n
+
+        elseif kind == "break" then
+            local n = new cst.BreakStmt {kind = "breakStmt"}
+            add(n, advance())
+            return n
+
+        elseif kind == "name" and cur().text == "continue" and tokens[i + 1] and BLOCK_FOLLOW[tokens[i + 1].kind] then
+            local n = new cst.ContinueStmt {kind = "continueStmt"}
+            local tok = add(n, advance())
+            if loopDepth == 0 then
+                errAt(tok, "no loop to continue")
+            end
+            return n
+
+        elseif kind == "return" then
+            local n = new cst.ReturnStmt {kind = "returnStmt"}
+            add(n, advance())
+            if not BLOCK_FOLLOW[cur().kind] and cur().kind ~= ";" then
+                n.exprs = parseExplist(n)
+            else
+                n.exprs = {}
+            end
+            if cur().kind == ";" then
+                add(n, advance())
+            end
+            return n
+        end
+
+        -- Expression statement: assignment or call [CS-1].
+        local e = parseSuffixedexp()
+        if compoundOp() then
+            local n = new cst.CompoundAssign {kind = "compoundAssign"}
+            n.target = add(n, e)
+            n.op = add(n, advance())
+            n.value = add(n, parseExp())
+            local tk = e.kind
+            if not (
+                tk == "name"
+                or tk == "dotIndex"
+                or tk == "bracketIndex"
+                or tk == "safeIndex"
+                or tk == "safeBracket"
+                or tk == "errorExpr"
+            ) then
+                errAt(cur(), "cannot assign to this expression")
+            end
+            return n
+        end
+        if cur().kind == "=" or cur().kind == "," then
+            local n = new cst.AssignStmt {kind = "assignStmt"}
+            n.targets = {add(n, e)}
+            while cur().kind == "," do
+                add(n, advance())
+                n.targets[#n.targets + 1] = add(n, parseSuffixedexp())
+            end
+            add(n, expect("=", "in assignment"))
+            n.exprs = parseExplist(n)
+            for _, target in ipairs(n.targets) do
+                local tk = target.kind
+                if not (
+                    tk == "name"
+                    or tk == "dotIndex"
+                    or tk == "bracketIndex"
+                    or tk == "safeIndex"
+                    or tk == "safeBracket"
+                    or tk == "errorExpr"
+                ) then
+                    errAt(cur(), "cannot assign to this expression")
+                end
+            end
+            return n
+        end
+        local ek = e.kind
+        if ek == "call" or ek == "methodCall" or ek == "safeCall" or ek == "errorExpr" then
+            local n = new cst.CallStmt {kind = "callStmt"}
+            n.expr = add(n, e)
+            return n
+        end
+        errAt(cur(), "syntax error: expression is not a statement")
+        local n = new cst.ErrorStmt {kind = "errorStmt"}
+        add(n, e)
+
+        return n
+    end
+
+    --- Statements up to a block terminator.
+    parseBlock = function(): Node
+        local n = new cst.Block {kind = "block"}
+        n.stats = {}
+        local returned = false
+        while not BLOCK_FOLLOW[cur().kind] do
+            -- A return ends its block [grammar: block = *stat [retstat]]. What follows
+            -- is reported once and then parsed as usual, so the rest of the block still
+            -- checks and the tree still round-trips.
+            if returned then
+                errAt(
+                    cur(),
+                    "'return' must be the last statement in a block",
+                    nil,
+                    "move the 'return' below the statements that follow " .. "it, or delete them"
+                )
+                returned = false
+            end
+            local start = i
+            local s = parseStatement()
+            if s.kind == "returnStmt" then
+                returned = true
+            end
+            n.stats[#n.stats + 1] = add(n, s)
+            -- Progress guarantee: recovery may produce a statement out of thin air
+            -- (all-missing tokens); if so, consume the offending token so the block
+            -- loop always advances.
+            if i == start then
+                local e = new cst.ErrorStmt {kind = "errorStmt"}
+                errAt(cur(), ("unexpected '%s'"):format(spelling(cur())))
+                add(e, advance())
+                n.stats[#n.stats + 1] = add(n, e)
+            end
+        end
+
+        return n
+    end
+
+    local root = new cst.Chunk {kind = "chunk"}
+    root.blocks = {}
+    while cur().kind == "@" and tokens[
+        i + 1
+    ] and tokens[
+        i + 1
+    ].kind == "not" and tokens[i + 1].text == "!" and tokens[i + 2] and tokens[i + 2].kind == "name" do
+        local name = tokens[i + 2].text
+        if name ~= "nofmt" and name ~= "internal" then
+            break
+        end
+        -- An inner annotation belongs to the file rather than a statement. It is
+        -- deliberately absent from the tree's array part, so compilation ignores it.
+        root.formatDisabled = root.formatDisabled or name == "nofmt"
+        root.documentationInternal = root.documentationInternal or name == "internal"
+        tokens[i].startsStat = true
+        tokens[i].blockDepth = 0
+        tokens[i + 1].unaryTok = true
+        tokens[i + 1].blockDepth = 0
+        tokens[i + 2].blockDepth = 0
+        advance()
+        ;
+        advance()
+        ;
+        advance()
+    end
+    while true do
+        root.blocks[#root.blocks + 1] = add(root, parseBlock())
+        if cur().kind == "eof" then
+            break
+        end
+        -- Stray block terminator at top level ('end', 'else', ...): report, consume,
+        -- keep parsing.
+        local e = new cst.ErrorStmt {kind = "errorStmt"}
+        errAt(cur(), ("unexpected '%s' at top level"):format(spelling(cur())))
+        add(e, advance())
+        add(root, e)
+    end
+    root.eof = add(root, advance())
+
+    return {root = root, tokens = tokens, errors = errors}
+end
+
+return parser

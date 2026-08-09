@@ -1,12 +1,12 @@
--- The question surface `nupp.analysis` exposes, tested directly rather than through
+-- The question surface `compiler.analysis` exposes, tested directly rather than through
 -- the passes that ask. A pass declining is not evidence about which question said no,
 -- and the whole reason these moved out of the provers is so that one answer serves
 -- several callers -- which is only worth anything if the answer itself is pinned.
-local parser = require("nupp.parser")
-local check = require("nupp.check")
-local envMod = require("nupp.env")
-local analysis = require("nupp.analysis")
-local cst = require("nupp.cst")
+local parser = require("compiler.parser")
+local check = require("compiler.check")
+local envMod = require("compiler.env")
+local analysis = require("compiler.analysis")
+local cst = require("compiler.cst")
 
 local function assertEq(got, want, label)
    if got ~= want then

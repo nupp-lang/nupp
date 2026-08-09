@@ -1,0 +1,585 @@
+--[[
+Substitution and instantiation over interned types.
+
+A generic declaration is one type with binders in it; every use is that type with
+the binders replaced. Doing the replacing, and working out what to replace them
+with from the arguments at a call, are operations on types alone — no scopes, no
+tree, nothing to report — so they live here rather than inside the checker that
+decides when to ask for them.
+
+Applying the same arguments to the same declaration yields the identical type, so
+`Box<number>` is `Box<number>` everywhere.
+]]
+
+local T = require("compiler.types")
+local narrowing = require("compiler.narrowing")
+
+local generics = {}
+
+--- A type, as compiler.types builds them.
+local type Type = T.Type
+
+--- What a binder stands for, per instantiation.
+local type Bindings = {[any]: any}
+
+--- A pack with all type and pack binders replaced per `map`.
+function generics.substPack(pack: T.Pack, map: Bindings): T.Pack
+    if pack.alternatives then
+        local alternatives = {}
+        for j, arm in ipairs(pack.alternatives) do
+            alternatives[j] = generics.substPack(arm, map)
+        end
+        return T.packUnion(alternatives)
+    end
+    local head, modes = {}, {}
+    for j, value in ipairs(pack.head) do
+        head[j] = generics.subst(value, map)
+        modes[j] = pack.modes[j] or "plain"
+    end
+    local tail = pack.tail
+    if tail and tail.kind == "homogeneous" then
+        tail = {kind = "homogeneous", type = generics.subst(tail.type, map), mode = tail.mode}
+    elseif tail and tail.kind == "generic" then
+        local replacement = map[tail.var]
+        if replacement and replacement.tag == "pack" then
+            for j, value in ipairs(replacement.head) do
+                head[#head + 1] = value
+                modes[#modes + 1] = replacement.modes[j] or "plain"
+            end
+            tail = replacement.tail
+        else
+            tail = {kind = "unknown", type = T.any}
+        end
+    end
+
+    return T.pack(head, tail, modes)
+end
+
+--- Rebuilds `t` with its type parameters replaced per `map`. A parameter the map says
+--- nothing about becomes `any`, which is what keeps a partly-inferred application
+--- gradual rather than wrong.
+---
+--- @param t the type to substitute into
+--- @param map what each binder stands for
+function generics.subst(t: Type, map: Bindings): Type
+    if not T.hasTypevar(t) then
+        return t
+    end
+    local tag = t.tag
+    if tag == "typevar" then
+        return map[t] or T.any
+    elseif tag == "array" then
+        return T.array(generics.subst(t.elem, map))
+    elseif tag == "map" then
+        return T.indexer(
+            t.readable and generics.subst(t.key, map) or nil,
+            t.readable and generics.subst(t.value, map) or nil,
+            t.writeKey and generics.subst(t.writeKey, map) or nil,
+            t.writeValue and generics.subst(t.writeValue, map) or nil
+        )
+    elseif tag == "tuple" then
+        local elems: {Type} = {}
+        for j, e in ipairs(t.elems) do
+            elems[j] = generics.subst(e, map)
+        end
+        return T.tuple(elems)
+    elseif tag == "shape" then
+        local fields = {}
+        for j, f in ipairs(t.fields) do
+            fields[
+                j
+            ] = {
+                name = f.name,
+                read = f.read and generics.subst(f.read, map) or nil,
+                write = f.write and generics.subst(f.write, map) or nil
+            }
+        end
+        return T.shape(
+            fields,
+            {
+                readKey = t.indexReadKey and generics.subst(t.indexReadKey, map) or nil,
+                readValue = t.indexReadValue and generics.subst(t.indexReadValue, map) or nil,
+                writeKey = t.indexWriteKey and generics.subst(t.indexWriteKey, map) or nil,
+                writeValue = t.indexWriteValue and generics.subst(t.indexWriteValue, map) or nil,
+            },
+            t.fresh
+        )
+    elseif tag == "union" then
+        local members: {Type} = {}
+        for j, m in ipairs(t.members) do
+            members[j] = generics.subst(m, map)
+        end
+        return T.union(members)
+    elseif tag == "intersection" then
+        local members: {Type} = {}
+        for j, m in ipairs(t.members) do
+            members[j] = generics.subst(m, map)
+        end
+        return T.intersection(members)
+    elseif tag == "ptr" then
+        return T.ptr(generics.subst(t.elem, map))
+    elseif tag == "owned" then
+        return T.owned(generics.subst(t.inner, map), t.cleanups)
+    elseif tag == "borrowed" then
+        return T.borrowed(generics.subst(t.inner, map))
+    elseif tag == "pinned" then
+        return T.pinned(generics.subst(t.inner, map))
+    elseif tag == "metatable" then
+        return T.metatable(generics.subst(t.of, map))
+    elseif tag == "protocolThread" then
+        return T.protocolThread(
+            generics.substPack(t.startPack, map),
+            generics.substPack(t.resumePack, map),
+            generics.substPack(t.yieldPack, map),
+            generics.substPack(t.returnPack, map)
+        )
+    elseif tag == "genericAlias" then
+        return generics.subst(t.body, map)
+    elseif tag == "func" then
+        local paramPack = generics.substPack(t.paramPack, map)
+        local retPack = generics.substPack(t.retPack, map)
+        local params, rets = paramPack.head, retPack.head
+        local bounds: {Type}? = nil
+        if t.typeBounds then
+            bounds = {}
+            for j, b in ipairs(t.typeBounds) do
+                bounds[j] = generics.subst(b, map)
+            end
+        end
+        return T.func(
+            params,
+            rets,
+            t.vararg,
+            t.paramModes,
+            t.predicate,
+            t.typeParams,
+            bounds,
+            t.borrowsParam,
+            t.borrowsSelf,
+            t.borrowsParams,
+            t.ffiOut,
+            t.varargType and generics.subst(t.varargType, map) or nil,
+            t.noreturn,
+            paramPack,
+            retPack,
+            t.packParams,
+            t.yieldPack and generics.substPack(t.yieldPack, map) or nil,
+            t.resumePack and generics.substPack(t.resumePack, map) or nil
+        )
+    end
+
+    return t
+end
+
+--- Instantiates a generic function as one monomorphic callable. This is used when a
+--- universally generic function value is assigned to a concrete function type; the
+--- target signature supplies the arguments that an ordinary call would have supplied.
+function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
+    local concrete = generics.subst(t, map)
+    if concrete.tag ~= "func" then
+        return t
+    end
+
+    return T.func(
+        concrete.paramPack.head,
+        concrete.retPack.head,
+        concrete.paramPack.tail ~= nil,
+        concrete.paramPack.modes,
+        concrete.predicate,
+        nil,
+        nil,
+        concrete.borrowsParam,
+        concrete.borrowsSelf,
+        concrete.borrowsParams,
+        concrete.ffiOut,
+        concrete.varargType,
+        concrete.noreturn,
+        concrete.paramPack,
+        concrete.retPack,
+        nil,
+        concrete.yieldPack,
+        concrete.resumePack
+    ) as T.Func
+end
+
+--- Structurally matches an actual value sequence against a declared pack.
+function generics.unifyPack(param: T.Pack, arg: T.Pack, map: Bindings): nil
+    if param.alternatives then
+        for _, arm in ipairs(param.alternatives) do
+            generics.unifyPack(arm, arg, map)
+        end
+        return
+    end
+    for j, expected in ipairs(param.head) do
+        generics.unify(expected, T.packAt(arg, j) or T.nil_, map)
+    end
+    local tail = param.tail
+    if not tail then
+        return
+    end
+    if tail.kind == "generic" then
+        local rest, modes = {}, {}
+        for j = #param.head + 1, #arg.head do
+            rest[#rest + 1] = arg.head[j]
+            modes[#modes + 1] = arg.modes[j] or "plain"
+        end
+        local actualTail = #param.head < #arg.head and arg.tail or arg.tail
+        local remaining = T.pack(rest, actualTail, modes)
+        local prior = map[tail.var]
+        if prior then
+            for j, value in ipairs(remaining.head) do
+                generics.unify(T.packAt(prior, j) or T.nil_, value, map)
+            end
+        else
+            map[tail.var] = remaining
+        end
+    elseif tail.kind == "homogeneous" then
+        for j = #param.head + 1, #arg.head do
+            generics.unify(tail.type, arg.head[j], map)
+        end
+        if arg.tail and arg.tail.kind == "homogeneous" then
+            generics.unify(tail.type, arg.tail.type, map)
+        end
+    end
+end
+
+-- Applying type arguments to a generic declaration yields a distinct nominal whose
+-- fields are substituted. Identical arguments give the identical type, so the
+-- instantiations are kept rather than rebuilt.
+local instantiations: {[string]: T.Nominal} = {}
+
+--- The nominal `n` stands for once its parameters hold `map`.
+---
+--- @param n the generic declaration
+--- @param map what each binder stands for
+function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
+    local parts = {n.id}
+    for _, tv in ipairs(n.typeParams or {}) do
+        parts[#parts + 1] = (map[tv] or T.any).id
+    end
+    local key = table.concat(parts, "|")
+    local cached = instantiations[key]
+    if cached then
+        return cached
+    end
+    local inst = T.nominal(n.name, n.declKind)
+    inst.origin = n
+    inst.typeArgs = {}
+    for j, tv in ipairs(n.typeParams or {}) do
+        inst.typeArgs[j] = map[tv] or T.any
+    end
+    inst.fieldOrder = n.fieldOrder
+    inst.arrayOf = n.arrayOf and generics.subst(n.arrayOf, map) or nil
+    inst.fieldDefs = n.fieldDefs
+    inst.writeFieldDefs = n.writeFieldDefs
+    inst.selfType = n.selfType
+    inst.supertypes = {}
+    for j, parent in ipairs(n.supertypes or {}) do
+        inst.supertypes[j] = generics.subst(parent, map)
+    end
+    -- cached before the members are filled in, so a declaration that names itself finds
+    -- the instantiation under way rather than recurring
+    instantiations[key] = inst
+    for name, ft in pairs(n.byname) do
+        inst.byname[name] = generics.subst(ft, map)
+    end
+    for name, ft in pairs(n.writeByname or {}) do
+        inst.writeByname[name] = generics.subst(ft, map)
+    end
+    inst.overloadedMethods = {}
+    inst.methodEntries = {}
+    inst.methodDispatchEntries = {}
+    for name in pairs(n.overloadedMethods or {}) do
+        inst.overloadedMethods[name] = true
+    end
+    for name, entries in pairs(n.methodEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[
+                j
+            ] = {
+                signature = generics.subst(entry.signature, map),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.methodEntries[name] = specialized
+    end
+    for name, entries in pairs(n.methodDispatchEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[
+                j
+            ] = {
+                signature = generics.subst(entry.signature, map),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.methodDispatchEntries[name] = specialized
+    end
+    inst.indexReadKey = n.indexReadKey and generics.subst(n.indexReadKey, map) or nil
+    inst.indexReadValue = n.indexReadValue and generics.subst(n.indexReadValue, map) or nil
+    inst.indexWriteKey = n.indexWriteKey and generics.subst(n.indexWriteKey, map) or nil
+    inst.indexWriteValue = n.indexWriteValue and generics.subst(n.indexWriteValue, map) or nil
+    for name, ft in pairs(n.metamethods or {}) do
+        inst.metamethods[name] = generics.subst(ft, map)
+    end
+    inst.constructors = {}
+    inst.constructorEntries = {}
+    for j, signature in ipairs(n.constructors or {}) do
+        local specialized = generics.subst(signature, map)
+        inst.constructors[j] = specialized
+        local entry = n.constructorEntries and n.constructorEntries[j] or nil
+        inst.constructorEntries[
+            j
+        ] = {
+            signature = specialized,
+            declaration = entry and entry.declaration or nil,
+            index = entry and entry.index or j,
+        }
+    end
+
+    return inst
+end
+
+--- Structurally matches an argument type against a parameter type, accumulating what
+--- the binders must stand for. Repeat bindings union together, so a binder in two
+--- positions holds what both arguments were.
+---
+--- @param param the declared parameter type, binders and all
+--- @param arg what the call passed there
+--- @param map accumulates the bindings
+function generics.unify(param: Type, arg: Type, map: Bindings): nil
+    param, arg = T.unwrapOwnership(param), T.unwrapOwnership(arg)
+    if not T.hasTypevar(param) then
+        return
+    end
+    local tag = param.tag
+    if tag == "typevar" then
+        if arg ~= T.any and arg ~= T.nil_ then
+            -- A binder in two positions holds what both arguments were. An index by a
+            -- computed key has no name to narrow, so the previous binding is read into
+            -- one.
+            local bound = map[param]
+            map[param] = bound and T.union({bound, arg}) or arg
+        end
+    elseif tag == "array" then
+        if arg.tag == "array" then
+            generics.unify(param.elem, arg.elem, map)
+        elseif arg.tag == "tuple" then
+            for _, e in ipairs(arg.elems) do
+                generics.unify(param.elem, e, map)
+            end
+        end
+    elseif tag == "metatable" then
+        -- `metatable<T>` is how a registrar asks for a declaration's own table, so the
+        -- receiver it describes is what binds T -- and what the bound is then checked
+        -- against.
+        if arg.tag == "metatable" then
+            generics.unify(param.of, arg.of, map)
+        end
+    elseif tag == "map" then
+        if arg.tag == "map" then
+            if param.readable and arg.readable then
+                generics.unify(param.key, arg.key, map)
+                generics.unify(param.value, arg.value, map)
+            end
+            if param.writeKey and arg.writeKey then
+                generics.unify(param.writeKey, arg.writeKey, map)
+                generics.unify(param.writeValue, arg.writeValue, map)
+            end
+        end
+    elseif tag == "union" then
+        -- "T?"-style params: subtract the concrete members from the argument, the
+        -- residue binds the typevar (assert(x: T?): T with x: number? binds T = number,
+        -- not number?)
+        local tv: Type? = nil
+        local rest: {Type} = {}
+        for _, m in ipairs(param.members) do
+            if m.tag == "typevar" and not tv then
+                tv = m
+            else
+                rest[#rest + 1] = m
+            end
+        end
+        if tv then
+            local residue = arg
+            for _, r in ipairs(rest) do
+                residue = narrowing.subtract(residue, r)
+            end
+            generics.unify(tv, residue, map)
+        end
+        for _, r in ipairs(rest) do
+            generics.unify(r, arg, map)
+        end
+    elseif tag == "intersection" then
+        -- Every conjunct constrains the same runtime argument. In particular this lets
+        -- `T & Bound` infer T while compatibility proves the other contracts.
+        for _, member in ipairs(param.members) do
+            generics.unify(member, arg, map)
+        end
+    elseif tag == "shape" then
+        local reads = arg.tag == "shape" and arg.byname or (arg.tag == "nominal" and arg.byname)
+        local writes = arg.tag == "shape" and arg.writeByname or (arg.tag == "nominal" and arg.writeByname)
+        if reads or writes then
+            for _, f in ipairs(param.fields) do
+                local read = reads and reads[f.name]
+                local write = writes and writes[f.name]
+                if f.read and read then
+                    generics.unify(f.read, read, map)
+                end
+                if f.write and write then
+                    generics.unify(f.write, write, map)
+                end
+            end
+        end
+    elseif tag == "func" then
+        if arg.tag == "func" then
+            generics.unifyPack(param.paramPack, arg.paramPack, map)
+            generics.unifyPack(param.retPack, arg.retPack, map)
+        end
+    elseif tag == "nominal" then
+        if arg.tag == "nominal" then
+            local po = param.origin or param
+            local ao = arg.origin or arg
+            if po == ao then
+                for j, p in ipairs(param.typeArgs or {}) do
+                    local a = arg.typeArgs and arg.typeArgs[j]
+                    if a then
+                        generics.unify(p, a, map)
+                    end
+                end
+            end
+        end
+    elseif tag == "ptr" then
+        if arg.tag == "ptr" then
+            generics.unify(param.elem, arg.elem, map)
+        end
+    end
+end
+
+--- A member's type as the receiver reaching it sees it: `self` inside a declaration
+--- stands for whatever the value actually is, which is what lets an inherited contract
+--- be rebound to the child that included it.
+---
+--- @param owner the declaration the member belongs to
+--- @param ft the member's type
+--- @param receiver what `self` stands for here, `owner` by default
+function generics.specializeSelf(owner: Type?, ft: Type, receiver: Type?): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.specializeSelf(owner, member, receiver)
+        end
+        return T.intersection(members)
+    end
+    if owner and owner.tag == "nominal" and owner.selfType then
+        return generics.subst(ft, {[owner.selfType] = receiver or owner})
+    end
+
+    return ft
+end
+
+--- A method's type as a plain function, receiver removed. Method-call receivers are
+--- passed implicitly, so `o:m(x)` checks against the signature without its first
+--- parameter.
+---
+--- @param ft the method's type
+function generics.dropSelf(ft: Type): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.dropSelf(member)
+        end
+        return T.intersection(members)
+    end
+    if ft.tag == "func" and #ft.params >= 1 then
+        local params: {Type} = {}
+        local modes: {string} = {}
+        for j = 2, #ft.params do
+            params[#params + 1] = ft.params[j]
+        end
+        for j = 2, #ft.params do
+            modes[#modes + 1] = ft.paramModes and ft.paramModes[j] or "plain"
+        end
+        local paramPack = T.pack(params, ft.paramPack.tail, modes)
+        return T.func(
+            params,
+            ft.rets,
+            ft.vararg,
+            modes,
+            nil,
+            ft.typeParams,
+            ft.typeBounds,
+            ft.borrowsParam,
+            ft.borrowsSelf,
+            ft.borrowsParams,
+            ft.ffiOut,
+            ft.varargType,
+            ft.noreturn,
+            paramPack,
+            ft.retPack,
+            ft.packParams,
+            ft.yieldPack,
+            ft.resumePack
+        )
+    end
+
+    return ft
+end
+
+--- The same in reverse: a function stored as a member takes the receiver first, which
+--- is the shape a declaration file writes.
+---
+--- @param ft the function's type
+--- @param selfType what the receiver is
+--- @param selfMode the receiver's ownership mode, "plain" by default
+function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.addSelf(member, selfType, selfMode)
+        end
+        return T.intersection(members)
+    end
+    if ft.tag ~= "func" then
+        return ft
+    end
+    local params: {Type} = {selfType}
+    local modes: {string} = {selfMode or "plain"}
+    for _, p in ipairs(ft.params) do
+        params[#params + 1] = p
+    end
+    for _, mode in ipairs(ft.paramModes or {}) do
+        modes[#modes + 1] = mode
+    end
+    local paramPack = T.pack(params, ft.paramPack.tail, modes)
+
+    return T.func(
+        params,
+        ft.rets,
+        ft.vararg,
+        modes,
+        ft.predicate,
+        ft.typeParams,
+        ft.typeBounds,
+        ft.borrowsParam,
+        ft.borrowsSelf,
+        ft.borrowsParams,
+        ft.ffiOut,
+        ft.varargType,
+        ft.noreturn,
+        paramPack,
+        ft.retPack,
+        ft.packParams,
+        ft.yieldPack,
+        ft.resumePack
+    )
+end
+
+return generics

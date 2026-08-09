@@ -1,0 +1,243 @@
+--[[
+The build state, on disk.
+
+A build decides what to redo by content, not by clock: every input is digested
+and the digests are written beside the artifacts, so a checkout with fresh
+timestamps rebuilds nothing and a file edited back to what it was rebuilds
+nothing either.
+
+Reading and digesting a whole compiler tree costs about five milliseconds
+(`compiler.build.hash`), which is why there is no modification-time shortcut here
+and no need for one. A shortcut would only be able to make this cheaper by
+making it wrong.
+
+Content-addressing only works if the same inputs always serialize the same way,
+which is what the canonical encoding here is for: a table's keys are visited in
+sorted order, so two runs that disagree about `pairs` order still agree about
+the digest.
+]]
+
+local hash = require("compiler.build.hash")
+local json = require("cjson").new()
+local fs = require("compiler.fs")
+
+local join = fs.join
+local dirname, basename = fs.dirname, fs.basename
+local readFile, writeFile = fs.readFile, fs.writeFile
+local listFiles = fs.listFiles
+
+local cache = {}
+
+--- What one module's last build left behind.
+---
+--- Every field is optional because the state is read back from a file: this version
+--- writes all of them, and a file that turns out to be missing one is a cache miss
+--- rather than a crash.
+type cache.ModuleRecord = {
+    sourceHash: string?,
+    interfaceHash: string?,
+    artifactHash: string?,
+    dependencies: {string}?,
+
+    --- The compiler-recognized runtime features this module needs staging for.
+    effects: {[string]: any}?,
+
+    --- Where the module's coverage sites were recorded, on a coverage build.
+    coverage: {
+        path: string?,
+        sites: {any}
+    }?,
+    output: string?,
+
+    --- What checking the module had to say, kept so that reusing the record says it
+    --- again rather than reporting a clean file.
+    diags: {any}?
+}
+
+--- What one dependency's last build produced, as its provider described it.
+---
+--- The providers hand back different things -- a native build has an output and a
+--- binding, a rock has a tree and the search path it adds -- so this is the union of
+--- what any of them says, and `key` is the part they all agree on.
+type cache.DependencyRecord = {
+    key: string?,
+    output: string?,
+    binding: string?,
+    rock: string?,
+    version: string?,
+    tree: string?,
+    luaVersion: string?,
+    path: string?,
+    cpath: string?
+}
+
+--- Everything one build wrote down about what it did.
+---
+--- `compilerHash`, `configHash` and `projectIndexHash` are absent from a state that has
+--- just been emptied and filled in by the run that is about to compare them.
+type cache.State = {
+    version: integer,
+    modules: {[string]: cache.ModuleRecord},
+    dependencies: {[string]: cache.DependencyRecord},
+    outputs: {[string]: boolean},
+
+    --- Target name -> the outputs that target produced, so each can remove its own
+    --- leftovers without removing another's.
+    targets: {[string]: {string}},
+
+    compilerHash: string?,
+    configHash: string?,
+    projectIndexHash: string?
+}
+
+local function jsonArray<T>(items: {T}): {T}
+    return setmetatable(items, json.array_mt) as {T}
+end
+
+local function stable(value: unknown, seen: {[unknown]: boolean}?): string
+    local kind = type(value)
+    if kind == "nil" then
+        return "nil"
+    end
+    if kind == "boolean" or kind == "number" then
+        return tostring(value)
+    end
+    if kind == "string" then
+        return ("%q"):format(value)
+    end
+    if kind ~= "table" then
+        return "<" .. kind .. ">"
+    end
+    -- `type` has settled what this is; the cast is how that answer reaches the checker,
+    -- which follows `is` rather than a comparison against a copied `type()` result.
+    local entries = value as {[unknown]: unknown}
+    seen = seen or {}
+    if seen[value] then
+        return "<cycle>"
+    end
+    seen[value] = true
+    local keys = {}
+    for key in pairs(entries) do
+        keys[#keys + 1] = key
+    end
+    table.sort(keys, function(a, b)
+        return tostring(a) < tostring(b)
+    end)
+    local parts = {}
+    for _, key in ipairs(keys) do
+        parts[#parts + 1] = stable(key, seen) .. "=" .. stable(entries[key], seen)
+    end
+    seen[value] = nil
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+local function hashFile(path: string): string?
+    local text = readFile(path)
+    return text and hash.digest(text) or nil
+end
+
+local function hashFiles(files: {string}): string
+    local parts = {}
+    for _, path in ipairs(files) do
+        parts[#parts + 1] = path .. "\0" .. (hashFile(path) or "missing")
+    end
+
+    return hash.digest(table.concat(parts, "\0"))
+end
+
+local function moduleDir(): string
+    local source = debug.getinfo(1, "S").source
+    return source:match("^@(.*)[/\\]") or "."
+end
+
+-- The running compiler cannot change while it is running, so the answer is computed
+-- once. Listing the tree shells out to `find`, and a build that asks twice was paying
+-- for a second process to be told the same thing.
+local toolFingerprintMemo = nil
+
+local function toolFingerprint(): string
+    if toolFingerprintMemo then
+        return toolFingerprintMemo
+    end
+    local dir = moduleDir()
+    -- The installed build modules live one directory below the rest of the compiler.
+    -- Digest the complete compiler tree, not just compiler.build.*.
+    if basename(dir) == "build" then
+        dir = dirname(dir)
+    end
+    local files = {}
+    if dir:match("bootstrap$") then
+        files = {join(dir, "nupp.lua")}
+    else
+        for _, path in ipairs(listFiles(dir)) do
+            if path:match("%.lua$") then
+                files[#files + 1] = path
+            end
+        end
+    end
+    -- Named relative to the compiler's own directory, so the answer describes the
+    -- compiler rather than where it was found. `moduleDir` reports whatever
+    -- `package.path` was written as, and the launcher writes an absolute path where a
+    -- test harness writes a relative one -- so hashing the paths as given made one
+    -- compiler fingerprint two ways depending on how it was started, and anything keyed
+    -- on it threw away the other's work every time the two alternated.
+    local parts = {}
+    for _, path in ipairs(files) do
+        local relative = path
+        if path:sub(1, #dir + 1) == dir .. "/" then
+            relative = path:sub(#dir + 2)
+        end
+        parts[#parts + 1] = relative .. "\0" .. (hashFile(path) or "missing")
+    end
+    table.sort(parts)
+    toolFingerprintMemo = hash.digest(table.concat(parts, "\0"))
+
+    return toolFingerprintMemo
+end
+
+-- Bumped whenever a recorded digest stops meaning what it meant, which discards the
+-- last version's state instead of comparing hex that was computed by a different
+-- function. Version 2 is where the cache keys moved off SHA-256.
+local STATE_VERSION: integer = 2
+
+local function emptyState(): cache.State
+    return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State
+end
+
+local function loadState(path: string): cache.State
+    local text = readFile(path)
+    if not text then
+        return emptyState()
+    end
+    local ok, state = pcall(json.decode, text)
+    if not ok or type(state) ~= "table" or state.version ~= STATE_VERSION then
+        return emptyState()
+    end
+    state.modules = state.modules or {}
+    state.dependencies = state.dependencies or {}
+    state.outputs = state.outputs or {}
+    -- Target name -> what that target last produced. Two targets can share one output
+    -- directory — a bundle and the binary stamped from it naturally do — and each has
+    -- to be able to remove its own leftovers without removing the other's.
+    state.targets = state.targets or {}
+
+    return state
+end
+
+local function saveState(path: string, state: cache.State): boolean?, string?
+    return writeFile(path, json.encode(state) .. "\n")
+end
+
+cache.jsonArray = jsonArray
+cache.stable = stable
+cache.hashFile = hashFile
+cache.hashFiles = hashFiles
+cache.moduleDir = moduleDir
+cache.toolFingerprint = toolFingerprint
+cache.loadState = loadState
+cache.saveState = saveState
+cache.emptyState = emptyState
+cache.STATE_VERSION = STATE_VERSION
+
+return cache

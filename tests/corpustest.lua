@@ -3,10 +3,10 @@
 -- Every valid LuaJIT program is a valid Nupp program; this is the test
 -- that keeps that true, and it is the reason contextual keywords need more
 -- than a two-token lookahead.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local cst = require("nupp.cst")
-local envMod = require("nupp.env")
+local cst = require("compiler.cst")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 

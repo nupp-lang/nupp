@@ -1,11 +1,11 @@
 -- Typing a pinned C header at compile time: LuaJIT parses it, and the
 -- types are read back out of the FFI rather than translated by us.
-local cheaderMod = require("nupp.cheader")
-local parser = require("nupp.parser")
+local cheaderMod = require("compiler.cheader")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local gen = require("nupp.gen")
-local envMod = require("nupp.env")
-local T = require("nupp.types")
+local gen = require("compiler.gen")
+local envMod = require("compiler.env")
+local T = require("compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

@@ -224,7 +224,7 @@ end
 function M.everyCommandThatWritesJsonAlsoDescribesIt()
    -- The pairing is the point: a command that can be asked for JSON can always
    -- be asked what that JSON will look like.
-   local cli = require("nupp.cli")
+   local cli = require("compiler.cli")
    for _, name in ipairs(cli.names()) do
       if name ~= "help" then
          local help = capture(nil, "help " .. name)

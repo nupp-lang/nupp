@@ -1,0 +1,380 @@
+--[[
+An annotation attached to a statement.
+
+`@name(...)` before a declaration is a pragma: the statement it decorates is
+checked as it would have been anyway, and the annotation is checked against the
+definition that declares it. Some are the checker's own — `@allow` silences a
+lint for the statement beneath it, `@annotation` declares a new name — and the
+rest are validated and recorded for whatever reads them later.
+
+Nesting is allowed, so a statement may carry several, and the walk recurs
+through the chain to reach the declaration underneath.
+]]
+
+local cst = require("compiler.cst")
+local lints = require("compiler.lints")
+local state = require("compiler.check.state")
+
+local pragma = {}
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- Installs the pragma statement on one run.
+---
+--- @param c the run's state
+--- @return the statement kinds this family answers
+function pragma.install(c: state.Checker): state.StatHandlers
+    local marks = c.marks
+    local defineAnnotation = marks.defineAnnotation
+    local validateAnnotation = marks.validateAnnotation
+    local stringValue, nameText = marks.stringValue, marks.nameText
+    local literalText = marks.literalText
+
+    local handlers = {}
+    local RELAXATIONS = {
+        ["function-identity"] = true,
+        ["load-order"] = true,
+        ["error-site"] = true,
+        frames = true,
+        ["gc-timing"] = true,
+        ["table-order"] = true,
+    }
+
+    local function effectContract(application)
+        local listMembers = {
+            reads = true,
+            writes = true,
+            shapes = true,
+            metatables = true,
+            escapes = true,
+            calls = true,
+            returns = true,
+        }
+        local boolMembers = {allocates = true, yields = true, raises = true, external = true,}
+        local contract = {
+            reads = {},
+            writes = {},
+            shapes = {},
+            metatables = {},
+            escapes = {},
+            calls = {},
+            returns = {},
+            allocates = false,
+            yields = false,
+            raises = false,
+            external = false,
+        }
+        local seen = {}
+        for _, arg in ipairs(application.annotationArgs or {}) do
+            local name = arg.name and arg.name.text or nil
+            if not name or seen[name] or not (listMembers[name] or boolMembers[name]) then
+                c.diag("NUPP2112", arg, "@effects arguments must be unique named effect members")
+            elseif listMembers[name] then
+                seen[name] = true
+                local expr = arg.expr
+                if not expr or expr.kind ~= "tableExpr" then
+                    c.diag("NUPP2112", arg, ("@effects.%s must be an array of strings"):format(name))
+                else
+                    for _, field in ipairs(expr.fields or {}) do
+                        local value = field.kind == "fieldItem" and stringValue(field.value) or nil
+                        if not value then
+                            c.diag("NUPP2112", field, ("@effects.%s entries must be strings"):format(name))
+                        else
+                            contract[name][#contract[name] + 1] = value
+                        end
+                    end
+                end
+            else
+                seen[name] = true
+                local expr = arg.expr
+                if not expr or (expr.kind ~= "trueExpr" and expr.kind ~= "falseExpr") then
+                    c.diag("NUPP2112", arg, ("@effects.%s must be true or false"):format(name))
+                else
+                    contract[name] = expr.kind == "trueExpr"
+                end
+            end
+        end
+
+        return contract
+    end
+
+    handlers.pragmaStmt = function(stat: cst.PragmaStmt)
+        local annotationName = stat.name
+        if not annotationName then
+            return
+        end
+        local written = annotationName.text
+        local target = stat.stat
+        while target and target.kind == "pragmaStmt" do
+            target = target.stat
+        end
+        -- What the annotation decorates, and the body it carries when the decorated
+        -- statement is a function: the contracts below attach to one or the other, and
+        -- a stray annotation decorates nothing.
+        local targetKind = target and target.kind or ""
+        local targetBody: Node? = nil
+        if target then
+            if target.kind == "funcStmt"
+                or target.kind == "localFuncStmt"
+                or target.kind == "inlineMethod"
+                or target.kind == "constructorDecl"
+            then
+                targetBody = target.body
+            end
+        end
+        if written == "annotation" and target and targetKind == "recordDecl" then
+            target.isAnnotationDefinition = true
+        end
+        local annotation, valid = validateAnnotation(stat, target)
+
+        if not annotation then
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+        if written == "annotation" then
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            if valid and target and targetKind == "recordDecl" then
+                defineAnnotation(stat, target)
+            end
+            return
+        end
+
+        if written == "effects" then
+            if valid and target then
+                local contract = effectContract(stat)
+                target.effectContract = contract
+                if targetBody then
+                    targetBody.effectContract = contract
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            if valid and target and target.kind == "localStmt" and target.effectContract then
+                for _, name in ipairs(target.names or {}) do
+                    if name.definition then
+                        name.definition.effectContract = target.effectContract
+                    end
+                end
+            end
+            return
+        end
+
+        if written == "relax" then
+            local relaxed = {}
+            for _, arg in ipairs(stat.annotationArgs or {}) do
+                local expr = arg.expr
+                local value = nameText(expr) or stringValue(expr)
+                if not value or not RELAXATIONS[value] then
+                    c.diag(
+                        "NUPP2112",
+                        arg,
+                        "@relax names function-identity, load-order, error-site, "
+                        .. "frames, gc-timing, or table-order"
+                    )
+                else
+                    relaxed[value] = true
+                end
+            end
+            if valid and target then
+                target.relaxedGuarantees = relaxed
+                if targetBody then
+                    targetBody.relaxedGuarantees = relaxed
+                end
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+
+        if written == "owned" then
+            local cleanups = {}
+            local opaque, outName, success = false, nil, "always"
+            for _, arg in ipairs(stat.annotationArgs or {}) do
+                local expr = arg.expr
+                local argName = arg.name and arg.name.text or nil
+                local named = nameText(expr)
+                if argName == "opaque" and expr and expr.kind == "trueExpr" then
+                    opaque = true
+                elseif argName == "out" and named then
+                    outName = named
+                elseif argName == "success" and (named == "always" or named == "zero" or named == "nonzero") then
+                    success = named
+                elseif argName == "success" and literalText(expr) then
+                    success = "equals:" .. tostring(literalText(expr))
+                elseif argName == "cleanup" then
+                    local cleanupExprs = {}
+                    if expr and expr.kind == "name" then
+                        cleanupExprs[1] = expr
+                    elseif expr and expr.kind == "tableExpr" then
+                        for _, field in ipairs(expr.fields or {}) do
+                            cleanupExprs[#cleanupExprs + 1] = field.value
+                        end
+                    end
+                    if #cleanupExprs == 0 then
+                        c.diag("NUPP2602", arg, "@owned cleanup must name one or more functions")
+                    end
+                    for _, cleanupExpr in ipairs(cleanupExprs) do
+                        local cleanupName = nameText(cleanupExpr)
+                        if not cleanupName then
+                            c.diag("NUPP2602", arg, "@owned cleanup entries must be function names")
+                        else
+                            cleanups[#cleanups + 1] = cleanupName
+                        end
+                    end
+                elseif argName or not named then
+                    c.diag("NUPP2602", arg, "invalid @owned argument")
+                else
+                    local entry = c.lookupEntry(named)
+                    if entry and expr and expr.kind == "name" then
+                        c.markToken(
+                            expr.token,
+                            entry.definition,
+                            entry.t,
+                            entry.definition and entry.definition.kind or "function"
+                        )
+                    end
+                    cleanups[#cleanups + 1] = named
+                end
+            end
+            if opaque and #cleanups > 0 then
+                c.diag("NUPP2602", stat, "@owned(opaque = true) cannot also declare cleanup functions")
+            end
+            if outName then
+                if not valid or targetKind ~= "cdefFunc" or not target then
+                    c.diag("NUPP2602", stat, "@owned(out = ...) applies only to cdef functions")
+                elseif opaque or #cleanups == 0 then
+                    c.diag("NUPP2602", stat, "an owned output needs an explicit cleanup")
+                else
+                    target.ownedOuts = target.ownedOuts or {}
+                    target.ownedOuts[
+                        #target.ownedOuts + 1
+                    ] = {name = outName, cleanups = cleanups, success = success, at = stat.name,}
+                end
+            elseif valid and target and targetKind == "cdefFunc" then
+                target.ownCleanups = cleanups
+                target.ownOpaque = opaque
+                target.ownTok = stat.name
+            elseif valid and targetBody then
+                targetBody.ownCleanups = cleanups
+                targetBody.ownOpaque = opaque
+                targetBody.ownTok = annotationName
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+
+        if written == "borrowed" then
+            local outName, sourceName, success = nil, nil, "always"
+            for _, arg in ipairs(stat.annotationArgs or {}) do
+                local expr = arg.expr
+                local argName = arg.name and arg.name.text or nil
+                local named = nameText(expr)
+                if argName == "out" and named then
+                    outName = named
+                elseif argName == "from" and named then
+                    sourceName = named
+                elseif argName == "success" and (named == "always" or named == "zero" or named == "nonzero") then
+                    success = named
+                elseif argName == "success" and literalText(expr) then
+                    success = "equals:" .. tostring(literalText(expr))
+                else
+                    c.diag("NUPP2602", arg, "invalid @borrowed argument")
+                end
+            end
+            if not valid or targetKind ~= "cdefFunc" or not target then
+                c.diag("NUPP2602", stat, "@borrowed applies only to cdef functions")
+            elseif not outName or not sourceName then
+                c.diag("NUPP2602", stat, "@borrowed requires out and from parameter names")
+            else
+                target.borrowedOuts = target.borrowedOuts or {}
+                target.borrowedOuts[
+                    #target.borrowedOuts + 1
+                ] = {name = outName, source = sourceName, success = success, at = stat.name,}
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+
+        if written == "dispose" then
+            local ownerKey = nil
+            if target and target.kind == "funcStmt" then
+                local fname = target.name
+                if fname and fname.kind == "funcname" then
+                    ownerKey = c.funcOwner(fname)
+                end
+            end
+            if valid and targetKind == "funcStmt" and targetBody then
+                targetBody.disposeContract = true
+                targetBody.disposeMethod = ownerKey ~= nil
+                targetBody.disposeTok = annotationName
+            elseif valid and targetKind == "localFuncStmt" and targetBody then
+                targetBody.disposeContract = true
+                targetBody.disposeTok = annotationName
+            elseif valid and target and targetKind == "cdefFunc" then
+                target.disposeContract = true
+                target.disposeTok = stat.name
+            end
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+
+        if written ~= "allow" then
+            if stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+        end
+
+        -- @allow (CODE, ...) silences those diagnostics for the statement it
+        --     decorates, and nothing outside it. With no arguments it silences
+        --     everything there, which is blunt on purpose: it should look like what
+        --     it is.
+        local set = {}
+        if not stat.annotationArgs or #stat.annotationArgs == 0 then
+            set["*"] = true
+        else
+            for _, arg in ipairs(stat.annotationArgs) do
+                local expr = arg.kind == "annotationArg" and arg.expr or nil
+                local named = arg.kind == "annotationArg" and arg.name or nil
+                local spelled = nil
+                if expr and expr.kind == "name" then
+                    local tok = expr.token
+                    spelled = tok and tok.text or nil
+                end
+                local name = spelled or stringValue(expr)
+                if named or not name then
+                    c.diag("NUPP2112", arg, "@allow arguments must be lint names or codes")
+                elseif not lints.get(name) then
+                    -- A type error is not a judgement to disagree with, so there is
+                    -- nothing here to allow.
+                    c.diag("NUPP2108", arg, ("%s is not a lint, so it cannot be allowed"):format(name))
+                end
+                if name then
+                    set[name] = true
+                end
+            end
+        end
+        c.allowed[#c.allowed + 1] = set
+        if stat.stat then
+            c.checkStat(stat.stat)
+        end
+        c.allowed[#c.allowed] = nil
+    end
+
+    return handlers
+end
+
+return pragma

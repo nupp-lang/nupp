@@ -1,0 +1,517 @@
+--[[
+What an editor asks of a parse.
+
+Where a name was declared, what encloses a position, which occurrences of a
+member belong to a module: questions about a file's syntax that the language
+server asks and the checker has no reason to. They read a parse and nothing else,
+so they answer without a session.
+]]
+
+local cst = require("compiler.cst")
+local lexer = require("compiler.lexer")
+
+local tree = {}
+
+--- What these questions read off a parse: the tree, the token stream, and the two
+--- module facts the checker writes back onto the parse it was given. A parse reaches
+--- the server through the query graph, which carries it untyped, so the shape is stated
+--- where it is read rather than where it happens to be built.
+type tree.Parse = {
+    root: cst.Chunk,
+    tokens: {lexer.Token},
+
+    --- The module this file is, once the checker has said so.
+    moduleName: string?,
+
+    --- The local the file returns, which its qualified declarations attach to.
+    moduleLocal: string?
+}
+
+--- A statement a caller picked out by kind. The kinds are a table read at run time, so
+--- which production came back is a fact about the call rather than about this
+--- declaration; what stands here is what the callers read off one.
+type tree.Kinded = {
+    kind: string,
+
+    --- The names a `local` binds, one of which a `with` scope would wrap.
+    names: any,
+
+    --- The parts of a `with` scope an unwrap takes apart.
+    withTok: any,
+    doTok: any,
+    endTok: any,
+    bindings: any,
+    body: any
+}
+
+--- Where a name was declared, as the checker leaves it on every token that spells it.
+--- Nothing declares this shape: it is built field by field while checking, so the
+--- readers agree on it here.
+type tree.Definition = {
+    --- The file the declaration is in, which for a cross-file definition is not the
+    --- document being edited.
+    filename: string?,
+
+    --- The token that spells the declaration.
+    token: lexer.Token?,
+
+    name: string?,
+
+    --- What was declared, which is also what paints the semantic token.
+    kind: string?,
+
+    --- The module a `require` bound to this name.
+    requiredModule: string?
+}
+
+--- One use of a module member, with the statement that declares it when this use is the
+--- declaration.
+type tree.Occurrence = {
+    token: lexer.Token,
+    stat: cst.FuncStmt?
+}
+
+--- One plain member a module declares, and where.
+type tree.MemberDeclaration = {
+    name: string,
+    token: lexer.Token,
+    stat: cst.FuncStmt
+}
+
+--- The (module, member) pair a position names.
+type tree.MemberRef = {
+    moduleName: string,
+    name: string,
+    token: lexer.Token
+}
+
+--- A half-open byte span of the source.
+type tree.Span = {
+    from: integer,
+    to: integer
+}
+
+function tree.tokenAt(result: tree.Parse?, offset: number): lexer.Token?
+    if not result then
+        return nil
+    end
+    local previous = nil
+    for _, tok in ipairs(result.tokens or {}) do
+        if tok.kind ~= "eof" then
+            if offset >= tok.offset and offset < tok.offset + #tok.text then
+                return tok
+            end
+            if tok.offset + #tok.text == offset then
+                previous = tok
+            end
+        end
+    end
+
+    return previous
+end
+
+function tree.symbolKey(def: tree.Definition?): string?
+    if not def or not def.filename or not def.token then
+        return nil
+    end
+    return def.filename .. ":" .. tostring(def.token.offset)
+end
+
+function tree.fromTrivia(triviaList: {lexer.Trivia}?): string?
+    local lines = {}
+    for _, trivia in ipairs(triviaList or {}) do
+        if trivia.kind == "comment" then
+            local text = trivia.text
+            text = text:gsub("^%-%-%-?%s?", "")
+            text = text:gsub("^%-%-%[=*%[", "")
+            text = text:gsub("%]=*%]$", "")
+            lines[#lines + 1] = text
+        elseif trivia.kind == "whitespace" and trivia.text:find("\n%s*\n") then
+            lines = {}
+        end
+    end
+
+    return #lines > 0 and table.concat(lines, "\n") or nil
+end
+
+-- A docblock is trivia on the token that opens the declaration — `local` for a typed
+-- binding, `function` for a function — while a definition points at the name token. The
+-- docs are therefore searched for backwards along the line that the name sits on, in
+-- the token stream of the declaring file, which for a cross-file definition is not the
+-- document being edited.
+function tree.documentationAt(tokens: {lexer.Token}, index: integer): string?
+    local tok = tokens[index]
+    if not tok then
+        return nil
+    end
+    local docs = tree.fromTrivia(tok.trivia)
+    if docs then
+        return docs
+    end
+    for cursor = index - 1, 1, -1 do
+        local candidate = tokens[cursor]
+        if candidate.line ~= tok.line then
+            break
+        end
+        docs = tree.fromTrivia(candidate.trivia)
+        if docs then
+            return docs
+        end
+    end
+
+    return nil
+end
+
+-- Keywords that introduce a name, so a name that follows one is being declared rather
+-- than used.
+local DECLARING = {
+    ["local"] = true,
+    ["global"] = true,
+    ["function"] = true,
+    ["type"] = true,
+    ["record"] = true,
+    ["struct"] = true,
+    ["interface"] = true,
+    ["cdef"] = true,
+}
+
+-- Finds where `name` is declared in an already-lexed file. A declaration is a name that
+-- follows a declaring keyword, possibly through a dotted path as in `function
+-- mod.name`, or one that opens its own line ahead of a `:`, which is how typed bindings
+-- and record fields are written. The candidate nearest `near` wins, so a file that has
+-- only shifted still resolves to the declaration it used to.
+function tree.findDeclaration(tokens: {lexer.Token}, name: string, near: number): lexer.Token?
+    local best, bestDistance
+    for index, tok in ipairs(tokens) do
+        if tok.kind == "name" and tok.text == name then
+            local previous, following = tokens[index - 1], tokens[index + 1]
+            local declared = previous ~= nil and DECLARING[previous.kind] or false
+            if not declared and previous and (previous.kind == "." or previous.kind == ":") then
+                local cursor = index - 1
+                while tokens[
+                    cursor
+                ] and (tokens[cursor].kind == "." or tokens[cursor].kind == ":" or tokens[cursor].kind == "name") do
+                    cursor = cursor - 1
+                end
+                declared = tokens[cursor] ~= nil and DECLARING[tokens[cursor].kind] or false
+            end
+            if not declared and following and following.kind == ":" and (not previous or previous.line ~= tok.line) then
+                declared = true
+            end
+            if declared then
+                local distance = math.abs(tok.offset - near)
+                if not bestDistance or distance < bestDistance then
+                    best, bestDistance = tok, distance
+                end
+            end
+        end
+    end
+
+    return best
+end
+
+-- Line runs --------------------------------------------------------------------
+--
+-- Formatting answers with the lines that changed rather than the whole file. A client
+-- applying a whole-document rewrite loses every cursor, fold and mark in it to replace
+-- lines that came through untouched, and a range request has nothing to select from.
+-- Lines are the right grain: the formatter never joins them, so a line either survived
+-- as it was or did not.
+
+function tree.walkNodes(node: cst.Child?, visit: function(cst.Node): nil): nil
+    if not node or cst.isToken(node) then
+        return
+    end
+    visit(node)
+    for _, child in ipairs(node) do
+        if not cst.isToken(child) then
+            tree.walkNodes(child, visit)
+        end
+    end
+end
+
+function tree.nodeBounds(node: cst.Child): integer?, integer?
+    local first, last
+    local function walk(value)
+        if cst.isToken(value) then
+            if value.text ~= "" then
+                first = first or value.offset
+                last = value.offset + #value.text
+            end
+        else
+            for _, child in ipairs(value) do
+                walk(child)
+            end
+        end
+    end
+
+    walk(node)
+
+    return first, last
+end
+
+-- Plain module members ------------------------------------------------------
+--
+-- `function m.f` puts a value on the table a file returns. Nothing types that table —
+-- it is inferred open, which is what lets an untyped module keep working — so `f` has
+-- no declaration for the checker to intern and no type for a definition to hang from.
+-- It still means one particular place, and saying so is the whole of what an editor is
+-- being asked here.
+--
+-- The question is therefore answered syntactically, per request, rather than indexed:
+-- which module a name holds is recorded on that name's definition when it was bound to
+-- a `require`, and a file's own module local is the table its own members sit on. Both
+-- are facts about the text, so neither costs the checker anything and neither goes
+-- stale behind an edit.
+
+--- The name a member expression is written on, when it is a plain name: `m` in `m.f`,
+--- `m:f` and `function m.f`. Anything else — a call result, a nested table — is holding
+--- a value nothing here can trace back to a module.
+---
+--- A `funcname` is read through the statement that owns it, so a declaration arrives
+--- once and arrives with its signature still in reach.
+function tree.memberHolder(node: cst.Node): lexer.Token?, lexer.Token?
+    if node.kind == "dotIndex" or node.kind == "methodCall" or node.kind == "safeIndex" then
+        local obj = node.obj
+        if obj and obj.kind == "name" then
+            return obj.token, node.name
+        end
+        return nil
+    end
+    if node.kind == "funcStmt" then
+        local fname = node.name
+        if not fname or fname.kind ~= "funcname" then
+            return nil
+        end
+        local names = {}
+        for _, child in ipairs(fname) do
+            if cst.isToken(child) and child.kind == "name" then
+                names[#names + 1] = child
+            end
+        end
+        -- One table deep, the depth a qualified declaration is held to. `function
+        -- m.a.b` attaches to a table the module happens to hold.
+        if #names ~= 2 then
+            return nil
+        end
+        return names[1], names[2]
+    end
+
+    return nil
+end
+
+--- The declaration line of a function statement: its text up to the block, so a reader
+--- is shown the parameters and returns as they were written. A plain member has nothing
+--- else to show — no type was ever computed for the table it sits on, and inventing one
+--- from the body would say more than is known.
+function tree.functionSignature(stat: cst.FuncStmt): string
+    -- A statement holds its funcbody as a plain node, so reaching the block inside it
+    -- says which production that node is.
+    local block = stat.body and (stat.body as cst.Funcbody).body
+    local parts, first, done = {}, true, false
+    local function walk(node)
+        if done then
+            return
+        end
+        if node == block then
+            done = true
+            return
+        end
+        if cst.isToken(node) then
+            if not first then
+                for _, trivia in ipairs(node.trivia) do
+                    parts[#parts + 1] = trivia.text
+                end
+            end
+            first = false
+            parts[#parts + 1] = node.text
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(stat)
+
+    return (table.concat(parts):gsub("%s+$", ""))
+end
+
+--- The module a name in `result` holds, or nil. A name bound to `require("m")` holds m;
+--- the local a file returns holds the file's own module.
+function tree.moduleHeld(result: tree.Parse, tok: lexer.Token?): string?
+    if not tok then
+        return nil
+    end
+    local def = tok.definition
+    if def and def.requiredModule then
+        return def.requiredModule
+    end
+    if result.moduleName and result.moduleLocal == tok.text then
+        return result.moduleName
+    end
+
+    return nil
+end
+
+--- Every `m.f` in `result` naming `memberName` of `moduleName`, as {token, stat}.
+--- `stat` is set on the `function m.f` that writes it, which is the one place a
+--- definition points at and the one a rename has to reach even when nothing uses it.
+function tree.memberOccurrences(result: tree.Parse, moduleName: string, memberName: string): {tree.Occurrence}
+    local found = {}
+    tree.walkNodes(result.root, function(node)
+        local holder, member = tree.memberHolder(node)
+        if not member or member.text ~= memberName then
+            return
+        end
+        if tree.moduleHeld(result, holder) ~= moduleName then
+            return
+        end
+        found[#found + 1] = {token = member, stat = node.kind == "funcStmt" and node or nil,}
+    end)
+    table.sort(found, function(a, b)
+        return a.token.offset < b.token.offset
+    end)
+
+    return found
+end
+
+--- Every plain member `moduleName` declares, as {name, stat}, in source order.
+function tree.moduleMemberDeclarations(result: tree.Parse, moduleName: string): {tree.MemberDeclaration}
+    local found = {}
+    tree.walkNodes(result.root, function(node)
+        if node.kind ~= "funcStmt" then
+            return
+        end
+        local holder, member = tree.memberHolder(node)
+        if not member or tree.moduleHeld(result, holder) ~= moduleName then
+            return
+        end
+        found[#found + 1] = {name = member.text, token = member, stat = node}
+    end)
+    table.sort(found, function(a, b)
+        return a.token.offset < b.token.offset
+    end)
+
+    return found
+end
+
+--- The (module, member) a position names, when it is on the member of an `m.f`.
+function tree.moduleMemberAt(result: tree.Parse, offset: number): tree.MemberRef?
+    local best = nil
+    tree.walkNodes(result.root, function(node)
+        local holder, member = tree.memberHolder(node)
+        if not member or not holder then
+            return
+        end
+        if offset < member.offset or offset >= member.offset + #member.text then
+            return
+        end
+        local moduleName = tree.moduleHeld(result, holder)
+        if moduleName then
+            best = {moduleName = moduleName, name = member.text, token = member}
+        end
+    end)
+
+    return best
+end
+
+-- Outline ---------------------------------------------------------------------
+--
+-- What a file declares, read straight off the tree. None of it needs the checker: a
+-- `record` is a record whether or not its fields make sense, which is exactly why an
+-- outline is worth having in a file that does not check yet.
+
+--- The chain of nodes covering `offset`, innermost last, which is what a selection
+--- expands through.
+function tree.enclosingChain(result: tree.Parse, offset: number): {tree.Span}
+    local chain = {}
+    local function walk(node)
+        if cst.isToken(node) then
+            return
+        end
+        local from, to = tree.nodeBounds(node)
+        if not from or offset < from or offset > to then
+            return
+        end
+        chain[#chain + 1] = {from = from, to = to}
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+
+    walk(result.root)
+
+    return chain
+end
+
+-- Completion context ---------------------------------------------------------
+--
+-- A completion request arrives in the middle of the expression it is about: `util.` is
+-- not a program, and neither is `local p: shapes.`. So the context is read off the
+-- token stream rather than the tree — the tokens are there whether or not the parse
+-- succeeded — while the *types* come from the last state of this file that checked.
+-- That state is one keystroke stale, which is the right staleness: the receiver is the
+-- part the author already finished.
+
+--- The block whose `stats` hold `stat`, and where in it, so a rewrite that spans
+--- following statements knows what "following" means.
+function tree.enclosingBlock(root: cst.Child, stat: cst.Node): cst.Block?, integer?
+    local block, index
+    tree.walkNodes(root, function(node)
+        if node.kind == "block" then
+            for i, s in ipairs(node.stats or {}) do
+                if s == stat then
+                    block, index = node, i
+                end
+            end
+        end
+    end)
+
+    return block, index
+end
+
+--- The innermost node of `kinds` whose source range covers [from, to].
+function tree.innermostAt(root: cst.Child, kinds: {[string]: boolean}, from: number, to: number?): tree.Kinded?
+    local best, bestSize
+    tree.walkNodes(root, function(node)
+        if kinds[node.kind] then
+            local first, last = tree.nodeBounds(node)
+            if first and from >= first and (to as number) <= last then
+                -- Bounds are found together, so the first one testing non-nil settles
+                -- the second.
+                local size = (last as integer) - first
+                if not bestSize or size < bestSize then
+                    best, bestSize = node, size
+                end
+            end
+        end
+    end)
+
+    return best as tree.Kinded?
+end
+
+--- Whether `node` tree.mentions the local `def` declares, anywhere below it.
+function tree.mentions(node: cst.Child, def: tree.Definition): boolean
+    local found = false
+    local function walk(value)
+        if found then
+            return
+        end
+        if cst.isToken(value) then
+            if value.definition and value.definition == def then
+                found = true
+            end
+        else
+            for _, child in ipairs(value) do
+                walk(child)
+            end
+        end
+    end
+
+    walk(node)
+
+    return found
+end
+
+return tree

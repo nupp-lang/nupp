@@ -4,7 +4,7 @@
 --
 -- The lexers are data as much as code: `lexer.lua` finds its siblings by path,
 -- through the `scintillua.lexers` property, rather than by `require`. So they
--- are installed as a directory that stays a directory, and `nupp.doc.highlight`
+-- are installed as a directory that stays a directory, and `compiler.doc.highlight`
 -- locates it by resolving `scintillua.lexers.lexer` on the search path and
 -- taking the directory that answer sits in.
 rockspec_format = "3.0"

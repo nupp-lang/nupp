@@ -1,4 +1,4 @@
-local lexer = require("nupp.lexer")
+local lexer = require("compiler.lexer")
 
 local function kindsOf(src)
    local tokens = select(1, lexer.lex(src))

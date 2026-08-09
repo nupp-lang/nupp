@@ -1,11 +1,11 @@
 -- OPT-5, concat lowering. The property that matters is not that a buffer appears but
 -- that the program still builds the same string, so every rewrite here is run and
 -- compared against the same source compiled with the pass off.
-local parser = require("nupp.parser")
-local optimize = require("nupp.optimize")
-local gen = require("nupp.gen")
+local parser = require("compiler.parser")
+local optimize = require("compiler.optimize")
+local gen = require("compiler.gen")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

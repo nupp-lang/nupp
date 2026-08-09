@@ -2,7 +2,7 @@
 -- command, and inspect the artifacts rather than reaching into its implementation.
 local test = require("assert")
 local cjson = require("cjson")
-local highlight = require("nupp.doc.highlight")
+local highlight = require("compiler.doc.highlight")
 local M = {}
 
 local ROOT = debug.getinfo(1, "S").source:match("^@(.+)/tests/")
@@ -40,19 +40,19 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     test.matches(index, "Generated Lua")
     assert(index:find("--bg:#0d1117", 1, true), "coverage report uses dark theme")
     assert(index:find(".nuppdoc-token-keyword", 1, true), "coverage CSS styles syntax")
-    assert(index:find("data-route='file/src/nupp/gen.nupp'", 1, true),
+    assert(index:find("data-route='file/src/compiler/gen.nupp'", 1, true),
         "coverage report has a file route")
     assert(index:find("<nav class=breadcrumbs aria-label=Breadcrumb>", 1, true),
         "coverage pages have breadcrumbs")
     assert(index:find("<a data-route='dir/src' href='#dir/src'>src</a>", 1, true),
         "coverage breadcrumbs link each parent layer")
-    assert(index:find("<a data-route='dir/src/nupp' href='#dir/src/nupp'>nupp</a>", 1, true),
+    assert(index:find("<a data-route='dir/src/compiler' href='#dir/src/compiler'>compiler</a>", 1, true),
         "coverage breadcrumbs link nested parent layers")
     assert(index:find("location.hash.slice(1)||'all'", 1, true), "coverage routes use URL hashes")
     assert(index:find("window.scrollTo(0,0)", 1, true), "coverage navigation resets scroll")
     assert(index:find("<details open><summary><a data-route='dir/src'", 1, true),
         "coverage tree opens its first level")
-    assert(index:find("<details open><summary><a data-route='dir/src/nupp'", 1, true),
+    assert(index:find("<details open><summary><a data-route='dir/src/compiler'", 1, true),
         "coverage tree opens its second level")
     local query = assert(io.popen(("cd %q && %q coverage --report-json --out %q")
         :format(ROOT, ROOT .. "/bin/nupp", out)))
@@ -76,7 +76,7 @@ function M.coverageReportRunsAndWritesBrowsableArtifacts()
     assert(index:find("data-key=functions", 1, true), "functions are sortable")
     assert(index:find("data-key=missedFunctions", 1, true), "missed functions are sortable")
     assert(index:find("data-key=missedArms", 1, true), "missed arms are sortable")
-    test.matches(read(out .. "/lcov.info"), "SF:src/nupp/")
+    test.matches(read(out .. "/lcov.info"), "SF:src/compiler/")
     assert(os.execute("rm -rf " .. string.format("%q", out)) == 0)
 end
 

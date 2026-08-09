@@ -1,8 +1,8 @@
 -- else-if: an `else` containing one unannotated `if` is an `elseif` written
 -- longhand. The check is syntactic, so it neither changes nor depends on flow.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 
 local function assertEq(got, want, label)
    if got ~= want then

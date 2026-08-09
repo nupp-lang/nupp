@@ -762,6 +762,10 @@ Reports: `NUPP2119`. `nupp explain <code>` says more.
 
 ### Docblocks
 
+A leading `@!internal` inner annotation keeps a file out of public generated
+documentation. On `init.nupp`, it also hides every descendant module; private
+documentation builds include the complete tree.
+
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
 `@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
 renders them.

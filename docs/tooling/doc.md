@@ -104,9 +104,23 @@ anything marked `@export`. Private by default:
 
 - a source file whose basename starts with `_`;
 - any file below an `internal/` directory;
+- a file beginning with `@!internal`;
+- every module below an `init.nupp` beginning with `@!internal`;
 - a record method or member whose name starts with `_`.
 
 `includePrivate = true` on the docs target includes them.
+
+`@!internal` is a file-level inner annotation, not a docblock tag. Put it first
+in a namespace's `init.nupp` to keep that module and every descendant out of
+public API documentation without naming the directory `internal`:
+
+```nupp
+@!internal
+return {}
+```
+
+It affects documentation only. The compiler still checks, builds, and resolves
+the modules normally.
 
 A `.d.nupp` declaration file documents in full without `--all`, because `local`
 there is not privacy — its bindings are the interface it describes. Mark one

@@ -1,6 +1,6 @@
 -- Width-aware formatting, docblocks, and the safety invariant.
-local fmt = require("nupp.fmt")
-local lexer = require("nupp.lexer")
+local fmt = require("compiler.fmt")
+local lexer = require("compiler.lexer")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -37,6 +37,11 @@ local function check(src, want, label)
 end
 
 local M = {}
+
+function M.internalInnerAnnotationStaysTightAndAtFileScope()
+   local got = fmt1("@!internal\nlocal x=1\n")
+   assertEq(got, "@!internal\nlocal x = 1\n", "internal inner annotation")
+end
 
 function M.indentIsFourSpaces()
    check("if x then\nf()\nend\n", lines("if x then", "    f()", "end"))
@@ -389,7 +394,7 @@ end
 
 function M.formatterOutputStillChecks()
    -- structural sanity: format then reparse the whole corpus of examples
-   local parser = require("nupp.parser")
+   local parser = require("compiler.parser")
    local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
    for _, rel in ipairs({ "/../examples/todo.nupp", "/../examples/cinterop.nupp" }) do
       local f = assert(io.open(HERE .. rel))

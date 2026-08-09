@@ -8,10 +8,10 @@
 -- it: `put` takes `...: any`, which strict reports on an exported function. The
 -- module then resolved to `unknown`, every use of it was silently untyped, and
 -- nothing was reported about any of it.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
-local T = require("nupp.types")
+local envMod = require("compiler.env")
+local T = require("compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."

@@ -1,7 +1,7 @@
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
-local native = require("nupp.native")
+local envMod = require("compiler.env")
+local native = require("compiler.native")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -131,6 +131,13 @@ function M.nativeFeaturesAreResolvedEffects()
 
    local regex = effectsOf("local expression = nupp.regex.compile('a+')")
    assert(regex["native.regex"], "nupp.regex records its native effect")
+   assertClean(table.concat({
+      "local expression: nupp.Regex = nupp.regex.compile('a+')",
+      "local match: nupp.RegexMatch? = expression:find('aaa')",
+      "local captures: nupp.RegexCaptures? = expression:captures('aaa')",
+   }, "\n"))
+   assertEq((diagsOf("local expression: NuppRegex")), "NUPP2101:1",
+      "regex nominals do not leak into the ambient type namespace")
 
    local lpeg = effectsOf("local parser = require('lpeg')")
    assert(lpeg["native.lpeg"], "require('lpeg') records its native effect")
@@ -156,6 +163,20 @@ function M.nativeFeaturesAreResolvedEffects()
    }, "\n"))
    assert(not shadowedRequire["native.lpeg"],
       "a local require is not the native module loader")
+end
+
+function M.nativeGlobalMembersLoadOnFirstAccess()
+   local bootstrap = native.bootstrap({["native.regex"] = true})
+   assert(bootstrap:find("__nuppLoaders.regex=function", 1, true),
+      "regex is registered as a lazy global member")
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local chunk = assert(loadstring(bootstrap
+      .. " return nupp, rawget(nupp, 'regex')"))
+   local namespace, regex = chunk()
+   assert(type(namespace) == "table", "nupp is always present")
+   assertEq(regex, nil, "registering regex does not load its native dependency")
+   _G.nupp = previous
 end
 
 function M.nativeFeatureOverridesAreTriState()

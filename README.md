@@ -177,9 +177,9 @@ interesting window is one frame rather than the whole run. See
 
 ## Layout
 
-    src/nupp/      compiler sources — Nupp (.nupp) only: self-hosted
+    src/compiler/  compiler sources — Nupp (.nupp) only: self-hosted
     bootstrap/     tracked stage-0 compiler used by a fresh clone
-    build/nupp/    generated artifacts (gitignored): the .lua that nupp
+    build/compiler/ generated artifacts (gitignored): the .lua that nupp
                    generates from src (`nupp fixpoint` verifies them)
     tests/         test suite (plain LuaJIT runner, no dependencies)
     docs/          the documentation site's sources

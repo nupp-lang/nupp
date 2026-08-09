@@ -18,7 +18,7 @@ arg = {}
 os.exit = function(...) return ... end
 
 -- Lua 5.1 and LuaJIT's `loadstring`, which 5.2 folded into `load` and 5.3 --
--- fengari's dialect -- does not define at all. nupp.optimize's constant folder
+-- fengari's dialect -- does not define at all. compiler.optimize's constant folder
 -- reaches for it to evaluate a numeric literal the lexer already accepted, so
 -- without this the optimizer is not merely absent in the browser: turning it
 -- on fails the compile with "attempt to call a nil value".
@@ -101,7 +101,7 @@ do
 end
 
 -- LuaJIT's "string.buffer": a growable byte buffer. The project-index cache
--- (nupp.build.store) builds and reads one; a plain string accumulator behaves
+-- (compiler.build.store) builds and reads one; a plain string accumulator behaves
 -- the same for every method it actually calls.
 do
     local Buffer = {}
@@ -156,7 +156,7 @@ do
 end
 
 -- A tiny JSON codec, standing in for the "cjson" C extension that
--- nupp.build.store, nupp.cli.report, and nupp.cli.lsp use for cache blobs,
+-- compiler.build.store, compiler.cli.report, and compiler.cli.lsp use for cache blobs,
 -- `--json` output, and LSP framing.
 do
     local json = {}

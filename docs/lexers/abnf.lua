@@ -1,6 +1,6 @@
 -- ABNF (RFC 5234, RFC 7405) LPeg lexer, for the docs site's grammar reference.
 -- Scintillua does not ship one; this is the whole reason a project lexers
--- directory exists at all — see nupp.doc.highlight.
+-- directory exists at all — see compiler.doc.highlight.
 
 local lexer = lexer
 local P, S = lpeg.P, lpeg.S

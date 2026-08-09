@@ -1,0 +1,170 @@
+--[[
+`nupp reference`: the language, small enough to hand to a reader in one piece.
+
+The reference is compiled into the binary rather than fetched, so what prints
+belongs to the compiler being run. That is the whole reason this is a command and
+not a file on a website: a reader holding a reference from a different version is
+worse off than one holding none, because they cannot tell.
+
+Three renderings of one document. `markdown` is the document; `skill` wraps it in
+the frontmatter an agent harness loads it by; `json` hands over the chapters and
+sections themselves, for a consumer that would rather render its own.
+]]
+
+local spec = require("compiler.cli.spec")
+
+local command = spec.command{
+    name = "reference",
+    summary = "List or print a focused Nupp reference chapter",
+    usage = {"nupp reference [language|cli|all] [--format markdown|skill|json] [-o PATH]"},
+    positionals = {{name = "chapter", choices = {"language", "cli", "all"}}},
+    intro = [[With no chapter, lists the available focused references. `all` is the
+complete language reference, around four thousand tokens, so it fits in a prompt
+whole.
+
+  nupp reference cli
+  nupp reference cli --format skill -o .claude/skills/nupp-cli/SKILL.md
+  nupp reference all > docs/reference.md
+  nupp reference --format skill -o .claude/skills/nupp/SKILL.md]],
+    options = {
+        {
+            name = "--format",
+            value = "FORMAT",
+            choices = {"markdown", "skill", "json"},
+            duplicate = "output format was specified more than once",
+            help = "Output format: markdown (default), skill, or json"
+        },
+        {
+            name = "--skill",
+            key = "format",
+            constant = "skill",
+            duplicate = "output format was specified more than once",
+            help = "Shorthand for --format skill"
+        },
+        {
+            name = "--json",
+            key = "format",
+            constant = "json",
+            duplicate = "output format was specified more than once",
+            help = "Shorthand for --format json"
+        },
+        {
+            names = {"-o", "--output"},
+            value = "PATH",
+            key = "output",
+            help = "Write to this file rather than to standard output"
+        },
+    },
+    detail = [[The skill's description is what a harness keeps in context permanently;
+the body loads when something is actually being written. See docs/reference.md
+for the same document rendered into the site.]],
+    schema = {
+        type = "object",
+        properties = {
+            title = {type = "string"},
+            sections = {
+                type = "array",
+                items = {
+                    type = "object",
+                    properties = {
+                        title = {type = "string", description = "The heading, and its anchor."},
+                        body = {type = "string", description = "What the construct is for, as markdown."},
+                        example = {
+                            type = "string",
+                            description = "A complete module using it. Every one "
+                            .. "is compiled by the compiler's own tests."
+                        },
+                        codes = {
+                            type = "array",
+                            items = {type = "string"},
+                            description = "The codes that report getting it "
+                            .. "wrong. 'nupp explain <code>' says more."
+                        },
+                    },
+                    required = {"title", "body", "codes"},
+                },
+            },
+            chapters = {
+                type = "array",
+                description = "Top-level reference chapters, each containing sections.",
+                items = {type = "object"},
+            },
+            tooling = {type = "string", description = "How to drive the toolchain, as markdown."},
+            markdown = {type = "string", description = "The whole document, as `--format markdown` writes it."},
+        },
+        required = {"title", "sections", "chapters", "tooling", "markdown"},
+    },
+}
+
+local function run(parsed: any): integer
+    local reference = require("compiler.reference")
+    local format = parsed.values.format or "markdown"
+    local positional: {string} = parsed.positional
+    if #positional > 1 then
+        return command:usageError("at most one reference chapter is required")
+    end
+    local topic = positional[1]
+    if not topic and not parsed.values.format and not parsed.values.output then
+        io.write(reference.catalog(), "\n")
+        return 0
+    end
+    local chapter = topic and topic ~= "all" and reference.chapter(topic) or nil
+    if topic and topic ~= "all" and not chapter then
+        return command:usageError("unknown reference chapter " .. topic)
+    end
+    local text
+    if format == "skill" then
+        text = reference.skill(chapter)
+    elseif chapter then
+        text = reference.chapterMarkdown(chapter)
+    else
+        text = reference.markdown()
+    end
+
+    if format == "json" then
+        local sections: {any} = {}
+        for _, section in ipairs(chapter and chapter.sections or reference.sections) do
+            sections[
+                #sections + 1
+            ] = {title = section.title, body = section.body, example = section.example, codes = section.codes,}
+        end
+        local payload = {
+            title = chapter and "Nupp " .. chapter.title .. " reference" or "Nupp language reference",
+            sections = sections,
+            chapters = chapter and {chapter} or reference.chapters,
+            tooling = reference.tooling,
+            markdown = text,
+        }
+        if chapter then
+            payload.chapter = chapter
+        end
+        if parsed.values.output then
+            local file, err = io.open(parsed.values.output, "w")
+            if not file then
+                io.stderr:write(tostring(err) .. "\n")
+                return 1
+            end
+            file:write(require("compiler.cli.report").encode(payload), "\n")
+            file:close()
+            return 0
+        end
+        require("compiler.cli.report").write(payload)
+        return 0
+    end
+
+    if parsed.values.output then
+        local file, err = io.open(parsed.values.output, "w")
+        if not file then
+            io.stderr:write(tostring(err) .. "\n")
+            return 1
+        end
+        file:write(text, "\n")
+        file:close()
+        return 0
+    end
+    io.write(text, "\n")
+
+    return 0
+end
+
+return new spec.Handler {spec = command, run = run}

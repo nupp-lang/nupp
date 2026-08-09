@@ -1,8 +1,8 @@
 -- Nil-coalescing and compound assignment: semantics, not just syntax.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local gen = require("nupp.gen")
-local envMod = require("nupp.env")
+local gen = require("compiler.gen")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

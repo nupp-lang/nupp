@@ -277,7 +277,7 @@ function M.theBootstrapIsProducedByTheGeneralBundler()
    assert(bootstrap, "the tracked bootstrap is readable")
    assert(bootstrap:find('package.preload["nupp.embedded"]', 1, true),
       "it carries its resources the way every bundle does")
-   assert(bootstrap:find("package.preload[\"nupp.cst\"]", 1, true),
+   assert(bootstrap:find("package.preload[\"compiler.cst\"]", 1, true),
       "and preloads its modules the way every bundle does")
 end
 

@@ -22,7 +22,7 @@ dispatcher or intersection value exists at run time.
 
 This plan targets the compiler as it exists now:
 
-- Metatable contracts are checked in `src/nupp/check/metatable.nupp`, and
+- Metatable contracts are checked in `src/compiler/check/metatable.nupp`, and
   **NUPP2123** belongs to those errors. An intersection diagnostic must not
   reuse it.
 - First-class type packs are implemented. `types.Func.paramPack` and
@@ -35,7 +35,7 @@ This plan targets the compiler as it exists now:
   `substPack` handle generic packs, and `relations.packIsA` checks complete
   pack compatibility. Call nodes retain `argumentPack` and `valuePack`, while
   per-result borrow provenance lives alongside the pack-valued call flow.
-- `ops.inferCall` in `src/nupp/check/calls.nupp` currently combines argument
+- `ops.inferCall` in `src/compiler/check/calls.nupp` currently combines argument
   pack inference, generic specialization, diagnostics, ownership transitions,
   borrow propagation, and result-pack metadata in one path. Candidate probing
   cannot call that path.
@@ -121,7 +121,7 @@ function pipes. It calls `parseIntersection`, so `&` remains available there
 without becoming confused with the closing `|`.
 
 Add `cst.Tintersection {kind = "tintersection", types}` beside `Tunion`, add
-it to `cst.Node`, resolve it in `src/nupp/check/resolve.nupp`, and erase it in
+it to `cst.Node`, resolve it in `src/compiler/check/resolve.nupp`, and erase it in
 `gen.TYPE_KINDS`. The formatter is token based, but `&` and `|` should both be
 legal type-expression break points so long overload sets format predictably.
 Documentation and semantic highlighting already classify an otherwise

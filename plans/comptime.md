@@ -191,7 +191,7 @@ not ambient host `ffi.sizeof`. A request for an erased or target-unsupported
 type is a checked error.
 
 `reflect(T)` returns an immutable public descriptor rather than the mutable
-tables used internally by `nupp.types`. The initial descriptor includes:
+tables used internally by `compiler.types`. The initial descriptor includes:
 
 ```lua
 {

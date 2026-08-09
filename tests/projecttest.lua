@@ -1,8 +1,8 @@
-local project = require("nupp.build.project")
-local deps = require("nupp.build.deps")
-local hash = require("nupp.build.hash")
-local process = require("nupp.build.process")
-local store = require("nupp.build.store")
+local project = require("compiler.build.project")
+local deps = require("compiler.build.deps")
+local hash = require("compiler.build.hash")
+local process = require("compiler.build.process")
+local store = require("compiler.build.store")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -109,7 +109,7 @@ end
 function M.theToolFingerprintDoesNotDependOnHowTheCompilerWasFound()
    local function fingerprintUnder(prefix)
       local script = ("package.path=%q..package.path "
-         .. "print(require('nupp.build.cache').toolFingerprint())")
+         .. "print(require('compiler.build.cache').toolFingerprint())")
          :format(prefix .. "build/?.lua;")
       local pipe = assert(io.popen("luajit -e " .. ("%q"):format(script)))
       local out = pipe:read("*l")
@@ -398,17 +398,21 @@ function M.manifestBuildDiscoversModulesAndPreservesPaths()
 return {
    include = {"src"},
    build = {outDir = "out", entries = {"app.main"},
-      resources = {"src/app/*.d.nupp"}},
+      resources = {"src/app/*.d.nupp",
+         {source = "src/schema.nupp", output = "app/data/schema.nupp"}}},
 }
 ]],
       ["src/app/main.nupp"] = "local lib = require('lib.util')\nreturn lib\n",
       ["src/lib/util.nupp"] = "return { answer = 42 }\n",
       ["src/app/data.d.nupp"] = "return { ok: boolean }\n",
+      ["src/schema.nupp"] = "return { version = 1 }\n",
    })
    assertEq(project.build(dir), 0)
    assert(exists(dir .. "/out/app/main.lua"), "entry output keeps module path")
    assert(exists(dir .. "/out/lib/util.lua"), "dependency closure is emitted")
    assert(exists(dir .. "/out/app/data.d.nupp"), "resources keep include-relative path")
+   assert(exists(dir .. "/out/app/data/schema.nupp"),
+      "resource tables use their explicit target-relative output")
    assert(exists(dir .. "/out/.nupp-state.json"), "persistent state is written")
    assert(exists(dir .. "/out/.nupp-complete"), "completion marker is written last")
    local before = read(dir .. "/out/lib/util.lua")

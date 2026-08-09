@@ -1,0 +1,392 @@
+--[[
+The calls that mean something to the compiler because they name a C type.
+
+`ffi.new`, `ffi.cast`, `ffi.typeof` and the rest take a type where an ordinary
+call takes a value. Written with an explicit type argument the compiler reads it
+directly; written the way LuaJIT has always been written, as a constant type
+string, it reads that instead -- so existing FFI code gets types without being
+rewritten, while a spec built at run time yields cdata rather than any.
+
+`carray` and `cheader` are here for the same reason: both answer with a type
+that depends on what was passed rather than on what the callee was declared to
+return, and `cheader` reaches LuaJIT's own C parser to find out.
+]]
+
+local T = require("compiler.types")
+local relations = require("compiler.relations")
+local narrowing = require("compiler.narrowing")
+local cst = require("compiler.cst")
+local operators = require("compiler.check.operators")
+local state = require("compiler.check.state")
+
+local isA = relations.isA
+local subtract = narrowing.subtract
+local rawType = T.unwrapOwnership
+
+local ffi = {}
+
+--- A type, as compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- The one question this pass answers, asked of every call before the ordinary path
+--- takes it: the type an intrinsic has, or nil when the call is not one. It is handed
+--- the names the callee was written with rather than the callee's type, because an
+--- intrinsic is recognized by its spelling and its type argument.
+type ffi.Intrinsic = function(
+    node: Node,
+    calleeName: string,
+    baseName: string,
+    memberName: string,
+    typeArg: Node?,
+    argExprs: {Node},
+    argStr: any
+): Type?
+
+--- Installs the FFI intrinsics on one run.
+---
+--- @param c the run's state
+--- @return the intrinsic dispatch the call path asks first
+function ffi.install(c: state.Checker): ffi.Intrinsic
+
+    --- The type an intrinsic call has, or nil when this call is not one and the
+    --- ordinary call path should carry on with it. The call site is described by the
+    --- names its callee was written with, which is what every test below asks about.
+    return function(
+        node: Node,
+        calleeName: string,
+        baseName: string,
+        memberName: string,
+        typeArg: Node?,
+        argExprs: {Node},
+        argStr: any
+    ): Type?
+
+        -- Every test below asks what the callee was written as rather than what it
+        -- resolves to, which is what lets `ffi.new` be recognized. That skips
+        -- `lookupEntry`, the one place a read is recorded, so the `local ffi =
+        -- require("ffi")` the call depends on looked unread and `unused-binding` said
+        -- to delete it. Codegen emits that binding, so taking the advice left the
+        -- program indexing a nil global. Resolve the name for its own sake.
+        if baseName == "ffi" then
+            c.lookupEntry(baseName)
+        end
+
+        if not typeArg and baseName == "ffi" and operators.ffiTypeFirst[memberName] then
+            local name = memberName
+            local args = argExprs
+            for _, e in ipairs(args) do
+                c.infer(e)
+            end
+            local spec = nil
+            local firstArg = args[1]
+            local specTok = firstArg and firstArg.kind == "string" and firstArg.token or nil
+            if specTok then
+                local t = specTok.text
+                spec = t:match('^"(.*)"$') or t:match("^'(.*)'$") or t:match("^%[%[(.*)%]%]$")
+            end
+            local resolved
+            if spec then
+                local resolver = function(tag)
+                    local found = c.lookupType(tag)
+                    if found and found.tag == "nominal" then
+                        return found
+                    end
+
+                    return nil
+                end
+                local t, err = require("compiler.cheader").typeFromString(spec, resolver)
+                if t then
+                    resolved = t
+                else
+                    c.diag("NUPP2304", node, ("not a C type: %s (%s)"):format(spec, tostring(err)))
+                    return T.any
+                end
+            end
+            if name == "istype" then
+                return T.boolean
+            end
+            if name == "sizeof" or name == "alignof" then
+                return T.integer
+            end
+            if not resolved then
+                -- built at run time: a cdata, deliberately not `any`
+                return name == "typeof" and T.ctype(T.cdata) or T.cdata
+            end
+            if name == "typeof" then
+                return T.ctype(resolved)
+            end
+            if name == "cast" then
+                -- a cast is the programmer asserting a type, so the result is the
+                -- non-null form
+                return subtract(resolved, T.nil_)
+            end
+            return resolved
+        end
+
+        -- ffi.new<T>() and friends: the return type follows the type argument rather
+        -- than collapsing to any.
+        if typeArg then
+            local name = memberName
+            local argT = c.resolveType(typeArg)
+            local hint = typeArg
+            node.ffiIntrinsic = name
+            node.ffiTypeNode = hint
+            node.ffiTypeName = hint.reified or hint.cdefName or nil
+            local ffiArgs = {}
+            for j, e in ipairs(argExprs) do
+                ffiArgs[j] = c.infer(e)
+            end
+            if name == "new" or name == "cast" then
+                if name == "cast" and argT == T.cstring and ffiArgs[1] and isA(ffiArgs[1], T.string) then
+                    node.borrowOwner = c.ownershipEntry(argExprs[1])
+                    return T.borrowed(argT)
+                end
+                if name == "cast" and c.pointerShaped(argT) and ffiArgs[1] and rawType(ffiArgs[1]).tag == "func" then
+                    if c.unsafeDepth == 0 then
+                        c.diag(
+                            "NUPP2604",
+                            node,
+                            "creating an FFI callback requires unsafe do and " .. "an explicit retained owner"
+                        )
+                    else
+                        -- Inside `unsafe` the callback is permitted, and what is left
+                        -- to say is what it costs: LuaJIT registers the Lua function as
+                        -- a C callback for the life of the process, and a trace cannot
+                        -- compile through the boundary.
+                        c.diag(
+                            "jit-callback",
+                            node,
+                            "a Lua function cast to a C callback stays " .. "registered and cannot be compiled through",
+                            nil,
+                            {help = "keep the callback off hot paths, " .. "or call C with a plain pointer instead"}
+                        )
+                    end
+                end
+                if name == "cast" and ffiArgs[1] and c.ownershipKind(ffiArgs[1]) then
+                    c.diag("NUPP2603", node, "casting an owner or borrow requires explicit intoRaw " .. "or borrowFrom")
+                end
+                return argT
+            elseif name == "typeof" then
+                return T.ctype(argT)
+            elseif name == "istype" then
+                return T.boolean
+            elseif name == "sizeof" or name == "alignof" then
+                return T.integer
+            end
+            return T.any
+        end
+
+        -- carray(Struct, n) allocates a contiguous array of n of them
+        if calleeName == "carray" then
+            local args = argExprs
+            local elemT = args[1] and c.infer(args[1]) or nil
+            local countT = args[2] and c.infer(args[2]) or nil
+            if not elemT or elemT.tag ~= "nominal" or elemT.declKind ~= "struct" then
+                c.diag("NUPP2401", node, "carray needs a struct type as its first argument")
+                return T.any
+            end
+            if not countT or not (countT == T.any or isA(countT, T.number)) then
+                c.diag("NUPP2401", node, "carray needs an element count as its second argument")
+                return T.any
+            end
+            node.carrayElem = elemT.name
+            return T.carray(elemT, nil)
+        end
+
+        -- layoutof(Struct) answers how one is laid out in C memory: the fields in
+        -- declaration order with their offsets, sizes and padding, the whole size, and
+        -- a fingerprint over all of it.
+        --
+        -- Reifying is what makes a value unreachable to anything that walks a table,
+        -- and this is what makes it reachable again without the language choosing a
+        -- serialization format. See plans/layout.md.
+        --
+        -- Only the spec is built here, because only the checker knows the declared
+        -- field order and types. Everything numeric is this platform's and is asked of
+        -- the FFI at run time.
+        if calleeName == "layoutof" then
+            local args = argExprs
+            local subject = args[1] and c.infer(args[1]) or nil
+            if not subject or subject.tag ~= "nominal" or subject.declKind ~= "struct" then
+                c.diag(
+                    "NUPP2402",
+                    node,
+                    "layoutof needs a struct type as its argument",
+                    nil,
+                    {help = "a record is a table and has no C layout; only a " .. "struct is laid out in memory"}
+                )
+                return T.any
+            end
+            -- The fingerprint expands a nested struct rather than naming it. Naming it
+            -- misses a change that keeps the size: swapping `Inner`'s floats for int32s
+            -- leaves every size identical, so `inner:Inner,w:float|12` would match
+            -- itself across the change and a reader would take ints for floats.
+            -- Expansion terminates because a by-value cycle is NUPP2201, so the graph
+            -- is a DAG; a pointer is not followed, since the pointee is not part of
+            -- this layout.
+            local function expand(t: any): string?
+                if not t then
+                    return nil
+                end
+                if t.tag == "nominal" and t.declKind == "struct" then
+                    local inner = {}
+                    for _, fname in ipairs(t.fieldOrder or {}) do
+                        local one = expand(t.byname[fname])
+                        if not one then
+                            return nil
+                        end
+                        inner[#inner + 1] = fname .. ":" .. one
+                    end
+                    return "{" .. table.concat(inner, ",") .. "}"
+                end
+
+                return T.cName(t)
+            end
+
+            local parts, nested, printed = {}, {}, {}
+            for _, name in ipairs(subject.fieldOrder or {}) do
+                local fieldType = subject.byname[name] as Type
+                local spelling = T.cName(fieldType)
+                -- A struct held by value is the one shape whose size cannot come from
+                -- its spelling: nupp emits anonymous ctypes, so `ffi.sizeof("Inner")`
+                -- fails. Mark it, and hand the ctype over beside the spec. A pointer to
+                -- one needs no marker, since every pointer is one pointer wide. A
+                -- struct held by value, or an array of them: neither can be sized from
+                -- its spelling, because nupp emits anonymous ctypes and
+                -- `ffi.sizeof("Inner")` fails. The element ctype goes alongside; for an
+                -- array the helper multiplies it by the count it carries.
+                local elementOf = fieldType and fieldType.tag == "carray" and fieldType.count and fieldType.elem or nil
+                local byValue = fieldType and (
+                    (
+                        fieldType.tag == "nominal" and fieldType.declKind == "struct"
+                    ) or (elementOf and elementOf.tag == "nominal" and elementOf.declKind == "struct")
+                )
+                if not spelling then
+                    -- A struct whose every field reified cannot reach this, so it means
+                    -- the type moved and the spelling did not follow.
+                    c.diag("NUPP2402", node, ("field %q of %s has no C spelling"):format(name, subject.name))
+                    return T.any
+                end
+                parts[#parts + 1] = name .. ":" .. (byValue and ("$" .. spelling) or spelling)
+                printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
+                if byValue then
+                    nested[#nested + 1] = elementOf and (elementOf as T.Nominal).name or spelling
+                end
+            end
+            if #parts == 0 then
+                c.diag("NUPP2402", node, ("%s declares no fields, so it has no layout"):format(subject.name))
+                return T.any
+            end
+            node.layoutOf = {
+                name = subject.name,
+                spec = table.concat(parts, ","),
+                printed = table.concat(printed, ","),
+                nested = nested
+            }
+            return c.lookupType("Layout") or T.any
+        end
+
+        -- cheader("path.h" [, "lib"]) types a pinned C header at compile time: LuaJIT
+        -- parses it and reports back what it declares, so there is no generated file to
+        -- keep in step and the sizes are the ones this platform actually uses.
+        if calleeName == "cheader" then
+            local args = argExprs
+            local function literal(e)
+                if e and e.kind == "string" then
+                    local t = e.token.text
+                    return t:match('^"(.*)"$') or t:match("^'(.*)'$")
+                end
+
+                return nil
+            end
+
+            local headerPath = literal(args[1])
+            local lib = literal(args[2])
+            if not headerPath then
+                c.diag("NUPP2301", node, "cheader needs a header path written as a literal")
+                return T.any
+            end
+            local dir = c.filename:match("^(.*)[/\\][^/\\]*$") or "."
+            local candidates = {dir .. "/" .. headerPath, headerPath}
+            for _, root in ipairs(c.env and c.env.roots or {}) do
+                candidates[#candidates + 1] = root .. "/" .. headerPath
+            end
+            local cheaderMod = require("compiler.cheader")
+            local loaded, err
+            for _, candidate in ipairs(candidates) do
+                loaded, err = cheaderMod.load(candidate, {preprocess = literal(args[3]) == "preprocess",})
+                if loaded then
+                    node.cheaderCdef = loaded.cdef
+                    node.cheaderLib = lib
+                    break
+                end
+            end
+            if not loaded then
+                c.diag("NUPP2302", node, err or ("cannot read " .. headerPath))
+                return T.any
+            end
+            local fields = {}
+            for name, t in pairs(loaded.exports) do
+                fields[#fields + 1] = {name = name, type = t}
+            end
+            return T.shape(fields)
+        end
+        -- A literal ffi.cdef block declares to the compiler as well as to the runtime,
+        -- which is what lets the type strings that follow mean something at check time.
+        if baseName == "ffi" and memberName == "cdef" then
+            local args = argExprs
+            local strTok = argStr
+            local firstArg = args[1]
+            if not strTok and firstArg and firstArg.kind == "string" then
+                strTok = firstArg.token
+            end
+            if strTok then
+                local text = strTok.text
+                local body = text:match(
+                    "^%[%[(.*)%]%]$"
+                ) or text:match('^"(.*)"$') or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+                if body then
+                    local ok, err = require("compiler.cheader").declare(body)
+                    if not ok then
+                        c.diag(
+                            "NUPP2303",
+                            node,
+                            ("LuaJIT could not parse these declarations: %s"):format(tostring(err))
+                        )
+                    end
+                end
+            else
+                for _, e in ipairs(args) do
+                    c.infer(e)
+                end
+            end
+            return T.nil_
+        end
+
+        -- ffi.load names a library, and what it holds is whatever has been declared:
+        -- the same namespace ffi.C is, so both are typed from the declarations rather
+        -- than handed back as any.
+        if baseName == "ffi" and memberName == "load" then
+            for _, e in ipairs(argExprs) do
+                c.infer(e)
+            end
+            return c.cNamespaceType()
+        end
+
+        if baseName == "ffi" and memberName == "gc" then
+            local args = argExprs
+            local valueT = args[1] and c.infer(args[1]) or T.any
+            for j = 2, #args do
+                c.infer(args[j])
+            end
+            return valueT
+        end
+
+        return nil
+    end
+end
+
+return ffi

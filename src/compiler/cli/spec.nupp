@@ -1,0 +1,605 @@
+--[[
+An option grammar, given once and used twice.
+
+Every subcommand used to carry two descriptions of itself: a `while` loop that
+took its arguments apart, and a block of help text that said what that loop
+accepted. Nothing held the two together, so they drifted — an option the parser
+took and the help never mentioned, a spelling documented and never implemented.
+
+Here a command declares its options once. The same declaration parses the
+argument list and renders the `Options:` block, so the help cannot describe a
+flag the parser does not take. The prose around it — what the command is for,
+what it does with no arguments — stays hand-written, because that part is not
+derivable from a grammar and is worth more than consistency.
+
+The spellings a command can ask for are the ones the existing commands already
+used: a flag, an option with a value, a value that may be attached or omitted
+(`--profile`, `--profile=5`), and a single word matched by a pattern (`-O2`).
+
+See `compiler.cli` for how a command is registered and dispatched.
+]]
+
+local ansi = require("compiler.ansi")
+
+local spec = {}
+
+--- How an option is spelled.
+---
+--- `flag` takes no value. `value` takes one, as the next argument or attached with `=`.
+--- `optional` may be given bare or attached but never takes the next argument, which is
+--- what keeps `--profile` from swallowing the file name after it. `attached` insists on
+--- `=`, for options whose bare form should not mean anything.
+type spec.Form = 'flag' | 'value' | 'optional' | 'attached'
+
+--- One option, in every spelling that reaches it.
+record spec.Option
+    --- Every accepted spelling, in the order help lists them: `{"-w", "--write"}`.
+    names: {string}
+
+    --- Where the value lands in the parsed result.
+    key: string
+
+    --- The placeholder shown in help and named when the value is missing.
+    value: string?
+
+    form: spec.Form
+
+    --- Matches the whole argument and captures the value, for options that are one word
+    --- rather than a name and a value.
+    pattern: string?
+
+    --- The values accepted, when they are a closed set.
+    choices: {string}?
+
+    --- What the bare spelling means, for an option that stands for a value rather than
+    --- for a yes. `--json` is `--format json` written shorter, so it stores "json"
+    --- under the same key, and giving both is then caught as the contradiction it is
+    --- rather than passing as two unrelated flags.
+    constant: any?
+
+    --- What a repeat means: refused by default, since giving an option twice is more
+    --- often a mistake than a request.
+    repeats: boolean?
+
+    --- Repeats land as keys of a set rather than as an array.
+    set: boolean?
+
+    --- Replaces the derived spelling in help, for options a list of names does not
+    --- describe well.
+    display: string?
+
+    --- Replaces "option X was specified more than once", for options that share a key
+    --- and so cannot name themselves in the complaint.
+    duplicate: string?
+
+    --- Replaces the generic complaint about a value outside `choices`. A pattern option
+    --- needs it: `-O` is how the grammar spells the option and not how anybody writes
+    --- it, so naming it in the message would only mislead.
+    invalid: string?
+
+    help: string
+end
+
+--- What a parse produced.
+record spec.Result
+    --- Values by option key. A flag that was not given is absent, not false.
+    values: {[string]: any}
+
+    --- What was left over, in order, including everything after `--`.
+    positional: {string}
+end
+
+--- A positional slot whose values come from a closed set. Commands still own their
+--- positional validation; this describes the choices a shell can offer before one is
+--- typed.
+record spec.Positional
+    name: string
+    choices: {string}?
+end
+
+--- A command's whole grammar: what it is, how it is spelled, and what it accepts.
+record spec.Command
+    name: string
+
+    --- What `nupp help ...` to suggest when the arguments were wrong. Defaults to the
+    --- name, and differs only for a command that is really one operation of a group:
+    --- `nupp help lsp` is a thing to type, `nupp help lsp inspect` is not.
+    helpName: string
+
+    --- The first line of its help, and its line in the command list.
+    summary: string
+
+    --- Usage lines, without the "Usage:" heading.
+    usage: {string}
+
+    --- Positional values with a closed vocabulary, for schema-derived integrations.
+    positionals: {spec.Positional}
+
+    options: {spec.Option}
+
+    --- Prose between the usage lines and the options.
+    intro: string?
+
+    --- Prose after the options.
+    detail: string?
+
+    --- The JSON Schema of what `--json` writes, for the commands that write it.
+    --- Declaring one adds `--schema`, so a command that can be asked for JSON can
+    --- always be asked what that JSON will look like first.
+    schema: any?
+
+    --- Stops parsing at the first argument that is not an option, leaving it and
+    --- everything after it positional. `nupp run` needs this: past the program name the
+    --- arguments stop being the compiler's.
+    stopAtPositional: boolean?
+
+    --- Every spelling that is not a pattern, resolved once when the command is built
+    --- rather than scanned per argument.
+    byName: {[string]: spec.Option}
+
+    --- The pattern options, which have to be tried in turn. There are never many.
+    patterned: {spec.Option}
+end
+
+--- One option as a command writes it, before `spec.command` resolves it. Every field a
+--- `spec.Option` carries is optional here, because the resolution is what fills the
+--- ones a declaration is entitled to leave out: `names` from `name`, `key` from the
+--- longest spelling, and `form` from whether a value was asked for.
+type spec.OptionSpec = {
+    name: string?,
+    names: {string}?,
+    key: string?,
+    value: string?,
+    form: spec.Form?,
+    pattern: string?,
+    choices: {string}?,
+    constant: any?,
+    repeats: boolean?,
+    set: boolean?,
+    display: string?,
+    duplicate: string?,
+    invalid: string?,
+    help: string?
+}
+
+--- A command's grammar as it is written, which `spec.command` resolves into one.
+type spec.Declaration = {
+    name: string,
+    helpName: string?,
+    summary: string,
+    usage: {string}?,
+
+    --- The positional arguments the command names in its own help, if any.
+    positionals: {{
+        name: string,
+        choices: {string}?
+    }}?,
+    options: {spec.OptionSpec}?,
+    intro: string?,
+    detail: string?,
+    schema: any?,
+    stopAtPositional: boolean?,
+
+    --- False when a command hands its arguments to something else and so cannot
+    --- honestly claim to accept the options every command otherwise takes.
+    universal: boolean?
+}
+
+--- What a command file returns: the grammar, and the work behind it.
+record spec.Handler
+    spec: spec.Command
+
+    --- Takes the argument list as it came rather than a parse. `test` hands its
+    --- arguments to another program and `lsp` is a group of operations with grammars of
+    --- their own, so neither is described by a single option list.
+    raw: boolean?
+
+    --- Given the parse, or the raw arguments when `raw` is set. Returns the process
+    --- exit status. The parameter is loose because dispatch is: one signature has to
+    --- cover both.
+    run: function(any): integer
+end
+
+local WIDTH: integer = 79
+local INDENT = "  "
+
+-- The widest an option's spelling may be before its help moves to the next line. One
+-- long option should not indent every other option's text past reading.
+local LABEL_LIMIT: integer = 20
+
+local function isOption(value: string): boolean
+    return value:sub(1, 1) == "-" and value ~= "-"
+end
+
+--- Turns `--out-dir` into `outDir`, so an option's key is its name and nothing has to
+--- repeat itself. An option whose key should differ says so.
+local function derivedKey(name: string): string
+    local bare = name:gsub("^%-+", "")
+    return (bare:gsub("%-(%w)", function(ch: string): string
+        return ch:upper()
+    end))
+end
+
+--- Greedy word wrap. Long words are left over the limit rather than broken, since a
+--- broken option name or path is worse than a long line.
+local function wrap(text: string, width: integer): {string}
+    local lines, line = {}, ""
+    for word in text:gmatch("%S+") do
+        if line == "" then
+            line = word
+        elseif #line + 1 + #word <= width then
+            line = line .. " " .. word
+        else
+            lines[#lines + 1] = line
+            line = word
+        end
+    end
+    if line ~= "" then
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+--- How an option is spelled in help: every name, then its placeholder.
+local function label(option: spec.Option): string
+    local display = option.display
+    if display then
+        return display
+    end
+    local names = table.concat(option.names, ", ")
+    local placeholder = option.value
+    if not placeholder then
+        return names
+    end
+    local form = option.form
+    if form == "value" then
+        return names .. " " .. placeholder
+    elseif form == "attached" then
+        return names .. "=" .. placeholder
+    else
+        return names .. "[=" .. placeholder .. "]"
+    end
+end
+
+--- Fills in what an option did not bother to say. The declarations stay short because
+--- everything derivable is derived here.
+local function normalize(raw: any): spec.Option
+    local names: {string} = type(raw.names) == "table" and raw.names or {raw.name}
+    local form: spec.Form = raw.form or (raw.value and "value" or "flag")
+    -- The key comes from the longest name, so `{"-w", "--write"}` keys on `write`
+    -- rather than on `w`.
+    local longest = names[1]
+    for _, name in ipairs(names) do
+        if #name > #longest then
+            longest = name
+        end
+    end
+
+    return new spec.Option {
+        names = names,
+        key = raw.key or derivedKey(longest),
+        value = raw.value,
+        form = form,
+        pattern = raw.pattern,
+        choices = raw.choices,
+        constant = raw.constant,
+        repeats = raw.repeats,
+        set = raw.set,
+        display = raw.display,
+        duplicate = raw.duplicate,
+        invalid = raw.invalid,
+        help = raw.help or "",
+    }
+end
+
+-- The options every command has, appended to every grammar so that no command can be
+-- the one that forgot them. `--color` and `--no-color` share a key, so asking for
+-- colour and refusing it in the same breath is caught rather than resolved by whichever
+-- came last.
+local UNIVERSAL: {
+    spec.OptionSpec
+} = {
+    {
+        name = "--color",
+        value = "WHEN",
+        form = "optional",
+        constant = "always",
+        choices = {"always", "never", "auto"},
+        help = "When to colour output: always, never, or auto (default)"
+    },
+    {
+        name = "--no-color",
+        key = "color",
+        constant = "never",
+        duplicate = "colour was both asked for and refused",
+        help = "Never colour output; the same as --color=never"
+    },
+    {names = {"-h", "--help"}, help = "Show this help"},
+}
+
+--- Just `-h, --help`, for the rare command that takes its arguments raw and so cannot
+--- honestly claim to accept the rest.
+spec.helpOption = UNIVERSAL[3]
+
+-- Added only to a command that declared a schema, so `--schema` never appears on one
+-- with no JSON to describe.
+local SCHEMA_OPTION = {name = "--schema", help = "Print the JSON Schema of --json output and exit",}
+
+--- Builds a command from its declaration, resolving every spelling once.
+---
+--- Set `universal = false` when a command passes its arguments to something else and
+--- cannot answer for them.
+function spec.command(raw: spec.Declaration): spec.Command
+    local options: {spec.Option} = {}
+    local byName: {[string]: spec.Option} = {}
+    local patterned: {spec.Option} = {}
+    local declared: {any} = {}
+    for _, entry in ipairs(raw.options or {}) do
+        declared[#declared + 1] = entry
+    end
+    if raw.schema then
+        declared[#declared + 1] = SCHEMA_OPTION
+    end
+    if raw.universal ~= false then
+        for _, entry in ipairs(UNIVERSAL) do
+            declared[#declared + 1] = entry
+        end
+    end
+    for _, entry in ipairs(declared) do
+        local option = normalize(entry)
+        options[#options + 1] = option
+        if option.pattern then
+            patterned[#patterned + 1] = option
+        end
+        for _, name in ipairs(option.names) do
+            byName[name] = option
+        end
+    end
+
+    return new spec.Command {
+        name = raw.name,
+        helpName = raw.helpName or raw.name,
+        summary = raw.summary,
+        usage = raw.usage or {},
+        positionals = (raw.positionals or {}) as {spec.Positional},
+        options = options,
+        intro = raw.intro,
+        detail = raw.detail,
+        schema = raw.schema,
+        stopAtPositional = raw.stopAtPositional,
+        byName = byName,
+        patterned = patterned,
+    }
+end
+
+--- Records one value, refusing a second unless the option accumulates them.
+local function store(values: {[string]: any}, seen: {[string]: spec.Option}, option: spec.Option, value: any): string?
+    local key = option.key
+    if option.repeats then
+        local list = values[key]
+        if not list then
+            list = {}
+            values[key] = list
+        end
+        if option.set then
+            list[value] = true
+        else
+            list[#list + 1] = value
+        end
+        return nil
+    end
+    local already = seen[key]
+    if already then
+        -- Options that share a key say so in their own words: three spellings of one
+        -- choice cannot each claim to be the one repeated.
+        return already.duplicate or option.duplicate or (
+            "option " .. option.names[1] .. " was specified more than once"
+        )
+    end
+    seen[key] = option
+    values[key] = value
+
+    return nil
+end
+
+local function checkChoice(option: spec.Option, value: string): string?
+    local choices = option.choices
+    if not choices then
+        return nil
+    end
+    for _, choice in ipairs(choices) do
+        if value == choice then
+            return nil
+        end
+    end
+
+    return option.invalid or (
+        "option " .. option.names[1] .. " does not take " .. value .. "; expected " .. table.concat(choices, ", ")
+    )
+end
+
+--- Takes an argument list apart according to the grammar. Returns the values and what
+--- was left over, or nil and one message saying what was wrong with it.
+function spec.Command:parse(args: {string}): spec.Result?, string?
+    local values: {[string]: any} = {}
+    local seen: {[string]: spec.Option} = {}
+    local positional: {string} = {}
+    local literal = false
+    local index: integer = 1
+    while index <= #args do
+        local current = args[index]
+        if literal then
+            positional[#positional + 1] = current
+            index = index + 1
+        elseif current == "--" then
+            literal = true
+            index = index + 1
+        else
+            local option = self.byName[current]
+            local value: any = nil
+            local consumed: integer = 1
+            local failure: string? = nil
+            if option then
+                local form = option.form
+                if form == "value" then
+                    local given = args[index + 1]
+                    if not given or given == "" or isOption(given) then
+                        failure = "option " .. current .. " requires a value"
+                    else
+                        value, consumed = given, 2
+                    end
+                elseif form == "attached" then
+                    failure = "option " .. current .. " requires a value; write " .. current .. "=" .. (
+                        option.value or "VALUE"
+                    )
+                else
+                    -- A flag, or an optional value given bare. Either stands for
+                    -- whatever the option says its bare form means.
+                    value = option.constant
+                    if value == nil then
+                        value = true
+                    end
+                end
+            else
+                -- `--name=value`. Accepted for anything that takes a value, not only
+                -- for the options whose value must be attached.
+                local name, attached = current:match("^(%-%-?[^=]+)=(.*)$")
+                if name and attached then
+                    local named = self.byName[name]
+                    if named and named.form == "flag" then
+                        failure = "option " .. name .. " does not take a value"
+                    elseif named and attached == "" and named.form ~= "optional" then
+                        failure = "option " .. name .. " requires a value"
+                    elseif named then
+                        -- An empty value reaches an option whose value was optional
+                        -- anyway: the command already has to interpret what came, and
+                        -- can say what it wanted in its own terms better than "requires
+                        -- a value" can.
+                        option, value = named, attached
+                    end
+                end
+                if not option and not failure then
+                    for _, candidate in ipairs(self.patterned) do
+                        local pattern = candidate.pattern
+                        local captured = pattern and current:match(pattern)
+                        if captured then
+                            option, value = candidate, captured
+                            break
+                        end
+                    end
+                end
+            end
+            if failure then
+                return nil, failure
+            end
+            if option then
+                if type(value) == "string" then
+                    local wrong = checkChoice(option, value)
+                    if wrong then
+                        return nil, wrong
+                    end
+                end
+                local repeated = store(values, seen, option, value)
+                if repeated then
+                    return nil, repeated
+                end
+                index = index + consumed
+            elseif isOption(current) then
+                return nil, "unknown option " .. current
+            elseif self.stopAtPositional then
+                for rest = index, #args do
+                    positional[#positional + 1] = args[rest]
+                end
+                break
+            else
+                positional[#positional + 1] = current
+                index = index + 1
+            end
+        end
+    end
+
+    return new spec.Result {values = values, positional = positional}
+end
+
+--- The command's whole help text, with the options rendered from the grammar that
+--- parses them. Written to stdout, so it is styled for stdout.
+function spec.Command:help(): string
+    local style = ansi.style(io.stdout)
+    local paint = ansi.forSeverity(style, "note")
+    local out: {string} = {self.summary, "", style.strong("Usage:")}
+    for _, line in ipairs(self.usage) do
+        out[#out + 1] = INDENT .. line
+    end
+    local intro = self.intro
+    if intro then
+        out[#out + 1] = ""
+        ;
+        out[#out + 1] = intro
+    end
+    if #self.options > 0 then
+        local labels: {string} = {}
+        local width: integer = 0
+        for position, option in ipairs(self.options) do
+            local text = label(option)
+            labels[position] = text
+            if #text > width and #text <= LABEL_LIMIT then
+                width = #text
+            end
+        end
+        out[#out + 1] = ""
+        out[#out + 1] = style.strong("Options:")
+        local gap: integer = #INDENT + width + 2
+        local padding = (" "):rep(gap)
+        for position, option in ipairs(self.options) do
+            local text = labels[position]
+            local lines = wrap(option.help, WIDTH - gap)
+            -- Styled after measuring: an escape code has width in bytes and none on
+            -- screen, so the padding is computed from the bare spelling.
+            local head = INDENT .. paint(text)
+            if #text > width then
+                out[#out + 1] = head
+                for _, line in ipairs(lines) do
+                    out[#out + 1] = padding .. line
+                end
+            else
+                out[#out + 1] = head .. (" "):rep(width - #text + 2) .. (lines[1] or "")
+                for line = 2, #lines do
+                    out[#out + 1] = padding .. lines[line]
+                end
+            end
+        end
+    end
+    local detail = self.detail
+    if detail then
+        out[#out + 1] = ""
+        ;
+        out[#out + 1] = detail
+    end
+
+    return table.concat(out, "\n") .. "\n"
+end
+
+--- Reports an argument the command could not use, and points at its help. Two is the
+--- conventional status for "you asked for something I do not understand", distinct from
+--- 1, which means the work was attempted and failed.
+function spec.Command:usageError(message: string?): integer
+    local style = ansi.style(io.stderr)
+    io.stderr:write(
+        ansi.forSeverity(
+            style,
+            "error"
+        )(
+            "nupp:"
+        ) .. " " .. tostring(
+            message
+        ) .. "\nTry '" .. style.strong("nupp help " .. self.helpName) .. "' for more information.\n"
+    )
+
+    return 2
+end
+
+spec.isOption = isOption
+spec.wrap = wrap
+
+return spec

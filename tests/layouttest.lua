@@ -3,11 +3,11 @@
 -- Every number it reports is this platform's, so the assertions check against the
 -- FFI itself rather than against a number written down here: a test that hardcodes
 -- an offset passes on the machine it was written on and lies everywhere else.
-local parser = require("nupp.parser")
-local optimize = require("nupp.optimize")
-local gen = require("nupp.gen")
+local parser = require("compiler.parser")
+local optimize = require("compiler.optimize")
+local gen = require("compiler.gen")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 local ffi = require("ffi")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

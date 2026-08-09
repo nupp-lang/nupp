@@ -1,0 +1,1246 @@
+--[[
+The canonical formatter.
+
+Fixed, with one knob:
+
+- four-space indentation;
+- 120 columns for code, 88 for docblock text;
+- ordinary line breaks are soft, so short expressions and groups join;
+- an over-long line is broken, one element per group;
+- an `if` is broken across lines, however short its arms;
+- docblocks wrap only when an individual safe prose line exceeds their width,
+  and are set off from what they document;
+- a method call written as sugar, `obj:m{...}` or `obj:m"..."`, gets its `(`
+  and `)` back, so every method call reads the same. `opts.methodParens =
+  false` turns that off and leaves the sugar as written.
+
+A group is an argument list, a parameter list, or a table constructor, and
+breaking one puts each element on its own line. Shape types always put each
+field on its own line. A docblock is a `---` run with
+its annotations, and it gets a blank line on either side of the declaration it
+belongs to.
+
+The safety invariant is that the output must re-lex to the identical token
+sequence, in kind and in text, as the input; if it does not, `format` returns the
+input untouched along with a diagnostic. Three rewrites are exempted, each proven
+safe rather than merely whitespace: annotation shorthand drops a redundant
+`member =` once the checker has shown the two spellings equivalent; a trailing
+separator in a type shape is unnecessary; and method parenthesization inserts
+tokens that were not in the input, so instead of omitting them from the check it
+folds them into the sequence checked against.
+
+The shape of the work: annotate the CST with indent inputs, bracket groups and
+statement spans; flatten tokens and trivia into items; group items into lines;
+iterate computing indents and breaking one over-long line until that reaches a
+fixpoint; render.
+]]
+
+local parser = require("compiler.parser")
+local lexer = require("compiler.lexer")
+local cst = require("compiler.cst")
+local displayWidth = require("compiler.fmt.displaywidth")
+
+local fmt = {}
+
+local INDENT = "    "
+local WIDTH = 120
+local DOC_WIDTH = 88
+local MAX_PASSES = 24
+
+local NO_SPACE_BEFORE = {
+    [","] = true,
+    [";"] = true,
+    [")"] = true,
+    ["]"] = true,
+    ["}"] = true,
+    ["."] = true,
+    [":"] = true,
+    ["?."] = true,
+    ["istringMid"] = true,
+    ["istringClose"] = true,
+}
+-- After these, never a space.
+local NO_SPACE_AFTER = {
+    ["("] = true,
+    ["["] = true,
+    ["{"] = true,
+    ["."] = true,
+    [":"] = true,
+    ["::"] = true,
+    ["?."] = true,
+    ["#"] = true,
+    ["@"] = true,
+    ["istringOpen"] = true,
+    ["istringMid"] = true,
+}
+-- Prev kinds that hug a following "(" or "[". Most make a call/index; `function`
+-- introduces a parameter list or function type.
+local CALLEE_KINDS = {["name"] = true, [")"] = true, ["]"] = true, ["string"] = true, ["function"] = true,}
+-- Line-leading tokens that close a construct sit at the construct's depth rather than
+-- taking a continuation indent.
+local CLOSERS = {
+    ["end"] = true,
+    ["until"] = true,
+    ["else"] = true,
+    ["elseif"] = true,
+    ["then"] = true,
+    ["}"] = true,
+    [")"] = true,
+    ["]"] = true,
+}
+local BRACKET_PAIR = {["("] = ")", ["["] = "]", ["{"] = "}", ["<"] = ">"}
+-- Operators a line may break before when it has no breakable group.
+local BREAK_OPS = {
+    ["and"] = true,
+    ["or"] = true,
+    [".."] = true,
+    ["+"] = true,
+    ["-"] = true,
+    ["*"] = true,
+    ["/"] = true,
+    ["&"] = true,
+    ["|"] = true,
+}
+
+---------------------------------------------------------------------------
+-- Annotation
+---------------------------------------------------------------------------
+
+local function firstToken(n)
+    if cst.isToken(n) then
+        return (not n.missing and n.kind ~= "eof") and n or nil
+    end
+    for _, child in ipairs(n) do
+        local t = firstToken(child)
+        if t then
+            return t
+        end
+    end
+
+    return nil
+end
+
+local function lastToken(n)
+    if cst.isToken(n) then
+        return (not n.missing and n.kind ~= "eof") and n or nil
+    end
+    for j = #n, 1, -1 do
+        local t = lastToken(n[j])
+        if t then
+            return t
+        end
+    end
+
+    return nil
+end
+
+-- Finds a bracketed group among a node's direct token children: the first opener and
+-- its matching closer, with at least one child between them.
+local function groupBounds(n)
+    local openIdx, closer
+    for idx, child in ipairs(n) do
+        if cst.isToken(child) and not child.missing then
+            if not openIdx then
+                local pair = BRACKET_PAIR[child.kind]
+                if pair then
+                    openIdx, closer = idx, pair
+                end
+            elseif child.kind == closer then
+                if idx > openIdx + 1 then
+                    return openIdx, idx
+                end
+                return nil
+            end
+        end
+    end
+
+    return nil
+end
+
+-- `if` is always a block. Its arms and closing keywords each start their own line, so
+-- there is no inline form to write.
+local function breakIfArms(n)
+    local function breakBefore(node)
+        local tok = node and firstToken(node)
+        if tok then
+            tok.forceBreak = true
+        end
+    end
+
+    for idx, clause in ipairs(n.clauses or {}) do
+        if idx > 1 then
+            breakBefore(clause)
+        end
+        breakBefore(clause.body)
+    end
+    if n.elseClause then
+        breakBefore(n.elseClause)
+        breakBefore(n.elseClause.body)
+    end
+    local close = lastToken(n)
+    if close and close.kind == "end" then
+        close.forceBreak = true
+    end
+end
+
+-- A function's final result reads as the conclusion of a substantial body. Remember its
+-- first body token so the rendered line count can decide whether to set it apart.
+local function markFinalFunctionReturn(n)
+    local body = n.body
+    if not body or body.kind ~= "block" then
+        return
+    end
+    local stats = body.stats
+    local final = stats[#stats]
+    if not final or final.kind ~= "returnStmt" then
+        return
+    end
+    local first, returnTok = firstToken(stats[1]), firstToken(final)
+    if first and returnTok then
+        returnTok.finalFunctionReturn = true
+        returnTok.functionBodyFirstTok = first
+    end
+end
+
+-- Ordinary functions are always blocks. Short-function syntax (`|| ->`) has no funcbody
+-- node and therefore remains the only one-line function spelling.
+local function breakFunctionBody(n)
+    local body = n.body
+    local first = body and firstToken(body)
+    if first then
+        first.forceBreak = true
+    end
+    local close = lastToken(n)
+    if close and close.kind == "end" then
+        close.forceBreak = true
+    end
+end
+
+-- Function declarations form a visual unit. Rendering suppresses the mark when the next
+-- line closes the surrounding scope, since that closing `end` belongs with it.
+local function markFunctionEnd(n)
+    local close = lastToken(n)
+    if close and close.kind == "end" then
+        close.blankAfter = true
+    end
+end
+
+-- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
+-- statement spans.
+local function annotate(root)
+    local markStart = false
+    local walk
+
+    walk = function(n, block, group)
+        local kind = n.kind
+        if kind == "ternary" then
+            for _, child in ipairs(n) do
+                if cst.isToken(child) and (child.kind == "?" or child.kind == ":") then
+                    child.spacedTok = true
+                    child.breakOp = true
+                end
+            end
+        elseif kind == "unop" then
+            -- `not x` needs its space; the symbol spellings, `!` included, hug their
+            -- operand.
+            local op = n.op
+            if op and (op.kind ~= "not" or op.text == "!") then
+                op.unaryTok = true
+            end
+        elseif kind == "binop" then
+            if n.op and BREAK_OPS[n.op.kind] then
+                n.op.breakOp = true
+            end
+        elseif kind == "ifStmt" then
+            breakIfArms(n)
+        elseif kind == "funcbody" then
+            markFinalFunctionReturn(n)
+            breakFunctionBody(n)
+        elseif kind == "funcStmt" or kind == "localFuncStmt" or kind == "inlineMethod" then
+            markFunctionEnd(n)
+        end
+
+        local openIdx, closeIdx
+        if kind == "withStmt" then
+            for idx, child in ipairs(n) do
+                if child == n.withTok then
+                    openIdx = idx
+                end
+                if child == n.doTok then
+                    closeIdx = idx
+                    child.withHeaderClose = true
+                end
+            end
+        else
+            openIdx, closeIdx = groupBounds(n)
+        end
+        local inner = group
+        if openIdx then
+            local openTok, closeTok = n[openIdx], n[closeIdx]
+            inner = {kind = kind, open = openTok, close = closeTok, seps = {}, last = nil as any, parent = group}
+            openTok.opensGroup = inner
+            for idx = openIdx + 1, closeIdx - 1 do
+                local child = n[idx]
+                if cst.isToken(child) and (child.kind == "," or child.kind == ";") then
+                    inner.seps[#inner.seps + 1] = child
+                end
+            end
+            inner.last = lastToken(n[closeIdx - 1])
+            if kind == "tshape" and inner.last == inner.seps[#inner.seps] then
+                inner.last.formatOmit = true
+            end
+            if kind == "tshape" then
+                for _, field in ipairs(n.fields or {}) do
+                    local first = firstToken(field)
+                    if first then
+                        first.forceBreak = true
+                    end
+                end
+                closeTok.forceBreak = true
+            end
+        end
+
+        local declish = kind == "recordDecl" or kind == "cdefStruct"
+        for idx, child in ipairs(n) do
+            local childGroup = group
+            if openIdx and idx > openIdx and idx < closeIdx then
+                childGroup = inner
+            end
+            if cst.isToken(child) then
+                child.blockDepth = block
+                child.groupRef = childGroup
+                if child.kind == "end" or child.kind == "until" then
+                    child.forceBreak = true
+                end
+                if markStart then
+                    child.startsStat = true
+                    child.forceBreak = true
+                    markStart = false
+                end
+            elseif child.kind == "block" then
+                for _, stat in ipairs(child.stats or {}) do
+                    markStart = true
+                    walk(stat, block + 1, childGroup)
+                    markStart = false
+                    local first, last = firstToken(stat), lastToken(stat)
+                    if first then
+                        first.stmtLastTok = last
+                    end
+                end
+            elseif declish and child ~= n.generics then
+                markStart = true
+                walk(child, block + 1, childGroup)
+                markStart = false
+                local first, last = firstToken(child), lastToken(child)
+                if first then
+                    first.stmtLastTok = last
+                end
+            elseif kind == "pragmaStmt" and child == n.stat then
+                -- The decorated statement is a statement: on its own line it sits at
+                -- the annotation's depth, not a continuation of it.
+                markStart = true
+                walk(child, block, childGroup)
+                markStart = false
+            else
+                walk(child, block, childGroup)
+            end
+        end
+    end
+
+    for _, child in ipairs(root) do
+        if cst.isToken(child) then
+            child.blockDepth = 0
+        elseif child.kind == "block" then
+            for _, stat in ipairs(child.stats or {}) do
+                markStart = true
+                walk(stat, 0, nil)
+                markStart = false
+                local first, last = firstToken(stat), lastToken(stat)
+                if first then
+                    first.stmtLastTok = last
+                end
+            end
+        else
+            walk(child, 0, nil)
+        end
+    end
+    root.eof.blockDepth = 0
+end
+
+---------------------------------------------------------------------------
+-- Spacing
+---------------------------------------------------------------------------
+
+-- Space (or "") between two adjacent tokens on the same line.
+local function sep(prev, tok)
+    if prev.spacedTok or tok.spacedTok then
+        return " "
+    end
+    if prev.unaryTok then
+        return ""
+    end
+    -- short-function pipes hug their parameters: |a, b| -> expr
+    if prev._shortfnOpen or tok._shortfnClose then
+        return ""
+    end
+    if prev.kind == "..." and tok.namedVararg then
+        return ""
+    end
+    -- Typed-layer refinements: annotation colons read "x: T"; postfix type markers and
+    -- generic brackets are tight (T?, S*, List<T>).
+    if prev.typeColon then
+        return " "
+    end
+    if tok.typePostfix then
+        return ""
+    end
+    if tok.generic then
+        return ""
+    end
+    if prev.generic then
+        if prev.kind == "<" then
+            return ""
+        end
+        if tok.kind == "(" then
+            return ""
+        end -- f<T>(x)
+        if prev.homogeneousPack then
+            return ""
+        end -- homogeneous pack tail: ...T
+    end
+    if NO_SPACE_AFTER[prev.kind] then
+        return ""
+    end
+    local k = tok.kind
+    if NO_SPACE_BEFORE[k] then
+        return ""
+    end
+    if k == "::" then
+        return prev.kind == "name" and "" or " "
+    end
+    if k == "(" or k == "[" then
+        if k == "[" and prev.propertyCapability then
+            return " "
+        end
+        return CALLEE_KINDS[prev.kind] and "" or " "
+    end
+    if k == "{" or k == "string" then
+        -- call sugar: f{...} / f"lit". A contextual operator is spelled as a name but
+        -- takes a type, so `x as {T}` is not a call.
+        if prev.contextualOp then
+            return " "
+        end
+        -- A construction is spelled as call sugar and is not one: the fields belong to
+        -- the type rather than being an argument to it, so the brace stands off it.
+        if prev.constructTarget then
+            return " "
+        end
+        return prev.kind == "name" and "" or " "
+    end
+
+    return " "
+end
+
+---------------------------------------------------------------------------
+-- Docblocks
+---------------------------------------------------------------------------
+
+local function isDocComment(text)
+    return text:sub(1, 3) == "---" and text:sub(1, 4) ~= "----"
+end
+
+-- Breaks a single prose line only when it exceeds its width and contains ordinary,
+-- single-space-separated words. Other spacing can be intentional, so leave it alone.
+-- The first line may use a different width than the rest (annotation continuations
+-- hang under their tag).
+local function isSafeProse(text)
+    if text:sub(1, 1) == " " or text:sub(-1) == " " then
+        return false
+    end
+    if text:find("  ") or text:find("[^%S ]") then
+        return false
+    end
+
+    return text:find(" ") ~= nil
+end
+
+local function breakWordsToFit(text, firstWidth, restWidth)
+    if displayWidth(text) <= firstWidth or not isSafeProse(text) then
+        return {text}
+    end
+
+    local lines, line = {}, ""
+    local width = firstWidth
+    for word in text:gmatch("%S+") do
+        if line == "" then
+            line = word
+        elseif displayWidth(line) + 1 + displayWidth(word) <= width then
+            line = line .. " " .. word
+        else
+            lines[#lines + 1] = line
+            line = word
+            width = restWidth
+        end
+    end
+    if line ~= "" then
+        lines[#lines + 1] = line
+    end
+    if #lines == 0 then
+        lines[1] = ""
+    end
+
+    return lines
+end
+
+-- Parses raw comment lines without joining them: existing line breaks are authorial.
+-- Blocks are { kind = "text"|"annot"|"blank"|"verbatim", text = ? }.
+local function parseDoc(rawLines)
+    local blocks = {}
+    local fenced = false
+    for _, raw in ipairs(rawLines) do
+        local body = raw:gsub("^%-%-+", "")
+        body = body:gsub("^ ", "")
+        local fence = body:match("^%s*```")
+        if fence then
+            fenced = not fenced
+        end
+        if fenced or fence or (not fenced and body:match("^    %S")) then
+            blocks[#blocks + 1] = {kind = "verbatim", text = body}
+        elseif body:match("^%s*$") then
+            blocks[#blocks + 1] = {kind = "blank"}
+        elseif body:match("^@[%w_]+%s") then
+            blocks[#blocks + 1] = {kind = "annot", text = body}
+        else
+            blocks[#blocks + 1] = {kind = "text", text = body}
+        end
+    end
+    -- drop leading and trailing blanks
+    while blocks[1] and blocks[1].kind == "blank" do
+        table.remove(blocks, 1)
+    end
+    while blocks[#blocks] and blocks[#blocks].kind == "blank" do
+        table.remove(blocks)
+    end
+
+    return blocks
+end
+
+local function renderComment(rawLines, indentStr, marker)
+    local prefix = indentStr .. marker
+    local width = DOC_WIDTH - displayWidth(prefix) - 1
+    if width < 24 then
+        width = 24
+    end
+    local out = {}
+    for _, block in ipairs(parseDoc(rawLines)) do
+        if block.kind == "blank" then
+            out[#out + 1] = prefix
+        elseif block.kind == "verbatim" then
+            out[#out + 1] = (prefix .. " " .. block.text):gsub("%s+$", "")
+        elseif block.kind == "annot" then
+            local lines = breakWordsToFit(block.text, width, width - 4)
+            for j, line in ipairs(lines) do
+                local pad = j == 1 and " " or "     "
+                out[#out + 1] = (prefix .. pad .. line):gsub("%s+$", "")
+            end
+        else
+            for _, line in ipairs(breakWordsToFit(block.text, width, width)) do
+                out[#out + 1] = (prefix .. " " .. line):gsub("%s+$", "")
+            end
+        end
+    end
+    if #out == 0 then
+        out[1] = prefix
+    end
+
+    return out
+end
+
+local function renderDoc(rawLines, indentStr)
+    return renderComment(rawLines, indentStr, "---")
+end
+
+local function isPlainComment(text)
+    return text:sub(1, 2) == "--" and text:sub(3, 3) ~= "-" and not text:match("^%-%-%[=*%[")
+end
+
+---------------------------------------------------------------------------
+-- Items and lines
+---------------------------------------------------------------------------
+
+-- Flattens the token stream into items carrying their preceding newline count;
+-- consecutive `---` comment lines merge into one docblock item.
+local function collectItems(tokens)
+    local items = {}
+    local pending = 0
+    local function push(item)
+        item.nl = pending
+        pending = 0
+        items[#items + 1] = item
+    end
+
+    for _, tok in ipairs(tokens) do
+        for _, tr in ipairs(tok.trivia) do
+            if tr.kind == "whitespace" then
+                local _, n = tr.text:gsub("\n", "")
+                pending = pending + n
+            elseif tr.kind == "comment" then
+                local prev = items[#items]
+                if prev and prev.kind == "doc" and pending == 1 and isDocComment(tr.text) then
+                    prev.rawLines[#prev.rawLines + 1] = tr.text
+                    pending = 0
+                elseif prev and prev.kind == "plain" and pending == 1 and isPlainComment(tr.text) then
+                    prev.rawLines[#prev.rawLines + 1] = tr.text
+                    pending = 0
+                elseif isDocComment(tr.text) and (pending > 0 or #items == 0) then
+                    push({kind = "doc", rawLines = {tr.text}})
+                elseif isPlainComment(tr.text) and (pending > 0 or #items == 0) then
+                    push({kind = "plain", rawLines = {tr.text}})
+                else
+                    push({kind = "comment", text = tr.text})
+                end
+            else -- hashbang, BOM (hashbang trivia carries its own newline)
+                local text = tr.text
+                local _, n = text:gsub("\n", "")
+                push({kind = "raw", text = (text:gsub("\n+$", ""))})
+                pending = pending + n
+            end
+        end
+        if tok.kind ~= "eof" and not tok.missing and not tok.formatOmit then
+            push({kind = "token", token = tok})
+        end
+    end
+
+    return items
+end
+
+-- A docblock immediately followed by a statement documents it: remember to put a blank
+-- line after that statement's last line.
+local function markDocumented(items)
+    for idx, item in ipairs(items) do
+        if item.kind == "doc" then
+            local next_ = items[idx + 1]
+            if next_ and next_.kind == "token" and next_.token.stmtLastTok then
+                next_.token.stmtLastTok.blankAfter = true
+            end
+        end
+    end
+end
+
+local function buildLines(items)
+    local lines = {}
+    local cur = nil
+    for _, item in ipairs(items) do
+        local forced = item.kind == "token" and item.token.forceBreak
+        local standalone = item.kind == "doc" or item.kind == "plain" or item.kind == "raw" or (
+            item.kind == "comment" and item.nl > 0
+        )
+        local previous = cur and cur.items[#cur.items]
+        local afterComment = item.nl > 0 and previous and (
+            previous.kind == "comment" or previous.kind == "doc" or previous.kind == "plain" or previous.kind == "raw"
+        )
+        if not cur or item.nl >= 2 or forced or standalone or afterComment then
+            cur = {items = {}, indent = 0, blankBefore = item.nl >= 2 and #lines > 0}
+            lines[#lines + 1] = cur
+        end
+        cur.items[#cur.items + 1] = item
+    end
+
+    return lines
+end
+
+local function lineFirstToken(line)
+    for _, item in ipairs(line.items) do
+        if item.kind == "token" and not item.token.formatOmit then
+            return item.token
+        end
+    end
+
+    return nil
+end
+
+local function renderItems(items)
+    local parts, prevTok = {}, nil
+    for _, item in ipairs(items) do
+        if item.kind == "token" then
+            if prevTok then
+                parts[#parts + 1] = sep(prevTok, item.token)
+            elseif #parts > 0 then
+                parts[#parts + 1] = " "
+            end
+            parts[#parts + 1] = item.token.text
+            prevTok = item.token
+        elseif item.kind == "comment" or item.kind == "raw" then
+            if #parts > 0 then
+                parts[#parts + 1] = " "
+            end
+            parts[#parts + 1] = item.text
+            prevTok = nil
+        end
+    end
+
+    return table.concat(parts)
+end
+
+-- Indent is recomputed from the current line structure every pass, which is what makes
+-- breaking converge and reformatting idempotent: a bracket group adds a level only when
+-- its first element sits below its opener.
+local function computeIndents(lines)
+    for idx, line in ipairs(lines) do
+        for _, item in ipairs(line.items) do
+            if item.kind == "token" then
+                item.token.lineIdx = idx
+            end
+        end
+    end
+    for _, line in ipairs(lines) do
+        for _, item in ipairs(line.items) do
+            if item.kind == "token" and item.token.opensGroup then
+                local g = item.token.opensGroup
+                local firstInner = nil
+                -- the group's first element token is the one right after the opener in
+                -- line order
+                for _, other in ipairs(lines) do
+                    for _, it2 in ipairs(other.items) do
+                        if it2.kind == "token" and it2.token.groupRef == g then
+                            firstInner = it2.token
+                            break
+                        end
+                    end
+                    if firstInner then
+                        break
+                    end
+                end
+                g.broken = firstInner ~= nil and firstInner.lineIdx > item.token.lineIdx
+                if g.broken and g.kind == "tshape" then
+                    g.close.forceBreak = true
+                end
+            end
+        end
+    end
+    for idx, line in ipairs(lines) do
+        local tok = lineFirstToken(line)
+        if tok then
+            local depth = tok.blockDepth or 0
+            local hang = 0
+            local g = tok.groupRef
+            while g do
+                if g.broken then
+                    hang = hang + 1
+                end
+                g = g.parent
+            end
+            depth = depth + hang
+            if hang == 0 and not tok.startsStat and not CLOSERS[tok.kind] and not tok.withHeaderClose then
+                depth = depth + 1 -- continuation of the previous line
+            end
+            line.indent = depth
+        else
+            -- comment/doc-only line: take the indent of the next code line
+            local nextIndent = 0
+            for j = idx + 1, #lines do
+                local t = lineFirstToken(lines[j])
+                if t then
+                    nextIndent = lines[j].indent
+                    break
+                end
+            end
+            line.indent = nextIndent
+        end
+    end
+end
+
+local function lineWidth(line)
+    return line.indent * displayWidth(INDENT) + displayWidth(renderItems(line.items))
+end
+
+local function indexOfToken(items, tok)
+    for idx, item in ipairs(items) do
+        if item.kind == "token" and item.token == tok then
+            return idx
+        end
+    end
+
+    return nil
+end
+
+-- Splits one over-long line. Prefers the leftmost (outermost) bracket group fully
+-- present on the line, except parentheses that only wrap a table; falls back to
+-- breaking before low-precedence operators. Returns a list of lines, or nil when
+-- nothing can be split.
+local function splitLine(line)
+    local openIdx, closeIdx, group
+    for idx, item in ipairs(line.items) do
+        if item.kind == "token" and item.token.opensGroup then
+            local g = item.token.opensGroup
+            local cIdx = indexOfToken(line.items, g.close)
+            if cIdx and cIdx > idx + 1 then
+                local nextItem = line.items[idx + 1]
+                local wrapsTable = item.token.kind == "("
+                    and nextItem
+                    and nextItem.kind == "token"
+                    and nextItem.token.kind == "{"
+                    and nextItem.token.opensGroup
+                    and indexOfToken(
+                    line.items,
+                    nextItem.token.opensGroup.close
+                ) == cIdx - 1
+                if not wrapsTable then
+                    openIdx, closeIdx, group = idx, cIdx, g
+                    break
+                end
+            end
+        end
+    end
+
+    local out = {}
+    local function emit(items, indent)
+        if #items > 0 then
+            out[#out + 1] = {items = items, indent = indent}
+        end
+    end
+
+    local function slice(from, to)
+        local part = {}
+        for j = from, to do
+            part[#part + 1] = line.items[j]
+        end
+
+        return part
+    end
+
+    if group then
+        emit(slice(1, openIdx), line.indent)
+        local isSep = {}
+        for _, s in ipairs(group.seps) do
+            isSep[s] = true
+        end
+        local start = openIdx + 1
+        for j = openIdx + 1, closeIdx - 1 do
+            local item = line.items[j]
+            local sepHere = item.kind == "token" and isSep[item.token]
+            local trailing = line.items[j + 1]
+            -- keep a trailing comment with the element it follows
+            if sepHere and trailing and trailing.kind == "comment" then
+                emit(slice(start, j + 1), line.indent + 1)
+                start = j + 2
+            elseif sepHere then
+                emit(slice(start, j), line.indent + 1)
+                start = j + 1
+            end
+        end
+        if start <= closeIdx - 1 then
+            emit(slice(start, closeIdx - 1), line.indent + 1)
+        end
+        emit(slice(closeIdx, #line.items), line.indent)
+        if #out > 1 then
+            return out
+        end
+        return nil
+    end
+
+    -- fallback: break before break-operators at bracket depth zero
+    local depth, breaks = 0, {}
+    for idx, item in ipairs(line.items) do
+        if item.kind == "token" then
+            local k = item.token.kind
+            if BRACKET_PAIR[k] and item.token.opensGroup then
+                depth = depth + 1
+            elseif (k == ")" or k == "]" or k == "}") and depth > 0 then
+                depth = depth - 1
+            elseif depth == 0 and item.token.breakOp and idx > 1 then
+                breaks[#breaks + 1] = idx
+            end
+        end
+    end
+    if #breaks == 0 then
+        return nil
+    end
+    local header = lineFirstToken(line)
+    if header and (header.kind == "if" or header.kind == "elseif") then
+        for idx, item in ipairs(line.items) do
+            if item.kind == "token" and item.token.kind == "then" then
+                breaks[#breaks + 1] = idx
+                break
+            end
+        end
+    end
+    local start = 1
+    for _, at in ipairs(breaks) do
+        emit(slice(start, at - 1), start == 1 and line.indent or line.indent + 1)
+        start = at
+    end
+    emit(slice(start, #line.items), line.indent + 1)
+    if #out > 1 then
+        return out
+    end
+
+    return nil
+end
+
+-- A group can become multiline because a docblock or another structural boundary
+-- appears inside it, rather than because it exceeded the width. Honor a newly forced
+-- closer before looking for another width-driven split.
+local function splitForcedLines(lines)
+    local out, changed = {}, false
+    for _, line in ipairs(lines) do
+        local start = 1
+        local function emit(from, to, first)
+            if from <= to then
+                local items = {}
+                for idx = from, to do
+                    items[#items + 1] = line.items[idx]
+                end
+                out[
+                    #out + 1
+                ] = {items = items, indent = line.indent, blankBefore = first and line.blankBefore or false,}
+            end
+        end
+
+        for idx, item in ipairs(line.items) do
+            if idx > start and item.kind == "token" and item.token.forceBreak then
+                emit(start, idx - 1, start == 1)
+                start = idx
+                changed = true
+            end
+        end
+        emit(start, #line.items, start == 1)
+    end
+
+    return changed and out or nil
+end
+
+local function breakLines(lines)
+    for _ = 1, MAX_PASSES do
+        computeIndents(lines)
+        local changed = false
+        local forced = splitForcedLines(lines)
+        if forced then
+            lines = forced
+            changed = true
+        else
+            local next_ = {}
+            for _, line in ipairs(lines) do
+                local pieces = nil
+                if lineWidth(line) > WIDTH and not line.noBreak then
+                    pieces = splitLine(line)
+                end
+                if pieces then
+                    changed = true
+                    for j, piece in ipairs(pieces) do
+                        piece.blankBefore = j == 1 and line.blankBefore or false
+                        next_[#next_ + 1] = piece
+                    end
+                else
+                    line.noBreak = lineWidth(line) > WIDTH
+                    next_[#next_ + 1] = line
+                end
+            end
+            lines = next_
+        end
+        if not changed then
+            break
+        end
+    end
+    computeIndents(lines)
+    for _, line in ipairs(lines) do
+        local tok = lineFirstToken(line)
+        local first = tok and tok.functionBodyFirstTok
+        if tok and tok.finalFunctionReturn and first and tok.lineIdx - first.lineIdx >= 4 then
+            line.blankBefore = true
+        end
+    end
+
+    return lines
+end
+
+---------------------------------------------------------------------------
+-- Rendering
+---------------------------------------------------------------------------
+
+local function render(lines)
+    local out = {}
+    local prevIndent = 0
+    local function push(text)
+        out[#out + 1] = text
+    end
+
+    for idx, line in ipairs(lines) do
+        local indentStr = INDENT:rep(line.indent)
+        local flowed = line.items[1]
+        local doc = flowed and flowed.kind == "doc" and flowed or nil
+        local plain = flowed and flowed.kind == "plain" and flowed or nil
+        local wantBlank = line.blankBefore
+        -- a docblock is set off by a blank line, except where it opens a scope that
+        -- just began (right after `record X`, `do`, `then`, ...)
+        if doc and #out > 0 and out[#out] ~= "" and line.indent <= prevIndent then
+            wantBlank = true
+        end
+        if wantBlank and #out > 0 then
+            push("")
+        end
+        if doc or plain then
+            local commentLines = doc and renderDoc(
+                doc.rawLines,
+                indentStr
+            ) or renderComment(plain.rawLines, indentStr, "--")
+            for _, commentLine in ipairs(commentLines) do
+                push(commentLine)
+            end
+            local rest = {}
+            for j = 2, #line.items do
+                rest[#rest + 1] = line.items[j]
+            end
+            if #rest > 0 then
+                push(((indentStr .. renderItems(rest)):gsub("%s+$", "")))
+            end
+        else
+            local body = renderItems(line.items)
+            if body ~= "" then
+                push(((indentStr .. body):gsub("%s+$", "")))
+            end
+        end
+        -- blank line after a documented declaration, unless the scope closes right
+        -- after it (no blank line before `end`)
+        local last = line.items[#line.items]
+        local next_ = lines[idx + 1]
+        if last and last.kind == "token" and last.token.blankAfter and next_ and next_.indent >= line.indent then
+            push("")
+        end
+        prevIndent = line.indent
+    end
+    -- collapse blank runs and trim the ends
+    local text = table.concat(out, "\n")
+    text = text:gsub("\n\n\n+", "\n\n")
+    text = text:gsub("^\n+", ""):gsub("%s+$", "")
+    if #text > 0 then
+        text = text .. "\n"
+    end
+
+    return text
+end
+
+---------------------------------------------------------------------------
+-- Entry point
+---------------------------------------------------------------------------
+
+local function fingerprintTokens(tokens, omitMarked)
+    local parts = {}
+    for _, tok in ipairs(tokens) do
+        if tok.kind ~= "eof" and not (omitMarked and tok.formatOmit) then
+            parts[#parts + 1] = tok.kind .. "\1" .. tok.text
+        end
+    end
+
+    return table.concat(parts, "\2")
+end
+
+local function canonicalizeSingleValueAnnotations(result, opts)
+    local singleValues = {}
+    local localDefinitions = {}
+    local registry = opts and opts.annotations
+    if registry then
+        for name, definition in pairs(registry.byname or {}) do
+            if definition.singleValue then
+                singleValues[name] = definition.singleValue
+            end
+        end
+    end
+
+    local applications = {}
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "pragmaStmt" or node.kind == "annotationApply" then
+            applications[#applications + 1] = node
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(child)
+            end
+        end
+    end
+
+    walk(result.root)
+
+    -- Annotation declarations in the file are order-independent for formatting: collect
+    -- all schemas before considering their applications.
+    for _, application in ipairs(applications) do
+        if application.kind == "pragmaStmt" and application.name.text == "annotation" then
+            local target = application.stat
+            while target and target.kind == "pragmaStmt" do
+                target = target.stat
+            end
+            if target and target.kind == "recordDecl" then
+                local marked = nil
+                local duplicate = false
+                for _, entry in ipairs(target.entries or {}) do
+                    for _, attached in ipairs(entry.annotations or {}) do
+                        if attached.name.text == "annotationValue" then
+                            if marked then
+                                duplicate = true
+                            else
+                                marked = entry.name.text
+                            end
+                        end
+                    end
+                end
+                if marked and not duplicate then
+                    singleValues[target.name.text] = marked
+                    localDefinitions[target.name.text] = true
+                end
+            end
+        end
+    end
+
+    local function triviaIsWhitespace(tok)
+        for _, trivia in ipairs(tok and tok.trivia or {}) do
+            if trivia.kind ~= "whitespace" then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    for _, application in ipairs(applications) do
+        local name = application.name.text
+        local member = singleValues[name]
+        if opts and opts.resolveAnnotation and not localDefinitions[name] then
+            local definition = opts.resolveAnnotation(name)
+            if definition then
+                member = definition.singleValue
+            end
+        end
+        local args = application.annotationArgs or {}
+        local arg = #args == 1 and args[1] or nil
+        if member and arg and arg.name and arg.name.text == member and triviaIsWhitespace(
+            arg.name
+        ) and triviaIsWhitespace(arg.eq) then
+            arg.name.formatOmit = true
+            arg.eq.formatOmit = true
+        end
+    end
+end
+
+-- Adds `(` and `)` around a method call's sugar-form arguments, `obj:m{...}` and
+-- `obj:m"..."`, so every method call reads the same whether or not the call left its
+-- parens out. `opts.methodParens = false` leaves the sugar as written. Plain calls,
+-- `f{...}` and `f"..."`, are untouched: they are how the language spells a record
+-- constructor, not a method left bare.
+--
+-- The new tokens are spliced into `result.tokens` too, folding them into the sequence
+-- the safety check below compares against, rather than omitting them from it: the check
+-- should still catch a misplaced paren.
+local function parenthesizeMethodCalls(result, opts)
+    if opts and opts.methodParens == false then
+        return
+    end
+    local before, after = {}, {}
+    local function walk(node)
+        if not node or cst.isToken(node) then
+            return
+        end
+        if node.kind == "methodCall" then
+            local args = node.args
+            if args and not args.exprs and (args.table or args.str) then
+                local sugar = args.table or args.str
+                local first, last = cst.firstToken(sugar), cst.lastToken(sugar)
+                if first and last then
+                    local open = {
+                        kind = "(",
+                        text = "(",
+                        offset = first.offset,
+                        line = first.line,
+                        col = first.col,
+                        trivia = first.trivia
+                    }
+                    local close = {
+                        kind = ")",
+                        text = ")",
+                        offset = last.offset,
+                        line = last.line,
+                        col = last.col,
+                        trivia = {}
+                    }
+                    first.trivia = {}
+                    args[1], args[2], args[3] = open, sugar, close
+                    before[first], after[last] = open, close
+                end
+            end
+        end
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(child)
+            end
+        end
+    end
+
+    walk(result.root)
+    if not next(before) then
+        return
+    end
+    local tokens = {}
+    for _, tok in ipairs(result.tokens) do
+        if before[tok] then
+            tokens[#tokens + 1] = before[tok]
+        end
+        tokens[#tokens + 1] = tok
+        if after[tok] then
+            tokens[#tokens + 1] = after[tok]
+        end
+    end
+    result.tokens = tokens
+end
+
+--- What the formatter was asked for. The two annotation entries are how a caller lends
+--- the formatter a project: it has to know an annotation's declared members before it
+--- can label a single value, and it resolves nothing itself.
+type fmt.Options = {
+    readonly annotations: any?,
+    readonly resolveAnnotation: (function(name: string): any)?,
+    readonly methodParens: boolean?
+}
+
+--- Formats one file. Returns the source unchanged, with what stopped it, when the file
+--- does not parse or the result would not be the same program.
+function fmt.format(source: string, filename: string?, opts: fmt.Options?): string, {any}
+    local result = parser.parse(source, filename)
+    if #result.errors > 0 then
+        return source, result.errors
+    end
+    if result.root.formatDisabled then
+        return source, {}
+    end
+    canonicalizeSingleValueAnnotations(result, opts)
+    parenthesizeMethodCalls(result, opts)
+    annotate(result.root)
+    local items = collectItems(result.tokens)
+    markDocumented(items)
+    local lines = breakLines(buildLines(items))
+    local text = render(lines)
+
+    -- Safety: formatting may only move whitespace, reflow comments, add or remove a
+    -- schema-proven single-value member label, and parenthesize a method call's
+    -- sugar-form arguments.
+    local outputTokens = lexer.lex(text)
+    if fingerprintTokens(outputTokens) ~= fingerprintTokens(result.tokens, true) then
+        return source, {
+            {
+                code = "NUPP4001",
+                msg = "internal error: formatting would change the token stream; "
+                .. "the file was left unchanged (please report this input)",
+                filename = filename,
+                line = 1,
+                col = 1,
+                offset = 1,
+                length = 1,
+            }
+        }
+    end
+
+    return text, {}
+end
+
+return fmt

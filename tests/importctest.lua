@@ -1,7 +1,7 @@
-local importc = require("nupp.importc")
-local parser = require("nupp.parser")
+local importc = require("compiler.importc")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -74,7 +74,7 @@ function M.libraryClauseIsEmitted()
    local text = importc.import(HERE .. "/fixtures/mini.h", {lib = "mini"})
    assert(text:find('from "mini"', 1, true),
       "every function carries the library clause:\n" .. text:sub(1, 400))
-   local parser = require("nupp.parser")
+   local parser = require("compiler.parser")
    local result = parser.parse(text, "mini.d.nupp")
    assert(#result.errors == 0, "output with library clauses parses")
 end

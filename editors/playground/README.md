@@ -23,20 +23,20 @@ the implementations and the exact reasoning at each one, and
 
  Piece               Where it's used                        Stand-in
  ───────────────────  ──────────────────────────────────────  ─────────────────────────────
- `const NAME = value` nupp.build.hash's own top-level locals   rewritten to `local`, at build time
- `0x..ULL` literals    nupp.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
- `bit.*`               nupp.cdecl (C-declaration decoding)     real bitwise ops, Lua 5.3 native
- `loadstring`          nupp.optimize's constant folder         Lua 5.3's `load`, same for a chunk
- `string.buffer`       nupp.build.store (project-index cache)  a plain string-accumulator
+ `const NAME = value` compiler.build.hash's own top-level locals   rewritten to `local`, at build time
+ `0x..ULL` literals    compiler.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
+ `bit.*`               compiler.cdecl (C-declaration decoding)     real bitwise ops, Lua 5.3 native
+ `loadstring`          compiler.optimize's constant folder         Lua 5.3's `load`, same for a chunk
+ `string.buffer`       compiler.build.store (project-index cache)  a plain string-accumulator
  `cjson`               build cache, `--json`-shaped output     a small JSON codec
- `ffi`                 nupp.cdecl, nupp.check.ffi              stub — see below
+ `ffi`                 compiler.cdecl, compiler.check.ffi              stub — see below
  disk I/O              manifest/config lookup, project cache   `io.open`/`io.popen` return "not found"
 
 The first two rows are fixed at *build* time, by
 [`tools/patch-bootstrap-for-browser.lua`](tools/patch-bootstrap-for-browser.lua)
 — run under real LuaJIT by `build.mjs`, using the bootstrap compiler's own
 lexer to tell "real `const` keyword" from "the five characters c-o-n-s-t
-inside a string that happens to hold generated-code *text*" (nupp.gen emits
+inside a string that happens to hold generated-code *text*" (compiler.gen emits
 literal `const` into the Lua it generates for a checked program, and doing
 this with a regex over the raw file, as an earlier version of this script
 did, means either missing that distinction — breaking on `const` used as an
@@ -97,7 +97,7 @@ since there is room for it and its answer is the first thing worth seeing.
 **`embed.html`** is the same thing sized for an `<iframe src=".../embed.html">`
 — the head bar carries only icons, and the drawer starts collapsed to one line.
 It is what the docs site's ` ```playground ` fence embeds (see
-`src/nupp/doc/html.nupp`). Its extra action is **Open**, which hands the buffer
+`src/compiler/doc/html.nupp`). Its extra action is **Open**, which hands the buffer
 to the full playground rather than opening a blank one; the full playground has
 no such button, being already there.
 
@@ -192,7 +192,7 @@ on a docs page can't: what the checker says when the program is wrong.
 
 Every color in `static/style.css` comes from `docs/public/nupp.css` — the
 real site's actual "woodblock" theme, layered as a `customCss` override on
-top of `src/nupp/doc/assets.nupp`'s generic default (a plausible-looking but
+top of `src/compiler/doc/assets.nupp`'s generic default (a plausible-looking but
 wrong place to source colors from, since the whole point of that file is to
 get overridden). `--pg-button` is that file's `--nupp-woodblock-vermilion`
 exactly, one value in both light and dark, same as its own `.brand`
@@ -216,8 +216,8 @@ Opens `dist/` on `http://localhost:8787`. `npm run watch` rebuilds on save
 without serving; pair it with any static server pointed at `dist/`.
 
 Both check and compile call directly into the same functions
-`src/nupp/cli/check.nupp` and `src/nupp/cli/compile.nupp` call — this is not
+`src/compiler/cli/check.nupp` and `src/compiler/cli/compile.nupp` call — this is not
 a reimplementation of the CLI, just the CLI's own pipeline (`parser.parse` →
-`check.check` → for compile, `nupp.optimize` → `nupp.gen`) driven from a
+`check.check` → for compile, `compiler.optimize` → `compiler.gen`) driven from a
 buffer instead of a file path, the same way `nupp lsp` drives it from an
 open document.

@@ -35,7 +35,7 @@ cd nupp
 ./bin/nupp build
 ```
 
-`bin/nupp` is the entry point and it builds on demand: it runs `build/nupp`
+`bin/nupp` is the entry point and it builds on demand: it runs `build/compiler`
 when that exists and no source is newer, and compiles the compiler first when
 it does not. An edit to the compiler is picked up by the next command rather
 than by the next person who remembers to build.

@@ -1,0 +1,487 @@
+--[[
+The shared, LuaJIT-backed model of C declarations.
+
+LuaJIT already contains the C parser whose answers matter at run time. This
+module gives both `cheader` and import-c a neutral view of those answers:
+structs, fields, functions, enum constants, and recursively decoded C types.
+Consumers either turn the model into compiler types or render it back as Nupp
+source.
+]]
+
+local ffi = require("ffi")
+
+-- LuaJIT's BitOp is a global as well as a module, and it is declared as the global, so
+-- requiring it as a module is what leaves it untyped. The cast restates the two
+-- operations this file uses, in the words the declaration already gives them.
+local bit = require("bit") as {
+    rshift: function(x: number, n: number): integer,
+    band: function(...: number): integer
+}
+
+local cdecl = {}
+
+--- One member of a struct. An unnamed one is skipped rather than modelled, so a member
+--- that is here has a name.
+interface cdecl.Member
+    name: string
+    type: cdecl.CType?
+
+    --- Its byte offset, as this ABI lays the struct out.
+    offset: integer?
+end
+
+--- One parameter of a function. C lets a declaration leave a parameter unnamed, and a
+--- header commonly does.
+interface cdecl.Param
+    name: string?
+    type: cdecl.CType?
+end
+
+--- A C type as LuaJIT's own ctype registry describes it, decoded far enough to be read
+--- without the FFI. `kind` says which of the fields beside it carry an answer:
+--- everything the kind does not use is absent.
+---
+--- A struct stays a reference, by `id` and `name`, rather than carrying its members.
+--- That is what lets a recursive or mutually-referential header terminate: the members
+--- live in the declaration `structById` returns.
+interface cdecl.CType
+    --- "void", "boolean", "integer", "float", "pointer", "struct", "enum", "array",
+    --- "function", or "unknown" for what this model does not spell.
+    kind: string
+
+    name: string?
+
+    --- How wide a number or an enum is.
+    bits: integer?
+
+    unsigned: boolean?
+
+    --- Whether what a pointer points at is const.
+    const: boolean?
+
+    --- What a pointer points at.
+    to: cdecl.CType?
+
+    --- What an array holds, and how many bytes of them it has room for.
+    of: cdecl.CType?
+
+    bytes: integer?
+
+    --- The ctype id a struct reference keeps, so `structById` can find its members.
+    id: integer?
+
+    --- A function's parameters, its result, and whether it takes more.
+    params: {cdecl.Param}?
+
+    returns: cdecl.CType?
+    vararg: boolean?
+end
+
+--- A function declaration: one LuaJIT parsed under a name. A function reached as a
+--- pointee is a `cdecl.CType` instead, since that one need not be named.
+interface cdecl.Function
+    kind: string
+    name: string
+    params: {cdecl.Param}
+    returns: cdecl.CType?
+    vararg: boolean?
+end
+
+--- A struct declaration, members and all.
+interface cdecl.Struct
+    kind: string
+    id: integer
+    name: string
+
+    --- Its size in bytes, as this ABI lays it out.
+    size: integer?
+
+    fields: {cdecl.Member}
+end
+
+--- One enumerator, in the order the header declared it.
+interface cdecl.Enumerator
+    name: string
+    value: number
+end
+
+--- An enum declaration. It carries its constants whether or not it is named, since
+--- `typedef enum { ... } Mode;` names the type and nothing else and the members are the
+--- point of declaring it.
+interface cdecl.Enum
+    kind: string
+    id: integer
+    name: string?
+    bits: integer
+    values: {cdecl.Enumerator}
+end
+
+--- A declaration LuaJIT would not parse, and why.
+interface cdecl.Rejected
+    text: string
+    reason: string
+end
+
+--- What one pass over a blob of C declared.
+interface cdecl.Inspection
+    structs: {cdecl.Struct}
+    functions: {cdecl.Function}
+    enums: {cdecl.Enum}
+
+    --- Empty unless the declarations were given one at a time, which is the form that
+    --- takes what parses and reports the rest.
+    rejected: {cdecl.Rejected}
+
+    --- How many declarations were offered.
+    declared: integer
+end
+
+-- lj_ctype.h kinds, as they appear in the high nibble of `info`.
+local CT_NUM, CT_STRUCT, CT_PTR, CT_ARRAY = 0, 1, 2, 3
+local CT_VOID, CT_ENUM, CT_FUNC = 4, 5, 6
+local CT_TYPEDEF, CT_ATTRIB, CT_FIELD = 7, 8, 9
+local CT_CONSTVAL = 11
+
+local CTF_BOOL = 0x08000000
+local CTF_FP = 0x04000000
+local CTF_UNSIGNED = 0x00800000
+local CTF_CONST = 0x02000000
+local MAX_CTYPE_ID = 8192
+
+local function kindOf(value)
+    return bit.rshift(value, 28)
+end
+
+local function refOf(value)
+    return bit.band(value, 0xffff)
+end
+
+local function info(id)
+    local ok, entry = pcall(ffi.typeinfo, id)
+    if ok then
+        return entry
+    end
+
+    return nil
+end
+
+-- Follow typedef and attribute wrappers to the type they describe. Const is retained on
+-- the resolved entry by LuaJIT, so callers can still distinguish a pointer to const
+-- data.
+local function resolve(id)
+    for _ = 1, 16 do
+        local entry = info(id)
+        if not entry then
+            return nil, nil
+        end
+        local kind = kindOf(entry.info)
+        if kind == CT_TYPEDEF or kind == CT_ATTRIB then
+            id = refOf(entry.info)
+        else
+            return id, entry
+        end
+    end
+
+    return nil, nil
+end
+
+local decodeType
+
+local function decodeFunction(entry)
+    local params = {}
+    local child = entry.sib
+    while child do
+        local centry = info(child)
+        if not centry then
+            break
+        end
+        if kindOf(centry.info) == CT_FIELD then
+            params[#params + 1] = {name = centry.name, type = decodeType(refOf(centry.info)),}
+        end
+        child = centry.sib
+    end
+
+    return {
+        kind = "function",
+        name = entry.name,
+        params = params,
+        returns = decodeType(refOf(entry.info)),
+        vararg = bit.band(entry.info, CTF_UNSIGNED) ~= 0,
+    }
+end
+
+-- Decode a ctype id without attaching Nupp-specific meaning to it. Structs remain
+-- references by id and name; their fields live in a declaration so recursive and
+-- mutually-referential types terminate naturally.
+decodeType = function(id)
+    local rid, entry = resolve(id)
+    if not entry then
+        return {kind = "unknown"}
+    end
+    local kind = kindOf(entry.info)
+    if kind == CT_VOID then
+        return {kind = "void"}
+    elseif kind == CT_NUM then
+        if bit.band(entry.info, CTF_BOOL) ~= 0 then
+            return {kind = "boolean", bits = (entry.size or 0) * 8}
+        end
+        if bit.band(entry.info, CTF_FP) ~= 0 then
+            return {kind = "float", bits = (entry.size or 0) * 8}
+        end
+        return {kind = "integer", bits = (entry.size or 0) * 8, unsigned = bit.band(entry.info, CTF_UNSIGNED) ~= 0,}
+    elseif kind == CT_PTR then
+        local _, pointee = resolve(refOf(entry.info))
+        return {
+            kind = "pointer",
+            to = decodeType(refOf(entry.info)),
+            const = pointee and bit.band(pointee.info, CTF_CONST) ~= 0 or false,
+        }
+    elseif kind == CT_STRUCT then
+        return {kind = "struct", id = rid, name = entry.name}
+    elseif kind == CT_ENUM then
+        return {
+            kind = "enum",
+            name = entry.name,
+            bits = (entry.size or 4) * 8,
+            unsigned = bit.band(entry.info, CTF_UNSIGNED) ~= 0,
+        }
+    elseif kind == CT_ARRAY then
+        local element = decodeType(refOf(entry.info))
+        return {kind = "array", of = element, bytes = entry.size}
+    elseif kind == CT_FUNC then
+        return decodeFunction(entry)
+    end
+
+    return {kind = "unknown"}
+end
+
+local function decodeStruct(id, entry)
+    local fields = {}
+    local child = entry.sib
+    while child do
+        local centry = info(child)
+        if not centry then
+            break
+        end
+        if kindOf(centry.info) == CT_FIELD and centry.name then
+            fields[#fields + 1] = {name = centry.name, type = decodeType(refOf(centry.info)), offset = centry.size,}
+        end
+        child = centry.sib
+    end
+
+    return {kind = "struct", id = id, name = entry.name, size = entry.size, fields = fields,}
+end
+
+local INT32_MAX, UINT32 = 2147483647, 4294967296
+
+-- One enumerator's value.
+--
+-- LuaJIT keeps it in the `size` slot of the constant's entry, where -1 is
+-- indistinguishable from the sentinel that means "this has no size" and comes back as
+-- nil — and `ERROR = -1` is a common thing for a header to say. Reading the name back
+-- through the C namespace asks LuaJIT what it would use, which is the answer that
+-- matters, and the entry is only the fallback.
+--
+-- Enums are modelled as signed 32-bit here because that is what LuaJIT reports for
+-- every one of them, including a header's unsigned enumerators, so a value above the
+-- signed range is one that already wrapped.
+local function enumeratorValue(name, entry)
+    local ok, value = pcall(function()
+        return ffi.C[name]
+    end)
+    if not ok or type(value) ~= "number" then
+        value = entry.size
+    end
+    if type(value) ~= "number" then
+        return nil
+    end
+    if value > INT32_MAX then
+        value = value - UINT32
+    end
+
+    return value
+end
+
+-- Enumerators in the order the header declares them, which is the order they are worth
+-- reading in and the only one that carries meaning.
+local function decodeEnum(id, entry)
+    local values = {}
+    local child = entry.sib
+    while child do
+        local centry = info(child)
+        if not centry then
+            break
+        end
+        if kindOf(centry.info) == CT_CONSTVAL and centry.name then
+            local value = enumeratorValue(centry.name, centry)
+            if value then
+                values[#values + 1] = {name = centry.name, value = value}
+            end
+        end
+        child = centry.sib
+    end
+
+    return {kind = "enum", id = id, name = entry.name, bits = (entry.size or 4) * 8, values = values,}
+end
+
+-- Content caching also prevents a second consumer from redeclaring the same C text in
+-- LuaJIT's process-global ctype registry.
+local inspectCache = {}
+
+-- `prelude` is a list of declarations, or one string holding a single declaration;
+-- either way the cache key is the same text.
+local function preludeList(prelude)
+    if type(prelude) == "table" then
+        return prelude
+    end
+    if type(prelude) == "string" and #prelude > 0 then
+        return {prelude}
+    end
+
+    return {}
+end
+
+-- `text` is one blob to take or leave, or a list of declarations to take what parses
+-- of. A blob is what a `cheader` pins, where a header that will not parse is the
+-- answer; a list is what import-c ejects, where it is one entry.
+local function targetUnits(text)
+    if type(text) == "table" then
+        return text, true
+    end
+    return {text}, false
+end
+
+function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): cdecl.Inspection?, string?
+    local declarations = preludeList(prelude)
+    local units, perUnit = targetUnits(text)
+    local key = table.concat(declarations, "\n") .. "\0" .. table.concat(units, "\n")
+    local hit = inspectCache[key]
+    if hit then
+        return hit
+    end
+
+    -- A filtered header can depend on typedefs from its include closure. Declare that
+    -- vocabulary before the snapshot so it is available while parsing but cannot become
+    -- an exported declaration of the target.
+    --
+    -- One at a time, and a failure is dropped rather than fatal. A system header's
+    -- vocabulary is a chain, and the chain runs through spellings this vocabulary does
+    -- not carry — Darwin reaches `__darwin_mbstate_t` through a `union` body — so an
+    -- unresolvable link costs the declarations that needed it and nothing else.
+    -- Redeclaring a name LuaJIT already holds fails the same way and is equally
+    -- harmless: the registry is global and process-wide, so a second import of an
+    -- overlapping header meets its own earlier work.
+    for _, declaration in ipairs(declarations) do
+        pcall(ffi.cdef, declaration)
+    end
+
+    local before = {}
+    for id = 1, MAX_CTYPE_ID do
+        if info(id) then
+            before[id] = true
+        end
+    end
+
+    -- What LuaJIT will not parse is set aside rather than taken as the answer for the
+    -- whole header. One declaration commonly fails for a reason local to itself — a
+    -- struct laid out from a type whose definition lives in a header that was filtered
+    -- away — and the rest of the file is unaffected and worth having. The caller is
+    -- told what it lost.
+    local rejected = {}
+    for _, unit in ipairs(units) do
+        local ok, err = pcall(ffi.cdef, unit)
+        if not ok then
+            rejected[#rejected + 1] = {text = unit,
+                -- LuaJIT prefixes its own chunk name and line
+                reason = tostring(err):gsub("^.-:%d+:%s*", ""),}
+        end
+    end
+    if not perUnit and #rejected > 0 then
+        return nil, rejected[1].reason
+    end
+
+    local structs, functions, enums = {}, {}, {}
+    for id = 1, MAX_CTYPE_ID do
+        local entry = info(id)
+        if entry and not before[id] then
+            local kind = kindOf(entry.info)
+            -- An enum carries its constants whether or not it is named: `typedef enum {
+            -- ... } Mode;` names the type and nothing else, and its members are the
+            -- point of declaring it.
+            if kind == CT_ENUM then
+                enums[#enums + 1] = decodeEnum(id, entry)
+            elseif entry.name then
+                if kind == CT_STRUCT then
+                    structs[#structs + 1] = decodeStruct(id, entry)
+                elseif kind == CT_FUNC then
+                    functions[#functions + 1] = decodeFunction(entry)
+                end
+            end
+        end
+    end
+    local result = {structs = structs, functions = functions, enums = enums, rejected = rejected, declared = #units,}
+    inspectCache[key] = result
+
+    return result
+end
+
+function cdecl.declare(text: string): boolean, string?
+    local ok, err = pcall(ffi.cdef, text)
+    if not ok then
+        return false, tostring(err)
+    end
+
+    return true
+end
+
+function cdecl.typeFromString(spec: string): cdecl.CType?, string?
+    local ok, ct = pcall(ffi.typeof, spec)
+    if not ok then
+        return nil, tostring(ct)
+    end
+    local id = tonumber(ct)
+    if not id then
+        return nil, "not a C type: " .. spec
+    end
+
+    return decodeType(id)
+end
+
+function cdecl.structById(id: integer?): cdecl.Struct?
+    local rid, entry = resolve(id)
+    if not entry or kindOf(entry.info) ~= CT_STRUCT then
+        return nil
+    end
+
+    return decodeStruct(rid, entry)
+end
+
+function cdecl.declaredFunctions(): {[string]: cdecl.Function}
+    local out = {}
+    for id = 1, MAX_CTYPE_ID do
+        local entry = info(id)
+        if entry and entry.name and kindOf(entry.info) == CT_FUNC then
+            out[entry.name] = decodeFunction(entry)
+        end
+    end
+
+    return out
+end
+
+-- Sizes and alignments in the neutral model belong to this ABI.
+local abiCache
+function cdecl.abiTag(): string
+    if not abiCache then
+        local parts = {jit.arch, jit.os}
+        for _, param in ipairs({"32bit", "64bit", "le", "be", "fpu", "softfp", "hardfp", "eabi", "win"}) do
+            if ffi.abi(param) then
+                parts[#parts + 1] = param
+            end
+        end
+        abiCache = table.concat(parts, ",")
+    end
+
+    return abiCache
+end
+
+return cdecl

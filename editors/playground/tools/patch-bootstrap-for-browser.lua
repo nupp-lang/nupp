@@ -7,13 +7,13 @@ implementation uses, not just code it generates for a checked program:
 
   - `const NAME = value`, LuaJIT's backported immutable-local declaration
   - `0x...ULL`-style 64-bit cdata integer literals, in the content-hash
-    function nupp.build.hash uses for incremental build caching
+    function compiler.build.hash uses for incremental build caching
 
 Both are found with the bootstrap compiler's OWN lexer — loaded from the very
 file being patched — rather than regexes, because a regex can't tell "real
 `const` keyword" from "the five characters c-o-n-s-t inside a string that
 happens to hold generated-code *text* for a program this compiler is
-building" (nupp.gen's ffi/array-cache templates in nupp.gen do exactly that:
+building" (compiler.gen's ffi/array-cache templates in compiler.gen do exactly that:
 `code = 'const __nuppFfi = require("ffi"); ' .. code`, which must NOT be
 touched — that `const` needs to reach the real LuaJIT that runs the program
 being compiled). The lexer already resolves that correctly, since string
@@ -50,7 +50,7 @@ if not ok then
     os.exit(1)
 end
 
-local lexer = require("nupp.lexer")
+local lexer = require("compiler.lexer")
 
 local f, openErr = io.open(inputPath, "rb")
 if not f then
@@ -109,12 +109,12 @@ parts[#parts + 1] = source:sub(pos)
 local patched = table.concat(parts)
 
 -- The file ends by running the full CLI
--- (os.exit(require("nupp.cli").main(arg))), which eagerly requires every
--- subcommand — including ones (like nupp.cli.lsp) that need `cjson`, a C
+-- (os.exit(require("compiler.cli").main(arg))), which eagerly requires every
+-- subcommand — including ones (like compiler.cli.lsp) that need `cjson`, a C
 -- extension unavailable in the browser. The playground drives the checker
 -- and compiler directly (see src/worker.js), so this call is dropped
 -- entirely rather than satisfying the whole CLI's dependency graph.
-local trailer = 'os . exit ( require ( "nupp.cli" ) . main ( arg ) )'
+local trailer = 'os . exit ( require ( "compiler.cli" ) . main ( arg ) )'
 local trailerAt = patched:find(trailer, 1, true)
 if not trailerAt then
     io.stderr:write("expected trailing CLI invocation not found; "

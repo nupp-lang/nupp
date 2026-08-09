@@ -1,9 +1,9 @@
 -- FFI operations the checker knows about: their return type follows the
 -- type they are given, rather than collapsing to any.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local gen = require("nupp.gen")
-local envMod = require("nupp.env")
+local gen = require("compiler.gen")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

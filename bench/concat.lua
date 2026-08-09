@@ -23,7 +23,7 @@
 -- in use, and recursion, a coroutine yield inside the loop, or any call in the
 -- body that reaches the same function all break it. There is no
 -- deoptimization, so "usually not re-entered" is not available. The effect
--- summaries in src/nupp/analysis.nupp already carry what would decide it --
+-- summaries in src/compiler/analysis.nupp already carry what would decide it --
 -- yields, calls, external -- which makes pooling an upgrade gated on a query
 -- rather than a default.
 --

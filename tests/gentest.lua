@@ -1,5 +1,5 @@
-local parser = require("nupp.parser")
-local gen = require("nupp.gen")
+local parser = require("compiler.parser")
+local gen = require("compiler.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -393,7 +393,7 @@ function M.exampleProgramRuns()
     assertEq(#result.errors, 0, "example must parse")
     -- checking first supplies reified-struct hints to the generator
     local check = require("fragment")
-    local envMod = require("nupp.env")
+    local envMod = require("compiler.env")
     local checkDiags = check.check(result, "todo.nupp", envMod.new(ROOT))
     assertEq(#checkDiags, 0, "example must check")
     local code, diags = gen.generate(result, "todo.nupp")

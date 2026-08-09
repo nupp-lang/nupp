@@ -55,8 +55,8 @@ A page's keys are checked the same way, and so are the keys of its
 
 Elsewhere in the manifest an unrecognized key is still ignored.
 
-The implementation lives under the `nupp.build.*` submodule namespace in
-`src/nupp/build/`: `project` owns orchestration, `hash` owns cache digests, and
+The implementation lives under the internal `compiler.build.*` submodule namespace in
+`src/compiler/build/`: `project` owns orchestration, `hash` owns cache digests, and
 `process` owns argv-based subprocess execution.
 
 ```lua
@@ -106,7 +106,14 @@ return {
 Entries may be module names or `.nupp` paths. Generated Lua preserves module
 paths beneath `outDir`; for example, `app.main` becomes
 `build/app/main.lua`. Resource globs preserve paths relative to the nearest
-include root.
+include root. A resource table gives one source an explicit target-relative
+destination when its runtime lookup is relative to another module:
+
+```lua
+resources = {
+   {source = "src/public/schema.nupp", output = "app/data/schema.nupp"},
+}
+```
 
 ### Compiler-native features
 
@@ -194,8 +201,9 @@ changing other documentation targets.
 `logo` adds an image to the header brand; omit it to keep Nuppdoc's default
 mark. A configured `heroImage` sits in the homepage's right column over the
 theme's responsive accent glow.
-Source files below `internal/`, source files beginning with `_`, and methods
-or members beginning with `_` are private by default; set
+Source files below `internal/`, source files beginning with `_`, files marked
+`@!internal` (including descendants of a marked `init.nupp`), and methods or
+members beginning with `_` are private by default; set
 `includePrivate = true` to include them.
 Handwritten pages and generated module pages share the navigation, breadcrumb,
 outline, and collapsible side columns. Each page emits and links `llms.txt`;

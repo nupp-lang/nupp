@@ -1,0 +1,729 @@
+--[[
+Applying something to arguments.
+
+The type of a call is the type its callee returns, but getting there means
+answering what the callee is first: an intrinsic the compiler implements, a
+`require` whose module can be resolved to a type, a contract like `pairs` whose
+result depends on what it was handed, or an ordinary function whose signature
+says. The FFI intrinsics are next door; everything else is here.
+
+A method call is the same thing with the receiver threaded in as the first
+argument, which is all `:` means.
+]]
+
+local T = require("compiler.types")
+local relations = require("compiler.relations")
+local generics = require("compiler.generics")
+local lexer = require("compiler.lexer")
+local cst = require("compiler.cst")
+local ffiMod = require("compiler.check.ffi")
+local methodslots = require("compiler.methodslots")
+local native = require("compiler.native")
+local state = require("compiler.check.state")
+
+local isA = relations.isA
+local packIsA = relations.packIsA
+local rawType = T.unwrapOwnership
+local dropSelf = generics.dropSelf
+local specializeSelf = generics.specializeSelf
+
+local callexpr = {}
+
+--- A type, as compiler.types builds them.
+local type Type = T.Type
+
+--- A node of the tree being checked.
+local type Node = cst.Node
+
+--- A token, as the lexer produced it.
+local type Token = lexer.Token
+
+--- Installs the call expressions on one run.
+---
+--- @param c the run's state
+--- @return the expression kinds this family answers
+function callexpr.install(c: state.Checker): state.ExprHandlers
+    local inferFfiIntrinsic = ffiMod.install(c)
+
+    local handlers = {}
+
+    handlers.call = function(node: cst.Call | cst.SafeCall): Type
+        -- The intrinsic dispatch below asks the same three questions of every call —
+        -- what is being called, what it is dotted off, and what was passed — so they
+        -- are answered once here. An empty name matches nothing, which is what a callee
+        -- of another shape is.
+        local callee = node.obj
+        local calleeName, baseName, memberName = "", "", ""
+        local typeArg: Node? = nil
+        if callee then
+            if callee.kind == "name" then
+                local calleeTok = callee.token
+                calleeName = calleeTok and calleeTok.text or ""
+            elseif callee.kind == "dotIndex" then
+                local memberTok = callee.name
+                memberName = memberTok and memberTok.text or ""
+                typeArg = callee.ffiTypeArg
+                local base = callee.obj
+                if base and base.kind == "name" then
+                    local baseTok = base.token
+                    baseName = baseTok and baseTok.text or ""
+                end
+            end
+        end
+        local argsNode = node.args
+        local argExprs: {Node} = {}
+        local argStr: lexer.Token? = nil
+        local argTable: Node? = nil
+        if argsNode and argsNode.kind == "args" then
+            argExprs = argsNode.exprs or {}
+            argStr = argsNode.str
+            argTable = argsNode.table
+        end
+        if baseName == "coroutine" and memberName == "yield" then
+            local obligation = c.liveSuspensionObligation()
+            if obligation then
+                c.diag("NUPP2603", node, ("cannot suspend while temporal obligation %q is live"):format(obligation))
+            end
+        end
+        if calleeName ~= "" and not c.lookupEntry(calleeName) then
+            local intrinsic = calleeName
+            local args = argExprs
+            if intrinsic == "intoRaw" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 then
+                    c.diag("NUPP2602", node, "intoRaw expects one owned value")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "intoRaw requires an unsafe do block")
+                end
+                c.moveExpression(args[1] or node, valueT, "intoRaw")
+                node.ownershipIntrinsic = "intoRaw"
+                return rawType(valueT)
+            elseif intrinsic == "borrow" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if #args ~= 1 or c.ownershipKind(valueT) ~= "owned" then
+                    c.diag("NUPP2602", node, "borrow expects one live owned value")
+                end
+                node.ownershipIntrinsic = "borrow"
+                node.borrowOwner = c.borrowRoot((c.ownershipEntry(args[1])))
+                return T.borrowed(rawType(valueT))
+            elseif intrinsic == "borrowFrom" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                if args[2] then
+                    c.infer(args[2])
+                end
+                local source = args[2] and c.ownershipEntry(args[2]) or nil
+                if #args ~= 2 or c.ownershipKind(valueT) or not c.pointerShaped(valueT) or not source then
+                    c.diag("NUPP2602", node, "borrowFrom expects a raw pointer and a named source")
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "borrowFrom requires an unsafe do block")
+                end
+                node.ownershipIntrinsic = "borrowFrom"
+                node.borrowOwner = c.borrowRoot(source)
+                return T.borrowed(rawType(valueT))
+            elseif intrinsic == "pin" then
+                local pointerT = args[1] and c.infer(args[1]) or T.any
+                if args[2] then
+                    c.infer(args[2])
+                end
+                if #args ~= 2 or not c.pointerShaped(pointerT) then
+                    c.diag("NUPP2602", node, "pin expects a pointer and its managed anchor")
+                end
+                if c.unsafeDepth == 0 then
+                    local pointerOwner = args[1] and args[1].borrowOwner
+                    local anchorEntry = args[2] and c.ownershipEntry(args[2])
+                    if c.ownershipKind(pointerT) ~= "borrowed" or not pointerOwner or pointerOwner ~= anchorEntry then
+                        c.diag(
+                            "NUPP2604",
+                            node,
+                            "pin must prove the pointer derives from its anchor; "
+                            .. "use unsafe do for an opaque derivation"
+                        )
+                    end
+                end
+                node.ownershipIntrinsic = "pin"
+                return T.pinned(rawType(pointerT))
+            elseif intrinsic == "fromRaw" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                local cleanups = {}
+                for j = 2, #args do
+                    local cleanupT = c.infer(args[j])
+                    local cleanupNode = args[j]
+                    local cleanupTok = cleanupNode.kind == "name" and cleanupNode.token or nil
+                    if not cleanupTok then
+                        c.diag("NUPP2602", args[j], "fromRaw cleanup arguments must be function names")
+                    else
+                        cleanups[#cleanups + 1] = cleanupTok.text
+                    end
+                    if cleanupT ~= T.any and (
+                        cleanupT.tag ~= "func" or not cleanupT.params[1] or not isA(rawType(valueT), cleanupT.params[1])
+                    ) then
+                        c.diag("NUPP2602", args[j], "fromRaw cleanup must accept the pointer type")
+                    end
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "fromRaw requires an unsafe do block")
+                end
+                if c.ownershipKind(valueT) or not c.pointerShaped(valueT) then
+                    c.diag("NUPP2602", args[1] or node, "fromRaw expects an unmanaged pointer")
+                end
+                node.ownershipIntrinsic = "fromRaw"
+                node.ownerCleanups = cleanups
+                return T.owned(rawType(valueT), cleanups)
+            elseif intrinsic == "dispose" then
+                local valueT = args[1] and c.infer(args[1]) or T.any
+                -- Disposing something that is not an owner is reported below rather
+                -- than refused here, so the cleanup list is read off whatever was
+                -- passed and comes back empty when there is none.
+                local disposed = valueT as T.Owned
+                if #args ~= 1 then
+                    c.diag("NUPP2602", node, "dispose expects one owned value")
+                end
+                local withBorrow = args[1] and args[1].withBinding
+                if withBorrow then
+                    c.diag("NUPP2614", args[1], "a visible 'with' borrow cannot be disposed")
+                end
+                if not withBorrow then
+                    c.moveExpression(args[1] or node, valueT, "dispose")
+                end
+                if c.ownershipKind(valueT) == "owned" and #(disposed.cleanups or {}) == 0 then
+                    c.diag(
+                        "NUPP2602",
+                        args[1] or node,
+                        "dispose needs @owned cleanup functions; transfer this owner "
+                        .. "to a declared takes parameter"
+                    )
+                end
+                -- The contract was validated where it was written, so an unresolvable
+                -- name is not re-reported as a declaration error here. What a dispose
+                -- does have to establish is that the cleanup can be called from this
+                -- module, since that is what it emits.
+                c.validateCleanups(valueT, disposed.cleanups, args[1] or node, nil, true)
+                c.own.requireReachableCleanups(valueT, disposed.cleanups, args[1] or node)
+                node.ownershipIntrinsic = "dispose"
+                node.ownerCleanups = disposed.cleanups or {}
+                return T.nil_
+            end
+        end
+        if calleeName ~= "" then
+            local entry = c.lookupEntry(calleeName)
+            node.cdefCall = entry and entry.definition and entry.definition.cdef or false
+        end
+        -- require("mod") resolves to the module's type when the module can be found. An
+        -- undeclared Lua module stays gradual by default, but strict checking exposes
+        -- that untyped boundary as unknown so it must be narrowed or cast.
+        local requireGlobal = c.env and c.env.globals and c.env.globals.require
+        local requireEntry = calleeName == "require" and c.lookupEntry("require") or nil
+        local stableRequire = requireGlobal and requireEntry and requireGlobal.definition == requireEntry.definition
+        if calleeName == "require" and stableRequire and c.env and c.env.resolveModule then
+            local tok = nil
+            if argsNode then
+                local e1 = argExprs[1]
+                if e1 and e1.kind == "string" then
+                    tok = e1.token
+                end
+                if argStr then
+                    tok = argStr
+                end
+            end
+            if tok then
+                local text = tok.text
+                local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
+                if modname then
+                    node.requiredModule = modname
+                    local effect = native.forModule(modname)
+                    if effect and c.recordEffect then
+                        c.recordEffect(effect)
+                    end
+                    local mt = c.env.resolveModule(c.env, modname)
+                    if mt then
+                        return mt
+                    end
+                end
+            end
+            return c.opts and c.opts.strict and T.unknown or T.any
+        end
+        -- The same operations written the way LuaJIT has always been written: a
+        -- constant type string is read by the compiler, so existing FFI code gets types
+        -- without being rewritten. A string built at run time yields cdata rather than
+        -- any, which keeps leaving the typed path visible.
+        local intrinsic = inferFfiIntrinsic(node, calleeName, baseName, memberName, typeArg, argExprs, argStr)
+        if intrinsic then
+            return intrinsic
+        end
+        local calleeT = callee and c.infer(callee) or T.any
+        node.calleeType = rawType(calleeT)
+        local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        if wrappedEntry and wrappedEntry.wrappedProtocol then
+            local protocol = wrappedEntry.wrappedProtocol
+            local input = wrappedEntry.wrappedPhase == "new" and protocol.startPack or protocol.resumePack
+            local output = T.packUnion({protocol.yieldPack, protocol.returnPack})
+            calleeT = T.func(
+                input.head,
+                output.head,
+                input.tail ~= nil,
+                input.modes,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                nil,
+                input,
+                output
+            )
+            node.calleeType = calleeT
+        end
+        -- LuaJIT exposes these functions through builtin modules rather than before
+        -- startup. Recognize the stable prelude path by definition, never by spelling:
+        -- a local named `table` remains an ordinary call.
+        local tableGlobal = c.env and c.env.globals and c.env.globals.table or nil
+        local tableBase = callee and callee.kind == "dotIndex" and callee.obj or nil
+        local tableToken = tableBase and tableBase.kind == "name" and tableBase.token or nil
+        if node.kind == "call"
+            and callee
+            and callee.kind == "dotIndex"
+            and callee.immutablePath
+            and tableToken
+            and tableGlobal
+            and tableToken.definition == tableGlobal.definition
+            and (
+            memberName == "new" or memberName == "clear"
+        ) then
+            node.tableIntrinsic = memberName
+        end
+        local knownAts = nil
+        -- LuaJIT's pairs accepts every table, including nominal record instances.
+        -- Preserve the precise map overload from the prelude, but use an erased
+        -- iterator contract for records.
+        local pairParams = calleeT.tag == "func" and calleeT.typeParams
+        local pairMap = calleeT.tag == "func" and calleeT.params[1]
+        local isPairsContract = calleeName == "pairs"
+            and pairParams
+            and #pairParams == 2
+            and pairMap
+            and pairMap.tag == "map"
+            and pairMap.key == pairParams[
+            1
+        ] and pairMap.value == pairParams[2]
+        if isPairsContract then
+            local args = argExprs
+            if #args == 1 then
+                local at = c.infer(args[1])
+                if at.tag == "nominal" or (at.tag == "typevar" and at.bound and at.bound.tag == "nominal") then
+                    local iterator = T.func({}, {T.any, T.any}, false)
+                    c.lastCallRets = {iterator}
+                    return iterator
+                end
+                knownAts = {at}
+            end
+        end
+        -- Every metatable literal is checked where it meets a `metatable<T>`, which is
+        -- what the prelude declares `setmetatable` to take. A run with no prelude has
+        -- no such parameter to read the receiver off, and the name is then the only
+        -- thing saying this argument is a metatable at all -- enough to spell its keys,
+        -- which is what that run could check before.
+        if calleeName == "setmetatable" and calleeT.tag ~= "func" then
+            c.checkMetatableLiteral(argExprs[2], nil, T.metatable(T.any))
+        end
+        local first, rets, pack = c.inferCall(node, calleeT, node.args, knownAts)
+        if wrappedEntry and wrappedEntry.wrappedProtocol then
+            wrappedEntry.wrappedPhase = "started"
+        end
+        local globalEntry = calleeName ~= "" and c.env and c.env.globals and c.env.globals[calleeName] or nil
+        local localEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
+        local stableGlobal = globalEntry and localEntry and globalEntry.definition == localEntry.definition
+        if stableGlobal and calleeName == "select" and node.argumentPack then
+            local source = node.argumentPack
+            local selector = argExprs[1]
+            local selectorToken = selector and (
+                selector.kind == "string" or selector.kind == "number"
+            ) and selector.token or nil
+            local selectorText = selectorToken and selectorToken.text or ""
+            if selector and selector.kind == "string" and (selectorText == '"#"' or selectorText == "'#'") then
+                pack = T.pack({T.integer})
+                local discarded = {}
+                for j = 2, #source.head do
+                    discarded[#discarded + 1] = source.head[j]
+                end
+                c.checkPackDiscard(T.pack(discarded, source.tail), 1, node)
+            else
+                local selected: integer? = nil
+                if selector and selector.kind == "number" then
+                    selected = tonumber((selectorText:gsub("_", ""))) as integer
+                elseif selector
+                    and selector.kind == "unop"
+                    and selector.op
+                    and selector.op.kind == "-"
+                    and selector.operand
+                    and selector.operand.kind == "number"
+                    and selector.operand.token
+                then
+                    selected = -(assert(tonumber((selector.operand.token.text:gsub("_", "")))) as integer)
+                end
+                local values = {}
+                for j = 2, #source.head do
+                    values[#values + 1] = source.head[j]
+                end
+                local valuePack = T.pack(values, source.tail)
+                if selected then
+                    local start = selected < 0 and #values + selected + 1 or selected
+                    if not source.tail and (selected == 0 or start < 1 or start > #values) then
+                        c.diag("NUPP2010", selector, "select index is outside its statically known argument pack")
+                    end
+                    local discarded = {}
+                    for j = 1, math.max(start - 1, 0) do
+                        discarded[#discarded + 1] = values[j]
+                    end
+                    c.checkPackDiscard(
+                        T.pack(discarded, source.tail and start > #values and source.tail or nil),
+                        1,
+                        selector or node
+                    )
+                    local sliced = {}
+                    for j = math.max(start, 1), #values do
+                        sliced[#sliced + 1] = values[j]
+                    end
+                    pack = T.pack(sliced, valuePack.tail)
+                else
+                    local members = {}
+                    for _, value in ipairs(values) do
+                        members[#members + 1] = value
+                    end
+                    if source.tail and source.tail.type then
+                        members[#members + 1] = source.tail.type
+                    end
+                    pack = T.pack({}, {kind = "homogeneous", type = #members > 0 and T.union(members) or T.any})
+                    c.checkPackDiscard(valuePack, 1, selector or node)
+                end
+            end
+            first, rets = T.packAt(pack, 1) or T.nil_, pack.head
+        end
+        if stableGlobal and calleeName == "unpack" and node.argumentPack then
+            local tableType = T.packAt(node.argumentPack, 1)
+            local elements, elementType = {}, nil
+            if tableType and tableType.tag == "tuple" then
+                for j, value in ipairs(tableType.elems) do
+                    elements[j] = value
+                end
+            elseif tableType and tableType.tag == "array" then
+                elementType = tableType.elem
+            end
+            if #elements > 0 or elementType then
+                local function integerLiteral(expr): integer?
+                    local tok = expr and expr.kind == "number" and expr.token or nil
+                    if not tok then
+                        return nil
+                    end
+
+                    return tonumber((tok.text:gsub("_", ""))) as integer
+                end
+
+                local from = integerLiteral(argExprs[2]) or 1
+                local through = integerLiteral(argExprs[3])
+                if #elements > 0 and (
+                    not argExprs[2] or integerLiteral(argExprs[2])
+                ) and (not argExprs[3] or through) then
+                    through = through or #elements
+                    local sliced = {}
+                    for j = from, through do
+                        sliced[#sliced + 1] = elements[j] or T.nil_
+                    end
+                    pack = T.pack(sliced)
+                elseif elementType then
+                    pack = T.pack({}, {kind = "homogeneous", type = elementType})
+                else
+                    pack = T.pack({}, {kind = "homogeneous", type = T.union(elements)})
+                end
+                first, rets = T.packAt(pack, 1) or T.nil_, pack.head
+            end
+        end
+        local tableEntry = baseName ~= "" and c.env and c.env.globals and c.env.globals[baseName] or nil
+        local baseEntry = baseName ~= "" and c.lookupEntry(baseName) or nil
+        local stableMember = tableEntry and baseEntry and tableEntry.definition == baseEntry.definition
+        if stableMember and baseName == "coroutine" then
+            node.coroutineIntrinsic = memberName
+            local actual = node.argumentPack or T.pack({})
+            local function unknownPack()
+                return T.pack({}, {kind = "unknown", type = T.any})
+            end
+
+            local function checkProtocol(expected, offset: integer)
+                local head = {}
+                for j = offset + 1, #actual.head do
+                    head[#head + 1] = actual.head[j]
+                end
+                local supplied = T.pack(head, actual.tail)
+                local ok, why = packIsA(supplied, expected)
+                local exact = expected.alternatives
+                    or expected.tail
+                    or not supplied.tail
+                    and #supplied.head == #expected.head
+                if not ok or not exact then
+                    c.diag(
+                        "NUPP2010",
+                        argExprs[offset + 1] or node,
+                        why or ("coroutine pack has %d values, expected %d"):format(#supplied.head, #expected.head)
+                    )
+                end
+            end
+
+            if memberName == "create" then
+                local bodyType = T.packAt(actual, 1)
+                if bodyType and bodyType.tag == "func" then
+                    first = T.protocolThread(
+                        bodyType.paramPack,
+                        bodyType.resumePack or unknownPack(),
+                        bodyType.yieldPack or unknownPack(),
+                        bodyType.retPack
+                    )
+                    pack, rets = T.pack({first}), {first}
+                end
+            elseif memberName == "resume" then
+                local threadType = T.packAt(actual, 1)
+                if threadType and threadType.tag == "protocolThread" then
+                    local threadArg = argExprs[1]
+                    local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
+                        threadArg.token.text
+                    ) or nil
+                    -- A local handle starts with the callback's Start pack. After the
+                    -- first transfer it can no longer be new, even when control later
+                    -- joins and its suspended/dead phase is unknown, so subsequent
+                    -- transfers use Resume. Escaped or erased handles accept either.
+                    local phase = threadEntry and threadEntry.threadPhase or "unknown"
+                    if phase == "dead" then
+                        c.diag("NUPP2010", threadArg or node, "a coroutine narrowed to dead cannot be resumed")
+                    end
+                    local accepted = phase == "new"
+                        and threadType.startPack
+                        or phase == "started"
+                        and threadType.resumePack
+                        or phase == "dead"
+                        and threadType.resumePack
+                        or T.packUnion({
+                        threadType.startPack,
+                        threadType.resumePack
+                    })
+                    if accepted.alternatives then
+                        local fits = false
+                        local suppliedHead = {}
+                        for j = 2, #actual.head do
+                            suppliedHead[#suppliedHead + 1] = actual.head[j]
+                        end
+                        local supplied = T.pack(suppliedHead, actual.tail)
+                        for _, arm in ipairs(accepted.alternatives) do
+                            local armFits = packIsA(
+                                supplied,
+                                arm
+                            ) and (arm.tail ~= nil or not supplied.tail and #supplied.head == #arm.head)
+                            fits = fits or armFits
+                        end
+                        if not fits then
+                            checkProtocol(threadType.startPack, 1)
+                        end
+                    else
+                        checkProtocol(accepted, 1)
+                    end
+                    if threadEntry then
+                        threadEntry.threadPhase = "started"
+                    end
+                    local function successful(values)
+                        local head = {T.literal(true, T.boolean)}
+                        for _, value in ipairs(values.head) do
+                            head[#head + 1] = value
+                        end
+
+                        return T.pack(head, values.tail)
+                    end
+
+                    pack = T.packUnion({
+                        successful(threadType.yieldPack),
+                        successful(threadType.returnPack),
+                        T.pack({T.literal(false, T.boolean), T.any})
+                    })
+                    first, rets = T.packAt(pack, 1) or T.boolean, pack.head
+                end
+            elseif memberName == "yield" then
+                local expected = c.yieldPackStack[#c.yieldPackStack]
+                local resumed = c.resumePackStack[#c.resumePackStack]
+                if expected then
+                    checkProtocol(expected, 0)
+                end
+                local protocol = c.protocolStack[#c.protocolStack]
+                if protocol and not expected then
+                    protocol.yieldPacks[#protocol.yieldPacks + 1] = actual
+                end
+                if resumed then
+                    pack, rets = resumed, resumed.head
+                    first = T.packAt(resumed, 1) or T.nil_
+                end
+            elseif memberName == "status" then
+                local threadArg = argExprs[1]
+                local threadEntry = threadArg and threadArg.kind == "name" and threadArg.token and c.lookupEntry(
+                    threadArg.token.text
+                ) or nil
+                if threadArg and threadArg.kind == "name" and threadArg.token then
+                    node.coroutineStatusName = threadArg.token.text
+                end
+                local phase = threadEntry and threadEntry.threadPhase or "unknown"
+                local statuses = {}
+                if phase == "new" then
+                    statuses[1] = T.literal("suspended", T.string)
+                elseif phase == "dead" then
+                    statuses[1] = T.literal("dead", T.string)
+                elseif phase == "started" then
+                    statuses = {T.literal("suspended", T.string), T.literal("dead", T.string)}
+                else
+                    statuses = {
+                        T.literal("suspended", T.string),
+                        T.literal("running", T.string),
+                        T.literal("normal", T.string),
+                        T.literal("dead", T.string)
+                    }
+                end
+                first = T.union(statuses)
+                pack, rets = T.pack({first}), {first}
+            elseif memberName == "wrap" then
+                local bodyType = T.packAt(actual, 1)
+                if bodyType and bodyType.tag == "func" then
+                    local wrappedReturns = T.packUnion({bodyType.yieldPack or unknownPack(), bodyType.retPack})
+                    first = T.func(
+                        bodyType.paramPack.head,
+                        wrappedReturns.head,
+                        bodyType.paramPack.tail ~= nil,
+                        bodyType.paramPack.modes,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        nil,
+                        bodyType.paramPack,
+                        wrappedReturns
+                    )
+                    node.wrappedProtocol = T.protocolThread(
+                        bodyType.paramPack,
+                        bodyType.resumePack or unknownPack(),
+                        bodyType.yieldPack or unknownPack(),
+                        bodyType.retPack
+                    )
+                    pack, rets = T.pack({first}), {first}
+                end
+            end
+        end
+        c.lastCallRets = rets
+        node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+
+        return first
+    end
+    handlers.safeCall = handlers.call
+
+    handlers.methodCall = function(node: cst.MethodCall): Type
+        local receiver, member = node.obj, node.name
+        if not receiver or not member then
+            return T.any
+        end
+        local ot = c.infer(receiver)
+        -- `o?.:m()` tolerates a nil receiver and `o:m?.()` a nil method; either check
+        -- makes the whole call optional, and both drop the nil they check for before
+        -- the lookup that follows.
+        local optional = node.safeObj ~= nil or node.safeMethod ~= nil
+        local function withoutNil(t: Type): Type
+            if t.tag ~= "union" then
+                return t
+            end
+            local nonnil = {}
+            for _, m in ipairs(t.members) do
+                if m ~= T.nil_ then
+                    nonnil[#nonnil + 1] = m
+                end
+            end
+
+            return T.union(nonnil)
+        end
+
+        if node.safeObj then
+            ot = withoutNil(ot)
+        end
+        local mt, fieldDef, fieldDefs = c.fieldType(ot, member.text)
+        if mt and node.safeMethod then
+            mt = withoutNil(mt)
+        end
+        if mt then
+            local callable = mt.tag == "func"
+            if mt.tag == "intersection" then
+                callable = true
+                for _, signature in ipairs(mt.members) do
+                    if signature.tag ~= "func" then
+                        callable = false
+                        break
+                    end
+                end
+            end
+            c.markToken(member, fieldDef, mt, callable and "method" or "property")
+            member.additionalDefinitions = fieldDefs
+            -- o:m(...) desugars to m(o, ...): drop the self parameter
+            local first, rets, pack = c.inferCall(node, callable and dropSelf(mt) or mt, node.args)
+            local owner = rawType(ot)
+            if owner.tag == "nominal" and owner.overloadedMethods and owner.overloadedMethods[
+                member.text
+            ] and node.overloadWinner then
+                local selectedMember = methodslots.member(member.text, node.overloadWinner)
+                local dispatch = owner.methodDispatchEntries and owner.methodDispatchEntries[
+                    member.text
+                ] or (owner.methodEntries and owner.methodEntries[member.text]) or {}
+                for _, entry in ipairs(dispatch) do
+                    local candidate = dropSelf(specializeSelf(owner, entry.signature, owner))
+                    if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
+                        node.overloadMember = entry.member
+                        node.methodEntry = entry
+                        c.markToken(member, entry.definition, specializeSelf(owner, entry.signature, owner), "method")
+                        member.additionalDefinitions = nil
+                        break
+                    end
+                end
+                node.overloadMember = node.overloadMember or selectedMember
+            end
+            c.lastCallRets = rets
+            node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+            return optional and T.optional(first) or first
+        end
+        if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
+            if ot.tag == "shape" or ot.tag == "nominal" then
+                local fixes = c.edits.nameSpellingFix(member, c.fieldNames(ot))
+                c.diag(
+                    "NUPP2004",
+                    member,
+                    ("no method %q in %s"):format(member.text, T.tostring(ot)),
+                    fixes,
+                    {
+                        help = fixes
+                        and "use the suggested method spelling"
+                        or "check the receiver type and available methods"
+                    }
+                )
+            end
+        end
+        if node.args then
+            c.inferCall(node, T.any, node.args)
+        end
+        -- Nothing is known about what an unresolvable method returns, which includes
+        -- how many values, so the pack this call publishes stays open the way an
+        -- untyped call's does.
+        c.lastCallRets = nil
+        node.valuePack = T.pack({}, {kind = "unknown", type = T.any})
+
+        return T.any
+    end
+
+    return handlers
+end
+
+return callexpr

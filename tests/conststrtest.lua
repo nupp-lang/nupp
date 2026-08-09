@@ -1,9 +1,9 @@
 -- Existing LuaJIT FFI code, typed without being rewritten: a literal cdef
 -- block declares to the compiler as well as the runtime, and the constant
 -- type strings that follow are read rather than ignored.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
+local envMod = require("compiler.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -113,14 +113,14 @@ function M.constIsAPromiseNotToWrite()
 end
 
 function M.cFunctionPointersDecodeAsCallbackTypes()
-   local cheaderMod = require("nupp.cheader")
+   local cheaderMod = require("compiler.cheader")
    cheaderMod.declare("typedef void (*CbSink)(int code, const char *msg);\n"
       .. "struct CbHolder { CbSink handler; int n; };")
    local t = cheaderMod.typeFromString("struct CbHolder")
    assert(t and t.byname, "struct decoded")
    local handler = t.byname.handler
    assert(handler, "the callback field is present")
-   local rendered = require("nupp.types").tostring(handler)
+   local rendered = require("compiler.types").tostring(handler)
    assert(rendered:find("function", 1, true),
       "a pointer to a function reads as one: " .. rendered)
 end

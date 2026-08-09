@@ -67,11 +67,13 @@ return {
          compiler = {
             kind = "modules",
             description = "Build the self-hosted compiler",
-            entries = { "nupp.main" },
+            entries = { "compiler.main" },
             resources = {
-               "src/nupp/decls/*.d.nupp",
-               "src/nupp/decls/jit/*.d.nupp",
-               "src/nupp/std/*.nupp",
+               "src/compiler/decls/*.d.nupp",
+               "src/compiler/decls/jit/*.d.nupp",
+               {source = "src/nupp/std/resources.nupp", output = "compiler/std/resources.nupp"},
+               {source = "src/nupp/std/zone.nupp", output = "compiler/std/zone.nupp"},
+               {source = "src/nupp/std/profile.nupp", output = "compiler/std/profile.nupp"},
             },
          },
          -- Nupp stamped into a feature-matched host as one self-contained
@@ -81,15 +83,17 @@ return {
          dist = {
             kind = "binary",
             description = "Stamp the compiler into a self-contained binary",
-            entries = { "nupp.main" },
+            entries = { "compiler.main" },
             -- Carried, not just installed: a binary is handed to someone who
             -- has no rock tree, and `nupp doc` is one of the commands it
             -- claims to have.
             dependencies = { "lunamark", "scintillua" },
             resources = {
-               "src/nupp/decls/*.d.nupp",
-               "src/nupp/decls/jit/*.d.nupp",
-               "src/nupp/std/*.nupp",
+               "src/compiler/decls/*.d.nupp",
+               "src/compiler/decls/jit/*.d.nupp",
+               {source = "src/nupp/std/resources.nupp", output = "compiler/std/resources.nupp"},
+               {source = "src/nupp/std/zone.nupp", output = "compiler/std/zone.nupp"},
+               {source = "src/nupp/std/profile.nupp", output = "compiler/std/profile.nupp"},
             },
             stub = "nupp",
             output = "build/dist/nupp",
@@ -97,7 +101,7 @@ return {
          docs = {
             kind = "docs",
             dependencies = { "lunamark", "scintillua" },
-            sources = { "src/nupp" },
+            sources = { "src" },
             format = "both",
             outDir = "build/docs",
             title = "Nupp API",

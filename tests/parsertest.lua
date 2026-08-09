@@ -1,5 +1,5 @@
-local parser = require("nupp.parser")
-local cst = require("nupp.cst")
+local parser = require("compiler.parser")
+local cst = require("compiler.cst")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local ROOT = HERE .. "/.."
@@ -32,6 +32,13 @@ local function assertRoundtrip(src)
 end
 
 local M = {}
+
+function M.fileInnerAnnotationsAreRecorded()
+   local result = parser.parse("@!internal\n@!nofmt\nlocal x=1\n")
+   assertEq(#result.errors, 0, "inner annotations parse")
+   assertEq(result.root.documentationInternal, true, "internal marker")
+   assertEq(result.root.formatDisabled, true, "nofmt marker")
+end
 
 function M.ownershipWordsStayContextual()
    local src = table.concat({
@@ -459,7 +466,7 @@ end
 
 function M.selfParseClean()
    for _, rel in ipairs({
-      "src/nupp/lexer.nupp", "src/nupp/cst.nupp", "src/nupp/parser.nupp",
+      "src/compiler/lexer.nupp", "src/compiler/cst.nupp", "src/compiler/parser.nupp",
       "tests/lexertest.lua", "tests/parsertest.lua", "tests/run.lua",
    }) do
       local f = assert(io.open(ROOT .. "/" .. rel))

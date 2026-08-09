@@ -126,8 +126,8 @@ and running the real subsystem rather than only its focused fixtures.
   `.nupp` modules on demand, so multi-file programs run straight from
   source; `nupp build` emits the dependency closure, and built output
   runs on plain LuaJIT with no toolchain present.
-- **P0 Self-hosting.** Compiler sources are `src/nupp/*.nupp` (nothing
-  else); generated artifacts live in the gitignored `build/nupp/`;
+- **P0 Self-hosting.** Compiler sources are `src/compiler/*.nupp` (nothing
+  else); generated artifacts live in the gitignored `build/compiler/`;
   two-stage fixpoint verified (`nupp fixpoint`). A tracked stage-0 bundle
   lets a fresh clone build without an existing build tree.
 - **Syntax decisions.** The whole LuaJIT 3.0 base (per LuaJIT#1475), the
@@ -416,12 +416,12 @@ builds the project from it. Sketch:
        include = { "src" },
        build = {
           outDir = "build",
-          entries = { "src/nupp/main.nupp" },   -- roots of the module graph
+          entries = { "src/compiler/main.nupp" },   -- roots of the module graph
           headers = {                            -- import-c artifacts
              { header = "vendor/miniz.h", out = "src/deps/miniz.d.nupp" },
           },
           bundles = {                            -- single-file amalgamations
-             { out = "dist/nupp.lua", entry = "nupp.main" },
+             { out = "dist/nupp.lua", entry = "compiler.main" },
           },
           native = {                             -- user C sources -> shared lib
              { sources = { "native/fast.c" }, out = "fastlib" },

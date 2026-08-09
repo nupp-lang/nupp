@@ -8,6 +8,11 @@ annotation's values, and its definition restricts where it may be applied.
 Unknown annotations, invalid targets, missing values, and values of the wrong
 type are errors. An annotation never becomes a silently erased comment.
 
+File-level inner annotations use `@!name` instead. `@!nofmt` disables formatting
+for one file; `@!internal` hides one file from public documentation and, when it
+is placed on `init.nupp`, hides the entire module namespace beneath it. They are
+compiler directives rather than user-defined annotation traits.
+
 ## Defining an annotation
 
 Apply the built-in `@annotation` annotation to a record or struct. Its
@@ -276,6 +281,6 @@ current numeric `ipairs` rewrite needs no relaxation because it preserves the
 language's observable behavior under its proof.
 
 Compiler integrations can still add definitions directly through the
-extensible `nupp.annotations` registry. Source declarations are the normal
+extensible `compiler.annotations` registry. Source declarations are the normal
 language-facing mechanism; direct registration remains useful for built-ins
 and compiler extensions.

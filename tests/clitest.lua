@@ -3,10 +3,10 @@
 -- The grammar is tested directly rather than through the binary: every command
 -- is now one declaration parsed by one loop, so the cases that used to be
 -- spread across thirteen hand-written loops are worth stating once, here.
-local spec = require("nupp.cli.spec")
-local sharedOptions = require("nupp.cli.options")
-local ansi = require("nupp.ansi")
-local cli = require("nupp.cli")
+local spec = require("compiler.cli.spec")
+local sharedOptions = require("compiler.cli.options")
+local ansi = require("compiler.ansi")
+local cli = require("compiler.cli")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -184,7 +184,7 @@ end
 
 function M.completionsAreRenderedFromTheRegisteredCommandGrammar()
    local commands = cli.commands()
-   local rendered = require("nupp.cli.completions")
+   local rendered = require("compiler.cli.completions")
    local bash = rendered.render("bash", commands)
    assert(bash:find("completions", 1, true), "completes the command itself")
    assert(bash:find("--strict", 1, true), "completes command options")

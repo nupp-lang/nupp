@@ -1,11 +1,11 @@
 -- Statement annotations are an extensible, checked language surface. The
 -- parser accepts their general shape; the registry decides what exists.
-local parser = require("nupp.parser")
+local parser = require("compiler.parser")
 local check = require("fragment")
-local envMod = require("nupp.env")
-local annotations = require("nupp.annotations")
-local fmt = require("nupp.fmt")
-local gen = require("nupp.gen")
+local envMod = require("compiler.env")
+local annotations = require("compiler.annotations")
+local fmt = require("compiler.fmt")
+local gen = require("compiler.gen")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")

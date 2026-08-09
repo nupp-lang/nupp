@@ -1,0 +1,135 @@
+--[[
+Parse, check, optimize, generate — the sequence `build` and `run` both need.
+
+The compiler's own settings used to be four variables at the top of the command
+line that option parsing assigned to and compilation read back, which worked only
+because one command runs per process. Here they are a value, read out of a parse
+and passed down, so what a compile was asked for is visible at the call rather
+than in whatever the argument loop happened to leave behind.
+]]
+
+local diagnosticMod = require("compiler.diagnostics")
+local fs = require("compiler.fs")
+
+local compile = {}
+
+--- What the compiler was asked for.
+record compile.Settings
+    --- Whether strict checker rules are errors. Nil lets the manifest decide, which is
+    --- not the same as false.
+    strict: boolean?
+
+    --- 0 is the promise that -O0 rewrites nothing. Optimization is opt-in until a
+    --- benchmark says which passes have earned being on by default.
+    optLevel: integer
+
+    --- Report what the optimizer did and what it declined to do.
+    remarks: boolean
+
+    --- Passes turned off by -Zno-opt, keyed by their stable code.
+    disabled: {[string]: boolean}
+
+    --- Observable guarantees the user explicitly allowed optimizations to change.
+    relaxed: {[string]: boolean}
+
+    --- Where diagnostics go when the caller is reporting them itself. Present for
+    --- `--json`, which has to put them in a document rather than let each one say
+    --- itself as it is found. Same favour `compiler.build.project` already does.
+    diagnostics: {any}?
+
+    --- Coverage is a separate generated artifact. It is intentionally absent from
+    --- ordinary settings so normal compilation does not even build a site manifest.
+    coverage: boolean
+end
+
+-- The level arrives as the digit the option captured. The grammar has already refused
+-- anything that is not one of these, so a lookup is both the conversion and the proof
+-- that it was in range.
+local LEVELS: {[string]: integer} = {["0"] = 0, ["1"] = 1, ["2"] = 2}
+
+--- Reads the settings out of a parse. Every command that compiles takes the same
+--- options, so every one of them reads them the same way.
+function compile.settings(values: {[string]: any}, collected: {any}?): compile.Settings
+    return new compile.Settings {
+        strict = values.strict,
+        optLevel = LEVELS[values.optLevel] or 0,
+        remarks = values.remarks and true or false,
+        disabled = values.disabled or {},
+        relaxed = values.relaxed or {},
+        diagnostics = collected,
+        coverage = values.coverage == true or os.getenv("NUPP_COVERAGE") == "1",
+    }
+end
+
+--- Compiles one file to Lua source. Returns the generated code, or nil and a short
+--- reason after having reported the diagnostics that stopped it.
+function compile.module(path: string, env: table, settings: compile.Settings): string?, string?
+    local collected = settings.diagnostics
+    -- Says each diagnostic, or puts it by for the caller to say later, and either way
+    -- answers whether an error was among them.
+    local function say(values: {any}): boolean
+        if not collected then
+            return diagnosticMod.report(values)
+        end
+        local fatal = false
+        for _, diagnostic in ipairs(values) do
+            collected[#collected + 1] = diagnostic
+            if diagnosticMod.isFatal(diagnostic) then
+                fatal = true
+            end
+        end
+
+        return fatal
+    end
+
+    local source, readErr = fs.readFile(path)
+    if not source then
+        if collected then
+            collected[
+                #collected + 1
+            ] = {
+                filename = path,
+                line = 0,
+                col = 0,
+                offset = 0,
+                length = 0,
+                code = "NUPP0001",
+                msg = readErr,
+                help = "check that the path exists and is readable"
+            }
+        else
+            io.stderr:write("nupp: " .. tostring(readErr) .. "\n")
+        end
+        return nil, readErr
+    end
+    local parser = require("compiler.parser")
+    local result = parser.parse(source, path)
+    if #result.errors > 0 then
+        say(result.errors)
+        return nil, "syntax errors"
+    end
+    local check = require("compiler.check")
+    local diags = check.check(result, path, env, {strict = settings.strict})
+    if say(diags) then
+        return nil, "type errors"
+    end
+    local remarks = require(
+        "compiler.optimize"
+    ).run(
+        result,
+        {level = settings.optLevel, filename = path, disabled = settings.disabled, relaxed = settings.relaxed}
+    )
+    if settings.remarks then
+        say(remarks)
+    end
+    local gen = require("compiler.gen")
+    local code, genDiags = gen.generate(result, path, settings.coverage and {path = path} or nil)
+    if #genDiags > 0 then
+        say(genDiags)
+        return nil, "code generation errors"
+    end
+
+    return code
+end
+
+return compile

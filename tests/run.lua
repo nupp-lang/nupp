@@ -104,7 +104,7 @@ end
 
 -- Wall clock, because most of what these tests spend time on is a subprocess,
 -- which no measure of this process's own CPU time would ever see. The FFI is
--- guarded the same way nupp.ansi guards it: a build without it still runs the
+-- guarded the same way compiler.ansi guards it: a build without it still runs the
 -- tests, it just reports coarser times.
 local now
 do
@@ -156,17 +156,17 @@ local function loadSuite(suite)
 
    -- A Nupp suite is an ordinary module after compilation. Keep its runtime
    -- loader installed while its cases run so it may require project modules.
-   local compile = require("nupp.cli.compile")
+   local compile = require("compiler.cli.compile")
    -- The runner is invoked from the project root, just as `nupp test` runs
    -- its configured command. Keep this root normalized for module lookup.
-   local env = require("nupp.env").new(".")
+   local env = require("compiler.env").new(".")
    local settings = compile.settings({})
    local code, compileErr = compile.module(path, env, settings)
    if not code then
       error("cannot compile Nupp test suite " .. path .. ": "
          .. tostring(compileErr), 0)
    end
-   local removeLoader = require("nupp.runtime").install(env, function(modulePath, e)
+   local removeLoader = require("compiler.runtime").install(env, function(modulePath, e)
       return compile.module(modulePath, e, settings)
    end)
    local chunk, loadErr = loadstring(code, "@" .. path)
