@@ -9,6 +9,14 @@
 <link rel="stylesheet" href="./style.css">
 </head>
 <body class="is-busy is-embed">
+<div class="embed-toolbar">
+  <label class="example-picker">
+    <span>Example</span>
+    <!-- Options come from src/examples.js, the same list index.html builds
+         its menu from. -->
+    <select id="example-select" class="select"></select>
+  </label>
+</div>
 <div id="source-editor" class="editor-host"></div>
 <div id="status" class="embed-status">starting…</div>
 <script type="module" src="./app.js"></script>

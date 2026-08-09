@@ -9,7 +9,9 @@ What is not lunamark's is the fenced blocks and `:::` containers. A fence here
 carries more than a language — an optional `[caption]`, `:line-numbers` with an
 optional start — and a `::: code-group` gathers several fences into one tabbed
 widget. Note, info, tip, warning, and danger containers become admonitions whose
-bodies are still rendered by lunamark. Rather than teach a markdown grammar
+bodies are still rendered by lunamark. A `playground` fence is not code to read
+at all: it embeds the editor, so the block checks as the reader types it.
+Rather than teach a markdown grammar
 about any of that, every custom region is lifted out before lunamark sees the
 document and an HTML comment is left in its place; markdown does not touch a
 comment, so the rendered block goes back exactly where it came from afterwards.
@@ -27,6 +29,11 @@ local highlightMod = require("nupp.doc.highlight")
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local headingId = stringsMod.headingId
 local codeHtml = highlightMod.codeHtml
+
+-- Where scripts/docs-serve.mjs mounts editors/playground/dist, and where the home
+-- page's own "Playground" hero action already points. Absolute, so a ```playground
+-- fence renders the same wherever in the route tree the page holding it sits.
+const PLAYGROUND_EMBED = "/playground/embed.html"
 
 local html = {}
 
@@ -106,6 +113,32 @@ local function codeBlockHtml(source, language, links, firstLine)
     ) .. '<code class="language-' .. htmlEscape(
         language
     ) .. '">' .. codeHtml(source, language, links) .. "</code></pre></div>"
+end
+
+-- A ```playground fence: the editor from editors/playground, in an iframe, checking
+-- with the real compiler as the reader types. An empty fence opens on the editor's own
+-- example menu; a fence with a body opens on that program instead, which is what makes
+-- a snippet on a page runnable rather than only readable.
+--
+-- The body travels in the URL fragment rather than a query, so it stays a client-side
+-- detail: no server sees a reader's edits, and the embed page reads it the same way
+-- whether the site is served by scripts/docs-serve.mjs or anything else. Percent
+-- encoding, not base64, because the decoder on the other side is decodeURIComponent and
+-- needs no code at all.
+local function urlFragmentEscape(text: string): string
+    return (text:gsub("[^%w%-%._~]", function(c: string): string
+        return ("%%%02X"):format(c:byte())
+    end))
+end
+
+local function playgroundHtml(source: string, caption: string?): string
+    local trimmed = trim(source)
+    local title = caption or "Nupp playground: an editor that checks as you type"
+    return '<iframe class="nuppdoc-playground" title="' .. htmlEscape(
+        title
+    ) .. '" loading="lazy" src="' .. PLAYGROUND_EMBED .. (
+        trimmed ~= "" and "#source=" .. urlFragmentEscape(trimmed) or ""
+    ) .. '"></iframe>'
 end
 
 local function codeGroupHtml(blocks, links)
@@ -250,13 +283,17 @@ local function extractBlocks(text, links, rendered)
         elseif lines[index]:match("^```") then
             local block, after = readFence(lines, index)
             index = after - 1
-            local markup = codeBlockHtml(block.source, block.language, links, block.firstLine)
-            if block.caption then
-                markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape(
-                    block.caption
-                ) .. '</figcaption>' .. markup .. '</figure>'
+            if block.language == "playground" then
+                placeholder(playgroundHtml(block.source, block.caption))
+            else
+                local markup = codeBlockHtml(block.source, block.language, links, block.firstLine)
+                if block.caption then
+                    markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape(
+                        block.caption
+                    ) .. '</figcaption>' .. markup .. '</figure>'
+                end
+                placeholder(markup)
             end
-            placeholder(markup)
         else
             out[#out + 1] = line
         end

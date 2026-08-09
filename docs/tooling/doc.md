@@ -115,7 +115,7 @@ there is not privacy — its bindings are the interface it describes. Mark one
 ## Markdown pages
 
 A docs target can carry handwritten pages alongside the generated API. Beyond
-ordinary Markdown, four things are available in a fenced block.
+ordinary Markdown, five things are available in a fenced block.
 
 **A caption**, which also becomes a tab label:
 
@@ -161,6 +161,24 @@ Use **normal Markdown** here, including links, lists, and fenced code.
 The supported kinds are `note`, `info`, `tip`, `warning`, and `danger`. Omit
 the title to use the capitalized kind. Containers may nest, and a fenced code
 block containing `:::` does not close its admonition.
+
+**A playground**, which is the editor rather than a picture of one:
+
+````
+```playground
+local type Priority = "low" | "high"
+local p: Priority = "urgent"
+```
+````
+
+The program is checked in the reader's browser, as they type, by the real
+compiler — see [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
+for how that works and what it cannot do. An empty fence opens on the editor's
+own example menu instead of a program; a caption becomes the frame's title.
+
+The block is an `<iframe>` pointing at `/playground/embed.html`, so a site using
+this has to serve the playground's `dist/` at `/playground/`, the way
+`nupp task docs-serve` does. Its height is `--nuppdoc-playground-height`.
 
 **File embeds**, which read a file at build time:
 

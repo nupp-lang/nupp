@@ -37,17 +37,17 @@ const pending = new Map();
 worker.onmessage = (event) => {
   const msg = event.data;
   if (msg.type === "status") {
-    setStatus(msg.message);
+    setStatus(msg.message, false, "⏳");
     return;
   }
   if (msg.type === "ready") {
-    setStatus("ready");
+    setStatus("ready", false, "⏳");
     setBusy(false);
     checkNow();
     return;
   }
   if (msg.type === "boot-error") {
-    setStatus("failed to start: " + msg.message, true);
+    setStatus("failed to start: " + msg.message, true, "❌");
     return;
   }
   const resolver = pending.get(msg.id);
@@ -66,9 +66,17 @@ function request(kind, extra) {
 
 // --- Status line ------------------------------------------------------------
 
-function setStatus(text, isError) {
+// index.html has room to say "2 errors, 1 warning" and a diagnostics list to
+// read it against. The embed has neither: it is a corner pill beside somebody
+// else's page, where the only question worth answering at a glance is whether
+// the program checks. So it gets the glyph, and keeps the words as its title
+// rather than dropping them.
+const isEmbedStatus = statusEl !== null && statusEl.classList.contains("embed-status");
+
+function setStatus(text, isError, glyph) {
   if (!statusEl) return;
-  statusEl.textContent = text;
+  statusEl.textContent = isEmbedStatus && glyph ? glyph : text;
+  if (isEmbedStatus) statusEl.title = text;
   statusEl.classList.toggle("status-error", !!isError);
 }
 function setBusy(busy) {
@@ -104,10 +112,26 @@ const nuppHover = hoverTooltip(async (view, pos) => {
 
 // --- Source editor -----------------------------------------------------------
 
+// A ```playground fence in the docs may inline its own program, which arrives
+// in the fragment as `#source=<percent-encoded>` (see src/nupp/doc/html.nupp).
+// A page that supplies one has chosen what it wants shown, so the example menu
+// steps aside; a fence with no body gets the menu and its first entry.
+function inlinedSource() {
+  const match = /(?:^|&)source=([^&]*)/.exec(location.hash.replace(/^#/, ""));
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null; // a malformed fragment is not worth failing to start over
+  }
+}
+
+const inlined = inlinedSource();
+
 const sourceView = new EditorView({
   parent: el("source-editor"),
   state: EditorState.create({
-    doc: EXAMPLES[0].source,
+    doc: inlined ?? EXAMPLES[0].source,
     extensions: [
       basicSetup,
       nuppEditorTheme,
@@ -239,13 +263,13 @@ let checkGeneration = 0;
 async function checkNow() {
   const generation = ++checkGeneration;
   const source = sourceView.state.doc.toString();
-  setStatus("checking…");
+  setStatus("checking…", false, "⏳");
   const t0 = performance.now();
   const result = await request("check", { source });
   if (generation !== checkGeneration) return; // a newer check superseded this one
   const elapsed = Math.round(performance.now() - t0);
   if (!result.ok) {
-    setStatus("error: " + result.error, true);
+    setStatus("error: " + result.error, true, "❌");
     return;
   }
   applyDiagnostics(result.diagnostics);
@@ -255,7 +279,8 @@ async function checkNow() {
     errors ? `${errors} error${errors === 1 ? "" : "s"}` +
       (warnings ? `, ${warnings} warning${warnings === 1 ? "" : "s"}` : "") :
       warnings ? `${warnings} warning${warnings === 1 ? "" : "s"}` : "checked, clean",
-    errors > 0
+    errors > 0,
+    errors ? "❌" : warnings ? "⚠️" : "✅"
   );
   if (checkTimeEl) checkTimeEl.textContent = `${elapsed} ms`;
 }
@@ -312,7 +337,7 @@ function loadExample(id) {
   sourceView.focus();
 }
 
-if (exampleSelect) {
+if (exampleSelect && inlined === null) {
   for (const example of EXAMPLES) {
     const option = document.createElement("option");
     option.value = example.id;
@@ -321,7 +346,12 @@ if (exampleSelect) {
   }
   exampleSelect.value = EXAMPLES[0].id;
   exampleSelect.addEventListener("change", () => loadExample(exampleSelect.value));
+} else if (exampleSelect) {
+  // An inlined program is the page's own, and a menu that would replace it is
+  // offering to undo what the page came to show. The class takes the strip the
+  // menu sat in with it, rather than leaving an empty bar above the editor.
+  document.body.classList.add("is-bare");
 }
 
 setBusy(true);
-setStatus("starting…");
+setStatus("starting…", false, "⏳");

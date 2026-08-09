@@ -283,15 +283,36 @@ body {
 }
 .footer a { color: var(--pg-accent); }
 
-/* embed.html: just the editor, meant to sit inside an <iframe> — no header,
-   tabs, side panel, or footer. */
+/* embed.html: the editor and the example picker, meant to sit inside an
+   <iframe> — no tabs, side panel, or footer. The picker sits in a strip of its
+   own rather than floating over the editor, which would cover the code it is
+   there to switch, and at the leading edge, where a reader looks first. */
 .is-embed {
   position: relative;
 }
+.embed-toolbar {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 2.1rem;
+  padding: 0 .55rem;
+  border-bottom: 1px solid var(--pg-border);
+  background: var(--pg-background-alt);
+}
+.embed-toolbar .example-picker { font-size: .72rem; }
+.embed-toolbar .select {
+  padding: .18rem 1.4rem .18rem .4rem;
+  font-size: .74rem;
+}
 .is-embed #source-editor {
   position: absolute;
-  inset: 0;
+  inset: 2.1rem 0 0;
 }
+/* Set by app.js when the page inlined its own program, so there is no menu to
+   put in the strip and no reason to keep the strip. */
+.is-embed.is-bare .embed-toolbar { display: none; }
+.is-embed.is-bare #source-editor { inset: 0; }
 .is-embed .editor-host .cm-scroller { font-size: 13px; }
 
 .embed-status {
@@ -299,17 +320,19 @@ body {
   right: .6rem;
   bottom: .6rem;
   z-index: 5;
-  padding: .25rem .55rem;
+  padding: .2rem .45rem;
   color: var(--pg-muted);
   border: 1px solid var(--pg-border);
   border-radius: 999px;
   background: color-mix(in srgb, var(--pg-background) 88%, transparent);
   backdrop-filter: blur(6px);
-  font-family: var(--pg-font-mono);
-  font-size: .7rem;
-  pointer-events: none;
+  font-size: .9rem;
+  line-height: 1;
+  /* The glyph says clean or not; the words it stands for are the title, so the
+     pill has to be hoverable to give them up. */
+  cursor: default;
 }
-.embed-status.status-error { color: var(--pg-error); border-color: var(--pg-error); }
+.embed-status.status-error { border-color: var(--pg-error); }
 
 /* The editor's own colors (background, gutters, selection, syntax) are set
    properly via CodeMirror's theme API in src/cm-theme.js — an

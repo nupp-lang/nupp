@@ -89,13 +89,24 @@ where the sandbox's abilities do.
 and generated-Lua panel behind tabs, an example picker, a Compile button,
 header and footer.
 
-**`embed.html`** is just the editor — no header, tabs, side panel, or
-footer — meant for `<iframe src=".../embed.html">`. It still checks on every
-edit with the same debounce and shows the same inline squiggles and hover
-messages; the only UI is a small status pill in the corner. Both pages share
-`app.js`, which looks up each optional panel element by id and skips
-wiring it up when the page doesn't have one, rather than each page having
-its own script.
+**`embed.html`** is the editor and the example picker — no tabs, side panel,
+or footer — meant for `<iframe src=".../embed.html">`, and what the docs site's
+` ```playground ` fence embeds (see `src/nupp/doc/html.nupp`). It still checks
+on every edit with the same debounce and shows the same inline squiggles and
+hover messages. The rest of the UI is one pill in the corner, which is a glyph
+rather than a sentence: there is no diagnostics list beside it to read a count
+against, so it answers whether the program checks and keeps the words as its
+title.
+
+An embedding page may supply its own program, as `#source=` in the fragment,
+percent-encoded. That page has chosen what it wants shown, so the example menu
+and the strip holding it drop out — the menu would only offer to replace what
+the page came to show. The fragment, rather than a query, keeps a reader's
+edits from reaching any server.
+
+Both pages share `app.js`, which looks up each optional element by id and skips
+wiring it up when the page doesn't have one, rather than each page having its
+own script.
 
 ## Layout
 

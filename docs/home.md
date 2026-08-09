@@ -1,27 +1,15 @@
-## Designed for systems work
+## Try it
 
-Nupp keeps Lua's directness while adding the contracts native programs need:
-nominal types, ownership, deterministic cleanup, checked C interop, and a
-self-hosted toolchain.
+This is the real compiler, running in your browser: `bootstrap/nupp.lua` in a
+Lua VM, not a round-trip to a server. It re-checks on every edit, so breaking a
+program is the quickest way to see what the checker actually says. Pick another
+from the menu, or edit this one.
 
-Every valid LuaJIT program is a valid Nupp program. Annotations turn checking
-on, one declaration at a time.
-
-```nupp
-local struct Vec2
-    x: float
-    y: float
-end
-
-@owned
-local function openSession(): Session
-    return new Session {closed = false}
-end
-
-with session = openSession() do
-    print(session.closed)
-end
+```playground
 ```
+
+[Open the full playground](/playground/) for the diagnostics list and the Lua
+each program compiles to.
 
 ## Start here
 
