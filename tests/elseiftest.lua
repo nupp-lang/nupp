@@ -37,6 +37,17 @@ local function assertQuiet(src, label)
    end
 end
 
+local function applyFix(source, fix)
+   local edits = {}
+   for _, edit in ipairs(fix.edits or {}) do edits[#edits + 1] = edit end
+   table.sort(edits, function(a, b) return a.offset > b.offset end)
+   for _, edit in ipairs(edits) do
+      source = source:sub(1, edit.offset - 1) .. edit.newText
+         .. source:sub(edit.offset + edit.length)
+   end
+   return source
+end
+
 local CHAIN = [[
 if first then
    firstAction()
@@ -56,6 +67,16 @@ function M.flagsAnElseContainingOnlyAnIf()
    assertEq(at.line, 3, "reports at else")
    assertEq(at.severity, "warning", "style lints warn by default")
    assertEq(at.help, "replace else followed by if with elseif", "carries a fix direction")
+end
+
+function M.offersAMachineApplicableFix()
+   local at = assertFlagged(CHAIN)
+   assertEq(#(at.fixes or {}), 1, "one unambiguous rewrite")
+   local fix = at.fixes[1]
+   assertEq(fix.title, "write `elseif`", "names the rewrite")
+   local rewritten = applyFix(CHAIN, fix)
+   assert(rewritten:find("elseif%s+second then"), "joins the condition to elseif")
+   assertQuiet(rewritten, "the rewritten source has no else-if lint")
 end
 
 function M.allowsAdditionalStatementsInTheElse()

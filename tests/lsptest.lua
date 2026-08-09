@@ -2371,6 +2371,38 @@ function M.codeActionCorrectsAMetamethodTypo()
    assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
 end
 
+function M.codeActionRewritesElseIf()
+   local projectDir = tempProject()
+   local source = table.concat({
+      "local function choose(first: boolean, second: boolean): string",
+      "    if first then",
+      "        return \"first\"",
+      "    else -- try the secondary choice",
+      "        if second then",
+      "            return \"second\"",
+      "        else",
+      "            return \"fallback\"",
+      "        end -- nested branch",
+      "    end",
+      "end",
+      "",
+      "return choose",
+   }, "\n")
+   local actions, _, rewritten, diagnostics = codeActionSession(projectDir,
+      "chain.nupp", source, positionOf(source, "else -- try"), "write `elseif`")
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   assert(#actions == 1, "the nested branch has one direct rewrite")
+   assert(actions[1].kind == "quickfix", "the rewrite is a diagnostic quick fix")
+   assert(actions[1].diagnostics[1].code == "NUPP2510",
+      "the action carries the else-if diagnostic")
+   assert(rewritten:find("elseif %-%- try the secondary choice\n%s+second then"),
+      "the condition follows elseif and the comment is kept")
+   assertContains(rewritten, "        -- nested branch\n    end",
+      "the removed nested end leaves its comment behind")
+   assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
+end
+
 -- A declaration that names no visibility is refused (NUPP2119) because plain
 -- Lua would have made it a global. Every way out the message names is a fix,
 -- and none of them is preferred over the others: which one is right is what

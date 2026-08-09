@@ -304,12 +304,24 @@ function control.install(c: state.Checker): state.StatHandlers
         -- `elseif` carries the same scope and control-flow meaning as an `else` whose
         -- only statement is `if`. Pragma-wrapped statements deliberately do not match:
         -- an annotation belongs to a statement, while an `elseif` is a clause.
-        if #elseStats == 1 and elseStats[1].kind == "ifStmt" then
+        local nested = #elseStats == 1 and elseStats[1].kind == "ifStmt" and elseStats[1] or nil
+        local elseTok = otherwise and cst.firstToken(otherwise) or nil
+        local nestedIf = nested and cst.firstToken(nested) or nil
+        local nestedEnd = nested and cst.lastToken(nested) or nil
+        local fixes = nested and elseTok and nestedIf and nestedEnd and {
+            c.edits.fix(
+                "write `elseif`",
+                c.edits.replaceToken(elseTok, "elseif"),
+                c.edits.replaceToken(nestedIf, ""),
+                c.edits.replaceToken(nestedEnd, "")
+            ),
+        } or nil
+        if nested then
             c.diag(
                 "else-if",
                 otherwise,
                 "this else contains only an if; write elseif instead",
-                nil,
+                fixes,
                 {help = "replace else followed by if with elseif"}
             )
         end
