@@ -97,6 +97,13 @@ do
         if n < 0 then return string.format("%0" .. (-n) .. "X", a):sub(1, -n) end
         return string.format("%0" .. n .. "x", a):sub(-n)
     end
+    -- A global as well as a module, because LuaJIT registers it as one at
+    -- startup and compiler.build.hash reads it that way on purpose (see the note
+    -- above its own `local band, bxor = bit.band, bit.bxor`): requiring it into a
+    -- local of the same name would shadow the declaration that types it. A shim
+    -- that only answers `require` leaves that file indexing a nil global, which
+    -- is a boot failure rather than a missing feature.
+    bit = bitlib
     package.preload["bit"] = function() return bitlib end
 end
 
@@ -236,10 +243,57 @@ do
                 "affects code that declares or imports real C types.", 0)
         end
     end
+    -- `ffi.cast` is the one member with a real implementation here, for the four
+    -- shapes compiler.build.hash's XXH64 asks for and nothing else. Reading
+    -- little-endian words out of a Lua string is not C-ABI work -- no layout, no
+    -- alignment, no offset the platform decides -- so unlike struct introspection
+    -- it is something this VM can answer exactly, and Lua 5.3's own 64-bit
+    -- integers wrap the way LuaJIT's uint64 does. Every other spelling still
+    -- fails loudly, which is what keeps a real `record`-with-C-types or an
+    -- `import-c` honest.
+    -- Eight bytes are read as two four-byte halves and put back together, not
+    -- as one "<I8": Lua 5.3's unpack raises on an unsigned 64-bit value past the
+    -- signed range rather than wrapping, and half of every hash word is past it.
+    -- Shifting the halves together gives the same 64 bits, which is all the
+    -- arithmetic downstream is: bitwise, and multiplication that wraps.
+    local VIEWS = {
+        ["const uint64_t *"] = {width = 8, format = "<I4", halves = true},
+        ["const uint32_t *"] = {width = 4, format = "<I4"},
+        ["const uint8_t *"] = {width = 1, format = "<I1"},
+    }
+    local function cast(spec, value)
+        if spec == "uint64_t" then
+            return math.tointeger(value) or math.floor(value)
+        end
+        local view = VIEWS[spec]
+        if not view then return unsupported("cast")() end
+        -- Zero-based, the way indexing a C pointer is. Out of range answers 0
+        -- rather than raising: the hash never reads past its input, and a
+        -- reinterpreting view is the wrong place to discover that it did.
+        return setmetatable({}, {__index = function(_, index)
+            local at = index * view.width + 1
+            if at < 1 or at + view.width - 1 > #value then return 0 end
+            if view.halves then
+                local low = string.unpack("<I4", value, at)
+                local high = string.unpack("<I4", value, at + 4)
+                return (high << 32) | low
+            end
+            return (string.unpack(view.format, value, at))
+        end})
+    end
+
     local ffilib = setmetatable({
         os = "Browser",
         arch = "wasm",
         istype = function() return false end,
+        cast = cast,
     }, {__index = function(_, key) return unsupported(key) end})
+    -- Global too, for the same reason as `bit` above. This one matters less --
+    -- reaching it at all is the error -- but a nil global reports "attempt to
+    -- index a nil value" where the stub reports what is actually wrong.
+    -- Global too, for the same reason as `bit` above. This one matters less --
+    -- reaching it at all is the error -- but a nil global reports "attempt to
+    -- index a nil value" where the stub reports what is actually wrong.
+    ffi = ffilib
     package.preload["ffi"] = function() return ffilib end
 end

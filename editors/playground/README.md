@@ -25,11 +25,11 @@ the implementations and the exact reasoning at each one, and
  ───────────────────  ──────────────────────────────────────  ─────────────────────────────
  `const NAME = value` compiler.build.hash's own top-level locals   rewritten to `local`, at build time
  `0x..ULL` literals    compiler.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
- `bit.*`               compiler.cdecl (C-declaration decoding)     real bitwise ops, Lua 5.3 native
+ `bit.*`               compiler.build.hash, compiler.cdecl         real bitwise ops, Lua 5.3 native
  `loadstring`          compiler.optimize's constant folder         Lua 5.3's `load`, same for a chunk
  `string.buffer`       compiler.build.store (project-index cache)  a plain string-accumulator
  `cjson`               build cache, `--json`-shaped output     a small JSON codec
- `ffi`                 compiler.cdecl, compiler.check.ffi              stub — see below
+ `ffi`                 compiler.cdecl, compiler.check.ffi              stub, except `cast` — see below
  disk I/O              manifest/config lookup, project cache   `io.open`/`io.popen` return "not found"
 
 The first two rows are fixed at *build* time, by
@@ -63,7 +63,16 @@ trying to resolve `fs`/`os`/`child_process` for real.
 
 ## What doesn't work: real C structs
 
-`ffi` is the one stand-in that can't be a working implementation, because it
+`ffi.cast` is the exception, and only for what `compiler.build.hash` asks of
+it: a read-only `const uint8_t *`, `uint32_t *` or `uint64_t *` view over a Lua
+string, and the numeric `uint64_t` conversion beside them. Reading
+little-endian words out of a string is not C-ABI work — there is no layout, no
+alignment, and no offset the platform gets to decide — so it is one of the few
+things this VM can answer exactly rather than guess at, and Lua 5.3's own
+64-bit integers wrap where LuaJIT's `uint64` does. Everything else on `ffi`
+still fails loudly.
+
+That aside, `ffi` is the one stand-in that can't be a working implementation, because it
 would need to be one: real struct/cdata layout (size, alignment, offsets)
 depends on an actual C ABI, which requires a C compiler and a live process —
 neither exists in a browser sandbox. Per the project's README, Nupp leans on

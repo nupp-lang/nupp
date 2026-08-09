@@ -83,6 +83,18 @@ worker.onmessage = (event) => {
   }
   if (msg.type === "boot-error") {
     setStatus("failed to start: " + msg.message, true);
+    // The drawer as well as the status line: the embed has no status line, and
+    // a compiler that never started is otherwise a page that silently does
+    // nothing. Busy is cleared with it, so the drawer can be opened to read
+    // this and Open still works — a dead compiler is not a dead page.
+    setBusy(false);
+    setOutput("-- the compiler failed to start\n\n" + msg.message);
+    if (outputMain) outputMain.classList.remove("is-code");
+    if (outputSummary) {
+      outputSummary.textContent = "failed to start";
+      outputSummary.classList.add("is-error");
+    }
+    setOutputExpanded(true);
     return;
   }
   const resolver = pending.get(msg.id);
