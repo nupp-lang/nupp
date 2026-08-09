@@ -203,7 +203,10 @@ provides. It is required there, and equally an error on a member that replaces
 nothing — which catches both the misspelling that silently defines a new method
 instead of overriding, and the interface that later adds a default which would
 otherwise silently shadow an implementor's method. See
-[interfaces](type-system/interfaces.md#default-implementations).
+[overloads and overrides](type-system/overloads.md#default-implementations-and-override)
+for per-entry replacement, and
+[interfaces](type-system/interfaces.md#default-implementations) for interface
+default behavior generally.
 
 ## Effect contracts
 

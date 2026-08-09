@@ -4,6 +4,10 @@
 erased at run time, and useful both for composing capabilities and for declaring
 overloaded call contracts.
 
+For the complete guide to callable overloads, repeated method bodies,
+interface defaults, `@override`, and constructors, see
+[Overloads and overrides](overloads.md).
+
 `&` binds more tightly than `|`:
 
 ```nupp
@@ -109,6 +113,10 @@ of its alternatives. Selection never adds runtime dispatch. APIs such as
 pack-native rather than being recast as finite overload sets.
 
 ## Overloaded methods
+
+The examples below summarize the mechanism. The dedicated
+[overload guide](overloads.md#separate-method-bodies) covers interface
+contracts, per-entry overrides, generics, dynamic facades, and diagnostics.
 
 Repeated method names form an overload set without an annotation:
 

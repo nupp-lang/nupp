@@ -180,7 +180,10 @@ later adds a default which silently shadows an implementor's method.
 For an overloaded default, replacement is matched by parameter pack rather
 than source name alone. Each repeated method body is a separate entry, so a
 record may `@override` one signature and continue inheriting the others. No
-`@overload` annotation is needed: repeated names form the overload set.
+`@overload` annotation is needed: repeated names form the overload set. See
+[Overloads and overrides](overloads.md#default-implementations-and-override)
+for complete examples, including bodyless contracts and defaults contributed
+by separate interfaces.
 
 **Two interfaces providing the same name is refused.** They are two
 implementations and no reason to prefer either, so the declaration writes the

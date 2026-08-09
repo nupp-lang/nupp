@@ -224,6 +224,16 @@ return {
                   source = "docs/type-system/unions.md",
                },
                {
+                  path = "type-system/intersections",
+                  title = "Intersections",
+                  source = "docs/type-system/intersections.md",
+               },
+               {
+                  path = "type-system/overloads",
+                  title = "Overloads and overrides",
+                  source = "docs/type-system/overloads.md",
+               },
+               {
                   path = "type-system/generics",
                   title = "Generics",
                   source = "docs/type-system/generics.md",

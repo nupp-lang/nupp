@@ -237,6 +237,10 @@ inherited. A bodyless interface may declare the operation as a
 callable-intersection field; matching record bodies use the same slots without
 `@override`, because no inherited body is being replaced.
 
+See [Overloads and overrides](type-system/overloads.md) for worked examples of
+method bodies, interface contracts, per-entry defaults, generics, constructors,
+ambiguity, and dynamic facades.
+
 ```nupp
 local type Named = {readonly name: string}
 local type Counted = {readonly count: integer}
