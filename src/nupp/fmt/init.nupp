@@ -90,6 +90,7 @@ local function firstToken(n)
             return t
         end
     end
+
     return nil
 end
 
@@ -103,6 +104,7 @@ local function lastToken(n)
             return t
         end
     end
+
     return nil
 end
 
@@ -125,6 +127,7 @@ local function groupBounds(n)
             end
         end
     end
+
     return nil
 end
 
@@ -137,6 +140,7 @@ local function hasNewlineBefore(tok)
             return true
         end
     end
+
     return false
 end
 
@@ -197,6 +201,25 @@ local function breakIfArms(n)
     end
 end
 
+-- A function's final result reads as the conclusion of a substantial body. Remember its
+-- first body token so the rendered line count can decide whether to set it apart.
+local function markFinalFunctionReturn(n)
+    local body = n.body
+    if not body or body.kind ~= "block" then
+        return
+    end
+    local stats = body.stats
+    local final = stats[#stats]
+    if not final or final.kind ~= "returnStmt" then
+        return
+    end
+    local first, returnTok = firstToken(stats[1]), firstToken(final)
+    if first and returnTok then
+        returnTok.finalFunctionReturn = true
+        returnTok.functionBodyFirstTok = first
+    end
+end
+
 -- Walks the tree assigning block depth, bracket-group membership, spacing hints, and
 -- statement spans.
 local function annotate(root)
@@ -225,6 +248,8 @@ local function annotate(root)
             end
         elseif kind == "ifStmt" then
             breakIfArms(n)
+        elseif kind == "funcbody" then
+            markFinalFunctionReturn(n)
         end
 
         local openIdx, closeIdx
@@ -387,6 +412,7 @@ local function sep(prev, tok)
         end
         return prev.kind == "name" and "" or " "
     end
+
     return " "
 end
 
@@ -420,6 +446,7 @@ local function wrapWords(text, firstWidth, restWidth)
     if #lines == 0 then
         lines[1] = ""
     end
+
     return lines
 end
 
@@ -460,6 +487,7 @@ local function parseDoc(rawLines)
     while blocks[#blocks] and blocks[#blocks].kind == "blank" do
         table.remove(blocks)
     end
+
     return blocks
 end
 
@@ -497,6 +525,7 @@ local function renderComment(rawLines, indentStr, marker)
     if #out == 0 then
         out[1] = prefix
     end
+
     return out
 end
 
@@ -560,6 +589,7 @@ local function collectItems(tokens)
             push({kind = "token", token = tok})
         end
     end
+
     return items
 end
 
@@ -587,6 +617,7 @@ local function buildLines(items)
         end
         cur.items[#cur.items + 1] = item
     end
+
     return lines
 end
 
@@ -596,6 +627,7 @@ local function lineFirstToken(line)
             return item.token
         end
     end
+
     return nil
 end
 
@@ -618,6 +650,7 @@ local function renderItems(items)
             prevTok = nil
         end
     end
+
     return table.concat(parts)
 end
 
@@ -699,6 +732,7 @@ local function indexOfToken(items, tok)
             return idx
         end
     end
+
     return nil
 end
 
@@ -784,6 +818,7 @@ local function splitLine(line)
     if #out > 1 then
         return out
     end
+
     return nil
 end
 
@@ -814,6 +849,17 @@ local function breakLines(lines)
         end
     end
     computeIndents(lines)
+    for _, line in ipairs(lines) do
+        local tok = lineFirstToken(line)
+        local first = tok and tok.functionBodyFirstTok
+        if tok
+            and tok.finalFunctionReturn and first
+            and tok.lineIdx - first.lineIdx >= 4
+        then
+            line.blankBefore = true
+        end
+    end
+
     return lines
 end
 
@@ -875,6 +921,7 @@ local function render(lines)
     if #text > 0 then
         text = text .. "\n"
     end
+
     return text
 end
 
@@ -889,6 +936,7 @@ local function fingerprintTokens(tokens, omitMarked)
             parts[#parts + 1] = tok.kind .. "\1" .. tok.text
         end
     end
+
     return table.concat(parts, "\2")
 end
 
@@ -956,6 +1004,7 @@ local function canonicalizeSingleValueAnnotations(result, opts)
                 return false
             end
         end
+
         return true
     end
     for _, application in ipairs(applications) do
@@ -1061,6 +1110,7 @@ function fmt.format(source, filename, opts)
             filename = filename, line = 1, col = 1, offset = 1, length = 1,
         }}
     end
+
     return text, {}
 end
 

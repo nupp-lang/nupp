@@ -96,11 +96,10 @@ type lexer.Token = {
     --- property/indexer modifier: "read" or "write".
     propertyCapability: string?,
 
-    --- The last token of the type a `new` builds. A construction's brace stands off
-    --- its type — `new R {x = 1}` — where the `f{...}` call sugar it otherwise looks
-    --- like hugs its callee.
+    --- The last token of the type a `new` builds. A construction's brace stands off its
+    --- type — `new R {x = 1}` — where the `f{...}` call sugar it otherwise looks like
+    --- hugs its callee.
     constructTarget: boolean?,
-
 
     --- Where the name this token spells was declared, attached by the checker so the
     --- editor can jump to it. Its shape belongs to the checker, not the lexer.
@@ -142,6 +141,11 @@ type lexer.Token = {
     blankBefore: boolean?,
 
     blankAfter: boolean?,
+
+    --- The final top-level return in a function body, and that body's first token.
+    finalFunctionReturn: boolean?,
+
+    functionBodyFirstTok: any,
 
     --- Which output line it landed on.
     lineIdx: integer?,
@@ -251,6 +255,7 @@ local function scanLongBracket(src: string, pos: integer): integer?, boolean
     if not s then
         return #src + 1, false
     end
+
     return s + #close, true
 end
 
@@ -331,6 +336,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 offset = start, line = l, col = c}
             trackNewlines(text, start)
         end
+
         return trivia
     end
 
@@ -350,6 +356,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 p = p + 1
             end
         end
+
         return len + 1, false
     end
 
@@ -389,6 +396,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             interp[#interp] = nil
         end
         addError(start, l, c, "unterminated interpolated string")
+
         return "error"
     end
 
@@ -411,12 +419,14 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 digits = digits + 1
                 at = skipUnderscores(at + 1)
             end
+
             return at, digits
         end
 
         local marker = byte(source, p) == 48 and skipUnderscores(p + 1) or p + 1
         if byte(source, p) == 48
-            and (byte(source, marker) == 120 or byte(source, marker) == 88) then
+            and (byte(source, marker) == 120 or byte(source, marker) == 88)
+        then
             -- hex: 0x hexdigits [. hexdigits] [pP [+-] digits]
             p = skipUnderscores(marker + 1)
             local digits, more
@@ -477,6 +487,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
                 end
                 at = skipUnderscores(at + 1)
             end
+
             return at
         end
         p = suffix("ull") or suffix("ll") or suffix("i") or p
@@ -485,6 +496,7 @@ function lexer.lex(source: string, filename: string?): {lexer.Token}, {lexer.Lex
             repeat p = p + 1 until not isNameChar(byte(source, p))
             wellformed = false
         end
+
         return p, wellformed
     end
 
@@ -594,6 +606,7 @@ function lexer.textOf(tokens: {lexer.Token}): string
         end
         parts[#parts + 1] = tok.text
     end
+
     return table.concat(parts)
 end
 

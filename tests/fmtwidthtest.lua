@@ -131,6 +131,39 @@ function M.carriedIfConditionsStartWithAnd()
       "end"))
 end
 
+function M.finalReturnsInLongFunctionsAreSeparated()
+   check(lines(
+      "local function total()",
+      "local first = 1",
+      "local second = 2",
+      "local third = 3",
+      "local fourth = 4",
+      "return first + second + third + fourth",
+      "end"), lines(
+      "local function total()",
+      "    local first = 1",
+      "    local second = 2",
+      "    local third = 3",
+      "    local fourth = 4",
+      "",
+      "    return first + second + third + fourth",
+      "end"))
+
+   check(lines(
+      "local function total()",
+      "local first = 1",
+      "local second = 2",
+      "local third = 3",
+      "return first + second + third",
+      "end"), lines(
+      "local function total()",
+      "    local first = 1",
+      "    local second = 2",
+      "    local third = 3",
+      "    return first + second + third",
+      "end"))
+end
+
 function M.unbreakableLineIsLeftLong()
    -- a single enormous string literal has nothing to break on
    local src = "local s = '" .. ("x"):rep(140) .. "'\n"
