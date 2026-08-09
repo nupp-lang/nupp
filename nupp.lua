@@ -247,8 +247,8 @@ end
                      },
                      {
                         title = "Carry the whole workflow in one toolchain",
-                        details = "Check, format, build, test, profile, document, explain errors, "
-                           .. "and power an editor from the same language-aware compiler. No "
+                        details = "Check, format, build, test, profile, generate documentation, "
+                           .. "explain errors, and power an editor from the same language-aware compiler. No "
                            .. "glue scripts required.",
                         code = [[nupp check          # type-check the project
 nupp fmt            # apply Nupp's fixed style
