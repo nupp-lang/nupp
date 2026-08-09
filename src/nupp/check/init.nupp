@@ -369,7 +369,7 @@ function checkMod.check(
                 return
             end
         end
-        if c.hoisting or isAllowed(lint, code) then
+        if c.hoisting or isAllowed(lint, lint and lint.code or code) then
             return
         end
         local at = cst.firstToken(nodeOrTok)

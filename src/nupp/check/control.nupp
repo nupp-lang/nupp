@@ -298,6 +298,21 @@ function control.install(c: state.Checker): state.StatHandlers
     end
 
     handlers.ifStmt = function(stat: cst.IfStmt)
+        local otherwise = stat.elseClause
+        local elseBody = otherwise and otherwise.kind == "elseClause" and otherwise.body or nil
+        local elseStats = elseBody and elseBody.kind == "block" and elseBody.stats or {}
+        -- `elseif` carries the same scope and control-flow meaning as an `else` whose
+        -- only statement is `if`. Pragma-wrapped statements deliberately do not match:
+        -- an annotation belongs to a statement, while an `elseif` is a clause.
+        if #elseStats == 1 and elseStats[1].kind == "ifStmt" then
+            c.diag(
+                "else-if",
+                otherwise,
+                "this else contains only an if; write elseif instead",
+                nil,
+                {help = "replace else followed by if with elseif"}
+            )
+        end
         local accumulatedElse = {}
         local firstFacts = nil
         -- Exhaustiveness: a chain that dispatches on a closed set of literals and
@@ -385,9 +400,7 @@ function control.install(c: state.Checker): state.StatHandlers
                 )
             end
         end
-        local otherwise = stat.elseClause
         if otherwise then
-            local elseBody = otherwise.kind == "elseClause" and otherwise.body or nil
             c.pushScope()
             applyFacts(accumulatedElse)
             c.checkBlock(elseBody, true)

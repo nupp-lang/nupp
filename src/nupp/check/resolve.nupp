@@ -502,16 +502,14 @@ function resolve.install(c: state.Checker): nil
                             else
                                 entry.write = ft
                             end
+                        elseif entry.read or entry.write then
+                            c.diag(
+                                "NUPP2118",
+                                fieldName,
+                                ("ordinary property %q already has a capability"):format(name)
+                            )
                         else
-                            if entry.read or entry.write then
-                                c.diag(
-                                    "NUPP2118",
-                                    fieldName,
-                                    ("ordinary property %q already has a capability"):format(name)
-                                )
-                            else
-                                entry.read, entry.write = ft, ft
-                            end
+                            entry.read, entry.write = ft, ft
                         end
                     end
                 elseif f.kind == "tmap" then

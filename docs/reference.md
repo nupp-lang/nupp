@@ -924,6 +924,7 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | `unused-binding` | NUPP2507 | suspicious | warning |
 | `discarded-result` | NUPP2508 | suspicious | warning |
 | `reifiable-record` | NUPP2509 | performance | off |
+| `else-if` | NUPP2510 | style | warning |
 
 ### Diagnostic codes with a worked example
 

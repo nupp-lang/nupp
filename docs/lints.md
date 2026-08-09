@@ -52,6 +52,7 @@ Every lint has a name and a stable code:
  unused-binding           NUPP2507   suspicious    warning
  discarded-result         NUPP2508   suspicious    warning
  reifiable-record         NUPP2509   performance   off
+ else-if                  NUPP2510   style         warning
 ```
 
 The name is what you write in configuration and suppressions; the code is what
@@ -181,6 +182,29 @@ src/customary-operator.nupp:2:17: warning: NUPP2504 customary-operator: ! is the
  2 | local pending = !ready
    |                 ^
 help: write not
+```
+:::
+
+### `else-if`
+
+An `else` whose only statement is `if` is the long form of `elseif`.
+
+::: code-group
+```nupp [src/else-if.nupp]
+if primary then
+    usePrimary()
+else
+    if fallback then
+        useFallback()
+    end
+end
+```
+
+```text [nupp check output]
+src/else-if.nupp:3:1: warning: NUPP2510 else-if: this else contains only an if; write elseif instead
+ 3 | else
+   | ^~~~
+help: replace else followed by if with elseif
 ```
 :::
 

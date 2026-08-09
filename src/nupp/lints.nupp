@@ -110,6 +110,13 @@ lints.all = {
         level = "off",
         summary = "a record whose fields would all live in C memory",
     },
+    new lints.Lint {
+        name = "else-if",
+        code = "NUPP2510",
+        category = "style",
+        level = "warning",
+        summary = "an else containing only an if",
+    },
 }
 
 -- Both spellings reach the same lint: a name is what a person writes, a code is what

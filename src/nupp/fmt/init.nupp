@@ -508,12 +508,10 @@ local function parseDoc(rawLines)
             blocks[#blocks + 1] = {kind = "verbatim", text = body}
         elseif body:match("^%s*$") then
             blocks[#blocks + 1] = {kind = "blank"}
+        elseif body:match("^@[%w_]+%s") then
+            blocks[#blocks + 1] = {kind = "annot", text = body}
         else
-            if body:match("^@[%w_]+%s") then
-                blocks[#blocks + 1] = {kind = "annot", text = body}
-            else
-                blocks[#blocks + 1] = {kind = "text", text = body}
-            end
+            blocks[#blocks + 1] = {kind = "text", text = body}
         end
     end
     -- drop leading and trailing blanks

@@ -29,6 +29,14 @@ local M = {}
 
 function M.realWorldLuaStaysClean()
    local env = envMod.new(HERE .. "/..")
+   -- The corpus is an oracle for accepted Lua, not a style guide for projects
+   -- outside this one. Its `else`/`if` chains are legal and intentionally left
+   -- as-written, even though this project's default style warns about them.
+   local lintConfig = {
+      ['else-if'] = 'off',
+      ['unused-binding'] = 'off',
+      ['discarded-result'] = 'off',
+   }
    local checked = 0
    for _, path in ipairs(CORPUS) do
       local src = read(path)
@@ -42,7 +50,7 @@ function M.realWorldLuaStaysClean()
          end
          assert(cst.textOf(result.root) == src,
             path .. ": lossless round-trip broken")
-         local diags = check.check(result, path, env)
+         local diags = check.check(result, path, env, {lints = lintConfig})
          if #diags > 0 then
             local d = diags[1]
             error(("%s: %d diagnostics, first at line %d: %s %s")
