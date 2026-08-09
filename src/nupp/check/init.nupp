@@ -1152,7 +1152,7 @@ function checkMod.check(result: state.Parse, filename: string?,
         end
     end
 
-    local facts = analysis.run(result, c)
+    local facts = analysis.run(result as nupp.analysis.Target, c)
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()

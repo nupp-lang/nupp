@@ -35,6 +35,12 @@ local htmlEscape = stringsMod.htmlEscape
 local join, dirname, exists = filesMod.join, filesMod.dirname, filesMod.exists
 
 local highlight = {}
+
+--- What the generator was configured with, of the parts that decide highlighting:
+--- where the bundled Scintillua lexers were unpacked to.
+type highlight.Settings = {
+    lexers: string?,
+}
 local TYPE_NAMES = {
     any = true, boolean = true, cdata = true, integer = true, never = true,
     metatable = true, number = true, string = true, table = true, thread = true,
@@ -275,7 +281,8 @@ local function installedLexers()
     return nil
 end
 
-local function configureScintillua(root, settings)
+local function configureScintillua(root: string?,
+    settings: highlight.Settings?): nil
     -- `lexer.lua` itself always loads from the installed rock, found the way `require`
     -- would find it, or from the bundle when there is no rock; a project's
     -- `settings.lexers` only extends the path a loaded lexer searches for another,
@@ -294,8 +301,9 @@ local function configureScintillua(root, settings)
     end
     local base = installed or BUNDLED_DIRECTORY
     local searchPath = base
-    if settings.lexers then
-        local custom = join(root, settings.lexers)
+    local lexerDir = settings and settings.lexers
+    if lexerDir then
+        local custom = join(root, lexerDir)
         if exists(custom) then
             searchPath = custom .. ";" .. base
         end
@@ -430,7 +438,8 @@ local function highlightScintilluaLines(source, language)
     return out.lines
 end
 
-local function codeLines(source, language, links)
+local function codeLines(source: string, language: string?,
+    links: nupp.doc.urls.Links?): {string}
     if language == "nupp" then
         return highlightNuppLines(source, links)
     end
@@ -446,7 +455,8 @@ local function codeLines(source, language, links)
     return out.lines
 end
 
-local function codeHtml(source, language, links)
+local function codeHtml(source: string, language: string?,
+    links: nupp.doc.urls.Links?): string
     return table.concat(codeLines(source, language, links), "\n")
 end
 

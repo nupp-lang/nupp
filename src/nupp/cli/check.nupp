@@ -73,8 +73,8 @@ local function run(parsed: any): integer
                 end
                 failed = true
             else
-                local diags = check.check(result, path, env,
-                    {strict = values.strict})
+                local diags = check.check(result, path,
+                    env as {[string]: any}, {strict = values.strict})
                 if asJson then
                     for _, diagnostic in ipairs(diags) do
                         diagnostics[#diagnostics + 1] = diagnostic

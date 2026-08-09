@@ -90,7 +90,19 @@ end
 --- Reads the coverage build state and turns the sites it contains into files with hit
 --- counts. The state is the source of the denominator; the shard only adds execution,
 --- so an unloaded source module remains visibly uncovered.
-function coverage.collect(statePath, shardPath)
+--- The report one run produced: every file it saw, and whatever the runner could not
+--- account for. `version` is the shard format, not the report's.
+type coverage.Model = {
+    version: integer,
+    files: {any},
+    warnings: {string},
+
+    --- Filled in by `write`, which is the only thing that totals the files.
+    summary: {[string]: any}?,
+}
+
+function coverage.collect(statePath: string,
+    shardPath: string): coverage.Model
     local state = cache.loadState(statePath)
     local shard, shardErr = readShard(shardPath)
     local hits = shard and shard.hits or {}
@@ -415,7 +427,8 @@ local function lcov(model)
 end
 
 --- Writes all report formats and returns the root roll-up for terminal/JSON callers.
-function coverage.write(model, outDir)
+function coverage.write(model: coverage.Model,
+    outDir: string): {[string]: any}
     highlight.configureScintillua(".", {})
     local summary = aggregate(model.files, "")
     model.summary = summary
