@@ -529,10 +529,10 @@ function page.render(
         settings,
         siteTitle,
         prefix
-    )
+        )
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
-        .. 'index.html">Overview</a><a href="'
+        .. 'getting-started/installation/index.html">Overview</a><a href="'
         .. prefix
         .. 'index.html#modules">API</a></div><div class="nuppdoc-actions">'
         .. table.concat(
