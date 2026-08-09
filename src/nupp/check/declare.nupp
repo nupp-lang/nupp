@@ -89,8 +89,23 @@ function declare.install(c: any, reifiableField: any, fix: any,
         if fields == 0 then
             return
         end
+        -- The keyword itself, so the suggestion can be applied rather than only
+        -- read. It precedes the declaration's name, and the scan stops there: an
+        -- entry may be a field called `record`, and `record` is contextual.
+        local keyword = nil
+        for _, child in ipairs(stat) do
+            if child == stat.name then
+                break
+            end
+            if cst.isToken(child) and child.text == "record" then
+                keyword = child
+                break
+            end
+        end
+        local fixes = keyword and {c.edits.fix("change `record` to `struct`",
+            c.edits.replaceToken(keyword, "struct"))} or nil
         c.diag("NUPP2509", stat.name,
-            ("record %s declares only fields that reify"):format(n.name), nil,
+            ("record %s declares only fields that reify"):format(n.name), fixes,
             {help = "declaring it `struct` puts its instances in C memory, off the "
             .. "collector's graph, at the cost of a fixed layout: no fields added "
             .. "after construction",

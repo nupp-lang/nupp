@@ -284,4 +284,47 @@ end
    assertEq(#found, 0, "an @allow silences it")
 end
 
+function test.theSuggestionCanBeApplied()
+   -- A suggestion nobody can act on is a suggestion nobody acts on. The edit is
+   -- the one token that matters, and applying it has to produce a program that
+   -- compiles -- which is what assertSuggested already proves separately.
+   local d = assertSuggested([[
+local record Vec2
+    x: float
+    y: float
+end
+]])
+   assertEq(d.fixes ~= nil and #d.fixes == 1, true, "exactly one fix is offered")
+   local fix = d.fixes[1]
+   assertEq(fix.title, "change `record` to `struct`", "and it says what it does")
+   assertEq(#fix.edits, 1, "one edit")
+   assertEq(fix.edits[1].newText, "struct", "replacing the keyword")
+   assertEq(fix.edits[1].length, #"record", "and only the keyword")
+end
+
+function test.theEditLandsOnTheKeywordNotAField()
+   -- `record` is contextual, so a field may be called one. The scan stops at the
+   -- declaration name, which the keyword always precedes.
+   local d = assertSuggested([[
+local record Holder
+    record: int32
+    n: int32
+end
+]])
+   local edit = d.fixes[1].edits[1]
+   local src = [[
+local record Holder
+    record: int32
+    n: int32
+end
+]]
+   -- Offsets are 1-based, as everywhere else in the toolchain.
+   local applied = src:sub(1, edit.offset - 1) .. edit.newText
+      .. src:sub(edit.offset + edit.length)
+   assert(applied:find("^local struct Holder"),
+      "the keyword was replaced, not the field:\n" .. applied)
+   assert(applied:find("record: int32", 1, true),
+      "the field called record survives:\n" .. applied)
+end
+
 return test

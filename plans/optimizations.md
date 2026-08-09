@@ -134,23 +134,32 @@ Each entry is tagged with where its win lands:
   both allocate **zero bytes** already and `-jdump` shows no `TNEW` in
   the trace at all. What reuse adds is the `table.clear` call, which is
   why the table row is twice as slow.
-- `core` **Table promotion.** A local table with a statically known,
-  fixed field set becomes cdata, removing it from the GC graph.
+- ~~**Table promotion.**~~ Struck. The compiler will not decide that a
+  table should be cdata.
 
-  This entry used to say "that provably does not escape", and that was
-  backwards. The non-escaping case is the one LuaJIT already handles for
-  free, as above. The case that costs real memory is the table that
-  **does** escape — kept in an array, returned, stored on another object
-  — where sinking cannot help and every one is an object the collector
-  walks. `bench/scratch-reuse.lua` measures that control at 43 MB against
-  zero, and it is the same shape as the 6–9x reification already delivers
-  on `bench/aos.nupp`, which is 200,000 particles held in an array and
-  therefore escaping about as hard as a value can.
+  Two findings killed it. Its stated precondition was backwards — "a local
+  that provably does not escape" is the case LuaJIT already handles for
+  free, sinking it to zero bytes (`bench/scratch-reuse.lua`), so an
+  optimization gated on proving it aims at what costs nothing. And the
+  case that *does* cost — a table kept in an array, measured at 43 MB
+  against zero — is not distinguishable statically from one that must stay
+  a table. Whether promotion pays depends on how many are built and where;
+  whether it is *legal* depends on whether anything iterates it,
+  serializes it, or hands it to untyped Lua. No declaration states either.
 
-  So the analysis this wants is not "prove it stays local". It is the
-  field-set and type information that makes a cdata layout possible, plus
-  an escape answer used the other way round: a value that escapes is a
-  candidate, and one that does not is already free.
+  Promotion is also observable, not transparent: `type` answers `"cdata"`,
+  `pairs` needs a `__pairs`, and `string.buffer.encode` refuses cdata
+  outright. In a language with no deoptimization, a compiler that silently
+  changes those is a compiler that breaks a program at the boundary rather
+  than at the site.
+
+  What survives is the two halves that do not require the compiler to
+  guess. `reifiable-record` (NUPP2509) says a declaration is one keyword
+  from reifying and offers the edit, so the author decides; and layout
+  reflection (plans/layout.md) makes the reified form usable at the
+  boundaries reification breaks. Between them the win is available and
+  nobody is surprised by it.
+
 - `cold` **Varargs elimination.** Known-arity calls should not touch
   `select` or build a table.
 
@@ -673,17 +682,19 @@ and wants §A query API onto the analysis.
    existed rather than in advance of one. See the section above.
 4. Concat lowering. Measured and superlinear (`bench/concat.lua`), and
    the entry the trace compiler cannot absorb for a reason other than GC.
-5. Table promotion, for values that escape. Scratch reuse was the other
-   caller this slot named and is struck: measured a pessimization, for
-   the same reason the FFI group was struck — its precondition is the
-   case the trace compiler already handles (`bench/scratch-reuse.lua`).
+5. ~~Table promotion, and the local-escape query behind it.~~ Both
+   struck, together with scratch reuse, which shared the slot. The
+   precondition each was gated on -- prove the value stays local -- names
+   the case LuaJIT already handles for free, and the case that does cost
+   is not statically separable from one that has to stay a table
+   (`bench/scratch-reuse.lua`). See §Allocation.
 
-   The local-escape query is no longer the blocker either, and that is
-   the useful part of the correction. Promotion does not need to prove a
-   value stays local; it needs a field set and types it can lay out in C,
-   which is what reification already does for a declared `struct`. The
-   nearest real step is therefore narrower than "table promotion": make
-   `reifiable-record` fire on the shapes that are not declarations yet.
+   The win is still available; it is reached by telling the author rather
+   than by guessing. `reifiable-record` (NUPP2509) reports a declaration
+   one keyword from reifying and carries the edit, so an editor can apply
+   it, and layout reflection (plans/layout.md) makes the reified form
+   usable where reification currently breaks it. Those two are the work.
+
 6. NYI rewriting and call-site monomorphization. Largest likely effect on
    real programs, and still unmeasurable: it wants the tecs `FFIStorage`
    port (plans/todo.md) to have something to measure against.
