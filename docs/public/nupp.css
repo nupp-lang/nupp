@@ -64,24 +64,30 @@
 }
 
 /* Let the Nuppeppo illustration dissolve into the page instead of ending at a
- * hard image boundary. The PNG is square, so the radial mask stays circular. */
+ * hard image boundary. The PNG is square, so the clipped mask stays circular. */
 .nuppdoc-hero-image img {
+  width: min(85%, 332px);
   border-radius: 50%;
+  clip-path: circle(50% at center);
   filter: drop-shadow(0 22px 30px rgb(23 51 51 / 16%));
   -webkit-mask-image: radial-gradient(
-    circle at center,
-    #000 0 52%,
-    rgb(0 0 0 / 82%) 62%,
-    rgb(0 0 0 / 32%) 72%,
-    transparent 82%
+    circle closest-side at center,
+    #000 0 64%,
+    rgb(0 0 0 / 82%) 76%,
+    rgb(0 0 0 / 32%) 88%,
+    transparent 100%
   );
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
   mask-image: radial-gradient(
-    circle at center,
-    #000 0 52%,
-    rgb(0 0 0 / 82%) 62%,
-    rgb(0 0 0 / 32%) 72%,
-    transparent 82%
+    circle closest-side at center,
+    #000 0 64%,
+    rgb(0 0 0 / 82%) 76%,
+    rgb(0 0 0 / 32%) 88%,
+    transparent 100%
   );
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
 }
 
 .nuppdoc-content pre {
