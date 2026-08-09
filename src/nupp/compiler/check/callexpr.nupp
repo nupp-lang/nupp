@@ -302,9 +302,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             )
             node.calleeType = calleeT
         end
-        -- LuaJIT exposes these functions through builtin modules rather than before
-        -- startup. Recognize the stable prelude path by definition, never by spelling:
-        -- a local named `table` remains an ordinary call.
+        -- None of these are members of `table` before startup: LuaJIT keeps `new` and
+        -- `clear` in builtin modules, and `clone` is Nupp's own. Each lowers to a
+        -- binding gen emits. Recognize the stable prelude path by definition, never by
+        -- spelling: a local named `table` remains an ordinary call.
         local tableGlobal = c.env and c.env.globals and c.env.globals.table or nil
         local tableBase = callee and callee.kind == "dotIndex" and callee.obj or nil
         local tableToken = tableBase and tableBase.kind == "name" and tableBase.token or nil
@@ -316,7 +317,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             and tableGlobal
             and tableToken.definition == tableGlobal.definition
             and (
-            memberName == "new" or memberName == "clear"
+            memberName == "new" or memberName == "clear" or memberName == "clone"
         ) then
             node.tableIntrinsic = memberName
         end

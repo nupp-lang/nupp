@@ -747,7 +747,19 @@ const table: {
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    readonly clear: function(t: table)
+    readonly clear: function(t: table),
+
+    -- Nupp extensions
+
+    --- Copies `t` one level deep: every key it holds directly, and its metatable, are
+    --- carried over, while a value that is itself a table stays shared between the two.
+    --- Neither `__index` nor `__pairs` is consulted, so what comes back is what `next`
+    --- would have walked.
+    ---
+    --- @typearg T the table type
+    --- @param t the table to copy
+    --- @return a new table holding the same keys, values and metatable
+    readonly clone: nosuspend function<T is table>(t: T): T
 }
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua

@@ -166,10 +166,15 @@ runtime value at all.
 Generated code never changes the line count. A cursor only inserts newlines
 forward, so a traceback points at the line you wrote with no source map.
 
-LuaJIT's `table.new` and `table.clear` are available directly in Nupp source.
-Each generated module binds a used builtin once on its first line; no source
-`require` is needed. Recognition follows the prelude definition, so a local
-named `table` is left alone.
+LuaJIT's `table.new` and `table.clear`, and Nupp's own `table.clone`, are
+available directly in Nupp source. Each generated module binds a used builtin
+once on its first line; no source `require` is needed. Recognition follows the
+prelude definition, so a local named `table` is left alone.
+
+`table.clone` copies one level: the keys the table holds directly, plus its
+metatable. A value that is itself a table stays shared, and `__index` is not
+consulted, so the copy holds what `next` would have walked and inherits the
+rest the same way the original did.
 
 ### Stock Lua 5.1
 
@@ -180,7 +185,8 @@ Generated code does not run on stock Lua 5.1 in general. Three things stop it:
 - `require("ffi")` is injected for any struct, `cdef`, `ffi.*` call, `carray`,
   or `cheader`;
 - `require("table.new")` or `require("table.clear")` is injected when its
-  builtin is used; presizing also uses the `table.new` binding.
+  builtin is used, and `table.clone` injects its own definition; presizing also
+  uses the `table.new` binding.
 
 A file that uses none of those, and whose typed layer erases cleanly, does
 generate plain 5.1 Lua. There is no flag that guarantees it.

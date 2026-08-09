@@ -192,6 +192,10 @@ function M.reachesTheAllowlistedLibraries()
    assertEq(run("return comptime do return math.floor(7 / 2) end"), 3, "math.floor")
    assertEq(run('return comptime do return table.concat({"a", "b"}, ",") end'), "a,b",
       "table.concat")
+   -- The compiler runs on a LuaJIT with no table.clone of its own, so this is the
+   -- evaluator's own copy answering, not one borrowed from the host.
+   assertEq(run("return comptime do local t = table.clone({n = 4}) t.n = 5 return t.n end"),
+      5, "table.clone")
    assertEq(run("return comptime do return bit.band(0xff, 0x0f) end"), 15, "bit.band")
    assertEq(run('return comptime do return ("x"):upper() end'), "X",
       "a string method")

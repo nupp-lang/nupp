@@ -257,7 +257,26 @@ local function buildEnvironment()
         return string.gsub(subject, pattern, replacement, n)
     end, gmatch = string.gmatch,}
 
-    env.table = {concat = table.concat, insert = table.insert, remove = table.remove,}
+    -- `clone` is written out rather than borrowed, because the compiler runs on a
+    -- LuaJIT that has no such function: what generated code gets is a helper gen
+    -- emits, and this is the same one level of copying, evaluated here instead.
+    env.table = {
+        concat = table.concat,
+        insert = table.insert,
+        remove = table.remove,
+        clone = function(t)
+            local out = {}
+            for k, v in next, t do
+                out[k] = v
+            end
+            local mt = getmetatable(t)
+            if type(mt) == "table" then
+                setmetatable(out, mt)
+            end
+
+            return out
+        end,
+    }
 
     env.bit = {
         band = bit.band,

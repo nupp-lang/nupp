@@ -415,11 +415,12 @@ function gen.generate(
     local needsLibs = false
     local needsNewTab = false
     local needsClearTab = false
+    local needsCloneTab = false
     local needsBuffer = false
     local bufferName
     local needsLayout = false
     local layoutName
-    local newTabName, clearTabName
+    local newTabName, clearTabName, cloneTabName
     local needsWith = false
     local withPackName, withIdName, withFailureName
     -- Generated `with` code calls library functions by name, so those names are bound
@@ -470,7 +471,13 @@ function gen.generate(
         if name == "new" then
             needsNewTab = true
             newTabName = newTabName or reservedName("__nuppNew")
+
             return newTabName
+        elseif name == "clone" then
+            needsCloneTab = true
+            cloneTabName = cloneTabName or reservedName("__nuppClone")
+
+            return cloneTabName
         end
         needsClearTab = true
         clearTabName = clearTabName or reservedName("__nuppClear")
@@ -2214,6 +2221,19 @@ function gen.generate(
         code = "const __nuppLibCache = {}; const function __nuppLib(n) "
             .. "local l = __nuppLibCache[n] if not l then "
             .. "l = __nuppFfi.load(n) __nuppLibCache[n] = l end return l end; "
+            .. code
+    end
+    if needsCloneTab then
+        -- `next` rather than `pairs`, and a metatable carried across by hand, because a
+        -- clone has to reproduce what the table itself holds: an `__index` that answers
+        -- for absent keys belongs to the copy the same way it belonged to the original,
+        -- not flattened into it. A `__metatable` field makes `getmetatable` answer with
+        -- a stand-in rather than a table, and that is left where it is.
+        code = ("const function %s(t) const out = {} "):format(cloneTabName)
+            .. "for k, v in next, t do out[k] = v end "
+            .. "const mt = getmetatable(t) "
+            .. "if type(mt) == \"table\" then setmetatable(out, mt) end "
+            .. "return out end; "
             .. code
     end
     if needsClearTab then

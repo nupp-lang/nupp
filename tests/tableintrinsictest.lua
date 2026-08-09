@@ -98,17 +98,21 @@ function M.leavesAShadowedTableAlone()
       "local table = {",
       "   new = function() return 7 end,",
       "   clear = function() return 8 end,",
+      "   clone = function() return 9 end,",
       "}",
-      "return table.new(), table.clear()",
+      "return table.new(), table.clear(), table.clone()",
    }, "\n")
    local code = compile(src)
    assertEq(code:find('require("table.new")', 1, true), nil,
       "shadowed table.new is ordinary code")
    assertEq(code:find('require("table.clear")', 1, true), nil,
       "shadowed table.clear is ordinary code")
-   local first, second = run(src)
+   assertEq(code:find("__nuppClone", 1, true), nil,
+      "shadowed table.clone is ordinary code")
+   local first, second, third = run(src)
    assertEq(first, 7, "shadowed new result")
    assertEq(second, 8, "shadowed clear result")
+   assertEq(third, 9, "shadowed clone result")
 end
 
 function M.generatedBindingsAvoidSourceNames()
@@ -137,6 +141,64 @@ function M.injectedBindingsPreserveLineCount()
    local _, sourceLines = src:gsub("\n", "")
    local _, generatedLines = code:gsub("\n", "")
    assertEq(generatedLines, sourceLines + 1, "generated line count")
+end
+
+function M.clonesOneLevelDeep()
+   local src = table.concat({
+      "local inner = {1, 2}",
+      "local source = {kind = 'point', inner = inner}",
+      "local copy = table.clone(source)",
+      "copy.kind = 'moved'",
+      "return source, copy",
+   }, "\n")
+   local code = compile(src)
+   assertEq(occurrences(code, "const function __nuppClone"), 1,
+      "one table.clone definition")
+   local source, copy = run(src)
+   assertEq(source.kind, "point", "the original keeps its own keys")
+   assertEq(copy.kind, "moved", "the copy takes its own keys")
+   assert(rawequal(source.inner, copy.inner), "a nested table stays shared")
+end
+
+function M.cloneCarriesTheMetatableAcross()
+   local src = table.concat({
+      "local base = setmetatable({}, {__index = function() return 'from base' end})",
+      "local copy = table.clone(base)",
+      "return copy.absent, getmetatable(copy) == getmetatable(base)",
+   }, "\n")
+   local absent, shared = run(src)
+   assertEq(absent, "from base", "__index still answers for the copy")
+   assertEq(shared, true, "the copy shares the metatable it was cloned from")
+end
+
+function M.clonesEachUsedIntrinsicOnce()
+   local src = table.concat({
+      "local first = table.clone({a = 1})",
+      "local second = table.clone({b = 2})",
+      "return first.a, second.b",
+   }, "\n")
+   local code = compile(src)
+   assertEq(occurrences(code, "const function __nuppClone"), 1,
+      "one definition serves every call")
+   assertEq(occurrences(code, "__nuppClone"), 3,
+      "one definition and two calls use the binding")
+   local a, b = run(src)
+   assertEq(a, 1, "first clone")
+   assertEq(b, 2, "second clone")
+end
+
+function M.cloneBindingAvoidsSourceNames()
+   local src = table.concat({
+      "local __nuppClone = 'clone'",
+      "local copy = table.clone({a = 1})",
+      "return __nuppClone, copy.a",
+   }, "\n")
+   local code = compile(src)
+   assertEq(code:find("const function __nuppClone(", 1, true), nil,
+      "table.clone binding avoids the source name")
+   local name, value = run(src)
+   assertEq(name, "clone", "source clone name survives")
+   assertEq(value, 1, "generated clone binding works")
 end
 
 return M
