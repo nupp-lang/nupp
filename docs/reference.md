@@ -948,6 +948,13 @@ the type, so it takes part in identity, subtyping, aliasing and substitution: a
 library is declared this way rather than special-cased, which is why
 `math.floor` is admitted and `print` is not.
 
+`nosuspend` guarantees that control cannot be suspended. It does not guarantee
+that a callback is effect-free, or that calling one is legal across a C
+boundary: `table.sort` and `string.gsub` cannot suspend their caller and are
+declared `nosuspend` for that reason, while a comparator or a replacement that
+yields fails at the C-call boundary instead. That is a different diagnostic
+about a different fact.
+
 `nosuspend` opens a region when `do` follows it and qualifies a type when
 `function` does; elsewhere it is an ordinary name.
 

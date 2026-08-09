@@ -317,6 +317,32 @@ adapter may fuse the switch with the current-task assignment it already makes;
 tecs has exactly that point in `resumeTask`. This cost is per resumed task, not
 per ordinary function call, and it must be measured rather than described away.
 
+Baselines were captured before any of this existed, against tecs's own
+`taskruntime` loaded from its compiled Lua tree with no SDL and no engine
+(`bench/suspension-baseline.lua`). On one machine, median of seven:
+
+```
+ path            ns/op   what it measures
+ ──────────────  ─────   ────────────────────────────────────────
+ direct            0.8   an ordinary call
+ blocking          2.3   a wait-mode check, then calling through
+ handled-ready   332.4   awaitCallback resumed synchronously
+ park-resume     782.0   a park, a scheduler round trip, a resume
+```
+
+Two of those numbers redirect the work. A mode check costs about 1.5ns, so the
+"one O(1) handler read" this section is careful about is not where the risk is.
+The synchronous await costs 332ns -- four hundred times a direct call -- and a
+real park only about twice that again, which says the cost is not the scheduler
+round trip but the gate and the two closures allocated to reach it.
+
+So the row to protect is `handled-ready`, and the way to protect it is for
+`suspend` to allocate nothing when its subscription completes during the call.
+A subscription that resumes synchronously never needs a gate, a parked frame or
+a cancellation to be retained; recognizing that case is worth more than any
+saving on the lookup. Done well S2 is faster here than what it replaces, which
+is a stronger claim than parity and a more useful one to hold the milestone to.
+
 For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
 context read and then reaches the same gate, scheduler, and readiness pump it
 uses today. No handler work occurs in ordinary calls and no allocation is
