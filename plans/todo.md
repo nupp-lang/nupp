@@ -120,15 +120,17 @@ work makes sense in.
   - [x] C1: `comptime do ... end` expression blocks, evaluated by a walker over
         the checked tree (`src/nupp/compiler/comptime.nupp`) against a named
         allowlist, quoted canonically, and emitted at the `comptime` token so
-        the line count holds. Diagnostics NUPP2401-2405.
+        the line count holds. Diagnostics NUPP2410-2413.
 
-        Left open, and deliberately: evaluation runs in process rather than in
-        a worker. What bounds it is a step budget, which stops a looping block
-        in well under a second and is a real answer for an editor, but it is
-        not the crash isolation C4 specifies. Results are recomputed per check
-        rather than cached in the query graph, so equal-result cutoff is not
-        there yet either. Neither is load-bearing for the semantics; both are
-        work this milestone was scoped to include and did not.
+        Left open: **nothing stops a block that does not terminate.** Evaluation
+        runs in process with no budget, so `comptime do while true do end end`
+        hangs the compiler and the language server. A step budget was built and
+        then removed as an arbitrary limit; the mechanism that replaces it is
+        C4's worker, which handles a hang, a crash and a memory blowup with one
+        answer instead of three. Until then this is a sharp edge.
+
+        Also open: results are recomputed per check rather than cached in the
+        query graph, so equal-result cutoff is not there.
   - [ ] C2a: immutable `reflect(T)` descriptors over the checker's full
         structural vocabulary; semantic type fingerprints and module interface
         dependencies. Target-independent and blocked on nothing. Shared with a

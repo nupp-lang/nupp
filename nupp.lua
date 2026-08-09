@@ -247,6 +247,26 @@ end
 -- -O1 folds this before LuaJIT ever sees the function.]],
                      },
                      {
+                        title = "Compute what you can before the program runs",
+                        details = "comptime do ... end runs ordinary Nupp while the file is "
+                           .. "compiled and writes the answer into the output as a literal. "
+                           .. "Deterministic and sandboxed: no clock, no files, no randomness "
+                           .. "-- and no macros, because it produces data rather than code.",
+                        code = [[const CRC32 = comptime do
+    const entries = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            acc = acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+        end
+        entries[byte + 1] = acc
+    end
+    return entries
+end
+
+-- The generated Lua holds the table, not the loop that built it.]],
+                     },
+                     {
                         title = "Carry the whole workflow in one toolchain",
                         details = "Check, format, build, test, profile, generate documentation, "
                            .. "explain errors, and power an editor from the same language-aware compiler. No "

@@ -170,19 +170,19 @@ end
 
 function M.readsNoRuntimeBinding()
    local codes = errorsOf("local n = 5\nreturn comptime do return n end")
-   assertEq(codes[1], "NUPP2401", "a runtime local is unavailable")
+   assertEq(codes[1], "NUPP2410", "a runtime local is unavailable")
 end
 
 function M.writesNoRuntimeBinding()
    local codes = errorsOf("local n = 5\nreturn comptime do n = 6 return n end")
-   assertEq(codes[1], "NUPP2401", "a runtime local cannot be assigned")
+   assertEq(codes[1], "NUPP2410", "a runtime local cannot be assigned")
 end
 
 function M.reachesNoAmbientLibrary()
    for _, name in ipairs({"io", "os", "package", "require", "loadstring",
       "debug", "jit", "print", "_G", "collectgarbage"}) do
       local codes = errorsOf(("return comptime do return %s end"):format(name))
-      assertEq(codes[1], "NUPP2401", name .. " is not in the environment")
+      assertEq(codes[1], "NUPP2410", name .. " is not in the environment")
    end
 end
 
@@ -207,11 +207,11 @@ function M.refusesTheNondeterministicLibraries()
    -- not in the environment at all is NUPP2401, the same answer a runtime local gets.
    for _, expr in ipairs({"math.random()", "math.sin(1)"}) do
       local codes = errorsOf(("return comptime do return %s end"):format(expr))
-      assertEq(codes[1], "NUPP2402", expr .. " is left out of the allowlist")
+      assertEq(codes[1], "NUPP2411", expr .. " is left out of the allowlist")
    end
    for _, expr in ipairs({"os.clock()", "os.time()"}) do
       local codes = errorsOf(("return comptime do return %s end"):format(expr))
-      assertEq(codes[1], "NUPP2401", expr .. " has no library to reach")
+      assertEq(codes[1], "NUPP2410", expr .. " has no library to reach")
    end
 end
 
@@ -219,7 +219,7 @@ function M.namesTheAbsentMemberRatherThanItsSymptom()
    local _, diags = compile("return comptime do return math.random() end")
    local found
    for _, diag in ipairs(diags) do
-      if diag.code == "NUPP2402" then found = diag.msg end
+      if diag.code == "NUPP2411" then found = diag.msg end
    end
    assertEq(found, "math.random is unavailable at comptime",
       "the diagnostic says which member, not that a nil was called")
@@ -229,7 +229,7 @@ function M.refusesTostringOfATable()
    -- `tostring(t)` is a process address, so a block using it would produce a different
    -- constant on the next build of the same source.
    local codes = errorsOf("return comptime do return tostring({}) end")
-   assertEq(codes[1], "NUPP2403", "tostring of a table is refused")
+   assertEq(codes[1], "NUPP2412", "tostring of a table is refused")
 end
 
 function M.iteratesDeterministically()
@@ -248,43 +248,38 @@ return KEYS
    assertEq(run(src), "apple,mango,zebra", "pairs answers in sorted order")
 end
 
-function M.stopsAnEndlessBlock()
-   local codes = errorsOf("return comptime do while true do end return 1 end")
-   assertEq(codes[1], "NUPP2404", "the step budget stops it")
-end
-
 function M.stopsEndlessRecursionOfBlocks()
    local codes = errorsOf("return comptime do return comptime do return 1 end end")
-   assertEq(codes[1], "NUPP2402", "a nested block is refused")
+   assertEq(codes[1], "NUPP2411", "a nested block is refused")
 end
 
 function M.requiresAResult()
    local codes = errorsOf("return comptime do local a = 1 end")
-   assertEq(codes[1], "NUPP2403", "a block with no return is refused")
+   assertEq(codes[1], "NUPP2412", "a block with no return is refused")
 end
 
 function M.refusesMoreThanOneResult()
    local codes = errorsOf("return comptime do return 1, 2 end")
-   assertEq(codes[1], "NUPP2402", "multi-value results are deferred, not silent")
+   assertEq(codes[1], "NUPP2411", "multi-value results are deferred, not silent")
 end
 
 function M.refusesAnUnquotableResult()
    local codes = errorsOf("return comptime do return ipairs end")
-   assertEq(codes[1], "NUPP2405", "a function is not a quotable result")
+   assertEq(codes[1], "NUPP2413", "a function is not a quotable result")
 end
 
 function M.refusesASharedTable()
    -- Quoting it twice would build two tables where the block had one. Refusing leaves
    -- the author a decision rather than a difference to discover at run time.
    local codes = errorsOf("return comptime do local s = {1} return {s, s} end")
-   assertEq(codes[1], "NUPP2405", "a table on two paths is refused")
+   assertEq(codes[1], "NUPP2413", "a table on two paths is refused")
 end
 
 function M.refusesAFunctionDeclaration()
    -- C3, and named as such rather than mis-reported as something else.
    local codes = errorsOf(
       "return comptime do local function f() return 1 end return f() end")
-   assertEq(codes[1], "NUPP2402", "declaring a function is not yet available")
+   assertEq(codes[1], "NUPP2411", "declaring a function is not yet available")
 end
 
 function M.quotesNumbersThatReadBackUnchanged()
@@ -305,7 +300,7 @@ function M.refusesNaNAndInfinity()
    for _, src in ipairs({"return comptime do return 0 / 0 end",
       "return comptime do return 1 / 0 end"}) do
       local codes = errorsOf(src)
-      assertEq(codes[1], "NUPP2405", "no literal spelling for " .. src)
+      assertEq(codes[1], "NUPP2413", "no literal spelling for " .. src)
    end
 end
 

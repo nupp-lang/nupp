@@ -622,14 +622,18 @@ prerequisite for language semantics.
 
 Reserve the NUPP24xx range for comptime:
 
-- `NUPP2401`: runtime value is unavailable at comptime
-- `NUPP2402`: operation or API is unavailable at comptime
-- `NUPP2403`: comptime evaluation failed
-- `NUPP2404`: comptime evaluation budget exceeded
-- `NUPP2405`: result is not quotable
-- `NUPP2406`: type has no layout for the selected target
-- `NUPP2407`: comptime function used as a runtime value
-- `NUPP2408`: comptime dependency cycle
+- `NUPP2410`: runtime value is unavailable at comptime
+- `NUPP2411`: operation or API is unavailable at comptime
+- `NUPP2412`: comptime evaluation failed
+- `NUPP2413`: result is not quotable
+- `NUPP2414`: type has no layout for the selected target
+- `NUPP2415`: comptime function used as a runtime value
+- `NUPP2416`: comptime dependency cycle
+
+The range starts at 2410 rather than 2401 because 2401 and 2402 were already
+taken, by `carray` and `layoutof` in `check/ffi.nupp`. Reserving "the NUPP24xx
+range" was a reservation of codes that were not free, and it took landing C1 to
+notice.
 
 Diagnostics point first to the source expression that requested evaluation.
 Failures inside a helper include a bounded compile-time call stack with

@@ -24,6 +24,7 @@ import UNIONS from "./examples/unions.nupp";
 import OWNERSHIP from "./examples/ownership.nupp";
 import SYNTAX from "./examples/syntax.nupp";
 import OPTIMIZER from "./examples/optimizer.nupp";
+import COMPTIME from "./examples/comptime.nupp";
 
 // Roughly in order of how much of the language each one asks you to already
 // know, since a menu is read top to bottom.
@@ -36,4 +37,5 @@ export const EXAMPLES = [
   { id: "ownership", label: "Ownership", source: OWNERSHIP },
   { id: "syntax", label: "LuaJIT 3.0 syntax", source: SYNTAX },
   { id: "optimizer", label: "Optimizing compiler", source: OPTIMIZER },
+  { id: "comptime", label: "Compile-time evaluation", source: COMPTIME },
 ];

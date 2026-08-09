@@ -1,0 +1,55 @@
+-- `comptime do ... end` is an expression whose value is worked out while the
+-- file is compiled. Hit Compile and read the output beside this: the tables
+-- below arrive as literals, and none of the code that built them is there.
+--
+-- This is not an optimization. Turn Optimize off under Options and compile
+-- again; the values are still literals, because a comptime block is what the
+-- program means rather than a rewrite applied to it.
+
+-- The case that needs comptime: a table built by iterating. No amount of
+-- constant folding produces this, because folding rewrites an expression and
+-- there is no expression here to rewrite -- there is a loop.
+const CRC32 = comptime do
+    const entries = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            acc = acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+        end
+        entries[byte + 1] = acc
+    end
+    return entries
+end
+
+-- A block reads only its own locals and the compile-time environment, which is
+-- an allowlist: some of `math`, `string`, `table` and `bit`, and nothing that
+-- could make two builds of this file disagree. There is no `io`, no `os`, no
+-- clock and no randomness.
+const BANNER = comptime do
+    local parts = {}
+    for _, word in ipairs({"nupp", "compiles", "this", "once"}) do
+        parts[#parts + 1] = word:upper()
+    end
+    return table.concat(parts, " ") .. " " .. string.rep("=", 8)
+end
+
+-- What comes back is typed as the literal it becomes, so it is held to the
+-- same rules a literal you typed out would be.
+const TABLE_SIZE: integer = comptime do
+    return 256
+end
+
+local function checksum(text: string): number
+    local acc = 0
+    for index = 1, #text do
+        acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
+    end
+
+    return acc
+end
+
+print(BANNER)
+print(TABLE_SIZE, #CRC32, checksum("nupp"))
+
+-- try breaking it: read a local declared outside the block, or call
+-- `os.time()` inside one, and read which diagnostic you get

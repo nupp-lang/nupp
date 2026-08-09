@@ -25110,23 +25110,6 @@ local isToken = cst . isToken
 
 
 
-
-
-comptime . limits = {
-
-steps = 2000000 ,
-
-
-depth = 200 ,
-
-
-entries = 65536 ,
-
-
-bytes = 1048576 , }
-
-
-
 local MAX_EXACT_INTEGER = 9007199254740991
 
 
@@ -25188,10 +25171,10 @@ end
 
 local function quoteNumber ( value , node )
 if value ~= value then
-fail ( "NUPP2405" , node , "NaN has no literal spelling" )
+fail ( "NUPP2413" , node , "NaN has no literal spelling" )
 end
 if value == math . huge or value == - math . huge then
-fail ( "NUPP2405" , node , "an infinity has no literal spelling" )
+fail ( "NUPP2413" , node , "an infinity has no literal spelling" )
 end
 if value == 0 then
 
@@ -25208,7 +25191,7 @@ return text
 end
 end
 
-fail ( "NUPP2405" , node , "this number has no spelling that reads back unchanged" )
+fail ( "NUPP2413" , node , "this number has no spelling that reads back unchanged" )
 end
 
 
@@ -25219,7 +25202,7 @@ end
 
 
 
-local function quote ( value , node , seen , budget )
+local function quote ( value , node , seen )
 local kind = type ( value )
 if value == nil then
 return "nil"
@@ -25230,11 +25213,11 @@ return quoteNumber ( value , node )
 elseif kind == "string" then
 return ( "%q" ) : format ( value )
 elseif kind ~= "table" then
-fail ( "NUPP2405" , node , ( "a %s is not a quotable result" ) : format ( kind ) )
+fail ( "NUPP2413" , node , ( "a %s is not a quotable result" ) : format ( kind ) )
 end
 if seen [ value ] then
 fail (
-"NUPP2405" ,
+"NUPP2413" ,
 node ,
 "this table is reachable by more than one path" ,
 "build a separate table for each position, or return the shared part on its own"
@@ -25242,44 +25225,35 @@ node ,
 end
 seen [ value ] = true
 if getmetatable ( value ) ~= nil then
-fail ( "NUPP2405" , node , "a table with a metatable is not a quotable result" )
+fail ( "NUPP2413" , node , "a table with a metatable is not a quotable result" )
 end
 local parts = { }
 local count = arrayLength ( value )
 for index = 1 , count do
-budget . entries = budget . entries + 1
-parts [ # parts + 1 ] = quote ( value [ index ] , node , seen , budget )
+parts [ # parts + 1 ] = quote ( value [ index ] , node , seen )
 end
 for _ , key in ipairs ( sortedKeys ( value ) ) do
 local skip = type ( key ) == "number" and key == math . floor ( key ) and key >= 1 and key <= count
 if not skip then
-budget . entries = budget . entries + 1
 local keyText
 if type ( key ) == "string" and key : find ( "^[%a_][%w_]*$" ) then
 keyText = key
 else
-keyText = "[" .. quote ( key , node , seen , budget ) .. "]"
+keyText = "[" .. quote ( key , node , seen ) .. "]"
 end
-parts [ # parts + 1 ] = keyText .. " = " .. quote ( value [ key ] , node , seen , budget )
+parts [ # parts + 1 ] = keyText .. " = " .. quote ( value [ key ] , node , seen )
 end
-end
-if budget . entries > comptime . limits . entries then
-fail ( "NUPP2404" , node , ( "the result exceeds %d entries" ) : format ( comptime . limits . entries ) )
 end
 
 
 
-local text = "{" .. table . concat ( parts , ", " ) .. "}"
-if # text > comptime . limits . bytes then
-fail ( "NUPP2404" , node , ( "the result exceeds %d bytes of source" ) : format ( comptime . limits . bytes ) )
-end
 
-return text
+return "{" .. table . concat ( parts , ", " ) .. "}"
 end
 
 
 local function quoteValue ( value , node )
-return quote ( value , node , { } , { entries = 0 } )
+return quote ( value , node , { } )
 end
 
 
@@ -25399,7 +25373,7 @@ local RETURN = { }
 
 
 local function newState ( env , libraries )
-return { env = env , libraries = libraries , steps = 0 , depth = 0 , result = nil }
+return { env = env , libraries = libraries , result = nil }
 end
 
 local function scope ( parent )
@@ -25422,27 +25396,9 @@ local function declare ( current , name , value )
 current . names [ name ] = { value = value }
 end
 
-local function step ( state , node )
-state . steps = state . steps + 1
-if state . steps > comptime . limits . steps then
-fail ( "NUPP2404" , node , ( "evaluation exceeded %d steps" ) : format ( comptime . limits . steps ) )
-end
-end
-
-local function enter ( state , node )
-state . depth = state . depth + 1
-if state . depth > comptime . limits . depth then
-fail ( "NUPP2404" , node , ( "evaluation nested deeper than %d" ) : format ( comptime . limits . depth ) )
-end
-end
-
-local function leave ( state )
-state . depth = state . depth - 1
-end
-
 local unsupported = function ( node , what )
 fail (
-"NUPP2402" ,
+"NUPP2411" ,
 node ,
 ( "%s is unavailable at comptime" ) : format ( what ) ,
 "compute the value with the constructs comptime supports, or move this to run time"
@@ -25464,12 +25420,12 @@ end
 
 local function callValues ( state , node , callee , args )
 if type ( callee ) ~= "function" then
-fail ( "NUPP2402" , node , ( "a %s is not callable at comptime" ) : format ( type ( callee ) ) )
+fail ( "NUPP2411" , node , ( "a %s is not callable at comptime" ) : format ( type ( callee ) ) )
 end
 local produced = pack ( pcall ( callee , unpack ( args , 1 , args . n ) ) )
 if not produced [ 1 ] then
 local message = produced [ 2 ]
-fail ( "NUPP2403" , node , type ( message ) == "string" and message or "the call failed" )
+fail ( "NUPP2412" , node , type ( message ) == "string" and message or "the call failed" )
 end
 local values = { n = produced . n - 1 }
 for index = 2 , produced . n do
@@ -25521,8 +25477,6 @@ evalExpr = function ( state , node )
 if not node or isToken ( node ) then
 return nil
 end
-step ( state , node )
-enter ( state , node )
 local kind = node . kind
 local answer
 if kind == "number" then
@@ -25552,7 +25506,7 @@ else
 local fromEnv = state . env [ name ]
 if fromEnv == nil then
 fail (
-"NUPP2401" ,
+"NUPP2410" ,
 node ,
 ( "%q is not available at comptime" ) : format ( name ) ,
 "a comptime block reads only its own locals and the compile-time environment"
@@ -25658,7 +25612,7 @@ built [ field . name and field . name . text or "" ] = evalExpr ( state , field 
 else
 local key = evalExpr ( state , field . key )
 if key == nil then
-fail ( "NUPP2403" , field , "a table key evaluated to nil" )
+fail ( "NUPP2412" , field , "a table key evaluated to nil" )
 end
 built [ key ] = evalExpr ( state , field . value )
 end
@@ -25689,14 +25643,14 @@ if object == nil and kind == "safeIndex" then
 answer = nil
 else
 if type ( object ) ~= "table" then
-fail ( "NUPP2403" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
+fail ( "NUPP2412" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
 end
 local field = node . name and node . name . text or ""
 answer = object [ field ]
 local library = state . libraries [ object ]
 if answer == nil and library then
 fail (
-"NUPP2402" ,
+"NUPP2411" ,
 node ,
 ( "%s.%s is unavailable at comptime" ) : format ( library , field ) ,
 "the comptime library surface is an allowlist; see plans/comptime.md"
@@ -25709,7 +25663,7 @@ if object == nil and kind == "safeBracket" then
 answer = nil
 else
 if type ( object ) ~= "table" then
-fail ( "NUPP2403" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
+fail ( "NUPP2412" , node , ( "a %s cannot be indexed" ) : format ( type ( object ) ) )
 end
 answer = object [ evalExpr ( state , node . expr ) ]
 end
@@ -25728,7 +25682,6 @@ unsupported ( node , "a nested comptime block" )
 else
 unsupported ( node , ( "a %s expression" ) : format ( tostring ( kind ) ) )
 end
-leave ( state )
 
 return answer
 end
@@ -25736,8 +25689,6 @@ end
 
 
 evalMulti = function ( state , node )
-step ( state , node )
-enter ( state , node )
 local kind = node . kind
 local values
 if kind == "methodCall" then
@@ -25746,7 +25697,7 @@ if object == nil and node . safeObj then
 values = { n = 0 }
 else
 if type ( object ) ~= "table" and type ( object ) ~= "string" then
-fail ( "NUPP2403" , node , ( "a %s has no methods at comptime" ) : format ( type ( object ) ) )
+fail ( "NUPP2412" , node , ( "a %s has no methods at comptime" ) : format ( type ( object ) ) )
 end
 
 
@@ -25768,7 +25719,6 @@ else
 values = callValues ( state , node , callee , evalArgs ( state , node . args ) )
 end
 end
-leave ( state )
 
 return values
 end
@@ -25783,7 +25733,7 @@ local name = target . token and target . token . text or ""
 local slot = lookup ( state . scope , name )
 if not slot then
 fail (
-"NUPP2401" ,
+"NUPP2410" ,
 target ,
 ( "%q is not a comptime local, so it cannot be assigned" ) : format ( name ) ,
 "a comptime block may not write to anything declared outside it"
@@ -25793,17 +25743,17 @@ slot . value = value
 elseif target . kind == "dotIndex" then
 local object = evalExpr ( state , target . obj )
 if type ( object ) ~= "table" then
-fail ( "NUPP2403" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
+fail ( "NUPP2412" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
 end
 object [ target . name and target . name . text or "" ] = value
 elseif target . kind == "bracketIndex" then
 local object = evalExpr ( state , target . obj )
 if type ( object ) ~= "table" then
-fail ( "NUPP2403" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
+fail ( "NUPP2412" , target , ( "a %s cannot be assigned through" ) : format ( type ( object ) ) )
 end
 local key = evalExpr ( state , target . expr )
 if key == nil then
-fail ( "NUPP2403" , target , "a table key evaluated to nil" )
+fail ( "NUPP2412" , target , "a table key evaluated to nil" )
 end
 object [ key ] = value
 else
@@ -25836,7 +25786,6 @@ execStatement = function ( state , stat )
 if isToken ( stat ) then
 return
 end
-step ( state , stat )
 local kind = stat . kind
 if kind == "localStmt" then
 local values = evalList ( state , stat . exprs or { } )
@@ -25878,7 +25827,7 @@ elseif kind == "returnStmt" then
 local exprs = stat . exprs or { }
 if # exprs > 1 then
 fail (
-"NUPP2402" ,
+"NUPP2411" ,
 stat ,
 "a comptime block returns exactly one value" ,
 "return a table holding them, until multi-value results are specified"
@@ -25912,7 +25861,6 @@ break
 end
 error ( err , 0 )
 end
-step ( state , stat )
 end
 elseif kind == "repeatStmt" then
 repeat
@@ -25930,7 +25878,6 @@ break
 end
 error ( err , 0 )
 end
-step ( state , stat )
 if done then
 break
 end
@@ -25939,10 +25886,10 @@ elseif kind == "fornumStmt" then
 local from , to = evalExpr ( state , stat . start ) , evalExpr ( state , stat . stop )
 local by = stat . step and evalExpr ( state , stat . step ) or 1
 if type ( from ) ~= "number" or type ( to ) ~= "number" or type ( by ) ~= "number" then
-fail ( "NUPP2403" , stat , "a numeric loop needs numeric bounds" )
+fail ( "NUPP2412" , stat , "a numeric loop needs numeric bounds" )
 end
 if by == 0 then
-fail ( "NUPP2403" , stat , "a numeric loop with a zero step does not terminate" )
+fail ( "NUPP2412" , stat , "a numeric loop with a zero step does not terminate" )
 end
 local index = from
 while ( by > 0 and index <= to ) or ( by < 0 and index >= to ) do
@@ -25960,7 +25907,6 @@ break
 end
 error ( err , 0 )
 end
-step ( state , stat )
 index = index + by
 end
 elseif kind == "forinStmt" then
@@ -25972,7 +25918,7 @@ local produced = evalList ( state , stat . exprs or { } )
 local iterator , invariant , control = produced [ 1 ] , produced [ 2 ] , produced [ 3 ]
 if type ( iterator ) ~= "function" then
 fail (
-"NUPP2402" ,
+"NUPP2411" ,
 stat ,
 "a generic for needs an iterator comptime can call" ,
 "`ipairs`, `pairs` and `string.gmatch` are available"
@@ -25998,7 +25944,6 @@ break
 end
 error ( err , 0 )
 end
-step ( state , stat )
 end
 elseif kind == "emptyStmt" then
 return
@@ -26020,12 +25965,10 @@ execBlock = function ( state , block )
 if not block then
 return
 end
-enter ( state , block )
 local saved = state . scope
 state . scope = scope ( saved )
 local ok , err = pcall ( execStats , state , block )
 state . scope = saved
-leave ( state )
 if not ok then
 error ( err , 0 )
 end
@@ -26106,11 +26049,11 @@ if type ( err ) == "table" and err [ FAILURE ] then
 return nil , nil , err
 end
 
-return nil , nil , { code = "NUPP2403" , node = node , message = tostring ( err ) }
+return nil , nil , { code = "NUPP2412" , node = node , message = tostring ( err ) }
 end
 if not state . returned then
 return nil , nil , {
-code = "NUPP2403" ,
+code = "NUPP2412" ,
 node = node ,
 message = "a comptime block must return a value" ,
 help = "every path out of the block needs a `return`" ,
@@ -26123,7 +26066,7 @@ if type ( quoted ) == "table" and quoted [ FAILURE ] then
 return nil , nil , quoted
 end
 
-return nil , nil , { code = "NUPP2405" , node = node , message = tostring ( quoted ) }
+return nil , nil , { code = "NUPP2413" , node = node , message = tostring ( quoted ) }
 end
 
 return quoted , typeOf ( state . result ) , nil
@@ -31163,6 +31106,9 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local lexer = require ( "nupp.compiler.lexer" )
+local parser = require ( "nupp.compiler.parser" )
+local semantic = require ( "nupp.compiler.lsp.semantic" )
+local types = require ( "nupp.compiler.types" )
 local stringsMod = require ( "nupp.compiler.doc.strings" )
 local filesMod = require ( "nupp.compiler.doc.files" )
 
@@ -31177,27 +31123,19 @@ local highlight = { }
 
 
 
-local TYPE_NAMES = {
-any = true ,
-boolean = true ,
-cdata = true ,
-integer = true ,
-never = true ,
-metatable = true ,
-number = true ,
-string = true ,
-table = true ,
-thread = true ,
-unknown = true ,
-userdata = true ,
-}
+local TYPE_NAMES = { borrowed = true , ctype = true , metatable = true , owned = true , pinned = true , }
+for name in pairs ( types . builtins ) do
+TYPE_NAMES [ name ] = true
+end
 
 local CONTEXTUAL_KEYWORDS = {
 [ "as" ] = true ,
 borrows = true ,
 cdef = true ,
 constructor = true ,
+continue = true ,
 exclusive = true ,
+from = true ,
 takes = true ,
 const = true ,
 global = true ,
@@ -31206,6 +31144,7 @@ interface = true ,
 matches = true ,
 [ "new" ] = true ,
 own = true ,
+out = true ,
 record = true ,
 metamethod = true ,
 where = true ,
@@ -31213,9 +31152,12 @@ with = true ,
 readonly = true ,
 releases = true ,
 retains = true ,
+resumes = true ,
 struct = true ,
+type = true ,
 unsafe = true ,
 writeonly = true ,
+yields = true ,
 }
 
 local LITERAL_KEYWORDS = { [ "false" ] = true , [ "nil" ] = true , [ "true" ] = true }
@@ -31247,11 +31189,29 @@ end
 return name
 end
 
-local function tokenStyle ( tokens , index )
+local SYNTAX_STYLES = {
+decorator = "meta" ,
+keyword = "keyword" ,
+type = "type" ,
+struct = "type" ,
+interface = "type" ,
+typeParameter = "type" ,
+[ "function" ] = "function" ,
+method = "function" ,
+property = "property" ,
+parameter = "variable" ,
+variable = "variable" ,
+}
+
+local function tokenStyle ( tokens , index , syntaxKinds )
 local token = tokens [ index ]
 local previous = tokens [ index - 1 ]
 local following = tokens [ index + 1 ]
 if token . kind == "name" then
+local syntaxStyle = SYNTAX_STYLES [ syntaxKinds [ token ] ]
+if syntaxStyle then
+return syntaxStyle
+end
 if CONTEXTUAL_KEYWORDS [ token . text ] then
 return "keyword"
 end
@@ -31355,7 +31315,9 @@ end
 
 local function highlightNuppLines ( source , links )
 local out = lineWriter ( source )
-local tokens = lexer . lex ( source , "documentation-code-block.nupp" )
+local parsed = parser . parse ( source , "documentation-code-block.nupp" )
+local tokens = parsed . tokens
+local syntaxKinds = semantic . syntaxKinds ( parsed )
 for index , token in ipairs ( tokens ) do
 for _ , trivia in ipairs ( token . trivia ) do
 if trivia . kind == "comment" or trivia . kind == "hashbang" then
@@ -31365,7 +31327,7 @@ out . append ( trivia . text )
 end
 end
 if token . kind ~= "eof" then
-local style = tokenStyle ( tokens , index )
+local style = tokenStyle ( tokens , index , syntaxKinds )
 local url = nil
 if links and token . kind == "name" and not declarationName ( tokens , index ) then
 url = links [ qualifiedName ( tokens , index ) ] or links [ token . text ]
@@ -31616,6 +31578,14 @@ end
 return out . lines
 end
 
+
+
+
+local function highlightScintillua ( source , language )
+local lines = highlightScintilluaLines ( source , language )
+return lines and table . concat ( lines , "\n" ) or nil
+end
+
 local function codeLines ( source , language , links )
 if language == "nupp" then
 return highlightNuppLines ( source , links )
@@ -31638,6 +31608,7 @@ return table . concat ( codeLines ( source , language , links ) , "\n" )
 end
 
 highlight . nuppSource = highlightNupp
+highlight . scintilluaSource = highlightScintillua
 highlight . codeHtml = codeHtml
 highlight . codeLines = codeLines
 highlight . configureScintillua = configureScintillua
@@ -44410,6 +44381,13 @@ local semantic = { }
 
 
 
+
+
+
+
+
+
+
 semantic . semanticTypes = wire . array ( {
 "namespace" ,
 "type" ,
@@ -44475,11 +44453,37 @@ kinds [ tok ] = kind
 end
 end
 
+
+
+
+
+local tokens = result . tokens or { }
+local at = 1
+while tokens [
+at
+] and tokens [
+at
+] . kind == "@" and tokens [
+at + 1
+] and tokens [
+at + 1
+] . kind == "not" and tokens [
+at + 1
+] . text == "!" and tokens [
+at + 2
+] and tokens [ at + 2 ] . kind == "name" and ( tokens [ at + 2 ] . text == "internal" or tokens [ at + 2 ] . text == "nofmt" ) do
+mark ( tokens [ at + 2 ] , "decorator" )
+at = at + 3
+end
+
 tree . walkNodes ( result . root , function ( node )
 local kind = node . kind
 if kind == "cdefFunc" or kind == "cdefStruct" then
-mark ( node [ 1 ] , "keyword" )
-mark ( node [ 2 ] , "keyword" )
+for _ , child in ipairs ( node ) do
+if cst . isToken ( child ) and ( child . text == "cdef" or child . text == "struct" or child . text == "from" ) then
+mark ( child , "keyword" )
+end
+end
 elseif kind == "typeAlias" or kind == "recordDecl" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . kind == "name" and child ~= node . name then
@@ -44500,6 +44504,9 @@ for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . kind == "name" and child . text == "is" then
 mark ( child , "keyword" )
 end
+end
+for _ , tok in ipairs ( ( node ) . names ) do
+mark ( tok , "typeParameter" )
 end
 elseif kind == "newExpr" or kind == "constructorDecl" or kind == "matchesDecl" then
 mark ( node [ 1 ] , "keyword" )
@@ -44526,6 +44533,14 @@ end
 elseif kind == "tborrows" then
 for _ , child in ipairs ( node ) do
 if cst . isToken ( child ) and child . text == "borrows" then
+mark ( child , "keyword" )
+end
+end
+elseif kind == "tconst" then
+mark ( node [ 1 ] , "keyword" )
+elseif kind == "funcbody" or kind == "tfunc" then
+for _ , child in ipairs ( node ) do
+if cst . isToken ( child ) and ( child . text == "yields" or child . text == "resumes" ) then
 mark ( child , "keyword" )
 end
 end
@@ -44559,10 +44574,6 @@ mark ( node . name , "property" )
 elseif kind == "indexerDecl" or kind == "tmap" then
 if node . capability then
 mark ( node . capability , "keyword" )
-end
-elseif kind == "generics" then
-for _ , tok in ipairs ( ( node ) . names ) do
-mark ( tok , "typeParameter" )
 end
 end
 end )
@@ -51622,7 +51633,7 @@ return m
 
 {
 title = "Comptime" ,
-codes = { "NUPP2401" , "NUPP2402" , "NUPP2403" , "NUPP2404" , "NUPP2405" } ,
+codes = { "NUPP2410" , "NUPP2411" , "NUPP2412" , "NUPP2413" } ,
 body = [=[
 `comptime do ... end` is an expression whose value is computed while the file is
 compiled. The block is ordinary Nupp, and what it returns is written into the
@@ -51638,15 +51649,15 @@ A block returns exactly one value, and that value is checked where it lands, so
 a result that does not fit its declared type is the ordinary error it would be
 if you had typed the literal out. Quotable results are nil, booleans, numbers
 that read back unchanged, strings, and acyclic tables of those with no
-metatable. A table reachable by two paths is **NUPP2405** rather than two
+metatable. A table reachable by two paths is **NUPP2413** rather than two
 tables; NaN and the infinities have no literal spelling.
 
 A block reads only its own locals and the compile-time environment. A runtime
-local, an upvalue, module state, or a global is **NUPP2401**, and it may not
+local, an upvalue, module state, or a global is **NUPP2410**, and it may not
 write to one either. The environment is an allowlist: `assert`, `error`,
 `ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members of
 `math`, `string`, `table` and `bit`. A member the allowlist leaves out is
-**NUPP2402** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
+**NUPP2411** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
 `load`, clock, or randomness.
 
 Two absences are deliberate rather than incidental. The transcendental functions
@@ -51656,12 +51667,9 @@ process address, so it would differ between two builds of one file; the
 `tostring` provided answers for scalars and refuses the rest. `pairs` iterates in
 sorted order for the same reason.
 
-Evaluation is bounded. A block that does not finish is **NUPP2404** rather than a
-compiler that does not finish, which is what keeps an editor responsive.
-
 Comptime is not a macro system: it produces data, never declarations or source
 text. Reusable `@comptime` helpers, type reflection, and layout intrinsics are
-specified but not yet built; declaring a function inside a block is NUPP2402
+specified but not yet built; declaring a function inside a block is NUPP2411
 today.
 ]=] ,
 example = [=[
@@ -51682,7 +51690,7 @@ end
 function m.checksum(text: string): integer
     local acc = 0xffffffff
     for index = 1, #text do
-        acc = CRC32[(acc ~ text:byte(index)) & 0xff + 1] ~ (acc >> 8)
+        acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
     end
     return acc ~ 0xffffffff
 end

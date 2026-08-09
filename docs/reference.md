@@ -935,15 +935,15 @@ A block returns exactly one value, and that value is checked where it lands, so
 a result that does not fit its declared type is the ordinary error it would be
 if you had typed the literal out. Quotable results are nil, booleans, numbers
 that read back unchanged, strings, and acyclic tables of those with no
-metatable. A table reachable by two paths is **NUPP2405** rather than two
+metatable. A table reachable by two paths is **NUPP2413** rather than two
 tables; NaN and the infinities have no literal spelling.
 
 A block reads only its own locals and the compile-time environment. A runtime
-local, an upvalue, module state, or a global is **NUPP2401**, and it may not
+local, an upvalue, module state, or a global is **NUPP2410**, and it may not
 write to one either. The environment is an allowlist: `assert`, `error`,
 `ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members of
 `math`, `string`, `table` and `bit`. A member the allowlist leaves out is
-**NUPP2402** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
+**NUPP2411** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
 `load`, clock, or randomness.
 
 Two absences are deliberate rather than incidental. The transcendental functions
@@ -953,12 +953,9 @@ process address, so it would differ between two builds of one file; the
 `tostring` provided answers for scalars and refuses the rest. `pairs` iterates in
 sorted order for the same reason.
 
-Evaluation is bounded. A block that does not finish is **NUPP2404** rather than a
-compiler that does not finish, which is what keeps an editor responsive.
-
 Comptime is not a macro system: it produces data, never declarations or source
 text. Reusable `@comptime` helpers, type reflection, and layout intrinsics are
-specified but not yet built; declaring a function inside a block is NUPP2402
+specified but not yet built; declaring a function inside a block is NUPP2411
 today.
 
 ```nupp
@@ -979,7 +976,7 @@ end
 function m.checksum(text: string): integer
     local acc = 0xffffffff
     for index = 1, #text do
-        acc = CRC32[(acc ~ text:byte(index)) & 0xff + 1] ~ (acc >> 8)
+        acc = CRC32[((acc ~ text:byte(index)) & 0xff) + 1] ~ (acc >> 8)
     end
     return acc ~ 0xffffffff
 end
@@ -987,7 +984,7 @@ end
 return m
 ```
 
-Reports: `NUPP2401`, `NUPP2402`, `NUPP2403`, `NUPP2404`, `NUPP2405`. `nupp explain <code>` says more.
+Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`. `nupp explain <code>` says more.
 
 ### Built-in lints
 
