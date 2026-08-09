@@ -33,25 +33,14 @@ local semantic = require("nupp.lsp.semantic")
 local actions = require("nupp.lsp.actions")
 
 local documentationAt = tree.documentationAt
-local enclosingBlock = tree.enclosingBlock
 local enclosingChain = tree.enclosingChain
-local findDeclaration = tree.findDeclaration
-local fromTrivia = tree.fromTrivia
 local functionSignature = tree.functionSignature
 local innermostAt = tree.innermostAt
 local lineHunks = text.lineHunks
 local lineStarts = text.lineStarts
-local memberHolder = tree.memberHolder
 local memberOccurrences = tree.memberOccurrences
-local mentions = tree.mentions
-local moduleHeld = tree.moduleHeld
-local moduleMemberAt = tree.moduleMemberAt
-local moduleMemberDeclarations = tree.moduleMemberDeclarations
-local nodeBounds = tree.nodeBounds
 local offsetAtPosition = text.offsetAtPosition
-local pathToUri = text.pathToUri
 local positionAtOffset = text.positionAtOffset
-local readFile = text.readFile
 local splitLines = text.splitLines
 local symbolKey = tree.symbolKey
 local tokenAt = tree.tokenAt
@@ -59,25 +48,14 @@ local tokenRange = text.tokenRange
 local QUICKFIX = actions.QUICKFIX
 local REFACTOR = actions.REFACTOR
 local SYMBOL_KINDS = symbols.SYMBOL_KINDS
-local TYPE_WORDS = semantic.TYPE_WORDS
-local addSemanticSpan = semantic.addSemanticSpan
-local completionContext = complete.completionContext
-local completionKinds = complete.completionKinds
-local completionWords = complete.completionWords
 local documentSymbols = symbols.documentSymbols
 local foldableSpans = symbols.foldableSpans
-local membersOf = complete.membersOf
-local semanticIndex = semantic.semanticIndex
-local semanticKindMap = semantic.semanticKindMap
 local semanticModifiers = semantic.semanticModifiers
 local semanticTypes = semantic.semanticTypes
 local signatureAt = complete.signatureAt
-local syntaxKinds = semantic.syntaxKinds
 local unwrapWith = actions.unwrapWith
 local wrapInWith = actions.wrapInWith
 local uriToPath = text.uriToPath
-local utf8Char = text.utf8Char
-local walkNodes = tree.walkNodes
 
 type lsp.Session = {
     dispatch: function(any),
@@ -138,18 +116,16 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
 
     local nav = navigate.install(s)
     local fileTokens, sourceForPath = nav.fileTokens, nav.sourceForPath
-    local definitionSource, declarationIndex = nav.definitionSource, nav.declarationIndex
-    local resolveDefinition, definitionLocation = nav.resolveDefinition, nav.definitionLocation
+    local definitionLocation = nav.definitionLocation
     local documentationFor, documentAt = nav.documentationFor, nav.documentAt
-    local symbolAt, isOpenDefinition = nav.symbolAt, nav.isOpenDefinition
+    local symbolAt = nav.symbolAt
     local isProjectDefinition = nav.isProjectDefinition
-    local documentsMentioning, referencesFor = nav.documentsMentioning, nav.referencesFor
+    local referencesFor = nav.referencesFor
     local memberDeclaration, memberAt = nav.memberDeclaration, nav.memberAt
     local memberLocation, memberReferences = nav.memberLocation, nav.memberReferences
-    local memberHover, resolveReceiver = nav.memberHover, nav.resolveReceiver
+    local memberHover = nav.memberHover
 
     local completions = complete.install(s, nav)
-    local moduleCompletions = completions.moduleCompletions
     local completionItems = completions.completionItems
 
     local tokens = semantic.install(s)
@@ -822,7 +798,7 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
     end
 
     handlers["textDocument/documentHighlight"] = function(id, params)
-        local uri, doc, tok, offset = symbolAt(params)
+        local _, doc, tok, offset = symbolAt(params)
         if not tok then
             respond(id, json.empty_array); return
         end

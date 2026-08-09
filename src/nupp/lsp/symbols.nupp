@@ -5,7 +5,6 @@ Both are read from the tree rather than from the checker: an outline has to be
 there while the code is being written, which is exactly when it does not check.
 ]]
 
-local cst = require("nupp.cst")
 local wire = require("nupp.lsp.wire")
 local tree = require("nupp.lsp.tree")
 local text = require("nupp.lsp.text")

@@ -21,11 +21,10 @@ local hash = require("nupp.build.hash")
 local json = require("cjson").new()
 local fs = require("nupp.fs")
 
-local normalize, join = fs.normalize, fs.join
+local join = fs.join
 local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
-local exists, mkdir = fs.exists, fs.mkdir
-local copyFile, listFiles = fs.copyFile, fs.listFiles
+local listFiles = fs.listFiles
 
 local cache = {}
 

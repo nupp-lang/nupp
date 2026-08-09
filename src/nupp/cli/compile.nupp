@@ -8,7 +8,6 @@ and passed down, so what a compile was asked for is visible at the call rather
 than in whatever the argument loop happened to leave behind.
 ]]
 
-local spec = require("nupp.cli.spec")
 local diagnosticMod = require("nupp.diagnostics")
 local fs = require("nupp.fs")
 

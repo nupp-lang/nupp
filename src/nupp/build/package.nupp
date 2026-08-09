@@ -8,7 +8,6 @@ payload appended to a prebuilt host stub, found at run time by a magic trailer
 rather than by anything the filesystem has to be asked.
 ]]
 
-local check = require("nupp.check")
 local hash = require("nupp.build.hash")
 local process = require("nupp.build.process")
 local fs = require("nupp.fs")
@@ -16,10 +15,8 @@ local deps = require("nupp.build.deps")
 local modulesMod = require("nupp.build.modules")
 
 local normalize, join = fs.normalize, fs.join
-local dirname, basename = fs.dirname, fs.basename
+local dirname = fs.dirname
 local readFile, writeFile = fs.readFile, fs.writeFile
-local exists, mkdir = fs.exists, fs.mkdir
-local copyFile, listFiles = fs.copyFile, fs.listFiles
 local expandGlob = deps.expandGlob
 local resourceRelative = modulesMod.resourceRelative
 
@@ -207,15 +204,6 @@ local function stampBinary(stubText, payload)
         .. littleEndian(TRAILER_LENGTH, 8)
     assert(#trailer == TRAILER_LENGTH, "the trailer is a fixed size")
     return stubText .. payload .. trailer
-end
-
---- Whether this machine is the one that cares about signatures.
-local function onMacOS()
-    if package.config:sub(1, 1) == "\\" then
-        return false
-    end
-    local _, kernel = process.capture({"uname", "-s"})
-    return kernel ~= nil and kernel:find("Darwin") ~= nil
 end
 
 --- Writes `payload` into a copy of the stub at `output`.

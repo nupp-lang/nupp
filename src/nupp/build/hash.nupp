@@ -22,11 +22,10 @@ unreadable.
 ]]
 
 local bit = require("bit")
-local ffi = require("ffi")
 
 local hash = {}
 
-local band, bor, bxor = bit.band, bit.bor, bit.bxor
+local band, bxor = bit.band, bit.bxor
 local bnot, rshift, ror = bit.bnot, bit.rshift, bit.ror
 local rol = bit.rol
 

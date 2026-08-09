@@ -6,10 +6,8 @@ has to read as prose on its own rather than as a degraded version of the HTML.
 ]]
 
 local stringsMod = require("nupp.doc.strings")
-local extractMod = require("nupp.doc.extract")
 
 local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markdownCell
-local splitMembers = extractMod.splitMembers
 
 local markdown = {}
 local function sectionTitle(kind)

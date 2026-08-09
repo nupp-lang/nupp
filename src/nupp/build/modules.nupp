@@ -19,10 +19,7 @@ local cache = require("nupp.build.cache")
 local deps = require("nupp.build.deps")
 
 local normalize, join = fs.normalize, fs.join
-local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
-local exists, mkdir = fs.exists, fs.mkdir
-local copyFile, listFiles = fs.copyFile, fs.listFiles
 local stable, hashFile, jsonArray = cache.stable, cache.hashFile, cache.jsonArray
 local expandGlob = deps.expandGlob
 local isFatal, printErrors = diagnosticMod.isFatal, diagnosticMod.report

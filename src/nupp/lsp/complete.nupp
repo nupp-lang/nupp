@@ -6,8 +6,6 @@ half-written member access does not parse into one.
 ]]
 
 local T = require("nupp.types")
-local text = require("nupp.lsp.text")
-local cst = require("nupp.cst")
 local tree = require("nupp.lsp.tree")
 local wire = require("nupp.lsp.wire")
 local semantic = require("nupp.lsp.semantic")

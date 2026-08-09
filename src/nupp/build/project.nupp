@@ -7,13 +7,8 @@ and writes the result. What counts as changed is answered by the content hashes
 in the build cache, not by timestamps.
 ]]
 
-local check = require("nupp.check")
-local diagnosticMod = require("nupp.diagnostics")
 local envMod = require("nupp.env")
-local gen = require("nupp.gen")
 local hash = require("nupp.build.hash")
-local importc = require("nupp.importc")
-local incremental = require("nupp.incremental")
 local json = require("cjson").new()
 local process = require("nupp.build.process")
 local fs = require("nupp.fs")
@@ -34,9 +29,7 @@ local project = {}
 local CHECK_STATE_STAMP = "checks/1"
 
 local normalize, join = fs.normalize, fs.join
-local dirname, basename = fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
-local exists, mkdir = fs.exists, fs.mkdir
 local copyFile, listFiles = fs.copyFile, fs.listFiles
 local stable, hashFile = cache.stable, cache.hashFile
 local loadState, saveState = cache.loadState, cache.saveState
@@ -45,7 +38,7 @@ local targetConfig = tasks.targetConfig
 local buildDependencies = deps.build
 local buildModules = modules.build
 local bundleText, bundleOutput = packaging.bundleText, packaging.bundleOutput
-local stampFile, longString = packaging.stampFile, packaging.longString
+local stampFile = packaging.stampFile
 
 --- Reads and validates a project's manifest. See nupp.build.manifest.
 project.loadManifest = manifest.load
@@ -59,9 +52,6 @@ json.decode_array_with_array_mt(true)
 json.decode_invalid_numbers(false)
 json.encode_empty_table_as_object(true)
 json.encode_invalid_numbers(false)
-
-local printErrors = diagnosticMod.report
-local isFatal = diagnosticMod.isFatal
 
 function project.build(root, opts)
     root, opts = root or ".", opts or {}

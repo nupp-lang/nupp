@@ -24,7 +24,6 @@ local isA = relations.isA
 local subtract = narrowing.subtract
 local truthiness = narrowing.truthiness
 local withoutMember = narrowing.withoutMember
-local memberSet = narrowing.memberSet
 
 --- A type, as nupp.types builds them.
 local type Type = T.Type
