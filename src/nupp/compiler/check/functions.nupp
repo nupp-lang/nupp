@@ -781,7 +781,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 owner.writeByname[member] = ft
             end
             if body.disposeMethod then
-                owner.defaultDisposers[#owner.defaultDisposers + 1] = fname.method and ("@method:" .. member) or member
+                c.own.addDefaultDisposer(owner, fname.method and ("@method:" .. member) or member)
             end
             if owner.fieldOrder and (fname.method or owner.declKind == "struct") then
                 owner.fieldOrder[#owner.fieldOrder + 1] = member

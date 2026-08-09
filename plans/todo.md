@@ -226,24 +226,11 @@ work makes sense in.
       documented default for a type you define; the free-function form is for
       foreign types — `LuaFile`, C pointers, cdata — that cannot carry a
       method.
-- [ ] **`@dispose` on a record method double-registers across modules.** Still
-      reproduces, and the cause is located. `check` and `build` disagree:
-
-          $ nupp check --strict main.nupp     # clean
-          $ nupp run main.nupp
-          res.nupp:11:2: error: NUPP2602: bare @owned has multiple inherited
-          @dispose operations; choose one with @owned(cleanup)
-
-      `src/nupp/compiler/check/declare.nupp:394` appends `"@method:" .. name` to
-      `n.defaultDisposers` unconditionally, where the free-function path
-      `own.registerDefaultDisposer` (`src/nupp/compiler/check/ownership.nupp:188`)
-      dedups first. Re-checking the declaring module against the same nominal
-      appends twice and `ownership.nupp:169` fires on `#defaults > 1`. It needs
-      the record to be a table member (`record res.File`) to show up; a
-      `local record` does not reproduce. Worth doing early on two counts: a
-      diagnostic that only appears on one of two commands is the kind nobody
-      trusts, and `@dispose` is the repair NUPP2620 tells people to reach for,
-      so it has to work across modules before that advice is honest.
+- [x] **`@dispose` registration is idempotent across module rechecks.** Every
+      inline, declared, external, or inherited default disposer now reaches one
+      deduplicating operation. A cross-module regression runs `check`, `build`,
+      and the program, proving that revisiting the exported nominal does not
+      turn its one disposer into an ambiguous pair.
 - [ ] **A cleanup takes the owner and nothing else.** `@owned(cleanup)` emits
       exactly `cleanup(__p)` (`src/nupp/compiler/gen.nupp:737`), and the annotation
       accepts only function names (`src/nupp/compiler/check/pragma.nupp:102`), so a

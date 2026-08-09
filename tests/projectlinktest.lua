@@ -420,6 +420,62 @@ return shapes
    end)
 end
 
+-- A module may be checked while resolving the consumer and then checked again while
+-- building the dependency closure. The nominal survives both passes, so recording
+-- the same disposer twice must be idempotent or one declaration becomes an ambiguous
+-- pair merely because the command did more work.
+function M.defaultDisposerSurvivesRepeatedModuleChecks()
+   withProject({
+      ["nupp.lua"] = "return { include = { 'src' } }\n",
+      ["main.nupp"] = [[
+local res = require("res")
+
+with file = res.open() do
+    print(file.closed)
+end
+]],
+      ["src/res.g.nupp"] = [[
+local res = {}
+
+record res.File
+    closed: boolean
+
+    @dispose
+    function close(self)
+        self.closed = true
+    end
+end
+
+@owned
+function res.open(): res.File
+    return new res.File {closed = false}
+end
+
+return res
+]],
+   }, function(dir)
+      local checkErrors = dir .. "/check-errors.txt"
+      local checkCommand = ("cd '%s' && '%s/bin/nupp' check --strict main.nupp "
+         .. "> /dev/null 2> '%s'"):format(dir, ROOT, checkErrors)
+      assertEq(os.execute(checkCommand), 0,
+         "the initial check: " .. readFile(checkErrors))
+
+      local buildErrors = dir .. "/build-errors.txt"
+      local buildCommand = ("cd '%s' && '%s/bin/nupp' build main.nupp "
+         .. "> /dev/null 2> '%s'"):format(dir, ROOT, buildErrors)
+      assertEq(os.execute(buildCommand), 0,
+         "the dependency recheck: " .. readFile(buildErrors))
+
+      local output = dir .. "/output.txt"
+      local runErrors = dir .. "/run-errors.txt"
+      local runCommand = ("cd '%s' && '%s/bin/nupp' run main.nupp "
+         .. "> '%s' 2> '%s'"):format(dir, ROOT, output, runErrors)
+      assertEq(os.execute(runCommand), 0,
+         "the cross-module disposer run: " .. readFile(runErrors))
+      assertEq(readFile(output), "false\n", "the resource is usable")
+   end)
+end
+
 -- These two asserted that a private cleanup may cross a module boundary. It may
 -- not, and letting it through was worse than the error it replaced: the program
 -- type-checked and then died on `attempt to call a nil value`, because a

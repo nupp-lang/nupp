@@ -760,15 +760,7 @@ function declare.install(
                     -- out can be found again from the nominal.
                     superNode.resolvedSupertype = super
                     for _, disposer in ipairs(super.defaultDisposers or {}) do
-                        local seen = false
-                        for _, current in ipairs(n.defaultDisposers or {}) do
-                            if current == disposer then
-                                seen = true
-                            end
-                        end
-                        if not seen then
-                            n.defaultDisposers[#n.defaultDisposers + 1] = disposer
-                        end
+                        c.own.addDefaultDisposer(n, disposer)
                     end
                     local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
                     for name, inherited in pairs(super.byname or {}) do
@@ -933,7 +925,7 @@ function declare.install(
                                 "@dispose member must be a function whose first " .. "parameter takes the resource"
                             )
                         else
-                            n.defaultDisposers[#n.defaultDisposers + 1] = "@method:" .. e.name.text
+                            c.own.addDefaultDisposer(n, "@method:" .. e.name.text)
                         end
                     end
                     local name = e.name.text
@@ -1224,7 +1216,7 @@ function declare.install(
                         )
                     end
                     if isDisposer then
-                        n.defaultDisposers[#n.defaultDisposers + 1] = "@method:" .. name
+                        c.own.addDefaultDisposer(n, "@method:" .. name)
                     end
                     if receiver then
                         n.fieldDefs[name] = n.fieldDefs[name] or definition

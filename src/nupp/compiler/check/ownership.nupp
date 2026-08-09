@@ -53,6 +53,9 @@ type ownership.Ops = {
     --- Records a `@dispose` operation as the default cleanup of what it takes.
     registerDefaultDisposer: function(ft: Type?, path: string, at: any),
 
+    --- Adds a resolved default cleanup to a nominal, idempotently across rechecks.
+    addDefaultDisposer: function(resourceT: Type?, path: string),
+
     --- The binding an expression's ownership is recorded on, and the name it was
     --- reached through.
     ownershipEntry: function(expr: any): (any, any),
@@ -252,12 +255,11 @@ function ownership.install(c: state.Checker): ownership.Ops
         return {defaults[1]}
     end
 
-    function own.registerDefaultDisposer(ft, path, at)
-        if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
-            c.diag("NUPP2602", at, "@dispose requires a function whose first parameter takes " .. "the resource")
+    function own.addDefaultDisposer(resourceT, path)
+        if not resourceT then
             return
         end
-        local base = rawType(ft.params[1])
+        local base = rawType(resourceT)
         if base.tag ~= "nominal" then
             return
         end
@@ -269,6 +271,14 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
         end
         defaults[#defaults + 1] = path
+    end
+
+    function own.registerDefaultDisposer(ft, path, at)
+        if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
+            c.diag("NUPP2602", at, "@dispose requires a function whose first parameter takes " .. "the resource")
+            return
+        end
+        own.addDefaultDisposer(ft.params[1], path)
     end
 
     function own.ownershipEntry(expr)
