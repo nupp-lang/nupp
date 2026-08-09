@@ -113,18 +113,22 @@ work makes sense in.
       ownership mode and borrow provenance, and an affine result may not be
       silently truncated or discarded by generic forwarding.
 - [ ] **Comptime** ([design](comptime.md)): deterministic data evaluation,
-      deliberately not a macro or declaration-generation system. Unstarted —
-      `comptime` is not a token, and `@comptime` is a reserved annotation that
-      errors with NUPP2113 (`src/compiler/annotations.nupp:214`). Start it
-      against a program that needs a generated table, not against a program
-      that wants a constant: those keep turning out to have cheaper answers,
-      `OPT-3` having since taken `//` and the bit operators.
-  - [ ] C1: `comptime do ... end` expression blocks; compile-time-known
-        literals and `const` bindings; evaluation against a named allowlist;
-        canonical literal/table quoting; line-count-preserving generation;
-        in-memory query caching and equal-result cutoff; and minimum worker
-        isolation, so a looping block fails a request rather than the language
-        server.
+      deliberately not a macro or declaration-generation system. C1 has landed;
+      the rest is below. Reach for it for a program that needs a generated
+      table, not for one that wants a constant: those keep turning out to have
+      cheaper answers, `OPT-3` having since taken `//` and the bit operators.
+  - [x] C1: `comptime do ... end` expression blocks, evaluated by a walker over
+        the checked tree (`src/compiler/comptime.nupp`) against a named
+        allowlist, quoted canonically, and emitted at the `comptime` token so
+        the line count holds. Diagnostics NUPP2401-2405.
+
+        Left open, and deliberately: evaluation runs in process rather than in
+        a worker. What bounds it is a step budget, which stops a looping block
+        in well under a second and is a real answer for an editor, but it is
+        not the crash isolation C4 specifies. Results are recomputed per check
+        rather than cached in the query graph, so equal-result cutoff is not
+        there yet either. Neither is load-bearing for the semantics; both are
+        work this milestone was scoped to include and did not.
   - [ ] C2a: immutable `reflect(T)` descriptors over the checker's full
         structural vocabulary; semantic type fingerprints and module interface
         dependencies. Target-independent and blocked on nothing. Shared with a

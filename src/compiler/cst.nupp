@@ -76,6 +76,11 @@ interface cst.Hints
     --- A loop whose constant bounds the optimizer proved admit no first iteration.
     constantLoopNone: boolean?
 
+    --- The canonical literal a `comptime do ... end` block evaluated to, as source.
+    --- Hung off the node rather than spliced into its children, so the block's own
+    --- tokens still reprint and only `gen` reads the result.
+    comptimeValue: string?
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 
@@ -1185,6 +1190,23 @@ record cst.Paren is
     expr: cst.Node?
 end
 
+--- `comptime do ... end`: an expression whose value is computed while compiling.
+---
+--- The block is an ordinary block and keeps every one of its tokens, so the formatter
+--- and `cst.textOf` reproduce what was written. What evaluation produced is hung off
+--- `comptimeValue` rather than spliced into the children, which is what lets syntax
+--- tools keep seeing the source while `gen` emits the result.
+record cst.ComptimeExpr is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'comptimeExpr'
+
+    --- The block between `do` and `end`.
+    body: cst.Node?
+end
+
 --- `new T(...)`, `new T {...}`: the only way to construct a record or a struct.
 ---
 --- The construction is written as a call so that Lua's existing call sugar covers every
@@ -1883,7 +1905,7 @@ end
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows
+type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
@@ -1913,22 +1935,19 @@ cst.isToken = isToken
 --- The ownership intrinsics, which the compiler implements rather than declares.
 ---
 --- These are the only names Nupp itself puts at the top level, so each is also spelled
---- `nupp.`: a program that would rather say where a name comes from, or that has a local
+--- `nupp.`: a program that would rather say where a name comes from, or that has a
+--- local
 --- called `borrow`, needs a way to reach them anyway. The two spellings mean the same
 --- thing and lower to the same code.
-local OWNERSHIP_INTRINSICS: {[string]: boolean} = {
-    borrow = true,
-    borrowFrom = true,
-    dispose = true,
-    fromRaw = true,
-    intoRaw = true,
-    pin = true,
-}
+local OWNERSHIP_INTRINSICS: {
+    [string]: boolean
+} = {borrow = true, borrowFrom = true, dispose = true, fromRaw = true, intoRaw = true, pin = true,}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.
 ---
---- Whether a spelling is the intrinsic is the caller's question, and the two callers ask
+--- Whether a spelling is the intrinsic is the caller's question, and the two callers
+--- ask
 --- it differently: the checker holds scopes and can see a local shadowing the name,
 --- while the pass reading parameter modes out of a body runs before any of that and has
 --- only the spelling. Both need the spelling read the same way, which is what lives

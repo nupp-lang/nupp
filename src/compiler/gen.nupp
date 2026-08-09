@@ -727,6 +727,15 @@ function gen.generate(
             x.passPinnedPointer = true
             return
         end
+        if x.comptimeValue then
+            -- Nothing of the block's body is emitted; the work happened while
+            -- compiling.
+            -- Its lines are simply left empty, because `sync` only moves forward, so
+            -- whatever follows the `end` still lands on the line it was written on and
+            -- the file keeps its line count.
+            e(x.comptimeValue, sourceLine(x))
+            return
+        end
         if x.folded then
             e(x.folded, sourceLine(x))
             return

@@ -20,6 +20,7 @@ local operators = require("compiler.check.operators")
 local index = require("compiler.check.index")
 local callexpr = require("compiler.check.callexpr")
 local state = require("compiler.check.state")
+local comptime = require("compiler.comptime")
 
 local expr = {}
 
@@ -141,6 +142,47 @@ function expr.install(c: state.Checker): nil
     end
 
     -- Infers the type of a field access on `t`; returns nil if unknowable.
+
+    -- `comptime do ... end`: check the block, run it, and type what it produced.
+    --
+    -- The body is checked like any other block, so a mistake inside one is reported by
+    -- the ordinary machinery rather than by the evaluator. The return frame is what
+    -- differs: a comptime block's `return` leaves the block and not the function around
+    -- it, so a fresh permissive frame is pushed and the enclosing contract goes
+    -- unconsulted.
+    --
+    -- The result's type comes back from the evaluator, built the way a table literal's
+    -- is, so a comptime value obeys the same assignment, return and field rules as a
+    -- literal somebody typed out. Parsing the quoted text and inferring that would be
+    -- the more obviously faithful route, and is not available: reaching the parser from
+    -- the checker closes a module cycle.
+    local function comptimeType(untypedNode: Node): Type
+        local node = untypedNode as cst.ComptimeExpr
+        c.pushScope()
+        c.retStack[#c.retStack + 1] = false
+        c.retPackStack[#c.retPackStack + 1] = false
+        if node.body then
+            c.checkBlock(node.body as cst.Node, true)
+        end
+        c.retPackStack[#c.retPackStack] = nil
+        c.retStack[#c.retStack] = nil
+        c.popScope()
+
+        local quoted, resultType, failure = comptime.evaluate(untypedNode, node.body)
+        if failure then
+            c.diag(
+                failure.code,
+                failure.node or node,
+                failure.message,
+                nil,
+                failure.help and {help = failure.help} or nil
+            )
+            return T.any
+        end
+        node.comptimeValue = quoted
+
+        return resultType or T.any
+    end
 
     -- Each expression family is its own module, installed here and reached through one
     -- table. What is left in this file is the syntax whose type is the syntax itself:
@@ -366,6 +408,8 @@ function expr.install(c: state.Checker): nil
             end
             node.immutablePath = inner and inner.immutablePath or false
             return out
+        elseif kind == "comptimeExpr" then
+            return comptimeType(node)
         elseif kind == "newExpr" then
             -- The construction is the call underneath. Marking it is most of what this
             -- does: what a record or a struct construction means is one piece of code

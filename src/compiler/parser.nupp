@@ -1176,6 +1176,22 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return after ~= nil and after.kind == "name" and after.line == tok.line
     end
 
+    -- "comptime" is contextual on the same rule: it opens a compile-time block only
+    -- when `do` follows it on the same line. A local called `comptime`, a `comptime`
+    -- passed to a function, and a `comptime` left at the end of a line all keep being
+    -- the name they were.
+
+    --- Whether a compile-time block begins at the cursor.
+    local function atComptimeexp(): boolean
+        local tok = cur()
+        if tok.kind ~= "name" or tok.text ~= "comptime" then
+            return false
+        end
+        local after = tokens[i + 1]
+
+        return after ~= nil and after.kind == "do" and after.line == tok.line
+    end
+
     --- `new T(...)`, `new T {...}`: a construction.
     ---
     --- The operand is parsed as an ordinary suffixed expression, so a qualified name
@@ -1247,6 +1263,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return parseTableconstructor()
         elseif atNewexp() then
             return parseNewexp()
+        elseif atComptimeexp() then
+            local n = new cst.ComptimeExpr {kind = "comptimeExpr"}
+            add(n, advance()).contextualOp = true
+            add(n, advance()) -- the `do`
+            n.body = add(n, parseBlock())
+            add(n, expect("end", "to close 'comptime do'"))
+            return n
         else
             return parseSuffixedexp()
         end

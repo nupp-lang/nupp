@@ -918,6 +918,76 @@ return m
 
 Reports: `NUPP2108`. `nupp explain <code>` says more.
 
+### Comptime
+
+`comptime do ... end` is an expression whose value is computed while the file is
+compiled. The block is ordinary Nupp, and what it returns is written into the
+generated Lua as a literal, so nothing of the work survives into the program.
+`comptime` opens a block only when `do` follows it on the same line; everywhere
+else it is an ordinary name.
+
+Its reason to exist is the loop that accumulates: a table built by iterating,
+which no rewrite of an expression can produce. A constant expression does not
+need it, because `-O1` already folds one.
+
+A block returns exactly one value, and that value is checked where it lands, so
+a result that does not fit its declared type is the ordinary error it would be
+if you had typed the literal out. Quotable results are nil, booleans, numbers
+that read back unchanged, strings, and acyclic tables of those with no
+metatable. A table reachable by two paths is **NUPP2405** rather than two
+tables; NaN and the infinities have no literal spelling.
+
+A block reads only its own locals and the compile-time environment. A runtime
+local, an upvalue, module state, or a global is **NUPP2401**, and it may not
+write to one either. The environment is an allowlist: `assert`, `error`,
+`ipairs`, `pairs`, `select`, `tonumber`, `tostring`, `type`, and named members of
+`math`, `string`, `table` and `bit`. A member the allowlist leaves out is
+**NUPP2402** and says which. There is no `io`, `os`, `require`, `ffi`, `debug`,
+`load`, clock, or randomness.
+
+Two absences are deliberate rather than incidental. The transcendental functions
+are libm's, and libm differs between platforms, so a block using one would
+produce a different constant on a different machine. `tostring` of a table is a
+process address, so it would differ between two builds of one file; the
+`tostring` provided answers for scalars and refuses the rest. `pairs` iterates in
+sorted order for the same reason.
+
+Evaluation is bounded. A block that does not finish is **NUPP2404** rather than a
+compiler that does not finish, which is what keeps an editor responsive.
+
+Comptime is not a macro system: it produces data, never declarations or source
+text. Reusable `@comptime` helpers, type reflection, and layout intrinsics are
+specified but not yet built; declaring a function inside a block is NUPP2402
+today.
+
+```nupp
+local m = {}
+
+const CRC32 = comptime do
+    const entries = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            acc = acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+        end
+        entries[byte + 1] = acc
+    end
+    return entries
+end
+
+function m.checksum(text: string): integer
+    local acc = 0xffffffff
+    for index = 1, #text do
+        acc = CRC32[(acc ~ text:byte(index)) & 0xff + 1] ~ (acc >> 8)
+    end
+    return acc ~ 0xffffffff
+end
+
+return m
+```
+
+Reports: `NUPP2401`, `NUPP2402`, `NUPP2403`, `NUPP2404`, `NUPP2405`. `nupp explain <code>` says more.
+
 ### Built-in lints
 
 | Lint | Code | Category | Default |
