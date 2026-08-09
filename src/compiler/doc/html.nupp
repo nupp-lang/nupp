@@ -25,9 +25,11 @@ the anchor link the site's stylesheet expects.
 
 local stringsMod = require("compiler.doc.strings")
 local highlightMod = require("compiler.doc.highlight")
+local urlsMod = require("compiler.doc.urls")
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local headingId = stringsMod.headingId
+local rewriteSymbolLinks = urlsMod.rewriteSymbolLinks
 local codeHtml = highlightMod.codeHtml
 
 -- Where scripts/docs-serve.mjs mounts editors/playground/dist, and where the home
@@ -196,14 +198,23 @@ end
 
 -- Reads one fence, starting at its opening line, and returns the block it describes
 -- plus the index of the line after its closer.
+--
+-- The closer has to be at least as long as the opener, which is how a page shows a
+-- fenced block: four backticks around three. Closing on any run of three instead ends
+-- the outer block at the inner one's first line and leaves its closer opening a block
+-- that swallows the rest of the page.
 local function readFence(lines, index)
-    local language, options = lines[index]:match("^```%s*([%w_+-]*)%s*(.-)%s*$")
-    if not language then
+    local fence, language, options = lines[index]:match("^(```+)%s*([%w_+-]*)%s*(.-)%s*$")
+    if not fence then
         return nil, index
+    end
+    local function closes(line)
+        local closer = line:match("^(```+)%s*$")
+        return closer ~= nil and #closer >= #fence
     end
     local code = {}
     index = index + 1
-    while index <= #lines and not lines[index]:match("^```%s*$") do
+    while index <= #lines and not closes(lines[index]) do
         code[#code + 1] = lines[index]
         index = index + 1
     end
@@ -389,6 +400,14 @@ markdownHtml = function(text: string?, links: compiler.doc.urls.Links?, headingS
     -- almost never ends with one. Every block then wraps the same way, which is what a
     -- table cell full of them depends on.
     local prepared = extractBlocks(text .. "\n", links, rendered)
+    -- After the fences are lifted out, so that a link written inside a code block is
+    -- code rather than a reference, and before lunamark, so that what it reads is an
+    -- ordinary markdown link by then.
+    if links then
+        prepared = rewriteSymbolLinks(prepared, function(name: string): string?
+            return links[name]
+        end)
+    end
     headings, headingIndex = headingSlugs(prepared), 0
     headingShiftBy = headingShift == nil and 1 or headingShift
     -- Annotated because the parser is reached through an untyped rock: without this the

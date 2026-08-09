@@ -46,6 +46,12 @@ local function summaryText(text: string?): string
         "```[%s%S]-```",
         " "
     ):gsub(
+        -- A cross-reference written with no link text stands for the name it points at,
+        -- so that name is what it reduces to here. Letting the general rule below take
+        -- it leaves the sentence a word short.
+        "%[%]%(([^%)]+)%)",
+        "%1"
+    ):gsub(
         "%[([^%]]+)%]%([^%)]+%)",
         "%1"
     ):gsub("`([^`]*)`", "%1"):gsub("[*_~#]", ""):gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")

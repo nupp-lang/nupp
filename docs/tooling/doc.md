@@ -215,6 +215,53 @@ public route at build time. Fragments survive.
 
 A page source may open with `---`-delimited front matter, which is stripped.
 
+## Cross-references
+
+A Markdown link whose target names something the documentation knows resolves
+to whatever documents it. The name may be a module, a declaration, or a member,
+and it works the same in a handwritten page, a module blurb, and a `---` run:
+
+```
+[the zone module](nupp.std.zone)
+[](nupp.std.zone.Zone)
+[the guard's field](nupp.std.zone.Zone.active)
+```
+
+Empty link text stands for the target, so `[](nupp.std.zone)` renders that name
+as code and links it — the whole cost of a reference in passing.
+
+An unqualified name works wherever it is unambiguous, and a name declared in
+the module being rendered resolves to that module first. A name two modules
+both export resolves to neither, because guessing between them would silently
+point at the wrong one.
+
+A target that reads as a URL, has a slash, or carries a fragment is left alone,
+so ordinary links are never captured. A name nothing documents is left alone
+too, except that empty link text still renders the name — a reference to
+something that has moved reads as the name it used to have rather than as an
+invisible link. References inside a code block are code; use the `nupp`
+language there, which links names by itself.
+
+In `markdown` output the same references resolve to anchors within the
+document. A module's own `llms.txt` holds one module, so a reference to a
+neighbour keeps its name and drops its link.
+
+## Module pages
+
+Every module gets its own page: its blurb, a table of the modules nested under
+it, and a table per group of what it declares — constructors, types, functions,
+and values — above the full entry for each.
+
+A namespace with no module of its own has no page, so the modules below it are
+listed by the nearest page above them instead. `nupp.decls` lists
+`nupp.decls.jit.profile` when `nupp.decls.jit` is only a directory.
+
+A constructor is a function whose last name segment matches
+`constructorPattern`, which defaults to `^new`. Set it to another Lua pattern to
+match a different convention, or to `""` to leave every function in Functions.
+Deciding by result type instead would file every accessor and query under
+Constructors, so the name is what answers.
+
 ## Output
 
 **`site`** writes a page per route, `assets/style.css`, `assets/site.js`, a

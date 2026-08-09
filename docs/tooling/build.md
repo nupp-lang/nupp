@@ -177,6 +177,7 @@ docs = {
    logo = "images/project.svg",
    public = "docs/public",
    customCss = "docs/site.css",
+   constructorPattern = "^new",
    pages = {
       {
          path = "",
@@ -205,6 +206,13 @@ Source files below `internal/`, source files beginning with `_`, files marked
 `@!internal` (including descendants of a marked `init.nupp`), and methods or
 members beginning with `_` are private by default; set
 `includePrivate = true` to include them.
+A module's page lists the modules nested under it and groups what it declares
+into constructors, types, functions, and values. `constructorPattern` is the
+Lua pattern a function's last name segment has to match to count as a
+constructor, defaulting to `^new`; `""` leaves every function in Functions.
+A Markdown link whose target names a module, a declaration, or a member —
+`[](nupp.std.zone)` — is resolved to whatever documents it, in handwritten
+pages and doc comments alike.
 Handwritten pages and generated module pages share the navigation, breadcrumb,
 outline, and collapsible side columns. Each page emits and links `llms.txt`;
 the output root adds `llms-full.txt` and an LLM-oriented page index.

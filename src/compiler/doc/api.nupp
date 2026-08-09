@@ -8,6 +8,7 @@ local stringsMod = require("compiler.doc.strings")
 local htmlMod = require("compiler.doc.html")
 local highlightMod = require("compiler.doc.highlight")
 local extractMod = require("compiler.doc.extract")
+local urlsMod = require("compiler.doc.urls")
 
 local htmlEscape = stringsMod.htmlEscape
 local summaryText = stringsMod.summaryText
@@ -15,17 +16,74 @@ local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
 local inlineHtml = htmlMod.inlineHtml
 local highlightNupp = highlightMod.nuppSource
 local splitMembers = extractMod.splitMembers
+local moduleFile = urlsMod.moduleFile
 
 local api = {}
+
+-- The default a manifest that names no `constructorPattern` gets, matched against the
+-- last dotted segment of a name.
+local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
+
 local function kindBadge(kind)
     return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(kind) .. '">' .. htmlEscape(kind) .. '</span>'
 end
 
-local function moduleSummary(module: extractMod.Module): string
-    local groups = {{title = "Types", items = {}}, {title = "Functions", items = {}}, {title = "Values", items = {}},}
+-- A constructor is a plain function whose name says it is one. Deciding by result type
+-- instead — a function returning a type this module declares — files every accessor and
+-- every query under Constructors as well, which is why the name is what answers.
+local function isConstructor(item, pattern)
+    if pattern == "" or item.kind ~= "function" then
+        return false
+    end
+
+    return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
+end
+
+-- The modules nested under this one. A module that is only a namespace over other
+-- modules has this table and nothing else, and a reader who arrived at it has nowhere
+-- else to go.
+local function nestedModules(children: {extractMod.Module}, prefix: string): string
+    if #children == 0 then
+        return ""
+    end
+    local rows = {}
+    for _, child in ipairs(children) do
+        rows[
+            #rows + 1
+        ] = {
+            '<a href="' .. htmlEscape(prefix .. moduleFile(child.name)) .. '"><code>' .. htmlEscape(
+                child.name
+            ) .. '</code></a>',
+            inlineHtml(summaryText(child.text)),
+        }
+    end
+
+    return '<section class="nuppdoc-module-modules"><h2 id="modules">Modules</h2>'
+        .. tableHtml(
+        {"Module", "Description"},
+        rows
+    ) .. "</section>"
+end
+
+local function moduleSummary(module: extractMod.Module, constructorPattern: string?): string
+    local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
+    -- Constructors lead: a reader holding none of this module's values yet cannot use
+    -- anything listed below them.
+    local groups = {
+        {title = "Constructors", kinds = false, items = {}},
+        {title = "Types", kinds = true, items = {}},
+        {title = "Functions", kinds = true, items = {}},
+        {title = "Values", kinds = true, items = {}},
+    }
     for _, item in ipairs(module.items) do
-        local callable = item.kind == "function" or item.kind == "method"
-        local group = callable and groups[2] or item.kind == "variable" and groups[3] or groups[1]
+        local group = groups[2]
+        if isConstructor(item, pattern) then
+            group = groups[1]
+        elseif item.kind == "function" or item.kind == "method" then
+            group = groups[3]
+        elseif item.kind == "variable" then
+            group = groups[4]
+        end
         group.items[#group.items + 1] = item
     end
     local out = {'<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>'}
@@ -33,17 +91,22 @@ local function moduleSummary(module: extractMod.Module): string
         if #group.items > 0 then
             local rows = {}
             for _, item in ipairs(group.items) do
-                rows[
-                    #rows + 1
-                ] = {
-                    '<a href="#' .. htmlEscape(item.path) .. '"><code>' .. htmlEscape(item.name) .. '</code></a>',
-                    kindBadge(item.kind),
-                    inlineHtml(summaryText(item.doc.text)),
+                local row = {
+                    '<a href="#' .. htmlEscape(item.path) .. '"><code>' .. htmlEscape(item.name) .. '</code></a>'
                 }
+                -- A constructor's kind is the word "function" on every row of the
+                -- table, which says nothing the heading has not said already.
+                if group.kinds then
+                    row[#row + 1] = kindBadge(item.kind)
+                end
+                row[#row + 1] = inlineHtml(summaryText(item.doc.text))
+                rows[#rows + 1] = row
             end
-            out[
-                #out + 1
-            ] = '<h3>' .. group.title .. '</h3>' .. tableHtml({group.title:sub(1, -2), "Kind", "Description"}, rows)
+            local headers = group.kinds and {group.title:sub(1, -2), "Kind", "Description"} or {
+                group.title:sub(1, -2),
+                "Description"
+            }
+            out[#out + 1] = '<h3>' .. group.title .. '</h3>' .. tableHtml(headers, rows)
         end
     end
     out[#out + 1] = "</section>"
@@ -177,6 +240,7 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: compi
 end
 
 api.moduleSummary = moduleSummary
+api.nestedModules = nestedModules
 api.renderHtmlItem = renderHtmlItem
 
 return api

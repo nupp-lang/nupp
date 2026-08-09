@@ -192,7 +192,7 @@ end
 -- is how `nupp doc` gets the rocks it renders with.
 local DOCS_KEYS = {
     -- read by compiler.doc
-    "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages",
+    "sources", "format", "outDir", "title", "name", "description", "github", "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages", "constructorPattern",
     -- taken by any build target
     "kind", "dependencies", "entries", "resources", "output", "stub", "nativeFeatures",}
 

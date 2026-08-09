@@ -26,7 +26,7 @@ local normalize, join = filesMod.normalize, filesMod.join
 local readFile, writeFile = filesMod.readFile, filesMod.writeFile
 local listFiles, privateSource = filesMod.listFiles, filesMod.privateSource
 local copyPublicFiles = filesMod.copyPublicFiles
-local moduleName = extractMod.moduleName
+local moduleName, childModules = extractMod.moduleName, extractMod.children
 local configureScintillua = highlightMod.configureScintillua
 local markdownHtml, markdownOutline = htmlMod.markdownHtml, htmlMod.markdownOutline
 local THEME, SCRIPT = assetsMod.THEME, assetsMod.SCRIPT
@@ -35,6 +35,7 @@ local relativePrefix, cleanRoute = urlsMod.relativePrefix, urlsMod.cleanRoute
 local symbolLinkIndex, symbolLinks = urlsMod.symbolLinkIndex, urlsMod.symbolLinks
 local rewriteConfiguredPageLinks = urlsMod.rewriteConfiguredPageLinks
 local moduleSummary, renderHtmlItem = apiMod.moduleSummary, apiMod.renderHtmlItem
+local nestedModules = apiMod.nestedModules
 local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
 
 local doc = {}
@@ -64,6 +65,7 @@ type doc.Page = {
 --- read as one of these too, which is why `kind` and `targetName` are here.
 type doc.Settings = {
     all: boolean?,
+    constructorPattern: string?,
     customCss: string?,
     description: string?,
     favicon: string?,
@@ -114,9 +116,11 @@ function doc.extract(
     return extractMod.extract(source, path, name, opts)
 end
 
---- Renders extracted modules as a single markdown document.
-function doc.markdown(modules: {extractMod.Module}, title: string?): string
-    return markdownMod.render(modules, title)
+--- Renders extracted modules as a single markdown document. `all` is every module the
+--- run documented, which is what says which modules are nested under the ones being
+--- rendered; it defaults to the modules themselves.
+function doc.markdown(modules: {extractMod.Module}, title: string?, all: {extractMod.Module}?): string
+    return markdownMod.render(modules, title, all)
 end
 
 local function sourceFiles(root, config, settings, requested)
@@ -194,10 +198,23 @@ end
 -- language guessed from its extension. A page like the grammar reference is written
 -- this way instead of pasting the grammar in by hand, so the two can never drift: the
 -- build reads whatever bytes docs/grammar.abnf holds, every time it runs.
+--
+-- A directive inside a fence is a page showing the syntax rather than using it, and
+-- expanding one there produces a fence inside a fence: the inner block's closing line
+-- ends the outer one, and every heading after it is swallowed by the block the leftover
+-- opening starts. This page documents the directive, so it is the case that matters.
 local function embedFiles(root, markdown)
-    local out = {}
+    local out, fence = {}, nil
     for line in (markdown .. "\n"):gmatch("(.-)\n") do
-        local path = line:match("^<<<%s+@(%S+)%s*$")
+        local marker = line:match("^%s*(```+)") or line:match("^%s*(~~~+)")
+        if marker then
+            if not fence then
+                fence = marker
+            elseif marker:sub(1, 1) == fence:sub(1, 1) and #marker >= #fence then
+                fence = nil
+            end
+        end
+        local path = not fence and line:match("^<<<%s+@(%S+)%s*$")
         if path then
             local contents, err = readFile(join(root, path))
             if not contents then
@@ -392,23 +409,32 @@ local function renderSite(root, outDir, modules, title, settings)
         local markdown, body, items, current = candidate.markdown or "", {}, {}, nil
         if candidate.module then
             local module = candidate.module
+            local children = childModules(modules, module.name)
             current, items = module.name, {}
+            if #children > 0 then
+                items[#items + 1] = {path = "modules", name = "Modules"}
+            end
             if #module.items > 0 then
                 items[#items + 1] = {path = "module-contents", name = "Module contents"}
             end
             for _, item in ipairs(module.items) do
                 items[#items + 1] = item
             end
-            markdown = doc.markdown({module})
+            markdown = doc.markdown({module}, nil, modules)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[#body + 1] = '<h1>Module: <code>' .. htmlEscape(module.name) .. '</code></h1>'
             if module.text ~= "" then
                 body[#body + 1] = markdownHtml(module.text, links)
             end
+            body[#body + 1] = nestedModules(children, relativePrefix(file))
             if #module.items == 0 then
-                body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
+                -- A namespace's own page carries no declarations, and its table of
+                -- nested modules is the whole of what it has to say.
+                if #children == 0 then
+                    body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
+                end
             else
-                body[#body + 1] = moduleSummary(module)
+                body[#body + 1] = moduleSummary(module, settings.constructorPattern)
                 for _, item in ipairs(module.items) do
                     renderHtmlItem(body, item, links)
                 end

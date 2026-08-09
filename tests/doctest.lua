@@ -337,6 +337,83 @@ function M.internalInitHidesItsDocumentationTree()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.constructorPatternDecidesTheConstructorsGroup()
+   local files = {
+      ["src/engine.nupp"] = table.concat({
+         "--[[",
+         "The engine.",
+         "]]",
+         "",
+         "--- Starts one.",
+         "function newEngine(): nil end",
+         "",
+         "--- Builds one.",
+         "function makeEngine(): nil end",
+      }, "\n") .. "\n",
+   }
+   local config = {include = {"src"}}
+   local function render(settings, out)
+      local dir = tempProject(files)
+      settings.sources = {"src"}
+      assert(doc.build(dir, config, settings, {format = "site", output = out}) == 0)
+      local page = readFile(dir .. "/" .. out .. "/modules/engine/index.html")
+      os.execute("rm -rf '" .. dir .. "'")
+      return page
+   end
+
+   local function constructors(page)
+      return page:match("<h3>Constructors</h3>(.-)</table>")
+   end
+   local function functions(page)
+      return page:match("<h3>Functions</h3>(.-)</table>")
+   end
+
+   local default = render({}, "site")
+   assert(constructors(default):find("newEngine", 1, true), default)
+   assert(functions(default):find("makeEngine", 1, true), default)
+
+   local renamed = render({constructorPattern = "^make"}, "renamed")
+   assert(constructors(renamed):find("<th>Constructor</th><th>Description</th>",
+      1, true), renamed)
+   assert(constructors(renamed):find("makeEngine", 1, true), renamed)
+   assert(functions(renamed):find("newEngine", 1, true), renamed)
+
+   -- an empty pattern is how a project says its functions are just functions
+   local none = render({constructorPattern = ""}, "none")
+   assert(not none:find("<h3>Constructors</h3>", 1, true), none)
+   assert(none:find("<h3>Functions</h3>", 1, true), none)
+end
+
+function M.markdownLinksNestedModulesAndReferences()
+   local dir = tempProject({
+      ["src/engine/init.nupp"] = table.concat({
+         "--[[",
+         "The engine. Sound comes out of [](engine.audio), and a run holds one",
+         "[](engine.Engine).",
+         "]]",
+         "",
+         "--- A running engine.",
+         "record Engine",
+         "   running: boolean",
+         "end",
+      }, "\n") .. "\n",
+      ["src/engine/audio.nupp"] = "--[[\nAudio helpers.\n]]\nfunction play(): nil end\n",
+   })
+   local config = {include = {"src"}}
+   assert(doc.build(dir, config, {sources = {"src"}},
+      {format = "markdown", output = "api.md"}) == 0)
+   local api = readFile(dir .. "/api.md")
+   -- one document holds every module, so every reference in it resolves
+   assert(api:find('<a id="engine"></a>', 1, true), api)
+   assert(api:find("## Modules", 1, true), api)
+   assert(api:find("| [`engine.audio`](#engine.audio) | Audio helpers. |", 1, true),
+      api)
+   assert(api:find("[`engine.audio`](#engine.audio), and a run holds one", 1, true),
+      api)
+   assert(api:find("[`engine.Engine`](#engine.Engine)", 1, true), api)
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.docsBuildTargetWritesSiteAndMarkdown()
    local dir = tempProject({
       ["nupp.lua"] = [[return {
@@ -411,6 +488,21 @@ function M.siteMatchesTheNuppdocPageModel()
          "",
          "Human-readable setup instructions.",
          "",
+         "Start from [](math.add), or from [the engine](engine).",
+         "",
+         "A reference in a code span is shown rather than made: `[](math.add)`.",
+         "",
+         "````",
+         "```nupp",
+         "local x = 1",
+         "```",
+         "<<< @docs/snippet.abnf",
+         "````",
+         "",
+         "## After the fence",
+         "",
+         "Still part of the page.",
+         "",
          "::: note Before you begin",
          "Use **Lunamark** inside this callout.",
          ":::",
@@ -460,9 +552,31 @@ function M.siteMatchesTheNuppdocPageModel()
          .. "<<< @docs/snippet.abnf\n",
       ["docs/snippet.abnf"] = 'rule = "literal" / other\n',
       ["src/math.nupp"] = SOURCE,
-      ["src/engine/init.nupp"] = "--- Engine entry point.\nfunction boot(): nil end\n",
-      ["src/engine/audio.nupp"] = "--- Audio helpers.\nfunction play(): nil end\n",
+      ["src/engine/init.nupp"] = table.concat({
+         "--[[",
+         "Engine entry point.",
+         "",
+         "Sound comes out of [audio](engine.audio).",
+         "]]",
+         "",
+         "--- A running engine.",
+         "record Engine",
+         "   running: boolean",
+         "end",
+         "",
+         "--- Starts an engine. Hands back an [](engine.Engine) whose",
+         "--- [](engine.Engine.running) is already true, and never [](nothing.at.all).",
+         "function newEngine(): Engine end",
+         "",
+         "--- Boots the engine.",
+         "function boot(): nil end",
+      }, "\n") .. "\n",
+      ["src/engine/audio.nupp"] = "--[[\nAudio helpers.\n]]\nfunction play(): nil end\n",
       ["src/engine/render.nupp"] = "--- Rendering helpers.\nfunction draw(): nil end\n",
+      -- no engine/gpu module of its own, so the nearest page above this one is
+      -- `engine`, and that is where it has to be listed
+      ["src/engine/gpu/vulkan.nupp"] = "--[[\nThe Vulkan backend.\n]]\n"
+         .. "function submit(): nil end\n",
    })
    local output = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
    assert(output == "", output)
@@ -564,8 +678,77 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(branchModule:find('<summary class="nuppdoc-module-branch-link">'
       .. '<a aria-current="page" href="../../modules/engine/index.html"',
       1, true), branchModule)
+
+   -- a module's page lists the modules nested under it, so a namespace is
+   -- somewhere a reader can arrive at rather than only pass through
+   assert(branchModule:find('<h2 id="modules">Modules</h2>', 1, true), branchModule)
+   assert(branchModule:find('<a href="../../modules/engine/audio/index.html">'
+      .. "<code>engine.audio</code></a></td><td>Audio helpers.</td>",
+      1, true), branchModule)
+   assert(branchModule:find('<a href="../../modules/engine/render/index.html">',
+      1, true), branchModule)
+   -- engine.gpu has no module of its own, so engine is the nearest page that
+   -- can name what lives below it
+   assert(branchModule:find('<a href="../../modules/engine/gpu/vulkan/index.html">'
+      .. "<code>engine.gpu.vulkan</code></a></td><td>The Vulkan backend.</td>",
+      1, true), branchModule)
+   assert(branchModule:find('<a href="#modules" title="Modules">', 1, true),
+      "the outline did not list the nested modules")
+   assert(not readFile(dir .. "/site/modules/engine/audio/index.html")
+      :find('<h2 id="modules">', 1, true),
+      "a module with nothing nested under it still rendered a Modules table")
+
+   -- a constructor is grouped apart from the functions, and its kind is the
+   -- word "function" on every row, so that column is left off
+   assert(branchModule:find("<h3>Constructors</h3><table><thead><tr>"
+      .. "<th>Constructor</th><th>Description</th>", 1, true), branchModule)
+   assert(branchModule:find('<a href="#engine.newEngine"><code>newEngine</code></a>',
+      1, true), branchModule)
+   assert(branchModule:find("<h3>Functions</h3><table><thead><tr>"
+      .. "<th>Function</th><th>Kind</th><th>Description</th>", 1, true),
+      branchModule)
+   assert(branchModule:find('<a href="#engine.boot"><code>boot</code></a>', 1, true),
+      branchModule)
+
+   -- a markdown link whose target names a module, a declaration, or a member is
+   -- resolved to whatever documents it, so a reference is written as the name
+   assert(branchModule:find('<a href="../../modules/engine/audio/index.html">audio</a>',
+      1, true), branchModule)
+   assert(branchModule:find('<a href="../../modules/engine/index.html#engine.Engine">'
+      .. "<code>engine.Engine</code></a>", 1, true), branchModule)
+   assert(branchModule:find('<a href="../../modules/engine/index.html#engine.Engine">'
+      .. "<code>engine.Engine.running</code></a>", 1, true), branchModule)
+   -- a name nothing documents still renders, rather than becoming an empty link
+   assert(branchModule:find("never <code>nothing.at.all</code>", 1, true),
+      branchModule)
+   assert(guide:find('<a href="../modules/math/index.html#math.add">'
+      .. "<code>math.add</code></a>", 1, true), guide)
+   assert(guide:find('<a href="../modules/engine/index.html">the engine</a>',
+      1, true), guide)
+   -- a reference inside a code span is a page showing the syntax, not using it
+   assert(guide:find("<code>[](math.add)</code>", 1, true), guide)
+
+   -- a fence longer than the ones it holds keeps them, so a page can show a fenced
+   -- block and an embed directive without either being acted on
+   assert(guide:find("```nupp\nlocal x = 1\n```\n&lt;&lt;&lt; @docs/snippet.abnf",
+      1, true), guide)
+   assert(not guide:find("literal&quot; / other", 1, true),
+      "an embed directive inside a fence was expanded")
+   -- and everything after the fence is still on the page
+   assert(guide:find('id="after-the-fence"', 1, true),
+      "the four-backtick fence swallowed the rest of the page")
+
    assert(readFile(dir .. "/site/modules/math/llms.txt"):find(
       "# Module: `math`", 1, true))
+   local engineMarkdown = readFile(dir .. "/site/modules/engine/llms.txt")
+   assert(engineMarkdown:find("## Modules", 1, true), engineMarkdown)
+   assert(engineMarkdown:find("| `engine.gpu.vulkan` | The Vulkan backend. |",
+      1, true), engineMarkdown)
+   -- the same references in markdown: an anchor when the document holds what it
+   -- names, and the bare name when it does not
+   assert(engineMarkdown:find("[`engine.Engine`](#engine.Engine)", 1, true),
+      engineMarkdown)
+   assert(engineMarkdown:find("Sound comes out of audio.", 1, true), engineMarkdown)
    assert(readFile(dir .. "/site/llms.txt"):find("Complete documentation", 1, true))
    assert(readFile(dir .. "/site/llms-full.txt"):find("Guide", 1, true))
    local search = readFile(dir .. "/site/assets/search-index.js")

@@ -489,6 +489,42 @@ local function splitMembers(members: {extract.Member}?): {extract.Member}, {extr
     return fields, methods
 end
 
+--- The modules one module's page is responsible for listing: every module nested under
+--- its name whose nearest documented ancestor is that module.
+---
+--- The nearest ancestor decides, rather than the immediate one, because a namespace can
+--- exist without a module of its own. `nupp.decls.jit` is a directory with no
+--- `init.nupp`, so nothing documents it and nothing would list `nupp.decls.jit.profile`
+--- if a page only claimed the names one segment below it. That module is listed by
+--- `nupp.decls` instead, which is the nearest page a reader can reach it from.
+---
+--- @param modules every module the run documented, which is what says who is documented
+--- @param name the module whose children are wanted
+--- @return the children, in the order they were given
+function extract.children(modules: {extract.Module}, name: string): {extract.Module}
+    local documented = {}
+    for _, module in ipairs(modules) do
+        documented[module.name] = true
+    end
+    local prefix, children = name .. ".", {}
+    for _, module in ipairs(modules) do
+        if module.name:sub(1, #prefix) == prefix then
+            local nearest, walked = name, name
+            for segment in module.name:sub(#prefix + 1):gmatch("[^.]+") do
+                walked = walked .. "." .. segment
+                if walked ~= module.name and documented[walked] then
+                    nearest = walked
+                end
+            end
+            if nearest == name then
+                children[#children + 1] = module
+            end
+        end
+    end
+
+    return children
+end
+
 extract.moduleName = moduleName
 extract.splitMembers = splitMembers
 

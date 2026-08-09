@@ -6,10 +6,44 @@ has to read as prose on its own rather than as a degraded version of the HTML.
 ]]
 
 local stringsMod = require("compiler.doc.strings")
+local extractMod = require("compiler.doc.extract")
+local urlsMod = require("compiler.doc.urls")
 
 local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markdownCell
+local summaryText = stringsMod.summaryText
+local childModules = extractMod.children
+local symbolLinkIndex = urlsMod.symbolLinkIndex
+local rewriteSymbolLinks = urlsMod.rewriteSymbolLinks
 
 local markdown = {}
+
+-- Where a name reaches what documents it, for the length of one render. `anchors` holds
+-- what this document renders, which is what a fragment can reach; `known` holds
+-- everything the run documented, so a name this document does not carry is still told
+-- apart from one nothing documents at all.
+local anchors: compiler.doc.urls.Links? = nil
+local known: compiler.doc.urls.Links? = nil
+
+-- Prose an author wrote, as opposed to a signature the parser produced. Only prose is
+-- searched for references: a signature is code, and `handlers[name](value)` in one is an
+-- index call rather than a link.
+local function prose(text: string?): string
+    local text = tostring(text or "")
+    if not anchors then
+        return text
+    end
+
+    return rewriteSymbolLinks(text, function(name: string): string?
+        return anchors[name] or known and known[name]
+    end)
+end
+
+-- A table cell holding prose, which is the only kind of cell a reference can appear in:
+-- the others hold a name or a type the parser read out of the source.
+local function cell(text: string?): string
+    return markdownCell(prose(text))
+end
+
 local function sectionTitle(kind)
     local names = {
         ["function"] = "Functions",
@@ -50,7 +84,7 @@ local function markdownArguments(out, params, heading)
             #out + 1
         ] = "| `" .. markdownEscape(
             param.name
-        ) .. "` | `" .. markdownEscape(param.type) .. "` | " .. markdownCell(param.text) .. " |"
+        ) .. "` | `" .. markdownEscape(param.type) .. "` | " .. cell(param.text) .. " |"
     end
     out[#out + 1] = ""
 end
@@ -64,7 +98,7 @@ local function markdownReturns(out, returns, heading)
     out[#out + 1] = "| Type | Description |"
     out[#out + 1] = "| --- | --- |"
     for _, value in ipairs(returns) do
-        out[#out + 1] = "| `" .. markdownEscape(value.type) .. "` | " .. markdownCell(value.text) .. " |"
+        out[#out + 1] = "| `" .. markdownEscape(value.type) .. "` | " .. cell(value.text) .. " |"
     end
     out[#out + 1] = ""
 end
@@ -78,7 +112,7 @@ local function markdownRaises(out, raises, heading)
     out[#out + 1] = heading .. " Raises"
     out[#out + 1] = ""
     for _, condition in ipairs(raises) do
-        out[#out + 1] = "- " .. markdownCell(condition)
+        out[#out + 1] = "- " .. cell(condition)
     end
     out[#out + 1] = ""
 end
@@ -91,7 +125,7 @@ local function renderMarkdownItem(out, item)
     -- declaration you are looking for, and the signature answers how to call it once
     -- you know that it is.
     if item.doc.text ~= "" then
-        out[#out + 1] = item.doc.text
+        out[#out + 1] = prose(item.doc.text)
         ;
         out[#out + 1] = ""
     end
@@ -105,7 +139,7 @@ local function renderMarkdownItem(out, item)
         out[#out + 1] = "| Name | Description |"
         out[#out + 1] = "| --- | --- |"
         for _, typearg in ipairs(item.typeargs) do
-            out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | " .. markdownCell(typearg.text) .. " |"
+            out[#out + 1] = "| `" .. markdownEscape(typearg.name) .. "` | " .. cell(typearg.text) .. " |"
         end
         out[#out + 1] = ""
     end
@@ -121,7 +155,7 @@ local function renderMarkdownItem(out, item)
             out[#out + 1] = "##### `" .. method.name .. "`"
             out[#out + 1] = ""
             if method.text ~= "" then
-                out[#out + 1] = method.text
+                out[#out + 1] = prose(method.text)
                 out[#out + 1] = ""
             end
             out[#out + 1] = "```nupp"
@@ -143,13 +177,30 @@ local function renderMarkdownItem(out, item)
                 #out + 1
             ] = "| `" .. markdownEscape(
                 field.name
-            ) .. "` | `" .. markdownEscape(field.type) .. "` | " .. markdownCell(field.text) .. " |"
+            ) .. "` | `" .. markdownEscape(field.type) .. "` | " .. cell(field.text) .. " |"
         end
         out[#out + 1] = ""
     end
 end
 
-function markdown.render(modules: {compiler.doc.extract.Module}, title: string?): string
+--- Renders modules as one markdown document.
+---
+--- `all` is every module the run documented. A page renders one module at a time but
+--- still has to name the ones nested under it, and only the whole set says which those
+--- are; rendering the whole set at once, as `nupp doc markdown` does, is the case where
+--- the two arguments are the same list.
+function markdown.render(
+    modules: {compiler.doc.extract.Module},
+    title: string?,
+    all: {compiler.doc.extract.Module}?
+): string
+    local all = all or modules
+    anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
+        return "#" .. (path or module)
+    end)
+    known = symbolLinkIndex(all, function(): string
+        return ""
+    end)
     local out = {}
     if title and title ~= "" then
         out[#out + 1] = "# " .. title
@@ -157,11 +208,31 @@ function markdown.render(modules: {compiler.doc.extract.Module}, title: string?)
         out[#out + 1] = ""
     end
     for moduleIndex, module in ipairs(modules) do
+        out[#out + 1] = '<a id="' .. module.name .. '"></a>'
         out[#out + 1] = "# Module: `" .. module.name .. "`"
         out[#out + 1] = ""
         if module.text ~= "" then
-            out[#out + 1] = module.text
+            out[#out + 1] = prose(module.text)
             ;
+            out[#out + 1] = ""
+        end
+        local children = childModules(all, module.name)
+        if #children > 0 then
+            out[#out + 1] = "## Modules"
+            out[#out + 1] = ""
+            out[#out + 1] = "| Module | Description |"
+            out[#out + 1] = "| --- | --- |"
+            for _, child in ipairs(children) do
+                -- A child is linked only where this document also renders it. One
+                -- module's markdown names its children without holding them.
+                local label = "`" .. markdownEscape(child.name) .. "`"
+                local anchor = anchors and anchors[child.name]
+                out[
+                    #out + 1
+                ] = "| " .. (anchor and "[" .. label .. "](" .. anchor .. ")" or label) .. " | " .. markdownCell(
+                    summaryText(child.text)
+                ) .. " |"
+            end
             out[#out + 1] = ""
         end
         local currentKind = nil
@@ -179,6 +250,7 @@ function markdown.render(modules: {compiler.doc.extract.Module}, title: string?)
             out[#out + 1] = ""
         end
     end
+    anchors, known = nil, nil
 
     return table.concat(out, "\n") .. "\n"
 end
