@@ -3,6 +3,8 @@
 ```playground
 ```
 
+<!-- nupp:features -->
+
 ## Getting started
 
 - [Installation](start/installation.md) — requirements, a checkout, and a first

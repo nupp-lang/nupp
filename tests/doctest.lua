@@ -480,7 +480,7 @@ function M.siteMatchesTheNuppdocPageModel()
    }},
 }
 ]],
-      ["docs/index.md"] = "Welcome to the project.\n",
+      ["docs/index.md"] = "Welcome to the project.\n\n<!-- nupp:features -->\n\n## More details\n",
       ["docs/public/images/project.svg"] = "<svg><title>Example</title></svg>\n",
       ["docs/site.css"] = ":root{--example-project-accent:#315f58}\n",
       ["docs/guide.md"] = table.concat({
@@ -590,8 +590,8 @@ function M.siteMatchesTheNuppdocPageModel()
       'class="nuppdoc-hero-image"', 1, true), "home Markdown must remain in the hero copy")
    assert(home:find("nuppdoc%-feature%-showcase"), home)
    assert(home:find("language%-nupp"), home)
-   assert(home:find("Welcome to the project", 1, true) < home:find(
-      "nuppdoc%-feature%-showcase"), "features must follow the home Markdown")
+   assert(home:find("nuppdoc%-feature%-showcase") < home:find(
+      "More details", 1, true), "features must follow the marked home introduction")
    assert(home:find('class="nuppdoc-logo" src="images/project.svg"',
       1, true), home)
    assert(home:find('src="images/project.svg"', 1, true), home)

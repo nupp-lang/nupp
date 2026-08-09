@@ -444,10 +444,32 @@ local function renderSite(root, outDir, modules, title, settings)
             items = markdownOutline(markdown)
             body[#body + 1] = homeHero(candidate, links)
             local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
-            body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
-            body[#body + 1] = homeHeroEnd(candidate)
+            local featureStart, featureEnd
             if candidate.path == "" then
+                -- A home page can put its long-form feature tour directly after an
+                -- interactive introduction, before its lower-priority link sections.
+                featureStart, featureEnd = markdown:find("<!-- nupp:features -->", 1, true)
+            end
+            if featureStart and featureEnd then
+                local introduction = rewriteConfiguredPageLinks(
+                    markdown:sub(1, featureStart - 1),
+                    candidate,
+                    pages,
+                    file
+                )
+                local remainder = rewriteConfiguredPageLinks(markdown:sub(featureEnd + 1), candidate, pages, file)
+                body[#body + 1] = markdownHtml(introduction, links, 0)
+                body[#body + 1] = homeHeroEnd(candidate)
                 body[#body + 1] = homeFeatures(candidate, links)
+                body[#body + 1] = markdownHtml(remainder, links, 0)
+            else
+                body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
+                body[#body + 1] = homeHeroEnd(candidate)
+            end
+            if candidate.path == "" then
+                if not featureStart then
+                    body[#body + 1] = homeFeatures(candidate, links)
+                end
                 body[#body + 1] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
                 for _, module in ipairs(modules) do
                     body[

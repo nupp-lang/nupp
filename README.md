@@ -340,7 +340,9 @@ Home pages additionally accept `heroTitle`, `heroText`, `heroImage`,
 `heroImageAlt`, `heroActions`, and `features`. Each feature has a `title` and
 `details`, and may supply an `icon`, an `image` with `imageAlt`, or a `code`
 sample with an optional `codeLanguage`. Features render as an alternating
-showcase after the home page's Markdown content.
+showcase after the home page's Markdown content. Add
+`<!-- nupp:features -->` on its own line to render the showcase at that point
+instead.
 
 Run it with `nupp build --target docs`. `nupp check --target docs` parses and
 validates every selected source without writing output. Warm rebuilds avoid
