@@ -36,6 +36,10 @@ record compile.Settings
     --- `--json`, which has to put them in a document rather than let each one say
     --- itself as it is found. Same favour `nupp.build.project` already does.
     diagnostics: {any}?
+
+    --- Coverage is a separate generated artifact. It is intentionally absent from
+    --- ordinary settings so normal compilation does not even build a site manifest.
+    coverage: boolean
 end
 
 -- The level arrives as the digit the option captured. The grammar has already refused
@@ -54,6 +58,7 @@ function compile.settings(values: {[string]: any},
         disabled = values.disabled or {},
         relaxed = values.relaxed or {},
         diagnostics = collected,
+        coverage = values.coverage == true or os.getenv("NUPP_COVERAGE") == "1",
     }
 end
 
@@ -105,7 +110,8 @@ function compile.module(path: string, env: any,
         say(remarks)
     end
     local gen = require("nupp.gen")
-    local code, genDiags = gen.generate(result, path)
+    local code, genDiags = gen.generate(result, path,
+        settings.coverage and {path = path} or nil)
     if #genDiags > 0 then
         say(genDiags)
         return nil, "code generation errors"

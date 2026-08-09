@@ -9,7 +9,9 @@
 -- are held back unless it fails or --verbose asks for them. Lines are 1-based,
 -- as everywhere else; a Lua error carries no column, so none is invented.
 local dir = arg[0]:match("^(.*)[/\\]") or "."
-package.path = dir .. "/../build/?.lua;" .. dir .. "/?.lua;" .. package.path
+local buildDir = os.getenv("NUPP_COVERAGE_BUILD") or "build"
+package.path = dir .. "/../" .. buildDir .. "/?.lua;" .. dir .. "/?.lua;"
+   .. package.path
 local test = require("assert")
 
 -- Existing suites use Lua's familiar assert spelling.  Give those assertions
@@ -330,6 +332,41 @@ for _, suiteInfo in ipairs(suites) do
    if removeLoader then removeLoader() end
 end
 local duration = now() - started
+
+-- Coverage-generated modules share one small global counter table.  The runner owns
+-- the process boundary, so it is the right place to turn that in-memory table into a
+-- shard the parent `nupp coverage` command can merge after the test process exits.
+local coverageFile = os.getenv("NUPP_COVERAGE_FILE")
+local coverage = coverageFile and rawget(_G, "__nuppCoverage") or nil
+if coverageFile and coverage then
+   local json = require("cjson").new()
+   json.encode_empty_table_as_object(false)
+   json.encode_invalid_numbers(false)
+   local merged = {}
+   local previous = io.open(coverageFile, "rb")
+   if previous then
+      local text = previous:read("*a")
+      previous:close()
+      local ok, old = pcall(json.decode, text)
+      if ok and type(old) == "table" and type(old.hits) == "table" then
+         merged = old.hits
+      end
+   end
+   for path, counters in pairs(coverage.hits) do
+      local into = merged[path] or {}
+      merged[path] = into
+      for id, count in pairs(counters) do
+         into[id] = (into[id] or 0) + count
+      end
+   end
+   local f, coverageErr = io.open(coverageFile, "wb")
+   if not f then
+      io.stderr:write("nupp: cannot write coverage data: " .. tostring(coverageErr) .. "\n")
+   else
+      f:write(json.encode({hits = merged}) .. "\n")
+      f:close()
+   end
+end
 
 if progressWidth ~= 0 then progressWrite("\n") end
 

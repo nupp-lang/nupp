@@ -1,0 +1,57 @@
+--[[ Run the configured test command against a separate coverage build. ]]
+
+local spec = require("nupp.cli.spec")
+local fs = require("nupp.fs")
+
+local command = spec.command{
+    name = "coverage",
+    summary = "Run tests and write a source coverage report",
+    usage = {"nupp coverage [--out DIR] [--json] [test arguments...]"},
+    stopAtPositional = true,
+    options = {
+        {name = "--out", value = "DIR", help = "Directory for the HTML, JSON, and LCOV report"},
+        {name = "--json", key = "json", help = "Write the aggregate summary as JSON"},
+    },
+    schema = {
+        type = "object", description = "Aggregate Nupp coverage totals.",
+        properties = {
+            lines = {type = "object"}, functions = {type = "object"},
+            branches = {type = "object"},
+        }, required = {"lines", "functions", "branches"},
+    },
+    detail = [[Coverage uses a separate build/coverage artifact, so normal generated
+Lua and its cache are never instrumented. The static report opens at
+coverage/index.html and also writes coverage.json and lcov.info.]],
+}
+
+local function run(parsed)
+    local outDir = parsed.values.out or "coverage"
+    local buildDir = "build/coverage"
+    local raw = outDir .. "/raw.json"
+    if not fs.mkdir(outDir) then
+        io.stderr:write("nupp: cannot create coverage output " .. outDir .. "\n")
+        return 1
+    end
+    local project = require("nupp.build.project")
+    local testCode = project.test(".", parsed.positional, {coverage = true,
+        outDir = buildDir, env = {NUPP_COVERAGE = "1",
+        NUPP_COVERAGE_BUILD = buildDir, NUPP_COVERAGE_FILE = raw}})
+    local report = require("nupp.coverage")
+    local model = report.collect(buildDir .. "/.nupp-state.json", raw)
+    local summary = report.write(model, outDir)
+    if parsed.values.json then
+        require("nupp.cli.report").write(summary)
+    else
+        io.write(("coverage: lines %.2f%%, functions %.2f%%, branches %.2f%%\n")
+            :format(summary.lines.percent, summary.functions.percent,
+            summary.branches.percent))
+        io.write("coverage: report written to " .. outDir .. "/index.html\n")
+    end
+    if #model.warnings > 0 and testCode == 0 then
+        io.stderr:write("nupp: coverage data is incomplete\n")
+        return 1
+    end
+    return testCode
+end
+
+return new spec.Handler {spec = command, run = run}

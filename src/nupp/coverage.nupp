@@ -1,0 +1,378 @@
+--[[
+Coverage aggregation and the self-contained static report.
+
+The generated program owns counting; this module deliberately owns none of the
+hot path.  It reads the coverage build state and the one shard the built-in
+runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
+HTML from that model.
+]]
+
+local cjson = require("cjson")
+local fs = require("nupp.fs")
+local cache = require("nupp.build.cache")
+local highlight = require("nupp.doc.highlight")
+
+local coverage = {}
+local readFile, writeFile, normalize = fs.readFile, fs.writeFile, fs.normalize
+
+local function percent(covered, total)
+    if total == 0 then
+        return 100
+    end
+    return math.floor(covered * 10000 / total + 0.5) / 100
+end
+
+local function metric()
+    return {covered = 0, total = 0, missing = {}}
+end
+
+local function add(metricValue, hit, label)
+    metricValue.total = metricValue.total + 1
+    if hit then
+        metricValue.covered = metricValue.covered + 1
+    else
+        metricValue.missing[#metricValue.missing + 1] = label
+    end
+end
+
+local function finish(metricValue)
+    metricValue.percent = percent(metricValue.covered, metricValue.total)
+end
+
+local function splitLines(source)
+    local lines = {}
+    if source == "" then
+        return lines
+    end
+    for line in (source .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = line
+    end
+    if source:sub(-1) == "\n" then
+        lines[#lines] = nil
+    end
+    return lines
+end
+
+local function parent(path)
+    return normalize(path):match("^(.*)/[^/]+$") or ""
+end
+
+local function fileStatus(file)
+    local lines, funcs, branches = file.lines, file.functions, file.branches
+    if lines.total == 0 and funcs.total == 0 and branches.total == 0 then
+        return "non-executable"
+    end
+    local covered = lines.covered + funcs.covered + branches.covered
+    local total = lines.total + funcs.total + branches.total
+    if covered == 0 then
+        return "uncovered"
+    end
+    if covered == total then
+        return "covered"
+    end
+    return "partial"
+end
+
+local function readShard(path)
+    local source, err = readFile(path)
+    if not source then
+        return nil, err
+    end
+    local decoder = cjson.new()
+    decoder.decode_array_with_array_mt(true)
+    local ok, value = pcall(decoder.decode, source)
+    if not ok or type(value) ~= "table" or type(value.hits) ~= "table" then
+        return nil, "invalid coverage shard " .. path
+    end
+    return value
+end
+
+--- Reads the coverage build state and turns the sites it contains into files with hit
+--- counts. The state is the source of the denominator; the shard only adds execution,
+--- so an unloaded source module remains visibly uncovered.
+function coverage.collect(statePath, shardPath)
+    local state = cache.loadState(statePath)
+    local shard, shardErr = readShard(shardPath)
+    local hits = shard and shard.hits or {}
+    local files, warnings = {}, {}
+    if not shard then
+        warnings[#warnings + 1] = shardErr or "coverage runner did not flush a shard"
+    end
+    for _, record in pairs(state.modules or {}) do
+        local manifest = record.coverage
+        if manifest and manifest.path and type(manifest.sites) == "table" then
+            local path = normalize(manifest.path)
+            local file = files[path]
+            if not file then
+                local source = readFile(path) or ""
+                file = {path = path, source = source, generated = record.output,
+                    sites = {}, lines = metric(), functions = metric(),
+                    branches = metric(), lineHits = {}, branchHits = {},
+                    executableLines = {}}
+                files[path] = file
+            end
+            local moduleHits = hits[manifest.path] or hits[path] or {}
+            for _, site in ipairs(manifest.sites) do
+                local id = tostring(site.id)
+                local line = tonumber(site.line) or 0
+                local count = tonumber(moduleHits[id]) or 0
+                local value = {id = site.id, kind = site.kind, line = line,
+                    count = count}
+                file.sites[#file.sites + 1] = value
+                if site.kind == "statement" then
+                    local lineKey = "L" .. line
+                    file.executableLines[lineKey] = line
+                    file.lineHits[lineKey] = (file.lineHits[lineKey] or 0) + count
+                elseif site.kind == "function" then
+                    local lineKey = "L" .. line
+                    file.executableLines[lineKey] = line
+                    file.lineHits[lineKey] = (file.lineHits[lineKey] or 0) + count
+                    add(file.functions, count > 0, line)
+                elseif site.kind == "branch" then
+                    local yes = tonumber(moduleHits[id .. ":true"]) or 0
+                    local no = tonumber(moduleHits[id .. ":false"]) or 0
+                    add(file.branches, yes > 0, line .. ":true")
+                    add(file.branches, no > 0, line .. ":false")
+                    local lineKey = "L" .. line
+                    local branchHits = file.branchHits[lineKey] or {yes = 0, no = 0}
+                    branchHits.yes, branchHits.no = branchHits.yes + yes, branchHits.no + no
+                    file.branchHits[lineKey] = branchHits
+                end
+            end
+        end
+    end
+    local list = {}
+    for _, file in pairs(files) do
+        local executable = {}
+        for _, line in pairs(file.executableLines) do executable[#executable + 1] = line end
+        table.sort(executable)
+        for _, line in ipairs(executable) do
+            add(file.lines, (file.lineHits["L" .. line] or 0) > 0, line)
+        end
+        finish(file.lines); finish(file.functions); finish(file.branches)
+        file.status = fileStatus(file)
+        list[#list + 1] = file
+    end
+    table.sort(list, function(a, b) return a.path < b.path end)
+    return {version = 1, files = list, warnings = warnings}
+end
+
+local function aggregate(files, prefix)
+    local value = {path = prefix, lines = metric(), functions = metric(),
+        branches = metric(), files = {}}
+    for _, file in ipairs(files) do
+        if prefix == "" or file.path:sub(1, #prefix + 1) == prefix .. "/" then
+            for _, field in ipairs({"lines", "functions", "branches"}) do
+                value[field].covered = value[field].covered + file[field].covered
+                value[field].total = value[field].total + file[field].total
+            end
+            value.files[#value.files + 1] = file
+        end
+    end
+    finish(value.lines); finish(value.functions); finish(value.branches)
+    return value
+end
+
+local function escape(text)
+    return tostring(text):gsub("&", "&amp;"):gsub("<", "&lt;")
+        :gsub(">", "&gt;"):gsub('"', "&quot;")
+end
+
+local STYLE = [[
+:root{color-scheme:light dark;--bg:#fff;--fg:#172033;--muted:#65738a;--line:#dce3ee;--panel:#f6f8fb;--covered:#22863a;--partial:#b7791f;--uncovered:#c53030;--none:#8994a8}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif}.shell{display:grid;grid-template-columns:285px minmax(0,1fr);min-height:100vh}aside{background:var(--panel);border-right:1px solid var(--line);padding:1rem;overflow:auto}main{padding:1.6rem;max-width:1500px}.brand{font-weight:750;font-size:1.2rem;color:inherit;text-decoration:none}.tree,details ul{list-style:none;padding-left:1rem}.tree{padding-left:0}.tree a{color:inherit;text-decoration:none}.tree a[aria-current=page]{font-weight:700}.badge,.metric{font-variant-numeric:tabular-nums}.badge{float:right;font-size:.75rem;color:var(--muted)}details>summary{cursor:pointer}.status{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.4rem}.covered{background:var(--covered)}.partial{background:var(--partial)}.uncovered{background:var(--uncovered)}.non-executable{background:var(--none)}.cards{display:flex;gap:1rem;flex-wrap:wrap}.card{padding:1rem;border:1px solid var(--line);border-radius:.5rem;min-width:160px}.card strong{display:block;font-size:1.45rem}table{border-collapse:collapse;width:100%;margin-top:1.2rem}th,td{padding:.55rem;text-align:left;border-bottom:1px solid var(--line)}th button{border:0;background:transparent;font:inherit;font-weight:700;padding:0;cursor:pointer;color:inherit}.bar{height:.45rem;background:var(--line);border-radius:4px;overflow:hidden;min-width:90px}.bar i{display:block;height:100%;background:var(--covered)}.tabs{display:flex;gap:.5rem;margin:1rem 0}.tabs button{border:1px solid var(--line);padding:.4rem .65rem;background:var(--panel);color:inherit;border-radius:.3rem;cursor:pointer}.code{overflow:auto;border:1px solid var(--line);border-radius:.4rem;background:#111827;color:#d8dee9;padding:.7rem;line-height:1.45}.code .row{display:block;min-height:1.45em}.code .num{display:inline-block;width:4em;text-align:right;padding-right:1em;color:#70809a;user-select:none}.code .hit{display:inline-block;width:4em;color:#8fa1bd}.code .row.uncovered{background:color-mix(in srgb,var(--uncovered) 22%,transparent)}.code .row.partial{background:color-mix(in srgb,var(--partial) 20%,transparent)}.code .row.covered{background:color-mix(in srgb,var(--covered) 14%,transparent)}.hidden{display:none}.warning{padding:.75rem;background:#fff4ce;border:1px solid #e1b955;border-radius:.4rem}@media(max-width:780px){.shell{display:block}aside{border-right:0;border-bottom:1px solid var(--line)}}]]
+
+local SCRIPT = [[document.querySelectorAll('[data-view]').forEach(function(b){b.onclick=function(){document.querySelectorAll('.view').forEach(function(v){v.classList.toggle('hidden',v.id!==b.dataset.view)})}});document.querySelectorAll('th button[data-key]').forEach(function(b){b.onclick=function(){var body=b.closest('table').tBodies[0],key=b.dataset.key,rows=[].slice.call(body.rows),desc=b.dataset.desc==='1';rows.sort(function(a,z){var x=a.dataset[key],y=z.dataset[key];return (Number(x)-Number(y)||x.localeCompare(y))*(desc?-1:1)});b.dataset.desc=desc?'0':'1';rows.forEach(function(r){body.appendChild(r)})}});]]
+
+local function page(title, tree, body, base)
+    return "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+        .. "<base href='" .. (base or "") .. "'><title>" .. escape(title)
+        .. " | Nupp coverage</title><style>" .. STYLE
+        .. "</style><div class=shell><aside><a class=brand href='index.html'>Nupp coverage</a>"
+        .. tree .. "</aside><main>" .. body .. "</main></div><script>" .. SCRIPT
+        .. "</script>"
+end
+
+local function treeHtml(files, current)
+    local root = {dirs = {}, files = {}}
+    for _, file in ipairs(files) do
+        local node, parts = root, {}
+        for part in file.path:gmatch("[^/]+") do parts[#parts + 1] = part end
+        for index = 1, #parts - 1 do
+            local name = parts[index]
+            node.dirs[name] = node.dirs[name] or {dirs = {}, files = {}}
+            node = node.dirs[name]
+        end
+        node.files[#node.files + 1] = file
+    end
+    local function render(node, prefix, open)
+        local out, names = {"<ul>"}, {}
+        for name in pairs(node.dirs) do names[#names + 1] = name end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local path = prefix == "" and name or prefix .. "/" .. name
+            out[#out + 1] = "<li><details" .. (open and " open" or "")
+                .. "><summary>📂 <a href='files/" .. escape(path)
+                .. "/index.html'>" .. escape(name) .. "</a></summary>"
+                .. render(node.dirs[name], path, current and current:sub(1, #path + 1)
+                == path .. "/") .. "</details></li>"
+        end
+        table.sort(node.files, function(a, b) return a.path < b.path end)
+        for _, file in ipairs(node.files) do
+            local active = file.path == current and " aria-current=page" or ""
+            out[#out + 1] = "<li><span class='status " .. file.status .. "'></span><a"
+                .. active .. " href='files/" .. escape(file.path) .. ".html'>"
+                .. escape(file.path:match("([^/]+)$")) .. "</a><span class=badge>"
+                .. file.lines.percent .. "%</span></li>"
+        end
+        out[#out + 1] = "</ul>"
+        return table.concat(out)
+    end
+    return "<nav class=tree>" .. render(root, "", true) .. "</nav>"
+end
+
+local function metricCard(label, value)
+    return "<div class=card><span>" .. label .. "</span><strong>" .. value.percent
+        .. "%</strong><span class=metric>" .. value.covered .. " / " .. value.total
+        .. " covered</span></div>"
+end
+
+local function rows(files)
+    local out = {}
+    for _, file in ipairs(files) do
+        out[#out + 1] = "<tr data-name='" .. escape(file.path) .. "' data-lines='"
+            .. file.lines.percent .. "' data-branches='" .. file.branches.percent
+            .. "'><td><span class='status " .. file.status .. "'></span><a href='files/"
+            .. escape(file.path) .. ".html'>" .. escape(file.path) .. "</a></td><td>"
+            .. file.lines.covered .. " / " .. file.lines.total .. " (" .. file.lines.percent
+            .. "%)</td><td>" .. #file.lines.missing .. "</td><td>" .. file.functions.covered
+            .. " / " .. file.functions.total .. "</td><td>" .. #file.functions.missing
+            .. "</td><td>" .. file.branches.covered .. " / " .. file.branches.total
+            .. " (" .. file.branches.percent .. "%)</td><td>" .. #file.branches.missing
+            .. "</td></tr>"
+    end
+    return table.concat(out)
+end
+
+local function indexBody(summary, model, title)
+    local out = {"<h1>" .. escape(title) .. "</h1><div class=cards>",
+        metricCard("Lines", summary.lines), metricCard("Functions", summary.functions),
+        metricCard("Branches", summary.branches), "</div>"}
+    for _, warning in ipairs(model.warnings or {}) do
+        out[#out + 1] = "<p class=warning>" .. escape(warning) .. "</p>"
+    end
+    out[#out + 1] = "<table><thead><tr><th><button data-key=name>Name</button></th>"
+        .. "<th><button data-key=lines>Lines</button></th><th>Missed lines</th>"
+        .. "<th>Functions</th><th>Missed functions</th><th><button data-key=branches>Branches</button></th>"
+        .. "<th>Missed arms</th></tr></thead><tbody>" .. rows(summary.files)
+        .. "</tbody></table>"
+    return table.concat(out)
+end
+
+local function codeRows(source, file, language)
+    local out, sourceLines = {}, splitLines(source)
+    local executable = {}
+    for _, site in ipairs(file.sites) do executable[site.line] = true end
+    for line, text in ipairs(sourceLines) do
+        local hits = file.lineHits["L" .. line] or 0
+        local branch = file.branchHits["L" .. line]
+        local state = "non-executable"
+        if executable[line] then
+            state = hits > 0 and "covered" or "uncovered"
+            if branch and branch.yes > 0 and branch.no > 0 then
+                state = "covered"
+            elseif branch and (branch.yes > 0 or branch.no > 0) then
+                state = "partial"
+            end
+        end
+        local detail = hits > 0 and tostring(hits) or ""
+        if branch then
+            detail = detail .. " " .. branch.yes .. "/" .. branch.no
+        end
+        out[#out + 1] = "<span id='L" .. line .. "' class='row " .. state
+            .. "'><span class=num>" .. line .. "</span><span class=hit>" .. detail
+            .. "</span>" .. highlight.codeHtml(text, language) .. "</span>"
+    end
+    return table.concat(out)
+end
+
+local function fileBody(file)
+    local generated = readFile(file.generated) or "-- generated Lua unavailable"
+    local out = {"<p><a href='index.html'>All files</a></p><h1>" .. escape(file.path)
+        .. "</h1><div class=cards>", metricCard("Lines", file.lines),
+        metricCard("Functions", file.functions), metricCard("Branches", file.branches),
+        "</div><div class=tabs><button data-view=source>Nupp source</button>"
+        .. "<button data-view=generated>Generated Lua</button></div>",
+        "<pre id=source class='view code'>" .. codeRows(file.source, file, "nupp") .. "</pre>",
+        "<pre id=generated class='view code hidden'>" .. codeRows(generated, file, "lua")
+        .. "</pre>"}
+    return table.concat(out)
+end
+
+local function lcov(model)
+    local out = {}
+    for _, file in ipairs(model.files) do
+        out[#out + 1] = "TN:"
+        out[#out + 1] = "SF:" .. file.path
+        for _, site in ipairs(file.sites) do
+            if site.kind == "statement" then
+                out[#out + 1] = "DA:" .. site.line .. "," .. site.count
+            elseif site.kind == "branch" then
+                local hit = file.branchHits["L" .. site.line] or {yes = 0, no = 0}
+                out[#out + 1] = "BRDA:" .. site.line .. ",0," .. site.id .. "," .. hit.yes
+                out[#out + 1] = "BRDA:" .. site.line .. ",0," .. site.id + 1 .. "," .. hit.no
+            end
+        end
+        out[#out + 1] = "end_of_record"
+    end
+    return table.concat(out, "\n") .. "\n"
+end
+
+--- Writes all report formats and returns the root roll-up for terminal/JSON callers.
+function coverage.write(model, outDir)
+    highlight.configureScintillua(".", {})
+    local summary = aggregate(model.files, "")
+    model.summary = summary
+    local encoder = cjson.new()
+    encoder.encode_empty_table_as_object(false)
+    encoder.encode_invalid_numbers(false)
+    -- Source text and generated Lua belong in their HTML pages, not in the machine
+    -- report. Keeping the JSON to metrics/sites makes it practical for CI to read.
+    local public = {version = model.version, warnings = model.warnings, files = {},
+        summary = {path = summary.path, lines = summary.lines,
+        functions = summary.functions, branches = summary.branches}}
+    for _, file in ipairs(model.files) do
+        public.files[#public.files + 1] = {path = file.path, status = file.status,
+            lines = file.lines, functions = file.functions, branches = file.branches,
+            sites = file.sites}
+    end
+    assert(writeFile(outDir .. "/coverage.json", encoder.encode(public) .. "\n"))
+    assert(writeFile(outDir .. "/summary.json", encoder.encode(public.summary) .. "\n"))
+    assert(writeFile(outDir .. "/lcov.info", lcov(model)))
+    local tree = treeHtml(model.files, nil)
+    assert(writeFile(outDir .. "/index.html", page("All files", tree,
+        indexBody(summary, model, "All files"), "")))
+    local dirs = {[""] = true}
+    for _, file in ipairs(model.files) do
+        local dir = parent(file.path)
+        while dir ~= "" do dirs[dir] = true; dir = parent(dir) end
+    end
+    for dir in pairs(dirs) do
+        if dir ~= "" then
+            local aggregateDir = aggregate(model.files, dir)
+            local depth = 1
+            for _ in dir:gmatch("/") do depth = depth + 1 end
+            assert(writeFile(outDir .. "/files/" .. dir .. "/index.html",
+                page(dir, tree, indexBody(aggregateDir, model, dir), ("../"):rep(depth + 1))))
+        end
+    end
+    for _, file in ipairs(model.files) do
+        local depth = 0
+        for _ in file.path:gmatch("/") do depth = depth + 1 end
+        assert(writeFile(outDir .. "/files/" .. file.path .. ".html",
+            page(file.path, treeHtml(model.files, file.path), fileBody(file),
+            ("../"):rep(depth + 1))))
+    end
+    return summary
+end
+
+return coverage

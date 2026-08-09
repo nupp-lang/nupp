@@ -76,6 +76,9 @@ function project.build(root, opts)
     config._remarks = opts.remarks and true or false
     config._disabledPasses = opts.disabled or {}
     config._relaxedGuarantees = opts.relaxed or {}
+    -- Coverage affects emitted Lua, therefore belongs in the configuration before the
+    -- build key is calculated. A normal cache entry can never satisfy a coverage run.
+    config._coverage = opts.coverage == true
     if target.kind == "docs" then
         -- A documentation target declares dependencies like any other, and its are the
         -- renderer's own: lunamark is a rock, not something a checkout is expected to
@@ -236,8 +239,8 @@ function project.check(root, opts)
     return project.build(root, opts)
 end
 
-function project.test(root, args)
-    root = root or "."
+function project.test(root, args, opts)
+    root, opts = root or ".", opts or {}
     local config, err = project.loadManifest(root)
     if not config then
         io.stderr:write(err .. "\n"); return 1
@@ -245,13 +248,16 @@ function project.test(root, args)
     if type(config.test) ~= "table" or type(config.test.argv) ~= "table" then
         io.stderr:write("nupp: test.argv is not configured\n"); return 1
     end
-    if project.build(root, {target = config.test.build}) ~= 0 then
+    if project.build(root, {target = config.test.build, outDir = opts.outDir,
+        coverage = opts.coverage}) ~= 0 then
         return 1
     end
     local argv = {}
     for _, item in ipairs(config.test.argv) do argv[#argv + 1] = item end
     for _, item in ipairs(args or {}) do argv[#argv + 1] = item end
-    local env = config.test.env
+    local env = {}
+    for key, value in pairs(config.test.env or {}) do env[key] = value end
+    for key, value in pairs(opts.env or {}) do env[key] = value end
     -- The rocks the tested target depends on were installed into a tree that belongs to
     -- the project, and the test command is a fresh interpreter that has never heard of
     -- it. A trailing empty entry is where Lua substitutes its own path, so the tree is
@@ -259,8 +265,8 @@ function project.test(root, args)
     local rocks = deps.rockPaths(root, config,
         targetConfig(config, config.test.build))
     if rocks then
-        env = {}
-        for key, value in pairs(config.test.env or {}) do env[key] = value end
+        -- Keep the caller's coverage protocol values while adding the project rock
+        -- paths the fresh test process needs.
         env.LUA_PATH = rocks.path .. ";"
             .. (env.LUA_PATH or os.getenv("LUA_PATH") or "")
         env.LUA_CPATH = rocks.cpath .. ";"

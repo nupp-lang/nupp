@@ -40,6 +40,7 @@ parameters, parameter-effect inference, and raw coroutine suspension. See
     nupp clean [--target name]  remove configured build outputs
     nupp tasks [name]           list or inspect manifest project tasks
     nupp test [args...]         build, then run the configured test command
+    nupp coverage [args...]     run an instrumented build and write a coverage report
     nupp task <name> [args...]  build, then run a named tasks.<name> from nupp.lua
     nupp doc [site|markdown]    generate fast CST-based API documentation
     nupp fixpoint               verify the self-hosting compiler rebuild

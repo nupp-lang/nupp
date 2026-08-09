@@ -11,6 +11,33 @@ nupp test sometest        # extra arguments reach the test command
 names. Nupp does not supply a test framework — it supplies the step that builds
 first, so a test never runs against a stale compiler.
 
+## Coverage
+
+```bash
+nupp coverage
+nupp coverage --out reports/coverage
+nupp coverage checktest
+```
+
+`nupp coverage` builds a separate instrumented artifact under `build/coverage`,
+runs the configured test command, and writes a static report to
+`coverage/index.html` by default. Normal builds and their cache never contain
+coverage probes. The output directory also holds `coverage.json`, `summary.json`,
+and `lcov.info` for CI or editor integrations.
+
+The HTML report has a collapsible source tree, root and per-directory totals,
+sortable file metrics, and syntax-highlighted Nupp and generated-Lua views.
+Green means executed, red means executable but missed, amber means a partial
+branch, and gray is non-executable source such as a type-only line.
+
+The included `tests/run.lua` runner reads `NUPP_COVERAGE_BUILD` and writes the
+coverage shard automatically. Custom runners must load that build directory
+ahead of their ordinary output and flush the generated global
+`__nuppCoverage.hits` to the file named by `NUPP_COVERAGE_FILE`; otherwise
+`nupp coverage` reports incomplete data rather than treating it as zero
+coverage. Coverage probes intentionally add runtime work, so use ordinary
+`nupp test` or the profiler for timing.
+
 ## Configuring it
 
 ```lua

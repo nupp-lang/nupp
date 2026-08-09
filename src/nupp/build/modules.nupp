@@ -169,6 +169,7 @@ local function copyModuleRecord(record)
         dependencies = dependencies,
         output = record.output,
         diags = record.diags,
+        coverage = record.coverage,
     }
 end
 
@@ -288,7 +289,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
         local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
-        local artifactHash, code
+        local artifactHash, code, coverage
         if not fatal and not checkOnly then
             local genDiags
             local remarks = optimize.run(result.result,
@@ -300,7 +301,8 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                     mine[#mine + 1] = note
                 end
             end
-            code, genDiags = gen.generate(result.result, path)
+            code, genDiags, coverage = gen.generate(result.result, path,
+                config._coverage and {path = path} or nil)
             stats.generatedModules = stats.generatedModules + 1
             for _, diag in ipairs(genDiags or {}) do
                 mine[#mine + 1] = diag
@@ -320,6 +322,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             -- module does not run it again, so its remarks belong to the run that
             -- produced them and not to the record.
             diags = jsonArray(result.diags or {}),
+            coverage = coverage,
         }
         codeFor[name] = code
         reused[name] = nil

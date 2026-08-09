@@ -164,6 +164,15 @@ Extra arguments are appended to `test.argv` from `nupp.lua`. The CLI does not
 parse them; use `--` before an argument named `--help`. See
 [testing](testing.md).
 
+### `coverage`
+
+```
+nupp coverage [--out DIR] [--json] [test arguments...]
+```
+
+Builds a separate coverage artifact, runs the configured test command, and
+writes static HTML plus JSON and LCOV reports. See [testing](testing.md).
+
 ### `lints`
 
 ```
