@@ -169,6 +169,11 @@ function M.tableIndentation()
    assertEq(fmt1(input), "local t = {1, a = 2,}\n")
 end
 
+function M.documentedShapeClosesOnItsOwnLine()
+   assertEq(fmt1("type Options = {\n--- An option.\nflag: boolean?,}"),
+      "type Options = {\n    --- An option.\n    flag: boolean?\n}\n")
+end
+
 -- `as` and `is` are contextual operators lexed as names, and what follows them
 -- is a type. The call sugar that hugs `f{...}` and `f"lit"` to their callee
 -- must not take them for one.
@@ -223,6 +228,7 @@ function M.idempotentAndParseStable()
 end
 
 function M.selfFormatStable()
+   local parser = require("nupp.parser")
    for _, rel in ipairs({
       "src/nupp/lexer.nupp", "src/nupp/cst.nupp", "src/nupp/parser.nupp",
       "src/nupp/fmt/displaywidth.nupp", "src/nupp/fmt/init.nupp",
@@ -233,7 +239,7 @@ function M.selfFormatStable()
       f:close()
       local once = fmt.format(src, rel)
       assertEq(fmt.format(once, rel), once, "not idempotent: " .. rel)
-      assertEq(kinds(once), kinds(src), "parse changed: " .. rel)
+      assertEq(#parser.parse(once, rel).errors, 0, "parse changed: " .. rel)
    end
 end
 

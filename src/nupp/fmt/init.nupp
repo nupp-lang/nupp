@@ -20,11 +20,12 @@ belongs to.
 
 The safety invariant is that the output must re-lex to the identical token
 sequence, in kind and in text, as the input; if it does not, `format` returns the
-input untouched along with a diagnostic. Two rewrites are exempted, each proven
+input untouched along with a diagnostic. Three rewrites are exempted, each proven
 safe rather than merely whitespace: annotation shorthand drops a redundant
-`member =` once the checker has shown the two spellings equivalent, and method
-parenthesization inserts tokens that were not in the input, so instead of
-omitting them from the check it folds them into the sequence checked against.
+`member =` once the checker has shown the two spellings equivalent; a trailing
+separator in a type shape is unnecessary; and method parenthesization inserts
+tokens that were not in the input, so instead of omitting them from the check it
+folds them into the sequence checked against.
 
 The shape of the work: annotate the CST with indent inputs, bracket groups and
 statement spans; flatten tokens and trivia into items; group items into lines;
@@ -274,13 +275,17 @@ local function annotate(root)
         local inner = group
         if openIdx then
             local openTok, closeTok = n[openIdx], n[closeIdx]
-            inner = {open = openTok, close = closeTok, seps = {}, parent = group}
+            inner = {kind = kind, open = openTok, close = closeTok, seps = {}, last = nil as any, parent = group}
             openTok.opensGroup = inner
             for idx = openIdx + 1, closeIdx - 1 do
                 local child = n[idx]
                 if cst.isToken(child) and (child.kind == "," or child.kind == ";") then
                     inner.seps[#inner.seps + 1] = child
                 end
+            end
+            inner.last = lastToken(n[closeIdx - 1])
+            if kind == "tshape" and inner.last == inner.seps[#inner.seps] then
+                inner.last.formatOmit = true
             end
         end
 
@@ -635,7 +640,7 @@ end
 
 local function lineFirstToken(line)
     for _, item in ipairs(line.items) do
-        if item.kind == "token" then
+        if item.kind == "token" and not item.token.formatOmit then
             return item.token
         end
     end
@@ -696,6 +701,9 @@ local function computeIndents(lines)
                     end
                 end
                 g.broken = firstInner ~= nil and firstInner.lineIdx > item.token.lineIdx
+                if g.broken and g.kind == "tshape" then
+                    g.close.forceBreak = true
+                end
             end
         end
     end
@@ -846,28 +854,66 @@ local function splitLine(line)
     return nil
 end
 
+-- A group can become multiline because a docblock or another structural boundary
+-- appears inside it, rather than because it exceeded the width. Honor a newly forced
+-- closer before looking for another width-driven split.
+local function splitForcedLines(lines)
+    local out, changed = {}, false
+    for _, line in ipairs(lines) do
+        local start = 1
+        local function emit(from, to, first)
+            if from <= to then
+                local items = {}
+                for idx = from, to do
+                    items[#items + 1] = line.items[idx]
+                end
+                out[#out + 1] = {
+                    items = items,
+                    indent = line.indent,
+                    blankBefore = first and line.blankBefore or false,
+                }
+            end
+        end
+        for idx, item in ipairs(line.items) do
+            if idx > start and item.kind == "token" and item.token.forceBreak then
+                emit(start, idx - 1, start == 1)
+                start = idx
+                changed = true
+            end
+        end
+        emit(start, #line.items, start == 1)
+    end
+    return changed and out or nil
+end
+
 local function breakLines(lines)
     for _ = 1, MAX_PASSES do
         computeIndents(lines)
         local changed = false
-        local next_ = {}
-        for _, line in ipairs(lines) do
-            local pieces = nil
-            if lineWidth(line) > WIDTH and not line.noBreak then
-                pieces = splitLine(line)
-            end
-            if pieces then
-                changed = true
-                for j, piece in ipairs(pieces) do
-                    piece.blankBefore = j == 1 and line.blankBefore or false
-                    next_[#next_ + 1] = piece
+        local forced = splitForcedLines(lines)
+        if forced then
+            lines = forced
+            changed = true
+        else
+            local next_ = {}
+            for _, line in ipairs(lines) do
+                local pieces = nil
+                if lineWidth(line) > WIDTH and not line.noBreak then
+                    pieces = splitLine(line)
                 end
-            else
-                line.noBreak = lineWidth(line) > WIDTH
-                next_[#next_ + 1] = line
+                if pieces then
+                    changed = true
+                    for j, piece in ipairs(pieces) do
+                        piece.blankBefore = j == 1 and line.blankBefore or false
+                        next_[#next_ + 1] = piece
+                    end
+                else
+                    line.noBreak = lineWidth(line) > WIDTH
+                    next_[#next_ + 1] = line
+                end
             end
+            lines = next_
         end
-        lines = next_
         if not changed then
             break
         end

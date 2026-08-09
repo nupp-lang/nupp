@@ -102,6 +102,22 @@ function M.tableConstructorsBreak()
          "}"))
 end
 
+function M.multilineShapesCloseAndDropTrailingComma()
+   local src = lines(
+      "type Options = {anExceptionallyLongOptionNameOne: string,",
+      "anotherExceptionallyLongOptionNameTwo: string,",
+      "finalOption: boolean?,}")
+   local want = lines(
+      "type Options = {",
+      "    anExceptionallyLongOptionNameOne: string,",
+      "    anotherExceptionallyLongOptionNameTwo: string,",
+      "    finalOption: boolean?",
+      "}")
+   local got = fmt1(src)
+   assertEq(got, want)
+   assertEq(fmt1(got), got, "multiline shape idempotency")
+end
+
 function M.nestedGroupsBreakOutermostFirst()
    local got = fmt1("local v = outerCall(innerCall(oneArgument, twoArgument, "
       .. "threeArgument), anotherOuterArgument, aThirdOuterEvenLongerArgument)\n")

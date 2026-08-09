@@ -98,9 +98,9 @@ The formatter guarantees that its output re-lexes to a token sequence identical
 in kind and text to the input. When a rewrite would break that, it returns the
 input untouched and reports **NUPP4001**.
 
-That invariant is why it cannot change a quote style, add or remove a trailing
-comma, or rewrite a numeric literal — not as a policy decision, but because
-those change the token stream.
+That invariant is why it cannot change a quote style, add or remove a table
+constructor's trailing comma, or rewrite a numeric literal — not as a policy
+decision, but because those change the token stream.
 
 Two rewrites are exempted, each proven safe rather than merely whitespace. A
 single-value annotation loses its redundant `member =` where the checker has
@@ -112,9 +112,10 @@ proved the two spellings equivalent:
 ```
 
 Those tokens are marked for omission and excluded from the fingerprint.
-Parenthesizing a method call's sugar-form arguments, described above, is the
-other: the inserted tokens are folded into the sequence checked against
-instead, so a bug that put a paren in the wrong place would still be caught.
+The final comma in a type shape is likewise redundant and is omitted. Parenthesizing
+a method call's sugar-form arguments, described above, is the other rewrite: the
+inserted tokens are folded into the sequence checked against instead, so a bug that
+put a paren in the wrong place would still be caught.
 
 ## Idempotence
 
