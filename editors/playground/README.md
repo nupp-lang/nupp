@@ -27,6 +27,7 @@ the implementations and the exact reasoning at each one, and
  `0x..ULL` literals    nupp.compiler.build.hash (content-hash cache)    stripped to plain Lua 5.3 ints, at build time
  `bit.*`               nupp.compiler.build.hash, nupp.compiler.cdecl         real bitwise ops, Lua 5.3 native
  `loadstring`          nupp.compiler.optimize's constant folder         Lua 5.3's `load`, same for a chunk
+ `unpack`              nupp.compiler.comptime's protected calls         Lua 5.3's `table.unpack`
  `string.buffer`       nupp.compiler.build.store (project-index cache)  a plain string-accumulator
  `cjson`               build cache, `--json`-shaped output     a small JSON codec
  `ffi`                 nupp.compiler.cdecl, nupp.compiler.check.ffi              stub, except `cast` — see below

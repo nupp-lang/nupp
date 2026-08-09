@@ -24,6 +24,11 @@ os.exit = function(...) return ... end
 -- on fails the compile with "attempt to call a nil value".
 loadstring = loadstring or load
 
+-- Lua 5.1 and LuaJIT also exposed this table helper globally. The comptime
+-- evaluator calls allowlisted functions with an exact argument sequence, so
+-- it needs the 5.1 spelling even though fengari only provides table.unpack.
+unpack = unpack or table.unpack
+
 -- fengari only registers the "io" global when it thinks it's running under
 -- Node (see the `typeof process` guard build.mjs folds away for the
 -- browser), so there is no table here to patch yet.
