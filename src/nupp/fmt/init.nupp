@@ -8,7 +8,8 @@ Fixed, with one knob:
 - ordinary line breaks are soft, so short expressions and groups join;
 - an over-long line is broken, one element per group;
 - an `if` is broken across lines, however short its arms;
-- docblocks are reflowed and set off from what they document;
+- docblocks wrap only when an individual safe prose line exceeds their width,
+  and are set off from what they document;
 - a method call written as sugar, `obj:m{...}` or `obj:m"..."`, gets its `(`
   and `)` back, so every method call reads the same. `opts.methodParens =
   false` turns that off and leaves the sugar as written.
@@ -438,9 +439,26 @@ local function isDocComment(text)
     return text:sub(1, 3) == "---" and text:sub(1, 4) ~= "----"
 end
 
--- Greedy word wrap. Returns a list of lines; the first may use a different width than
--- the rest (annotation continuations hang under their tag).
-local function wrapWords(text, firstWidth, restWidth)
+-- Breaks a single prose line only when it exceeds its width and contains ordinary,
+-- single-space-separated words. Other spacing can be intentional, so leave it alone.
+-- The first line may use a different width than the rest (annotation continuations
+-- hang under their tag).
+local function isSafeProse(text)
+    if text:sub(1, 1) == " " or text:sub(-1) == " " then
+        return false
+    end
+    if text:find("  ") or text:find("[^%S ]") then
+        return false
+    end
+
+    return text:find(" ") ~= nil
+end
+
+local function breakWordsToFit(text, firstWidth, restWidth)
+    if displayWidth(text) <= firstWidth or not isSafeProse(text) then
+        return {text}
+    end
+
     local lines, line = {}, ""
     local width = firstWidth
     for word in text:gmatch("%S+") do
@@ -464,11 +482,10 @@ local function wrapWords(text, firstWidth, restWidth)
     return lines
 end
 
--- Parses the raw comment lines of a docblock into blocks: { kind =
--- "text"|"annot"|"blank"|"verbatim", tag = ?, text = ? }
+-- Parses raw comment lines without joining them: existing line breaks are authorial.
+-- Blocks are { kind = "text"|"annot"|"blank"|"verbatim", text = ? }.
 local function parseDoc(rawLines)
     local blocks = {}
-    local current = nil
     local fenced = false
     for _, raw in ipairs(rawLines) do
         local body = raw:gsub("^%-%-+", "")
@@ -478,21 +495,14 @@ local function parseDoc(rawLines)
             fenced = not fenced
         end
         if fenced or fence or (not fenced and body:match("^    %S")) then
-            current = nil
             blocks[#blocks + 1] = {kind = "verbatim", text = body}
         elseif body:match("^%s*$") then
-            current = nil
             blocks[#blocks + 1] = {kind = "blank"}
         else
-            local tag, rest = body:match("^@([%w_]+)%s*(.*)$")
-            if tag then
-                current = {kind = "annot", tag = tag, text = rest}
-                blocks[#blocks + 1] = current
-            elseif current then
-                current.text = current.text .. " " .. body
+            if body:match("^@[%w_]+%s") then
+                blocks[#blocks + 1] = {kind = "annot", text = body}
             else
-                current = {kind = "text", text = body}
-                blocks[#blocks + 1] = current
+                blocks[#blocks + 1] = {kind = "text", text = body}
             end
         end
     end
@@ -520,20 +530,13 @@ local function renderComment(rawLines, indentStr, marker)
         elseif block.kind == "verbatim" then
             out[#out + 1] = (prefix .. " " .. block.text):gsub("%s+$", "")
         elseif block.kind == "annot" then
-            local head = "@" .. block.tag
-            local text = block.text:gsub("^%s+", "")
-            local lines
-            if text == "" then
-                lines = {head}
-            else
-                lines = wrapWords(head .. " " .. text, width, width - 4)
-            end
+            local lines = breakWordsToFit(block.text, width, width - 4)
             for j, line in ipairs(lines) do
                 local pad = j == 1 and " " or "     "
                 out[#out + 1] = (prefix .. pad .. line):gsub("%s+$", "")
             end
         else
-            for _, line in ipairs(wrapWords(block.text, width, width)) do
+            for _, line in ipairs(breakWordsToFit(block.text, width, width)) do
                 out[#out + 1] = (prefix .. " " .. line):gsub("%s+$", "")
             end
         end

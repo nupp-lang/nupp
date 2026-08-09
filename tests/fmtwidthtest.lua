@@ -301,19 +301,29 @@ function M.docblockCodeBlocksStayVerbatim()
    assertEq(fmt1(got), got, "verbatim idempotency")
 end
 
-function M.plainCommentRunsReflow()
-   local src = "-- This ordinary comment is deliberately long so that it "
-      .. "needs to be joined with the next line and wrapped at the same "
-      .. "documentation width.\n"
-      .. "-- Its second source line belongs to the same prose paragraph and "
-      .. "must not impose an artificial break.\nlocal x = 1\n"
-   local got = fmt1(src)
-   assertEq(got, lines(
-      "-- This ordinary comment is deliberately long so that it needs to be joined with the",
-      "-- next line and wrapped at the same documentation width. Its second source line belongs",
-      "-- to the same prose paragraph and must not impose an artificial break.",
-      "local x = 1"))
-   assertEq(fmt1(got), got, "plain comment idempotency")
+function M.plainCommentLinesArePreserved()
+   local src = "-- This ordinary comment is deliberately split by its author.\n"
+      .. "-- Its second source line must remain a separate line.\nlocal x = 1\n"
+   check(src, src)
+end
+
+function M.commentsBreakOnlyWhenSafeAndNeeded()
+   local prose = "-- " .. ("ordinary prose words "):rep(5)
+      .. "ordinary prose words\nlocal x = 1\n"
+   local got = fmt1(prose)
+   assert(got ~= prose, "an over-width prose line should break")
+   for line in got:gmatch("[^\n]+") do
+      if line:sub(1, 2) == "--" then
+         assert(#line <= 88, "safe prose line over 88 columns: " .. line)
+      end
+   end
+   assertEq(fmt1(got), got, "safe comment break idempotency")
+
+   local spaced = "-- " .. ("two  spaces "):rep(8)
+      .. "two  spaces\nlocal x = 1\n"
+   check(spaced, spaced, "intentional comment spacing")
+   local word = "-- " .. ("x"):rep(100) .. "\nlocal x = 1\n"
+   check(word, word, "unbreakable comment word")
 end
 
 function M.plainCommentCodeStaysVerbatim()
