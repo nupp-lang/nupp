@@ -211,16 +211,16 @@ function M.formattingTypedCode()
    assertEq(fmt1("local m:{[string]:{number}}={}"),
       "local m: {[string]: {number}} = {}\n")
    assertEq(fmt1("local function f< T >( x : T ) : T return x end"),
-      "local function f<T>(x: T): T return x end\n")
+      "local function f<T>(x: T): T\n    return x\nend\n")
    assertEq(fmt1("local function f< A... , R... >( ... : A... ) : R... "
       .. "return ... end"),
-      "local function f<A..., R...>(...: A...): R... return ... end\n")
+      "local function f<A..., R...>(...: A...): R...\n    return ...\nend\n")
    assertEq(fmt1("local f:function(A...):( (true,R...) | (false,any) )"),
       "local f: function(A...): ((true, R...) | (false, any))\n")
    assertEq(fmt1("local f:function():... string"),
       "local f: function(): ...string\n")
    assertEq(fmt1("local x : S * ? = nil"), "local x: S*? = nil\n")
-   assertEq(fmt1("@jit local function h() end"), "@jit local function h() end\n")
+   assertEq(fmt1("@jit local function h() end"), "@jit\nlocal function h()\nend\n")
    assertEq(fmt1("local record P\nx: number\nend"),
       "local record P\n    x: number\nend\n")
    assertEq(fmt1(table.concat({
@@ -231,7 +231,10 @@ function M.formattingTypedCode()
       "end",
       "end",
    }, "\n")), table.concat({
-      "local record Box<T is Value> is Named, Serializable where true",
+      "local record Box<T is Value> is",
+      "    Named,",
+      "    Serializable",
+      "    where true",
       "    metamethod __call: function(self, value: T): self",
       "    function describe(prefix: string): string",
       "        return prefix",
