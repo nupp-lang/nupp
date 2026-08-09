@@ -531,6 +531,30 @@ What is left, in the order the numbers justify:
       corpus for lexer/parser round-trip and fmt idempotency (`fmt∘fmt = fmt`,
       `parse∘fmt = parse`); minimize and check in failures as regression
       fixtures.
+- [ ] **Every lint has to be exercised, by construction.** All eleven have a
+      test today, but nothing enforces it: the next one can land untested and
+      the suite stays green. `tests/allowtest.lua:everyLintIsWellFormed`
+      already iterates `check.lints` to check each entry's shape, so the missing
+      half is a fixture table keyed by code — one source that must report it,
+      one neighbouring source that must not — driven off the same registry, so
+      a lint with no fixture fails the run rather than being noticed later.
+
+      Both halves matter. `reifiable-record` was written whitelist-first and
+      the silent cases are most of its value; a lint with only a positive test
+      passes while firing on everything.
+- [ ] **Permute the passes and compare behaviour, not output.** `-Zno-opt=CODE`
+      and the pass registry already exist, so every subset of the five `OPT-n`
+      passes can be built and run, and all thirty-two have to agree on what the
+      program does. Nothing checks this today, and the gap is not theoretical:
+      OPT-2 rewrites a generic `for` into a numeric one through a different
+      codegen branch, which silently dropped OPT-5's finish and left the
+      accumulator empty. One hand-written test caught it; a subset sweep would
+      have caught it without being asked.
+
+      Behaviour rather than bytes, because passes legitimately change output.
+      `fixpoint` already compares `-O0` against `-O2` on the compiler itself,
+      which is the whole-program version of the same idea; this is the
+      per-program one, and it wants generated inputs (above) to be worth much.
 - [ ] **`tests/profiletest.lua traceRecordsWhereTheCompilerGaveUp` is
       flaky.** Recorded failing once in six runs with "unrecordable bytecode
       must be reported"; it depends on the JIT attempting and aborting a trace
