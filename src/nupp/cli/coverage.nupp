@@ -6,11 +6,13 @@ local fs = require("nupp.fs")
 local command = spec.command{
     name = "coverage",
     summary = "Run tests and write a source coverage report",
-    usage = {"nupp coverage [--out DIR] [--json] [test arguments...]"},
+    usage = {"nupp coverage [--out DIR] [--json] [test arguments...]",
+    "nupp coverage --report-json [--out DIR]"},
     stopAtPositional = true,
     options = {
         {name = "--out", value = "DIR", help = "Directory for the HTML, JSON, and LCOV report"},
         {name = "--json", key = "json", help = "Write the aggregate summary as JSON"},
+        {name = "--report-json", key = "reportJson", help = "Print an existing full JSON report; do not run tests"},
     },
     schema = {
         type = "object", description = "Aggregate Nupp coverage totals.",
@@ -21,11 +23,31 @@ local command = spec.command{
     },
     detail = [[Coverage uses a separate build/coverage artifact, so normal generated
 Lua and its cache are never instrumented. The static report opens at
-build/reports/coverage/index.html and also writes coverage.json and lcov.info.]],
+build/reports/coverage/index.html and also writes coverage.json and lcov.info.
+
+`--report-json` prints the complete machine-readable coverage.json already in
+the report directory, without rebuilding or rerunning tests.]],
 }
 
 local function run(parsed)
     local outDir = parsed.values.out or "build/reports/coverage"
+    if parsed.values.reportJson then
+        if parsed.values.json then
+            io.stderr:write("nupp: --report-json already writes JSON; remove --json\n")
+            return 2
+        end
+        local existing, err = fs.readFile(outDir .. "/coverage.json")
+        if not existing then
+            io.stderr:write("nupp: cannot read coverage report " .. outDir
+                .. "/coverage.json: " .. tostring(err) .. "\n")
+            return 1
+        end
+        io.write(existing)
+        if existing:sub(-1) ~= "\n" then
+            io.write("\n")
+        end
+        return 0
+    end
     local buildDir = "build/coverage"
     local raw = outDir .. "/raw.json"
     if not fs.mkdir(outDir) then

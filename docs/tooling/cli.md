@@ -168,10 +168,12 @@ parse them; use `--` before an argument named `--help`. See
 
 ```
 nupp coverage [--out DIR] [--json] [test arguments...]
+nupp coverage --report-json [--out DIR]
 ```
 
 Builds a separate coverage artifact, runs the configured test command, and
-writes static HTML plus JSON and LCOV reports. See [testing](testing.md).
+writes static HTML plus JSON and LCOV reports. `--report-json` instead prints
+the existing full JSON report and does not run tests. See [testing](testing.md).
 
 ### `lints`
 

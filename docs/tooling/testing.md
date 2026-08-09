@@ -25,6 +25,17 @@ runs the configured test command, and writes a static report to
 coverage probes. The output directory also holds `coverage.json`, `summary.json`,
 and `lcov.info` for CI or editor integrations.
 
+Agents and other tools can read the full existing report without rerunning tests:
+
+```bash
+nupp coverage --report-json
+nupp coverage --report-json --out reports/coverage
+```
+
+It writes the complete `coverage.json` document to stdout: per-file metrics,
+missed locations, and counted coverage sites. Source text and generated Lua remain
+in the HTML report.
+
 The HTML report has a collapsible source tree, root and per-directory totals,
 sortable file metrics, and syntax-highlighted Nupp and generated-Lua views.
 Green means executed, red means executable but missed, amber means a partial
