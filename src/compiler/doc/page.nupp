@@ -363,7 +363,18 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?): string
         end
         out[#out + 1] = '</div>'
     end
-    out[#out + 1] = '</div>'
+
+    return table.concat(out)
+end
+
+--- Finish a home hero after its Markdown content, keeping that content directly beneath
+--- the tagline while the illustration holds the other column.
+local function homeHeroEnd(config: page.Hero): string
+    if config.layout ~= "home" then
+        return ""
+    end
+
+    local out = {'</div>'}
     if config.heroImage then
         out[
             #out + 1
@@ -552,6 +563,7 @@ function page.render(
 end
 
 page.homeHero = homeHero
+page.homeHeroEnd = homeHeroEnd
 page.homeFeatures = homeFeatures
 
 return page

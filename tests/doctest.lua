@@ -584,6 +584,10 @@ function M.siteMatchesTheNuppdocPageModel()
    local home = readFile(dir .. "/site/index.html")
    assert(home:find("nuppdoc%-home%-hero"), home)
    assert(home:find("Build with Nupp", 1, true), home)
+   assert(home:find("Typed LuaJIT programs", 1, true) < home:find(
+      "Welcome to the project", 1, true), "home Markdown must follow the tagline")
+   assert(home:find("Welcome to the project", 1, true) < home:find(
+      'class="nuppdoc-hero-image"', 1, true), "home Markdown must remain in the hero copy")
    assert(home:find("nuppdoc%-feature%-showcase"), home)
    assert(home:find("language%-nupp"), home)
    assert(home:find("Welcome to the project", 1, true) < home:find(

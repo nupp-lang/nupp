@@ -36,7 +36,7 @@ local symbolLinkIndex, symbolLinks = urlsMod.symbolLinkIndex, urlsMod.symbolLink
 local rewriteConfiguredPageLinks = urlsMod.rewriteConfiguredPageLinks
 local moduleSummary, renderHtmlItem = apiMod.moduleSummary, apiMod.renderHtmlItem
 local nestedModules = apiMod.nestedModules
-local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
+local renderPage, homeHero, homeHeroEnd, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeHeroEnd, pageMod.homeFeatures
 
 local doc = {}
 
@@ -445,6 +445,7 @@ local function renderSite(root, outDir, modules, title, settings)
             body[#body + 1] = homeHero(candidate, links)
             local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
             body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
+            body[#body + 1] = homeHeroEnd(candidate)
             if candidate.path == "" then
                 body[#body + 1] = homeFeatures(candidate, links)
                 body[#body + 1] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
