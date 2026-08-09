@@ -306,6 +306,45 @@ local ENTRIES: {any} = {
         docs = "docs/metamethods.md",
     },
     {
+        code = "NUPP2124",
+        summary = "An intersection is provably uninhabited",
+        rule = "A value of `A & B` must satisfy both contracts. Nupp reports only "
+        .. "finite proofs of impossibility, such as distinct runtime categories, "
+        .. "literal tags, concrete nominal identities, or incompatible required "
+        .. "fields; an intersection it cannot disprove remains legal.",
+        wrong = "local type Impossible = string & number\nreturn Impossible\n",
+        right = "local type NamedValue = {name: string} & {value: number}\n"
+        .. "return NamedValue\n",
+        related = {"NUPP2125", "NUPP2126"},
+        docs = "docs/type-system/intersections.md#provable-emptiness",
+    },
+    {
+        code = "NUPP2125",
+        summary = "No overload accepts a call",
+        rule = "A callable intersection probes every function member against the "
+        .. "same adjusted argument pack. This diagnostic lists why each candidate "
+        .. "was rejected; no candidate's ownership or borrowing effects are applied.",
+        wrong = "local type F = function(integer): string & function(string): boolean\n"
+        .. "local f: F = nil as any\nreturn f(true)\n",
+        right = "local type F = function(integer): string & function(string): boolean\n"
+        .. "local f: F = nil as any\nreturn f(1)\n",
+        related = {"NUPP2006", "NUPP2126"},
+        docs = "docs/type-system/intersections.md#overload-selection",
+    },
+    {
+        code = "NUPP2126",
+        summary = "Several overloads accept a call",
+        rule = "Overloads have no ranking or declaration-order tie breaker. A call "
+        .. "must leave exactly one candidate; use distinguishable parameter packs "
+        .. "or narrow a gradual argument before calling.",
+        wrong = "local type F = function(integer): string & function(number): boolean\n"
+        .. "local f: F = nil as any\nreturn f(1)\n",
+        right = "local type F = function(integer): string & function(string): boolean\n"
+        .. "local f: F = nil as any\nreturn f(1)\n",
+        related = {"NUPP2125", "NUPP2208"},
+        docs = "docs/type-system/intersections.md#overload-selection",
+    },
+    {
         code = "NUPP2202",
         summary = "A declaration is built with 'new'",
         rule = "Records and structs are constructed with `new`. Calling a "

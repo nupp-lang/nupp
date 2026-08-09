@@ -96,12 +96,13 @@ local function typeFingerprint(t, active)
             items[#items + 1] = typeFingerprint(item, active)
         end
         value = "tuple(" .. table.concat(items, ",") .. ")"
-    elseif tag == "union" then
+    elseif tag == "union" or tag == "intersection" then
         local items = {}
         for _, item in ipairs(t.members or {}) do
             items[#items + 1] = typeFingerprint(item, active)
         end
-        table.sort(items); value = "union(" .. table.concat(items, "|") .. ")"
+        table.sort(items); value = tag .. "(" .. table.concat(items,
+            tag == "union" and "|" or "&") .. ")"
     elseif tag == "literal" then
         value = "literal(" .. stable(t.constant) .. ":"
             .. typeFingerprint(t.base, active) .. ")"

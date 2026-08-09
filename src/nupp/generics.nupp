@@ -100,6 +100,10 @@ function generics.subst(t: Type, map: Bindings): Type
         local members: {Type} = {}
         for j, m in ipairs(t.members) do members[j] = generics.subst(m, map) end
         return T.union(members)
+    elseif tag == "intersection" then
+        local members: {Type} = {}
+        for j, m in ipairs(t.members) do members[j] = generics.subst(m, map) end
+        return T.intersection(members)
     elseif tag == "ptr" then
         return T.ptr(generics.subst(t.elem, map))
     elseif tag == "owned" then
@@ -374,6 +378,13 @@ end
 --- @param receiver what `self` stands for here, `owner` by default
 function generics.specializeSelf(owner: Type?, ft: Type,
     receiver: Type?): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.specializeSelf(owner, member, receiver)
+        end
+        return T.intersection(members)
+    end
     if owner and owner.tag == "nominal" and owner.selfType then
         return generics.subst(ft, {[owner.selfType] = receiver or owner})
     end
@@ -386,6 +397,11 @@ end
 ---
 --- @param ft the method's type
 function generics.dropSelf(ft: Type): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do members[j] = generics.dropSelf(member) end
+        return T.intersection(members)
+    end
     if ft.tag == "func" and #ft.params >= 1 then
         local params: {Type} = {}
         local modes: {string} = {}
@@ -409,6 +425,13 @@ end
 --- @param selfType what the receiver is
 --- @param selfMode the receiver's ownership mode, "plain" by default
 function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.addSelf(member, selfType, selfMode)
+        end
+        return T.intersection(members)
+    end
     if ft.tag ~= "func" then
         return ft
     end

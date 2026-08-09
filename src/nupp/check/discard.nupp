@@ -199,6 +199,7 @@ function discard.install(c: any): any
             return
         end
         candidates[#candidates + 1] = {
+            call = call,
             tok = tok,
             -- Settled here because the statement's `@allow` is in scope here and gone
             -- by the time the sweep runs.
@@ -217,7 +218,8 @@ function discard.install(c: any): any
         -- One answer per body, since a helper called ten times is walked once.
         local inert = {}
         for _, candidate in ipairs(candidates) do
-            local known = queries.known(candidate.tok)
+            local known = queries.callee and queries.callee(candidate.call)
+                or queries.known(candidate.tok)
             local body = known and known.body or nil
             if not candidate.allowed and body then
                 if inert[body] == nil then

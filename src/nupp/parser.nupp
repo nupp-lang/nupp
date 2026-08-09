@@ -572,7 +572,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, expect(")", "to close function type parameters"))
             if cur().kind == ":" then
                 annotationColon(n, "before return type")
-                local returnPack = parseTypePack(false)
+                -- `function(...): R & function(...)` is a callable intersection. A
+                -- return type that itself intersects with a function remains
+                -- available by parenthesizing it.
+                local returnPack = parseTypePack(false, true)
                 n.returnPack = returnPack
                 if returnPack.kind == "tpack" and not returnPack.tail then
                     for _, child in ipairs(returnPack) do add(n, child) end
@@ -638,12 +641,29 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
     end
 
+    --- A type intersection. `&` binds more tightly than `|`.
+    local function parseIntersection(stopAtFunctionMember: boolean?): Node
+        local t = parsePosttype()
+        if cur().kind ~= "&" or (stopAtFunctionMember and tokens[i + 1]
+            and tokens[i + 1].kind == "function") then
+            return t
+        end
+        local n = new cst.Tintersection {kind = "tintersection"}
+        n.types = {add(n, t)}
+        while cur().kind == "&" and not (stopAtFunctionMember and tokens[i + 1]
+            and tokens[i + 1].kind == "function") do
+            add(n, advance())
+            n.types[#n.types + 1] = add(n, parsePosttype())
+        end
+        return n
+    end
+
     -- noUnion: inside short-function pipes a top-level '|' would be ambiguous with the
-    -- closing pipe; unions there need parentheses.
+    -- closing pipe; unions there need parentheses. Intersections remain available.
 
     --- A type, including a union unless the caller is parsing one.
-    parseType = function(noUnion: boolean?): Node
-        local t = parsePosttype()
+    parseType = function(noUnion: boolean?, stopAtFunctionMember: boolean?): Node
+        local t = parseIntersection(stopAtFunctionMember)
         if noUnion or cur().kind ~= "|" then
             return t
         end
@@ -651,19 +671,20 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         n.types = {add(n, t)}
         while cur().kind == "|" do
             add(n, advance())
-            n.types[#n.types + 1] = add(n, parsePosttype())
+            n.types[#n.types + 1] = add(n, parseIntersection(stopAtFunctionMember))
         end
         return n
     end
 
     --- A complete value sequence in a function signature.
-    parseTypePack = function(allowBareList: boolean?): Node
+    parseTypePack = function(allowBareList: boolean?,
+        stopAtFunctionMember: boolean?): Node
         if cur().kind == "..." then
             local n = new cst.Tpack {kind = "tpack", types = {},
                 tailKind = "homogeneous"}
             local dots = add(n, advance())
             dots.generic, dots.homogeneousPack = true, true
-            n.tail = add(n, parseType())
+            n.tail = add(n, parseType(nil, stopAtFunctionMember))
             return n
         end
         if cur().kind == "name" and tokens[i + 1]
@@ -678,11 +699,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         if cur().kind ~= "(" then
             local n = new cst.Tpack {kind = "tpack", types = {}}
-            n.types[1] = add(n, parseReturnType())
+            n.types[1] = add(n, parseReturnType(stopAtFunctionMember))
             while allowBareList and cur().kind == "," and tokens[i + 1]
                 and TYPE_START[tokens[i + 1].kind] do
                 add(n, advance()).typeSeparator = true
-                n.types[#n.types + 1] = add(n, parseType())
+                n.types[#n.types + 1] = add(n,
+                    parseType(nil, stopAtFunctionMember))
             end
             return n
         end
@@ -712,10 +734,10 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     local dots = add(n, advance())
                     dots.generic, dots.homogeneousPack = true, true
                     n.tailKind = "homogeneous"
-                    n.tail = add(n, parseType())
+                    n.tail = add(n, parseType(nil, stopAtFunctionMember))
                     break
                 end
-                local item = add(n, parseType())
+                local item = add(n, parseType(nil, stopAtFunctionMember))
                 if cur().kind == "..." then
                     if item.kind ~= "tname" then
                         errAt(cur(), "only a generic pack name may precede '...'")
@@ -1304,17 +1326,17 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- A predicate return type: `x is T` says the function answers whether its parameter
     -- `x` is a T. At a call site used as a condition that narrows the argument, which
     -- is what keeps casts out of code that dispatches on a union. [CS-13]
-    parseReturnType = function(): Node
+    parseReturnType = function(stopAtFunctionMember: boolean?): Node
         local after = tokens[i + 1]
         if cur().kind == "name" and after and after.kind == "name"
             and after.text == "is" then
             local n = new cst.Tpredicate {kind = "tpredicate"}
             n.param = add(n, advance())
             add(n, advance()) -- 'is'
-            n.type = add(n, parseType())
+            n.type = add(n, parseType(nil, stopAtFunctionMember))
             return n
         end
-        local result = parseType()
+        local result = parseType(nil, stopAtFunctionMember)
         -- `T borrows p`: the result is a borrow of parameter `p` and cannot outlive it.
         -- `borrows` stays contextual — it opens this form only directly after a return
         -- type and directly before a name, and no statement can begin that way. [CS-18]

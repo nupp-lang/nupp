@@ -48,6 +48,82 @@ local CDATA_NUM: {[string]: boolean} = {
     uint8 = true, uint16 = true, uint32 = true, uint64 = true,
 }
 
+local function runtimeCategory(t: Type): string?
+    local tag = t.tag
+    if tag == "literal" then return runtimeCategory(t.base) end
+    if tag == "nil" or tag == "boolean" or tag == "string" then return tag end
+    if tag == "number" or tag == "integer" or CDATA_NUM[tag] then return "number" end
+    if tag == "array" or tag == "map" or tag == "tuple" or tag == "shape"
+        or tag == "table" or tag == "metatable" then return "table" end
+    if tag == "func" then return "function" end
+    if tag == "thread" or tag == "protocolThread" then return "thread" end
+    if tag == "userdata" then return "userdata" end
+    if tag == "ptr" or tag == "carray" or tag == "cstring" or tag == "voidptr"
+        or tag == "ctype" or tag == "cdata" then return "cdata" end
+    return nil
+end
+
+local disjoint: function(a: Type, b: Type): string?
+
+--- A finite proof that no value can inhabit both types. No answer means unknown, not
+--- overlap: this deliberately does not use gradual compatibility.
+disjoint = function(a: Type, b: Type): string?
+    if a == T.never or b == T.never then return "one member is never" end
+    if a == T.any or b == T.any or a == T.unknown or b == T.unknown
+        or a.tag == "typevar" or b.tag == "typevar" then return nil end
+    if a == b then return nil end
+    if a.tag == "intersection" then
+        for _, member in ipairs(a.members) do
+            local why = disjoint(member, b)
+            if why then return why end
+        end
+        return nil
+    end
+    if b.tag == "intersection" then return disjoint(b, a) end
+    if a.tag == "union" then
+        local witness = nil
+        for _, member in ipairs(a.members) do
+            local why = disjoint(member, b)
+            if not why then return nil end
+            witness = witness or why
+        end
+        return witness
+    end
+    if b.tag == "union" then return disjoint(b, a) end
+    if a.tag == "literal" and b.tag == "literal" then
+        if a.base == b.base and a.constant ~= b.constant then
+            return "distinct literal values"
+        end
+        return disjoint(a.base, b.base)
+    end
+    if a.tag == "literal" then
+        local ac, bc = runtimeCategory(a), runtimeCategory(b)
+        if ac and bc and ac ~= bc then return "different runtime categories" end
+        return nil
+    end
+    if b.tag == "literal" then return disjoint(b, a) end
+    if a.tag == "nominal" and b.tag == "nominal" and a ~= b
+        and a.declKind ~= "interface" and b.declKind ~= "interface" then
+        return "distinct concrete nominal types"
+    end
+    local ac, bc = runtimeCategory(a), runtimeCategory(b)
+    if ac and bc and ac ~= bc then return "different runtime categories" end
+    local ar = (a.tag == "shape" or a.tag == "nominal") and a.byname or nil
+    local br = (b.tag == "shape" or b.tag == "nominal") and b.byname or nil
+    if ar and br then
+        for name, at in pairs(ar) do
+            local bt = br[name]
+            if bt and not admitsNil(at) and not admitsNil(bt) then
+                local why = disjoint(at, bt)
+                if why then return ("required field %q has incompatible types"):format(name) end
+            end
+        end
+    end
+    return nil
+end
+
+relations.disjoint = disjoint
+
 --- Answers already computed, keyed on the identity of both types. Weak keys, so an
 --- interned type that goes away takes its answers with it.
 local cache: {[Type]: {[Type]: boolean | string}} =
@@ -171,6 +247,50 @@ function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
 end
 
 local type PropertyType = T.Shape | T.Nominal
+
+local function intersectionSurface(t: T.Intersection): T.Shape
+    local byName = {}
+    local readKeys, readValues, writeKeys, writeValues = {}, {}, {}, {}
+    local function add(member: Type)
+        if member.tag == "intersection" then
+            for _, nested in ipairs(member.members) do add(nested) end
+            return
+        end
+        if member.tag == "shape" or member.tag == "nominal" then
+            for name, read in pairs(member.byname or {}) do
+                local entry = byName[name] or {name = name, reads = {}, writes = {}}
+                entry.reads[#entry.reads + 1] = read
+                byName[name] = entry
+            end
+            for name, write in pairs(member.writeByname or {}) do
+                local entry = byName[name] or {name = name, reads = {}, writes = {}}
+                entry.writes[#entry.writes + 1] = write
+                byName[name] = entry
+            end
+            if member.indexReadKey and member.indexReadValue then
+                readKeys[#readKeys + 1] = member.indexReadKey
+                readValues[#readValues + 1] = member.indexReadValue
+            end
+            if member.indexWriteKey and member.indexWriteValue then
+                writeKeys[#writeKeys + 1] = member.indexWriteKey
+                writeValues[#writeValues + 1] = member.indexWriteValue
+            end
+        end
+    end
+    add(t)
+    local fields = {}
+    for _, entry in pairs(byName) do
+        fields[#fields + 1] = {name = entry.name,
+            read = #entry.reads > 0 and T.intersection(entry.reads) or nil,
+            write = #entry.writes > 0 and T.union(entry.writes) or nil}
+    end
+    return T.shape(fields, {
+        readKey = #readKeys > 0 and T.union(readKeys) or nil,
+        readValue = #readValues > 0 and T.intersection(readValues) or nil,
+        writeKey = #writeKeys > 0 and T.union(writeKeys) or nil,
+        writeValue = #writeValues > 0 and T.union(writeValues) or nil,
+    }) as T.Shape
+end
 
 --- Read capabilities compare covariantly; write capabilities compare contravariantly.
 --- Requiring both therefore makes an ordinary property invariant.
@@ -313,6 +433,29 @@ local function check(a: Type, b: Type): boolean, string?
             if isA(a, m) then
                 return true
             end
+        end
+        return fail(a, b)
+    end
+
+    -- An expected intersection requires every contract. A source intersection fits
+    -- through any member that already proves the target, or through the composed
+    -- structural surface when several members jointly provide it.
+    if btag == "intersection" then
+        for _, m in ipairs(b.members) do
+            local ok, why = isA(a, m)
+            if not ok then
+                return false, ("%s is not a %s (intersection member %s: %s)")
+                    :format(T.tostring(a), T.tostring(b), T.tostring(m), why or "")
+            end
+        end
+        return true
+    end
+    if atag == "intersection" then
+        for _, m in ipairs(a.members) do
+            if isA(m, b) then return true end
+        end
+        if btag == "shape" or (btag == "nominal" and b.declKind == "interface") then
+            return isA(intersectionSurface(a), b)
         end
         return fail(a, b)
     end

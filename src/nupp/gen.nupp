@@ -40,7 +40,8 @@ local gen = {}
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
 local TYPE_KINDS = {
-    tname = true, topt = true, tptr = true, tunion = true, tarray = true,
+    tname = true, topt = true, tptr = true, tunion = true, tintersection = true,
+    tarray = true,
     tmap = true, ttuple = true, tshape = true, tshapeField = true,
     tfunc = true, tfuncParam = true, tparen = true, errorType = true,
     tpredicate = true, tborrows = true, tliteral = true, tconst = true,
@@ -141,6 +142,10 @@ local LOWERED_COMPOUND = {["//="] = true, ["??="] = true}
 -- that already crosses; a registry keyed by name would be a link step the
 -- language does not have. The prefix keeps it out of the way of declared fields.
 local CONSTRUCTOR_MEMBER = "__nuppCtor"
+
+local function constructorMember(index)
+    return CONSTRUCTOR_MEMBER .. tostring(index or 1)
+end
 
 -- `is` targets checkable with type(); sized numerics approximate to number.
 local IS_TYPE = {
@@ -1184,7 +1189,7 @@ function gen.generate(result, filename)
             -- it, resolved here rather than dispatched at run time.
             local first = x[1]
             local line = first and cst.isToken(first) and first.line or nil
-            e(x.constructorCall .. "." .. CONSTRUCTOR_MEMBER, line)
+            e(x.constructorCall .. "." .. constructorMember(x.constructorIndex), line)
             if x.args then emit(x.args) end
             return
 
@@ -1220,7 +1225,8 @@ function gen.generate(result, filename)
             end
             local owner = x.inlineRuntimeOwner
             e(("function %s.%s(%s) local self = setmetatable({}, %s)")
-                :format(owner, CONSTRUCTOR_MEMBER, table.concat(names, ", "),
+                :format(owner, constructorMember(x.constructorIndex),
+                table.concat(names, ", "),
                 owner), line)
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }")

@@ -107,6 +107,15 @@ record types.Union
     hasNil: boolean
 end
 
+--- Values satisfying every member type.
+record types.Intersection
+    id: string
+    tag: 'intersection'
+
+    --- Deduplicated and sorted by id.
+    members: {types.Type}
+end
+
 --- A pointer to a value in C memory.
 record types.Ptr
     id: string
@@ -376,7 +385,7 @@ record types.Nominal
 end
 
 --- Any type.
-type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Ptr | types.CArray
+type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray
     | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar
     | types.Metatable | types.Nominal | types.ProtocolThread | types.GenericAlias
 
@@ -603,6 +612,40 @@ function types.union(members: {types.Type}): types.Type
             end
         end
         return new types.Union {tag = "union", members = flat, hasNil = hasNil}
+    end)
+end
+
+--- An intersection of types.
+---
+--- Nested intersections flatten, duplicates drop by identity, and members sort by id.
+--- `never` annihilates the intersection; `unknown` and gradual `any` add no contract.
+function types.intersection(members: {types.Type}): types.Type
+    local seen: {[types.Type]: boolean} = {}
+    local flat: {types.Type} = {}
+    local function push(t: types.Type)
+        if t == types.never then
+            flat = {types.never}
+            seen = {[types.never] = true}
+        elseif t.tag == "intersection" then
+            for _, m in ipairs(t.members) do push(m) end
+        elseif t ~= types.unknown and t ~= types.any and not seen[t]
+            and not seen[types.never] then
+            seen[t] = true
+            flat[#flat + 1] = t
+        end
+    end
+    for _, m in ipairs(members) do push(m) end
+    if #flat == 0 then
+        return types.unknown
+    end
+    if #flat == 1 then
+        return flat[1]
+    end
+    table.sort(flat, function(a, b) return a.id < b.id end)
+    local ids: {string} = {}
+    for j, m in ipairs(flat) do ids[j] = m.id end
+    return intern("intersection(" .. table.concat(ids, "&") .. ")", function()
+        return new types.Intersection {tag = "intersection", members = flat}
     end)
 end
 
@@ -1037,19 +1080,37 @@ function types.tostring(t: types.Type): string
         -- render "T | nil" as "T?" when it is a simple optional
         if t.hasNil and #t.members == 2 then
             local other = t.members[1] == types.nil_ and t.members[2] or t.members[1]
-            return types.tostring(other) .. "?"
+            local rendered = types.tostring(other)
+            if other.tag == "intersection" then rendered = "(" .. rendered .. ")" end
+            return rendered .. "?"
         end
         local parts = {}
         for j, m in ipairs(t.members) do parts[j] = types.tostring(m) end
         return table.concat(parts, " | ")
+    elseif tag == "intersection" then
+        local parts = {}
+        for j, m in ipairs(t.members) do
+            local rendered = types.tostring(m)
+            if m.tag == "union" then rendered = "(" .. rendered .. ")" end
+            parts[j] = rendered
+        end
+        return table.concat(parts, " & ")
     elseif tag == "const" then
         return "const " .. types.tostring(t.inner)
     elseif tag == "ctype" then
         return "ctype<" .. types.tostring(t.of) .. ">"
     elseif tag == "carray" then
-        return types.tostring(t.elem) .. "[" .. (t.count and tostring(t.count) or "?") .. "]"
+        local elem = types.tostring(t.elem)
+        if t.elem.tag == "union" or t.elem.tag == "intersection" then
+            elem = "(" .. elem .. ")"
+        end
+        return elem .. "[" .. (t.count and tostring(t.count) or "?") .. "]"
     elseif tag == "ptr" then
-        return types.tostring(t.elem) .. "*"
+        local elem = types.tostring(t.elem)
+        if t.elem.tag == "union" or t.elem.tag == "intersection" then
+            elem = "(" .. elem .. ")"
+        end
+        return elem .. "*"
     elseif tag == "owned" then
         return "owned<" .. types.tostring(t.inner) .. ">"
     elseif tag == "borrowed" then

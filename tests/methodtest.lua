@@ -654,8 +654,8 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "    end",
       "end",
    }, "\n")), "NUPP2208:3")
-   -- and one constructor, until overloads arrive with intersections
-   assertEq(diagsOf(table.concat({
+   -- distinct constructor parameter packs form an overload set
+   assertClean(table.concat({
       "local record T",
       "    n: integer",
       "    constructor(v: integer)",
@@ -663,6 +663,34 @@ function M.constructorsRefuseWhatTheyCannotGuarantee()
       "    end",
       "    constructor(v: string)",
       "        self.n = #v",
+      "    end",
+      "end",
+   }, "\n"))
+end
+
+function M.overloadedConstructorsSelectDistinctBodies()
+   assertEq(run(table.concat({
+      "local record Value",
+      "    text: string",
+      "    constructor(value: integer)",
+      "        self.text = tostring(value)",
+      "    end",
+      "    constructor(value: string)",
+      "        self.text = value",
+      "    end",
+      "end",
+      "local numberValue = new Value(42)",
+      "local stringValue = new Value('ready')",
+      "return numberValue.text .. ':' .. stringValue.text",
+   }, "\n")), "42:ready")
+   assertEq(diagsOf(table.concat({
+      "local record Duplicate",
+      "    value: integer",
+      "    constructor(value: integer)",
+      "        self.value = value",
+      "    end",
+      "    constructor(other: integer)",
+      "        self.value = other",
       "    end",
       "end",
    }, "\n")), "NUPP2208:6")

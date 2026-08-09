@@ -327,16 +327,18 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 "a constructor returns the value it builds, so it declares no "
                 .. "return type", nil, {help = "remove the return annotation"})
         end
-        if n.constructors and #n.constructors > 0 then
-            c.diag("NUPP2208", e,
-                ("%s already declares a constructor"):format(n.name), nil,
-                {help = "one constructor for now; overloads arrive with "
-                .. "intersection types"})
-            return
-        end
-
         local ft = c.checkFuncbody(e.body, n)
         c.raises.check(e, e.body)
+
+        for _, prior in ipairs(n.constructorEntries or {}) do
+            if prior.signature.paramPack.id == ft.paramPack.id then
+                c.diag("NUPP2208", e,
+                    ("%s already has a constructor with parameter pack %s")
+                    :format(n.name, T.tostringPack(ft.paramPack)), nil,
+                    {help = "constructor overloads need distinguishable parameter packs"})
+                return
+            end
+        end
 
         -- Every declared field that cannot hold nil has to be filled, or the
         -- value the constructor hands back does not match its own declaration.
@@ -375,6 +377,11 @@ function declare.install(c: any, reifiableField: any, fix: any,
 
         n.constructors = n.constructors or {}
         n.constructors[#n.constructors + 1] = ft
+        n.constructorEntries = n.constructorEntries or {}
+        local index = #n.constructorEntries + 1
+        n.constructorEntries[index] = {signature = ft, declaration = e,
+            index = index}
+        e.constructorIndex = index
         e.ownerNominal = n
     end
 

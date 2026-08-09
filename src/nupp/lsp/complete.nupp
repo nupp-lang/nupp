@@ -75,6 +75,28 @@ function complete.membersOf(t)
     if type(t) ~= "table" then
         return members
     end
+    if t.tag == "intersection" then
+        for _, part in ipairs(t.members) do
+            for name, entry in pairs(complete.membersOf(part)) do
+                local prior = members[name]
+                if prior then
+                    local combined = T.intersection({prior.type, entry.type})
+                    local callable = combined.tag == "func"
+                    if combined.tag == "intersection" then
+                        callable = true
+                        for _, candidate in ipairs(combined.members) do
+                            if candidate.tag ~= "func" then callable = false; break end
+                        end
+                    end
+                    members[name] = {type = combined,
+                        kind = callable and "function" or "property"}
+                else
+                    members[name] = entry
+                end
+            end
+        end
+        return members
+    end
     for name, member in pairs(t.byname or {}) do
         members[name] = {
             type = member,
@@ -92,8 +114,9 @@ function complete.signatureAt(result, offset)
     local best, bestSize
     tree.walkNodes(result.root, function(node)
         if (node.kind == "call" or node.kind == "safeCall"
-            or node.kind == "methodCall") and node.signatureType
-            and node.signatureType.tag == "func" and node.args then
+            or node.kind == "methodCall")
+            and ((node.signatureType and node.signatureType.tag == "func")
+            or node.overloadCandidates) and node.args then
             local first, last = tree.nodeBounds(node.args)
             if first and offset >= first and offset <= last then
                 local size = last - first

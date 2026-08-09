@@ -14,6 +14,7 @@ exists but is not visible here.
 
 local T = require("nupp.types")
 local generics = require("nupp.generics")
+local relations = require("nupp.relations")
 local cst = require("nupp.cst")
 
 local resolve = {}
@@ -397,6 +398,28 @@ function resolve.install(c: any)
             local members = {}
             for j, m in ipairs(node.types) do members[j] = c.resolveType(m) end
             return T.union(members)
+        elseif kind == "tintersection" then
+            local members = {}
+            for j, m in ipairs(node.types) do members[j] = c.resolveType(m) end
+            for j = 1, #members do
+                for k = j + 1, #members do
+                    local why = relations.disjoint(members[j], members[k])
+                    if why then
+                        local at = node
+                        for _, child in ipairs(node) do
+                            if cst.isToken(child) and child.kind == "&" then
+                                at = child
+                                break
+                            end
+                        end
+                        c.diag("NUPP2124", at,
+                            ("intersection of %s and %s is uninhabited: %s")
+                            :format(T.tostring(members[j]), T.tostring(members[k]), why))
+                        return T.never
+                    end
+                end
+            end
+            return T.intersection(members)
         elseif kind == "tarray" then
             return T.array(c.resolveType(node.element))
         elseif kind == "tmap" then

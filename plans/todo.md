@@ -83,7 +83,7 @@ work makes sense in.
       needs a way to say a field is filled on the table after declaration.
       Structs keep their bare nominal: their identity is a ctype and
       `ffi.istype` already answers it exactly.
-- [ ] **Intersection types, including overloads as function intersections**
+- [x] **Intersection types, including overloads as function intersections**
       ([design](intersections.md)).
       Add `A & B` with normalization, subtyping, useful emptiness diagnostics,
       and read/write/indexer composition. An intersection of function types is
@@ -91,17 +91,15 @@ work makes sense in.
       checker state, require exactly one survivor, and only then apply its
       return, ownership, borrowing, predicate, `noreturn`, and C-boundary
       contracts. **NUPP2124** reports proven emptiness, **NUPP2125** no matching
-      overload, and **NUPP2126** ambiguity. Keep the selector behind a small
-      signature view so the later type-pack representation can replace today's
-      `params`/`rets` arrays without redesigning overloads.
+      overload, and **NUPP2126** ambiguity. The selector consumes the landed
+      pack representation directly, preserving generic tails, correlated
+      alternatives, ownership modes, and result provenance.
 
-      A declaration now carries at most one `constructor`, and **NUPP2208** says
-      a second waits on this. Overloaded construction is the first user: retain
-      ordered constructor provenance alongside the callable intersection,
-      select from it statically, and emit a direct call to the indexed function
-      minted for the winner. Constructor effect analysis follows that selected
-      body; nothing is dispatched at run time.
-- [ ] **First-class type packs and variadic generics**
+      Declarations retain ordered constructor provenance alongside the callable
+      intersection, select statically, and emit a direct call to the indexed
+      function minted for the winner. Constructor effect analysis follows that
+      selected body; nothing is dispatched at run time.
+- [x] **First-class type packs and variadic generics**
       ([design](type-packs.md)). Represent function
       parameters and results as value sequences rather than ordinary tuple
       types, with a fixed head and optional homogeneous or generic tail. Add
@@ -110,9 +108,8 @@ work makes sense in.
       expansion, truncation, last-expression, and parenthesized single-value
       rules in calls, assignments, and returns. Use packs to type `pcall`,
       `xpcall`, `select`, `unpack`, coroutine resume/yield, and generic
-      adapters without collapsing to `any` — all five collapse today
-      (`src/nupp/decls/prelude.d.nupp:84,154,164,172`); success/failure APIs
-      need correlated unions of result packs. Every pack element retains its
+      adapters without collapsing to `any`; success/failure APIs use correlated
+      unions of result packs. Every pack element retains its
       ownership mode and borrow provenance, and an affine result may not be
       silently truncated or discarded by generic forwarding.
 - [ ] **Comptime** ([design](comptime.md)): deterministic data evaluation,

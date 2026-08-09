@@ -48,6 +48,11 @@ local CATEGORIES = {
         ["function"] = true,
         ["named-function"] = true,
     },
+    constructorDecl = {
+        declaration = true,
+        ["function"] = true,
+        ["named-function"] = true,
+    },
     typeAlias = {declaration = true, ["type-declaration"] = true, alias = true},
     cdefFunc = {
         declaration = true,

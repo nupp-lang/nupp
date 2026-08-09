@@ -1709,6 +1709,17 @@ record cst.Tunion is cst.Hints
     types: {cst.Node}
 end
 
+--- `A & B`.
+record cst.Tintersection is cst.Hints
+    {cst.Node | lexer.Token}
+
+    --- Names the production this node stands for.
+    kind: 'tintersection'
+
+    --- The members.
+    types: {cst.Node}
+end
+
 --- A type the parser could not make sense of.
 record cst.ErrorType is cst.Hints
     {cst.Node | lexer.Token}
@@ -1772,6 +1783,7 @@ type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt
     | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen
     | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc
     | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion
+    | cst.Tintersection
     | cst.ErrorType | cst.Tpredicate | cst.Tborrows
 
 --- What a node holds: another node, or a token.

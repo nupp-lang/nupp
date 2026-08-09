@@ -129,6 +129,20 @@ local function callArgs(call)
     return args.exprs or {}
 end
 
+-- A constructor call resolves through the overload entry selected by the checker,
+-- not through the record name's definition. Keep that distinction behind the same
+-- lookup used for ordinary calls so every effect consumer sees the chosen body.
+local function knownCall(call, byDefinition)
+    local declaration = call and call.constructorEntry
+        and call.constructorEntry.declaration or nil
+    if declaration and declaration.effectInfo then
+        return declaration.effectInfo
+    end
+    local callee = call and call.obj
+    local token = callee and (callee.token or callee.name)
+    return token and byDefinition[token.definition] or nil
+end
+
 local function definitionOfFunction(stat)
     if stat.kind == "localFuncStmt" then
         return stat.name and stat.name.definition
@@ -159,7 +173,7 @@ local function collectFunctions(root)
         local target = unwrap(node)
         local kind = target and target.kind
         if kind == "localFuncStmt" or kind == "funcStmt"
-            or kind == "inlineMethod" then
+            or kind == "inlineMethod" or kind == "constructorDecl" then
             local body = target.body
             local info = {
                 node = target, body = body, definition = definitionOfFunction(target),
@@ -178,6 +192,7 @@ local function collectFunctions(root)
                 end
             end
             functions[#functions + 1] = info
+            target.effectInfo = info
             if info.definition then
                 byDefinition[info.definition] = info
             end
@@ -256,6 +271,7 @@ local function inferFunction(info, byDefinition)
             end
             return
         elseif kind == "funcStmt" or kind == "inlineMethod"
+            or kind == "constructorDecl"
             or kind == "funcExpr" or kind == "shortfn" then
             return
         elseif kind == "localStmt" then
@@ -329,9 +345,7 @@ local function inferFunction(info, byDefinition)
     end
 
     local function applyCall(call)
-        local callee = call.obj
-        local token = callee and (callee.token or callee.name)
-        local known = token and byDefinition[token.definition] or nil
+        local known = knownCall(call, byDefinition)
         local args = callArgs(call)
         if known then
             local effects = known.summary
@@ -376,9 +390,7 @@ local function inferFunction(info, byDefinition)
         if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
             return {}
         end
-        local callee = expr.obj
-        local token = callee and (callee.token or callee.name)
-        local known = token and byDefinition[token.definition] or nil
+        local known = knownCall(expr, byDefinition)
         if not known or known.summary.top then
             return {}
         end
@@ -406,7 +418,8 @@ local function inferFunction(info, byDefinition)
         end
         local kind = node.kind
         if kind == "localFuncStmt" or kind == "funcStmt"
-            or kind == "inlineMethod" or kind == "funcExpr"
+            or kind == "inlineMethod" or kind == "constructorDecl"
+            or kind == "funcExpr"
             or kind == "shortfn" then
             out.allocates = true
             return
@@ -546,9 +559,7 @@ local function aliasClasses(body, byDefinition)
         if not expr or (expr.kind ~= "call" and expr.kind ~= "methodCall") then
             return {}
         end
-        local callee = expr.obj
-        local token = callee and (callee.token or callee.name)
-        local known = token and byDefinition[token.definition] or nil
+        local known = knownCall(expr, byDefinition)
         local args = callArgs(expr)
         local aliases = {}
         if known and not known.summary.top then
@@ -585,7 +596,8 @@ local function aliasClasses(body, byDefinition)
         end
         local kind = node.kind
         if kind == "localFuncStmt" or kind == "funcStmt"
-            or kind == "inlineMethod" or kind == "funcExpr" or kind == "shortfn" then
+            or kind == "inlineMethod" or kind == "constructorDecl"
+            or kind == "funcExpr" or kind == "shortfn" then
             return
         elseif kind == "localStmt" then
             for j, name in ipairs(node.names or {}) do
@@ -685,6 +697,7 @@ end
 -- written here runs at a time this walk cannot place.
 local NESTED_FUNCTION = {
     localFuncStmt = true, funcStmt = true, inlineMethod = true,
+    constructorDecl = true,
     funcExpr = true, shortfn = true,
 }
 
@@ -787,9 +800,7 @@ function queries.body(body: any, byDefinition: any): any
                     return
                 end
             elseif kind == "call" or kind == "methodCall" then
-                local callee = value.obj
-                local token = callee and (callee.token or callee.name)
-                local known = token and byDefinition[token.definition] or nil
+                local known = knownCall(value, byDefinition)
                 local summary = known and known.summary or nil
                 if not queries.visible(summary)
                     or not queries.free(summary, {"yields", "metatables"}) then
@@ -855,6 +866,14 @@ function analysis.queries(facts: any): any
     function bound.known(token: any): any
         return token and token.definition
             and facts.byDefinition[token.definition] or nil
+    end
+
+    --- What a checked call resolves to, including a selected constructor overload.
+    ---
+    --- @param call the call expression
+    --- @return the callee's record, or nil when no unique body was selected
+    function bound.callee(call: any): any
+        return knownCall(call, facts.byDefinition)
     end
 
     --- One body prepared once, however many passes ask about it.

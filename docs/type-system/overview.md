@@ -115,6 +115,8 @@ are is more useful than pretending they do not exist.
 - [Interfaces](interfaces.md) — structural satisfaction, `is`, and metamethods.
 - [Property capabilities](properties.md) — independent read and write views.
 - [Unions](unions.md) — literal sets, tagged unions, and exhaustiveness.
+- [Intersections](intersections.md) — capability composition, overloads, and
+  overloaded constructors.
 - [Generics](generics.md) — type parameters, inference, and bounds.
 - [Type packs](packs.md) — heterogeneous variadics, Lua value-list adjustment,
   protected calls, and coroutine protocols.

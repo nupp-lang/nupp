@@ -117,9 +117,9 @@ function index.install(c: any): any
             base = T.union(nonnil)
         end
         local writing = node.writeContext == true
-        local ft, fieldDef
+        local ft, fieldDef, fieldDefs
         if writing then
-            ft, fieldDef = c.fieldWriteType(base, memberName)
+            ft, fieldDef, fieldDefs = c.fieldWriteType(base, memberName)
             local after = c.fieldType(base, memberName)
             if not after then
                 node.postWriteType = false
@@ -127,7 +127,7 @@ function index.install(c: any): any
                 node.postWriteType = after
             end
         else
-            ft, fieldDef = c.fieldType(base, memberName)
+            ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
         end
         if not ft then
             local opposite = writing and c.fieldType(base, memberName)
@@ -198,6 +198,7 @@ function index.install(c: any): any
             return T.any
         end
         c.markToken(member, fieldDef, ft, "property")
+        member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
         node.resolvedType = out
         node.immutablePath = kind == "dotIndex"
@@ -279,6 +280,47 @@ function index.install(c: any): any
                 return accepted or T.never
             elseif outs then
                 return T.union(outs)
+            end
+        end
+        if ot.tag == "intersection" then
+            local outs, sawCapability = {}, false
+            for _, member in ipairs(ot.members) do
+                local mt = rawType(member)
+                local keyType, valueType, optional = nil, nil, false
+                if mt.tag == "array" or mt.tag == "carray" then
+                    keyType, valueType = T.integer, mt.elem
+                elseif mt.tag == "tuple" then
+                    keyType, valueType = T.integer, T.union(mt.elems)
+                elseif mt.tag == "map" then
+                    keyType = writing and mt.writeKey or (mt.readable and mt.key or nil)
+                    valueType = writing and mt.writeValue
+                        or (mt.readable and mt.value or nil)
+                    optional = not writing
+                elseif mt.tag == "nominal" and mt.arrayOf then
+                    keyType, valueType = T.integer, mt.arrayOf
+                elseif mt.tag == "shape" or mt.tag == "nominal" then
+                    keyType = writing and mt.indexWriteKey or mt.indexReadKey
+                    valueType = writing and mt.indexWriteValue or mt.indexReadValue
+                    optional = not writing
+                end
+                if keyType and valueType then
+                    sawCapability = true
+                    if isA(it, keyType) then
+                        outs[#outs + 1] = optional and T.optional(valueType)
+                            or valueType
+                    end
+                end
+            end
+            if #outs > 0 then
+                if writing then
+                    node.postWriteType = false
+                    return T.union(outs)
+                end
+                return T.intersection(outs)
+            elseif sawCapability then
+                c.diag("NUPP2004", key,
+                    ("no intersection indexer accepts %s"):format(T.tostring(it)))
+                return T.any
             end
         end
         if ot.tag == "carray" then

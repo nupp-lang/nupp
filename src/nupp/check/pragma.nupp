@@ -104,7 +104,8 @@ function pragma.install(c: any): any
         local targetBody: Node? = nil
         if target then
             if target.kind == "funcStmt" or target.kind == "localFuncStmt"
-                or target.kind == "inlineMethod" then
+                or target.kind == "inlineMethod"
+                or target.kind == "constructorDecl" then
                 targetBody = target.body
             end
         end

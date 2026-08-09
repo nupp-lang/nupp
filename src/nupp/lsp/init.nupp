@@ -290,6 +290,17 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         for _, tok in ipairs(doc.result.tokens) do
             if tok.kind ~= "eof" and offset >= tok.offset
                 and offset < tok.offset + #tok.text then
+                if tok.additionalDefinitions and #tok.additionalDefinitions > 1 then
+                    local locations = wire.array({})
+                    for _, definition in ipairs(tok.additionalDefinitions) do
+                        local found = definitionLocation(definition)
+                        if found ~= json.null then locations[#locations + 1] = found end
+                    end
+                    if #locations > 0 then
+                        respond(id, locations)
+                        return
+                    end
+                end
                 local location = definitionLocation(tok.definition)
                 if location == json.null then
                     local member = memberAt(doc, offset)
@@ -411,21 +422,12 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             respond(id, json.null); return
         end
         local ft = call.signatureType
+        local candidates = call.overloadCandidates or {ft}
         local name = "call"
         if call.kind == "methodCall" and call.name then
             name = call.name.text
         elseif call.obj and call.obj.kind == "name" then
             name = call.obj.token.text
-        end
-        local parameters = wire.array({})
-        for index, param in ipairs(ft.params or {}) do
-            local mode = ft.paramModes and ft.paramModes[index]
-            parameters[#parameters + 1] = {label =
-                (mode and mode ~= "plain" and mode .. " " or "")
-                .. T.tostring(param)}
-        end
-        if ft.vararg then
-            parameters[#parameters + 1] = {label = "..."}
         end
         local activeParameter = 0
         for _, child in ipairs(call.args or {}) do
@@ -434,17 +436,38 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
                 activeParameter = activeParameter + 1
             end
         end
-        if #parameters > 0 then
-            activeParameter = math.min(activeParameter, #parameters - 1)
-        else
-            activeParameter = 0
-        end
-        respond(id, {
-            signatures = wire.array({{
-                label = name .. ": " .. T.tostring(ft),
+        local signatures = wire.array({})
+        local activeSignature = 0
+        for candidateIndex, candidate in ipairs(candidates) do
+            local parameters = wire.array({})
+            for index, param in ipairs(candidate.paramPack.head or {}) do
+                local mode = candidate.paramPack.modes[index]
+                parameters[#parameters + 1] = {label =
+                    (mode and mode ~= "plain" and mode .. " " or "")
+                    .. T.tostring(param)}
+            end
+            if candidate.paramPack.tail then
+                local tail = candidate.paramPack.tail
+                parameters[#parameters + 1] = {label = tail.kind == "homogeneous"
+                    and ("...: " .. T.tostring(tail.type))
+                    or tail.kind == "generic" and (tail.var.name .. "...") or "..."}
+            end
+            signatures[#signatures + 1] = {
+                label = name .. ": " .. T.tostring(candidate),
                 parameters = parameters,
-            }}),
-            activeSignature = 0,
+            }
+            if call.overloadWinner == candidate then
+                activeSignature = candidateIndex - 1
+            end
+        end
+        local active = candidates[activeSignature + 1]
+        local parameterCount = active and #active.paramPack.head or 0
+        if parameterCount > 0 then
+            activeParameter = math.min(activeParameter, parameterCount - 1)
+        else activeParameter = 0 end
+        respond(id, {
+            signatures = signatures,
+            activeSignature = activeSignature,
             activeParameter = activeParameter,
         })
     end

@@ -106,6 +106,9 @@ type lexer.Token = {
     --- editor can jump to it. Its shape belongs to the checker, not the lexer.
     definition: any,
 
+    --- Other declarations contributing the same composed intersection member.
+    additionalDefinitions: {any}?,
+
     -- Marks the formatter leaves on a token, in the pass that decides layout, for the
     -- pass that emits it. They say nothing about the program, and a token nobody has
     -- formatted carries none of them.

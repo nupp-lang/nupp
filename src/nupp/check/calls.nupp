@@ -29,6 +29,103 @@ local dropSelf = generics.dropSelf
 --- A type, as nupp.types builds them.
 local type Type = T.Type
 
+local function callableMembers(t: Type): {T.Func}?
+    if t.tag ~= "intersection" then return nil end
+    local members: {T.Func} = {}
+    for _, member in ipairs(t.members) do
+        if member.tag ~= "func" then return nil end
+        members[#members + 1] = member
+    end
+    return members
+end
+
+local function probeArm(ft: T.Func, argPack: T.Pack,
+    cdefCall: boolean?): T.Func?, string?
+    local map = {}
+    if T.hasTypevar(ft) and (#(ft.typeParams or {}) > 0
+        or #(ft.packParams or {}) > 0) then
+        unifyPack(ft.paramPack, argPack, map)
+        for j, tv in ipairs(ft.typeParams or {}) do
+            local bound = ft.typeBounds and ft.typeBounds[j]
+            local actual = map[tv]
+            if bound and actual then
+                local expected = substType(bound, map)
+                local ok, why = isA(actual, expected)
+                if not ok then
+                    return nil, ("generic bound for %s: %s"):format(tv.name,
+                        why or "not satisfied")
+                end
+            end
+        end
+    end
+    local specialized = (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0)
+        and generics.instantiateFunction(ft, map) or ft
+    local params = specialized.paramPack
+    local actualCount = #argPack.head
+    if not argPack.tail and actualCount > #params.head and not params.tail then
+        return nil, ("too many arguments (expected %d, got %d)")
+            :format(#params.head, actualCount)
+    end
+    for j = 1, math.min(actualCount, #params.head) do
+        local actual = argPack.head[j]
+        if cdefCall and actual.tag == "pinned" then
+            actual = rawType(actual)
+        end
+        local ok, why = isA(actual, params.head[j])
+        if not ok then return nil, ("argument %d: %s"):format(j, why or "mismatch") end
+    end
+    if not argPack.tail and actualCount < #params.head then
+        for j = actualCount + 1, #params.head do
+            local ok = isA(T.nil_, params.head[j])
+            if not ok then
+                return nil, ("omitted argument %d supplies nil, not %s")
+                    :format(j, T.tostring(params.head[j]))
+            end
+        end
+    end
+    local tail = params.tail
+    if tail and tail.kind == "homogeneous" then
+        for j = #params.head + 1, actualCount do
+            local ok, why = isA(argPack.head[j], tail.type)
+            if not ok then
+                return nil, ("argument %d in pack tail: %s")
+                    :format(j, why or "mismatch")
+            end
+        end
+        if argPack.tail and argPack.tail.kind == "homogeneous" then
+            local ok, why = isA(argPack.tail.type, tail.type)
+            if not ok then return nil, "pack tail: " .. (why or "mismatch") end
+        end
+    elseif not tail and argPack.tail and argPack.tail.kind == "homogeneous" then
+        return nil, "an expanding argument tail may supply surplus values"
+    end
+    return specialized
+end
+
+local function probeSignature(ft: T.Func, argPack: T.Pack,
+    cdefCall: boolean?): T.Func?, string?
+    if not argPack.alternatives then return probeArm(ft, argPack, cdefCall) end
+    local selected: T.Func? = nil
+    for armIndex, arm in ipairs(argPack.alternatives) do
+        local specialized, why = probeArm(ft, arm, cdefCall)
+        if not specialized then
+            return nil, ("argument-pack alternative %d: %s")
+                :format(armIndex, why or "mismatch")
+        end
+        if selected and selected.id ~= specialized.id then
+            return nil, "argument-pack alternatives require different generic specializations"
+        end
+        selected = specialized
+    end
+    return selected or ft
+end
+
+local function signaturesText(signatures: {T.Func}): string
+    local parts = {}
+    for j, signature in ipairs(signatures) do parts[j] = T.tostring(signature) end
+    return table.concat(parts, "; ")
+end
+
 --- Installs the call machinery on one run.
 ---
 --- @param c the run's state
@@ -75,6 +172,20 @@ function calls.install(c: any): any
             end
             if #parts > 0 then
                 return T.union(parts)
+            end
+            return nil
+        end
+        if t.tag == "intersection" then
+            local parts, definitions = {}, {}
+            for _, m in ipairs(t.members) do
+                local ft, definition = c.fieldType(m, name)
+                if ft then
+                    parts[#parts + 1] = ft
+                    if definition then definitions[#definitions + 1] = definition end
+                end
+            end
+            if #parts > 0 then
+                return T.intersection(parts), definitions[1], definitions
             end
             return nil
         end
@@ -140,6 +251,20 @@ function calls.install(c: any): any
             end
             return accepted
         end
+        if t.tag == "intersection" then
+            local accepted, definitions = {}, {}
+            for _, m in ipairs(t.members) do
+                local ft, definition = c.fieldWriteType(m, name)
+                if ft then
+                    accepted[#accepted + 1] = ft
+                    if definition then definitions[#definitions + 1] = definition end
+                end
+            end
+            if #accepted > 0 then
+                return T.union(accepted), definitions[1], definitions
+            end
+            return nil
+        end
         if t.tag == "shape" then
             local named = t.writeByname[name]
             if named then
@@ -192,6 +317,13 @@ function calls.install(c: any): any
             end
             return shared or {}
         end
+        if t.tag == "intersection" then
+            local names = {}
+            for _, member in ipairs(t.members) do
+                for name in pairs(c.fieldNames(member, writing)) do names[name] = true end
+            end
+            return names
+        end
         local names = {}
         if (t.tag == "shape" or t.tag == "nominal") and t.byname then
             local members = writing and t.writeByname or t.byname
@@ -216,6 +348,13 @@ function calls.install(c: any): any
         if t.tag == "metatable" then
             return c.metamethodNames(t.of)
         end
+        if t.tag == "intersection" then
+            local names = {}
+            for _, member in ipairs(t.members) do
+                for name in pairs(c.metamethodNames(member)) do names[name] = true end
+            end
+            return names
+        end
         local names = {}
         if t.tag == "nominal" then
             for name in pairs(t.metamethods or {}) do names[name] = true end
@@ -237,6 +376,14 @@ function calls.install(c: any): any
                 return specializeSelf(bound, ft, t)
             end
             return ft
+        end
+        if t.tag == "intersection" then
+            local contracts = {}
+            for _, member in ipairs(t.members) do
+                local ft = ops.metamethodOf(member, name)
+                if ft then contracts[#contracts + 1] = ft end
+            end
+            return #contracts > 0 and T.intersection(contracts) or nil
         end
         if t.tag == "nominal" and t.metamethods then
             local ft = t.metamethods[name]
@@ -274,6 +421,32 @@ function calls.install(c: any): any
     -- Checks one declared operation contract against already-inferred arguments. Unlike
     -- inferCall this never evaluates expressions again.
     function ops.applyContract(ft, ats, argNodes, site, operation)
+        local overloads = ft and callableMembers(ft) or nil
+        if overloads then
+            local survivors, rejections = {}, {}
+            local argPack = T.pack(ats)
+            for _, candidate in ipairs(overloads) do
+                local specialized, why = probeSignature(candidate, argPack)
+                if specialized then
+                    survivors[#survivors + 1] = specialized
+                else
+                    rejections[#rejections + 1] = T.tostring(candidate) .. ": "
+                        .. (why or "rejected")
+                end
+            end
+            if #survivors == 0 then
+                c.diag("NUPP2125", site,
+                    ("no %s overload accepts this call: %s")
+                    :format(operation, table.concat(rejections, "; ")))
+                return T.any
+            elseif #survivors > 1 then
+                c.diag("NUPP2126", site,
+                    ("several %s overloads accept this call: %s")
+                    :format(operation, signaturesText(survivors)))
+                return T.any
+            end
+            ft = survivors[1]
+        end
         if not ft or ft.tag ~= "func" then
             c.diag("NUPP2003", site, operation .. " contract is not a function")
             return T.any
@@ -422,15 +595,29 @@ function calls.install(c: any): any
                 -- `new` still set would ask this same node whether it can be
                 -- constructed a second time.
                 node.isNew = nil
-                local signature = constructors[1]
-                local built = T.func(signature.params, {calleeT},
-                    signature.vararg, signature.paramModes, nil,
-                    signature.typeParams, signature.typeBounds, nil, nil, nil,
-                    nil, signature.varargType, nil, signature.paramPack,
-                    T.pack({calleeT}), signature.packParams,
-                    signature.yieldPack, signature.resumePack)
-                local first, rets = ops.inferCall(node, built, argsNode)
-                return first, rets
+                local builtSignatures, bySignature = {}, {}
+                local entries = calleeT.constructorEntries or {}
+                for index, signature in ipairs(constructors) do
+                    local built = T.func(signature.params, {calleeT},
+                        signature.vararg, signature.paramModes, nil,
+                        signature.typeParams, signature.typeBounds, nil, nil, nil,
+                        nil, signature.varargType, nil, signature.paramPack,
+                        T.pack({calleeT}), signature.packParams,
+                        signature.yieldPack, signature.resumePack)
+                    builtSignatures[#builtSignatures + 1] = built
+                    bySignature[built] = entries[index] or {index = index,
+                        signature = signature}
+                end
+                local callable = T.intersection(builtSignatures)
+                local first, rets, pack = ops.inferCall(node, callable, argsNode)
+                local selected = node.overloadWinner or (#builtSignatures == 1
+                    and builtSignatures[1] or nil)
+                local entry = selected and bySignature[selected] or nil
+                if entry then
+                    node.constructorIndex = entry.index
+                    node.constructorEntry = entry
+                end
+                return first, rets, pack
             end
             local genericMap = calleeT.typeParams and {} or nil
             if tbl and calleeT.declKind == "record" then
@@ -558,7 +745,8 @@ function calls.install(c: any): any
             end
         end
 
-        if calleeT == T.any or calleeT.tag ~= "func" then
+        local overloads = callableMembers(calleeT)
+        if calleeT == T.any or (calleeT.tag ~= "func" and not overloads) then
             -- A `new` whose operand was already refused is not also a bad call: the
             -- program said what it meant, and one diagnostic says why it cannot be met.
             if calleeT ~= T.any and not node.newReported then
@@ -593,6 +781,7 @@ function calls.install(c: any): any
             ats = argPack.head
         end
         node.argumentPack = argPack
+        local selectionPack = argPack
         if argPack.alternatives then
             local maxHead: integer = 0
             for _, arm in ipairs(argPack.alternatives) do
@@ -607,6 +796,39 @@ function calls.install(c: any): any
         local argNodes = {}
         for j = 1, #argPack.head do
             argNodes[j] = args[math.min(j, #args)] or node
+        end
+
+        if overloads then
+            local survivors, originals, rejections = {}, {}, {}
+            for _, candidate in ipairs(overloads) do
+                local specialized, why = probeSignature(candidate, selectionPack,
+                    node.cdefCall)
+                if specialized then
+                    survivors[#survivors + 1] = specialized
+                    originals[#originals + 1] = candidate
+                else
+                    rejections[#rejections + 1] = T.tostring(candidate) .. ": "
+                        .. (why or "rejected")
+                end
+            end
+            node.overloadCandidates = overloads
+            if #survivors == 0 then
+                c.diag("NUPP2125", node,
+                    "no overload accepts this call: "
+                    .. table.concat(rejections, "; "), nil, callDetails(node))
+                return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+            elseif #survivors > 1 then
+                c.diag("NUPP2126", node,
+                    "several overloads accept this call: "
+                    .. signaturesText(survivors), nil, callDetails(node))
+                return T.any, nil, T.pack({}, {kind = "unknown", type = T.any})
+            end
+            calleeT = survivors[1]
+            node.overloadWinner = originals[1]
+            node.signatureType = calleeT
+            if calleeT.ffiOut and #calleeT.ffiOut > 0 then
+                node.ffiOutContracts = calleeT.ffiOut
+            end
         end
         -- Provenance is value-flow metadata rather than part of an interned type. Align
         -- it with the adjusted argument pack so substituting a generic pack can carry a
