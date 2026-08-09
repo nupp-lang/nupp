@@ -389,7 +389,9 @@ function project.runTask(root: string?, name: string,
         io.stderr:write(tostring(err) .. "\n"); return 1
     end
     local tasks = config.tasks or {}
-    local task = tasks[name]
+    -- The guard below is what decides whether there is a task at all; the cast only
+    -- says that indexing a map of them yields one.
+    local task = tasks[name] as manifest.Task
     if type(task) ~= "table" or type(task.argv) ~= "table" then
         io.stderr:write("nupp: no task named " .. tostring(name)
             .. "; see `nupp tasks`\n")
@@ -401,7 +403,7 @@ function project.runTask(root: string?, name: string,
         end
     end
     local argv = {}
-    for _, item in ipairs(task.argv) do argv[#argv + 1] = item end
+    for _, item in ipairs(task.argv or {}) do argv[#argv + 1] = item end
     for _, item in ipairs(args or {}) do argv[#argv + 1] = item end
     local env = task.env
     if task.build then

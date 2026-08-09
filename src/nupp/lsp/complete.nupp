@@ -77,7 +77,7 @@ type complete.Api = {
 function complete.completionContext(result: tree.Parse?,
     offset: integer): complete.Context?
     local tokens = result and result.tokens or {}
-    local index = nil
+    local index: integer? = nil
     for cursor, tok in ipairs(tokens) do
         if tok.kind == "eof" or tok.offset >= offset then
             break

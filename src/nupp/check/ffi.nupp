@@ -239,7 +239,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
 
             local parts, nested, printed = {}, {}, {}
             for _, name in ipairs(subject.fieldOrder or {}) do
-                local fieldType = subject.byname[name]
+                local fieldType = subject.byname[name] as Type
                 local spelling = T.cName(fieldType)
                 -- A struct held by value is the one shape whose size cannot come from
                 -- its spelling: nupp emits anonymous ctypes, so `ffi.sizeof("Inner")`
@@ -267,7 +267,8 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                     .. (byValue and ("$" .. spelling) or spelling)
                 printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
                 if byValue then
-                    nested[#nested + 1] = elementOf and elementOf.name or spelling
+                    nested[#nested + 1] = elementOf
+                        and (elementOf as T.Nominal).name or spelling
                 end
             end
             if #parts == 0 then

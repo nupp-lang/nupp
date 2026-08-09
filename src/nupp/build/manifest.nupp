@@ -484,7 +484,8 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return true
         end
         visiting[name] = true
-        for _, child in ipairs(dependencies[name].dependencies or {}) do
+        for _, child in ipairs(
+            (dependencies[name] as manifest.Dependency).dependencies or {}) do
             local ok, cycleErr = visit(child)
             if not ok then
                 return nil, cycleErr

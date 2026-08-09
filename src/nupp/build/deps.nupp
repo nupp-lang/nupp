@@ -402,7 +402,7 @@ local function absolute(path)
     if not currentDirectory then
         local _, printed = process.capture(windows
             and {"cmd", "/d", "/c", "cd"} or {"pwd"})
-        currentDirectory = normalize((printed or "."):gsub("%s+$", ""))
+        currentDirectory = normalize(((printed or "."):gsub("%s+$", "")))
     end
     if path == "" or path == "." then
         return currentDirectory
@@ -635,7 +635,7 @@ local function rockPaths(root: string, config: Config,
     target: Target?): deps.RockPaths?
     local paths, cpaths, seen = {}, {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
-        local dep = (config.dependencies or {})[name]
+        local dep = (config.dependencies or {})[name] as manifest.Dependency
         if type(dep) == "table" and dep.kind == "luarocks" then
             local tree, luaVersion = rockTree(root, dep)
             local id = tree .. "\0" .. luaVersion
@@ -669,7 +669,7 @@ local function rockModules(root: string, config: Config,
     target: Target?): {deps.RockModule}
     local selected, seen = {}, {}
     for _, name in ipairs(target and target.dependencies or {}) do
-        local dep = (config.dependencies or {})[name]
+        local dep = (config.dependencies or {})[name] as manifest.Dependency
         if type(dep) == "table" and dep.kind == "luarocks" and dep.bundle then
             local tree, luaVersion = rockTree(root, dep)
             local share = join(tree, "share/lua/" .. luaVersion)

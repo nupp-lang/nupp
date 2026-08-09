@@ -112,13 +112,14 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
             elseif stat.kind == "funcStmt" then
                 local holder, member = tree.memberHolder(stat)
                 local fname = stat.name
-                local nameTok = member or (fname and fname.base)
+                local named = fname as nupp.cst.Funcname
+                local nameTok = member or (fname and named.base)
                 local path = nil
                 if holder and member then
-                    path = holder.text .. (fname.method and ":" or ".")
+                    path = holder.text .. (named.method and ":" or ".")
                         .. member.text
                 end
-                emit(stat, nameTok, fname and fname.method and "method"
+                emit(stat, nameTok, fname and named.method and "method"
                     or "function", path)
             end
         end

@@ -76,7 +76,7 @@ end
 
 --- Builds and stages every native feature in `effects`, returning its files.
 function stage.build(root: string, outDir: string,
-    effects: {[string]: any}?): {string}?, string?
+    effects: {[string]: any}?): {[string]: boolean}?, string?
     local outputs = {}
     for _, feature in ipairs(native.features(effects)) do
         if feature.cargo then
@@ -93,12 +93,13 @@ function stage.build(root: string, outDir: string,
                 return nil, ("cannot build native feature %q:\n%s")
                     :format(feature.name, text)
             end
-            local filename = libraryFile(feature.library)
+            local libraryName = feature.library as string
+            local filename = libraryFile(libraryName)
             local built = join(targetDir, join("release", filename))
             -- ffi.load treats a path containing a slash as an exact filename;
             -- staging the loader name without a platform suffix lets the same
             -- generated bootstrap work on every supported host.
-            local output = join(root, join(outDir, join("lib", feature.library)))
+            local output = join(root, join(outDir, join("lib", libraryName)))
             local copied, err = fs.copyFile(built, output)
             if not copied then
                 return nil, ("cannot stage native feature %q: %s")

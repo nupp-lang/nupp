@@ -114,7 +114,7 @@ local function bundleText(root: string, config: Config, target: Target,
     for name in pairs(built) do names[#names + 1] = name end
     table.sort(names)
     for _, name in ipairs(names) do
-        local path = built[name].output
+        local path = (built[name] as nupp.build.cache.ModuleRecord).output
         if path and normalize(path) ~= normalize(mainPath) then
             local text, readErr = readFile(path)
             if not text then

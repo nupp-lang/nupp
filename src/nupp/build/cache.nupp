@@ -41,6 +41,9 @@ type cache.ModuleRecord = {
 
     --- The compiler-recognized runtime features this module needs staging for.
     effects: {[string]: any}?,
+
+    --- Where the module's coverage sites were recorded, on a coverage build.
+    coverage: {path: string?, sites: {any}}?,
     output: string?,
 
     --- What checking the module had to say, kept so that reusing the record says it

@@ -8,7 +8,20 @@ their manifests.
 
 local native = {}
 
-local FEATURES = {
+--- One compiler-recognized runtime feature: what it is called, where its
+--- implementation comes from, and how a build has to stage it.
+type native.Feature = {
+    name: string,
+    global: {holder: string, member: string}?,
+    module: string?,
+    cargo: string?,
+    library: string?,
+    binary: boolean?,
+
+    [string]: any,
+}
+
+local FEATURES: {[string]: native.Feature} = {
     ["native.regex"] = {
         name = "regex",
         global = {holder = "nupp", member = "regex"},
@@ -58,7 +71,7 @@ function native.forModule(name: string): string?
     return byModule[name]
 end
 
-function native.feature(effect: string): any?
+function native.feature(effect: string): native.Feature?
     return FEATURES[effect]
 end
 
@@ -92,7 +105,7 @@ function native.sourceEffects(source: string, filename: string, env: any): any
     return parsed.effects or {}
 end
 
-function native.features(effects: any): {any}
+function native.features(effects: {[string]: any}?): {native.Feature}
     local out = {}
     for effect in pairs(effects or {}) do
         local feature = FEATURES[effect]
@@ -103,7 +116,7 @@ function native.features(effects: any): {any}
 end
 
 --- One physical output line, preserving source positions in generated modules.
-function native.bootstrap(effects: any): string
+function native.bootstrap(effects: {[string]: any}?): string
     if not effects or not effects["native.regex"] then return "" end
     return [=[local __nupp=_G.nupp or {};_G.nupp=__nupp;if not __nupp.regex then __nupp.regex={};local ffi=require("ffi");ffi.cdef[[typedef struct NuppRegex NuppRegex;typedef struct { size_t start; size_t end; bool matched; } NuppRegexSpan;typedef struct NuppBytes NuppBytes;NuppRegex *nuppRegexCompile(const uint8_t *,size_t);size_t nuppRegexCaptureCount(const NuppRegex *);const uint8_t *nuppRegexCaptureName(const NuppRegex *,size_t,size_t *);bool nuppRegexIsMatch(const NuppRegex *,const uint8_t *,size_t);bool nuppRegexFind(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *);bool nuppRegexCaptures(const NuppRegex *,const uint8_t *,size_t,size_t,NuppRegexSpan *,size_t);NuppBytes *nuppRegexReplace(const NuppRegex *,const uint8_t *,size_t,const uint8_t *,size_t,size_t);void nuppRegexDestroy(NuppRegex *);const char *nuppRegexLastError(void);size_t nuppBytesLength(const NuppBytes *);const uint8_t *nuppBytesData(const NuppBytes *);void nuppBytesDestroy(NuppBytes *);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local C=(function()local wanted=os.getenv("NUPP_REGEX_LIBRARY");if wanted then return ffi.load(wanted)end local ok,lib=pcall(ffi.load,root.."/lib/nupp_regex");if ok then return lib end return ffi.load(root.."/../lib/nupp_regex")end)();local function start(s,i,l)if i==nil then return 0 end if type(i)~="number"or i~=math.floor(i)then error("nupp: regex init must be an integer",l)end if i<0 then i=#s+i+1 end if i<1 then i=1 end if i>#s+1 then return nil end return i-1 end;local function match(s,span,index,name)local first=tonumber(span.start)+1;return{value=s:sub(first,tonumber(span["end"])),first=first,last=tonumber(span["end"]),index=index,name=name}end;local R={};R.__index=R;function R:isMatch(s)return C.nuppRegexIsMatch(self._handle,s,#s)end;function R:find(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexFind(self._handle,s,#s,at,self._spans)then return nil end return match(s,self._spans[0],0,nil)end;function R:captures(s,i)local at=start(s,i,2)if at==nil or not C.nuppRegexCaptures(self._handle,s,#s,at,self._spans,self._captureCount)then return nil end local groups,named={},{};local whole=match(s,self._spans[0],0,nil);for n=1,self._captureCount-1 do local span=self._spans[n]if span.matched then local item=match(s,span,n,self._captureNames[n]);groups[n]=item;if item.name then named[item.name]=item end end end return{whole=whole,groups=groups,groupCount=self._captureCount-1,named=named}end;local function replace(self,s,r,limit)local bytes=C.nuppRegexReplace(self._handle,s,#s,r,#r,limit)if bytes==nil then return s end local out=ffi.string(C.nuppBytesData(bytes),tonumber(C.nuppBytesLength(bytes)));C.nuppBytesDestroy(bytes);return out end;function R:replace(s,r)return replace(self,s,r,1)end;function R:replaceAll(s,r)return replace(self,s,r,0)end;function __nupp.regex.compile(pattern)local handle=C.nuppRegexCompile(pattern,#pattern)if handle==nil then error("nupp: invalid regex: "..ffi.string(C.nuppRegexLastError()),2)end handle=ffi.gc(handle,C.nuppRegexDestroy);local count=tonumber(C.nuppRegexCaptureCount(handle));local names,length={},ffi.new("size_t[1]");for i=1,count-1 do local name=C.nuppRegexCaptureName(handle,i,length)if name~=nil then names[i]=ffi.string(name,tonumber(length[0]))end end return setmetatable({pattern=pattern,_handle=handle,_spans=ffi.new("NuppRegexSpan[?]",count),_captureCount=count,_captureNames=names},R)end end;]=]
 end

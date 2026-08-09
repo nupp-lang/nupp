@@ -244,7 +244,7 @@ function control.install(c: state.Checker): state.StatHandlers
             -- still checked, so what it holds is still reported; only the scope entry,
             -- which has nothing to be called, is skipped.
             local nameTok = binding.name
-            local acquired = c.infer(binding.expr)
+            local acquired = c.infer(binding.expr as cst.Node)
             local cleanups = acquired.tag == "owned" and acquired.cleanups
                 or {}
             binding.acquiredType = acquired

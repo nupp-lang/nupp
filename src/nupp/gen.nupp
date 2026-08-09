@@ -35,7 +35,6 @@ represented.
 
 local cst = require("nupp.cst")
 local predicate = require("nupp.predicate")
-local bit = require("bit")
 local native = require("nupp.native")
 
 local gen = {}
@@ -203,6 +202,10 @@ type gen.Checked = {
     readonly root: cst.Chunk,
     readonly tokens: {any}?,
     readonly implicitSideEffects: {[string]: any}?,
+
+    --- What the checker resolved this file to, and the native features it recorded.
+    readonly moduleName: string?,
+    readonly effects: {[string]: any}?,
 }
 
 --- How a coverage build is asked for: `true` to instrument and name the file after

@@ -132,8 +132,9 @@ local function disposeOf(block: cst.Block, from: integer,
             and ((call as cst.Call).args as cst.Args).exprs or {}
         if callee and callee.kind == "name" and callee.token
             and callee.token.text == "dispose" and #args == 1
-            and args[1].kind == "name" and args[1].token
-            and args[1].token.definition == def then
+            and args[1].kind == "name"
+            and (args[1] as cst.NameExpr).token
+            and ((args[1] as cst.NameExpr).token as nupp.lexer.Token).definition == def then
             return i
         end
     end
