@@ -236,8 +236,16 @@ function ffi.install(c: any): any
                 -- its spelling: nupp emits anonymous ctypes, so `ffi.sizeof("Inner")`
                 -- fails. Mark it, and hand the ctype over beside the spec. A pointer
                 -- to one needs no marker, since every pointer is one pointer wide.
-                local byValue = fieldType and fieldType.tag == "nominal"
-                    and fieldType.declKind == "struct"
+                -- A struct held by value, or an array of them: neither can be
+                -- sized from its spelling, because nupp emits anonymous ctypes and
+                -- `ffi.sizeof("Inner")` fails. The element ctype goes alongside;
+                -- for an array the helper multiplies it by the count it carries.
+                local elementOf = fieldType and fieldType.tag == "carray"
+                    and fieldType.count and fieldType.elem or nil
+                local byValue = fieldType and ((fieldType.tag == "nominal"
+                    and fieldType.declKind == "struct")
+                    or (elementOf and elementOf.tag == "nominal"
+                    and elementOf.declKind == "struct"))
                 if not spelling then
                     -- A struct whose every field reified cannot reach this, so it
                     -- means the type moved and the spelling did not follow.
@@ -250,7 +258,7 @@ function ffi.install(c: any): any
                     .. (byValue and ("$" .. spelling) or spelling)
                 printed[#printed + 1] = name .. ":" .. (expand(fieldType) or spelling)
                 if byValue then
-                    nested[#nested + 1] = spelling
+                    nested[#nested + 1] = elementOf and elementOf.name or spelling
                 end
             end
             if #parts == 0 then

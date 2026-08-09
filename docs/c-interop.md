@@ -222,6 +222,21 @@ platform's layout, which is what makes it usable for noticing that saved data no
 longer matches what is reading it; deciding what to do about a mismatch is the
 application's.
 
+A fixed C array is a field like any other, laid out inline:
+
+```nupp
+struct Vertex
+    pos: float[3]
+    uv: float[2]
+    id: int32
+end
+```
+
+`layoutof` reports `pos` as `float[3]`, twelve bytes wide at offset zero — which
+is a vertex attribute descriptor, and is what makes one derivable rather than
+hand-maintained. `T[?]` is not a field: a struct whose size depends on a count
+nobody wrote has no size, so it stays **NUPP2201**.
+
 Only a `struct` has a layout. A `record` is a table, so `layoutof` on one is
 **NUPP2402**. Nothing is emitted for a struct nothing asks about: the lowering
 happens at the call site, so a program that never calls `layoutof` carries none

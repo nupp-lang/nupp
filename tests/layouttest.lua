@@ -388,4 +388,78 @@ return Holder ~= nil
    assert(code:find("$ *p", 1, true), "the substitution spelling is kept")
 end
 
+function M.aFixedArrayFieldIsLaidOutInline()
+   -- `T[N]` sits in the struct's own bytes: N elements, no indirection. This is
+   -- how a C struct carries a vector, and it was NUPP2201 until the field rule
+   -- learned the difference between a fixed array and a variable one.
+   local l = runs([[
+local struct Vertex
+    pos: float[3]
+    uv: float[2]
+    id: int32
+end
+return layoutof(Vertex)
+]], "Vertex")
+   local ct = ffi.typeof("struct { float pos[3]; float uv[2]; int32_t id; }")
+   assertEq(l.size, ffi.sizeof(ct), "the whole struct")
+   assertEq(l.fields[1].ctype, "float[3]", "spelled as the array it is")
+   assertEq(l.fields[1].size, ffi.sizeof("float[3]"), "three floats wide")
+   assertEq(l.fields[2].offset, ffi.offsetof(ct, "uv"), "and the next one follows it")
+   assertEq(l.fields[3].offset, ffi.offsetof(ct, "id"), "as does the one after")
+end
+
+function M.aFixedArrayOfStructsIsSizedFromItsElementCtype()
+   -- Same problem as a nested struct, one remove out: `ffi.sizeof("Cell[4]")`
+   -- cannot resolve an anonymous ctype by name, so the element is handed over and
+   -- multiplied by the count.
+   local l = runs([[
+local struct Cell
+    a: float
+    b: float
+end
+
+local struct Grid
+    cells: Cell[4]
+    n: int32
+end
+return layoutof(Grid)
+]], "Grid")
+   local cell = ffi.typeof("struct { float a; float b; }")
+   assertEq(l.fields[1].size, ffi.sizeof(cell) * 4, "four cells wide")
+   assertEq(l.fields[1].ctype, "Cell[4]", "and named as the array it is")
+   assertEq(l.size, ffi.sizeof(ffi.typeof(
+      "struct { $ cells[4]; int32_t n; }", cell)), "the whole struct")
+end
+
+function M.aFixedArrayIsUsableAtRuntime()
+   local value = runs([[
+local struct Vertex
+    pos: float[3]
+    id: int32
+end
+
+local v = new Vertex {}
+v.pos[0] = 1.5
+v.pos[2] = 3.5
+v.id = 7
+return v.pos[0] + v.pos[2] + v.id
+]], "runtime")
+   assertEq(value, 12, "elements read and write where they were put")
+end
+
+function M.aVariableLengthArrayIsStillRefused()
+   -- `T[?]` has no size, so a struct holding one has none either.
+   local found = nil
+   for _, d in ipairs(diagnostics([[
+local struct Bad
+    v: float[?]
+    n: int32
+end
+return Bad
+]])) do
+      if d.code == "NUPP2201" then found = d end
+   end
+   assert(found, "a variable-length array cannot be a struct field")
+end
+
 return M

@@ -266,7 +266,7 @@ function gen.generate(result, filename, coverage)
                 h = bit.bxor(h, text:byte(i))
                 h = bit.band(h * 16777619, 0xffffffff)
             end
-            return ("%08x"):format(bit.band(h, 0xffffffff))
+            return ("%08x"):format(bit.band(h, 0x7fffffff))
         end
         local function tagFor(name)
             if structTag[name] then
@@ -809,6 +809,29 @@ function gen.generate(result, filename, coverage)
                     elseif t.kind == "tname" then
                         cdecl[#cdecl + 1] = "$ " .. fname .. ";"
                         params[#params + 1] = t.base.text
+                    elseif t.kind == "tcarray" and t.count then
+                        -- `T[N]` sits inline: the elements are the struct's own
+                        -- bytes. `T[?]` has no size and never reaches here, since
+                        -- the field rule refuses it.
+                        local element = t.element
+                        local spelling = element and element.kind == "tname"
+                            and C_PRIM[element.base.text] or nil
+                        if spelling then
+                            cdecl[#cdecl + 1] = spelling .. " " .. fname
+                                .. "[" .. t.count.text .. "];"
+                        elseif element and element.kind == "tname"
+                            and structTag[element.base.text] then
+                            cdecl[#cdecl + 1] = "struct "
+                                .. structTag[element.base.text] .. " " .. fname
+                                .. "[" .. t.count.text .. "];"
+                        elseif element and element.kind == "tname" then
+                            cdecl[#cdecl + 1] = "$ " .. fname
+                                .. "[" .. t.count.text .. "];"
+                            params[#params + 1] = element.base.text
+                        else
+                            diag(entry.name, "NUPP3002",
+                                "cannot reify this array element type")
+                        end
                     elseif t.kind == "tptr" then
                         local inner = t.inner
                         if inner.kind == "tname" and C_PRIM[inner.base.text] then
@@ -2045,10 +2068,12 @@ function gen.generate(result, filename, coverage)
             .. "local own local shown = ctype "
             .. "if ctype:sub(1, 1) == \"$\" then at = at + 1 own = nested[at] "
             .. "shown = ctype:sub(2) "
+            .. "const repeats = shown:match(\"%%[(%%d+)%%]$\") "
+            .. "if repeats then own = __nuppFfi.sizeof(own) * tonumber(repeats) end "
             .. "elseif ctype:sub(-1) == \"*\" then own = \"void *\" "
             .. "else own = ctype end "
             .. "fields[#fields + 1] = {name = fname, ctype = shown, "
-            .. "offset = __nuppFfi.offsetof(ct, fname), size = __nuppFfi.sizeof(own)} "
+            .. "offset = __nuppFfi.offsetof(ct, fname), size = type(own) == \"number\" and own or __nuppFfi.sizeof(own)} "
             .. "end "
             .. "const size = __nuppFfi.sizeof(ct) "
             .. "for i = 1, #fields do "

@@ -229,10 +229,16 @@ work makes sense in.
       beside it. `ffi.d.nupp` simply passes strict and `stringbuffer.d.nupp`
       does not.
 
-- [ ] **A struct cannot hold a fixed C array.** `reifiableField` admits
-      primitives, a nested struct and pointers, so `v: float[4]` is NUPP2201.
-      C structs commonly have array members, and `T[N]` already exists as a
-      type, so this is a gap in the field rule rather than in the type system.
+- [x] **A struct holds a fixed C array.** `v: float[4]` sits inline: N elements
+      in the struct's own bytes, no indirection, which is how a C struct carries
+      a vector and what a vertex layout is made of. `T[?]` stays refused, and
+      that is the whole of the difference -- a struct whose size depends on a
+      count nobody wrote has no size.
+
+      An array of structs needs the element ctype handed over, like a nested
+      struct one remove out: `ffi.sizeof("Cell[4]")` cannot resolve an anonymous
+      ctype by name, so the element goes alongside and the layout helper
+      multiplies by the count.
 - [ ] **Struct layout reflection** ([design](layout.md)). What reifying broke,
       answered without imposing a format: field names in declaration order,
       each field's C type, offset, size and padding, the struct's size, and a

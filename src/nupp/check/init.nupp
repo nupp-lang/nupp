@@ -492,6 +492,13 @@ local function reifiableField(t: Type, isCdef: boolean?): boolean
     if t.tag == "nominal" and t.declKind == "struct" then
         return true
     end
+    -- A fixed C array, `T[N]`, is laid out inline: N elements, no indirection, and a
+    -- size the struct can be told at compile time. `T[?]` is not -- a struct whose
+    -- own size depends on a count nobody has written cannot be laid out at all --
+    -- which is the whole of the difference between the two here.
+    if t.tag == "carray" and t.count then
+        return reifiableField(t.elem, isCdef)
+    end
     if t.tag == "ptr" then
         return true
     end
