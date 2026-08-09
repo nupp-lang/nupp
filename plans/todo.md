@@ -571,19 +571,25 @@ What is left, in the order the numbers justify:
       Both halves matter. `reifiable-record` was written whitelist-first and
       the silent cases are most of its value; a lint with only a positive test
       passes while firing on everything.
-- [ ] **Permute the passes and compare behaviour, not output.** `-Zno-opt=CODE`
-      and the pass registry already exist, so every subset of the five `OPT-n`
-      passes can be built and run, and all thirty-two have to agree on what the
-      program does. Nothing checks this today, and the gap is not theoretical:
-      OPT-2 rewrites a generic `for` into a numeric one through a different
-      codegen branch, which silently dropped OPT-5's finish and left the
-      accumulator empty. One hand-written test caught it; a subset sweep would
-      have caught it without being asked.
+- [x] **Permute the passes and compare behaviour, not output.**
+      `tests/passpermutationtest.lua`. Every subset of the `OPT-n` passes is
+      built and run, and all of them have to agree on the answer. The subsets
+      come from `optimize.passes` rather than a list in the test, so a pass
+      added tomorrow is swept the day it lands, and `everyPassIsInTheSweep`
+      fails if the registry and the sweep ever disagree.
 
-      Behaviour rather than bytes, because passes legitimately change output.
-      `fixpoint` already compares `-O0` against `-O2` on the compiler itself,
-      which is the whole-program version of the same idea; this is the
-      per-program one, and it wants generated inputs (above) to be worth much.
+      Exhaustive while the subset count stays under 256, singles-and-pairs
+      beyond that, and the mode is named in every failure so a sweep that
+      stopped being exhaustive cannot read like one that still is.
+
+      Verified against the bug that motivated it: with the OPT-2 branch's
+      concat finish removed, the sweep fails and names `OPT-2+OPT-5`, while the
+      54-test optimizer suite passes. Two hundred milliseconds for the whole
+      sweep.
+
+      Left open: the programs are hand-written, so coverage is only as good as
+      they are. The generated corpus above is what makes this worth much beyond
+      the shapes someone thought to write down.
 - [ ] **A segfault in `luajit tests/run.lua`, seen once, not reproduced.**
       `Segmentation fault: 11` partway through a full run, on the run that
       followed a compiler rebuild; four full runs and six of `profiletest`
