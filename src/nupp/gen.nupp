@@ -203,6 +203,8 @@ function gen.generate(result, filename)
     local needsLibs = false
     local needsNewTab = false
     local needsClearTab = false
+    local needsBuffer = false
+    local bufferName
     local newTabName, clearTabName
     local needsWith = false
     local withPackName, withIdName, withFailureName
@@ -224,6 +226,15 @@ function gen.generate(result, filename)
             return preferred
         end
         return nextTemp()
+    end
+
+    -- The `string.buffer` binding OPT-5 appends through, bound once per module like the
+    -- table intrinsics beside it. Reserved rather than assumed, so a user local called
+    -- `__nuppBuffer` does not collide with it.
+    local function concatBufferName()
+        needsBuffer = true
+        bufferName = bufferName or reservedName("__nuppBuffer")
+        return bufferName
     end
 
     local function tableIntrinsicName(name)
@@ -271,6 +282,18 @@ function gen.generate(result, filename)
             raw(" ")
         end
         raw(text)
+    end
+
+    -- OPT-5 finishes where its loop closes: the accumulator becomes the string it
+    -- would have been. Every branch that emits a loop has to call this, because two
+    -- passes may claim one loop -- OPT-2 rewrites a generic `for` into a numeric one
+    -- and emits it somewhere else entirely. Forgetting it in one branch does not fail
+    -- to optimize, it leaves the accumulator empty.
+    local function finishConcatBuffer(x, line)
+        if x.concatBuffer then
+            e(("%s = %s:tostring()"):format(x.concatBuffer.target,
+                x.concatBuffer.name), line)
+        end
     end
 
     local emit
@@ -1521,9 +1544,11 @@ function gen.generate(result, filename)
                 end
             end
             e("end", endTok and endTok.line or nil)
+            finishConcatBuffer(x, endTok and endTok.line or nil)
 
         elseif kind == "whileStmt" or kind == "fornumStmt"
             or kind == "forinStmt" or kind == "repeatStmt" then
+            local lastLine = nil
             for _, child in ipairs(x) do
                 if child == x.body then
                     emitLoopDepth = emitLoopDepth + 1
@@ -1532,7 +1557,13 @@ function gen.generate(result, filename)
                 else
                     emit(child)
                 end
+                if cst.isToken(child) then
+                    lastLine = child.line
+                end
             end
+            -- On the line the loop closes on. That line already belongs to this
+            -- statement, so nothing moves and the line count is unchanged.
+            finishConcatBuffer(x, lastLine)
 
         elseif kind == "funcbody" then
             emitFunctionDepth = emitFunctionDepth + 1
@@ -1578,6 +1609,29 @@ function gen.generate(result, filename)
             else
                 emitChildren(x)
             end
+
+        elseif kind == "localStmt" and x.concatBuffer then
+            -- The accumulator keeps its declaration, so anything reading it after the
+            -- loop reads a string and needs no rewriting. The buffer is opened beside
+            -- it, on the same line.
+            emitChildren(x)
+            e(("local %s = %s.new()"):format(x.concatBuffer.name,
+                concatBufferName()), sourceLine(x))
+
+        elseif kind == "assignStmt" and x.concatBuffer then
+            -- `s = s .. a .. b` becomes `buf:put(a, b)`. Lua's `..` is
+            -- right-associative, so the pieces arrive already in the order they are
+            -- concatenated, and appending them one after another builds the same
+            -- string. Only reached for a concatenation the checker proved primitive:
+            -- a `__concat` would not be run by `put`.
+            e(("%s:put("):format(x.concatBuffer.name), sourceLine(x))
+            for j, piece in ipairs(x.concatBuffer.pieces) do
+                if j > 1 then
+                    e(",")
+                end
+                emit(piece)
+            end
+            e(")")
 
         else
             emitChildren(x)
@@ -1648,6 +1702,10 @@ function gen.generate(result, filename)
     end
     if needsNewTab then
         code = ("const %s = require(\"table.new\"); "):format(newTabName)
+            .. code
+    end
+    if needsBuffer then
+        code = ("const %s = require(\"string.buffer\"); "):format(bufferName)
             .. code
     end
     if needsFfi then

@@ -55,6 +55,14 @@ interface cst.Hints
     --- A branch whose preceding conditions the optimizer proved false.
     constantBranch: cst.Node?
 
+    --- A `..` the checker resolved to Lua's primitive concatenation: no
+    --- `__concat` was reached, and neither side was `any`. False or absent means
+    --- a rewrite may not assume the operands are strings and numbers.
+    plainConcat: boolean?
+
+    --- A string accumulator lowered to a `string.buffer` by `OPT-5`.
+    concatBuffer: any
+
     constantBranchNone: boolean?
 
     --- A complete `@effects` contract, normalized by the checker.

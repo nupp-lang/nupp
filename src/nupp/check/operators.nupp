@@ -237,13 +237,24 @@ function operators.install(c: any): any
                 return c.applyContract(mm, {lt, rt}, {lhs, rhs},
                     node, "__concat")
             end
+            -- Whether this concatenation is the primitive one, which only this
+            -- point knows: no `__concat` was found, and neither side is `any`.
+            -- `any` is the interesting exclusion. Gradual typing lets it
+            -- concatenate, and at runtime it may be a table carrying a
+            -- `__concat` -- so a rewrite that assumes primitive string building
+            -- (`OPT-5`) must refuse it, while the check above must allow it.
+            local plain = true
             for _, pair in ipairs({{lt, lhs}, {rt, rhs}}) do
                 local t = pair[1]
                 if not (t == T.any or isA(t, T.number) or isA(t, T.string)) then
                     c.diag("NUPP2003", pair[2],
                         ("cannot concatenate %s"):format(T.tostring(t)))
+                    plain = false
+                elseif t == T.any then
+                    plain = false
                 end
             end
+            node.plainConcat = plain
             return T.string
         elseif operators.bitops[op] then
             c.numericOperand(lt, lhs, op)

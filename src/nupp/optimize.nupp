@@ -48,6 +48,11 @@ optimize.passes = {
         level = 1,
         summary = "bind repeated immutable dotted callees at their first use",
     },
+    ["OPT-5"] = {
+        name = "concat-buffer",
+        level = 1,
+        summary = "build a string accumulated round a loop with a string.buffer",
+    },
 }
 
 -- Presizing pays from two fields up. An empty table grows its hash part by rehashing,
@@ -334,6 +339,173 @@ local function numericIpairsBody(body, facts, remarks)
         for _, child in ipairs(node) do walk(child) end
     end
     walk(body)
+end
+
+-- The loops a string may be accumulated round. `repeat` is included: what matters is
+-- that the body runs an unknown number of times, not how it decides to stop.
+local LOOPS = {
+    fornumStmt = true, forinStmt = true, whileStmt = true, repeatStmt = true,
+}
+
+-- An empty string literal, which is the only initialiser this pass accepts. A
+-- non-empty one would have to be put into the buffer before the loop to survive zero
+-- iterations, which is easy and is not what makes the pass worth having.
+local function emptyString(node)
+    if not node or isToken(node) or node.kind ~= "string" then
+        return false
+    end
+    local token = firstToken(node)
+    local text = token and token.text or ""
+    return text == "\"\"" or text == "''" or text == "[[]]"
+end
+
+-- `s .. a .. b` parses right-associatively, so the accumulator is the outermost node's
+-- left operand and everything appended is down its right spine. Returns the pieces in
+-- the order they are concatenated, or nil when the shape is not an accumulation of
+-- `definition` -- including when any link is a concatenation the checker could not
+-- prove primitive, since `string.buffer` will not run somebody's `__concat`.
+local function appendedPieces(expr, definition)
+    if not expr or isToken(expr) or expr.kind ~= "binop" then
+        return nil
+    end
+    if not expr.op or expr.op.text ~= ".." or not expr.plainConcat then
+        return nil
+    end
+    local left = expr.lhs
+    if not left or isToken(left) or left.kind ~= "name"
+        or not left.token or left.token.definition ~= definition then
+        return nil
+    end
+    local pieces = {}
+    local rest = expr.rhs
+    while rest and not isToken(rest) and rest.kind == "binop"
+        and rest.op and rest.op.text == ".." do
+        if not rest.plainConcat then
+            return nil
+        end
+        pieces[#pieces + 1] = rest.lhs
+        rest = rest.rhs
+    end
+    if not rest then
+        return nil
+    end
+    pieces[#pieces + 1] = rest
+    return pieces
+end
+
+-- The one `s = s .. ...` in a loop, when that is every mention of `s` the loop makes.
+-- Anything else -- a second accumulation, a read, a capture by a function written in
+-- the loop -- means the value is observed mid-build and the rewrite is off.
+local function soleAccumulation(loop, definition, asked)
+    local found, other = nil, false
+    local function walk(node)
+        if not node or isToken(node) or other then
+            return
+        end
+        if node.kind == "assignStmt" and #(node.targets or {}) == 1
+            and #(node.exprs or {}) == 1 then
+            local target = node.targets[1]
+            if target and not isToken(target) and target.kind == "name"
+                and target.token and target.token.definition == definition then
+                local pieces = appendedPieces(node.exprs[1], definition)
+                if pieces and not found then
+                    found = {stat = node, pieces = pieces}
+                    -- Its own two mentions are accounted for; anything the pieces
+                    -- mention is not, and is caught by the count below.
+                    for _, piece in ipairs(pieces) do
+                        if asked.uses(definition, piece) > 0 then
+                            other = true
+                        end
+                    end
+                    return
+                end
+                other = true
+                return
+            end
+        end
+        for _, child in ipairs(node) do walk(child) end
+    end
+    walk(loop)
+    if other or not found then
+        return nil
+    end
+    -- Every remaining mention would be a read of a half-built string.
+    if asked.uses(definition, loop) ~= 2 then
+        return nil
+    end
+    return found
+end
+
+--- Lowers a string accumulated round a loop to a `string.buffer`.
+---
+--- `s = s .. piece` in a loop is O(n^2): each round allocates a string holding
+--- everything so far and interns it, so the work grows with the length rather than
+--- with the count. A trace compiler makes each of those steps fast and cannot make
+--- there be fewer of them, which is what separates this from the lookups the JIT
+--- already folds. `bench/concat.lua` measures it.
+---
+--- The buffer is created where the accumulator was and dropped after, rather than
+--- pooled at module scope. Pooling is faster throughout and is only correct where the
+--- site cannot be re-entered -- recursion, a yield in the body, or any call reaching
+--- the same function all break it -- and there is no deoptimization to recover from
+--- being wrong. That upgrade wants a re-entry query; this does not need one, because
+--- every mention of the accumulator is accounted for, so nothing else can reach it.
+local function concatBufferWalk(result, remarks)
+    local facts = require("nupp.analysis").queries(result.analysis)
+    if not facts then
+        return
+    end
+    local counter = 0
+    for _, body in ipairs(result.analysis.bodies or {}) do
+        local asked = facts.body(body)
+        local function blocks(node)
+            -- A function written in this body is its own body in `bodies`, and
+            -- walking into it here would judge the same statement twice.
+            if not node or isToken(node) or NESTED_FUNCTION[node.kind] then
+                return
+            end
+            local stats = node.kind == "block" and node.stats or nil
+            for i, stat in ipairs(stats or {}) do
+                if stat.kind == "localStmt" and #(stat.names or {}) == 1
+                    and #(stat.exprs or {}) == 1 and emptyString(stat.exprs[1])
+                    and stat.names[1].definition then
+                    local definition = stat.names[1].definition
+                    -- The loop this accumulator is built by, if the statements in
+                    -- between leave it alone. One that is read or reassigned before
+                    -- the loop is not an accumulator being started here.
+                    local loop, untouched = nil, true
+                    for j = i + 1, #stats do
+                        local next = stats[j]
+                        if LOOPS[next.kind] then
+                            loop = next
+                            break
+                        end
+                        if asked.uses(definition, next) > 0 then
+                            untouched = false
+                            break
+                        end
+                    end
+                    local accumulation = untouched and loop
+                        and soleAccumulation(loop, definition, asked) or nil
+                    if accumulation then
+                        counter = counter + 1
+                        local name = ("__nuppBuf_%d"):format(counter)
+                        stat.concatBuffer = {name = name}
+                        accumulation.stat.concatBuffer = {name = name,
+                            pieces = accumulation.pieces}
+                        loop.concatBuffer = {name = name,
+                            target = stat.names[1].text}
+                        remark(remarks, stat, "OPT-5",
+                            ("concat-buffer: %s is built with a string.buffer, "
+                            .. "which appends instead of rebuilding")
+                            :format(stat.names[1].text))
+                    end
+                end
+            end
+            for _, child in ipairs(node) do blocks(child) end
+        end
+        blocks(body)
+    end
 end
 
 local function numericIpairsWalk(result, remarks)
@@ -918,6 +1090,9 @@ function optimize.run(result: any, opts: any): {any}
     end
     if level >= optimize.passes["OPT-4"].level and not disabled["OPT-4"] then
         staticCallableWalk(result.root, remarks)
+    end
+    if level >= optimize.passes["OPT-5"].level and not disabled["OPT-5"] then
+        concatBufferWalk(result, remarks)
     end
     for _, entry in ipairs(remarks) do
         entry.filename = result.filename or opts.filename

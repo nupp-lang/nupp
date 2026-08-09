@@ -26,6 +26,7 @@ than mixing artifacts compiled at different levels.
 | `OPT-2` | numeric-ipairs | `-O1` | Use a numeric loop for a proved stable dense array |
 | `OPT-3` | constant-fold | `-O1` | Fold exact primitives, branches, and immutable paths |
 | `OPT-4` | static-callable | `-O1` | Bind repeated immutable dotted callees at first use |
+| `OPT-5` | concat-buffer | `-O1` | Append to a `string.buffer` instead of rebuilding a string each pass |
 
 Each `OPT-n` example below shows Nupp beside its `-O1` and `-O0` output.
 Generated temporary names are illustrative.
@@ -279,6 +280,61 @@ binding preserves lookup order and the error line. Reuse stays within one
 lexical block. Labels, `goto`, and calls with specialized FFI, ownership,
 construction, or output-parameter lowering are not rewritten.
 
+### `OPT-5`, concat buffer
+
+A string appended to round a loop is built in a `string.buffer` and read back
+once, instead of being rebuilt on every pass.
+
+::: code-group
+```nupp [Original Nupp]
+local out = ""
+for _, item in ipairs(items) do
+    out = out .. item .. ","
+end
+return out
+```
+
+```lua [Optimized Lua]
+const __nuppBuffer = require("string.buffer"); local out = "" local __nuppBuf_1 = __nuppBuffer.new()
+for _, item in ipairs(items) do
+__nuppBuf_1:put(item, ",")
+end out = __nuppBuf_1:tostring()
+return out
+```
+
+```lua [Unoptimized Lua]
+local out = ""
+for _, item in ipairs(items) do
+out = out .. item .. ","
+end
+return out
+```
+:::
+
+This is the one pass here whose win is not a lookup the trace compiler could
+have folded. `out = out .. piece` is O(n²) — every pass allocates a string
+holding everything so far and interns it — so the work grows with the length
+rather than with the count, and a JIT that makes each step fast cannot make
+there be fewer steps. `bench/concat.lua` measures 1.8x over eight pieces rising
+to 3.6x over sixty-four, still climbing.
+
+The accumulator keeps its own declaration and is assigned back where the loop
+closes, so everything after the loop reads an ordinary string and nothing
+downstream knows a buffer was involved. Both additions sit on lines that already
+belonged to those statements.
+
+The rewrite requires the initialiser to be `""`, every mention of the
+accumulator inside the loop to be the one `out = out .. ...`, and nothing to
+touch the binding between its declaration and the loop. A read of the
+half-built string, a capture by a function written in the loop, a prepend
+(`out = item .. out`), or a second accumulation each keep the concatenation.
+Each `..` must also be one the checker proved primitive: an operand typed `any`
+may carry a `__concat` at run time, and `put` would not run it.
+
+Straight-line concatenation is deliberately untouched. Lua performs a
+multi-operand concat in one operation, and creating a buffer costs about what
+two concatenations cost, so rewriting `a .. b .. c` would be slower.
+
 ## Benchmark details
 
 These are fresh local medians with LuaJIT enabled. They measure the exact
@@ -311,19 +367,17 @@ Run the same benchmarks with:
     luajit bench/constant-propagation.lua
     luajit bench/static-callable.lua
 
-Two more measure passes that do not exist, which is the point of them: a
-benchmark decides whether one is worth writing, so the ones that argue against
-a pass are kept beside the ones that argued for the passes above.
+Two more were written before the passes they argue about, which is the point of
+them: a benchmark decides whether one is worth writing.
 
     luajit bench/ffi-hoisting.lua
     luajit bench/concat.lua
 
-`ffi-hoisting` finds that caching a ctype is the interpreter's win alone, so
-that pass stays unbuilt, while the clib symbol binding it also measures is real
-and already emitted. `concat` finds that lowering a loop-carried accumulator to
-`string.buffer` wins several-fold and grows with the length, because an O(n²)
-algorithm is not something a trace compiler can fold away. Both exit non-zero if
-the finding stops holding.
+`concat` argued for `OPT-5` and now guards it. `ffi-hoisting` argued against a
+pass that is therefore not here: caching a ctype is the interpreter's win alone,
+while the clib symbol binding it also measures is real and already emitted. Both
+exit non-zero if their finding stops holding, so the one that argues against a
+pass keeps arguing.
 
 ## Inspecting and controlling passes
 

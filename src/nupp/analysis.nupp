@@ -706,13 +706,16 @@ function queries.body(body: any, byDefinition: any): any
         return token and find(token.definition) or nil
     end
 
-    --- The number of times a definition is named anywhere in the body.
+    --- The number of times a definition is named, in the body or in part of it.
     ---
     --- A blunt stand-in for "does this value get out", and deliberately so: the
     --- summaries record escapes for parameter-rooted paths, not for a local's own
     --- lifetime, so nothing here can answer the real question yet. A count is
     --- honest about being a proxy in a way a named `escapes` query would not be.
-    function facts.uses(definition: any): number
+    ---
+    --- @param definition the binding to look for
+    --- @param region optional, a part of the body to count within
+    function facts.uses(definition: any, region: any): number
         local function count(node: any): number
             if not node then
                 return 0
@@ -725,7 +728,7 @@ function queries.body(body: any, byDefinition: any): any
             for _, child in ipairs(node) do total = total + count(child) end
             return total
         end
-        return count(body)
+        return count(region or body)
     end
 
     --- Whether anything in `region` can change the shape of the value in `class`.
