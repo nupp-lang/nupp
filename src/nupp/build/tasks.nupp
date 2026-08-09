@@ -143,6 +143,29 @@ local function configuredTasks(config, buildOnly)
         }
         used[name] = true
     end
+    if not buildOnly and config.tasks then
+        local customNames = {}
+        for customName in pairs(config.tasks) do
+            customNames[#customNames + 1] = customName
+        end
+        table.sort(customNames)
+        for _, customName in ipairs(customNames) do
+            local custom = config.tasks[customName]
+            local name = actionName(customName)
+            tasks[#tasks + 1] = {
+                name = name,
+                default = false,
+                category = "task",
+                description = custom.description,
+                kind = "task",
+                buildTarget = custom.build,
+                argv = copyStrings(custom.argv),
+                env = custom.env,
+                command = jsonArray({"nupp", "task", customName}),
+            }
+            used[name] = true
+        end
+    end
     table.sort(tasks, function(left, right) return left.name < right.name end)
     return tasks, defaultName
 end

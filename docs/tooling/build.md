@@ -21,12 +21,14 @@ Removing unused code is a linker's job and should be invisible when it happens.
 Measured on this compiler, the walk was removing one module out of seventy-one
 and costing about sixteen kilobytes on a 1.6 MB binary.
 
-`nupp tasks` lists the manifest's build targets, configured test action, and
-self-host/fixpoint action, and marks the default build target.
-`nupp tasks <name>` prints the effective target configuration, including
-manifest-level defaults such as `outDir`. Both forms accept `--format json`
-(or `--json`) for build-tool integration; text is the default. Run
-`nupp help tasks` for the complete interface.
+`nupp tasks` lists the manifest's build targets, configured test action,
+self-host/fixpoint action, and any named `tasks` entries, and marks the
+default build target. `nupp tasks <name>` prints the effective target
+configuration, including manifest-level defaults such as `outDir`. Both
+forms accept `--format json` (or `--json`) for build-tool integration; text
+is the default. Run `nupp help tasks` for the complete interface. A named
+task also runs with `nupp task <name>` — see
+[Tasks](../tooling/tasks.md) for the manifest shape.
 
 `nupp clean` removes the output paths of every configured target;
 `nupp clean --target <name>` limits removal to one target. `--dry-run` prints

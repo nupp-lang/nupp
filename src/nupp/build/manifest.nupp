@@ -81,6 +81,7 @@ local PAGE_KEYS = {
 
 local HERO_ACTION_KEYS = {"text", "path", "theme"}
 local FEATURE_KEYS = {"icon", "image", "title", "details"}
+local TASK_KEYS = {"description", "argv", "build", "env"}
 
 local function validateKeys(value, known, label)
     if type(value) ~= "table" then
@@ -454,6 +455,61 @@ local function validateManifest(config)
             for key, value in pairs(config.test.env) do
                 if type(key) ~= "string" or type(value) ~= "string" then
                     return nil, "test.env keys and values must be strings"
+                end
+            end
+        end
+    end
+    if config.tasks ~= nil then
+        if type(config.tasks) ~= "table" then
+            return nil, "tasks must be a table"
+        end
+        for name, task in pairs(config.tasks) do
+            if type(name) ~= "string" or name == "" then
+                return nil, "task names must be non-empty strings"
+            end
+            local label = "tasks." .. name
+            if type(task) ~= "table" then
+                return nil, label .. " must be a table"
+            end
+            valid, err = validateKeys(task, TASK_KEYS, label)
+            if not valid then
+                return nil, err
+            end
+            valid, err = validateArray(task.argv, label .. ".argv", "string", true)
+            if not valid then
+                return nil, err
+            end
+            if task.description ~= nil then
+                valid, err = validateString(task.description, label .. ".description")
+                if not valid then
+                    return nil, err
+                end
+            end
+            -- Unlike test.build, this doesn't require build configuration to exist at
+            -- all: most tasks won't name one (nupp task itself doesn't build anything
+            -- by default, see nupp.build.project.runTask), and a manifest with no build
+            -- section is still a manifest a task can be defined in.
+            if task.build ~= nil then
+                valid, err = validateString(task.build, label .. ".build")
+                if not valid then
+                    return nil, err
+                end
+                if not build or not build.targets then
+                    return nil, label .. ".build requires build.targets"
+                end
+                if type(build.targets[task.build]) ~= "table" then
+                    return nil, label .. ".build references unknown target "
+                        .. task.build
+                end
+            end
+            if task.env ~= nil then
+                if type(task.env) ~= "table" then
+                    return nil, label .. ".env must be a table"
+                end
+                for key, value in pairs(task.env) do
+                    if type(key) ~= "string" or type(value) ~= "string" then
+                        return nil, label .. ".env keys and values must be strings"
+                    end
                 end
             end
         end

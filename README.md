@@ -40,6 +40,7 @@ parameters, parameter-effect inference, and raw coroutine suspension. See
     nupp clean [--target name]  remove configured build outputs
     nupp tasks [name]           list or inspect manifest project tasks
     nupp test [args...]         build, then run the configured test command
+    nupp task <name> [args...]  build, then run a named tasks.<name> from nupp.lua
     nupp doc [site|markdown]    generate fast CST-based API documentation
     nupp fixpoint               verify the self-hosting compiler rebuild
     nupp run <file> [args]      compile and run; require project .nupp/.lua
@@ -195,12 +196,13 @@ the repository and on the site.
     ./bin/nupp check      check the configured project graph
     ./bin/nupp test       build, then run tests (requires LuaJIT and cjson)
     ./bin/nupp fixpoint   verify the byte-identical self-hosting rebuild
+    ./bin/nupp task docs-serve   build the docs site and playground, serve both
 
-`node scripts/docs-serve.mjs` builds the docs site and the playground and
-serves both together — the docs site at `/`, the playground at
-`/playground/`, the same path the homepage's own "Playground" button links
-to — until Ctrl+C. Not a `nupp tasks` entry: every one of those produces an
-artifact and finishes, and this is a server that runs until killed.
+`nupp task docs-serve` (nupp.lua's `tasks.docs-serve`) builds the docs site
+and the playground and serves both together — the docs site at `/`, the
+playground at `/playground/`, the same path the homepage's own "Playground"
+button links to — until Ctrl+C. See [Tasks](docs/tooling/tasks.md) for the
+general mechanism this uses.
 
 The Lua libraries the toolchain uses are dependencies like any other. `nupp.lua`
 declares lunamark and Scintillua as `kind = "luarocks"` rocks, the docs target

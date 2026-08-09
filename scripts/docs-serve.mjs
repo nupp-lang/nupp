@@ -5,13 +5,13 @@
 // resolves here instead of 404ing (see editors/playground/README.md and
 // the commit that added the button).
 //
-// This isn't a manifest task (nupp.lua's build.targets, test, selfHost)
-// because none of those are the right shape for it: a build target
-// produces an artifact and exits, and this is a server that runs until
-// killed. `nupp tasks` lists what finishes; this doesn't.
+// Run as `nupp task docs-serve` (nupp.lua's tasks.docs-serve names this
+// script); invoking it directly works the same, just without nupp's own
+// argument handling in front of it.
 //
 // Usage: node scripts/docs-serve.mjs [--no-build]
 //   PORT=8000 node scripts/docs-serve.mjs
+//   nupp task docs-serve --no-build
 import { spawnSync } from "node:child_process";
 import http from "node:http";
 import { createReadStream, existsSync, statSync } from "node:fs";

@@ -269,6 +269,49 @@ function project.test(root, args)
     return process.run(argv, {cwd = root, env = env})
 end
 
+--- Runs `tasks.<name>` from the manifest: builds `tasks.<name>.build` first if it names
+--- one, then execs `tasks.<name>.argv` with `args` appended. Unlike `test`, which
+--- always builds (there is exactly one test command and it is nothing without the code
+--- under test), a custom task only builds when it says to — most won't name a build
+--- target at all.
+function project.runTask(root, name, args)
+    root = root or "."
+    local config, err = project.loadManifest(root)
+    if not config then
+        io.stderr:write(err .. "\n"); return 1
+    end
+    local task = config.tasks and config.tasks[name]
+    if type(task) ~= "table" or type(task.argv) ~= "table" then
+        io.stderr:write("nupp: no task named " .. tostring(name)
+            .. "; see `nupp tasks`\n")
+        return 1
+    end
+    if task.build then
+        if project.build(root, {target = task.build}) ~= 0 then
+            return 1
+        end
+    end
+    local argv = {}
+    for _, item in ipairs(task.argv) do argv[#argv + 1] = item end
+    for _, item in ipairs(args or {}) do argv[#argv + 1] = item end
+    local env = task.env
+    if task.build then
+        -- Same reasoning as test's rock path: the built target's rocks live in this
+        -- project's own tree, and a task that names a build target likely wants to run
+        -- something that can see it.
+        local rocks = deps.rockPaths(root, config, targetConfig(config, task.build))
+        if rocks then
+            env = {}
+            for key, value in pairs(task.env or {}) do env[key] = value end
+            env.LUA_PATH = rocks.path .. ";"
+                .. (env.LUA_PATH or os.getenv("LUA_PATH") or "")
+            env.LUA_CPATH = rocks.cpath .. ";"
+                .. (env.LUA_CPATH or os.getenv("LUA_CPATH") or "")
+        end
+    end
+    return process.run(argv, {cwd = root, env = env})
+end
+
 local function treeDigest(path)
     local files, parts = listFiles(path), {}
     for _, file in ipairs(files) do

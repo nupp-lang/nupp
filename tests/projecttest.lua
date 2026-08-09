@@ -1007,4 +1007,81 @@ return {
    remove(dir)
 end
 
+-- Unlike test, a task only builds when it names a target -- most won't, since
+-- most of what a task runs (a dev server, a release script) isn't "the code
+-- under test" the way a test command's subject always is.
+function M.namedTaskRunsItsArgvWithoutBuildingByDefault()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   tasks = {
+      greet = {argv = {"luajit", "greet.lua"}},
+   },
+}
+]],
+      ["greet.lua"] = "local f=assert(io.open('task-ran','wb')); f:write('hi'); f:close()\n",
+   })
+   assertEq(project.runTask(dir, "greet"), 0)
+   assertEq(read(dir .. "/task-ran"), "hi")
+   assert(not exists(dir .. "/build"), "a task with no build key builds nothing")
+   remove(dir)
+end
+
+function M.namedTaskBuildsFirstWhenItNamesATarget()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {outDir = "out", default = "app",
+      targets = {app = {entries = {"main"}}}},
+   tasks = {
+      greet = {build = "app", argv = {"luajit", "greet.lua"}},
+   },
+}
+]],
+      ["src/main.nupp"] = "return true\n",
+      ["greet.lua"] = "local f=assert(io.open('task-ran','wb')); f:write('hi'); f:close()\n",
+   })
+   assertEq(project.runTask(dir, "greet"), 0)
+   assert(exists(dir .. "/out/main.lua"), "a task naming a build target builds first")
+   remove(dir)
+end
+
+function M.namedTaskAppendsTrailingArgsToItsArgv()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   tasks = {greet = {argv = {"luajit", "greet.lua"}}},
+}
+]],
+      ["greet.lua"] = [[
+local f = assert(io.open('task-args', 'wb'))
+f:write(table.concat(arg, ','))
+f:close()
+]],
+   })
+   assertEq(project.runTask(dir, "greet", {"a", "b"}), 0)
+   assertEq(read(dir .. "/task-args"), "a,b")
+   remove(dir)
+end
+
+function M.unknownTaskNameFails()
+   local dir = tempProject({
+      ["nupp.lua"] = [[
+return {include = {"src"}, tasks = {greet = {argv = {"echo", "hi"}}}}
+]],
+   })
+   local errorPath = os.tmpname()
+   local originalStderr = io.stderr
+   io.stderr = assert(io.open(errorPath, "wb"))
+   local status = project.runTask(dir, "nonexistent")
+   io.stderr:close()
+   io.stderr = originalStderr
+   os.remove(errorPath)
+   assertEq(status, 1, "an unconfigured task name fails rather than running nothing quietly")
+   remove(dir)
+end
+
 return M

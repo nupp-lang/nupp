@@ -270,6 +270,11 @@ return {
                   source = "docs/tooling/testing.md",
                },
                {
+                  path = "tooling/tasks",
+                  title = "Tasks",
+                  source = "docs/tooling/tasks.md",
+               },
+               {
                   path = "tooling/profiling",
                   title = "Profiling",
                   source = "docs/tooling/profiling.md",
@@ -353,10 +358,13 @@ return {
       argv = { "luajit", "tests/run.lua" },
    },
 
-   -- No entry here for running the docs site + playground locally: every key
-   -- in this file names something that produces an artifact and finishes.
-   -- `nupp tasks` lists what finishes; a server that runs until killed isn't
-   -- that shape. See scripts/docs-serve.mjs instead.
+   tasks = {
+      ["docs-serve"] = {
+         description = "Build the docs site and playground, serve both "
+            .. "until stopped",
+         argv = { "node", "scripts/docs-serve.mjs" },
+      },
+   },
 
    selfHost = {
       target = "compiler",
