@@ -21,11 +21,11 @@ local command = spec.command{
     },
     detail = [[Coverage uses a separate build/coverage artifact, so normal generated
 Lua and its cache are never instrumented. The static report opens at
-coverage/index.html and also writes coverage.json and lcov.info.]],
+build/reports/coverage/index.html and also writes coverage.json and lcov.info.]],
 }
 
 local function run(parsed)
-    local outDir = parsed.values.out or "coverage"
+    local outDir = parsed.values.out or "build/reports/coverage"
     local buildDir = "build/coverage"
     local raw = outDir .. "/raw.json"
     if not fs.mkdir(outDir) then

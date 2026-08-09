@@ -21,7 +21,7 @@ nupp coverage checktest
 
 `nupp coverage` builds a separate instrumented artifact under `build/coverage`,
 runs the configured test command, and writes a static report to
-`coverage/index.html` by default. Normal builds and their cache never contain
+`build/reports/coverage/index.html` by default. Normal builds and their cache never contain
 coverage probes. The output directory also holds `coverage.json`, `summary.json`,
 and `lcov.info` for CI or editor integrations.
 
