@@ -21,10 +21,10 @@ type complete.Context = {prefix: string, typePosition: boolean,
     method: boolean?,
 
     --- The receiver's dotted path, outermost first.
-    path: {string}?,}
+    path: {string}?}
 
 --- One thing a receiver offers after its dot, and which completion kind paints it.
-type complete.Member = {type: T.Type, kind: string,}
+type complete.Member = {type: T.Type, kind: string}
 
 --- What signature help reads of a call: the signature the checker resolved for it, and
 --- the parts a label is built from. The three call forms carry different things, so
@@ -32,17 +32,17 @@ type complete.Member = {type: T.Type, kind: string,}
 type complete.CallSite = {kind: string, signatureType: any, obj: any, name: any, args: any,
 
     --- What the checker recorded about resolving an overload set, when it did.
-    overloadCandidates: {any}?, overloadWinner: any?,}
+    overloadCandidates: {any}?, overloadWinner: any?}
 
 --- What completion reads of a session: the query graph, which is where a required
 --- module's declarations and members come from.
-type complete.Session = {inc: any,}
+type complete.Session = {inc: any}
 
 --- The two navigation questions completion asks. Navigation requires this module, so
 --- the pair it lends back is named here rather than taken from there.
 type complete.Navigation = {
     documentationFor: function(def: any): string?,
-    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?),
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?)
 }
 
 --- What installing completion gives the session back.
@@ -54,7 +54,8 @@ type complete.Api = {
     ): nil,
 
     --- The protocol's completion items for a position in a document.
-    completionItems: function(doc: any, offset: integer): {any},}
+    completionItems: function(doc: any, offset: integer): {any}
+}
 
 --- What the cursor is completing: the dotted receiver in front of it, whether it was
 --- reached by `.` or `:`, whether it stands in a type annotation, and how much of the

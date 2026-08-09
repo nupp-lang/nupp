@@ -98,7 +98,7 @@ end
 type coverage.Model = {version: integer, files: {any}, warnings: {string},
 
     --- Filled in by `write`, which is the only thing that totals the files.
-    summary: {[string]: any}?,}
+    summary: {[string]: any}?}
 
 function coverage.collect(statePath: string, shardPath: string): coverage.Model
     local state = cache.loadState(statePath)

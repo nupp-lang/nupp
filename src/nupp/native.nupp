@@ -15,7 +15,7 @@ type native.Feature = {name: string, global: {
     member: string
 }?, module: string?, cargo: string?, library: string?, binary: boolean?,
 
-    [string]: any,}
+    [string]: any}
 
 local FEATURES: {
     [string]: native.Feature

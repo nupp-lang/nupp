@@ -37,7 +37,8 @@ type unused.Ops = {
     declared: function(tok: any, entry: any, kind: string),
 
     --- Reports every registered binding that nothing read.
-    sweep: function(),}
+    sweep: function()
+}
 
 --- Installs the unused-binding judgement on one run.
 ---

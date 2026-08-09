@@ -40,7 +40,7 @@ type navigate.Session = {documents: {[string]: any},
     --- The last lex of each file, so a question needing only tokens does not reparse.
     lexed: {[string]: any},
 
-    inc: any,}
+    inc: any}
 
 --- What installing navigation gives the session back. The handlers reach these through
 --- the session they were installed on, so the whole set is named here.
@@ -94,7 +94,8 @@ type navigate.Api = {
     memberHover: function(member: tree.MemberRef): string?,
 
     --- The type a receiver path names, plus the module it holds when it holds one.
-    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?),}
+    resolveReceiver: function(checked: any, path: {string}): (T.Type?, string?)
+}
 
 --- Installs the navigation questions on one session.
 ---

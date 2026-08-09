@@ -43,7 +43,7 @@ type state.Options = {[string]: any}
 
 --- The interface a file publishes to the project: what each exported name means, where
 --- it was declared, and the subset that also carries a runtime value.
-type state.ModuleExports = {types: {[string]: Type}, typeDefs: {[string]: any}, values: {[string]: Type},}
+type state.ModuleExports = {types: {[string]: Type}, typeDefs: {[string]: any}, values: {[string]: Type}}
 
 --- One thing to report about a file.
 type state.Diagnostic = {
@@ -56,12 +56,13 @@ type state.Diagnostic = {
     --- "error" stops the build; "warning" is advice and does not.
     severity: string, line: integer, col: integer, offset: integer, length: integer, help: string?, notes: {
         string
-    }?, related: {any}?, lint: string?, fixes: {any}?,}
+    }?, related: {any}?, lint: string?, fixes: {any}?
+}
 
 --- What a condition proves, on each side of it. `t` holds for the branch where the
 --- condition is true and `f` where it is false, each keyed by the reference it speaks
 --- about. `exhausted` names a subject a comparison chain has now covered completely.
-type state.Facts = {t: {[string]: Type}, f: {[string]: Type}, exhausted: string?,}
+type state.Facts = {t: {[string]: Type}, f: {[string]: Type}, exhausted: string?}
 
 --- Everything one run of the checker carries: what it is checking, what it has found,
 --- and where it currently is. Declaring it is what lets the walk be split across

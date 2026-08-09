@@ -13,7 +13,7 @@ local ffi = require("ffi")
 -- LuaJIT's BitOp is a global as well as a module, and it is declared as the global, so
 -- requiring it as a module is what leaves it untyped. The cast restates the two
 -- operations this file uses, in the words the declaration already gives them.
-local bit = require("bit") as {rshift: function(x: number, n: number): integer, band: function(...: number): integer,}
+local bit = require("bit") as {rshift: function(x: number, n: number): integer, band: function(...: number): integer}
 
 local cdecl = {}
 

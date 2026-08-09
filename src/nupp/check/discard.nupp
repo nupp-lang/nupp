@@ -54,7 +54,8 @@ type discard.Ops = {
     statement: function(call: any),
 
     --- Reports every registered statement whose callee turned out to be inert.
-    sweep: function(queries: any),}
+    sweep: function(queries: any)
+}
 
 -- What gives a call a reason to exist, in the spelling `nupp.analysis` answers about.
 -- `reads` and the `allocates` flag are deliberately not among them: reading state and

@@ -34,7 +34,8 @@ type parser.ParseResult = {
     tokens: {Token},
 
     --- Syntax errors, in source order. Parsing continued past all of them.
-    errors: {lexer.LexError},}
+    errors: {lexer.LexError}
+}
 
 local add = cst.add
 
@@ -98,10 +99,7 @@ local BINPRI = {["or"] = {1, 1}, ["??"] = {1, 1}, -- nil-coalescing, alongside `
     7
 }, [
     ">>"
-] = {
-    7,
-    7
-}, ["~>>"] = {7, 7}, [".."] = {9, 8}, ["+"] = {10, 10}, ["-"] = {10, 10}, ["*"] = {11, 11}, ["/"] = {11, 11}, ["//"] = {11, 11}, ["%"] = {11, 11}, ["^"] = {14, 13},}
+] = {7, 7}, ["~>>"] = {7, 7}, [".."] = {9, 8}, ["+"] = {10, 10}, ["-"] = {10, 10}, ["*"] = {11, 11}, ["/"] = {11, 11}, ["//"] = {11, 11}, ["%"] = {11, 11}, ["^"] = {14, 13},}
 local UNARY_PRI = 12
 local UNOPS = {["not"] = true, ["#"] = true, ["-"] = true, ["~"] = true}
 

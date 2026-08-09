@@ -35,7 +35,7 @@ local type Node = cst.Node
 --- What a condition proves, on each side of it. `t` holds where the condition is true
 --- and `f` where it is false, each keyed by the reference it speaks about; `exhausted`
 --- names a subject a comparison chain has now covered completely.
-type narrow.Facts = {t: {[string]: Type}, f: {[string]: Type}, exhausted: string?,}
+type narrow.Facts = {t: {[string]: Type}, f: {[string]: Type}, exhausted: string?}
 
 --- What the walk and the statement families ask narrowing. Four of these are promoted
 --- onto the run, since every family applies facts; the rest are reached through
@@ -64,7 +64,8 @@ type narrow.Ops = {
     snapshotNarrowed: function(): {[string]: Type},
 
     --- Applies a narrowing map inside the current scope.
-    applyFacts: function(facts: {[string]: Type}),}
+    applyFacts: function(facts: {[string]: Type})
+}
 
 --- Installs the narrowing on one run.
 ---

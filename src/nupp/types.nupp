@@ -173,7 +173,7 @@ end
 --- How the rest of a value sequence is described. `kind` says which field beside it
 --- carries the answer: "homogeneous" reads `type` and its `mode`, "generic" reads
 --- `var`, and "unknown" is the gradual tail a call site could not pin down.
-type types.PackTail = {kind: string, type: types.Type?, var: types.PackVar?, mode: string?, id: string?,}
+type types.PackTail = {kind: string, type: types.Type?, var: types.PackVar?, mode: string?, id: string?}
 
 --- A Lua value sequence. `tail` is homogeneous, generic, symbolic or unknown.
 record types.Pack

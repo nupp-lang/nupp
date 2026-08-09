@@ -22,7 +22,7 @@ type tree.Parse = {root: cst.Chunk, tokens: {lexer.Token},
     moduleName: string?,
 
     --- The local the file returns, which its qualified declarations attach to.
-    moduleLocal: string?,}
+    moduleLocal: string?}
 
 --- A statement a caller picked out by kind. The kinds are a table read at run time, so
 --- which production came back is a fact about the call rather than about this
@@ -33,7 +33,7 @@ type tree.Kinded = {kind: string,
     names: any,
 
     --- The parts of a `with` scope an unwrap takes apart.
-    withTok: any, doTok: any, endTok: any, bindings: any, body: any,}
+    withTok: any, doTok: any, endTok: any, bindings: any, body: any}
 
 --- Where a name was declared, as the checker leaves it on every token that spells it.
 --- Nothing declares this shape: it is built field by field while checking, so the
@@ -52,20 +52,21 @@ type tree.Definition = {
     kind: string?,
 
     --- The module a `require` bound to this name.
-    requiredModule: string?,}
+    requiredModule: string?
+}
 
 --- One use of a module member, with the statement that declares it when this use is the
 --- declaration.
-type tree.Occurrence = {token: lexer.Token, stat: cst.FuncStmt?,}
+type tree.Occurrence = {token: lexer.Token, stat: cst.FuncStmt?}
 
 --- One plain member a module declares, and where.
-type tree.MemberDeclaration = {name: string, token: lexer.Token, stat: cst.FuncStmt,}
+type tree.MemberDeclaration = {name: string, token: lexer.Token, stat: cst.FuncStmt}
 
 --- The (module, member) pair a position names.
-type tree.MemberRef = {moduleName: string, name: string, token: lexer.Token,}
+type tree.MemberRef = {moduleName: string, name: string, token: lexer.Token}
 
 --- A half-open byte span of the source.
-type tree.Span = {from: integer, to: integer,}
+type tree.Span = {from: integer, to: integer}
 
 function tree.tokenAt(result: tree.Parse?, offset: number): lexer.Token?
     if not result then

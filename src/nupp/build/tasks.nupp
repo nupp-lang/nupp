@@ -34,7 +34,7 @@ type tasks.Task = {name: string,
     --- What to type to run it.
     command: {string},
 
-    [string]: any,}
+    [string]: any}
 
 --- What `describe` answers with.
 ---

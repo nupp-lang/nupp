@@ -24,11 +24,11 @@ type cheader.Resolver = function(tag: string): T.Type?
 
 --- How a header is read. `preprocess` runs the system compiler first, for headers whose
 --- declarations are written in a vocabulary their includes define.
-type cheader.Options = {readonly preprocess: boolean?, readonly cc: string?,}
+type cheader.Options = {readonly preprocess: boolean?, readonly cc: string?}
 
 --- A header as the checker takes it: what it declares, and the text to hand the
 --- program's own FFI so the declarations exist at run time too.
-type cheader.Header = {exports: {[string]: T.Type}, cdef: string,}
+type cheader.Header = {exports: {[string]: T.Type}, cdef: string}
 
 local INT_BY_BITS = {
     [8] = {T.int8, T.uint8},

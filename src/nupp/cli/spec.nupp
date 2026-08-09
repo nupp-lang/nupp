@@ -159,7 +159,7 @@ type spec.OptionSpec = {
     display: string?,
     duplicate: string?,
     invalid: string?,
-    help: string?,
+    help: string?
 }
 
 --- A command's grammar as it is written, which `spec.command` resolves into one.
@@ -172,7 +172,7 @@ type spec.Declaration = {name: string, helpName: string?, summary: string, usage
 
     --- False when a command hands its arguments to something else and so cannot
     --- honestly claim to accept the options every command otherwise takes.
-    universal: boolean?,}
+    universal: boolean?}
 
 --- What a command file returns: the grammar, and the work behind it.
 record spec.Handler

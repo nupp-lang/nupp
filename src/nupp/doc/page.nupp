@@ -20,7 +20,7 @@ local page = {}
 
 --- The documentation settings the chrome reads. `nupp.doc` owns the whole table; these
 --- are the parts a header, a brand, and a `<head>` are built out of.
-type page.Settings = {description: string?, favicon: string?, github: string?, logo: string?, name: string?,}
+type page.Settings = {description: string?, favicon: string?, github: string?, logo: string?, name: string?}
 
 --- One call to action beside the hero copy.
 type page.HeroAction = {path: string?, text: string, theme: string?}
@@ -37,7 +37,7 @@ type page.Hero = {
     heroText: string?,
     heroTitle: string?,
     layout: string?,
-    title: string,
+    title: string
 }
 
 --- A page in the site's navigation: where it lives, what it is called, and the module

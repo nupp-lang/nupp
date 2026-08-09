@@ -34,7 +34,8 @@ type annotate.Ops = {
     validateAnnotation: function(application: any, target: any, owner: any?): (any, boolean),
 
     --- Registers the definition an `@annotation` declaration introduces.
-    defineAnnotation: function(application: any, declaration: any),}
+    defineAnnotation: function(application: any, declaration: any)
+}
 
 --- Installs the annotation checking on one run.
 ---

@@ -867,13 +867,12 @@ local function splitForcedLines(lines)
                 for idx = from, to do
                     items[#items + 1] = line.items[idx]
                 end
-                out[#out + 1] = {
-                    items = items,
-                    indent = line.indent,
-                    blankBefore = first and line.blankBefore or false,
-                }
+                out[
+                    #out + 1
+                ] = {items = items, indent = line.indent, blankBefore = first and line.blankBefore or false,}
             end
         end
+
         for idx, item in ipairs(line.items) do
             if idx > start and item.kind == "token" and item.token.forceBreak then
                 emit(start, idx - 1, start == 1)
@@ -883,6 +882,7 @@ local function splitForcedLines(lines)
         end
         emit(start, #line.items, start == 1)
     end
+
     return changed and out or nil
 end
 
@@ -1176,7 +1176,7 @@ end
 type fmt.Options = {
     readonly annotations: any?,
     readonly resolveAnnotation: (function(name: string): any)?,
-    readonly methodParens: boolean?,
+    readonly methodParens: boolean?
 }
 
 --- Formats one file. Returns the source unchanged, with what stopped it, when the file

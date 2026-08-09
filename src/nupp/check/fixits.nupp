@@ -48,7 +48,8 @@ type fixits.Edits = {
 
     --- Advice for an unknown name a project module is named after, whether it is such a
     --- name at all, and a fix per candidate module.
-    missingRequire: function(name: string): (string?, boolean, {any}?),}
+    missingRequire: function(name: string): (string?, boolean, {any}?)
+}
 
 --- Damerau-Levenshtein distance for short language names. Treating an adjacent
 --- transposition as one edit catches `__idnex` without making the spelling threshold

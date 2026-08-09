@@ -57,7 +57,7 @@ local unwrapWith = actions.unwrapWith
 local wrapInWith = actions.wrapInWith
 local uriToPath = text.uriToPath
 
-type lsp.Session = {dispatch: function(any), running: function(): boolean,}
+type lsp.Session = {dispatch: function(any), running: function(): boolean}
 
 -- The codec and its array marker are configured once, on the wire.
 local json = wire.json

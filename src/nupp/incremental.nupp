@@ -29,7 +29,7 @@ type incremental.Decl = {name: string, kind: string, statKind: string, visibilit
 
     --- The token it was declared at; its offset keys the declaration site, which is
     --- what keeps a nominal type's identity across rechecks.
-    token: any,}
+    token: any}
 
 --- What one file exports, in the form the project index takes.
 type incremental.Header = {path: string, moduleName: string?,
@@ -38,7 +38,7 @@ type incremental.Header = {path: string, moduleName: string?,
     --- interface: changing it changes what the module exports.
     moduleLocal: string?,
 
-    declarations: {incremental.Decl},}
+    declarations: {incremental.Decl}}
 
 --- The result of checking one module.
 ---
@@ -62,7 +62,8 @@ type incremental.CheckResult = {
     missing: boolean?,
 
     --- The parse this was checked from, kept so callers need not reparse.
-    result: any,}
+    result: any
+}
 
 --- The compiler's query graph, with the editor and build entry points that read it.
 record incremental.Inc

@@ -18,7 +18,7 @@ local normalize, join = filesMod.normalize, filesMod.join
 local extract = {}
 
 --- One argument: its name and type as the source spelled them, and what `@param` said.
-type extract.Param = {name: string, type: string, mode: string?, text: string,}
+type extract.Param = {name: string, type: string, mode: string?, text: string}
 
 --- One result: a type and a description, with no name to hang them on.
 type extract.Result = {type: string, text: string}
@@ -37,7 +37,7 @@ type extract.Member = {
     returns: {extract.Result},
     raises: {string},
     isFunction: boolean?,
-    isMetamethod: boolean?,
+    isMetamethod: boolean?
 }
 
 --- One documented declaration: what it is called, how it is spelled, and everything its
@@ -53,11 +53,11 @@ type extract.Item = {
     params: {extract.Param},
     returns: {extract.Result},
     raises: {string},
-    typeargs: {extract.TypeArg},
+    typeargs: {extract.TypeArg}
 }
 
 --- One source file, read as its documented declarations.
-type extract.Module = {name: string, path: string?, text: string, items: {extract.Item},}
+type extract.Module = {name: string, path: string?, text: string, items: {extract.Item}}
 
 --- What a caller wants included beyond the public surface a module hands out.
 type extract.Options = {includeAll: boolean?, includePrivate: boolean?}

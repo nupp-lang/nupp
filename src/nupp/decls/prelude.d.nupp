@@ -458,7 +458,8 @@ local string: {
     ---
     --- @param s the string to fold
     --- @return the uppercased string
-    upper: function(s: string): string,}
+    upper: function(s: string): string
+}
 
 --- Table manipulation. These functions work on the array part of a table: the integer
 --- keys 1 through `#t`.
@@ -518,7 +519,8 @@ const table: {
     --- it can be refilled without reallocating.
     ---
     --- @param t the table to empty
-    readonly clear: function(t: table),}
+    readonly clear: function(t: table)
+}
 
 --- Mathematical functions and constants, operating on the doubles that plain Lua
 --- numbers are.
@@ -701,7 +703,8 @@ local math: {
     pi: number,
 
     --- Positive infinity, which compares greater than any other number.
-    huge: number,}
+    huge: number
+}
 
 --- Operating-system facilities: clocks and calendars, the environment, processes and
 --- file names.
@@ -773,7 +776,8 @@ local os: {
     --- created nor removed for you.
     ---
     --- @return the temporary file name
-    tmpname: function(): string,}
+    tmpname: function(): string
+}
 
 --- Lua's module-loader configuration.
 local package: {
@@ -790,7 +794,8 @@ local package: {
     preload: {[string]: function(...: any): any},
 
     --- Lua 5.1 and Lua 5.2 names for the module-loader chain.
-    loaders: {function(string): any}, searchers: {function(string): any}?,}
+    loaders: {function(string): any}, searchers: {function(string): any}?
+}
 
 --- One field of a reified `struct`, as it is actually laid out in C memory.
 ---
@@ -922,7 +927,8 @@ local io: {
     stderr: LuaFile,
 
     --- The standard input stream.
-    stdin: LuaFile,}
+    stdin: LuaFile
+}
 
 --- Cooperative multitasking. A callback with typed start, yield, resume, and return
 --- packs produces a protocol-bearing thread; bare `thread` erases that protocol.
@@ -975,7 +981,8 @@ local coroutine: {
     --- coroutine.
     ---
     --- @return whether a `yield` would succeed here
-    isyieldable: function(): boolean,}
+    isyieldable: function(): boolean
+}
 
 --- LuaJIT's BitOp library, which is also the semantics behind the `&`, `|`, `~`, `<<`,
 --- `>>` and `~>>` operators: arguments are normalized to 32-bit integers and results
@@ -1058,7 +1065,8 @@ local bit: {
     ---
     --- @param x the number to byte-swap
     --- @return the swapped value
-    bswap: function(x: number): integer,}
+    bswap: function(x: number): integer
+}
 
 --- Control and introspection for the JIT compiler itself.
 local jit: {
@@ -1128,14 +1136,15 @@ local jit: {
 
     --- The optimization submodule. `jit.opt.start` takes flags such as `"hotloop=10"`
     --- or `"-fold"`, each as its own argument.
-    opt: {start: function(...: any),},
+    opt: {start: function(...: any)},
 
     --- Reports how the VM was built for a security-relevant parameter, such as `"prng"`
     --- or `"strhash"`.
     ---
     --- @param param the parameter to report on
     --- @return the setting in force
-    security: function(param: string): any,}
+    security: function(param: string): any
+}
 
 -- `jit.util` is deliberately absent: LuaJIT registers it under package.loaded only, so
 -- `jit.util` is nil at runtime and reaching through it is a nil index rather than
@@ -1219,7 +1228,8 @@ local debug: {
     --- Returns the registry, the table where C code anchors its references.
     ---
     --- @return the registry table
-    getregistry: function(): table,}
+    getregistry: function(): table
+}
 
 --- The command-line arguments of the running script, where `arg[1]` is the first one.
 --- Index 0 holds the script name, and negative indices hold the interpreter and the

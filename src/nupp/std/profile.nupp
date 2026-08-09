@@ -68,14 +68,16 @@ type profile.SampleOptions = {
     --- Frames read "<module>:<name>", so the module is the part to give. A stack with
     --- no frame from it is kept whole rather than emptied, and two stacks that differ
     --- only below the root become one, their counts summed.
-    root: string?,}
+    root: string?
+}
 
 --- What `profile.trace` counts. Every field is optional.
 type profile.TraceOptions = {
     --- Include the aborts that are ordinary trace formation rather than a refusal —
     --- leaving a loop, recursion, an inner loop. False by default; turn it on when the
     --- question is why a particular trace never formed.
-    includeBenign: boolean?,}
+    includeBenign: boolean?
+}
 
 --- How much an abort is worth reading.
 ---

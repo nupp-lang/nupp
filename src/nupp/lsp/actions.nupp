@@ -15,7 +15,7 @@ local actions = {}
 --- speak: a byte offset, how much of the source it covers, and what takes its place.
 --- Offsets never account for each other, so a whole action converts to protocol edits
 --- in one place.
-type actions.Edit = {offset: integer, length: integer, newText: string,}
+type actions.Edit = {offset: integer, length: integer, newText: string}
 
 actions.QUICKFIX = "quickfix"
 

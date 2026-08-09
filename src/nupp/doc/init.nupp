@@ -57,7 +57,7 @@ type doc.Page = {
     layout: string?,
     path: string,
     source: string?,
-    title: string?,
+    title: string?
 }
 
 --- What a manifest configured documentation to do. A build target of kind `docs` is
@@ -79,16 +79,11 @@ type doc.Settings = {
     public: string?,
     sources: {string}?,
     targetName: string?,
-    title: string?,
+    title: string?
 }
 
 --- The manifest, as much of it as documentation reads.
-type doc.Config = {
-    build: {targets: {[string]: doc.Settings}?}?,
-    docs: doc.Settings?,
-    include: {string}?,
-    name: string?,
-}
+type doc.Config = {build: {targets: {[string]: doc.Settings}?}?, docs: doc.Settings?, include: {string}?, name: string?}
 
 --- What one run was asked for beyond what the manifest said. Every field overrides its
 --- counterpart in the settings, and `written` collects the paths the run wrote.
@@ -98,7 +93,7 @@ type doc.BuildOptions = {
     output: string?,
     sources: {string}?,
     title: string?,
-    written: {string}?,
+    written: {string}?
 }
 
 --- Reads one source file as its documented declarations. Returns the module, or nil and

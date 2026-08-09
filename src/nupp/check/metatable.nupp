@@ -39,7 +39,8 @@ type metatable.Ops = {
     checkContract: function(at: any, name: string, valueT: Type, contract: Type, of: Type?),
 
     --- Checks a table literal standing where a metatable is expected.
-    checkLiteral: function(node: Node?, literalType: Type?, target: Type?),}
+    checkLiteral: function(node: Node?, literalType: Type?, target: Type?)
+}
 
 --- Installs the metatable literal checks on one run.
 ---

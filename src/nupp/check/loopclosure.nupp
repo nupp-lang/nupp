@@ -46,7 +46,8 @@ type loopclosure.Ops = {
 
     --- Ends that judgement, reporting when nothing the body read came from the
     --- iteration.
-    finish: function(watch: any, at: any),}
+    finish: function(watch: any, at: any)
+}
 
 -- Whether a loop body leaves on its first pass. `continue` is deliberately not one of
 -- these: it ends an iteration, not the loop.

@@ -37,7 +37,8 @@ type lexer.Trivia = {
     line: integer,
 
     --- 1-based column of the first character.
-    col: integer,}
+    col: integer
+}
 
 --- One token, carrying the trivia that preceded it. The final "eof" token carries the
 --- file's trailing trivia, so every byte of the input belongs to exactly one token.
@@ -162,7 +163,8 @@ type lexer.Token = {
     --- The pipes of a short function, which hug their parameters.
     _shortfnOpen: boolean?,
 
-    _shortfnClose: boolean?,}
+    _shortfnClose: boolean?
+}
 
 --- A lexical error. The lexer never throws: it reports and carries on, so the token
 --- stream still round-trips.
@@ -174,7 +176,7 @@ type lexer.LexError = {
     col: integer,
     msg: string,
     filename: string?,
-    help: string?,
+    help: string?
 }
 
 local KEYWORDS: {[string]: boolean} = {}

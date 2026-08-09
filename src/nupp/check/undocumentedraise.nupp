@@ -40,7 +40,8 @@ local undocumentedraise = {}
 --- the three places one is declared with a `---` run to read.
 type undocumentedraise.Ops = {
     --- Reports when a documented function raises and its documentation does not say so.
-    check: function(stat: any, body: any),}
+    check: function(stat: any, body: any)
+}
 
 -- Where this body raises on its own account, or nil if it does not. `error` is
 -- recognized by name, the way `neverReturns` already recognizes it, so that untyped

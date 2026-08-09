@@ -66,7 +66,8 @@ type ownership.Ops = {
     liveSuspensionObligation: function(): string?,
 
     --- Records that an expression's owner has been handed over.
-    moveExpression: function(expr: any, t: Type?, reason: string, expectedKind: string?): boolean,}
+    moveExpression: function(expr: any, t: Type?, reason: string, expectedKind: string?): boolean
+}
 
 --- Installs the ownership bookkeeping on one run.
 ---

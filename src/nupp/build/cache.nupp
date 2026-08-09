@@ -43,7 +43,7 @@ type cache.ModuleRecord = {sourceHash: string?, interfaceHash: string?, artifact
 
     --- What checking the module had to say, kept so that reusing the record says it
     --- again rather than reporting a clean file.
-    diags: {any}?,}
+    diags: {any}?}
 
 --- What one dependency's last build produced, as its provider described it.
 ---
@@ -59,7 +59,7 @@ type cache.DependencyRecord = {
     tree: string?,
     luaVersion: string?,
     path: string?,
-    cpath: string?,
+    cpath: string?
 }
 
 --- Everything one build wrote down about what it did.
@@ -74,7 +74,7 @@ type cache.State = {version: integer, modules: {
     --- leftovers without removing another's.
     targets: {[string]: {string}},
 
-    compilerHash: string?, configHash: string?, projectIndexHash: string?,}
+    compilerHash: string?, configHash: string?, projectIndexHash: string?}
 
 local function jsonArray<T>(items: {T}): {T}
     return setmetatable(items, json.array_mt) as {T}

@@ -1158,14 +1158,14 @@ end
 
 --- What a pass works on: the tree it rewrites in place, the analysis the checker left
 --- beside it, and the name a remark is filed under.
-type optimize.Checked = {readonly root: cst.Chunk, readonly filename: string?, readonly analysis: any?,}
+type optimize.Checked = {readonly root: cst.Chunk, readonly filename: string?, readonly analysis: any?}
 
 --- What the passes were asked for.
 type optimize.Options = {
     readonly level: integer?,
     readonly filename: string?,
     readonly disabled: {[string]: boolean}?,
-    readonly relaxed: {[string]: boolean}?,
+    readonly relaxed: {[string]: boolean}?
 }
 
 --- Runs the passes a level asks for over a parsed and checked file, annotating it in

@@ -947,24 +947,24 @@ type analysis.Facts = {functions: {any}, byDefinition: {[any]: any},
 
     --- Every top-level block and every function's, so a pass can iterate without
     --- knowing how the functions were found.
-    bodies: {any},}
+    bodies: {any}}
 
 --- The questions, as `analysis.queries` binds them to one run's facts.
 type analysis.Queries = {
     visible: function(summary: any): (boolean, string?),
     free: function(summary: any, kinds: {string}): (boolean, string?),
     known: function(token: any): any,
-    body: function(body: any): any,
+    body: function(body: any): any
 }
 
 --- What `run` annotates and reports through: a checked parse, and the checker to say a
 --- broken `@effects` contract to.
-type analysis.Target = {readonly root: any, analysis: analysis.Facts?,}
+type analysis.Target = {readonly root: any, analysis: analysis.Facts?}
 
 --- The checker, as this file uses it: somewhere to say a contract the body does not
 --- hold up. Taken as a shape because `nupp.check` reaches this module, so naming its
 --- record here would close the require graph into a loop.
-type analysis.Reporter = {readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?),}
+type analysis.Reporter = {readonly diag: function(code: string, at: any, msg: string, fixes: any?, details: any?)}
 
 --- The questions, bound to what one run worked out.
 ---

@@ -17,7 +17,7 @@ local json = require("cjson").new()
 local lsp = require("nupp.lsp")
 local spec = require("nupp.cli.spec")
 
-local type CodeActionContext = {diagnostics: {any}, only: {string}?,}
+local type CodeActionContext = {diagnostics: {any}, only: {string}?}
 
 json.decode_array_with_array_mt(true)
 json.decode_invalid_numbers(false)

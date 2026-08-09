@@ -32,7 +32,8 @@ type diagnostics.Session = {
     inc: any,
 
     --- How the session speaks to the client unprompted.
-    notify: function(method: string, params: any): nil,}
+    notify: function(method: string, params: any): nil
+}
 
 --- What installing diagnostics gives the session back.
 type diagnostics.Api = {
@@ -43,7 +44,8 @@ type diagnostics.Api = {
     checkAndPublish: function(uri: string, force: boolean?): boolean,
 
     --- Rechecks every open document, the named one first and unconditionally.
-    refreshOpenDocuments: function(changedUri: string?): nil,}
+    refreshOpenDocuments: function(changedUri: string?): nil
+}
 
 -- Diagnostics a build enforces but an editor should not shout about, because a file
 -- being typed into is half-written by definition and the missing half is usually the

@@ -151,7 +151,8 @@ type calls.Ops = {
     applyContract: function(ft: Type?, ats: {Type}, argNodes: {any}, site: any, operation: string): Type,
 
     --- Checks a call against its callee: the first result, all of them, and the pack.
-    inferCall: function(node: any, calleeT: Type, argsNode: any, knownAts: {Type}?): (Type, {Type}?, any),}
+    inferCall: function(node: any, calleeT: Type, argsNode: any, knownAts: {Type}?): (Type, {Type}?, any)
+}
 
 --- Installs the call machinery on one run.
 ---

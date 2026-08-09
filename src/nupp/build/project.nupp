@@ -57,7 +57,8 @@ type project.BuildOptions = {
     diagnostics: {any}?,
 
     --- Which target ran and what it wrote.
-    produced: {[string]: any}?,}
+    produced: {[string]: any}?
+}
 
 --- What `test` was asked for, over and above the manifest's `test` table. The coverage
 --- fields are the caller's, not the manifest's: a coverage run is asked for per
@@ -70,7 +71,8 @@ type project.TestOptions = {
     coverage: boolean?,
 
     --- Added to the test command's environment, over the manifest's own.
-    env: {[string]: string}?,}
+    env: {[string]: string}?
+}
 
 --- What `clean` was asked for.
 type project.CleanOptions = {
@@ -81,7 +83,8 @@ type project.CleanOptions = {
     dryRun: boolean?,
 
     --- The paths, instead of writing a line about each.
-    removed: {string}?,}
+    removed: {string}?
+}
 
 --- What a fixpoint run was asked for.
 type project.FixpointOptions = {
@@ -89,7 +92,8 @@ type project.FixpointOptions = {
     updateBootstrap: boolean?,
 
     --- What happened, instead of the human line saying so.
-    result: {[string]: any}?,}
+    result: {[string]: any}?
+}
 
 -- The check state records nothing the compiler's own identity is not already in:
 -- `compilerHash` and `configHash` live inside it and are compared there, the same way

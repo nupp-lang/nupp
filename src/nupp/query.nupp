@@ -23,7 +23,8 @@ type query.Dep = {
     name: string,
 
     --- The key it was asked for.
-    key: any,}
+    key: any
+}
 
 --- A value set from outside, with the revision at which it last changed.
 type query.Input = {value: any, changedAt: integer}
@@ -41,7 +42,8 @@ type query.Memo = {
     verifiedAt: integer,
 
     --- Everything it read while computing, in order.
-    deps: {query.Dep},}
+    deps: {query.Dep}
+}
 
 --- A running computation, collecting what it reads.
 type query.Frame = {deps: {query.Dep}}
@@ -56,7 +58,8 @@ type query.Def = {
 
     --- Decides whether a recomputed value counts as unchanged. Optional: plain equality
     --- is right for interned types and scalars.
-    eq: (function(a: any, b: any): boolean)?,}
+    eq: (function(a: any, b: any): boolean)?
+}
 
 --- A query database: definitions, inputs, and everything memoized so far.
 record query.Q

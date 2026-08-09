@@ -38,7 +38,7 @@ local type State = nupp.build.cache.State
 --- The three are set before anything is compiled, so a caller passes an empty table and
 --- reads it back filled in. A check counts the same way a build does, which is what
 --- lets a test say "this edit rechecked one module".
-type modules.Stats = {checkedModules: number, generatedModules: number, reusedModules: number, [string]: any,}
+type modules.Stats = {checkedModules: number, generatedModules: number, reusedModules: number, [string]: any}
 
 --- What a modules build wrote, as a set of paths.
 ---
@@ -47,7 +47,7 @@ type modules.Stats = {checkedModules: number, generatedModules: number, reusedMo
 type modules.Result = {outputs: {[string]: boolean},
 
     --- Every native feature the built modules asked for, merged.
-    effects: {[string]: any}?,}
+    effects: {[string]: any}?}
 
 local function typeFingerprint(t: nupp.types.Type?, active: {[nupp.types.Type]: boolean}?): string
     if not t then

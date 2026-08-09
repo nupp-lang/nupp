@@ -63,7 +63,7 @@ type annotations.Registry = {
     get: function(self: any, name: string): any,
     accepts: function(self: any, definition: any, node: any): boolean,
     describeTargets: function(self: any, definition: any): string,
-    removeSource: function(self: any, source: any): nil,
+    removeSource: function(self: any, source: any): nil
 }
 
 local Registry = {}

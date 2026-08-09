@@ -49,7 +49,8 @@ type manifest.Target = {
     --- because `name` is already the site's.
     name: string?, targetName: string?,
 
-    [string]: any,}
+    [string]: any
+}
 
 --- What a project depends on but did not write.
 ---
@@ -62,10 +63,11 @@ type manifest.Dependency = {
 
     dependencies: {string}?,
 
-    [string]: any,}
+    [string]: any
+}
 
 --- The build section: either one target inline, or several by name.
-type manifest.Build = {outDir: string?, targets: {[string]: manifest.Target}?, default: string?, [string]: any,}
+type manifest.Build = {outDir: string?, targets: {[string]: manifest.Target}?, default: string?, [string]: any}
 
 --- The command `nupp test` runs, and what it runs with.
 type manifest.Test = {
@@ -75,7 +77,8 @@ type manifest.Test = {
     --- Which target to build first.
     build: string?,
 
-    env: {[string]: string}?, [string]: any,}
+    env: {[string]: string}?, [string]: any
+}
 
 --- Which target rebuilds the compiler, and where its stage zero lives.
 type manifest.SelfHost = {target: string?, bootstrap: string?,
@@ -83,13 +86,13 @@ type manifest.SelfHost = {target: string?, bootstrap: string?,
     --- The `binary` target `nupp fixpoint --binary` stamps twice.
     binary: string?,
 
-    [string]: any,}
+    [string]: any}
 
 --- One named `tasks` entry: a command the project runs by hand often enough to want a
 --- name for, and optionally a target to build before it.
 type manifest.Task = {description: string?, argv: {string}?, build: string?, env: {[string]: string}?,
 
-    [string]: any,}
+    [string]: any}
 
 --- A whole `nupp.lua`.
 ---
@@ -105,7 +108,7 @@ type manifest.Config = {
     test: manifest.Test?,
     tasks: {[string]: manifest.Task}?,
     selfHost: manifest.SelfHost?,
-    [string]: any,
+    [string]: any
 }
 
 local function validateArray(value, label, itemType, required)
