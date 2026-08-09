@@ -593,6 +593,14 @@ function control.install(c: state.Checker): state.StatHandlers
         c.popScope()
     end
 
+    handlers.noSuspendStmt = function(stat: cst.NoSuspendStmt)
+        c.noSuspendDepth = c.noSuspendDepth + 1
+        c.pushScope()
+        c.checkBlock(stat.body, true)
+        c.popScope()
+        c.noSuspendDepth = c.noSuspendDepth - 1
+    end
+
     handlers.unsafeStmt = function(stat: cst.UnsafeStmt)
         c.unsafeDepth = c.unsafeDepth + 1
         c.pushScope()

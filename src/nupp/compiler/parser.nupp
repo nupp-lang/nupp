@@ -1890,6 +1890,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.cond = add(n, parseExp())
             return n
 
+        elseif kind == "name" and cur().text == "nosuspend" and tokens[i + 1] and tokens[i + 1].kind == "do" then
+            local n = new cst.NoSuspendStmt {kind = "noSuspendStmt"}
+            n.keywordTok = add(n, advance())
+            n.doTok = add(n, advance())
+            n.body = add(n, parseBlock())
+            n.endTok = add(n, expect("end", "to close 'nosuspend do'"))
+            return n
+
         elseif kind == "name" and cur().text == "unsafe" and tokens[i + 1] and tokens[i + 1].kind == "do" then
             local n = new cst.UnsafeStmt {kind = "unsafeStmt"}
             n.unsafeTok = add(n, advance())

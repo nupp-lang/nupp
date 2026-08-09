@@ -60,6 +60,7 @@ local COVERAGE_STATEMENTS = {
     gotoStmt = true,
     withStmt = true,
     unsafeStmt = true,
+    noSuspendStmt = true,
 }
 
 -- Node kinds that exist only in the type layer: emitted as nothing.
@@ -2045,6 +2046,15 @@ function gen.generate(
             if x.stat then
                 emit(x.stat)
             end
+
+        elseif kind == "noSuspendStmt" then
+            -- Erases to an ordinary block. The region is a promise the checker held the
+            -- program to; there is nothing left to enforce once it has.
+            e("do", x.keywordTok and x.keywordTok.line or nil)
+            if x.body then
+                emit(x.body)
+            end
+            e("end", x.endTok and x.endTok.line or nil)
 
         elseif kind == "unsafeStmt" then
             e("do", x.unsafeTok and x.unsafeTok.line or nil)

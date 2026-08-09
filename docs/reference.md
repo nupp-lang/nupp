@@ -920,6 +920,55 @@ return m
 
 Reports: `NUPP2108`. `nupp explain <code>` says more.
 
+### Suspension regions
+
+`nosuspend do ... end` refuses, while compiling, any call inside it that may
+suspend the current coroutine. It is lexical and static: it erases to an
+ordinary `do` block and has no run-time component at all.
+
+Whether a function may suspend is already inferred — `coroutine.yield` sets it
+and it propagates through the call graph — and it travels across a module
+boundary on the function's type, so an export, an alias, and a local are all
+answered the same way. A callee nothing resolved is refused, because a region
+exists to be careful about exactly that.
+
+**NUPP2701** names the call and the path from it to the suspension, since a
+refusal is not actionable when the yield is four functions away.
+
+`nosuspend` opens a region only when `do` follows it; elsewhere it is a name.
+
+A limitation worth knowing before reaching for this: a standard-library function
+is declared as a field of a table type, and there is nowhere to write an effect
+contract on one, so the prelude is conservatively may-yield. A region cannot
+currently admit `math.floor`. Declaring effects in a function type is what
+closes that.
+
+```nupp
+local m = {}
+
+local function total(values: {integer}): number
+    local sum = 0
+    for index = 1, #values do
+        sum = sum + values[index]
+    end
+
+    return sum
+end
+
+function m.commit(values: {integer}): number
+    local answer = 0
+    nosuspend do
+        answer = total(values)
+    end
+
+    return answer
+end
+
+return m
+```
+
+Reports: `NUPP2701`. `nupp explain <code>` says more.
+
 ### Comptime
 
 `comptime do ... end` is an expression whose value is computed while the file is

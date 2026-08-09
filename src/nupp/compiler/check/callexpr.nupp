@@ -277,6 +277,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local calleeT = callee and c.infer(callee) or T.any
         node.calleeType = rawType(calleeT)
+        c.nosuspend.call(node)
         local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
         if wrappedEntry and wrappedEntry.wrappedProtocol then
             local protocol = wrappedEntry.wrappedProtocol

@@ -27,6 +27,7 @@ local loopclosure = require("nupp.compiler.check.loopclosure")
 local undocumentedraise = require("nupp.compiler.check.undocumentedraise")
 local unused = require("nupp.compiler.check.unused")
 local discard = require("nupp.compiler.check.discard")
+local nosuspendMod = require("nupp.compiler.check.nosuspend")
 local analysis = require("nupp.compiler.analysis")
 local narrow = require("nupp.compiler.check.narrow")
 local calls = require("nupp.compiler.check.calls")
@@ -416,7 +417,7 @@ function checkMod.check(
         typeDefs = {},
         pending = {},
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
@@ -449,6 +450,7 @@ function checkMod.check(
     -- nupp.compiler.check.discard.
     c.unused = unused.install(c)
     c.discard = discard.install(c)
+    c.nosuspend = nosuspendMod.install(c)
     resolve.install(c)
     local ownershipKind = own.ownershipKind
 
@@ -1446,6 +1448,7 @@ function checkMod.check(
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()
     c.discard.sweep(analysis.queries(facts))
+    c.nosuspend.sweep(analysis.queries(facts))
     table.sort(c.diags, function(a, b)
         return a.offset < b.offset
     end)

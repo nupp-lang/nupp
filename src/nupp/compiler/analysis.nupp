@@ -988,6 +988,7 @@ type analysis.Facts = {
 type analysis.Queries = {
     visible: function(summary: any): (boolean, string?),
     free: function(summary: any, kinds: {string}): (boolean, string?),
+    named: function(name: any): any,
     known: function(token: any): any,
     body: function(body: any): any
 }
@@ -1020,6 +1021,26 @@ function analysis.queries(facts: analysis.Facts?): analysis.Queries?
     local prepared = {}
     bound.visible = queries.visible
     bound.free = queries.free
+
+    -- Callees indexed by the name a summary records them under. `calls` holds names,
+    -- not definitions, so following a chain of them needs this; building it once per
+    -- run costs one pass over functions already collected.
+    local byName = {}
+    for _, info in ipairs(facts.functions or {}) do
+        local token = info.node and (info.node.name or info.node.token) or nil
+        local text = token and (token.text or token.name and token.name.text) or nil
+        if type(text) == "string" and byName[text] == nil then
+            byName[text] = info
+        end
+    end
+
+    --- What a name a summary recorded as a callee resolves to, if this run saw it.
+    ---
+    --- @param name the callee's name, as `summary.calls` spells it
+    --- @return the callee's record
+    function bound.named(name: any): any
+        return type(name) == "string" and byName[name] or nil
+    end
 
     --- What a name resolves to, or nil when this run never saw its body.
     ---

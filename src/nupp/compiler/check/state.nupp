@@ -176,6 +176,13 @@ record state.Checker
     --- How deep inside `unsafe do` the walk is; raw pointer use needs it above zero.
     unsafeDepth: integer
 
+    --- The `nosuspend` region check, which judges after inference settles.
+    nosuspend: any
+
+    --- How many `nosuspend` regions enclose the statement being checked. A call whose
+    --- callee may suspend is refused while this is above zero.
+    noSuspendDepth: integer
+
     --- How deep inside function bodies it is, which is how a capture is recognized.
     functionDepth: integer
 
