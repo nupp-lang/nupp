@@ -187,8 +187,17 @@ work makes sense in.
       callback lint.
 - [ ] Struct unions and bitfields (tagged C union lowering); malloc-backed big
       arrays. Fixed arrays `T[N]` landed.
+- [ ] **Struct layout reflection** ([design](layout.md)). What reifying broke,
+      answered without imposing a format: field names in declaration order,
+      each field's C type, offset, size and padding, the struct's size, and a
+      fingerprint. `layoutof(T)` lowers at the call site, so a program that
+      never asks pays nothing. tecs is the workload and draws the line — its
+      166-line runtime codec generator is what this makes unnecessary, and its
+      2411-line snapshot format is what nupp should not try to see.
 - [ ] **A generalized `Serializable`, because reifying currently makes
-      serializing worse.** A `struct` instance is cdata, and cdata is where the
+      serializing worse.** Superseded in part by layout.md, which takes the
+      reflection half; what stays open here is whether anything above it is
+      wanted at all. A `struct` instance is cdata, and cdata is where the
       table-shaped world stops: `string.buffer.encode` raises `cannot serialize
       'cdata'` and offers no hook to install, `pairs` needs a `__pairs` on the
       metatype, and `type` answers `"cdata"`. So the largest speedup the
