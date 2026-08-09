@@ -11,9 +11,9 @@ end
 
 -- Full pipeline: parse, check (for reified hints), generate.
 local function compile(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test")
+   local diags = check.check(result, "test.g.nupp")
    local code, genDiags = gen.generate(result, "test")
    return code, diags, genDiags
 end

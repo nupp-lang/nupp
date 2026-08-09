@@ -15,17 +15,17 @@ local function assertEq(got, want, label)
 end
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
 local function messageOf(src)
-   local result = parser.parse(src, "test")
-   local d = check.check(result, "test", env)[1]
+   local result = parser.parse(src, "test.g.nupp")
+   local d = check.check(result, "test.g.nupp", env)[1]
    return d and d.msg or ""
 end
 

@@ -11,9 +11,9 @@ local function assertEq(got, want, label)
 end
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test")
+   local diags = check.check(result, "test.g.nupp")
    local out = {}
    for j, d in ipairs(diags) do out[j] = d.code .. ":" .. d.line end
    return table.concat(out, " "), diags

@@ -14,7 +14,7 @@ end
 
 local function codes(source)
    env.loaded = {}
-   local parsed = parser.parse(source, "test")
+   local parsed = parser.parse(source, "test.g.nupp")
    assertEq(#parsed.errors, 0, "syntax: "
       .. (parsed.errors[1] and parsed.errors[1].msg or ""))
    local out = {}

@@ -12,9 +12,9 @@ end
 -- Every NUPP2509 the source produces. The level is set rather than left at the
 -- registry default so that a case reads the same if the default is reconsidered.
 local function lint(src, level)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test", envMod.new("."),
+   local diags = check.check(result, "test.g.nupp", envMod.new("."),
       {lints = {["reifiable-record"] = level or "warning"}})
    local found = {}
    for _, diag in ipairs(diags) do
@@ -33,7 +33,7 @@ local function assertSuggested(src, label)
    local asStruct = src:gsub("record ", "struct ", 1)
    local result = parser.parse(asStruct, "test")
    assertEq(#result.errors, 0, "the suggested source does not parse\n" .. asStruct)
-   local diags = check.check(result, "test", envMod.new("."), {})
+   local diags = check.check(result, "test.g.nupp", envMod.new("."), {})
    for _, diag in ipairs(diags) do
       if diag.severity == "error" then
          error(("the suggestion does not compile: %s: %s\n%s")
@@ -256,14 +256,14 @@ local record Vec2
     y: float
 end
 ]]
-   for _, diag in ipairs(check.check(parser.parse(src, "test"), "test",
+   for _, diag in ipairs(check.check(parser.parse(src, "test.g.nupp"), "test",
       envMod.new("."), {})) do
       assertEq(diag.code ~= "NUPP2509", true,
          "a performance suggestion is met by asking, not by being told")
    end
    -- Whether a record is worth reifying depends on how many are built and where,
    -- which no declaration states, so the class is asked for as a class.
-   local on = check.check(parser.parse(src, "test"), "test", envMod.new("."),
+   local on = check.check(parser.parse(src, "test.g.nupp"), "test", envMod.new("."),
       {lints = {performance = "note"}})
    local found = nil
    for _, diag in ipairs(on) do

@@ -21,9 +21,9 @@ end
 -- Optimize at `level`, then generate. The effect-based passes consume definition
 -- and type facts left by checking; presizing remains syntax-only.
 local function compile(src, level)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   check.check(result, "test", env)
+   check.check(result, "test.g.nupp", env)
    local remarks = optimize.run(result, {level = level or 2})
    local code, diags = gen.generate(result, "test")
    assertEq(#diags, 0, "gen diagnostics for " .. src)
@@ -275,7 +275,7 @@ function M.propagatesNestedConstFieldsAcrossARequiredModule()
       "return Foo.bar.BAZ, Foo.bar.nested.name",
    }, "\n"), "test")
    assertEq(#result.errors, 0, "consumer parses")
-   local diags = check.check(result, "test", requiredEnv)
+   local diags = check.check(result, "test.g.nupp", requiredEnv)
    assertEq(#diags, 0, "consumer checks")
    optimize.run(result, {level = 1})
    local code, generatedDiags = gen.generate(result, "test")
@@ -287,9 +287,9 @@ end
 function M.requiresEveryImportedPathEdgeToBeConst()
    local requiredEnv = envMod.new(HERE)
    local function generated(src)
-      local result = parser.parse(src, "test")
+      local result = parser.parse(src, "test.g.nupp")
       assertEq(#result.errors, 0, "consumer parses")
-      local diags = check.check(result, "test", requiredEnv)
+      local diags = check.check(result, "test.g.nupp", requiredEnv)
       assertEq(#diags, 0, "consumer checks")
       optimize.run(result, {level = 1})
       local code, generatedDiags = gen.generate(result, "test")
@@ -320,7 +320,7 @@ function M.bindsRepeatedImmutableDottedCallees()
       "Foo.api.ping(2)",
    }, "\n"), "test")
    assertEq(#result.errors, 0, "consumer parses")
-   local diags = check.check(result, "test", requiredEnv)
+   local diags = check.check(result, "test.g.nupp", requiredEnv)
    assertEq(#diags, 0, "consumer checks")
    local remarks = optimize.run(result, {level = 1})
    local code, generatedDiags = gen.generate(result, "test")
@@ -341,9 +341,9 @@ end
 function M.leavesSingleOrMutableDottedCalleesAlone()
    local requiredEnv = envMod.new(HERE)
    local function generated(src)
-      local result = parser.parse(src, "test")
+      local result = parser.parse(src, "test.g.nupp")
       assertEq(#result.errors, 0, "consumer parses")
-      check.check(result, "test", requiredEnv)
+      check.check(result, "test.g.nupp", requiredEnv)
       optimize.run(result, {level = 1})
       return gen.generate(result, "test")
    end
@@ -374,7 +374,7 @@ function M.leavesStaticCalleesAloneAcrossGotoScopes()
       "Foo.api.ping(2)",
    }, "\n"), "test")
    assertEq(#result.errors, 0, "goto consumer parses")
-   check.check(result, "test", requiredEnv)
+   check.check(result, "test.g.nupp", requiredEnv)
    optimize.run(result, {level = 1})
    local code = gen.generate(result, "test")
    assertEq(code:find("__nupp_call_", 1, true), nil,
@@ -389,7 +389,7 @@ function M.staticCallableNamesDoNotCollideWithSourceNames()
       "Foo.api.ping(1)",
       "Foo.api.ping(2)",
    }, "\n"), "test")
-   check.check(result, "test", requiredEnv)
+   check.check(result, "test.g.nupp", requiredEnv)
    optimize.run(result, {level = 1})
    local code = gen.generate(result, "test")
    assertTrue(code:find("const __nupp_call_2=", 1, true) ~= nil,
@@ -403,7 +403,7 @@ function M.aDisabledStaticCallablePassDoesNothing()
       "Foo.api.ping(1)",
       "Foo.api.ping(2)",
    }, "\n"), "test")
-   check.check(result, "test", requiredEnv)
+   check.check(result, "test.g.nupp", requiredEnv)
    optimize.run(result, {level = 1, disabled = {["OPT-4"] = true}})
    local code = gen.generate(result, "test")
    assertEq(code:find("__nupp_call_", 1, true), nil,

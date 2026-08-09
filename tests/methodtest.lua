@@ -15,11 +15,11 @@ local function assertEq(got, want, label)
 end
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test", env)) do
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do
       out[j] = d.code .. ":" .. d.line
    end
    return table.concat(out, " ")
@@ -30,9 +30,9 @@ local function assertClean(src)
 end
 
 local function generate(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
    local code, genDiags = gen.generate(result, "test")
    assertEq(#genDiags, 0, "gen diagnostics")
@@ -40,9 +40,9 @@ local function generate(src)
 end
 
 local function run(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
    local code, genDiags = gen.generate(result, "test")
    assertEq(#genDiags, 0, "gen diagnostics")

@@ -10,10 +10,10 @@ local function assertEq(got, want, label)
 end
 
 local function compile(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors"
       .. (result.errors[1] and (": " .. result.errors[1].msg) or ""))
-   local diags = check.check(result, "test")
+   local diags = check.check(result, "test.g.nupp")
    local code, genDiags = gen.generate(result, "test")
    return code, diags, genDiags
 end

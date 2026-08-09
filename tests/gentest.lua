@@ -12,7 +12,7 @@ local function assertEq(got, want, label)
 end
 
 local function generate(src)
-    local result = parser.parse(src, "test")
+    local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax errors in test source")
     local code, diags = gen.generate(result, "test")
     assertEq(#diags, 0, "gen diagnostics for " .. src)

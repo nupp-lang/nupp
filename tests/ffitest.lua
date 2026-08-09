@@ -18,18 +18,18 @@ end
 local P = "local struct P\n    x: float\n    y: float\nend"
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
 local function run(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
    local code, genDiags = gen.generate(result, "test")
    assertEq(#genDiags, 0, "gen: " .. (genDiags[1] and genDiags[1].msg or ""))
@@ -129,7 +129,7 @@ end
 function M.builtinTypesUseTheirCSpelling()
    local result = parser.parse(P .. "\nlocal p = ffi.new<P>()\nlocal r = ffi.cast<voidptr>(p)",
       "test")
-   check.check(result, "test", env)
+   check.check(result, "test.g.nupp", env)
    local code = gen.generate(result, "test")
    assert(code:find("__nuppFfi.new(P", 1, true),
       "a declared struct is already a ctype:\n" .. code)
@@ -141,8 +141,8 @@ end
 -- a time. The checker already typed it; the generator had no spelling for it.
 function M.castToACArrayIsAPointerCast()
    local function codeFor(src)
-      local result = parser.parse(src, "test")
-      check.check(result, "test", env)
+      local result = parser.parse(src, "test.g.nupp")
+      check.check(result, "test.g.nupp", env)
       return gen.generate(result, "test")
    end
    -- The string is bound first: a pointer into a temporary outlives it, and

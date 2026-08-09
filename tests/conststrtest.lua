@@ -16,11 +16,11 @@ local function assertEq(got, want, label)
 end
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
@@ -129,8 +129,8 @@ function M.lossyNarrowingIsAStrictModeLint()
    local src = "local x: number = 5\nlocal small: int32 = x"
    -- silent by default, since LuaJIT has always truncated here
    assertEq(diagsOf(src), "")
-   local result = parser.parse(src, "test")
-   local diags = check.check(result, "test", env, {strict = true})
+   local result = parser.parse(src, "test.g.nupp")
+   local diags = check.check(result, "test.g.nupp", env, {strict = true})
    assertEq(#diags, 1, "reported under --strict")
    assertEq(diags[1].code, "NUPP2503")
    -- a wider target is not a narrowing

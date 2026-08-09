@@ -14,9 +14,9 @@ end
 
 -- Every NUPP2506 the source produces.
 local function lint(src, config)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test", envMod.new("."), config or {})
+   local diags = check.check(result, "test.g.nupp", envMod.new("."), config or {})
    local found = {}
    for _, diag in ipairs(diags) do
       if diag.code == "NUPP2506" then found[#found + 1] = diag end

@@ -18,9 +18,9 @@ local function assertEq(got, want, label)
 end
 
 local function compile(src, level)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   check.check(result, "test", env)
+   check.check(result, "test.g.nupp", env)
    local remarks = optimize.run(result, {level = level})
    local code, diags = gen.generate(result, "test")
    assertEq(#diags, 0, "gen diagnostics for " .. src)
@@ -252,7 +252,7 @@ for i = 1, 3 do
 end
 return out
 ]], "test")
-   check.check(result, "test", env)
+   check.check(result, "test.g.nupp", env)
    local remarks = optimize.run(result, {level = 1, disabled = {["OPT-5"] = true}})
    for _, entry in ipairs(remarks) do
       assertEq(entry.code ~= "OPT-5", true, "-Zno-opt=OPT-5 turns it off")

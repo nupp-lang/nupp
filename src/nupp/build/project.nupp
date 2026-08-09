@@ -134,10 +134,9 @@ function project.build(root: string?, opts: project.BuildOptions?): integer
     if not config then
         io.stderr:write(tostring(loadErr) .. "\n"); return 1
     end
+    -- Absent rather than false: nil reaches the checker as "ask the file", which is
+    -- what the extension answers. Only --strict forces it for everything.
     local strict = opts.strict
-    if strict == nil then
-        strict = config.strict == true
-    end
     local target, targetErr = targetConfig(config, opts.target)
     if not target then
         io.stderr:write("nupp: " .. tostring(targetErr) .. "\n"); return 1

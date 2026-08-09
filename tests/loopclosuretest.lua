@@ -11,9 +11,9 @@ end
 
 -- Every NUPP2505 the source produces.
 local function lint(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test", envMod.new("."), {})
+   local diags = check.check(result, "test.g.nupp", envMod.new("."), {})
    local found = {}
    for _, diag in ipairs(diags) do
       if diag.code == "NUPP2505" then found[#found + 1] = diag end
@@ -267,7 +267,7 @@ for i = 1, 10 do
    register(function() return 1 end)
 end
 ]], "test")
-   local diags = check.check(result, "test", envMod.new("."),
+   local diags = check.check(result, "test.g.nupp", envMod.new("."),
       {lints = {["loop-invariant-closure"] = "off"}})
    for _, diag in ipairs(diags) do
       assertEq(diag.code ~= "NUPP2505", true, "a lint set to off says nothing")

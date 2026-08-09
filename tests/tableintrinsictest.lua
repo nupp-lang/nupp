@@ -15,9 +15,9 @@ local function assertEq(got, want, label)
 end
 
 local function compile(src, level)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    assertEq(#diags, 0, "check diagnostics")
    optimize.run(result, {level = level or 0})
    local code, generatedDiags = gen.generate(result, "test")

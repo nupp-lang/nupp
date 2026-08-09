@@ -18,10 +18,10 @@ local function assertEq(got, want, label)
 end
 
 local function diagsOf(src, registry)
-    local result = parser.parse(src, "test")
+    local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax")
     local out = {}
-    for j, d in ipairs(check.check(result, "test", env,
+    for j, d in ipairs(check.check(result, "test.g.nupp", env,
         {annotations = registry})) do
         out[j] = d.code
     end
@@ -31,10 +31,10 @@ end
 local M = {}
 
 local function checked(src)
-    local result = parser.parse(src, "test")
+    local result = parser.parse(src, "test.g.nupp")
     assertEq(#result.errors, 0, "syntax")
     local projectEnv = envMod.new(HERE .. "/..")
-    local diags = check.check(result, "test", projectEnv)
+    local diags = check.check(result, "test.g.nupp", projectEnv)
     local codes = {}
     for j, diagnostic in ipairs(diags) do codes[j] = diagnostic.code end
     return table.concat(codes, " "), result, diags
@@ -172,7 +172,7 @@ function M.projectEnvironmentsOwnAnExtensibleRegistry()
     })
     local result = parser.parse("@profile local function f() end", "test")
     assertEq(#result.errors, 0, "syntax")
-    assertEq(#check.check(result, "test", projectEnv), 0)
+    assertEq(#check.check(result, "test.g.nupp", projectEnv), 0)
 end
 
 function M.customAnnotationsCanLimitTheirTargets()

@@ -140,10 +140,8 @@ end
 function incremental.new(rootDir: string, opts: table?): incremental.Inc
     opts = opts or {}
     local env = envMod.new(rootDir, opts)
+    -- Left nil when nothing forced it, so each file's extension decides.
     local strict = opts.strict
-    if strict == nil then
-        strict = env.config.strict == true
-    end
     local q = query.new()
     local inc = new incremental.Inc {env = env, q = q}
 

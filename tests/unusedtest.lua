@@ -18,9 +18,9 @@ end
 -- file asks for the real checker rather than the tests' fragment wrapper, which
 -- turns this lint off for everything that is not about it.
 local function diagnostics(src, config)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   return check.check(result, "test", envMod.new("."), config or {})
+   return check.check(result, "test.g.nupp", envMod.new("."), config or {})
 end
 
 local function lint(src, config)

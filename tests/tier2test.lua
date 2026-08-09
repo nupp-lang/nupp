@@ -14,11 +14,11 @@ local function assertEq(got, want, label)
 end
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test", env)) do
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do
       out[j] = d.code .. ":" .. d.line
    end
    return table.concat(out, " ")
@@ -136,8 +136,8 @@ function M.strictModeReportsUnknownNames()
    -- gradual by default: unknown names are `any` and check silently
    assertClean(src)
    -- under --strict they are errors, while known names stay quiet
-   local result = parser.parse(src, "test")
-   local diags = check.check(result, "test", env, {strict = true})
+   local result = parser.parse(src, "test.g.nupp")
+   local diags = check.check(result, "test.g.nupp", env, {strict = true})
    assertEq(#diags, 1, "one unknown name")
    assertEq(diags[1].code, "NUPP2105")
    assert(diags[1].msg:find("undefinedThing", 1, true),
@@ -150,7 +150,7 @@ function M.strictModeAcceptsDeclaredAndStdlibNames()
       "local function f(): number return n end",
       "print(f(), string.format('%d', 1), math.floor(2.5))",
    }, "\n"), "test")
-   local diags = check.check(result, "test", env, {strict = true})
+   local diags = check.check(result, "test.g.nupp", env, {strict = true})
    assertEq(#diags, 0, "declared locals and the stdlib are known: "
       .. (diags[1] and diags[1].msg or ""))
 end

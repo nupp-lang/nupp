@@ -17,9 +17,9 @@ end
 
 -- Parse, check, and hand back the query surface beside the tree.
 local function analysed(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   check.check(result, "test", envMod.new("."), {})
+   check.check(result, "test.g.nupp", envMod.new("."), {})
    local queries = analysis.queries(result.analysis)
    assert(queries, "the run produced no queries")
    return queries, result

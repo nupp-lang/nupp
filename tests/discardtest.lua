@@ -18,10 +18,10 @@ end
 -- This file asks for the real checker rather than the tests' fragment wrapper,
 -- which turns this lint off for everything that is not about it.
 local function lint(src, config)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
    local found = {}
-   for _, diag in ipairs(check.check(result, "test", envMod.new("."),
+   for _, diag in ipairs(check.check(result, "test.g.nupp", envMod.new("."),
       config or {})) do
       if diag.code == "NUPP2508" then found[#found + 1] = diag end
    end

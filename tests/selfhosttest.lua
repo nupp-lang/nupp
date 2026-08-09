@@ -17,7 +17,7 @@ local function assertEq(got, want, label)
 end
 
 local function parse(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    return result
@@ -35,7 +35,7 @@ end
 -- table, a struct's ctype), so it runs after checking, as in a real build.
 local function generate(src)
    local result = parse(src)
-   check.check(result, "test", env)
+   check.check(result, "test.g.nupp", env)
    local code, diags = gen.generate(result, "test")
    assertEq(#diags, 0, "gen diagnostics: " .. (diags[1] and diags[1].msg or ""))
    return code

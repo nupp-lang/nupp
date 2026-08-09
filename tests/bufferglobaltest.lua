@@ -23,9 +23,9 @@ local function assertEq(got, want, label)
 end
 
 local function compile(src, level)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors in test source")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    for _, diag in ipairs(diags or {}) do
       if diag.severity == "error" then
          error(("%s: %s\n%s"):format(diag.code, diag.msg, src), 2)
@@ -68,7 +68,7 @@ function M.theModuleIsTypedRatherThanAny()
    -- declaration in decls/stringbuffer.d.nupp, so the arity is held.
    local result = parser.parse("local b = buffer.new(1, 2, 3, 4)\nreturn b\n", "test")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    local found = false
    for _, diag in ipairs(diags or {}) do
       if diag.severity == "error" then found = true end

@@ -23,18 +23,18 @@ local P = table.concat({
 }, "\n")
 
 local function diagsOf(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax: "
       .. (result.errors[1] and result.errors[1].msg or ""))
    local out = {}
-   for j, d in ipairs(check.check(result, "test", env)) do out[j] = d.code end
+   for j, d in ipairs(check.check(result, "test.g.nupp", env)) do out[j] = d.code end
    return table.concat(out, " ")
 end
 
 local function run(src)
-   local result = parser.parse(src, "test")
+   local result = parser.parse(src, "test.g.nupp")
    assertEq(#result.errors, 0, "syntax errors")
-   local diags = check.check(result, "test", env)
+   local diags = check.check(result, "test.g.nupp", env)
    assertEq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
    local code, genDiags = gen.generate(result, "test")
    assertEq(#genDiags, 0, "gen diagnostics")
@@ -119,7 +119,7 @@ end
 function M.arrayCtypeIsBuiltOncePerElementType()
    local result = parser.parse(P .. "\nlocal a = carray(P, 2)\nlocal b = carray(P, 3)",
       "test")
-   check.check(result, "test", env)
+   check.check(result, "test.g.nupp", env)
    local code = gen.generate(result, "test")
    assert(code:find("__nuppArrayCache", 1, true),
       "the array ctype is cached rather than rebuilt:\n" .. code)
