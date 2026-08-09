@@ -27,6 +27,7 @@ local readFile, writeFile = filesMod.readFile, filesMod.writeFile
 local listFiles, privateSource = filesMod.listFiles, filesMod.privateSource
 local copyPublicFiles = filesMod.copyPublicFiles
 local moduleName, childModules = extractMod.moduleName, extractMod.children
+local namespaceModules = extractMod.namespaces
 local configureScintillua = highlightMod.configureScintillua
 local markdownHtml, markdownOutline = htmlMod.markdownHtml, htmlMod.markdownOutline
 local THEME, SCRIPT = assetsMod.THEME, assetsMod.SCRIPT
@@ -189,6 +190,11 @@ local function loadModules(root, config, settings, requested)
         end
         modules = public
     end
+    -- After the private ones are dropped, so a directory whose every module is internal
+    -- does not document as an empty namespace.
+    for _, namespace in ipairs(namespaceModules(modules)) do
+        modules[#modules + 1] = namespace
+    end
     table.sort(modules, function(left, right)
         return left.name < right.name
     end)
@@ -325,7 +331,11 @@ local function appendSearchEntries(entries, candidate, file, markdown)
         local module = candidate.module
         entries[
             #entries + 1
-        ] = {title = "Module › " .. module.name, url = url, text = module.name .. " " .. (module.text or "")}
+        ] = {
+            title = (module.namespace and "Namespace › " or "Module › ") .. module.name,
+            url = url,
+            text = module.name .. " " .. (module.text or ""),
+        }
         for _, item in ipairs(module.items) do
             local itemText = {item.name, item.signature, item.doc.text or ""}
             for _, param in ipairs(item.params) do
@@ -403,7 +413,13 @@ local function renderSite(root, outDir, modules, title, settings)
             return nil, "documentation page path collides with module: " .. route
         end
         claimedRoutes[route] = true
-        pages[#pages + 1] = {path = route, title = "Module: " .. module.name, module = module}
+        pages[
+            #pages + 1
+        ] = {
+            path = route,
+            title = (module.namespace and "Namespace: " or "Module: ") .. module.name,
+            module = module,
+        }
     end
 
     local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
@@ -425,15 +441,26 @@ local function renderSite(root, outDir, modules, title, settings)
             end
             markdown = doc.markdown({module}, nil, modules)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
-            body[#body + 1] = '<h1>Module: <code>' .. htmlEscape(module.name) .. '</code></h1>'
-            if module.text ~= "" then
+            body[
+                #body + 1
+            ] = '<h1>' .. (
+                module.namespace and "Namespace: " or "Module: "
+            ) .. '<code>' .. htmlEscape(module.name) .. '</code></h1>'
+            if module.namespace then
+                body[
+                    #body + 1
+                ] = '<p class="nuppdoc-namespace-note">Modules nested under <code>' .. htmlEscape(
+                    module.name
+                ) .. '</code>. Nothing is required by this name itself.</p>'
+            elseif module.text ~= "" then
                 body[#body + 1] = markdownHtml(module.text, links)
             end
-            body[#body + 1] = nestedModules(children, relativePrefix(file))
+            body[#body + 1] = nestedModules(children, relativePrefix(file), modules)
             if #module.items == 0 then
-                -- A namespace's own page carries no declarations, and its table of
-                -- nested modules is the whole of what it has to say.
-                if #children == 0 then
+                -- A namespace's table of nested modules is the whole of what it has to
+                -- say, so the notice below would be saying it holds no declarations
+                -- when nothing ever suggested it would.
+                if #children == 0 and not module.namespace then
                     body[#body + 1] = '<div class="nuppdoc-empty">No public declarations.</div>'
                 end
             else
@@ -474,15 +501,17 @@ local function renderSite(root, outDir, modules, title, settings)
                 end
                 body[#body + 1] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
                 for _, module in ipairs(modules) do
+                    -- A namespace has no declarations to count, and saying it has none
+                    -- reads as an empty module rather than as the index it is.
+                    local held = module.namespace and #childModules(modules, module.name) or #module.items
+                    local noun = module.namespace and " module" or " documented declaration"
                     body[
                         #body + 1
                     ] = '<a class="nuppdoc-module-card" href="' .. moduleFile(
                         module.name
                     ) .. '"><code>' .. htmlEscape(
                         module.name
-                    ) .. '</code><span>' .. #module.items .. ' documented declaration' .. (
-                        #module.items == 1 and "" or "s"
-                    ) .. '</span></a>'
+                    ) .. '</code><span>' .. held .. noun .. (held == 1 and "" or "s") .. '</span></a>'
                 end
                 body[#body + 1] = '</div>'
             end
@@ -517,7 +546,9 @@ local function renderSite(root, outDir, modules, title, settings)
             end
         end
         allMarkdown[#allMarkdown + 1] = {page = candidate, text = markdown}
-        if candidate.module then
+        -- A namespace gets no redirect stub: it is a page this generator started
+        -- writing, so no former URL ever pointed at it.
+        if candidate.module and not candidate.module.namespace then
             local legacy = "modules/" .. candidate.module.name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. ".html"
             ok, err = writeFile(
                 join(outDir, legacy),

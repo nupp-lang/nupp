@@ -23915,7 +23915,7 @@ that starts with a dash.
 --profile writes collapsed-stack text: one line per stack, frames separated by
 semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
 all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.std.zone reports itself in its own terms, and the leaf
+program that calls nupp.zone reports itself in its own terms, and the leaf
 carries the VM state most of its samples were in: N compiled, I interpreted,
 C in a C function, G collecting, J compiling.
 
@@ -23987,7 +23987,7 @@ end
 
 local sampling , tracing = nil , nil
 if profiling or tracingAborts then
-local profile = require ( "nupp.std.profile" )
+local profile = require ( "nupp.profile" )
 if profiling then
 
 
@@ -27873,6 +27873,7 @@ local readFile , writeFile = filesMod . readFile , filesMod . writeFile
 local listFiles , privateSource = filesMod . listFiles , filesMod . privateSource
 local copyPublicFiles = filesMod . copyPublicFiles
 local moduleName , childModules = extractMod . moduleName , extractMod . children
+local namespaceModules = extractMod . namespaces
 local configureScintillua = highlightMod . configureScintillua
 local markdownHtml , markdownOutline = htmlMod . markdownHtml , htmlMod . markdownOutline
 local THEME , SCRIPT = assetsMod . THEME , assetsMod . SCRIPT
@@ -28035,6 +28036,11 @@ end
 end
 modules = public
 end
+
+
+for _ , namespace in ipairs ( namespaceModules ( modules ) ) do
+modules [ # modules + 1 ] = namespace
+end
 table . sort ( modules , function ( left , right )
 return left . name < right . name
 end )
@@ -28171,7 +28177,11 @@ if candidate . module then
 local module = candidate . module
 entries [
 # entries + 1
-] = { title = "Module › " .. module . name , url = url , text = module . name .. " " .. ( module . text or "" ) }
+] = {
+title = ( module . namespace and "Namespace › " or "Module › " ) .. module . name ,
+url = url ,
+text = module . name .. " " .. ( module . text or "" ) ,
+}
 for _ , item in ipairs ( module . items ) do
 local itemText = { item . name , item . signature , item . doc . text or "" }
 for _ , param in ipairs ( item . params ) do
@@ -28249,7 +28259,13 @@ if claimedRoutes [ route ] then
 return nil , "documentation page path collides with module: " .. route
 end
 claimedRoutes [ route ] = true
-pages [ # pages + 1 ] = { path = route , title = "Module: " .. module . name , module = module }
+pages [
+# pages + 1
+] = {
+path = route ,
+title = ( module . namespace and "Namespace: " or "Module: " ) .. module . name ,
+module = module ,
+}
 end
 
 local allMarkdown , linkIndex , searchEntries = { } , symbolLinkIndex ( modules ) , { }
@@ -28271,15 +28287,26 @@ items [ # items + 1 ] = item
 end
 markdown = doc . markdown ( { module } , nil , modules )
 local links = symbolLinks ( linkIndex , module , relativePrefix ( file ) )
-body [ # body + 1 ] = '<h1>Module: <code>' .. htmlEscape ( module . name ) .. '</code></h1>'
-if module . text ~= "" then
+body [
+# body + 1
+] = '<h1>' .. (
+module . namespace and "Namespace: " or "Module: "
+) .. '<code>' .. htmlEscape ( module . name ) .. '</code></h1>'
+if module . namespace then
+body [
+# body + 1
+] = '<p class="nuppdoc-namespace-note">Modules nested under <code>' .. htmlEscape (
+module . name
+) .. '</code>. Nothing is required by this name itself.</p>'
+elseif module . text ~= "" then
 body [ # body + 1 ] = markdownHtml ( module . text , links )
 end
-body [ # body + 1 ] = nestedModules ( children , relativePrefix ( file ) )
+body [ # body + 1 ] = nestedModules ( children , relativePrefix ( file ) , modules )
 if # module . items == 0 then
 
 
-if # children == 0 then
+
+if # children == 0 and not module . namespace then
 body [ # body + 1 ] = '<div class="nuppdoc-empty">No public declarations.</div>'
 end
 else
@@ -28319,15 +28346,17 @@ body [ # body + 1 ] = homeFeatures ( candidate , links )
 end
 body [ # body + 1 ] = '<h2 id="modules">Modules</h2><div class="nuppdoc-module-grid">'
 for _ , module in ipairs ( modules ) do
+
+
+local held = module . namespace and # childModules ( modules , module . name ) or # module . items
+local noun = module . namespace and " module" or " documented declaration"
 body [
 # body + 1
 ] = '<a class="nuppdoc-module-card" href="' .. moduleFile (
 module . name
 ) .. '"><code>' .. htmlEscape (
 module . name
-) .. '</code><span>' .. # module . items .. ' documented declaration' .. (
-# module . items == 1 and "" or "s"
-) .. '</span></a>'
+) .. '</code><span>' .. held .. noun .. ( held == 1 and "" or "s" ) .. '</span></a>'
 end
 body [ # body + 1 ] = '</div>'
 end
@@ -28362,7 +28391,9 @@ return nil , err
 end
 end
 allMarkdown [ # allMarkdown + 1 ] = { page = candidate , text = markdown }
-if candidate . module then
+
+
+if candidate . module and not candidate . module . namespace then
 local legacy = "modules/" .. candidate . module . name : gsub ( "[^%w._-]" , "-" ) : gsub ( "%." , "/" ) .. ".html"
 ok , err = writeFile (
 join ( outDir , legacy ) ,
@@ -28562,6 +28593,7 @@ local markdownHtml , tableHtml = htmlMod . markdownHtml , htmlMod . tableHtml
 local inlineHtml = htmlMod . inlineHtml
 local highlightNupp = highlightMod . nuppSource
 local splitMembers = extractMod . splitMembers
+local childModules = extractMod . children
 local moduleFile = urlsMod . moduleFile
 
 local api = { }
@@ -28587,8 +28619,15 @@ end
 
 
 
+local function namespaceSummary ( modules , name )
+local held = # childModules ( modules , name )
 
-local function nestedModules ( children , prefix )
+return held .. " module" .. ( held == 1 and "" or "s" )
+end
+
+
+
+local function nestedModules ( children , prefix , modules )
 if # children == 0 then
 return ""
 end
@@ -28600,7 +28639,7 @@ rows [
 '<a href="' .. htmlEscape ( prefix .. moduleFile ( child . name ) ) .. '"><code>' .. htmlEscape (
 child . name
 ) .. '</code></a>' ,
-inlineHtml ( summaryText ( child . text ) ) ,
+child . namespace and namespaceSummary ( modules , child . name ) or inlineHtml ( summaryText ( child . text ) ) ,
 }
 end
 
@@ -29210,6 +29249,10 @@ local extract = { }
 
 
 
+
+
+
+
 local function firstToken ( node )
 if not node then
 return nil
@@ -29651,6 +29694,37 @@ end
 end
 
 return children
+end
+
+
+
+
+
+
+
+
+
+
+
+
+function extract . namespaces ( modules )
+local taken = { }
+for _ , module in ipairs ( modules ) do
+taken [ module . name ] = true
+end
+local namespaces = { }
+for _ , module in ipairs ( modules ) do
+local walked = nil
+for segment in module . name : gmatch ( "[^.]+" ) do
+walked = walked and walked .. "." .. segment or segment
+if walked ~= module . name and not taken [ walked ] then
+taken [ walked ] = true
+namespaces [ # namespaces + 1 ] = { name = walked , text = "" , items = { } , namespace = true }
+end
+end
+end
+
+return namespaces
 end
 
 extract . moduleName = moduleName
@@ -30968,9 +31042,12 @@ out [ # out + 1 ] = ""
 end
 for moduleIndex , module in ipairs ( modules ) do
 out [ # out + 1 ] = '<a id="' .. module . name .. '"></a>'
-out [ # out + 1 ] = "# Module: `" .. module . name .. "`"
+out [ # out + 1 ] = ( module . namespace and "# Namespace: `" or "# Module: `" ) .. module . name .. "`"
 out [ # out + 1 ] = ""
-if module . text ~= "" then
+if module . namespace then
+out [ # out + 1 ] = "Modules nested under `" .. module . name .. "`. Nothing is required by this name itself."
+out [ # out + 1 ] = ""
+elseif module . text ~= "" then
 out [ # out + 1 ] = prose ( module . text )
 ;
 out [ # out + 1 ] = ""
@@ -30986,11 +31063,15 @@ for _ , child in ipairs ( children ) do
 
 local label = "`" .. markdownEscape ( child . name ) .. "`"
 local anchor = anchors and anchors [ child . name ]
+local held = # childModules ( all , child . name )
+local description = child . namespace
+and held .. " module" .. ( held == 1 and "" or "s" )
+or markdownCell ( summaryText ( child . text ) )
 out [
 # out + 1
-] = "| " .. ( anchor and "[" .. label .. "](" .. anchor .. ")" or label ) .. " | " .. markdownCell (
-summaryText ( child . text )
-) .. " |"
+] = "| " .. (
+anchor and "[" .. label .. "](" .. anchor .. ")" or label
+) .. " | " .. description .. " |"
 end
 out [ # out + 1 ] = ""
 end
@@ -33371,9 +33452,9 @@ local BUNDLED = { [
 
 
 local BUNDLED_SOURCE = {
-[ "nupp.std.resources" ] = "/std/resources.nupp" ,
-[ "nupp.std.zone" ] = "/std/zone.nupp" ,
-[ "nupp.std.profile" ] = "/std/profile.nupp" ,
+[ "nupp.resources" ] = "/nupp/resources.nupp" ,
+[ "nupp.zone" ] = "/nupp/zone.nupp" ,
+[ "nupp.profile" ] = "/nupp/profile.nupp" ,
 }
 
 
@@ -54793,7 +54874,7 @@ Reading the array directly is possible but not typed here, so it needs a cast.
 
 The stock implementation does its table work whether or not a profiler is
 listening, which makes an instrumented hot path pay for zones it is not being
-measured with. `nupp.std.zone` wraps this and gates it; prefer that over calling
+measured with. `nupp.zone` wraps this and gates it; prefer that over calling
 this module directly.
 ]]
 
@@ -55685,7 +55766,7 @@ local interface LuaFile
 end
 
 --- File input and output. Producers return borrowed handles here; annotated wrappers in
---- `nupp.std.resources` establish ownership obligations.
+--- `nupp.resources` establish ownership obligations.
 local io: {
     --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
     --- and a trailing "b" for binary.
@@ -56237,7 +56318,7 @@ local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
 ]=],
-["/std/profile.nupp"] = [=[
+["/nupp/profile.nupp"] = [=[
 --[[
 Profiling, in two channels.
 
@@ -56254,7 +56335,7 @@ The second question is the one a sampler cannot answer and the one that usually
 matters here: code the JIT refused is an order of magnitude slower than code it
 took, and nothing says so out loud.
 
-Both channels attribute work through `nupp.std.zone`, so a sample or an abort
+Both channels attribute work through `nupp.zone`, so a sample or an abort
 carries the zone path that was open when it happened. Both are process-wide
 rather than per-coroutine, and at most one session of each kind runs at a time.
 
@@ -56263,7 +56344,7 @@ table write at every interval; a trace session pays a callback at every abort,
 inside the compiler. Stop a session once the question it was opened for has an
 answer.
 
-    local profile = require("nupp.std.profile")
+    local profile = require("nupp.profile")
 
     local session = profile.sample({intervalMs = 5})
     render()
@@ -56271,7 +56352,7 @@ answer.
     print(report.samples, report.stacks)
 ]]
 
-local zone = require("nupp.std.zone")
+local zone = require("nupp.zone")
 local jitProfile = require("jit.profile")
 local jitUtil = require("jit.util")
 local vmdef = require("jit.vmdef")
@@ -57086,7 +57167,7 @@ end
 
 return profile
 ]=],
-["/std/resources.nupp"] = [=[
+["/nupp/resources.nupp"] = [=[
 --[[
 Owning wrappers for Lua's file handles.
 
@@ -57139,7 +57220,7 @@ end
 
 return resources
 ]=],
-["/std/zone.nupp"] = [=[
+["/nupp/zone.nupp"] = [=[
 --[[
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.

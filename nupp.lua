@@ -71,9 +71,9 @@ return {
             resources = {
                "src/compiler/decls/*.d.nupp",
                "src/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/std/resources.nupp", output = "compiler/std/resources.nupp"},
-               {source = "src/nupp/std/zone.nupp", output = "compiler/std/zone.nupp"},
-               {source = "src/nupp/std/profile.nupp", output = "compiler/std/profile.nupp"},
+               {source = "src/nupp/resources.nupp", output = "compiler/nupp/resources.nupp"},
+               {source = "src/nupp/zone.nupp", output = "compiler/nupp/zone.nupp"},
+               {source = "src/nupp/profile.nupp", output = "compiler/nupp/profile.nupp"},
             },
          },
          -- Nupp stamped into a feature-matched host as one self-contained
@@ -91,9 +91,9 @@ return {
             resources = {
                "src/compiler/decls/*.d.nupp",
                "src/compiler/decls/jit/*.d.nupp",
-               {source = "src/nupp/std/resources.nupp", output = "compiler/std/resources.nupp"},
-               {source = "src/nupp/std/zone.nupp", output = "compiler/std/zone.nupp"},
-               {source = "src/nupp/std/profile.nupp", output = "compiler/std/profile.nupp"},
+               {source = "src/nupp/resources.nupp", output = "compiler/nupp/resources.nupp"},
+               {source = "src/nupp/zone.nupp", output = "compiler/nupp/zone.nupp"},
+               {source = "src/nupp/profile.nupp", output = "compiler/nupp/profile.nupp"},
             },
             stub = "nupp",
             output = "build/dist/nupp",

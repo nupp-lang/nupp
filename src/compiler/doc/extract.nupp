@@ -73,7 +73,11 @@ type extract.Module = {
     path: string?,
     text: string,
     items: {extract.Item},
-    documentationInternal: boolean?
+    documentationInternal: boolean?,
+
+    --- Set on a name that only holds other modules. There is no file behind one and
+    --- nothing to require by that name, so it has no source and no declarations.
+    namespace: boolean?
 }
 
 --- What a caller wants included beyond the public surface a module hands out.
@@ -492,11 +496,11 @@ end
 --- The modules one module's page is responsible for listing: every module nested under
 --- its name whose nearest documented ancestor is that module.
 ---
---- The nearest ancestor decides, rather than the immediate one, because a namespace can
---- exist without a module of its own. `nupp.decls.jit` is a directory with no
---- `init.nupp`, so nothing documents it and nothing would list `nupp.decls.jit.profile`
---- if a page only claimed the names one segment below it. That module is listed by
---- `nupp.decls` instead, which is the nearest page a reader can reach it from.
+--- The nearest ancestor decides, rather than the immediate one, so that no module goes
+--- unlisted when a name between it and the root documents nothing. A site fills those
+--- names in with [](compiler.doc.extract.namespaces) and the two rules agree, but a
+--- caller reaching this directly with the modules it happens to hold gets the same
+--- guarantee without having to.
 ---
 --- @param modules every module the run documented, which is what says who is documented
 --- @param name the module whose children are wanted
@@ -523,6 +527,37 @@ function extract.children(modules: {extract.Module}, name: string): {extract.Mod
     end
 
     return children
+end
+
+--- The namespaces a set of modules implies: every dotted prefix that holds modules but
+--- is not one itself, as a module with no declarations.
+---
+--- A directory with no `init.nupp` is still a name a reader meets — in a require path,
+--- in the sidebar, in the name of every module under it — and without this it is the
+--- one name that leads nowhere. `nupp` is that name in this project's own
+--- documentation. Answering with a module rather than a special case is what lets the
+--- page, the navigation, the search index, and the markdown treat it like any other.
+---
+--- @param modules the documented modules, which is what says which names are taken
+--- @return the implied namespaces, outermost first
+function extract.namespaces(modules: {extract.Module}): {extract.Module}
+    local taken = {}
+    for _, module in ipairs(modules) do
+        taken[module.name] = true
+    end
+    local namespaces = {}
+    for _, module in ipairs(modules) do
+        local walked = nil
+        for segment in module.name:gmatch("[^.]+") do
+            walked = walked and walked .. "." .. segment or segment
+            if walked ~= module.name and not taken[walked] then
+                taken[walked] = true
+                namespaces[#namespaces + 1] = {name = walked, text = "", items = {}, namespace = true}
+            end
+        end
+    end
+
+    return namespaces
 end
 
 extract.moduleName = moduleName

@@ -209,9 +209,12 @@ function markdown.render(
     end
     for moduleIndex, module in ipairs(modules) do
         out[#out + 1] = '<a id="' .. module.name .. '"></a>'
-        out[#out + 1] = "# Module: `" .. module.name .. "`"
+        out[#out + 1] = (module.namespace and "# Namespace: `" or "# Module: `") .. module.name .. "`"
         out[#out + 1] = ""
-        if module.text ~= "" then
+        if module.namespace then
+            out[#out + 1] = "Modules nested under `" .. module.name .. "`. Nothing is required by this name itself."
+            out[#out + 1] = ""
+        elseif module.text ~= "" then
             out[#out + 1] = prose(module.text)
             ;
             out[#out + 1] = ""
@@ -227,11 +230,15 @@ function markdown.render(
                 -- module's markdown names its children without holding them.
                 local label = "`" .. markdownEscape(child.name) .. "`"
                 local anchor = anchors and anchors[child.name]
+                local held = #childModules(all, child.name)
+                local description = child.namespace
+                    and held .. " module" .. (held == 1 and "" or "s")
+                    or markdownCell(summaryText(child.text))
                 out[
                     #out + 1
-                ] = "| " .. (anchor and "[" .. label .. "](" .. anchor .. ")" or label) .. " | " .. markdownCell(
-                    summaryText(child.text)
-                ) .. " |"
+                ] = "| " .. (
+                    anchor and "[" .. label .. "](" .. anchor .. ")" or label
+                ) .. " | " .. description .. " |"
             end
             out[#out + 1] = ""
         end

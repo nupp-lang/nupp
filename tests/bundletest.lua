@@ -292,7 +292,7 @@ function M.theStandardLibraryIsTypedOutsideThisTree()
    local dir = tempProject({
       ["nupp.lua"] = STD_MANIFEST,
       ["typed.nupp"] = [[
-local resources = require("nupp.std.resources")
+local resources = require("nupp.resources")
 
 local wrong: integer = resources.open_file("x", "r")
 
@@ -312,14 +312,14 @@ function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
       ["nupp.lua"] = STD_MANIFEST,
       ["input.txt"] = "hello\n",
       ["acquire.nupp"] = [[
-local resources = require("nupp.std.resources")
+local resources = require("nupp.resources")
 
 with file = resources.open_file("input.txt", "r") do
     print(file:read("*a"))
 end
 ]],
       ["leak.nupp"] = [[
-local resources = require("nupp.std.resources")
+local resources = require("nupp.resources")
 
 local handle = resources.open_file("input.txt", "r")
 

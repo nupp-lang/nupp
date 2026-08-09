@@ -222,12 +222,12 @@ to whatever documents it. The name may be a module, a declaration, or a member,
 and it works the same in a handwritten page, a module blurb, and a `---` run:
 
 ```
-[the zone module](nupp.std.zone)
-[](nupp.std.zone.Zone)
-[the guard's field](nupp.std.zone.Zone.active)
+[the zone module](nupp.zone)
+[](nupp.zone.Zone)
+[the guard's field](nupp.zone.Zone.active)
 ```
 
-Empty link text stands for the target, so `[](nupp.std.zone)` renders that name
+Empty link text stands for the target, so `[](nupp.zone)` renders that name
 as code and links it — the whole cost of a reference in passing.
 
 An unqualified name works wherever it is unambiguous, and a name declared in
@@ -252,9 +252,12 @@ Every module gets its own page: its blurb, a table of the modules nested under
 it, and a table per group of what it declares — constructors, types, functions,
 and values — above the full entry for each.
 
-A namespace with no module of its own has no page, so the modules below it are
-listed by the nearest page above them instead. `nupp.decls` lists
-`nupp.decls.jit.profile` when `nupp.decls.jit` is only a directory.
+A directory with no `init.nupp` gets a page too, holding the modules below it
+and nothing else. `nupp` is one: nothing is required by that name, but it is
+the name every module in the library is spelled with, and it would otherwise be
+the one name in the reference that led nowhere. Such a page is titled
+`Namespace:` rather than `Module:`, and its entries in the sidebar, the search
+index, and the Markdown output say the same.
 
 A constructor is a function whose last name segment matches
 `constructorPattern`, which defaults to `^new`. Set it to another Lua pattern to

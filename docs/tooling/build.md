@@ -211,7 +211,7 @@ into constructors, types, functions, and values. `constructorPattern` is the
 Lua pattern a function's last name segment has to match to count as a
 constructor, defaulting to `^new`; `""` leaves every function in Functions.
 A Markdown link whose target names a module, a declaration, or a member —
-`[](nupp.std.zone)` — is resolved to whatever documents it, in handwritten
+`[](nupp.zone)` — is resolved to whatever documents it, in handwritten
 pages and doc comments alike.
 Handwritten pages and generated module pages share the navigation, breadcrumb,
 outline, and collapsible side columns. Each page emits and links `llms.txt`;

@@ -14,7 +14,7 @@ The second question is the one a sampler cannot answer and the one that usually
 matters here: code the JIT refused is an order of magnitude slower than code it
 took, and nothing says so out loud.
 
-Both channels attribute work through `nupp.std.zone`, so a sample or an abort
+Both channels attribute work through `nupp.zone`, so a sample or an abort
 carries the zone path that was open when it happened. Both are process-wide
 rather than per-coroutine, and at most one session of each kind runs at a time.
 
@@ -23,7 +23,7 @@ table write at every interval; a trace session pays a callback at every abort,
 inside the compiler. Stop a session once the question it was opened for has an
 answer.
 
-    local profile = require("nupp.std.profile")
+    local profile = require("nupp.profile")
 
     local session = profile.sample({intervalMs = 5})
     render()
@@ -31,7 +31,7 @@ answer.
     print(report.samples, report.stacks)
 ]]
 
-local zone = require("nupp.std.zone")
+local zone = require("nupp.zone")
 local jitProfile = require("jit.profile")
 local jitUtil = require("jit.util")
 local vmdef = require("jit.vmdef")

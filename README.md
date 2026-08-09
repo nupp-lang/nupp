@@ -170,9 +170,9 @@ something hot means the compiler is not running it.
 compiled at all. It writes one CSV row per place LuaJIT gave up, with a
 blacklisted trace, permanently demoted to the interpreter, ranked first.
 
-`nupp.std.zone` names the phases of a program so samples and aborts report
+`nupp.zone` names the phases of a program so samples and aborts report
 themselves in its terms rather than only in function names, and
-`nupp.std.profile` is the same two channels driven from code, for when the
+`nupp.profile` is the same two channels driven from code, for when the
 interesting window is one frame rather than the whole run. See
 [docs/tooling/profiling.md](docs/tooling/profiling.md).
 

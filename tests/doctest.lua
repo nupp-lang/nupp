@@ -574,8 +574,7 @@ function M.siteMatchesTheNuppdocPageModel()
       }, "\n") .. "\n",
       ["src/engine/audio.nupp"] = "--[[\nAudio helpers.\n]]\nfunction play(): nil end\n",
       ["src/engine/render.nupp"] = "--- Rendering helpers.\nfunction draw(): nil end\n",
-      -- no engine/gpu module of its own, so the nearest page above this one is
-      -- `engine`, and that is where it has to be listed
+      -- no engine/gpu module of its own, so that name documents as a namespace
       ["src/engine/gpu/vulkan.nupp"] = "--[[\nThe Vulkan backend.\n]]\n"
          .. "function submit(): nil end\n",
    })
@@ -696,16 +695,33 @@ function M.siteMatchesTheNuppdocPageModel()
       1, true), branchModule)
    assert(branchModule:find('<a href="../../modules/engine/render/index.html">',
       1, true), branchModule)
-   -- engine.gpu has no module of its own, so engine is the nearest page that
-   -- can name what lives below it
-   assert(branchModule:find('<a href="../../modules/engine/gpu/vulkan/index.html">'
-      .. "<code>engine.gpu.vulkan</code></a></td><td>The Vulkan backend.</td>",
+   -- engine.gpu has no module of its own, so it is a namespace: a page of its
+   -- own, described by what it holds rather than by a blurb it has not got
+   assert(branchModule:find('<a href="../../modules/engine/gpu/index.html">'
+      .. "<code>engine.gpu</code></a></td><td>1 module</td>",
       1, true), branchModule)
    assert(branchModule:find('<a href="#modules" title="Modules">', 1, true),
       "the outline did not list the nested modules")
    assert(not readFile(dir .. "/site/modules/engine/audio/index.html")
       :find('<h2 id="modules">', 1, true),
       "a module with nothing nested under it still rendered a Modules table")
+
+   local namespace = readFile(dir .. "/site/modules/engine/gpu/index.html")
+   assert(namespace:find("<h1>Namespace: <code>engine.gpu</code></h1>", 1, true),
+      namespace)
+   assert(namespace:find("Nothing is required by this name itself", 1, true),
+      namespace)
+   assert(namespace:find('<a href="../../../modules/engine/gpu/vulkan/index.html">'
+      .. "<code>engine.gpu.vulkan</code></a></td><td>The Vulkan backend.</td>",
+      1, true), namespace)
+   -- it holds no declarations, and nothing ever suggested it would
+   assert(not namespace:find("No public declarations", 1, true), namespace)
+   assert(not namespace:find("Module contents", 1, true), namespace)
+   -- and it is a page this generator started writing, so no former URL points at
+   -- it and it gets no redirect stub
+   local stub = io.open(dir .. "/site/modules/engine/gpu.html")
+   if stub then stub:close() end
+   assert(not stub, "a namespace was given a legacy redirect")
 
    -- a constructor is grouped apart from the functions, and its kind is the
    -- word "function" on every row, so that column is left off
@@ -751,8 +767,10 @@ function M.siteMatchesTheNuppdocPageModel()
       "# Module: `math`", 1, true))
    local engineMarkdown = readFile(dir .. "/site/modules/engine/llms.txt")
    assert(engineMarkdown:find("## Modules", 1, true), engineMarkdown)
-   assert(engineMarkdown:find("| `engine.gpu.vulkan` | The Vulkan backend. |",
-      1, true), engineMarkdown)
+   assert(engineMarkdown:find("| `engine.gpu` | 1 module |", 1, true),
+      engineMarkdown)
+   assert(readFile(dir .. "/site/modules/engine/gpu/llms.txt")
+      :find("# Namespace: `engine.gpu`", 1, true))
    -- the same references in markdown: an anchor when the document holds what it
    -- names, and the bare name when it does not
    assert(engineMarkdown:find("[`engine.Engine`](#engine.Engine)", 1, true),

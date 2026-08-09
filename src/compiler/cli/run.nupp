@@ -47,7 +47,7 @@ that starts with a dash.
 --profile writes collapsed-stack text: one line per stack, frames separated by
 semicolons, then the sample count. speedscope.app, FlameGraph.pl and inferno
 all read it directly. Frames are prefixed by the zone path that was open, so a
-program that calls nupp.std.zone reports itself in its own terms, and the leaf
+program that calls nupp.zone reports itself in its own terms, and the leaf
 carries the VM state most of its samples were in: N compiled, I interpreted,
 C in a C function, G collecting, J compiling.
 
@@ -119,7 +119,7 @@ local function run(parsed: any): integer
     -- program that was asked for and not the compiler that got it ready.
     local sampling, tracing = nil, nil
     if profiling or tracingAborts then
-        local profile = require("nupp.std.profile")
+        local profile = require("nupp.profile")
         if profiling then
             -- The chunk was named after the file, so that is what its frames say;
             -- everything under them is this command getting there.

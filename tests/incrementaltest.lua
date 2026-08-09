@@ -321,7 +321,7 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
       local env = envMod.new(dir, {cache = false})
       assertEq(checked["ffi"], nil, "building an environment does not check ffi")
       assertEq(checked["cjson"], nil, "nor cjson")
-      assertEq(checked["nupp.std.zone"], nil, "nor the standard library")
+      assertEq(checked["nupp.zone"], nil, "nor the standard library")
 
       -- Asking is what loads it, and asking twice does not check it twice.
       assert(env.bundled["ffi"], "ffi is still there when wanted")

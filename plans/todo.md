@@ -320,11 +320,11 @@ work makes sense in.
       declaring module register the function object under a key it already
       owns, and let a consumer hoist one lookup at load:
 
-          -- in nupp.std.resources, at load
-          __nupp_cleanup["nupp.std.resources#close_file"] = close_file
+          -- in nupp.resources, at load
+          __nupp_cleanup["nupp.resources#close_file"] = close_file
 
           -- in the consumer, once per module
-          local __c1 = __nupp_cleanup["nupp.std.resources#close_file"]
+          local __c1 = __nupp_cleanup["nupp.resources#close_file"]
           ...
           pcall(__c1, handle)
 

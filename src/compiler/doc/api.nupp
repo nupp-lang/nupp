@@ -16,6 +16,7 @@ local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
 local inlineHtml = htmlMod.inlineHtml
 local highlightNupp = highlightMod.nuppSource
 local splitMembers = extractMod.splitMembers
+local childModules = extractMod.children
 local moduleFile = urlsMod.moduleFile
 
 local api = {}
@@ -39,10 +40,17 @@ local function isConstructor(item, pattern)
     return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
 end
 
--- The modules nested under this one. A module that is only a namespace over other
--- modules has this table and nothing else, and a reader who arrived at it has nowhere
--- else to go.
-local function nestedModules(children: {extractMod.Module}, prefix: string): string
+--- A name with no module behind it has no blurb to summarize, so it is described by
+--- what it holds. Left to the ordinary path it would be the one row saying nothing.
+local function namespaceSummary(modules: {extractMod.Module}, name: string): string
+    local held = #childModules(modules, name)
+
+    return held .. " module" .. (held == 1 and "" or "s")
+end
+
+-- The modules nested under this one. A namespace has this table and nothing else, and a
+-- reader who arrived at one has nowhere else to go.
+local function nestedModules(children: {extractMod.Module}, prefix: string, modules: {extractMod.Module}): string
     if #children == 0 then
         return ""
     end
@@ -54,7 +62,7 @@ local function nestedModules(children: {extractMod.Module}, prefix: string): str
             '<a href="' .. htmlEscape(prefix .. moduleFile(child.name)) .. '"><code>' .. htmlEscape(
                 child.name
             ) .. '</code></a>',
-            inlineHtml(summaryText(child.text)),
+            child.namespace and namespaceSummary(modules, child.name) or inlineHtml(summaryText(child.text)),
         }
     end
 

@@ -1,4 +1,4 @@
--- nupp.std.profile, both channels, plus the `nupp run` flags that drive them.
+-- nupp.profile, both channels, plus the `nupp run` flags that drive them.
 --
 -- A sampler is timing-dependent by construction, so nothing here asserts a
 -- sample count. What it asserts is the shape: that a workload run under a
@@ -7,8 +7,8 @@
 -- the flame graph tools read. The workloads run against the clock rather than
 -- a fixed iteration count, so a faster machine does not turn into an empty
 -- report.
-local profile = require("nupp.std.profile")
-local zone = require("nupp.std.zone")
+local profile = require("nupp.profile")
+local zone = require("nupp.zone")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then

@@ -857,7 +857,7 @@ local interface LuaFile
 end
 
 --- File input and output. Producers return borrowed handles here; annotated wrappers in
---- `nupp.std.resources` establish ownership obligations.
+--- `nupp.resources` establish ownership obligations.
 local io: {
     --- Opens the file at `path`. Modes are "r", "w" and "a", with "+" added for update
     --- and a trailing "b" for binary.

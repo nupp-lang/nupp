@@ -61,10 +61,10 @@ Frames tell you which function ran. Zones tell you which *phase* it ran in, and
 that is usually the question — the same `sort` called from loading and from
 rendering is two different problems.
 
-`nupp.std.zone` is a stack of names that the profiler reads:
+`nupp.zone` is a stack of names that the profiler reads:
 
 ```nupp
-local zone = require("nupp.std.zone")
+local zone = require("nupp.zone")
 
 local function frame()
     zone.push("frame")
@@ -122,12 +122,12 @@ running again is how you find out whether it was the only one.
 
 ## From a program rather than the command line
 
-The flags are a thin wrapper over `nupp.std.profile`, which is worth using
+The flags are a thin wrapper over `nupp.profile`, which is worth using
 directly when the interesting window is not the whole run — a single frame, one
 request, the part after warm-up.
 
 ```nupp
-local profile = require("nupp.std.profile")
+local profile = require("nupp.profile")
 
 local session = profile.sample({intervalMs = 2, zone = "frame/render"})
 renderEverything()
