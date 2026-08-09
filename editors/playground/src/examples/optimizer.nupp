@@ -1,0 +1,40 @@
+-- The Lua Nupp writes is not always the Lua you wrote. Hit Compile and read
+-- the output beside this; then turn Optimize off under Options and compile
+-- again, and the three rewrites below go back to what is written here.
+--
+-- Every pass runs at -O1, which is what the Optimize switch is. -O0 rewrites
+-- nothing at all, so its output is these semantics with the types erased.
+
+-- Filled a field at a time, so Lua grows the array part as it goes and
+-- reallocates on the way. Nothing here says how big it ends up, but the
+-- compiler can see: it sizes the table once where it is created, as
+-- table.new(3, 0).
+local rows = {}
+rows[1] = "intake"
+rows[2] = "exhaust"
+rows[3] = "ambient"
+
+-- Three numbers known at compile time, multiplied on every call for an answer
+-- that never changes. The optimizer folds them into the one constant they
+-- always were.
+local function secondsPerDay(): number
+    return 60 * 60 * 24
+end
+
+-- `..` round a loop builds a fresh string per iteration and abandons the one
+-- before it, so joining n names copies on the order of n^2 bytes. The
+-- optimizer accumulates into a string.buffer and takes the string out once,
+-- at the end.
+local function joined(names: {string}): string
+    local out = ""
+    for _, name in ipairs(names) do
+        out = out .. name .. " "
+    end
+
+    return out
+end
+
+print(#rows, secondsPerDay(), joined(rows))
+
+-- try breaking it: turn Optimize off and compile again, or add a fourth row
+-- and watch the size the compiler picks follow it
