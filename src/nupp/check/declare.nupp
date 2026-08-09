@@ -91,7 +91,18 @@ function declare.install(c: any, reifiableField: any, fix: any,
             ("record %s declares only fields that reify"):format(n.name), nil,
             {help = "declaring it `struct` puts its instances in C memory, off the "
             .. "collector's graph, at the cost of a fixed layout: no fields added "
-            .. "after construction, and `is` answers as cdata rather than a table"})
+            .. "after construction",
+            notes = {
+                -- The cost that actually bites, and the one a reader is least
+                -- likely to predict: an instance stops being a table at runtime.
+                -- `type` answers \"cdata\", `is` tests for cdata, `pairs` needs a
+                -- `__pairs` on the metatype, and a serializer that walks tables
+                -- refuses it outright -- `string.buffer.encode` raises \"cannot
+                -- serialize 'cdata'\" with no hook to install.
+                "an instance is cdata, not a table: `pairs` needs a `__pairs` "
+                .. "metamethod, and a serializer that walks tables will refuse it "
+                .. "unless it is converted first",
+            }})
     end
 
     --- Reads a `where` refinement into the runtime test it names, and holds it to

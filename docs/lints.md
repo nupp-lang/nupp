@@ -341,16 +341,37 @@ return Vec2
 src/reifiable-record.nupp:1:14: note: NUPP2509 reifiable-record: record Vec2 declares only fields that reify
  1 | local record Vec2
    |              ^~~~
-help: declaring it `struct` puts its instances in C memory, off the collector's graph, at the cost of a fixed layout: no fields added after construction, and `is` answers as cdata rather than a table
+help: declaring it `struct` puts its instances in C memory, off the collector's graph, at the cost of a fixed layout: no fields added after construction
+note: an instance is cdata, not a table: `pairs` needs a `__pairs` metamethod, and a serializer that walks tables will refuse it unless it is converted first
 ```
 :::
 
 The judgement is one-directional and stays a suggestion, because the two are not
-interchangeable at runtime: a struct has a fixed layout, answers `is` as cdata
-rather than as a table, and gives up the prototype a record stamps on what it
-builds. [`NUPP2201`](diagnostics.md) is the other half — it fires once `struct`
-is written and a field cannot live in C memory, so between them a declaration is
-told both what it could gain and what it may not do.
+interchangeable at runtime. A struct has a fixed layout and gives up the
+prototype a record stamps on what it builds. More to the point, an instance
+stops being a table: `type` answers `"cdata"`, `is` tests for cdata, and any
+code that walks the value by its keys has to be told how.
+
+That last cost is the one worth checking before taking the suggestion, because
+it reaches further than the declaration:
+
+```
+ what                          on a record        on a struct
+ ────────────────────────────  ─────────────────  ──────────────────────────
+ type(v)                       "table"            "cdata"
+ pairs(v)                      iterates fields    needs a __pairs metamethod
+ string.buffer.encode(v)       encodes            raises, and takes no hook
+ a table-walking serializer    works              sees no keys
+```
+
+`__pairs` is dispatched on a `ffi.metatype`, so iteration can be restored by
+declaring one. Serialization cannot be patched the same way — LuaJIT's
+serializer refuses cdata outright with no extension point — so a struct that
+has to cross a serialization boundary needs a conversion written for it.
+
+[`NUPP2201`](diagnostics.md) is the other half of the pair — it fires once
+`struct` is written and a field cannot live in C memory, so between them a
+declaration is told both what it could gain and what it may not do.
 
 A record is a candidate only when every entry is one a struct also accepts: a
 field whose type reifies, a constructor, or a method. An indexer, a Lua array
