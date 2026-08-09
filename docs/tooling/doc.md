@@ -253,11 +253,10 @@ it, and a table per group of what it declares — constructors, types, functions
 and values — above the full entry for each.
 
 A directory with no `init.nupp` gets a page too, holding the modules below it
-and nothing else. `nupp` is one: nothing is required by that name, but it is
-the name every module in the library is spelled with, and it would otherwise be
-the one name in the reference that led nowhere. Such a page is titled
-`Namespace:` rather than `Module:`, and its entries in the sidebar, the search
-index, and the Markdown output say the same.
+and nothing else — the name every module inside it is spelled with, and it
+would otherwise be the one name in the reference that led nowhere. Such a page
+is titled `Namespace:` rather than `Module:`, and its entries in the sidebar,
+the search index, and the Markdown output say the same.
 
 A constructor is a function whose last name segment matches
 `constructorPattern`, which defaults to `^new`. Set it to another Lua pattern to
@@ -271,17 +270,16 @@ A configured page whose `path` is a module's route is that module's overview,
 rendered above the generated API rather than as a second page beside it:
 
 ```lua
-{ path = "modules/nupp", title = "Namespace: nupp", source = "docs/nupp.md" },
+{ path = "modules/engine", title = "Engine", source = "docs/engine.md" },
 ```
 
 The route is `modules/` followed by the module name with its dots as slashes.
 This is where prose longer than a blurb belongs — a page a doc comment would
-have to hold, or the orientation a namespace has no source file to put anywhere
-else. It is ordinary page Markdown, so cross-references, links to other pages,
-code groups, and admonitions all work, and its headings join the page outline
-above the generated ones. `title` overrides the generated `Module:` or
-`Namespace:` one. A module with both an overview and a blurb shows the overview
-first.
+have to hold. It is ordinary page Markdown, so cross-references, links to
+other pages, code groups, and admonitions all work, and its headings join the
+page outline above the generated ones. `title` overrides the generated
+`Module:` or `Namespace:` one. A module with both an overview and a blurb
+shows the overview first.
 
 ## Output
 

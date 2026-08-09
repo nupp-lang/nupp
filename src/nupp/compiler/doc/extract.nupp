@@ -534,9 +534,10 @@ end
 ---
 --- A directory with no `init.nupp` is still a name a reader meets — in a require path,
 --- in the sidebar, in the name of every module under it — and without this it is the
---- one name that leads nowhere. `nupp` is that name in this project's own
---- documentation. Answering with a module rather than a special case is what lets the
---- page, the navigation, the search index, and the markdown treat it like any other.
+--- one name that leads nowhere. `nupp.compiler.build` is that name in this project's
+--- own documentation. Answering with a module rather than a special case is what lets
+--- the page, the navigation, the search index, and the markdown treat it like any
+--- other.
 ---
 --- @param modules the documented modules, which is what says which names are taken
 --- @return the implied namespaces, outermost first
