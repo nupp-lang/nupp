@@ -1,5 +1,5 @@
-// Builds what the stub embeds: a pinned LuaJIT, and the pinned C libraries the
-// compiler cannot start or document itself without, linked against it.
+// Builds what the stub embeds: pinned LuaJIT plus whichever pinned C modules
+// Cargo features selected for this host variant.
 //
 // Each is fetched by revision and verified against the digests below before a
 // byte of any of them is compiled. LuaJIT used to come from the `luajit-src` crate,
@@ -19,11 +19,10 @@ use std::process::Command;
 const CJSON_VERSION: &str = "2.1.0.14";
 const CJSON_SHA256: &str = "14cac5c7a4520b33449a1fc961344556b8b6a2a2c6b739b0e46e3002e6e605bc";
 
-// What `nupp doc` renders with. lunamark's grammar is LPeg, and its entity
-// table needs a utf8.char that Lua 5.1 does not have; neither is optional, so a
-// binary without them is a binary whose documentation command does not run.
-// Both are MIT, both are one small C library, and both are reached through
-// require exactly as they would be from a rock tree.
+// What `nupp doc` renders with. Lunamark's grammar is LPeg, and its entity
+// table needs a utf8.char that Lua 5.1 does not have. A compiler payload
+// detects both effects; another payload can omit both features. They are
+// reached through require exactly as they would be from a rock tree.
 const LPEG_VERSION: &str = "1.1.0";
 const LPEG_SHA256: &str = "4b155d67d2246c1ffa7ad7bc466c1ea899bbc40fef0257cc9c03cecbaed4352a";
 
@@ -42,55 +41,61 @@ fn main() {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     let luajit = build_luajit(&out);
     let include = luajit.join("src");
-    let cjson = fetch_cjson(&out);
 
     // ENABLE_CJSON_GLOBAL is off: the compiler reaches cjson through require,
     // and a global installed by the host would be present in a stamped binary
     // and absent under a plain interpreter, so the same program would see two
     // different worlds depending on how it was started.
-    cc::Build::new()
-        .include(&include)
-        .include(&cjson)
-        .file(cjson.join("lua_cjson.c"))
-        .file(cjson.join("strbuf.c"))
-        .file(cjson.join("fpconv.c"))
-        .define("NDEBUG", None)
-        .warnings(false)
-        .compile("lua_cjson");
+    if enabled("CJSON") {
+        let cjson = fetch_cjson(&out);
+        cc::Build::new()
+            .include(&include)
+            .include(&cjson)
+            .file(cjson.join("lua_cjson.c"))
+            .file(cjson.join("strbuf.c"))
+            .file(cjson.join("fpconv.c"))
+            .define("NDEBUG", None)
+            .warnings(false)
+            .compile("lua_cjson");
+    }
 
-    let lpeg = fetch_archive(
-        &out,
-        &format!("lpeg-{LPEG_VERSION}"),
-        &format!("https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-{LPEG_VERSION}.tar.gz"),
-        LPEG_SHA256,
-        "lptree.c",
-    );
-    cc::Build::new()
-        .include(&include)
-        .files(
-            ["lpcap.c", "lpcode.c", "lpcset.c", "lpprint.c", "lptree.c", "lpvm.c"]
-                .iter()
-                .map(|name| lpeg.join(name)),
-        )
-        .define("NDEBUG", None)
-        .warnings(false)
-        .compile("lpeg");
+    if enabled("LPEG") {
+        let lpeg = fetch_archive(
+            &out,
+            &format!("lpeg-{LPEG_VERSION}"),
+            &format!("https://www.inf.puc-rio.br/~roberto/lpeg/lpeg-{LPEG_VERSION}.tar.gz"),
+            LPEG_SHA256,
+            "lptree.c",
+        );
+        cc::Build::new()
+            .include(&include)
+            .files(
+                ["lpcap.c", "lpcode.c", "lpcset.c", "lpprint.c", "lptree.c", "lpvm.c"]
+                    .iter()
+                    .map(|name| lpeg.join(name)),
+            )
+            .define("NDEBUG", None)
+            .warnings(false)
+            .compile("lpeg");
+    }
 
-    let luautf8 = fetch_archive(
-        &out,
-        &format!("luautf8-{LUAUTF8_VERSION}"),
-        &format!(
-            "https://github.com/starwing/luautf8/archive/refs/tags/{LUAUTF8_VERSION}.tar.gz"
-        ),
-        LUAUTF8_SHA256,
-        "lutf8lib.c",
-    );
-    cc::Build::new()
-        .include(&include)
-        .file(luautf8.join("lutf8lib.c"))
-        .define("NDEBUG", None)
-        .warnings(false)
-        .compile("lua_utf8");
+    if enabled("LUA_UTF8") {
+        let luautf8 = fetch_archive(
+            &out,
+            &format!("luautf8-{LUAUTF8_VERSION}"),
+            &format!(
+                "https://github.com/starwing/luautf8/archive/refs/tags/{LUAUTF8_VERSION}.tar.gz"
+            ),
+            LUAUTF8_SHA256,
+            "lutf8lib.c",
+        );
+        cc::Build::new()
+            .include(&include)
+            .file(luautf8.join("lutf8lib.c"))
+            .define("NDEBUG", None)
+            .warnings(false)
+            .compile("lua_utf8");
+    }
 
     println!("cargo:rustc-link-search=native={}", include.display());
     println!("cargo:rustc-link-lib=static=luajit");
@@ -98,6 +103,10 @@ fn main() {
         println!("cargo:rustc-link-lib={library}");
     }
     println!("cargo:include={}", include.display());
+}
+
+fn enabled(name: &str) -> bool {
+    std::env::var_os(format!("CARGO_FEATURE_{name}")).is_some()
 }
 
 /// Fetches and builds the pinned LuaJIT, returning its source root. The static

@@ -24,14 +24,30 @@ local FEATURES = {
         host = "lpeg",
         binary = true,
     },
+    ["native.cjson"] = {
+        name = "cjson",
+        modules = {"cjson", "cjson.safe"},
+        host = "cjson",
+        binary = true,
+    },
+    ["native.lua_utf8"] = {
+        name = "lua_utf8",
+        module = "lua-utf8",
+        host = "lua-utf8",
+        binary = true,
+    },
 }
 
-local byGlobal, byModule = {}, {}
+local byGlobal, byModule, byName = {}, {}, {}
 for effect, feature in pairs(FEATURES) do
+    byName[feature.name] = effect
     if feature.global then
         byGlobal[feature.global.holder .. "." .. feature.global.member] = effect
     end
     if feature.module then byModule[feature.module] = effect end
+    for _, moduleName in ipairs(feature.modules or {}) do
+        byModule[moduleName] = effect
+    end
 end
 
 function native.forGlobal(holder: string, member: string): string?
@@ -44,6 +60,36 @@ end
 
 function native.feature(effect: string): any?
     return FEATURES[effect]
+end
+
+function native.featureNames(): {string}
+    local names = {}
+    for name in pairs(byName) do names[#names + 1] = name end
+    table.sort(names)
+    return names
+end
+
+--- Applies a target's tri-state overrides to an automatically detected set.
+--- An absent name remains automatic, true forces it in, and false forces it out.
+function native.resolve(effects: any, overrides: any): any
+    local resolved = {}
+    for effect in pairs(effects or {}) do resolved[effect] = true end
+    for name, enabled in pairs(overrides or {}) do
+        local effect = byName[name]
+        if effect then resolved[effect] = enabled and true or nil end
+    end
+    return resolved
+end
+
+--- Finds native effects in an external Lua module by checking it under Nupp's
+--- ordinary prelude. Used for bundled rock modules, which are not project source
+--- files and therefore do not pass through the project's incremental checker.
+function native.sourceEffects(source: string, filename: string, env: any): any
+    local parser = require("nupp.parser")
+    local parsed: any = parser.parse(source, filename)
+    if #parsed.errors > 0 then return {} end
+    require("nupp.check").check(parsed, filename, env, {strict = false})
+    return parsed.effects or {}
 end
 
 function native.features(effects: any): {any}

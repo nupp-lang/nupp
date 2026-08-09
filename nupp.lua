@@ -74,11 +74,10 @@ return {
                "src/nupp/std/*.nupp",
             },
          },
-         -- Nupp stamped into the host as one self-contained executable. It is
-         -- the first payload the format ever carries, on purpose: a packager
-         -- that cannot package itself has no business claiming it packages
-         -- anything. Build the stub first with
-         -- `cargo build --release --manifest-path host/Cargo.toml`.
+         -- Nupp stamped into a feature-matched host as one self-contained
+         -- executable. It is the first payload the format ever carries, on
+         -- purpose: a packager that cannot package itself has no business
+         -- claiming it packages anything.
          dist = {
             kind = "binary",
             description = "Stamp the compiler into a self-contained binary",
@@ -92,7 +91,7 @@ return {
                "src/nupp/decls/jit/*.d.nupp",
                "src/nupp/std/*.nupp",
             },
-            stub = "build/host/release/nupp-host",
+            stub = "nupp",
             output = "build/dist/nupp",
          },
          docs = {

@@ -208,11 +208,11 @@ somebody else:
   Rust library still ships that library beside the binary, unless it is linked
   into a stub built for the purpose.
 
-  Nupp's own stub links three, and each is there because a command the binary
-  claims to have does not run without it: `lua-cjson`, which the compiler
-  requires before it does anything, and `lpeg` and `luautf8`, which are the C
-  half of what `nupp doc` renders markdown with. The Lua half rides in the
-  payload. A stub for something else carries whatever its own commands need and
-  none of these; the format has no opinion.
+  Nupp's compiler payload detects three, and its compiler-owned host links
+  exactly those features: `lua-cjson`, which the compiler requires before it
+  does anything, and `lpeg` and `luautf8`, which are the C half of what `nupp
+  doc` renders markdown with. The Lua half rides in the payload. Another payload
+  selects whatever its own code and bundled dependencies need; the format has
+  no opinion.
 - **It does not make Nupp a Rust project.** The host is a component, built by the
   same machinery that already builds a project's other native dependencies.

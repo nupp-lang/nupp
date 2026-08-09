@@ -18,6 +18,12 @@ strip = true
 name = "nupp-host"
 path = "src/main.rs"
 
+[features]
+default = []
+cjson = []
+lpeg = []
+lua-utf8 = []
+
 [dependencies]
 sha2 = { version = "0.10", default-features = false }
 

@@ -1,6 +1,7 @@
 local parser = require("nupp.parser")
 local check = require("fragment")
 local envMod = require("nupp.env")
+local native = require("nupp.native")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 
@@ -134,6 +135,15 @@ function M.nativeFeaturesAreResolvedEffects()
    local lpeg = effectsOf("local parser = require('lpeg')")
    assert(lpeg["native.lpeg"], "require('lpeg') records its native effect")
 
+   local cjson = effectsOf("local json = require('cjson')")
+   assert(cjson["native.cjson"], "require('cjson') records its native effect")
+   local safe = effectsOf("local json = require('cjson.safe')")
+   assert(safe["native.cjson"], "cjson.safe shares cjson's native effect")
+
+   local utf8 = effectsOf("local utf8 = require('lua-utf8')")
+   assert(utf8["native.lua_utf8"],
+      "require('lua-utf8') records its native effect")
+
    local shadowed = effectsOf(table.concat({
       "local nupp = {regex = {compile = function() end}}",
       "nupp.regex.compile()",
@@ -146,6 +156,21 @@ function M.nativeFeaturesAreResolvedEffects()
    }, "\n"))
    assert(not shadowedRequire["native.lpeg"],
       "a local require is not the native module loader")
+end
+
+function M.nativeFeatureOverridesAreTriState()
+   local automatic = { ["native.regex"] = true, ["native.cjson"] = true }
+   local resolved = native.resolve(automatic, {regex = false, lua_utf8 = true})
+   assert(not resolved["native.regex"], "false removes a detected feature")
+   assert(resolved["native.cjson"], "an absent override remains automatic")
+   assert(resolved["native.lua_utf8"], "true adds an undetected feature")
+
+   local external = native.sourceEffects(table.concat({
+      "local lpeg = require('lpeg')",
+      "local utf8 = require('lua-utf8')",
+   }, "\n"), "rock.lua", sharedEnv)
+   assert(external["native.lpeg"], "bundled Lua contributes LPeg")
+   assert(external["native.lua_utf8"], "bundled Lua contributes lua-utf8")
 end
 
 function M.selectOverloadsSeparateCountFromPackSelection()

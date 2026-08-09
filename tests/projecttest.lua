@@ -271,6 +271,32 @@ return {
    remove(dir)
 end
 
+function M.nativeFeatureOverridesAreValidatedAndReported()
+   local function load(features)
+      local dir = tempProject({["nupp.lua"] = [[
+return {include = {"src"}, build = {targets = {app = {
+   entries = {"main"}, nativeFeatures = ]] .. features .. [[
+}}}}
+]]})
+      local config, err = project.loadManifest(dir)
+      local task = config and project.describeTasks(dir, "app") or nil
+      remove(dir)
+      return config, err, task
+   end
+
+   local config, err, task = load("{cjson = true, lua_utf8 = false}")
+   assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
+   assertEq(task.nativeFeatures.cjson, true, "task reports forced inclusion")
+   assertEq(task.nativeFeatures.lua_utf8, false, "task reports forced removal")
+
+   local _, unknown = load("{cjsoon = true}")
+   assert(unknown and unknown:find("nativeFeatures names no feature cjsoon", 1, true),
+      tostring(unknown))
+   local _, wrongType = load("{cjson = 'yes'}")
+   assert(wrongType and wrongType:find(
+      "nativeFeatures.cjson must be true or false", 1, true), tostring(wrongType))
+end
+
 -- A docs target with no outDir does not land in the manifest's default
 -- directory; the generator has its own, and for markdown it is not even under
 -- it. `nupp clean` removes what the task table names, so naming the wrong

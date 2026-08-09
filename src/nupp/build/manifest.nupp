@@ -10,6 +10,7 @@ message names the path to what was wrong -- `build.targets.compiler.entries[2]`
 
 local check = require("nupp.check")
 local fs = require("nupp.fs")
+local native = require("nupp.native")
 
 local join = fs.join
 
@@ -69,6 +70,7 @@ local DOCS_KEYS = {
     "logo", "favicon", "public", "customCss", "lexers", "includePrivate", "all", "pages",
     -- taken by any build target
     "kind", "dependencies", "entries", "resources", "output", "stub",
+    "nativeFeatures",
 }
 
 local PAGE_KEYS = {
@@ -165,6 +167,23 @@ local function validateTarget(target, label, dependencies)
     end
     if target.description ~= nil and type(target.description) ~= "string" then
         return nil, label .. ".description must be a string"
+    end
+    if target.nativeFeatures ~= nil then
+        if type(target.nativeFeatures) ~= "table" then
+            return nil, label .. ".nativeFeatures must be a table"
+        end
+        local known = {}
+        for _, name in ipairs(native.featureNames()) do known[name] = true end
+        for name, enabled in pairs(target.nativeFeatures) do
+            if type(name) ~= "string" or not known[name] then
+                return nil, label .. ".nativeFeatures names no feature "
+                    .. tostring(name)
+            end
+            if type(enabled) ~= "boolean" then
+                return nil, label .. ".nativeFeatures." .. name
+                    .. " must be true or false"
+            end
+        end
     end
     if target.outDir ~= nil then
         local valid, err = validateString(target.outDir, label .. ".outDir")

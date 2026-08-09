@@ -10,10 +10,63 @@ local envMod = require("nupp.env")
 local native = require("nupp.native")
 local fs = require("nupp.fs")
 local process = require("nupp.build.process")
+local deps = require("nupp.build.deps")
 
 local stage = {}
 
 local join = fs.join
+
+--- Adds effects found in the Lua modules selected from rock dependencies.
+function stage.dependencyEffects(root: string, config: any, target: any,
+    effects: any): any
+    local resolved = {}
+    for effect in pairs(effects or {}) do resolved[effect] = true end
+    local env = envMod.new(root, {config = config})
+    for _, module in ipairs(deps.rockModules(root, config, target)) do
+        local source = fs.readFile(module.path)
+        if source then
+            for effect in pairs(native.sourceEffects(source, module.path, env)) do
+                resolved[effect] = true
+            end
+        end
+    end
+    return resolved
+end
+
+function stage.resolve(effects: any, overrides: any): any
+    return native.resolve(effects, overrides)
+end
+
+--- Builds the compiler-owned binary host with exactly the host features in the
+--- resolved effect set. A path-valued third-party stub remains its owner's artifact.
+function stage.hostStub(root: string, outDir: string, target: any,
+    effects: any): string?, string?
+    if target.stub ~= "nupp" then return target.stub end
+    local compilerRoot = envMod.compilerRoot()
+    if not compilerRoot then
+        return nil, "the compiler-owned Nupp stub needs compiler source; "
+            .. "use a source checkout or name a prebuilt stub path"
+    end
+    local featureNames = {}
+    for _, feature in ipairs(native.features(effects)) do
+        if feature.host then featureNames[#featureNames + 1] = feature.host end
+    end
+    table.sort(featureNames)
+    local targetDir = join(root, join(outDir, "native/host"))
+    local argv = {"cargo", "build", "--release", "--no-default-features",
+        "--manifest-path", join(compilerRoot, "host/Cargo.toml"),
+        "--target-dir", targetDir}
+    if #featureNames > 0 then
+        argv[#argv + 1] = "--features"
+        argv[#argv + 1] = table.concat(featureNames, ",")
+    end
+    local code, text = process.capture(argv)
+    if code ~= 0 then
+        return nil, "cannot build the compiler-owned Nupp host:\n" .. text
+    end
+    local executable = jit.os == "Windows" and "nupp-host.exe" or "nupp-host"
+    return join(targetDir, join("release", executable))
+end
 
 local function libraryFile(name: string): string
     if jit.os == "Windows" then return name .. ".dll" end

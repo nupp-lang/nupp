@@ -124,6 +124,29 @@ a user-owned dependency. A local table named `nupp`, or a computed `require`,
 does not claim a compiler feature: only the resolved global path and literal
 module name do.
 
+Detection is the default, not a requirement to configure every target. A
+target may override one answer when it deliberately supplies or forbids a
+provider: `true` forces inclusion, `false` forces removal, and an absent name
+keeps the detected answer.
+
+```lua
+nativeFeatures = {
+   cjson = true,
+   lua_utf8 = false,
+}
+```
+
+The registered module effects include `cjson` and `cjson.safe` (one shared
+`cjson` provider), `lpeg`, and `lua-utf8`. Bundled LuaRock modules are checked
+too, so Lunamark contributes LPeg and lua-utf8 even when application source
+does not require either one directly. Forced removal is an expert escape hatch:
+if reachable code still requires that provider, the resulting program fails at
+runtime in the usual way.
+
+A binary target may use `stub = "nupp"` to ask the source compiler to build its
+own host with exactly the resolved host features. A path-valued `stub` remains
+a prebuilt or third-party artifact and is never silently relinked.
+
 Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
 Ship the target's `lib` directory with a binary unless its selected stub links
 the provider itself; a Lua payload cannot embed a shared library. A one-file

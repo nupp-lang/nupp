@@ -155,12 +155,15 @@ function project.build(root, opts)
         return 0
     end
     for output in pairs(result.outputs) do newState.outputs[output] = true end
-    if target.kind == "bundle" and next(result.effects or {}) then
+    local detectedEffects = native.dependencyEffects(root, config, target,
+        result.effects)
+    local resolvedEffects = native.resolve(detectedEffects, target.nativeFeatures)
+    if target.kind == "bundle" and next(resolvedEffects) then
         io.stderr:write("nupp: a one-file bundle cannot carry native features; "
             .. "build modules or use a binary target with its lib directory\n")
         return 1
     end
-    local nativeOutputs, nativeErr = native.build(root, outDir, result.effects)
+    local nativeOutputs, nativeErr = native.build(root, outDir, resolvedEffects)
     if not nativeOutputs then
         io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
         return 1
@@ -184,10 +187,18 @@ function project.build(root, opts)
         local name = target.name or target.kind
         local output
         if target.kind == "binary" then
-            local stub, stubErr = readFile(join(root, target.stub))
+            local stubPath, hostErr = native.hostStub(root, outDir, target,
+                resolvedEffects)
+            if not stubPath then
+                io.stderr:write("nupp: " .. tostring(hostErr) .. "\n")
+                return 1
+            end
+            local resolvedStub = stubPath == target.stub and join(root, stubPath)
+                or stubPath
+            local stub, stubErr = readFile(resolvedStub)
             if not stub then
                 io.stderr:write(("nupp: cannot read the stub %s: %s\n")
-                    :format(target.stub, tostring(stubErr)))
+                    :format(resolvedStub, tostring(stubErr)))
                 return 1
             end
             output = join(root, target.output or join(outDir, name))

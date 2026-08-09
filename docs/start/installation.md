@@ -80,7 +80,6 @@ Inside a checkout, run `./bin/nupp`. Everywhere else, either put the checkout's
 ## A self-contained binary
 
 ```bash
-cargo build --release --manifest-path host/Cargo.toml
 ./bin/nupp build --target dist
 ```
 
@@ -92,8 +91,8 @@ alongside:
  Carried              How                          For
  ───────────────────  ───────────────────────────  ──────────────────────
  LuaJIT               linked into the stub         running anything
- lua-cjson            linked into the stub         --json and the LSP
- LPeg, luautf8        linked into the stub         nupp doc's renderer
+ lua-cjson            detected and linked          --json and the LSP
+ LPeg, luautf8        detected and linked          nupp doc's renderer
  lunamark             in the payload               nupp doc's markdown
  Scintillua (45)      in the payload               highlighting fences
 ```

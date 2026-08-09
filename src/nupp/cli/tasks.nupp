@@ -51,6 +51,8 @@ local command = spec.command{
                     sources = {type = "array", items = {type = "string"}},
                     resources = {type = "array", items = {type = "string"}},
                     dependencies = {type = "array", items = {type = "string"}},
+                    nativeFeatures = {type = "object",
+                    additionalProperties = {type = "boolean"}},
                     argv = {type = "array", items = {type = "string"}},
                 },
                 required = {"name"},
@@ -119,6 +121,14 @@ local function writeTask(out: {string}, style: any, task: any)
     end
     if task.dependencies then
         writeItems(out, style, "Dependencies", task.dependencies)
+    end
+    if task.nativeFeatures then
+        local overrides: {string} = {}
+        for name, enabled in pairs(task.nativeFeatures) do
+            overrides[#overrides + 1] = (enabled and "+" or "-") .. name
+        end
+        table.sort(overrides)
+        writeItems(out, style, "Native feature overrides", overrides)
     end
 end
 

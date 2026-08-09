@@ -91,6 +91,7 @@ local function taskDescription(config, name, isDefault)
         includePrivate = target.includePrivate,
         resources = copyStrings(target.resources),
         dependencies = copyStrings(target.dependencies),
+        nativeFeatures = target.nativeFeatures,
         command = jsonArray({"nupp", "build", "--target", name}),
     }
 end
