@@ -73,6 +73,9 @@ interface cst.Hints
 
     constantBranchNone: boolean?
 
+    --- A loop whose constant bounds the optimizer proved admit no first iteration.
+    constantLoopNone: boolean?
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 

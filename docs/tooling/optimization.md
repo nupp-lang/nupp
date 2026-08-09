@@ -24,7 +24,7 @@ than mixing artifacts compiled at different levels.
 | --- | --- | --- | --- |
 | `OPT-1` | presize | `-O1` | Size an empty table for the writes about to follow |
 | `OPT-2` | numeric-ipairs | `-O1` | Use a numeric loop for a proved stable dense array |
-| `OPT-3` | constant-fold | `-O1` | Fold exact primitives, branches, and immutable paths |
+| `OPT-3` | constant-fold | `-O1` | Fold exact primitives, branches, dead loops, and immutable paths |
 | `OPT-4` | static-callable | `-O1` | Bind repeated immutable dotted callees at first use |
 | `OPT-5` | concat-buffer | `-O1` | Append to a `string.buffer` instead of rebuilding a string each pass |
 
@@ -189,6 +189,86 @@ print((false or prefix) .. "pp", answer, "nupp" < "rust")
 
 Floating-point arithmetic, cdata, calls, allocation, and mutable bindings stay
 at runtime so LuaJIT retains their rounding, identity, errors, and lifetimes.
+
+#### Integer division and the bit operators
+
+`//` folds as the expression it lowers to, `math.floor((a) / (b))`, rather than
+as an integer division that would disagree with it about a quotient no double
+holds exactly. Folding one usually collapses what surrounds it, which is what
+makes aligning a constant up a single literal:
+
+::: code-group
+```nupp [Original Nupp]
+const CACHE = 64
+const RAW = 40
+const STRIDE = (RAW + CACHE - 1) // CACHE * CACHE
+```
+
+```lua [Optimized Lua]
+const CACHE = 64
+const RAW = 40
+const STRIDE = 64
+```
+
+```lua [Unoptimized Lua]
+const CACHE = 64
+const RAW = 40
+const STRIDE = math.floor((103) / (64)) * 64
+```
+:::
+
+A zero divisor keeps the division, since its answer is an infinity rather than
+an integer.
+
+`&`, `|`, `~`, `<<`, `>>` and `~>>` fold through BitOp, which is their declared
+meaning rather than an approximation of it: operands normalize to 32 bits and
+results come back signed. The folded answers are therefore the surprising ones.
+
+```nupp
+const FLAGS = 1 << 3 | 1    -- 9
+const WRAP  = 1 << 32       -- 1, a shift count being taken modulo 32
+const LOG   = -8 >> 1       -- 2147483644, the plain shift being logical
+const AR    = -8 ~>> 1      -- -4, the tilde shift being arithmetic
+```
+
+Folding runs the same primitive the emitted operator would have, so the two
+cannot disagree by construction. The test sweeps one against the other over a
+range of operands regardless, that being cheaper than trusting the argument.
+
+#### Loops that cannot run
+
+A loop whose constant bounds admit no first iteration is not emitted. An empty
+`do` holds its opening and closing lines, and LuaJIT compiles that to nothing.
+
+::: code-group
+```nupp [Original Nupp]
+while false do
+    unreachable()
+end
+for index = 1, 0 do
+    alsoUnreachable(index)
+end
+```
+
+```lua [Optimized Lua]
+do
+end
+do
+end
+```
+
+```lua [Unoptimized Lua]
+while false do
+    unreachable()
+end
+for index = 1, 0 do
+    alsoUnreachable(index)
+end
+```
+:::
+
+A step of zero is left alone. `for i = 1, 10, 0` does not terminate, and
+removing it would be removing the hang rather than the cost of it.
 
 #### Constant branches
 

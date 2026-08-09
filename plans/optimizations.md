@@ -187,6 +187,17 @@ Each entry is tagged with where its win lands:
   expressions, select constant conditional arms, and propagate `const`
   bindings. Keep floating-point arithmetic, cdata, allocation, calls, and
   mutable bindings at runtime unless the target semantics are specified exactly.
+
+  Landed as `OPT-3`, and since extended with `//`, the six bit operators, and
+  removal of a loop whose constant bounds admit no first iteration. The
+  operators were the cheap half: `//` folds as the `math.floor((a) / (b))` it
+  lowers to, and the bit operators fold through BitOp, which
+  `decls/prelude.d.nupp` states *is* their meaning rather than a model of it. In
+  both cases the fold runs the primitive the emitted operator would have run, so
+  the standing worry about a hand-rolled proof does not arise.
+
+  §What folding will not absorb records five further extensions that were
+  designed and then declined, each for a reason worth not rediscovering.
 - `core` **Type-narrowing DCE.** Nil checks against non-nil types,
   branches made unreachable by narrowing, assertions the checker has
   already discharged.
@@ -289,6 +300,62 @@ In a bodyless `.d.nupp` declaration, const is the necessary trusted statement
 that a host binding (such as `ipairs`) will not be replaced. It is shallow and
 does not freeze a table; `module` describes exports, and const describes which
 bindings and fields do not change.
+
+## What folding will not absorb
+
+Five extensions that look like the obvious next ones, and are not. Each was
+written out before it was declined, so the reason is recorded rather than the
+conclusion — a later reader who has the same idea deserves the objection, not
+an unexplained absence.
+
+- **Pure calls over constant arguments.** `string.format("%s/%d", name, 3)` and
+  `string.rep("-", 8)` are exact and deterministic, and folding them is what
+  removes most of the demand for a compile-time evaluator. What stops it is not
+  the fold but the callee: `string` is declared `local` in
+  `decls/prelude.d.nupp`, and its fields are writable, so `string.format` has no
+  `immutablePath` and a program is entitled to replace it. Folding through it
+  would be assuming a guarantee the language does not make.
+
+  The prerequisite is §Immutability must be declared, applied to the pure
+  standard-library surface: `const` on the binding *and* readonly fields, so
+  that monkey-patching `string.format` becomes a checked error. That is a
+  language policy decision, not an optimizer one, and it also turns on `OPT-4`
+  for every stdlib call site as a side effect. It should be taken deliberately
+  and on its own.
+
+- **Interpolated strings.** `` `hello ${NAME}` `` looks foldable once `NAME`
+  propagates, and is not, for the same reason: codegen emits
+  `tostring(...)` around every interpolation, `tostring` is a replaceable
+  binding, and the fold would be asserting what it returns. A backtick string
+  with no `${` is already a plain literal (`[CS-9]`), so the case that does not
+  need `tostring` is one the folder never sees.
+
+- **`#` and index reads on a `const` array.** `const T = {1, 2, 3}` fixes the
+  binding, not the table, exactly as `const M = {}` does. `T[4] = 4` remains
+  legal, so neither `#T` nor `T[1]` is a constant. The named-field forms are
+  foldable because `const M.field` and `const...` say something about the slot;
+  positional entries have no such spelling, and §Nested constant exports leaves
+  them out for the same reason.
+
+- **`t["name"]` reaching a proved const path.** Sound in principle — the bracket
+  form names the slot the dotted form names — but unreachable in practice. A
+  const named field makes the type a record, and indexing a record with a string
+  key is NUPP2004 before the optimizer runs. The fold would be code no program
+  could execute.
+
+- **`sizeof`, `alignof` and `offsetof` folded to literals.** The comptime plan
+  separates cleanly here in principle: these are pure functions of a resolved
+  type and want no evaluator. What they want instead is a compile-time layout
+  model, and nupp deliberately does not have one. `layoutof(T)` already answers
+  this question, and answers it *at run time* through the FFI, because sizes,
+  offsets and padding belong to the running platform rather than the compiling
+  one (`check/ffi.nupp`, and plans/layout.md). Folding them would bake the build
+  host's ABI into generated Lua that is portable source.
+
+  So the item is not cheap-and-deferred; it is a target layout model plus the
+  semantic type fingerprint that cross-module cutoff would then require. The
+  comptime plan already assumes both — it keys evaluation on "the target triple
+  and ABI/layout version" — which is the honest size of the item.
 
 ## Constraints
 

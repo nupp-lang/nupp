@@ -471,6 +471,178 @@ function M.doesNotPropagateMutableBindings()
       "only const bindings are propagated: " .. code)
 end
 
+function M.foldsFloorDivisionAsItIsLowered()
+   local code = compile("return 103 // 64")
+   assertTrue(code:find("return 1", 1, true) ~= nil,
+      "floor division folds: " .. code)
+   assertEq(code:find("math.floor", 1, true), nil,
+      "folding it also removes the call it lowers to: " .. code)
+   assertEq(run("return 103 // 64"), 1, "folded floor division result")
+end
+
+function M.foldsTheAlignUpIdiomWhole()
+   -- The point of `//` folding: with it the whole expression collapses, because the
+   -- quotient makes the multiplication constant in turn.
+   local src = "const CACHE = 64\nconst RAW = 40\n"
+      .. "return (RAW + CACHE - 1) // CACHE * CACHE"
+   local code = compile(src)
+   assertTrue(code:find("return 64", 1, true) ~= nil,
+      "aligning a constant up folds to one literal: " .. code)
+   assertEq(run(src), 64, "folded alignment result")
+end
+
+function M.leavesFloorDivisionByZeroAtRuntime()
+   local code = compile("return 1 // 0")
+   assertTrue(code:find("math.floor", 1, true) ~= nil,
+      "a zero divisor keeps the lowered division: " .. code)
+end
+
+function M.leavesFloorDivisionOfFloatsAtRuntime()
+   local code = compile("return 1.5 // 2")
+   assertTrue(code:find("math.floor", 1, true) ~= nil,
+      "float operands are not exact, so they stay: " .. code)
+end
+
+function M.foldsBitwiseOperatorsAsTheRuntimeDoes()
+   -- BitOp is the declared meaning of these operators, so the check that matters is
+   -- not that a particular answer is right but that the folded answer is the one the
+   -- unfolded program produces. Both sides are compiled from the same source; only
+   -- the level differs.
+   local values = {0, 1, 2, 3, 7, 8, 31, 32, 33, 255, 65535, -1, -2, -8,
+      2147483647, -2147483648, 4294967295, 9007199254740991}
+   for _, op in ipairs({"&", "|", "~", "<<", ">>", "~>>"}) do
+      for _, left in ipairs(values) do
+         for _, right in ipairs(values) do
+            local src = ("return (%d) %s (%d)"):format(left, op, right)
+            local folded, plain = compile(src, 1), compile(src, 0)
+            assertTrue(folded:find("%d", 1, true) == nil,
+               "no operator survives folding: " .. folded)
+            local want = assert(loadstring(plain, "@plain"))()
+            local got = assert(loadstring(folded, "@folded"))()
+            assertEq(got, want, "folded " .. src)
+         end
+      end
+   end
+end
+
+function M.foldsBitwiseComplement()
+   local code = compile("return ~0")
+   assertTrue(code:find("return -1", 1, true) ~= nil,
+      "complement folds to its signed 32-bit result: " .. code)
+   assertEq(run("return ~0"), -1, "folded complement result")
+end
+
+function M.foldsBitwiseOperatorsWithTheirThirtyTwoBitWrap()
+   -- Named separately because these are the answers a reader assumes are bugs. A
+   -- shift count is taken modulo 32, and `>>` is logical where `~>>` is arithmetic.
+   assertEq(run("return 1 << 32"), 1, "a shift count wraps at 32")
+   assertEq(run("return -8 >> 1"), 2147483644, "the plain shift is logical")
+   assertEq(run("return -8 ~>> 1"), -4, "the tilde shift is arithmetic")
+   local code = compile("return 1 << 32")
+   assertTrue(code:find("return 1", 1, true) ~= nil,
+      "the wrap happens at compile time too: " .. code)
+end
+
+function M.leavesBitwiseOperatorsOnMutableOperandsAlone()
+   local code = compile("local shift = 3\nreturn 1 << shift")
+   assertTrue(code:find("1 << shift", 1, true) ~= nil,
+      "a mutable operand keeps the operator: " .. code)
+end
+
+function M.leavesBitwiseOperatorsOnBoxedIntegersAlone()
+   -- A `LL` literal is cdata, whose representation is not a source rewrite's business.
+   local code = compile("return 1LL << 2")
+   assertTrue(code:find("1LL << 2", 1, true) ~= nil,
+      "boxed integers keep the operator: " .. code)
+end
+
+function M.removesAWhileLoopWhoseTestIsConstantlyFalse()
+   local src = "local seen = 0\nwhile false do seen = seen + 1 end\nreturn seen"
+   local code = compile(src)
+   assertEq(code:find("seen = seen + 1", 1, true), nil,
+      "the body of a loop that cannot run is absent: " .. code)
+   assertEq(run(src), 0, "the loop contributed nothing to run")
+end
+
+function M.removesANumericLoopWhoseBoundsAdmitNoIteration()
+   for _, header in ipairs({"for i = 1, 0", "for i = 10, 1", "for i = 1, 10, -1"}) do
+      local src = "local seen = 0\n" .. header
+         .. " do seen = seen + i end\nreturn seen"
+      local code = compile(src)
+      assertEq(code:find("seen = seen + i", 1, true), nil,
+         "the body is absent for " .. header .. ": " .. code)
+      assertEq(run(src), 0, "no iteration ran for " .. header)
+   end
+end
+
+function M.keepsALoopThatRuns()
+   local src = "local seen = 0\nfor i = 1, 3 do seen = seen + i end\nreturn seen"
+   local code = compile(src)
+   assertTrue(code:find("seen = seen + i", 1, true) ~= nil,
+      "a loop with iterations keeps its body: " .. code)
+   assertEq(run(src), 6, "the loop ran")
+end
+
+function M.keepsALoopWhoseStepIsZero()
+   -- `for i = 1, 10, 0` does not terminate. Deleting it would be deleting the hang,
+   -- which is a change to what the program does rather than to how fast it does it.
+   local code = compile("for i = 1, 10, 0 do print(i) end")
+   assertTrue(code:find("for i = 1 , 10 , 0", 1, true) ~= nil,
+      "a zero step is left alone: " .. code)
+end
+
+function M.keepsALoopWhoseStepIsNotConstant()
+   -- The bounds read as empty only under the default step of 1, and the step is not
+   -- known to be 1. A negative one gives the loop an iteration.
+   local src = "local step = -1\nlocal seen = 0\n"
+      .. "for i = 1, 0, step do seen = seen + 1 end\nreturn seen"
+   local code = compile(src)
+   assertTrue(code:find("for i = 1 , 0 , step", 1, true) ~= nil,
+      "an unproved step keeps the loop: " .. code)
+   assertEq(run(src), 2, "the loop this would have deleted runs twice")
+end
+
+function M.usesAProvedStepToRemoveALoop()
+   local src = "const step = 1\nlocal seen = 0\n"
+      .. "for i = 1, 0, step do seen = seen + 1 end\nreturn seen"
+   local code = compile(src)
+   assertEq(code:find("seen = seen + 1", 1, true), nil,
+      "a proved step completes the proof: " .. code)
+   assertEq(run(src), 0, "no iteration ran")
+end
+
+function M.keepsALoopWhoseBoundsAreNotConstant()
+   local code = compile("local last = 3\nfor i = 1, last do print(i) end")
+   assertTrue(code:find("for i = 1 , last", 1, true) ~= nil,
+      "an unproved bound keeps the loop: " .. code)
+end
+
+function M.keepsAWhileLoopWhoseTestIsNotConstant()
+   local code = compile("local going = true\nwhile going do going = false end")
+   assertTrue(code:find("while going do", 1, true) ~= nil,
+      "an unproved test keeps the loop: " .. code)
+end
+
+function M.removingALoopPreservesTheLineCount()
+   local src = "local seen = 0\nwhile false do\n   seen = seen + 1\nend\nreturn seen\n"
+   local code = compile(src)
+   local function lines(text)
+      local n = 1
+      for _ in text:gmatch("\n") do n = n + 1 end
+      return n
+   end
+   assertEq(lines(code), lines(src),
+      "attribution survives by the line count holding: " .. code)
+end
+
+function M.aDisabledConstantFoldPassLeavesDeadLoopsAlone()
+   local result = parser.parse("while false do print(1) end", "test")
+   optimize.run(result, {level = 2, disabled = {["OPT-3"] = true}})
+   local code = gen.generate(result, "test")
+   assertTrue(code:find("while false do", 1, true) ~= nil,
+      "-Zno-opt=OPT-3 preserves the loop: " .. code)
+end
+
 function M.aDisabledConstantFoldPassDoesNothing()
    local result = parser.parse("return 2 + 3", "test")
    optimize.run(result, {level = 2, disabled = {["OPT-3"] = true}})

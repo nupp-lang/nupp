@@ -778,6 +778,22 @@ function gen.generate(
             end
             return
         end
+        if x.constantLoopNone then
+            -- OPT-3: the loop's constant bounds admit no first iteration. An empty `do`
+            -- block holds the opening and closing lines so that everything after the
+            -- loop keeps its own, and LuaJIT compiles it away to nothing.
+            e("do", sourceLine(x))
+            local endTok
+            for i = #x, 1, -1 do
+                local child = x[i]
+                if cst.isToken(child) and child.kind == "end" then
+                    endTok = child
+                    break
+                end
+            end
+            e("end", endTok and endTok.line or nil)
+            return
+        end
         if kind == "ifStmt" and (x.constantBranch or x.constantBranchNone) then
             -- OPT-3: every condition was a primitive constant. A `do` block preserves
             -- the selected arm's local scope while the source lines of the omitted arms
