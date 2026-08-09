@@ -84,7 +84,8 @@ end
 
 --- Applies a target's tri-state overrides to an automatically detected set.
 --- An absent name remains automatic, true forces it in, and false forces it out.
-function native.resolve(effects: any, overrides: any): any
+function native.resolve(effects: {[string]: any}?,
+    overrides: {[string]: boolean}?): {[string]: boolean}
     local resolved = {}
     for effect in pairs(effects or {}) do resolved[effect] = true end
     for name, enabled in pairs(overrides or {}) do
@@ -97,11 +98,14 @@ end
 --- Finds native effects in an external Lua module by checking it under Nupp's
 --- ordinary prelude. Used for bundled rock modules, which are not project source
 --- files and therefore do not pass through the project's incremental checker.
-function native.sourceEffects(source: string, filename: string, env: any): any
+function native.sourceEffects(source: string, filename: string,
+    env: {[string]: any}?): {[string]: any}
     local parser = require("nupp.parser")
     local parsed: any = parser.parse(source, filename)
     if #parsed.errors > 0 then return {} end
-    require("nupp.check").check(parsed, filename, env, {strict = false})
+    local checker = require("nupp.check") as {check: function(any, string?,
+        any, any): any}
+    checker.check(parsed, filename, env, {strict = false})
     return parsed.effects or {}
 end
 

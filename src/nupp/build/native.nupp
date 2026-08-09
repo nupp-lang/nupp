@@ -17,15 +17,17 @@ local stage = {}
 local join = fs.join
 
 --- Adds effects found in the Lua modules selected from rock dependencies.
-function stage.dependencyEffects(root: string, config: any, target: any,
-    effects: any): any
+function stage.dependencyEffects(root: string,
+    config: nupp.build.manifest.Config, target: nupp.build.manifest.Target?,
+    effects: {[string]: any}?): {[string]: any}
     local resolved = {}
     for effect in pairs(effects or {}) do resolved[effect] = true end
     local env = envMod.new(root, {config = config})
     for _, module in ipairs(deps.rockModules(root, config, target)) do
         local source = fs.readFile(module.path)
         if source then
-            for effect in pairs(native.sourceEffects(source, module.path, env)) do
+            for effect in pairs(native.sourceEffects(source, module.path,
+                env as {[string]: any})) do
                 resolved[effect] = true
             end
         end
@@ -33,14 +35,16 @@ function stage.dependencyEffects(root: string, config: any, target: any,
     return resolved
 end
 
-function stage.resolve(effects: any, overrides: any): any
+function stage.resolve(effects: {[string]: any}?,
+    overrides: {[string]: boolean}?): {[string]: boolean}
     return native.resolve(effects, overrides)
 end
 
 --- Builds the compiler-owned binary host with exactly the host features in the
 --- resolved effect set. A path-valued third-party stub remains its owner's artifact.
-function stage.hostStub(root: string, outDir: string, target: any,
-    effects: any): string?, string?
+function stage.hostStub(root: string, outDir: string,
+    target: nupp.build.manifest.Target,
+    effects: {[string]: any}?): string?, string?
     if target.stub ~= "nupp" then return target.stub end
     local compilerRoot = envMod.compilerRoot()
     if not compilerRoot then
