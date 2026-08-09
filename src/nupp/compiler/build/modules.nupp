@@ -116,10 +116,16 @@ local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.comp
         for _, item in ipairs(t.rets or {}) do
             returns[#returns + 1] = typeFingerprint(item, active)
         end
+        -- The suspension guarantee is part of the boundary a dependent compiled
+        -- against, so a body that starts yielding has to invalidate a reuse of it. The
+        -- interning key carries the same qualifier for the in-memory cutoff; these are
+        -- two identity mechanisms and both need telling.
         value = "fn(" .. table.concat(
             params,
             ","
-        ) .. (t.vararg and ",..." or "") .. ")->(" .. table.concat(returns, ",") .. ")"
+        ) .. (
+            t.vararg and ",..." or ""
+        ) .. ")->(" .. table.concat(returns, ",") .. ")" .. (t.noYield and "!noyield" or "")
     elseif tag == "array" or tag == "ptr" then
         value = tag .. "(" .. typeFingerprint(t.elem, active) .. ")"
     elseif tag == "owned" then

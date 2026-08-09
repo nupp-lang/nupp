@@ -212,6 +212,38 @@ local function collectFunctions(root)
         end
         local target = unwrap(node)
         local kind = target and target.kind
+        -- A function expression is summarized like a declared one. It has no
+        -- definition to be reached by name, so nothing calls it through
+        -- `byDefinition`; what wants it is a caller holding the node, which is how a
+        -- module export written `{reader = function() ... end}` gets an answer at all.
+        if kind == "funcExpr" or kind == "shortfn" then
+            local body = target.body
+            if body then
+                local info = {
+                    node = target,
+                    body = body,
+                    params = {},
+                    paramNames = {},
+                    contract = body.effectContract,
+                    summary = summary(),
+                }
+                for _, param in ipairs(body.params or {}) do
+                    if param.name and not param.namedVararg then
+                        local at = #info.paramNames + 1
+                        if param.name.definition then
+                            info.params[param.name.definition] = at
+                        end
+                        info.paramNames[at] = param.name.text
+                    end
+                end
+                functions[#functions + 1] = info
+                target.effectInfo = info
+                if body.body then
+                    walk(body.body)
+                end
+                return
+            end
+        end
         if kind == "localFuncStmt" or kind == "funcStmt" or kind == "inlineMethod" or kind == "constructorDecl" then
             local body = target.body
             local info = {
@@ -968,7 +1000,8 @@ type analysis.Target = {
 }
 
 --- The checker, as this file uses it: somewhere to say a contract the body does not
---- hold up. Taken as a shape because `nupp.compiler.check` reaches this module, so naming
+--- hold up. Taken as a shape because `nupp.compiler.check` reaches this module, so
+--- naming
 --- its
 --- record here would close the require graph into a loop.
 type analysis.Reporter = {

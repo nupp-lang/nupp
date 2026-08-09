@@ -716,6 +716,9 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not fname.method and ownerKey == c.moduleLocal and memberTok then
             c.moduleFields[memberTok.text] = ft
             c.moduleFieldTokens[memberTok.text] = memberTok
+            -- The body, so that boundary finalization can ask this declaration's own
+            -- summary rather than guessing from a type two exports may share.
+            c.moduleFieldValues[memberTok.text] = body
         end
         -- ...and a later reference has to find it the same way too. An assignment
         -- records the path it wrote, which is how `m.f = function() end` gives a

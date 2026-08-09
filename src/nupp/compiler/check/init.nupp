@@ -213,6 +213,116 @@ local function reportTypedLayer(c: state.Checker, node: any)
     end
 end
 
+-- The funcbody a value expression is, if it is one written out here rather than named.
+-- An alias -- `M.f = someLocal` -- deliberately answers nil: what it exports is a value
+-- whose definition this does not follow, and a fact nobody established is may-yield.
+local function bodyOf(value: cst.Node?): cst.Node?
+    if not value or cst.isToken(value) then
+        return nil
+    end
+    if value.kind == "funcbody" then
+        return value
+    end
+    if value.kind == "funcExpr" or value.kind == "shortfn" then
+        return value.body
+    end
+
+    return nil
+end
+
+-- Whether a body provably cannot suspend. Absent, foreign, widened, or contradicted
+-- facts all answer false: the guarantee is positive, so anything short of an answer
+-- leaves the callable may-yield.
+local function provenNonYielding(body: cst.Node?): boolean
+    local summary = body and body.effectSummary
+    if not summary then
+        return false
+    end
+    -- The same disqualifications `analysis.queries` applies, asked directly: a widened
+    -- or foreign summary knows nothing, and knowing nothing is may-yield.
+    if summary.top == true or summary.external == true then
+        return false
+    end
+
+    return summary.yields ~= true
+end
+
+-- Stamps a callable leaf with what its own definition proved.
+--
+-- Provenance-guided, and it has to be: two exports with identical signatures share one
+-- interned type, so a walk of the module shape alone cannot tell `M.safe` from
+-- `M.waits`. The value each field was assigned is carried alongside for exactly this
+-- moment.
+--
+-- Descent stops at a callable. A function's parameters and results are other callables,
+-- belonging to other definitions, and stamping them with this function's effect would
+-- be asserting something about values this declaration never saw.
+local function qualifyExport(t: Type?, value: cst.Node?): Type?
+    if not t then
+        return t
+    end
+    if t.tag == "func" then
+        return T.withYields(t, not provenNonYielding(bodyOf(value)))
+    end
+    -- A table of callables is the other exported shape: `M.ops = {read = ..., ...}`.
+    -- Each leaf is paired with the field that produced it, so each answers for itself.
+    -- An indexer is left alone rather than reconstructed: `T.shape` takes one in a
+    -- decomposed form this does not hold, and dropping it would widen the export.
+    if t.tag == "shape" and t.indexReadKey == nil and t.indexWriteKey == nil and value and not cst.isToken(
+        value
+    ) and value.kind == "tableExpr" then
+        local written: {[string]: cst.Node} = {}
+        for _, field in ipairs(value.fields or {}) do
+            if field.kind == "fieldNamed" and field.name and field.value then
+                written[field.name.text] = field.value as cst.Node
+            end
+        end
+        local fields = {}
+        for _, field in ipairs(t.fields or {}) do
+            local paired = written[field.name]
+            fields[
+                #fields + 1
+            ] = {
+                name = field.name,
+                read = field.read and qualifyExport(field.read, paired) or nil,
+                write = field.write and qualifyExport(field.write, paired) or nil,
+                type = field.type and qualifyExport(field.type, paired) or nil,
+            }
+        end
+
+        return T.shape(fields, nil, true)
+    end
+
+    return t
+end
+
+-- Rebuilds the module's boundary type once effects are known.
+--
+-- Effects are a fixed point over the call graph and are not available while a
+-- function's
+-- type is being interned, so the qualifier cannot be set where the type is minted. It
+-- is
+-- set here instead, on the returned surface only: nothing inside this module captured
+-- the new identity, because everything inside it consults the analysis directly.
+local function finalizeBoundary(c: state.Checker)
+    if not c.moduleTypeFromFields or not c.moduleType then
+        return
+    end
+    local fields = {}
+    for name, ft in pairs(c.moduleFields) do
+        local qualified = qualifyExport(ft, c.moduleFieldValues[name])
+        c.moduleFields[name] = qualified as Type
+        if c.moduleFieldConst[name] then
+            fields[#fields + 1] = {name = name, read = qualified}
+        else
+            fields[#fields + 1] = {name = name, type = qualified}
+        end
+    end
+    if #fields > 0 then
+        c.moduleType = T.shape(fields)
+    end
+end
+
 -- Returns diags, moduleType (top-level return plus runtime declaration exports), and
 -- the module's exported type/value interface.
 function checkMod.check(
@@ -276,7 +386,7 @@ function checkMod.check(
         typeDefs = {},
         pending = {},
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
@@ -1070,6 +1180,9 @@ function checkMod.check(
         end
         c.moduleFields[member.text] = t or T.any
         c.moduleFieldTokens[member.text] = member
+        if value then
+            c.moduleFieldValues[member.text] = value
+        end
         if constant then
             c.moduleFieldConst[member.text] = true
             local path = modulePath(target)
@@ -1298,6 +1411,7 @@ function checkMod.check(
     end
 
     local facts = analysis.run(result as nupp.compiler.analysis.Target, c)
+    finalizeBoundary(c)
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.
     c.unused.sweep()

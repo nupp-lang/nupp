@@ -908,6 +908,12 @@ local function check(a: Type, b: Type): boolean, string?
             local concrete = generic.instantiateFunction(a, map)
             return isA(concrete, b)
         end
+        -- A guarantee only has to hold where one was asked for. A function that cannot
+        -- suspend satisfies a slot that permits suspension; one that may suspend does
+        -- not satisfy a slot that forbids it, which is the whole point of asking.
+        if b.noYield and not a.noYield then
+            return false, ("%s is not a %s (it may suspend)"):format(T.tostring(a), T.tostring(b))
+        end
         -- Ignoring arguments is ordinary Lua: a callback that takes the value and not
         -- the key is usable wherever both are passed. Wanting more than will ever be
         -- supplied is not, since the extra ones read as nil.

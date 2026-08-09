@@ -232,6 +232,19 @@ record types.Func
     --- as a helper narrowing the way `error` does inline.
     noreturn: boolean?
 
+    --- Whether calling it provably cannot suspend the current coroutine.
+    ---
+    --- A positive guarantee rather than a negative one, so that omitting it is the
+    --- conservative answer: every constructor call that has not been taught about
+    --- effects produces a may-yield function, and a path nobody converted cannot become
+    --- unsound by being forgotten. The fact is established by the boundary finalization
+    --- in `check`, from a body's inferred summary or its `@effects` contract, and it
+    --- rides on the type so that `local f = M.safe` carries it too.
+    ---
+    --- Distinct from `yieldPack`, which says what a coroutine body yields rather than
+    --- whether calling this may suspend.
+    noYield: boolean?
+
     --- Per-parameter ownership mode, "plain" unless stated otherwise.
     paramModes: {string}
 
@@ -1046,7 +1059,8 @@ function types.func(
     retPack: types.Pack?,
     packParams: {types.PackVar}?,
     yieldPack: types.Pack?,
-    resumePack: types.Pack?
+    resumePack: types.Pack?,
+    noYield: boolean?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -1122,6 +1136,9 @@ function types.func(
     if noreturn then
         key = key .. "|noreturn"
     end
+    if noYield then
+        key = key .. "|noyield"
+    end
 
     return intern(key, function()
         return new types.Func {
@@ -1139,6 +1156,7 @@ function types.func(
             borrowsParams = borrowsParams,
             ffiOut = ffiOut,
             noreturn = noreturn or nil,
+            noYield = noYield or nil,
             paramPack = paramPack,
             retPack = retPack,
             packParams = packParams,
@@ -1146,6 +1164,50 @@ function types.func(
             resumePack = resumePack
         }
     end)
+end
+
+--- The same function, with its suspension guarantee set.
+---
+--- Cloning rather than re-calling `types.func` with its whole argument list: the list
+--- is
+--- long, it grows, and a finalization that spelled it out would silently drop whatever
+--- was added to it next. Everything a function carries -- packs, ownership modes,
+--- predicates, generics, coroutine protocols -- is passed through here by name.
+---
+--- @param ft the function type
+--- @param mayYield whether calling it may suspend
+--- @return the same type when nothing changes, otherwise its interned variant
+function types.withYields(ft: types.Type, mayYield: boolean): types.Type
+    if ft.tag ~= "func" then
+        return ft
+    end
+    local fn = ft as types.Func
+    local want = not mayYield or nil
+    if (fn.noYield or nil) == want then
+        return ft
+    end
+
+    return types.func(
+        fn.params,
+        fn.rets,
+        fn.vararg,
+        fn.paramModes,
+        fn.predicate,
+        fn.typeParams,
+        fn.typeBounds,
+        fn.borrowsParam,
+        fn.borrowsSelf,
+        fn.borrowsParams,
+        fn.ffiOut,
+        fn.varargType,
+        fn.noreturn,
+        fn.paramPack,
+        fn.retPack,
+        fn.packParams,
+        fn.yieldPack,
+        fn.resumePack,
+        want
+    )
 end
 
 -- A string literal's own type: a subtype of string, and the bridge that lets a bare

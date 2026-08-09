@@ -1,0 +1,34 @@
+-- Test fixture: a module whose exports differ only in whether they suspend.
+--
+-- `safe` and `waits` have identical signatures on purpose. Interning gives both the
+-- same type until boundary finalization asks each definition for itself, so this pair
+-- is what proves the fact is provenance-guided rather than read off the module shape.
+local M = {}
+
+local function helper(): nil
+    coroutine.yield()
+end
+
+--- Cannot suspend.
+function M.safe(): nil
+end
+
+--- Reaches a suspension through a helper, so it carries no coroutine protocol of its
+--- own and its signature is the one `safe` has.
+function M.waits(): nil
+    helper()
+end
+
+--- Callable leaves inside an exported table, one of each.
+const M.ops = {reader = function(): nil
+end, waiter = function(): nil
+    helper()
+end,}
+
+--- Takes a callback. The parameter is another definition's callable and must not be
+--- stamped with this function's own effect.
+function M.withCallback(fn: function(): nil): nil
+    fn()
+end
+
+return M

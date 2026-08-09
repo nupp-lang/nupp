@@ -158,6 +158,20 @@ work makes sense in.
   - [ ] S0: serialize the `yields` bit in callable summaries, retain it through
         resolved function values, and conservatively treat an unconstrained
         callback as may-yield. No general effect rows.
+  - [x] S0: the effect, transported. `noYield` is a positive guarantee on
+        `types.Func`, in the interning key and in `typeFingerprint`, so both
+        identity mechanisms see it. Boundary finalization qualifies each
+        exported callable from its own definition after `analysis.run`, which
+        is what separates two same-signature exports that interning had
+        collapsed. `T.withYields` clones rather than respelling `T.func`.
+        Function expressions are now summarized, without which a callable
+        inside an exported table had no answer.
+
+        Left open: nominal methods are outside the qualified boundary and stay
+        may-yield, since a nominal's identity survives rechecks and
+        `typeFingerprint` does not expand its members, so a guarantee there
+        could not be invalidated. The effect-interface digest closes that and
+        is not built.
   - [ ] S1: `nosuspend` regions and `@effects(yields = false)`, with NUPP2701
         carrying the call chain. No run-time component, and worth landing
         alone after S0: it turns one of tecs's run-time errors into a checked

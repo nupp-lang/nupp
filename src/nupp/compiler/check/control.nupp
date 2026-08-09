@@ -207,6 +207,10 @@ function control.install(c: state.Checker): state.StatHandlers
                 end
                 if #fields > 0 then
                     c.moduleType = T.shape(fields)
+                    -- Boundary finalization rebuilds this shape once effects are known,
+                    -- and only this one: a module returning something it annotated, or
+                    -- a nominal, said its own surface and is not re-derived.
+                    c.moduleTypeFromFields = true
                 end
             end
             if c.opts and c.opts.strict and c.moduleType then

@@ -26,14 +26,16 @@ local type Node = cst.Node
 
 --- The parse one run is checking, plus the places it writes back what it learned: the
 --- symbols an editor reads, the module's name and the local it returns, and the
---- interface it publishes. Open rather than declared, because `nupp.compiler.parser` owns
+--- interface it publishes. Open rather than declared, because `nupp.compiler.parser`
+--- owns
 --- the
 --- shape it produced and a run adds to it rather than replacing it.
 type state.Parse = {[string]: any}
 
 --- The project environment: the globals and their types, the string library's shape,
 --- and the functions that resolve a name into another file's declarations. Open for the
---- same reason — `nupp.compiler.env` fills it in a piece at a time, across several passes,
+--- same reason — `nupp.compiler.env` fills it in a piece at a time, across several
+--- passes,
 --- and a
 --- run reads whichever pieces are there.
 type state.Env = {[string]: any}
@@ -379,6 +381,16 @@ record state.Checker
 
     --- Which direct module exports were established with `const M.field`.
     moduleFieldConst: {[string]: boolean}
+
+    --- Whether `moduleType` was synthesized from `moduleFields`, and may therefore be
+    --- rebuilt once effects are known.
+    moduleTypeFromFields: boolean?
+
+    --- The node each exported field's value came from, kept because interning has
+    --- already thrown the answer away by the time effects are known: two exports with
+    --- identical signatures share one type, so `moduleType` alone cannot say which of
+    --- them yields. The definition can, and boundary finalization asks it.
+    moduleFieldValues: {[string]: cst.Node}
 
     --- Every immutable path rooted at the returned module table. This includes nested
     --- `const` fields in a fresh exported table constructor.
