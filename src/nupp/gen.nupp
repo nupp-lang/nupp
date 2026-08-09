@@ -36,6 +36,7 @@ represented.
 local cst = require("nupp.cst")
 local predicate = require("nupp.predicate")
 local bit = require("bit")
+local native = require("nupp.native")
 
 local gen = {}
 
@@ -1972,6 +1973,11 @@ function gen.generate(result, filename, coverage)
     raw("\n")
 
     local code = table.concat(out)
+    -- `nupp` is an ambient namespace, not a module the application must
+    -- require.  A feature only adds its bootstrap in modules that resolved it.
+    local nativeBootstrap = native.bootstrap(result.effects)
+    if nativeBootstrap ~= "" then code = nativeBootstrap .. code
+    else code = "_G.nupp=_G.nupp or {}; " .. code end
     if needsWith then
         local names, values = {}, {}
         for _, name in ipairs({"pcall", "xpcall", "error", "unpack",

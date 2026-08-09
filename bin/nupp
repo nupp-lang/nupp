@@ -24,6 +24,7 @@ ROCKS="$ROOT/.rocks"
 LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
 LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
 export LUA_PATH LUA_CPATH
+export NUPP_COMPILER_ROOT="$ROOT"
 
 # Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1 backported, and
 # every command here either produces generated code or runs it, so an older

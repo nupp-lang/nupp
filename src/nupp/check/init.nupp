@@ -244,6 +244,9 @@ record checkMod.Checker
     --- Records what a token means, for the editor and for go-to-definition.
     markToken: function(tok: any, def: any, t: Type?, kind: string?)
 
+    --- Records a compiler-recognized runtime requirement for this source file.
+    recordEffect: function(effect: string)
+
     --- The type an expression has, with what narrowing knows applied.
     infer: function(node: Node): Type
 
@@ -531,6 +534,9 @@ function checkMod.check(result, filename, env, opts)
     end
     result.symbols = {}
     result.implicitSideEffects = {}
+    -- Effects are compiler-recognized runtime requirements.  They are not
+    -- manifest switches: the build derives its native feature set from them.
+    result.effects = {}
     result.moduleName = opts and opts.moduleName
         or env and env.moduleNameForPath
         and env.moduleNameForPath(env, filename) or nil
@@ -580,6 +586,9 @@ function checkMod.check(result, filename, env, opts)
         moduleLocalAnnotated = false,
     }
     c.rootScope = c.scope
+    c.recordEffect = function(effect: string)
+        result.effects[effect] = true
+    end
     -- Published alongside the module name because the pair is what says a `function
     -- m.f` in this file is a member of this module. Nothing typed needs it; an editor
     -- asked where such a member was written does.

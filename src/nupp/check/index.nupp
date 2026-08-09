@@ -13,6 +13,7 @@ answer of nil rather than a diagnostic -- so they are the same handler.
 local T = require("nupp.types")
 local relations = require("nupp.relations")
 local cst = require("nupp.cst")
+local native = require("nupp.native")
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
@@ -67,6 +68,14 @@ function index.install(c: any): any
             end
         end
         local trackedObject = c.infer(target)
+        -- Native facilities are effects of the resolved global, never a text
+        -- match.  A local named `nupp` remains an ordinary table.
+        local global = c.env and c.env.globals and c.env.globals[holderName]
+        if target.kind == "name" and global and target.token
+            and target.token.definition == global.definition then
+            local effect = native.forGlobal(holderName, memberName)
+            if effect and c.recordEffect then c.recordEffect(effect) end
+        end
         local ot = trackedObject
         local base = kind == "safeIndex" and ot.tag == "union"
             and T.union(ot.members) or ot

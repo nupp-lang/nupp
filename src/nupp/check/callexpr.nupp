@@ -18,6 +18,7 @@ local lexer = require("nupp.lexer")
 local cst = require("nupp.cst")
 local ffiMod = require("nupp.check.ffi")
 local methodslots = require("nupp.methodslots")
+local native = require("nupp.native")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
@@ -218,7 +219,12 @@ function callexpr.install(c: any): any
         -- require("mod") resolves to the module's type when the module can be found. An
         -- undeclared Lua module stays gradual by default, but strict checking exposes
         -- that untyped boundary as unknown so it must be narrowed or cast.
-        if calleeName == "require"
+        local requireGlobal = c.env and c.env.globals and c.env.globals.require
+        local requireEntry = calleeName == "require" and c.lookupEntry("require")
+            or nil
+        local stableRequire = requireGlobal and requireEntry
+            and requireGlobal.definition == requireEntry.definition
+        if calleeName == "require" and stableRequire
             and c.env and c.env.resolveModule then
             local tok = nil
             if argsNode then
@@ -235,6 +241,8 @@ function callexpr.install(c: any): any
                 local modname = text:match('^"(.*)"$') or text:match("^'(.*)'$")
                 if modname then
                     node.requiredModule = modname
+                    local effect = native.forModule(modname)
+                    if effect and c.recordEffect then c.recordEffect(effect) end
                     local mt = c.env.resolveModule(c.env, modname)
                     if mt then
                         return mt

@@ -162,11 +162,16 @@ local function copyModuleRecord(record)
     for _, name in ipairs(record.dependencies or {}) do
         dependencies[#dependencies + 1] = name
     end
+    local effects = jsonArray({})
+    for _, effect in ipairs(record.effects or {}) do
+        effects[#effects + 1] = effect
+    end
     return {
         sourceHash = record.sourceHash,
         interfaceHash = record.interfaceHash,
         artifactHash = record.artifactHash,
         dependencies = dependencies,
+        effects = effects,
         output = record.output,
         diags = record.diags,
         coverage = record.coverage,
@@ -288,6 +293,11 @@ local function buildModules(root, outDir, config, target, oldState, newState,
         for _, diag in ipairs(result.diags or {}) do mine[#mine + 1] = diag end
         local fatal = isFatalIn(mine)
         local depNames = inc.moduleDependencies(path)
+        local effectNames = {}
+        for effect in pairs(result.result.effects or {}) do
+            effectNames[#effectNames + 1] = effect
+        end
+        table.sort(effectNames)
         local output = join(root, join(outDir, name:gsub("%.", "/") .. ".lua"))
         local artifactHash, code, coverage
         if not fatal and not checkOnly then
@@ -317,6 +327,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             interfaceHash = hash.digest(typeFingerprint(result.moduleType)),
             artifactHash = artifactHash,
             dependencies = jsonArray(depNames),
+            effects = jsonArray(effectNames),
             output = output,
             -- Only what checking found. Generation runs once per artifact and a reused
             -- module does not run it again, so its remarks belong to the run that
@@ -349,6 +360,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
                     and previous.sourceHash == sourceHash
                     and previous.interfaceHash
                     and type(previous.dependencies) == "table"
+                    and type(previous.effects) == "table"
                     and type(previous.diags) == "table"
                 if usable and not checkOnly then
                     usable = previous.artifactHash
@@ -465,10 +477,12 @@ local function buildModules(root, outDir, config, target, oldState, newState,
     -- and never entered the queue, and one that is a source file belongs in the build
     -- regardless of who does or does not require it.
     local pending, outputs = {}, {}
+    local effects = {}
     newState.modules = {}
     for _, name in ipairs(order) do
         local record = records[name]
         newState.modules[name] = record
+        for _, effect in ipairs(record.effects or {}) do effects[effect] = true end
         outputs[record.output] = true
         if not reused[name] then
             local code = codeFor[name]
@@ -503,7 +517,7 @@ local function buildModules(root, outDir, config, target, oldState, newState,
             return nil, err
         end
     end
-    return {outputs = outputs}
+    return {outputs = outputs, effects = effects}
 end
 
 modules.typeFingerprint = typeFingerprint

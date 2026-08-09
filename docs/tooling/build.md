@@ -108,6 +108,28 @@ paths beneath `outDir`; for example, `app.main` becomes
 `build/app/main.lua`. Resource globs preserve paths relative to the nearest
 include root.
 
+### Compiler-native features
+
+Compiler-provided native APIs do not appear in `dependencies`. Their resolved
+uses record effects while Nupp checks the target's complete source set, and the
+build stages the matching providers automatically. For example,
+`nupp.regex.compile(...)` records `native.regex` and builds the compiler-owned
+Rust bridge into `build/lib/nupp_regex`; a target with no such resolved use
+does not build or retain that library. The global `nupp` table itself is always
+created by generated code.
+
+The registry also recognizes native Lua modules such as `require("lpeg")`.
+That produces `native.lpeg` for a feature-matched host without turning it into
+a user-owned dependency. A local table named `nupp`, or a computed `require`,
+does not claim a compiler feature: only the resolved global path and literal
+module name do.
+
+Native artifacts are sidecars for modules targets and ordinary prebuilt stubs.
+Ship the target's `lib` directory with a binary unless its selected stub links
+the provider itself; a Lua payload cannot embed a shared library. A one-file
+`bundle` target with a detected native feature is refused rather than silently
+becoming a sidecar package.
+
 ### Documentation targets
 
 A `kind = "docs"` target runs the parse-only documentation generator through

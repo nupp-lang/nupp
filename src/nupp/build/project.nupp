@@ -19,6 +19,7 @@ local deps = require("nupp.build.deps")
 local modules = require("nupp.build.modules")
 local packaging = require("nupp.build.package")
 local storeMod = require("nupp.build.store")
+local native = require("nupp.build.native")
 
 local project = {}
 
@@ -154,6 +155,17 @@ function project.build(root, opts)
         return 0
     end
     for output in pairs(result.outputs) do newState.outputs[output] = true end
+    if target.kind == "bundle" and next(result.effects or {}) then
+        io.stderr:write("nupp: a one-file bundle cannot carry native features; "
+            .. "build modules or use a binary target with its lib directory\n")
+        return 1
+    end
+    local nativeOutputs, nativeErr = native.build(root, outDir, result.effects)
+    if not nativeOutputs then
+        io.stderr:write("nupp: " .. tostring(nativeErr) .. "\n")
+        return 1
+    end
+    for output in pairs(nativeOutputs) do newState.outputs[output] = true end
     -- A bundle is a modules build and then one more file: everything it just compiled,
     -- folded into a chunk that runs with nothing beside it.
     if target.kind == "bundle" or target.kind == "binary" then

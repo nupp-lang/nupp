@@ -120,6 +120,34 @@ function M.coreFunctions()
    assertClean("local t = setmetatable({}, {__index = {}})")
 end
 
+function M.nativeFeaturesAreResolvedEffects()
+   local function effectsOf(source)
+      local result = parser.parse(source, "native-effects")
+      assertEq(#result.errors, 0, "native-effects source parses")
+      check.check(result, "native-effects", sharedEnv)
+      return result.effects or {}
+   end
+
+   local regex = effectsOf("local expression = nupp.regex.compile('a+')")
+   assert(regex["native.regex"], "nupp.regex records its native effect")
+
+   local lpeg = effectsOf("local parser = require('lpeg')")
+   assert(lpeg["native.lpeg"], "require('lpeg') records its native effect")
+
+   local shadowed = effectsOf(table.concat({
+      "local nupp = {regex = {compile = function() end}}",
+      "nupp.regex.compile()",
+   }, "\n"))
+   assert(not shadowed["native.regex"], "a local nupp is not the global facility")
+
+   local shadowedRequire = effectsOf(table.concat({
+      "local require = function(_) return {} end",
+      "require('lpeg')",
+   }, "\n"))
+   assert(not shadowedRequire["native.lpeg"],
+      "a local require is not the native module loader")
+end
+
 function M.selectOverloadsSeparateCountFromPackSelection()
    assertClean(table.concat({
       "local count: integer = select('#', 1, 'two', true)",

@@ -179,6 +179,40 @@ local unpack: function<T>(t: {T}, i: number?, j: number?): ...T
 --- @return the value the module returned
 local require: function(name: string): any
 
+--- One byte-range match from a compiler-provided regular expression.
+record NuppRegexMatch
+    value: string
+    first: integer
+    last: integer
+    index: integer
+    name: string?
+end
+
+--- The whole match, numbered captures, and named aliases from one search.
+record NuppRegexCaptures
+    whole: NuppRegexMatch
+    groups: {NuppRegexMatch}
+    groupCount: integer
+    -- Capture names are pattern-defined, so dot access cannot be enumerated
+    -- statically. It remains gradual while numbered groups stay precise.
+    named: any
+end
+
+--- A compiled Rust regular expression. Positions are 1-based inclusive byte
+--- indexes, matching Lua's string functions.
+record NuppRegex
+    pattern: string
+    isMatch: function(self: NuppRegex, subject: string): boolean
+    find: function(self: NuppRegex, subject: string, init: integer?): NuppRegexMatch?
+    captures: function(self: NuppRegex, subject: string, init: integer?): NuppRegexCaptures?
+    replace: function(self: NuppRegex, subject: string, replacement: string): string
+    replaceAll: function(self: NuppRegex, subject: string, replacement: string): string
+end
+
+--- Compiler-provided facilities. The namespace is always present; native
+--- members are linked automatically when source reaches them.
+local nupp: {regex: {compile: function(pattern: string): NuppRegex}}
+
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
 --- "stop", "restart", "count", "step", "setpause", "setstepmul" or "isrunning".
 ---
