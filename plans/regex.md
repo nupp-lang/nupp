@@ -2,7 +2,7 @@
 
 ## Decision
 
-Add `nupp.regex` as an **opt-in native runtime feature** beneath an
+Add `nupp.regex` as an **automatically detected native runtime feature** beneath an
 **always-present global `nupp` module table**. Its public Lua/Nupp surface is
 the `tecs.regex` surface verbatim, with the module prefix changed from `tecs`
 to `nupp`:
@@ -17,7 +17,7 @@ The implementation uses Rust's `regex::bytes::Regex`: patterns are valid UTF-8
 Rust regex syntax; subjects are arbitrary Lua byte strings.  This is a regex
 engine, not a replacement for LPeg or a general parser generator.
 
-The implementation must be absent from a target that does not request it.  The
+The implementation must be absent from a target that does not detect it. The
 default Nupp host, and a binary stamped from it, contain no Rust regex code.
 
 `nupp` itself is never optional. Generated Nupp code initializes the one
@@ -28,7 +28,7 @@ typed namespace; a featureless target installs a lightweight `compile` sentinel
 that raises the existing missing-feature diagnostic before attempting any native
 load. No Rust regex code is linked merely to provide that error.
 
-## Why a target feature, not DCE
+## Why semantic feature detection, not DCE
 
 Nupp intentionally compiles every module in a project's source set.  It does
 not treat entries as a closed `require` graph: a computed `require(name)` can
@@ -41,7 +41,8 @@ library is needed.  In particular, a module that appears dead may be loaded by
 name at runtime, and an unused `require` is not generally removable because it
 can run arbitrary initialization.
 
-The honest inclusion boundary is the selected target:
+The build derives the feature set from semantic use across the selected target's
+complete source set:
 
 ```lua
 build = {
@@ -49,12 +50,10 @@ build = {
       command = {
          kind = "modules",
          entries = {"app.main"},
-         runtime = {"regex"},
       },
       release = {
          kind = "binary",
          entries = {"app.main"},
-         runtime = {"regex"},
          stub = "build/host/regex/release/nupp-host",
          output = "build/app",
       },
@@ -62,19 +61,27 @@ build = {
 }
 ```
 
-`runtime` is a closed list of Nupp-supplied native capabilities, initially only
-`"regex"`.  It is deliberately separate from `dependencies`: the latter says
-that the application owns and pins an arbitrary C/Cargo/LuaRocks dependency;
-the former says that Nupp owns the API, ABI, sources, tests, and distribution
-contract. A target with no `runtime` list has no native runtime artifact or
-linked host code; it still receives the small always-present `nupp` global
-bootstrap described above.
+The checker records a requirement when a resolved reference reaches the
+compiler-owned `nupp.regex` namespace. It does not use a textual grep, so a
+local named `nupp` or an unrelated field named `regex` does not enable native
+code. The union of those requirements across all project modules is the
+target's runtime feature set. Compiler-owned bootstrap/wrapper modules are
+excluded from this collection, otherwise their own implementation would make
+every target require regex.
 
-A future closed-world linker may prove that a requested runtime feature is
-unreachable and remove it, but that is not this work.  Such a mode needs the
-visible closed-world boundary, IR, and dynamic-loading restrictions described
-in `plans/optimizations.md`.  It must never change the meaning of today's
-default builds.
+There is no manifest `runtime` flag. `dependencies` remains for application
+owned and pinned C/Cargo/LuaRocks dependencies; detected runtime features are
+Nupp-owned API/ABI/runtime packages. A target with no detected feature has no
+native runtime artifact or linked host code; it still receives the small,
+always-present `nupp` global bootstrap described above.
+
+A future closed-world linker may prove that a static use is unreachable and
+remove the feature, but that is not this work. Such a mode needs the visible
+closed-world boundary, IR, and dynamic-loading restrictions described in
+`plans/optimizations.md`. It must never change the meaning of today's default
+builds. Until then, any resolved static use in the source set includes regex;
+this is conservative by design and does not confuse source-set checking with
+link-time DCE.
 
 ## Public API contract
 
@@ -86,7 +93,7 @@ Nupp-shaped alternative:
 - `../tecs/spec/regex_spec.lua`
 - `../tecs/bench/regex.tl`
 
-The Nupp module provides the same exported records and methods:
+The `nupp.regex` global namespace provides the same exported records and methods:
 
 ```text
 regex.compile(pattern) -> Regex
@@ -203,10 +210,16 @@ crate source or silently use a machine-global copy.
 
 ### 1. Modules and `nupp run`
 
-Extend target validation and task reporting with `runtime = {"regex"}`.  The
-feature registry resolves `regex` to the embedded Cargo crate, builds a locked
-`cdylib`, and stages it under the target's `outDir/lib` beside ordinary native
-dependencies.
+Extend checked-module records with their resolved Nupp runtime requirements.
+After checking the complete source set, project orchestration unions the cached
+and newly checked requirements, resolves `regex` to the embedded Cargo crate,
+builds a locked `cdylib`, and stages it under the target's `outDir/lib` beside
+ordinary native dependencies. `nupp tasks --json` reports this derived list as
+an observed build property, not user configuration.
+
+`nupp check` records and reports detected requirements but does not invoke
+Cargo, write a library, or require a host. A build, run, test, bundle, or
+binary-stamp operation consumes the recorded requirements after checking.
 
 Add a generated, target-local native-library registry. The `nupp.regex`
 wrapper asks that registry for the exact staged path instead of trusting the
@@ -215,41 +228,42 @@ process working directory or platform loader search paths. `nupp run`,
 so a program works from a subdirectory and reports a precise
 missing-feature/missing-library error rather than an opaque `ffi.load` failure.
 
-The cache key includes the runtime-feature list, the embedded crate digest,
-Cargo version, target triple, profile, and feature set.  Removing `regex` from
-a target removes its staged library through the existing target-output cleanup
-path.
+The cache key includes the derived runtime-feature list, the embedded crate
+digest, Cargo version, target triple, profile, and feature set. Removing the
+last resolved `nupp.regex` use removes its staged library through the existing
+target-output cleanup path. Reused module records retain their requirement
+metadata, so a warm build reaches the same answer without rechecking source.
 
-If a module statically reaches `nupp.regex` but the selected target lacks
-`runtime = {"regex"}`, fail the build with a diagnostic that names the missing
-target feature. A dynamic field lookup cannot be proved at build time; if it
-reaches `nupp.regex` at runtime without the feature, the wrapper raises the
-same actionable message. This is deliberately conservative under Nupp's
-source-set build model.
+A dynamic field lookup cannot be proved at build time. If it reaches
+`nupp.regex` in a target with no detected use, the always-present wrapper raises
+an actionable message explaining that native runtimes are detected from static
+`nupp.regex` use and naming a direct call or another static reference as the
+remedy. This is deliberately conservative under Nupp's source-set build model.
 
 ### 2. Bundles
 
-Keep the present one-file promise.  A `kind = "bundle"` target that requests a
+Keep the present one-file promise. A `kind = "bundle"` target with a detected
 native runtime feature must fail before emitting its bundle, explaining that a
 Lua payload cannot carry a shared library and recommending either a modules
-target or a feature-matched binary host.  Do not silently create a sidecar
-while still calling the result a one-file bundle.
+target or a feature-matched binary host. Do not silently create a sidecar while
+still calling the result a one-file bundle.
 
 Sidecar bundle directories are a possible future packaging kind, but are not
 part of this feature.
 
 ### 3. Stamped binaries
 
-A binary payload cannot add code to its prebuilt executable.  The selected stub
-must therefore have the same native-runtime features as the target.
+A binary payload cannot add code to its prebuilt executable. The selected stub
+must therefore have exactly the same derived native-runtime feature set as the
+target.
 
 Add a host metadata command, for example
 `nupp-host --nupp-host-features`, that prints a deterministic feature list
 without starting Lua or reading a payload.  Before stamping a binary target,
 `nupp build` queries the configured stub and rejects either case:
 
-- target requests `regex`, but the stub lacks it;
-- stub supplies `regex`, but the target does not request it.
+- static `nupp.regex` use requires `regex`, but the stub lacks it;
+- the stub supplies `regex`, but the target has no detected regex use.
 
 The second rejection is important: it prevents an accidentally regex-linked
 binary from looking like a DCE win.  A default host has an empty feature list;
@@ -289,10 +303,12 @@ machine code.  Document the distinction clearly.
    through the staged cdylib, not only through a host that happens to be linked
    already.
 
-4. **Teach project builds about native runtimes.** Add the closed `runtime`
-   target key, validation, cache fingerprints, target task output, runtime
-   registry, diagnostics, and cleanup.  Cover selected/unselected target
-   pairs, a static missing declaration, and a dynamic missing request.
+4. **Teach project builds to infer native runtimes.** Record resolved global
+   namespace uses during checking, preserve those records through incremental
+   reuse, union them after the complete source set is checked, and build/stage
+   the matching runtime artifacts. Add cache fingerprints, task reporting,
+   runtime registry, automatic cleanup, and dynamic-miss diagnostics. Cover
+   detected/undetected targets, a shadowed local `nupp`, and a dynamic request.
 
 5. **Make binary inclusion exact.** Add the optional host feature, its native
    preloader, feature metadata command, and stamp-time compatibility check.
@@ -309,14 +325,14 @@ machine code.  Document the distinction clearly.
 
 | Case | Expected result |
 | --- | --- |
-| Existing target with no `runtime` | `nupp` is initialized as a global table; no `nupp_regex` library or host symbol exists. |
-| `modules` target with `regex` | Locked cdylib staged under `outDir/lib`; `nupp run` and tests load it from a non-root working directory. |
-| No native runtime feature | `nupp` is still a global table; no regex library or host symbol exists. |
-| Static `nupp.regex` use, no feature | Build fails with the target and required `runtime = {"regex"}` named. |
-| Dynamic `nupp["regex"]` use, no feature | Build stays conservative; an executed request fails with the same remedy. |
-| `bundle` plus `regex` | Refuses before writing an artifact; no pretend single-file output. |
-| Binary target plus a default host | Refuses before stamping and names the stub/feature mismatch. |
-| Binary target plus a regex host | Stamps and runs with no shared-library sidecar; public API results match the modules target. |
+| Existing target with no static regex use | `nupp` is initialized as a global table; no `nupp_regex` library or host symbol exists. |
+| Static `nupp.regex` use in a modules target | Locked cdylib is detected and staged under `outDir/lib`; `nupp run` and tests load it from a non-root working directory. |
+| Local `nupp` or unrelated `.regex` field | Does not enable the runtime; semantic resolution avoids textual false positives. |
+| Static use removed | A warm build drops the staged library and selects the featureless host requirement. |
+| Dynamic `nupp["regex"]` without static use | Build stays conservative; an executed request explains how automatic detection works. |
+| `bundle` with detected regex | Refuses before writing an artifact; no pretend single-file output. |
+| Static regex use plus a default binary host | Refuses before stamping and names the stub/feature mismatch. |
+| Static regex use plus a regex binary host | Stamps and runs with no shared-library sidecar; public API results match the modules target. |
 | Default Nupp `dist` | `nupp fixpoint --binary` remains byte-identical and the host feature list is empty. |
 | Regex host | Feature list is exactly `regex`; symbol/size inspection and a smoke program prove the engine is linked. |
 | Performance | The ported benchmark records medians and p95s, includes FFI/backend overhead, and establishes where it wins and where LPeg remains faster. |
