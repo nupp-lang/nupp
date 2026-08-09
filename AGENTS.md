@@ -11,6 +11,26 @@ When complete, delete the worktree. Leave no attribution in commits,
 do not use conventional commits, use imperative language, and keep commit
 lines under 72 characters.
 
+### Worktree setup
+
+The local `.rocks` dependency directory is ignored, so Git does not populate it
+in a new worktree. Create the worktree from the originating checkout, then link
+the worktree to that checkout's dependencies before running `./bin/nupp`:
+
+```sh
+nupp_origin=/absolute/path/to/nupp
+nupp_task_tree=/private/tmp/nupp-example-task
+git -C "$nupp_origin" worktree add -b example-task "$nupp_task_tree" main
+if [ -d "$nupp_origin/.rocks" ] && [ ! -e "$nupp_task_tree/.rocks" ]; then
+    ln -s "$nupp_origin/.rocks" "$nupp_task_tree/.rocks"
+fi
+```
+
+Use task-specific branch and directory names. Never replace an existing
+`.rocks` path; inspect it instead. Run subsequent Nupp commands from the task
+worktree. Removing the completed worktree also removes its symlink, not the
+originating checkout's dependency directory.
+
 ## Responding to prompts
 
 Answer directly and keep the bottom line up front. Do not label it explicitly
