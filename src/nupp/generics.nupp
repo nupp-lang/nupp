@@ -245,6 +245,38 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, ft in pairs(n.writeByname or {}) do
         inst.writeByname[name] = generics.subst(ft, map)
     end
+    inst.overloadedMethods = {}
+    inst.methodEntries = {}
+    inst.methodDispatchEntries = {}
+    for name in pairs(n.overloadedMethods or {}) do
+        inst.overloadedMethods[name] = true
+    end
+    for name, entries in pairs(n.methodEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[j] = {
+                signature = generics.subst(entry.signature, map),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.methodEntries[name] = specialized
+    end
+    for name, entries in pairs(n.methodDispatchEntries or {}) do
+        local specialized = {}
+        for j, entry in ipairs(entries) do
+            specialized[j] = {
+                signature = generics.subst(entry.signature, map),
+                declaration = entry.declaration,
+                member = entry.member,
+                parameterKey = entry.parameterKey,
+                definition = entry.definition,
+            }
+        end
+        inst.methodDispatchEntries[name] = specialized
+    end
     inst.indexReadKey = n.indexReadKey
         and generics.subst(n.indexReadKey, map) or nil
     inst.indexReadValue = n.indexReadValue

@@ -17,11 +17,13 @@ local generics = require("nupp.generics")
 local lexer = require("nupp.lexer")
 local cst = require("nupp.cst")
 local ffiMod = require("nupp.check.ffi")
+local methodslots = require("nupp.methodslots")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
 local rawType = T.unwrapOwnership
 local dropSelf = generics.dropSelf
+local specializeSelf = generics.specializeSelf
 
 local callexpr = {}
 
@@ -612,6 +614,32 @@ function callexpr.install(c: any): any
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local first, rets, pack = c.inferCall(node,
                 callable and dropSelf(mt) or mt, node.args)
+            local owner = rawType(ot)
+            if owner.tag == "nominal" and owner.overloadedMethods
+                and owner.overloadedMethods[member.text]
+                and node.overloadWinner then
+                local selectedMember = methodslots.member(member.text,
+                    node.overloadWinner)
+                local dispatch = owner.methodDispatchEntries
+                    and owner.methodDispatchEntries[member.text]
+                    or (owner.methodEntries and owner.methodEntries[member.text])
+                    or {}
+                for _, entry in ipairs(dispatch) do
+                    local candidate = dropSelf(specializeSelf(owner,
+                        entry.signature, owner))
+                    if candidate.id == node.overloadWinner.id
+                        or entry.member == selectedMember then
+                        node.overloadMember = entry.member
+                        node.methodEntry = entry
+                        c.markToken(member, entry.definition,
+                            specializeSelf(owner, entry.signature, owner), "method")
+                        member.additionalDefinitions = nil
+                        break
+                    end
+                end
+                node.overloadMember = node.overloadMember
+                    or selectedMember
+            end
             c.lastCallRets = rets
             node.valuePack = pack or (rets and T.pack(rets)
                 or T.pack({}, {kind = "unknown", type = T.any}))

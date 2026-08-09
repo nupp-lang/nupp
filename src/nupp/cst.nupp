@@ -1237,6 +1237,11 @@ record cst.MethodCall is cst.Hints
 
     --- The argument list.
     args: cst.Node?
+
+    --- Intersection-overload selection and its direct runtime target.
+    overloadWinner: any
+    overloadMember: string?
+    methodEntry: any
 end
 
 --- `obj?.name`, which yields nil rather than raising on a nil receiver.

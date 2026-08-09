@@ -108,6 +108,41 @@ of its alternatives. Selection never adds runtime dispatch. APIs such as
 `pcall`, `xpcall`, `select`, `unpack`, and coroutine protocols therefore remain
 pack-native rather than being recast as finite overload sets.
 
+## Overloaded methods
+
+Repeated method names form an overload set without an annotation:
+
+```nupp
+local record Decoder
+    function decode(text: string): string
+        return "text:" .. text
+    end
+
+    function decode(value: integer): string
+        return "integer:" .. tostring(value)
+    end
+end
+```
+
+The member's visible type is the intersection of its callable signatures, but
+the compiler retains each declaration as a separate method entry. A call such
+as `decoder:decode("source")` selects exactly one intersection member and emits
+a direct call to that entry's hidden runtime method. It does not generate or
+invoke a dispatcher.
+
+Parameter packs must be distinct; return types cannot distinguish two entries.
+An overloaded method has no single Lua field value, so `decoder.decode` is
+**NUPP2126**. Call it with `:`, which supplies the arguments needed to select an
+entry. An `any` argument is likewise rejected when it leaves several entries
+possible; an explicit cast on the argument can select the intended one.
+
+Interface defaults use the same signature-derived entries. `@override` applies
+to the exact inherited parameter pack it replaces, so one overload may be
+overridden while the other defaults remain inherited. A bodyless interface may
+state the same contract as a callable-intersection field; matching record
+bodies use the same hidden slots. `@override` is only for replacing a default
+body, not for satisfying a bodyless contract.
+
 ## Overloaded constructors
 
 A record may declare several constructors with distinct parameter packs:

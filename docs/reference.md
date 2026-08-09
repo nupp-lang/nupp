@@ -227,6 +227,16 @@ A record may declare several constructors with distinct parameter packs.
 `new T(...)` selects one with the same overload rule and emits a direct call to
 that constructor's indexed runtime function; no dispatcher exists at run time.
 
+Repeated method names likewise form an overload set without an annotation.
+Each body remains a separate method entry. A colon call selects exactly one and
+emits a direct call to its hidden runtime member; reading the overloaded method
+as a field is **NUPP2126**, because there is no single Lua value to return.
+Parameter packs must differ — return types cannot select an entry. `@override`
+replaces the exact matching interface-default entry, leaving other overloads
+inherited. A bodyless interface may declare the operation as a
+callable-intersection field; matching record bodies use the same slots without
+`@override`, because no inherited body is being replaced.
+
 ```nupp
 local type Named = {readonly name: string}
 local type Counted = {readonly count: integer}
@@ -239,7 +249,16 @@ local parse: Parse = nil as any
 local decimal: integer = parse("10")
 local hexadecimal: string = parse("10", 16)
 
-return decimal, hexadecimal
+local record Decoder
+    function decode(text: string): string return "text:" .. text end
+    function decode(value: integer): string return "integer:" .. tostring(value) end
+end
+
+local decoder = new Decoder {}
+local text: string = decoder:decode("source")
+local number: string = decoder:decode(42)
+
+return decimal, hexadecimal, text, number
 ```
 
 Reports: `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208`. `nupp explain <code>` says more.

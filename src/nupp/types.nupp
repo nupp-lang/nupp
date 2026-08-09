@@ -383,6 +383,17 @@ record types.Nominal
 
     constructorEntries: {any}?
 
+    --- Overloaded method contracts and their body/runtime provenance, by source
+    --- member name. The visible member type is still an intersection; these entries
+    --- retain the slot and declaration that an interned type cannot carry.
+    methodEntries: {[string]: {any}}?
+
+    methodDispatchEntries: {[string]: {any}}?
+
+    overloadedMethods: {[string]: boolean}?
+
+    defaultEntries: {[string]: any}?
+
     --- Where the declaration's runtime table lives, when that is not simply its name: a
     --- qualified declaration hangs off the table it was attached to, and a nested one
     --- off its owner's. `is` compares against it, and the generator stamps it.

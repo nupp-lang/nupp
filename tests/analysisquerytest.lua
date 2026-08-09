@@ -65,6 +65,18 @@ local function findConstructors(node, out)
    return out
 end
 
+local function findMethods(node, out)
+   out = out or {}
+   if not node or cst.isToken(node) then
+      return out
+   end
+   if node.kind == "methodCall" and node.methodEntry then
+      out[#out + 1] = node
+   end
+   for _, child in ipairs(node) do findMethods(child, out) end
+   return out
+end
+
 local test = {}
 
 function test.visibleSeparatesUnknownFromForeign()
@@ -148,6 +160,64 @@ return text, number
       "the query resolves distinct constructor bodies")
    assertEq(text.summary.yields, false, "the first body's summary stays pure")
    assertEq(number.summary.yields, true, "the second body's yield is selected")
+end
+
+function test.calleeUsesTheSelectedMethodOverloadSummary()
+   local queries, result = analysed([[
+local record Choice
+    function choose(value: string): string
+        return value
+    end
+    function choose(value: integer): string
+        coroutine.yield()
+        return tostring(value)
+    end
+end
+
+local choice = new Choice {}
+local text = choice:choose("ready")
+local number = choice:choose(42)
+return text, number
+]])
+   local calls = findMethods(result.root)
+   assertEq(#calls, 2, "both method calls selected a body")
+   local text = queries.callee(calls[1])
+   local number = queries.callee(calls[2])
+   assert(text and number and text ~= number,
+      "the query resolves distinct overloaded method bodies")
+   assertEq(text.summary.yields, false, "the first body's summary stays pure")
+   assertEq(number.summary.yields, true, "the second body's yield is selected")
+end
+
+function test.calleeKeepsInheritedMethodOverloadProvenance()
+   local queries, result = analysed([[
+local interface Choice
+    function choose(value: string): string return value end
+    function choose(value: integer): string
+        coroutine.yield()
+        return tostring(value)
+    end
+end
+
+local record Concrete is Choice
+    @override
+    function choose(value: string): string return "local:" .. value end
+end
+
+local choice = new Concrete {}
+local text = choice:choose("ready")
+local number = choice:choose(42)
+return text, number
+]])
+   local calls = findMethods(result.root)
+   assertEq(#calls, 2, "both concrete calls selected an entry")
+   local text = queries.callee(calls[1])
+   local number = queries.callee(calls[2])
+   assert(text and number and text ~= number,
+      "local and inherited entries retain distinct bodies")
+   assertEq(text.summary.yields, false, "the override stays pure")
+   assertEq(number.summary.yields, true,
+      "the inherited overload retains its yield summary")
 end
 
 function test.aliasOfMergesTwoSpellingsOfOneTable()

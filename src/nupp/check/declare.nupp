@@ -17,12 +17,14 @@ local generics = require("nupp.generics")
 local cst = require("nupp.cst")
 local operators = require("nupp.check.operators")
 local predicate = require("nupp.predicate")
+local methodslots = require("nupp.methodslots")
 
 local declare = {}
 
 local isA = relations.isA
 local substType = generics.subst
 local addSelf = generics.addSelf
+local dropSelf = generics.dropSelf
 
 --- A type, as nupp.types builds them.
 local type Type = T.Type
@@ -214,13 +216,10 @@ function declare.install(c: any, reifiableField: any, fix: any,
         end
     end
 
-    --- The interface a declaration inherits a default for `name` from, if any.
-    ---
-    --- The first one found, because a name provided by more than one is refused
-    --- outright — see `checkInheritedDefaults`.
-    local function inheritedDefault(n: any, name: string): string?
+    --- The interface a declaration inherits this exact default entry from, if any.
+    local function inheritedDefault(n: any, member: string): string?
         for _, super in ipairs(n.supertypes or {}) do
-            if super.defaults and super.defaults[name] then
+            if super.defaultEntries and super.defaultEntries[member] then
                 return super.name
             end
         end
@@ -234,35 +233,55 @@ function declare.install(c: any, reifiableField: any, fix: any,
     --- reason to prefer either, so the declaration has to say which behaviour it
     --- means by writing the member itself. The same shape as a bare `@owned`
     --- with several inherited `@dispose` operations.
-    local function checkInheritedDefaults(stat: any, n: any, localMembers: any)
+    local function checkInheritedDefaults(stat: any, n: any)
         n.inheritedDefaults = {}
-        local providers: {[string]: {string}} = {}
+        local providers: {[string]: {any}} = {}
         for _, super in ipairs(n.supertypes or {}) do
-            for name in pairs(super.defaults or {}) do
-                local into: {string} = providers[name] or {}
-                into[#into + 1] = super.name
-                providers[name] = into
-                n.inheritedDefaults[name] = super
+            for member, inherited in pairs(super.defaultEntries or {}) do
+                local into = providers[member] or {}
+                into[#into + 1] = {name = super.name,
+                    methodName = inherited.name, super = super}
+                providers[member] = into
+                n.inheritedDefaults[member] = super
             end
         end
-        for name, from in pairs(providers) do
-            if #from > 1 and not localMembers[name] then
-                table.sort(from)
+        local localSlots = {}
+        for _, entries in pairs(n.methodEntries or {}) do
+            for _, entry in ipairs(entries) do
+                localSlots[entry.member] = true
+            end
+        end
+        for member, from in pairs(providers) do
+            if #from > 1 and not localSlots[member] then
+                local names = {}
+                for j, provider in ipairs(from) do names[j] = provider.name end
+                table.sort(names)
+                local methodName = from[1].methodName
                 c.diag("NUPP2118", stat.name,
                     ("%s inherits a default %q from %s, and cannot choose")
-                    :format(n.name, name, table.concat(from, " and ")), nil,
+                    :format(n.name, methodName,
+                    table.concat(names, " and ")), nil,
                     {help = ("write %s in %s to say which behaviour it means")
-                    :format(name, n.name)})
-                n.inheritedDefaults[name] = nil
-            elseif localMembers[name] then
-                -- the declaration wrote its own; nothing to take
-                n.inheritedDefaults[name] = nil
+                    :format(methodName, n.name)})
+                n.inheritedDefaults[member] = nil
+            elseif localSlots[member] then
+                -- This exact overload has a local body; the other entries under the
+                -- same source name may still be inherited.
+                n.inheritedDefaults[member] = nil
             end
         end
         -- An interface passes on what it takes, so a chain of them works.
         if stat.declKind == "interface" then
             n.defaults = n.defaults or {}
-            for name in pairs(n.inheritedDefaults) do n.defaults[name] = true end
+            n.defaultEntries = n.defaultEntries or {}
+            for member, super in pairs(n.inheritedDefaults) do
+                local inherited = super.defaultEntries[member]
+                n.defaults[inherited.name] = true
+                n.defaultEntries[member] = {name = inherited.name,
+                    member = n.overloadedMethods[inherited.name]
+                    and member or inherited.member, slot = member,
+                    entry = inherited.entry}
+            end
         end
 
         -- The generator needs the runtime spelling of the interface each default
@@ -275,13 +294,17 @@ function declare.install(c: any, reifiableField: any, fix: any,
             end
         end
         local taken = {}
-        for name, super in pairs(n.inheritedDefaults) do
+        for member, super in pairs(n.inheritedDefaults) do
             local from = byNominal[super]
             if from then
-                taken[#taken + 1] = {name = name, from = from}
+                local inherited = super.defaultEntries[member]
+                taken[#taken + 1] = {name = inherited.name,
+                    member = n.overloadedMethods[inherited.name]
+                    and member or inherited.member,
+                    fromMember = inherited.member, from = from}
             end
         end
-        table.sort(taken, function(a, b) return a.name < b.name end)
+        table.sort(taken, function(a, b) return a.member < b.member end)
         stat.inheritedDefaultNames = taken
     end
 
@@ -518,6 +541,10 @@ function declare.install(c: any, reifiableField: any, fix: any,
             n.writeByname = n.writeByname or {}
             n.metamethods = n.metamethods or {}
             n.nestedTypes = n.nestedTypes or {}
+            n.methodEntries = {}
+            n.methodDispatchEntries = {}
+            n.overloadedMethods = {}
+            n.defaultEntries = {}
             -- bind the name first so fields may reference the type recursively
             c.bindDeclaredType(stat, n)
             -- Every declaration has a private type scope: `self`, generic binders, and
@@ -565,7 +592,6 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     end
                 end
             end
-
             -- `is` includes trusted contracts. It is intentionally not a proof that
             -- runtime initialization has already filled them.
             n.supertypes = {}
@@ -598,6 +624,23 @@ function declare.install(c: any, reifiableField: any, fix: any,
                             n.byname[name] = substType(inherited, selfMap)
                         end
                     end
+                    for name in pairs(super.overloadedMethods or {}) do
+                        n.overloadedMethods[name] = true
+                    end
+                    for name, inheritedEntries in pairs(
+                        super.methodDispatchEntries or super.methodEntries or {}) do
+                        local into = n.methodDispatchEntries[name] or {}
+                        for _, entry in ipairs(inheritedEntries) do
+                            into[#into + 1] = {
+                                signature = substType(entry.signature, selfMap),
+                                declaration = entry.declaration,
+                                member = entry.member,
+                                parameterKey = entry.parameterKey,
+                                definition = entry.definition,
+                            }
+                        end
+                        n.methodDispatchEntries[name] = into
+                    end
                     for name, inherited in pairs(super.writeByname or {}) do
                         if not n.writeByname[name] then
                             n.writeByname[name] = substType(inherited, selfMap)
@@ -618,14 +661,66 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     end
                 end
             end
-            -- Publish every inline signature before checking any body. This is the
-            -- record-body equivalent of block method hoisting and permits mutually
-            -- recursive inline methods.
+            -- Separate interfaces may each contribute one entry under the same name.
+            -- Once inherited together those entries are an overload group too.
+            for name, entries in pairs(n.methodDispatchEntries) do
+                local members, seen = {}, {}
+                for _, entry in ipairs(entries) do
+                    if not seen[entry.member] then
+                        seen[entry.member] = true
+                        members[#members + 1] = entry.signature
+                    end
+                end
+                if #members > 1 then
+                    n.byname[name] = T.intersection(members)
+                    n.writeByname[name] = n.byname[name]
+                    n.overloadedMethods[name] = true
+                end
+            end
+            -- Publish every inline signature before checking any body. Repeated names
+            -- form one callable intersection. When an inherited name is already an
+            -- overload group, a local body replaces only its matching parameter pack
+            -- and leaves the other inherited entries visible.
+            local inlineSignatures: {[string]: {any}} = {}
             for _, e in ipairs(stat.entries) do
-                if e.kind == "inlineMethod" and not n.byname[e.name.text] then
+                if e.kind == "inlineMethod" then
                     local signature = c.signatureOf(e.body, n)
-                    n.byname[e.name.text] = signature
-                    n.writeByname[e.name.text] = signature
+                    local name = e.name.text
+                    local group = inlineSignatures[name] or {}
+                    group[#group + 1] = signature
+                    inlineSignatures[name] = group
+                end
+            end
+            for name, localSignatures in pairs(inlineSignatures) do
+                if #localSignatures == 1 and not n.overloadedMethods[name] then
+                    n.byname[name] = localSignatures[1]
+                    n.writeByname[name] = localSignatures[1]
+                else
+                    local byParameters, order = {}, {}
+                    local inherited = n.byname[name]
+                    local inheritedMembers = inherited
+                        and inherited.tag == "intersection"
+                        and inherited.members or (inherited and {inherited} or {})
+                    for _, signature in ipairs(inheritedMembers) do
+                        if signature.tag == "func" then
+                            local key = methodslots.parameters(dropSelf(signature))
+                            if not byParameters[key] then order[#order + 1] = key end
+                            byParameters[key] = signature
+                        end
+                    end
+                    for _, signature in ipairs(localSignatures) do
+                        local key = methodslots.parameters(dropSelf(signature))
+                        if not byParameters[key] then order[#order + 1] = key end
+                        byParameters[key] = signature
+                    end
+                    local members = {}
+                    for _, key in ipairs(order) do
+                        members[#members + 1] = byParameters[key]
+                    end
+                    local combined = T.intersection(members)
+                    n.byname[name] = combined
+                    n.writeByname[name] = combined
+                    n.overloadedMethods[name] = #members > 1
                 end
             end
             local localMembers, localMetamethods = {}, {}
@@ -686,6 +781,27 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     end
                     local definition = c.definition(e.name, "property")
                     definition.type = ft
+                    if stat.declKind == "interface" and ft.tag == "intersection" then
+                        local contracts, callable = {}, true
+                        for _, signature in ipairs(ft.members) do
+                            if signature.tag ~= "func" then
+                                callable = false
+                                break
+                            end
+                            local plain = dropSelf(signature) as T.Func
+                            contracts[#contracts + 1] = {
+                                signature = signature,
+                                declaration = nil,
+                                member = methodslots.member(name, plain),
+                                parameterKey = methodslots.parameters(plain),
+                                definition = definition,
+                            }
+                        end
+                        if callable then
+                            n.overloadedMethods[name] = true
+                            n.methodDispatchEntries[name] = contracts
+                        end
+                    end
                     if grantsRead then
                         state.read = true
                         n.byname[name] = ft
@@ -788,33 +904,22 @@ function declare.install(c: any, reifiableField: any, fix: any,
                             end
                         end
                     end
-                    -- An interface body may implement what it declares. The
-                    -- default is emitted once and referenced by each declaration
-                    -- that takes it, so an implementor inherits the behaviour
-                    -- rather than a copy of it.
-                    if stat.declKind == "interface" then
-                        n.defaults = n.defaults or {}
-                        n.defaults[e.name.text] = true
-                    end
-                    e.overridesDefault = inheritedDefault(n, e.name.text)
-                    if e.overridesDefault and not isOverride then
+                    local name = e.name.text
+                    local state = localMembers[name]
+                    if state and not state.method then
                         c.diag("NUPP2118", e.name,
-                            ("%q replaces the default %s declares, which has "
-                            .. "to be said"):format(e.name.text,
-                            e.overridesDefault), nil,
-                            {help = "write @override above it"})
-                    elseif isOverride and not e.overridesDefault then
-                        c.diag("NUPP2118", e.name,
-                            ("%q overrides nothing: no interface this declares "
-                            .. "provides it"):format(e.name.text), nil,
-                            {help = "remove @override, or declare the interface "
-                            .. "that provides the default"})
+                            ("duplicate record member %q"):format(name))
                     end
-                    if localMembers[e.name.text] then
-                        c.diag("NUPP2118", e.name,
-                            ("duplicate record member %q"):format(e.name.text))
+                    if not state then
+                        state = {read = true, write = true, method = true}
+                        localMembers[name] = state
                     end
-                    localMembers[e.name.text] = {read = true, write = true}
+                    local declaredGroup = inlineSignatures[name] or {}
+                    if isDisposer and #declaredGroup > 1 then
+                        c.diag("NUPP2602", e.name,
+                            "a disposal method has one resource contract and cannot "
+                            .. "be overloaded")
+                    end
                     if isDisposer then
                         e.body.disposeContract = true
                         e.body.disposeMethod = true
@@ -822,16 +927,59 @@ function declare.install(c: any, reifiableField: any, fix: any,
                     local ft = addSelf(c.checkFuncbody(e.body, n), n,
                         isDisposer and "takes" or nil)
                     c.raises.check(e, e.body)
+                    local callable = dropSelf(ft) as T.Func
+                    local parameterKey = methodslots.parameters(callable)
+                    local memberName = methodslots.member(name, callable)
+                    local entries = n.methodEntries[name] or {}
+                    for _, prior in ipairs(entries) do
+                        if prior.parameterKey == parameterKey then
+                            c.diag("NUPP2118", e.name,
+                                ("method %q already has an entry with parameter pack %s")
+                                :format(name, T.tostringPack(callable.paramPack)), nil,
+                                {help = "method overloads need distinguishable "
+                                .. "parameter packs; return types do not select one"})
+                        end
+                    end
+                    local definition = c.definition(e.name, "method")
+                    definition.type = ft
+                    local entry = {signature = ft, declaration = e,
+                        member = memberName, parameterKey = parameterKey,
+                        definition = definition}
+                    entries[#entries + 1] = entry
+                    n.methodEntries[name] = entries
+                    e.methodEntry = entry
+
+                    -- An interface body implements this exact overload. It is emitted
+                    -- once, and implementors inherit the corresponding runtime slot.
+                    if stat.declKind == "interface" then
+                        n.defaults = n.defaults or {}
+                        n.defaults[name] = true
+                        n.defaultEntries[memberName] = {name = name,
+                            member = n.overloadedMethods[name]
+                            and memberName or name, slot = memberName,
+                            entry = entry}
+                    end
+                    e.overridesDefault = inheritedDefault(n, memberName)
+                    if e.overridesDefault and not isOverride then
+                        c.diag("NUPP2118", e.name,
+                            ("%q replaces the matching default %s declares, which "
+                            .. "has to be said"):format(name,
+                            e.overridesDefault), nil,
+                            {help = "write @override above it"})
+                    elseif isOverride and not e.overridesDefault then
+                        c.diag("NUPP2118", e.name,
+                            ("%q overrides nothing: no interface this declares "
+                            .. "provides that parameter pack"):format(name), nil,
+                            {help = "remove @override, or declare the interface "
+                            .. "that provides the matching default"})
+                    end
                     if isDisposer then
                         n.defaultDisposers[#n.defaultDisposers + 1] =
-                            "@method:" .. e.name.text
+                            "@method:" .. name
                     end
-                    n.byname[e.name.text] = ft
-                    n.writeByname[e.name.text] = ft
-                    n.fieldDefs[e.name.text] = c.definition(e.name, "method")
-                    n.fieldDefs[e.name.text].type = ft
-                    n.writeFieldDefs[e.name.text] = n.fieldDefs[e.name.text]
-                    c.markToken(e.name, n.fieldDefs[e.name.text], ft, "method")
+                    n.fieldDefs[name] = n.fieldDefs[name] or definition
+                    n.writeFieldDefs[name] = n.fieldDefs[name]
+                    c.markToken(e.name, definition, ft, "method")
                 elseif e.kind == "recordDecl" or e.kind == "typeAlias" then
                     if stat.declKind == "struct" then
                         c.diag("NUPP2201", e,
@@ -856,6 +1004,59 @@ function declare.install(c: any, reifiableField: any, fix: any,
                                     n.fieldDefs[e.name.text]
                             end
                         end
+                    end
+                end
+            end
+            -- Only a group needs hidden runtime members. A single method keeps the
+            -- ordinary Lua spelling and remains extractable like any other field.
+            for name, entries in pairs(n.methodEntries) do
+                local byMember, order, inheritedMembers = {}, {}, {}
+                for _, entry in ipairs(n.methodDispatchEntries[name] or {}) do
+                    if not byMember[entry.member] then
+                        order[#order + 1] = entry.member
+                    end
+                    byMember[entry.member] = entry
+                    inheritedMembers[entry.member] = entry
+                end
+                for _, entry in ipairs(entries) do
+                    local inherited = inheritedMembers[entry.member]
+                    if inherited then
+                        local localCallable = dropSelf(entry.signature)
+                        local inheritedCallable = dropSelf(inherited.signature)
+                        local compatible, why = isA(localCallable,
+                            inheritedCallable)
+                        if not compatible then
+                            c.diag("NUPP2118", entry.declaration.name,
+                                ("method %q does not satisfy its inherited "
+                                .. "overload: %s"):format(name,
+                                why or "incompatible signature"))
+                        end
+                    end
+                    if not byMember[entry.member] then
+                        order[#order + 1] = entry.member
+                    end
+                    byMember[entry.member] = entry
+                end
+                local dispatch = {}
+                for _, member in ipairs(order) do
+                    dispatch[#dispatch + 1] = byMember[member]
+                end
+                n.methodDispatchEntries[name] = dispatch
+                if stat.declKind ~= "interface" and n.overloadedMethods[name] then
+                    for _, entry in ipairs(dispatch) do
+                        if not entry.declaration then
+                            local plain = dropSelf(entry.signature) as T.Func
+                            c.diag("NUPP2118", stat.name,
+                                ("%s does not implement overload %s of %q")
+                                :format(n.name,
+                                T.tostringPack(plain.paramPack), name), nil,
+                                {help = "write a method body with that parameter pack"})
+                        end
+                    end
+                end
+                if n.overloadedMethods[name] then
+                    for _, entry in ipairs(entries) do
+                        entry.declaration.overloadMember = entry.member
                     end
                 end
             end
@@ -904,7 +1105,7 @@ function declare.install(c: any, reifiableField: any, fix: any,
                 end
                 n.predicate = derived
             end
-            checkInheritedDefaults(stat, n, localMembers)
+            checkInheritedDefaults(stat, n)
             checkInheritedRefinements(stat, n)
             c.popScope()
             if stat.isAnnotationDefinition then

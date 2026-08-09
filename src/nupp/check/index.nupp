@@ -197,6 +197,13 @@ function index.install(c: any): any
                 or "check the receiver type and available fields"})
             return T.any
         end
+        if not writing and base.tag == "nominal" and base.overloadedMethods
+            and base.overloadedMethods[memberName] then
+            c.diag("NUPP2126", member,
+                ("overloaded method %q has no single field value")
+                :format(memberName), nil,
+                {help = "call it with `:` so the arguments select one body"})
+        end
         c.markToken(member, fieldDef, ft, "property")
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft

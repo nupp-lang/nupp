@@ -133,8 +133,8 @@ end
 -- not through the record name's definition. Keep that distinction behind the same
 -- lookup used for ordinary calls so every effect consumer sees the chosen body.
 local function knownCall(call, byDefinition)
-    local declaration = call and call.constructorEntry
-        and call.constructorEntry.declaration or nil
+    local selected = call and (call.constructorEntry or call.methodEntry) or nil
+    local declaration = selected and selected.declaration or nil
     if declaration and declaration.effectInfo then
         return declaration.effectInfo
     end

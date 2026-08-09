@@ -340,8 +340,9 @@ function gen.generate(result, filename)
         local line = sourceLine(x)
         local parts = {}
         for _, one in ipairs(taken) do
-            parts[#parts + 1] = ("%s.%s = %s.%s"):format(runtimeName, one.name,
-                one.from, one.name)
+            parts[#parts + 1] = ("%s.%s = %s.%s"):format(runtimeName,
+                one.member or one.name, one.from,
+                one.fromMember or one.member or one.name)
         end
         e(table.concat(parts, " "), line)
     end
@@ -1184,6 +1185,21 @@ function gen.generate(result, filename)
             if x.call then emit(x.call) end
             return
 
+        elseif kind == "methodCall" and x.overloadMember then
+            -- The checker selected one overload statically. Its hidden member is a
+            -- real Lua method, so colon syntax evaluates the receiver once and calls
+            -- that exact body without a dispatcher.
+            local line = sourceLine(x)
+            emit(x.obj)
+            if x.safeObj then
+                e("?.:" .. x.overloadMember, line)
+            else
+                e(":" .. x.overloadMember, line)
+            end
+            if x.safeMethod then e("?.") end
+            if x.args then emit(x.args) end
+            return
+
         elseif (kind == "call" or kind == "safeCall") and x.constructorCall then
             -- A declared constructor is a direct call to the function minted for
             -- it, resolved here rather than dispatched at run time.
@@ -1267,7 +1283,8 @@ function gen.generate(result, filename)
                 -- the use site passes the receiver as it always would.
                 table.insert(names, 1, "self")
                 e(("function %s.%s(%s)"):format(x.inlineRuntimeOwner,
-                    x.name.text, table.concat(names, ", ")), line)
+                    x.overloadMember or x.name.text,
+                    table.concat(names, ", ")), line)
             else
                 -- A method may write its receiver out, and the checker reads it
                 -- as the receiver either way. The colon already binds one, so
@@ -1279,7 +1296,8 @@ function gen.generate(result, filename)
                     table.remove(names, 1)
                 end
                 e(("function %s:%s(%s)"):format(x.inlineRuntimeOwner,
-                    x.name.text, table.concat(names, ", ")), line)
+                    x.overloadMember or x.name.text,
+                    table.concat(names, ", ")), line)
             end
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }")
