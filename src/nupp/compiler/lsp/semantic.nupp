@@ -35,6 +35,13 @@ type semantic.Session = {
     documents: {[string]: any}
 }
 
+--- The parser surface syntax colouring needs. Project identity and checker facts are
+--- optional refinements carried by editor parses, not prerequisites for this pass.
+type semantic.Parse = {
+    root: cst.Chunk,
+    tokens: {lexer.Token}
+}
+
 --- What installing semantic tokens gives the session back.
 type semantic.Api = {
     --- Every coloured span in a document, in source order.
@@ -111,7 +118,7 @@ semantic.TYPE_WORDS = {
     ["const"] = true,
 }
 
-function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
+function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
     local kinds = {}
     local function mark(tok, kind)
         if tok and cst.isToken(tok) then
@@ -119,11 +126,37 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
         end
     end
 
+    -- Inner annotations belong to the chunk rather than to an ordinary CST node, so
+    -- recognize the leading token triples directly. Keeping this here also means every
+    -- semantic-token consumer agrees that `internal` and `nofmt` are decorators rather
+    -- than variables.
+    local tokens = result.tokens or {}
+    local at: integer = 1
+    while tokens[
+        at
+    ] and tokens[
+        at
+    ].kind == "@" and tokens[
+        at + 1
+    ] and tokens[
+        at + 1
+    ].kind == "not" and tokens[
+        at + 1
+    ].text == "!" and tokens[
+        at + 2
+    ] and tokens[at + 2].kind == "name" and (tokens[at + 2].text == "internal" or tokens[at + 2].text == "nofmt") do
+        mark(tokens[at + 2], "decorator")
+        at = at + 3
+    end
+
     tree.walkNodes(result.root, function(node)
         local kind = node.kind
         if kind == "cdefFunc" or kind == "cdefStruct" then
-            mark(node[1], "keyword")
-            mark(node[2], "keyword")
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and (child.text == "cdef" or child.text == "struct" or child.text == "from") then
+                    mark(child, "keyword")
+                end
+            end
         elseif kind == "typeAlias" or kind == "recordDecl" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.kind == "name" and child ~= node.name then
@@ -144,6 +177,9 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
                 if cst.isToken(child) and child.kind == "name" and child.text == "is" then
                     mark(child, "keyword")
                 end
+            end
+            for _, tok in ipairs((node as cst.Generics).names) do
+                mark(tok, "typeParameter")
             end
         elseif kind == "newExpr" or kind == "constructorDecl" or kind == "matchesDecl" then
             mark(node[1], "keyword")
@@ -170,6 +206,14 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
         elseif kind == "tborrows" then
             for _, child in ipairs(node) do
                 if cst.isToken(child) and child.text == "borrows" then
+                    mark(child, "keyword")
+                end
+            end
+        elseif kind == "tconst" then
+            mark(node[1], "keyword")
+        elseif kind == "funcbody" or kind == "tfunc" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and (child.text == "yields" or child.text == "resumes") then
                     mark(child, "keyword")
                 end
             end
@@ -203,10 +247,6 @@ function semantic.syntaxKinds(result: tree.Parse): {[lexer.Token]: string}
         elseif kind == "indexerDecl" or kind == "tmap" then
             if node.capability then
                 mark(node.capability, "keyword")
-            end
-        elseif kind == "generics" then
-            for _, tok in ipairs((node as cst.Generics).names) do
-                mark(tok, "typeParameter")
             end
         end
     end)

@@ -1,4 +1,5 @@
 local doc = require("nupp.compiler.doc")
+local highlight = require("nupp.compiler.doc.highlight")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -251,6 +252,48 @@ function M.highlightsLjppWithTheNativeLexer()
    assert(html:find("keyword-writeonly", 1, true), html)
    assert(html:find("keyword-with", 1, true), html)
    assert(html:find('href="#math.Point"', 1, true))
+end
+
+function M.highlightsCurrentNuppSyntaxWithTheParser()
+   local html = doc.highlight(table.concat({
+      "@!internal",
+      "local interface Factory<P...>",
+      "   constructor(...: P...)",
+      "   end",
+      "   matches self.ready",
+      "   end",
+      "end",
+      "local function worker(): const unknown & Serializable",
+      "   yields (number) resumes (boolean)",
+      "   return new Factory()",
+      "end",
+   }, "\n"))
+   assert(html:find("nuppdoc-token-meta", 1, true), html)
+   assert(html:find(">internal</span>", 1, true), html)
+   assert(html:find("keyword-constructor", 1, true), html)
+   assert(html:find("keyword-matches", 1, true), html)
+   assert(html:find("keyword-yields", 1, true), html)
+   assert(html:find("keyword-resumes", 1, true), html)
+   assert(html:find("keyword-new", 1, true), html)
+   assert(html:find("nuppdoc-token-type", 1, true), html)
+end
+
+function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
+   local root = HERE .. "/.."
+   highlight.configureScintillua(root, {lexers = "docs/lexers"})
+   local html = assert(highlight.scintilluaSource(table.concat({
+      "@!internal",
+      "local function worker<P...>(): unknown & Serializable",
+      "   yields (number) resumes (boolean)",
+      "   return new Factory {count = 1_000}",
+      "end",
+   }, "\n"), "nupp"))
+   assert(html:find("nuppdoc-token-meta", 1, true), html)
+   assert(html:find("keyword-yields", 1, true), html)
+   assert(html:find("keyword-resumes", 1, true), html)
+   assert(html:find("keyword-new", 1, true), html)
+   assert(html:find("nuppdoc-token-type", 1, true), html)
+   assert(html:find("nuppdoc-token-number", 1, true), html)
 end
 
 -- Without a manifest the command falls back to documenting ".", which drags

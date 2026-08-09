@@ -589,11 +589,13 @@ end
 function M.contractSyntaxSemanticTokens()
    local uri = "file:///tmp/contracts.nupp"
    local source = table.concat({
+      "@!internal",
       "local interface Bound",
       "end",
       "local record Box<T is Bound> is Bound where true",
       "   metamethod __call: function(self): self",
       "   function run(): string",
+      "      yields (number) resumes (boolean)",
       "      return 'ok'",
       "   end",
       "end",
@@ -620,13 +622,16 @@ function M.contractSyntaxSemanticTokens()
          and character + data[index + 1] or data[index + 1]
       at[line .. ":" .. character] = types[data[index + 3] + 1]
    end
-   assert(at["2:19"] == "keyword", "generic bound is keyword")
-   assert(at["2:29"] == "keyword", "contract inclusion is keyword")
-   assert(at["2:38"] == "keyword", "where is keyword")
-   assert(at["3:3"] == "keyword", "metamethod introducer is keyword")
-   assert(at["3:14"] == "method", "metamethod name is method")
-   assert(at["4:3"] == "keyword", "inline function is keyword")
-   assert(at["4:12"] == "method", "inline method name is method")
+   assert(at["0:2"] == "decorator", "inner annotation name is a decorator")
+   assert(at["3:19"] == "keyword", "generic bound is keyword")
+   assert(at["3:29"] == "keyword", "contract inclusion is keyword")
+   assert(at["3:38"] == "keyword", "where is keyword")
+   assert(at["4:3"] == "keyword", "metamethod introducer is keyword")
+   assert(at["4:14"] == "method", "metamethod name is method")
+   assert(at["5:3"] == "keyword", "inline function is keyword")
+   assert(at["5:12"] == "method", "inline method name is method")
+   assert(at["6:6"] == "keyword", "yields is keyword")
+   assert(at["6:22"] == "keyword", "resumes is keyword")
 end
 
 function M.packBindersHaveTypeParameterEditorSemantics()

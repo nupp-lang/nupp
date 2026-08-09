@@ -205,8 +205,8 @@ The language is guessed from the extension. This page's
 the file it documents.
 
 Use `nupp` as the language for Nupp source: it is highlighted by the compiler's
-own lexer, which agrees with the compiler about what a token is and can turn a
-name into a link into the API reference. Every other language goes to
+own parser and lexer, which agree about tokens and contextual syntax and can turn
+a name into a link into the API reference. Every other language goes to
 Scintillua.
 
 Links between pages are written as ordinary relative Markdown paths to the

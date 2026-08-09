@@ -1,9 +1,9 @@
 --[[
 Source code as coloured HTML.
 
-Nupp is highlighted by the compiler's own lexer, which is the only highlighter
-that agrees with the compiler about what a token is, and which knows enough to
-turn a name into a link. Every other language in a fenced block is handed to
+Nupp is highlighted by the compiler's own parser and lexer, which agree about
+both tokens and contextual syntax and know enough to turn a name into a link.
+Every other language in a fenced block is handed to
 Scintillua, a rock the documentation target depends on; without it a block
 renders as plain escaped text.
 
@@ -28,6 +28,9 @@ it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
 
 local lexer = require("nupp.compiler.lexer")
+local parser = require("nupp.compiler.parser")
+local semantic = require("nupp.compiler.lsp.semantic")
+local types = require("nupp.compiler.types")
 local stringsMod = require("nupp.compiler.doc.strings")
 local filesMod = require("nupp.compiler.doc.files")
 
@@ -42,27 +45,19 @@ type highlight.Settings = {
     lexers: string?
 }
 
-local TYPE_NAMES = {
-    any = true,
-    boolean = true,
-    cdata = true,
-    integer = true,
-    never = true,
-    metatable = true,
-    number = true,
-    string = true,
-    table = true,
-    thread = true,
-    unknown = true,
-    userdata = true,
-}
+local TYPE_NAMES = {borrowed = true, ctype = true, metatable = true, owned = true, pinned = true,}
+for name in pairs(types.builtins) do
+    TYPE_NAMES[name] = true
+end
 
 local CONTEXTUAL_KEYWORDS = {
     ["as"] = true,
     borrows = true,
     cdef = true,
     constructor = true,
+    continue = true,
     exclusive = true,
+    from = true,
     takes = true,
     const = true,
     global = true,
@@ -71,6 +66,7 @@ local CONTEXTUAL_KEYWORDS = {
     matches = true,
     ["new"] = true,
     own = true,
+    out = true,
     record = true,
     metamethod = true,
     where = true,
@@ -78,9 +74,12 @@ local CONTEXTUAL_KEYWORDS = {
     readonly = true,
     releases = true,
     retains = true,
+    resumes = true,
     struct = true,
+    type = true,
     unsafe = true,
     writeonly = true,
+    yields = true,
 }
 
 local LITERAL_KEYWORDS = {["false"] = true, ["nil"] = true, ["true"] = true}
@@ -112,11 +111,29 @@ local function qualifiedName(tokens, index)
     return name
 end
 
-local function tokenStyle(tokens, index)
+local SYNTAX_STYLES = {
+    decorator = "meta",
+    keyword = "keyword",
+    type = "type",
+    struct = "type",
+    interface = "type",
+    typeParameter = "type",
+    ["function"] = "function",
+    method = "function",
+    property = "property",
+    parameter = "variable",
+    variable = "variable",
+}
+
+local function tokenStyle(tokens, index, syntaxKinds)
     local token = tokens[index]
     local previous = tokens[index - 1]
     local following = tokens[index + 1]
     if token.kind == "name" then
+        local syntaxStyle = SYNTAX_STYLES[syntaxKinds[token]]
+        if syntaxStyle then
+            return syntaxStyle
+        end
         if CONTEXTUAL_KEYWORDS[token.text] then
             return "keyword"
         end
@@ -220,7 +237,9 @@ end
 
 local function highlightNuppLines(source, links)
     local out = lineWriter(source)
-    local tokens = lexer.lex(source, "documentation-code-block.nupp")
+    local parsed = parser.parse(source, "documentation-code-block.nupp")
+    local tokens = parsed.tokens
+    local syntaxKinds = semantic.syntaxKinds(parsed)
     for index, token in ipairs(tokens) do
         for _, trivia in ipairs(token.trivia) do
             if trivia.kind == "comment" or trivia.kind == "hashbang" then
@@ -230,7 +249,7 @@ local function highlightNuppLines(source, links)
             end
         end
         if token.kind ~= "eof" then
-            local style = tokenStyle(tokens, index)
+            local style = tokenStyle(tokens, index, syntaxKinds)
             local url = nil
             if links and token.kind == "name" and not declarationName(tokens, index) then
                 url = links[qualifiedName(tokens, index)] or links[token.text]
@@ -481,6 +500,14 @@ local function highlightScintilluaLines(source, language)
     return out.lines
 end
 
+--- Highlights one source with Scintillua even when the language also has a native
+--- highlighter. This keeps custom lexer integration testable without changing the
+--- public `nupp` fence, whose parser-aware links and contextual colours are richer.
+local function highlightScintillua(source: string, language: string): string?
+    local lines = highlightScintilluaLines(source, language)
+    return lines and table.concat(lines, "\n") or nil
+end
+
 local function codeLines(source: string, language: string?, links: nupp.compiler.doc.urls.Links?): {string}
     if language == "nupp" then
         return highlightNuppLines(source, links)
@@ -503,6 +530,7 @@ local function codeHtml(source: string, language: string?, links: nupp.compiler.
 end
 
 highlight.nuppSource = highlightNupp
+highlight.scintilluaSource = highlightScintillua
 highlight.codeHtml = codeHtml
 highlight.codeLines = codeLines
 highlight.configureScintillua = configureScintillua

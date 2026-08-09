@@ -6,10 +6,21 @@ import { StreamLanguage } from "@codemirror/language";
 import { lua } from "@codemirror/legacy-modes/mode/lua";
 
 const NUPP_KEYWORDS = new Set([
-  "record", "struct", "interface", "enum", "type", "new",
-  "with", "owned", "borrowed", "pinned", "unsafe", "takes",
-  "retains", "releases", "raise", "raises", "as", "global",
+  "as", "borrows", "cdef", "const", "constructor", "continue",
+  "exclusive", "from", "global", "interface", "is", "matches",
+  "metamethod", "new", "out", "readonly", "record", "releases",
+  "resumes", "retains", "struct", "takes", "type", "unsafe",
+  "where", "with", "writeonly", "yields",
 ]);
+
+const NUPP_TYPES = new Set([
+  "any", "boolean", "borrowed", "cdata", "cstring", "ctype", "float",
+  "int8", "int16", "int32", "int64", "integer", "metatable", "never",
+  "number", "owned", "pinned", "string", "table", "thread", "uint8",
+  "uint16", "uint32", "uint64", "unknown", "userdata", "voidptr",
+]);
+
+const NUPP_OPERATOR = /^(?:~>>=|\.\.\.|<<=|>>=|\/\/=|\.\.=|\?\?=|~>>|<<|>>|==|~=|<=|>=|!=|&&|\|\||\?\?|\?\.|::|\/\/|\.\.|->|\+=|-=|\*=|\/=|%=|&=|\|=|[+\-*/%^#&~|<>=?:!@])/;
 
 const baseToken = lua.token;
 const nuppMode = {
@@ -17,10 +28,13 @@ const nuppMode = {
   token(stream, state) {
     // Annotations: @allow(...), @dispose, etc. Lua's mode has no notion of
     // these, so catch the sigil before falling through to it.
-    if (stream.match(/^@[A-Za-z_][A-Za-z0-9_]*/)) return "meta";
+    if (stream.match(/^@!?[A-Za-z_][A-Za-z0-9_]*/)) return "meta";
+    if (stream.match(NUPP_OPERATOR)) return "operator";
     const style = baseToken(stream, state);
-    if (style === "variable" && NUPP_KEYWORDS.has(stream.current())) {
-      return "keyword";
+    if (style === "variable") {
+      const word = stream.current();
+      if (NUPP_KEYWORDS.has(word)) return "keyword";
+      if (NUPP_TYPES.has(word) || /^[A-Z][A-Za-z0-9_]*$/.test(word)) return "type";
     }
     return style;
   },

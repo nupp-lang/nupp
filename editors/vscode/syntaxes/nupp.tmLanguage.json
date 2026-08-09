@@ -205,6 +205,10 @@
     "functionDeclarations": {
       "patterns": [
         {
+          "name": "storage.type.function.nupp",
+          "match": "\\bconstructor\\b(?=\\s*\\()"
+        },
+        {
           "match": "\\b(metamethod)([ \\t]+)(__[A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "storage.type.function.nupp" },
@@ -274,6 +278,15 @@
           }
         },
         {
+          "comment": "File-level annotations use @! and are only valid at the beginning of a source file.",
+          "match": "(@)(!)(internal|nofmt)\\b",
+          "captures": {
+            "1": { "name": "punctuation.definition.annotation.nupp" },
+            "2": { "name": "punctuation.definition.annotation.nupp" },
+            "3": { "name": "entity.name.tag.nupp" }
+          }
+        },
+        {
           "match": "(@)([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "punctuation.definition.annotation.nupp" },
@@ -291,6 +304,27 @@
         {
           "name": "keyword.control.nupp",
           "match": "\\bwith\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*(?::[^=]+)?=)"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bnew\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*(?:\\(|\\{|\"|'))"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\bmatches\\b(?!\\s*:)"
+        },
+        {
+          "name": "keyword.control.nupp",
+          "match": "\\b(?:where|yields|resumes)\\b"
+        },
+        {
+          "name": "storage.modifier.cdef.nupp",
+          "match": "\\bfrom\\b(?=\\s*(?:\"|'))"
+        },
+        {
+          "comment": "const is also a contextual type modifier; declaration const is captured earlier.",
+          "name": "storage.modifier.const.nupp",
+          "match": "\\bconst\\b(?=\\s+(?:[A-Za-z_'\"{(]|function\\b))"
         },
         {
           "name": "keyword.control.nupp",
@@ -337,7 +371,7 @@
       "patterns": [
         {
           "name": "support.type.builtin.nupp",
-          "match": "\\b(?:any|boolean|borrowed|cstring|float|int8|int16|int32|int64|integer|metatable|number|owned|pinned|string|table|thread|userdata|uint8|uint16|uint32|uint64|voidptr)\\b"
+          "match": "\\b(?:any|boolean|borrowed|cdata|cstring|ctype|float|int8|int16|int32|int64|integer|metatable|never|number|owned|pinned|string|table|thread|unknown|userdata|uint8|uint16|uint32|uint64|voidptr)\\b"
         }
       ]
     },
@@ -353,7 +387,7 @@
       "patterns": [
         {
           "name": "keyword.operator.nupp",
-          "match": "~>>|\\.\\.\\.|<<|>>|==|~=|<=|>=|!=|&&|\\|\\||\\?\\?|\\?\\.|::|//|\\.\\.|->|[+\\-*/%^#&~|<>=?:@!]"
+          "match": "~>>=|\\.\\.\\.|<<=|>>=|//=|\\.\\.=|\\?\\?=|~>>|<<|>>|==|~=|<=|>=|!=|&&|\\|\\||\\?\\?|\\?\\.|::|//|\\.\\.|->|\\+=|-=|\\*=|/=|%=|&=|\\|=|[+\\-*/%^#&~|<>=?:@!]"
         },
         {
           "name": "punctuation.separator.nupp",

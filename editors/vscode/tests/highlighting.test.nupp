@@ -1,5 +1,11 @@
 -- SYNTAX TEST "source.nupp" "Nupp highlighting"
 
+@!internal
+-- <- punctuation.definition.annotation.nupp
+--   ^^^^^^^^ entity.name.tag.nupp
+@!nofmt
+--  ^^^^^ entity.name.tag.nupp
+
 local record Task
 -- <- storage.modifier.local.nupp
 --    ^^^^^^ storage.type.declaration.nupp
@@ -20,6 +26,15 @@ local interface Callable<T>
 --          ^^^^^^^^ entity.name.function.nupp
 end
 
+local interface Factory<P...>
+   constructor(...: P...)
+-- ^^^^^^^^^^^ storage.type.function.nupp
+   end
+   matches self.ready
+-- ^^^^^^^ keyword.control.nupp
+   end
+end
+
 local interface ResultSink
    readonly result: string
 -- ^^^^^^^^ keyword.other.property.nupp
@@ -36,6 +51,33 @@ local readonly = true
 
 local mt: metatable<Task>
 --        ^^^^^^^^^ support.type.builtin.nupp
+
+local opaque: unknown
+--            ^^^^^^^ support.type.builtin.nupp
+local raw: cdata
+--         ^^^^^ support.type.builtin.nupp
+local handle: ctype<voidptr>
+--            ^^^^^ support.type.builtin.nupp
+local frozen: const {string}
+--            ^^^^^ storage.modifier.const.nupp
+
+local function worker(): string & Serializable
+--                              ^ keyword.operator.nupp
+   yields (number) resumes (boolean)
+   return "done"
+end
+
+yields (number)
+-- <- keyword.control.nupp
+resumes (boolean)
+-- <- keyword.control.nupp
+
+local made = new Task {id = 1, title = "ready"}
+--           ^^^ keyword.control.nupp
+
+cdef function open_file(path: cstring): voidptr? from "native"
+from "native"
+-- <- storage.modifier.cdef.nupp
 
 while true do
    continue

@@ -279,7 +279,7 @@ Site output is a responsive three-column layout with its own color system,
 typography, navigation, badges, code treatment, and light/dark behavior. Both
 side columns have matching header controls and remember their collapsed state. Non-home pages add previous and next links, while the left
 navigation becomes a hamburger drawer on small screens. Nupp code uses the
-compiler lexer; Scintillua's lexers highlight fenced Lua, GLSL, shell,
+compiler parser and lexer; Scintillua's lexers highlight fenced Lua, GLSL, shell,
 JSON, and other languages. Every page links to a colocated `llms.txt`; the site
 root also contains an index at `llms.txt` and the combined reference at
 `llms-full.txt`.

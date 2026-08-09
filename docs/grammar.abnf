@@ -140,10 +140,15 @@ simpleexp      = Numeral
                / "..."
                / functiondef
                / shortfn
+               / newexp
                / tableconstructor
                / suffixedexp
 
 functiondef    = "function" funcbody
+
+; `new` is contextual and requires a same-line qualified name followed by call
+; arguments. The final suffix must be a call. [CS-20]
+newexp         = %s"new" suffixedexp
 
 ; Short function expression (LuaJIT 3.0): |a, b| -> expr / x -> expr /
 ; "||" for no parameters / -> do ... end for a block. "||" is one token,
@@ -304,7 +309,8 @@ refinement     = "where" exp
 arraypart      = "{" type "}"                  ; the record is also a
                                                 ; sequence of this element
                                                 ; type; a struct has none
-annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod)
+annotatedentry = *annotation (fielddecl / metamethoddecl / inlinemethod
+                              / constructordecl / matchesdecl)
                                                 ; metadata attaches to one entry
 fielddecl      = [propertycap] Name ":" type   ; one explicit type per field;
                                                 ; grouped names are rejected
@@ -314,6 +320,8 @@ propertycap    = %s"readonly" / %s"writeonly"  ; contextual before a member;
                                                 ; absent grants both capabilities
 metamethoddecl = "metamethod" Name ":" functype
 inlinemethod   = "function" Name funcbody       ; implicit self receiver
+constructordecl = %s"constructor" funcbody      ; no runtime dispatcher [CS-20]
+matchesdecl    = %s"matches" exp "end"          ; interface runtime test [CS-20]
 
 ; C declarations [CS-10]: "cdef" is contextual. Fields and parameters use
 ; the same one-explicit-type-per-name rule as everywhere else; "..." is a
@@ -333,14 +341,15 @@ cdefmode       = ownershipmode / %s"out"         ; out is logical in Lua and
                                                 ; remains positional in C
 
 ; Function signatures (statement and expression positions):
-funcbody       = [generics] "(" [parlist] ")" [":" rettypes] block "end"
+funcbody       = [generics] "(" [parlist] ")" [":" rettypes]
+                 [coroutineprotocol] block "end"
 parlist        = param *("," param)
 param          = [ownershipmode] Name [":" type]
-               / "..." [":" type]               ; must be last
+               / "..." [":" (type / typepack)]  ; must be last
                / "..." Name [":" type]          ; named vararg [CS-12]
 ownershipmode  = %s"takes" / %s"borrows" / %s"exclusive" / %s"retains"
                / %s"releases"                    ; contextual before a name
-rettypes       = predicate / borrowret / (type *("," type))
+rettypes       = predicate / borrowret / typepack
                                                 ; statement position only [CS-7]
 borrowret      = type %s"borrows" borrowroots   ; [CS-18] the result depends
                                                 ; on every named root
@@ -350,7 +359,9 @@ predicate      = Name %s"is" type               ; [CS-16] the function answers
                                                 ; the type; the value returned
                                                 ; is a boolean
 generics       = "<" genericparam *("," genericparam) ">"
-genericparam   = Name ["is" type]
+genericparam   = Name ["..."] ["is" type]      ; `...` declares a pack [CS-21]
+
+coroutineprotocol = %s"yields" typepack %s"resumes" typepack
 
 ; Expression extensions (contextual operators [CS-6]):
 ;   castexp: "e as T" binds at the mulexp tier (tighter than .. and + -)
@@ -359,7 +370,8 @@ mulexp         =/ unexp *("as" type)
 cmpexp         =/ borexp *("is" type)
 
 ; Types:
-type           = posttype *("|" posttype)       ; union
+type           = intersection *("|" intersection)
+intersection   = posttype *("&" posttype)       ; tighter than union [CS-22]
 posttype       = primtype *("?" / "*" / carraysuffix)
                                                 ; optional / pointer / C array,
                                                 ; postfix, left to right:
@@ -370,12 +382,13 @@ carraysuffix   = "[" ("?" / Numeral) "]"        ; T[?] variable-length,
 primtype       = ["const"] primtype              ; read-only view [CS-15]
                / LiteralString                  ; a literal type: the set
                                                 ; containing just that value
-               / "nil"
+               / "nil" / "true" / "false"
                / typename
                / tabletype
                / functype
                / "(" type ")"
-typename       = Name *("." Name) ["<" type *("," type) ">"]
+typename       = Name *("." Name) ["<" typearg *("," typearg) ">"]
+typearg        = type / typepack                 ; packs only where accepted [CS-21]
 tabletype      = "{" tablebody "}"
 tablebody      = indexer *("," (indexer / shapefield))
                                                 ; indexer or mixed shape [CS-8]
@@ -384,13 +397,26 @@ tablebody      = indexer *("," (indexer / shapefield))
                / type *("," type)               ; one = array, several = tuple
 shapefield     = [propertycap] Name ":" type
 indexer        = [propertycap] "[" type "]" ":" type
-functype       = "function" [generics] "(" [ftparams] ")" [":" ftret]
+functype       = "function" [generics] "(" [ftparams] ")"
+                 [":" typepack] [coroutineprotocol]
 ftparams       = ftparam *("," ftparam)
 ftparam        = [ownershipmode] Name ":" type  ; named [CS-8 lookahead]
-               / "..." [":" type]
+               / "..." [":" (type / typepack)]
+               / Name "..."                   ; a generic pack argument [CS-21]
                / type
-ftret          = "(" type *("," type) ")"       ; multi-return needs parens [CS-7]
+
+; A value sequence: fixed members, a homogeneous `...T` tail, or a variadic
+; generic `P...` tail. Parentheses admit zero or several fixed members and pack
+; unions. Bare comma lists are permitted only on statement function returns. [CS-21]
+typepack       = "..." type
+               / Name "..."
                / type
+               / "(" [packbody] ")"
+packbody       = packitems / packunion
+packitems      = type *("," type) ["," packtail]
+               / packtail
+packtail       = "..." type / Name "..."
+packunion      = typepack 1*("|" typepack)
 
 ;;; ------------------------------------------------------------------
 ;;; Notes — context-sensitive rules ABNF cannot express
@@ -561,6 +587,25 @@ ftret          = "(" type *("," type) ")"       ; multi-return needs parens [CS-
 ;   inequality and nothing else, so "a != b" at statement position stays what
 ;   it was, an expression that is not a statement. Diagnostics likewise quote
 ;   the spelling that was written rather than the kind it folded to.
+;
+; [CS-20] Construction declarations and expressions. `new` begins a
+;   construction only when followed on the same line by a Name, and its
+;   suffixed expression must end in call arguments. Inside a record body,
+;   `constructor` opens a declaration only before `(`, while `matches` opens
+;   an interface test only when it is not followed by `:`; those lookaheads
+;   preserve fields and ordinary variables with the same names.
+;
+; [CS-21] Type packs. A generic parameter followed immediately by `...`
+;   declares a variadic pack. In a pack use, `P...` is a variadic generic tail
+;   and `...T` is a homogeneous tail. Either tail is last. `thread` is the
+;   builtin whose angle-bracket arguments are packs; other generic types take
+;   ordinary types. A pack union is parenthesized and each arm is itself a
+;   parenthesized pack, which keeps its `|` distinct from a union of values.
+;
+; [CS-22] Intersection types. `&` joins types more tightly than `|`. Function
+;   intersections describe overload sets. Directly after a function type's
+;   return pack, `& function` starts the enclosing callable intersection; a
+;   return type that itself intersects a function is parenthesized.
 ;
 ; Associativity summary: "..", "^", and the ternary condexp are right-
 ; associative; every other binary layer is left-associative. Precedence from

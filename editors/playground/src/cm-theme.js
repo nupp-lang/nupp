@@ -46,13 +46,15 @@ const chrome = EditorView.theme({
 
 // The Lua legacy stream-mode (see nupp-lang.js) only ever emits "keyword",
 // "string", "comment", "number", "variable", "builtin", plus this project's
-// own "meta" for @annotations — see the tag-name-to-legacy-name table this
+// own "meta", "type", and "operator" tokens — see the tag-name-to-legacy-name table this
 // maps through: node_modules/@codemirror/language's default TokenTable.
 const highlightStyle = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--pg-syntax-keyword)" },
   { tag: tags.string, color: "var(--pg-syntax-string)" },
   { tag: tags.comment, color: "var(--pg-syntax-comment)", fontStyle: "italic" },
   { tag: tags.number, color: "var(--pg-syntax-number)" },
+  { tag: tags.typeName, color: "var(--pg-syntax-type)" },
+  { tag: tags.operator, color: "var(--pg-syntax-operator)" },
   { tag: tags.variableName, color: "var(--pg-syntax-variable)" },
   // Lua's legacy mode tags a small set of stdlib names ("print", "pairs", …)
   // as "builtin", which maps to this modifier-tag combination — see

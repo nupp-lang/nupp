@@ -4,8 +4,9 @@
 -- actually fences, and a fence in anything else renders as escaped text the way
 -- it does with no Scintillua at all.
 --
--- Nupp itself is not here: it is highlighted by the compiler's own lexer, which
--- is the only one that agrees with the compiler about what a token is.
+-- Nupp itself is not here: it is highlighted by the compiler's own parser and
+-- lexer, which agree about both tokens and contextual syntax. The project lexer
+-- directory still carries a Nupp Scintillua lexer for Scintillua consumers.
 --
 -- Closed under embedding. A lexer loads another to highlight what it contains --
 -- HTML reaches for CSS and JavaScript, Markdown for everything it fences -- so
