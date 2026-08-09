@@ -29,4 +29,5 @@ local zone = require("nupp.zone")
 ```
 ]]
 
-return {}
+const nupp = {}
+return nupp
