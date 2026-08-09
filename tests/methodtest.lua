@@ -696,6 +696,25 @@ function M.overloadedConstructorsSelectDistinctBodies()
    }, "\n")), "NUPP2208:6")
 end
 
+function M.genericConstructorsRemainOverloadedAfterInstantiation()
+   assertEq(run(table.concat({
+      "local record Box<T>",
+      "    value: T",
+      "    constructor(kind: 'value', value: T)",
+      "        self.value = value",
+      "    end",
+      "    constructor(kind: 'converted', value: T, convert: boolean)",
+      "        self.value = (convert and tostring(value) or value) as any",
+      "    end",
+      "end",
+      "local text = new Box('value', 'ready')",
+      "local number = new Box('converted', 42, true)",
+      "local textValue: string = text.value",
+      "local numberValue: integer = number.value",
+      "return text.value .. ':' .. number.value",
+   }, "\n")), "ready:42")
+end
+
 -- Declaring a constructor closes the literal form. Leaving it open beside one
 -- would let every invariant the constructor establishes be walked around.
 function M.aConstructorClosesTheLiteralForm()

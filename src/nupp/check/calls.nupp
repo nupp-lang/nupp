@@ -598,9 +598,25 @@ function calls.install(c: any): any
                 local builtSignatures, bySignature = {}, {}
                 local entries = calleeT.constructorEntries or {}
                 for index, signature in ipairs(constructors) do
+                    local typeParams, typeBounds, anyBound = {}, {}, false
+                    for j, tv in ipairs(signature.typeParams or {}) do
+                        typeParams[#typeParams + 1] = tv
+                        local bound = signature.typeBounds
+                            and signature.typeBounds[j] or nil
+                        typeBounds[#typeParams] = bound
+                        anyBound = anyBound or bound ~= nil
+                    end
+                    for j, tv in ipairs(calleeT.typeParams or {}) do
+                        typeParams[#typeParams + 1] = tv
+                        local bound = calleeT.typeBounds
+                            and calleeT.typeBounds[j] or nil
+                        typeBounds[#typeParams] = bound
+                        anyBound = anyBound or bound ~= nil
+                    end
                     local built = T.func(signature.params, {calleeT},
                         signature.vararg, signature.paramModes, nil,
-                        signature.typeParams, signature.typeBounds, nil, nil, nil,
+                        #typeParams > 0 and typeParams or nil,
+                        anyBound and typeBounds or nil, nil, nil, nil,
                         nil, signature.varargType, nil, signature.paramPack,
                         T.pack({calleeT}), signature.packParams,
                         signature.yieldPack, signature.resumePack)
@@ -616,6 +632,31 @@ function calls.install(c: any): any
                 if entry then
                     node.constructorIndex = entry.index
                     node.constructorEntry = entry
+                end
+                if entry and calleeT.typeParams and node.argumentPack then
+                    local map = {}
+                    unifyPack(entry.signature.paramPack, node.argumentPack, map)
+                    ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds,
+                        map, node)
+                    local instance = instantiateNominal(calleeT, map)
+                    first, rets, pack = instance, {instance}, T.pack({instance})
+                    if node.signatureType and node.signatureType.tag == "func" then
+                        local selectedSignature = node.signatureType
+                        node.signatureType = T.func(selectedSignature.params,
+                            {instance}, selectedSignature.vararg,
+                            selectedSignature.paramModes, selectedSignature.predicate,
+                            nil, nil, selectedSignature.borrowsParam,
+                            selectedSignature.borrowsSelf,
+                            selectedSignature.borrowsParams,
+                            selectedSignature.ffiOut,
+                            selectedSignature.varargType,
+                            selectedSignature.noreturn,
+                            selectedSignature.paramPack, T.pack({instance}), nil,
+                            selectedSignature.yieldPack,
+                            selectedSignature.resumePack)
+                    end
+                    node.valuePack = pack
+                    c.lastCallRets, c.lastCallPack = rets, pack
                 end
                 return first, rets, pack
             end
@@ -738,11 +779,9 @@ function calls.install(c: any): any
         -- metatable standing for one: calling a declaration's table is exactly what the
         -- contract on it describes. A concrete record was unwrapped above and answered
         -- as a construction or a call before reaching here.
-        if calleeT.tag == "typevar" or calleeT.tag == "metatable" then
-            local callContract = ops.metamethodOf(calleeT, "__call")
-            if callContract then
-                return ops.inferCall(node, dropSelf(callContract), argsNode)
-            end
+        local callContract = ops.metamethodOf(calleeT, "__call")
+        if callContract then
+            return ops.inferCall(node, dropSelf(callContract), argsNode)
         end
 
         local overloads = callableMembers(calleeT)

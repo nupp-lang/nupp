@@ -187,7 +187,9 @@ local function collectFunctions(root)
             for _, param in ipairs(body and body.params or {}) do
                 if param.name and not param.namedVararg then
                     local at = #info.paramNames + 1
-                    info.params[param.name.definition] = at
+                    if param.name.definition then
+                        info.params[param.name.definition] = at
+                    end
                     info.paramNames[at] = param.name.text
                 end
             end
@@ -213,7 +215,9 @@ local function collectFunctions(root)
             for _, param in ipairs(target.params or {}) do
                 if param.name then
                     local at = #info.paramNames + 1
-                    info.params[param.name.definition] = at
+                    if param.name.definition then
+                        info.params[param.name.definition] = at
+                    end
                     info.paramNames[at] = param.name.text
                 end
             end

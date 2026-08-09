@@ -376,6 +376,13 @@ record types.Nominal
     --- The declaration-scoped binder used by the `self` type.
     selfType: types.Type?
 
+    --- Constructor call contracts and their source/runtime provenance, kept aligned in
+    --- declaration order. Generic instantiation substitutes the signatures while
+    --- preserving each entry's declaration and generated member index.
+    constructors: {types.Func}?
+
+    constructorEntries: {any}?
+
     --- Where the declaration's runtime table lives, when that is not simply its name: a
     --- qualified declaration hangs off the table it was attached to, and a nested one
     --- off its owner's. `is` compares against it, and the generator stamps it.

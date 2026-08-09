@@ -208,6 +208,42 @@ return m
 
 Reports: `NUPP2001`, `NUPP2009`. `nupp explain <code>` says more.
 
+## Intersections and overloads
+
+`A & B` is the type of values satisfying both contracts. `&` binds more tightly
+than `|`, nested intersections flatten, duplicate members disappear, and
+`unknown` or gradual `any` add no constraint. Intersections compose structural
+capabilities: readable member types intersect, writable member types unite, and
+member names come from every constituent.
+
+When every member is a function, the intersection is an overload set. The
+checker adjusts the complete argument pack once, probes every candidate without
+changing ownership or borrow state, and applies the selected signature only
+when exactly one survives. There is no best-match ranking and source order does
+not break a tie. The winner supplies its complete result pack, predicates,
+`noreturn`, borrowing, ownership, and FFI output contracts.
+
+A record may declare several constructors with distinct parameter packs.
+`new T(...)` selects one with the same overload rule and emits a direct call to
+that constructor's indexed runtime function; no dispatcher exists at run time.
+
+```nupp
+local type Named = {readonly name: string}
+local type Counted = {readonly count: integer}
+local type Entry = Named & Counted
+
+local type Parse = function(text: string): integer
+    & function(text: string, base: integer): string
+
+local parse: Parse = nil as any
+local decimal: integer = parse("10")
+local hexadecimal: string = parse("10", 16)
+
+return decimal, hexadecimal
+```
+
+Reports: `NUPP2124`, `NUPP2125`, `NUPP2126`, `NUPP2208`. `nupp explain <code>` says more.
+
 ## Records
 
 A record is a table with declared fields. It may carry inline methods, whose
@@ -230,11 +266,13 @@ something assigns to it and reading it before that is **NUPP2207**.
 
 A declaration may state how it is built. A `constructor(...)` body is what
 `new T(...)` runs: the instance is made before it and returned after it, so the
-body fills the fields in. Every field that cannot hold nil has to be filled —
-that guarantee is the reason to prefer one over a literal, and it is why
-declaring a constructor closes the literal form for that declaration. Failing
-either is **NUPP2208**. `constructor` is contextual, so a field may still be
-called one.
+body fills the fields in. Several constructors may declare distinguishable
+parameter packs; the call selects exactly one and invokes it directly. Every
+field that cannot hold nil has to be filled — that guarantee is the reason to
+prefer one over a literal, and it is why declaring a constructor closes the
+literal form for that declaration. A duplicate parameter pack or a body that
+breaks either guarantee is **NUPP2208**. `constructor` is contextual, so a
+field may still be called one.
 
 The name is a value too: the runtime table `new` stamps on the instances it
 builds. That table is their metatable, so it holds `metatable<Point>` rather
@@ -828,6 +866,9 @@ Reports: `NUPP2108`. `nupp explain <code>` says more.
 | NUPP2121 | A type pack is used where only one value type can appear |
 | NUPP2122 | A 'where' refinement cannot be enforced |
 | NUPP2123 | A metatable value does not fit the key it is written under |
+| NUPP2124 | An intersection is provably uninhabited |
+| NUPP2125 | No overload accepts a call |
+| NUPP2126 | Several overloads accept a call |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |

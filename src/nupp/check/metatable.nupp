@@ -48,7 +48,7 @@ function metatable.install(c: any): any
         if bare.tag == "metatable" then
             return bare.of
         end
-        if bare.tag == "union" then
+        if bare.tag == "union" or bare.tag == "intersection" then
             for _, member in ipairs(bare.members) do
                 local of = receiverOf(member)
                 if of then
@@ -73,7 +73,19 @@ function metatable.install(c: any): any
     --- Whether a value can stand where LuaJIT will call one. `any` is what an untyped
     --- boundary gives back and says nothing either way.
     local function callable(t: Type): boolean
-        return t == T.any or rawType(t).tag == "func"
+        local bare = rawType(t)
+        if t == T.any or bare.tag == "func" then
+            return true
+        end
+        if bare.tag == "intersection" then
+            for _, member in ipairs(bare.members) do
+                if rawType(member).tag ~= "func" then
+                    return false
+                end
+            end
+            return #bare.members > 0
+        end
+        return false
     end
 
     function ops.checkContract(at: any, name: string, valueT: Type,

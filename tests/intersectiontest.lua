@@ -54,6 +54,10 @@ function M.intersectionsCanonicalizeAndRenderWithPrecedence()
    assertEq(T.intersection({T.any, T.string}), T.string)
    assertEq(T.intersection({T.unknown, T.string}), T.string)
    assertEq(T.intersection({T.never, T.string}), T.never)
+   local tv = T.typevar("T", "intersection-test")
+   assertEq(T.tostring(require("nupp.generics").subst(
+      T.intersection({tv, T.string}), {[tv] = T.literal("ok", T.string)})),
+      '"ok" & string')
 end
 
 function M.intersectionsComposeStructuralCapabilities()
@@ -65,6 +69,27 @@ function M.intersectionsComposeStructuralCapabilities()
       "   return {count = count, name = name}",
       "end",
    }, "\n"))
+end
+
+function M.intersectionSurfacesComposeReadsWritesAndIndexers()
+   clean(table.concat({
+      "local type ReadBoth = {readonly [string]: string}",
+      "   & {readonly [integer]: integer}",
+      "local reads: ReadBoth = nil as any",
+      "local text: string? = reads['name']",
+      "local count: integer? = reads[1]",
+      "local type WriteBoth = {writeonly [string]: string}",
+      "   & {writeonly [string]: integer}",
+      "local writes: WriteBoth = nil as any",
+      "writes['name'] = 'ready'",
+      "writes['count'] = 1",
+   }, "\n"))
+
+   local left = T.shape({{name = "a", read = T.string}})
+   local right = T.shape({{name = "b", read = T.number}})
+   local both = T.shape({{name = "a", read = T.string},
+      {name = "b", read = T.number}})
+   assert(relations.isA(T.intersection({left, right}), both))
 end
 
 function M.provablyEmptyIntersectionsAreRejected()
@@ -91,6 +116,47 @@ function M.selectedOverloadsPreserveCompleteResultPacks()
       "local data, nextOffset = read('file', 0)",
       "local text: string = data",
       "local offset: integer = nextOffset",
+   }, "\n"))
+end
+
+function M.methodsAndMetamethodsKeepTheirOverloadSets()
+   clean(table.concat({
+      "local type Methods = {readonly convert: function(self: any, value: string): string}",
+      "   & {readonly convert: function(self: any, value: integer): integer}",
+      "local methods: Methods = nil as any",
+      "local text: string = methods:convert('ready')",
+      "local count: integer = methods:convert(1)",
+      "local interface CallsText",
+      "   metamethod __call: function(self, value: string): string",
+      "end",
+      "local interface CallsNumber",
+      "   metamethod __call: function(self, value: integer): integer",
+      "end",
+      "local callable: CallsText & CallsNumber = nil as any",
+      "local calledText: string = callable('ready')",
+      "local calledNumber: integer = callable(1)",
+   }, "\n"))
+end
+
+function M.genericOverloadsSpecializeCandidatesIndependently()
+   clean(table.concat({
+      "local type Convert = function<T is string>(value: T): T",
+      "   & function(value: integer): integer",
+      "local convert: Convert = nil as any",
+      "local text: string = convert('ready')",
+      "local count: integer = convert(1)",
+   }, "\n"))
+end
+
+function M.packGenericOverloadsPreserveHeterogeneousTails()
+   clean(table.concat({
+      "local type Forward = function<A...>(tag: 'many', A...): A...",
+      "   & function(tag: 'none'): string",
+      "local forward: Forward = nil as any",
+      "local count, text = forward('many', 3, 'ready')",
+      "local n: number = count",
+      "local s: string = text",
+      "local empty: string = forward('none')",
    }, "\n"))
 end
 

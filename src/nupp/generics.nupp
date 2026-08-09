@@ -256,6 +256,18 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, ft in pairs(n.metamethods or {}) do
         inst.metamethods[name] = generics.subst(ft, map)
     end
+    inst.constructors = {}
+    inst.constructorEntries = {}
+    for j, signature in ipairs(n.constructors or {}) do
+        local specialized = generics.subst(signature, map)
+        inst.constructors[j] = specialized
+        local entry = n.constructorEntries and n.constructorEntries[j] or nil
+        inst.constructorEntries[j] = {
+            signature = specialized,
+            declaration = entry and entry.declaration or nil,
+            index = entry and entry.index or j,
+        }
+    end
     return inst
 end
 
@@ -327,6 +339,12 @@ function generics.unify(param: Type, arg: Type, map: Bindings)
             generics.unify(tv, residue, map)
         end
         for _, r in ipairs(rest) do generics.unify(r, arg, map) end
+    elseif tag == "intersection" then
+        -- Every conjunct constrains the same runtime argument. In particular this
+        -- lets `T & Bound` infer T while compatibility proves the other contracts.
+        for _, member in ipairs(param.members) do
+            generics.unify(member, arg, map)
+        end
     elseif tag == "shape" then
         local reads = arg.tag == "shape" and arg.byname
             or (arg.tag == "nominal" and arg.byname)

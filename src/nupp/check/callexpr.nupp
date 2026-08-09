@@ -591,16 +591,27 @@ function callexpr.install(c: any): any
         if node.safeObj then
             ot = withoutNil(ot)
         end
-        local mt, fieldDef = c.fieldType(ot, member.text)
+        local mt, fieldDef, fieldDefs = c.fieldType(ot, member.text)
         if mt and node.safeMethod then
             mt = withoutNil(mt)
         end
         if mt then
+            local callable = mt.tag == "func"
+            if mt.tag == "intersection" then
+                callable = true
+                for _, signature in ipairs(mt.members) do
+                    if signature.tag ~= "func" then
+                        callable = false
+                        break
+                    end
+                end
+            end
             c.markToken(member, fieldDef, mt,
-                mt.tag == "func" and "method" or "property")
+                callable and "method" or "property")
+            member.additionalDefinitions = fieldDefs
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local first, rets, pack = c.inferCall(node,
-                mt.tag == "func" and dropSelf(mt) or mt, node.args)
+                callable and dropSelf(mt) or mt, node.args)
             c.lastCallRets = rets
             node.valuePack = pack or (rets and T.pack(rets)
                 or T.pack({}, {kind = "unknown", type = T.any}))

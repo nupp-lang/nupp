@@ -53,6 +53,18 @@ local function findKind(node, kind)
    return nil
 end
 
+local function findConstructors(node, out)
+   out = out or {}
+   if not node or cst.isToken(node) then
+      return out
+   end
+   if node.constructorEntry then
+      out[#out + 1] = node
+   end
+   for _, child in ipairs(node) do findConstructors(child, out) end
+   return out
+end
+
 local test = {}
 
 function test.visibleSeparatesUnknownFromForeign()
@@ -109,6 +121,33 @@ return value
    assert(known.summary, "and carries a summary")
    assertEq(queries.visible(known.summary), true, "which is visible")
    assertEq(queries.known(nil), nil, "and nil resolves to nothing")
+end
+
+function test.calleeUsesTheSelectedConstructorSummary()
+   local queries, result = analysed([[
+local record Choice
+    value: string
+    constructor(value: string)
+        self.value = value
+    end
+    constructor(value: integer)
+        coroutine.yield()
+        self.value = tostring(value)
+    end
+end
+
+local text = new Choice("ready")
+local number = new Choice(42)
+return text, number
+]])
+   local calls = findConstructors(result.root)
+   assertEq(#calls, 2, "both constructor calls selected a body")
+   local text = queries.callee(calls[1])
+   local number = queries.callee(calls[2])
+   assert(text and number and text ~= number,
+      "the query resolves distinct constructor bodies")
+   assertEq(text.summary.yields, false, "the first body's summary stays pure")
+   assertEq(number.summary.yields, true, "the second body's yield is selected")
 end
 
 function test.aliasOfMergesTwoSpellingsOfOneTable()

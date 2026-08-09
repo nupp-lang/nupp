@@ -177,7 +177,7 @@ local function affine(t)
     if t.tag == "owned" or t.tag == "pinned" then
         return true
     end
-    if t.tag == "union" then
+    if t.tag == "union" or t.tag == "intersection" then
         for _, member in ipairs(t.members) do
             if affine(member) then
                 return true
