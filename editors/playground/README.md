@@ -132,12 +132,24 @@ its own script.
 it at load, so a snippet can't be offered without existing or exist without
 being offered. Adding one is a file in `src/examples/` and a line there.
 
-Two constraints come from where these run rather than from taste. Each is a
-standalone program: the playground checks one buffer with no filesystem
-behind it, so nothing can `require` anything else, and none of them may
-declare a `struct`, `cdef`, or `cheader` — that is exactly the C-ABI
-machinery the `ffi` stub above can't stand in for, so such an example would
-open on an error about the playground rather than on the language.
+Three constraints come from where these run rather than from taste. Each is
+a standalone program: the playground checks one buffer with no filesystem
+behind it, so nothing can `require` anything else. None may declare a
+`struct`, `cdef`, or `cheader` — that is exactly the C-ABI machinery the
+`ffi` stub above can't stand in for, so such an example would open on an
+error about the playground rather than on the language.
+
+And none may use syntax newer than `bootstrap/nupp.lua`, because that bundle
+is the compiler this page runs. `./bin/nupp check` runs `build/` instead — a
+compiler that has kept up with the sources — so it is the wrong thing to
+check a snippet with and will pass one the page cannot parse. Check with the
+compiler the page actually has, from the repository root:
+
+    luajit bootstrap/nupp.lua check editors/playground/src/examples/NAME.nupp
+
+Variadic generics (`A...`) are on the wrong side of that line as of this
+writing, which is why there is no type-pack example here yet; a
+`nupp fixpoint --update-bootstrap` is what moves the line.
 
 Each ends with a "try breaking it" line naming an edit and the diagnostic it
 draws, because the thing worth showing here is the one a static code sample

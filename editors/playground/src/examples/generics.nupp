@@ -1,0 +1,41 @@
+-- Type parameters go in angle brackets after the name, and are inferred at
+-- every call site. `T is Bound` constrains one, and the bound is an ordinary
+-- type — usually an interface.
+
+local interface Named
+    name: string
+end
+
+local record Sensor is Named
+    name: string
+    reading: number
+end
+
+local function first<T>(xs: {T}): T?
+    return xs[1]
+end
+
+local function map<V, W>(xs: {V}, f: function(V): W): {W}
+    local out: {W} = {}
+    for _, x in ipairs(xs) do table.insert(out, f(x)) end
+    return out
+end
+
+-- Only a Named fits here, and inside the body its `name` is known to exist.
+local function labelsOf<T is Named>(xs: {T}): {string}
+    return map(xs, function(x) return x.name end)
+end
+
+local sensors = {
+    new Sensor {name = "intake", reading = 21.5},
+    new Sensor {name = "exhaust", reading = 48.0},
+}
+
+local hottest = first(sensors)              -- Sensor?, so it needs a test
+if hottest then print(hottest.name, hottest.reading) end
+
+for _, label in ipairs(labelsOf(sensors)) do print(label) end
+for _, n in ipairs(map(sensors, function(s) return s.reading end)) do print(n) end
+
+-- try breaking it: pass `{1, 2, 3}` to labelsOf, or use `hottest` without
+-- the test above

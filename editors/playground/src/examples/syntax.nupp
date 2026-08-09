@@ -1,0 +1,33 @@
+-- Nupp implements every LuaJIT 3.0 syntax extension. Most of it is written
+-- straight through to the output, because LuaJIT 2.1 backported it — hit
+-- Compile and read the generated Lua beside this.
+
+local function summarize(counts: {number}, label: string?): string
+    local total = 0
+    for _, n in ipairs(counts) do
+        if n == 0 then continue end     -- skip the rest of this iteration
+        total += n                      -- compound assignment
+    end
+
+    local name = label ?? "unnamed"     -- nil-coalescing
+    local size = total > 100 ? "large" : "small"   -- ternary
+    return name .. ": " .. total .. " (" .. size .. ")"
+end
+
+local double = |n: number| -> n * 2    -- short function
+
+-- `!`, `&&`, `||` and `!=` are legal but linted, because Lua already spells
+-- these `not`, `and`, `or` and `~=`, and two spellings of one thing drift
+-- apart across a codebase. @allow says this statement means it.
+local function isEmpty(counts: {number}): boolean
+    @allow("customary-operator")
+    return #counts == 0 || counts[1] == nil
+end
+
+const settings = {retries = 3}          -- an immutable binding
+
+print(summarize({4, 0, 7, 120}, "batch"))
+print(summarize({1, 2}), double(21), isEmpty({}), settings.retries)
+
+-- try breaking it: assign to `settings`, or drop the @allow above and see
+-- the lint the customary spelling draws
