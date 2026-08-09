@@ -221,6 +221,12 @@ function resolve.install(c: any)
                     local holder = c.lookupEntry(names[1])
                     if holder and holder.requiredModule then
                         moduleName = holder.requiredModule
+                    elseif not holder and names[1] == "buffer" then
+                        -- The bare `buffer` global reaches string.buffer as a value
+                        -- (nupp.check.expr); a type has to reach it too, or a program
+                        -- can build a buffer and cannot write down what it built.
+                        -- Last, like the value side, so an actual binding wins.
+                        moduleName = "string.buffer"
                     end
                 end
                 local t, def, resolvedModule = nil, nil, nil

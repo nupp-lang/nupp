@@ -136,7 +136,7 @@ shape as `__nuppArray` and `__nuppBuffer` in `src/nupp/gen.nupp`.
 
 ## Status
 
-L1, L2 and L3 are implemented; `tests/layouttest.lua` covers them by running the
+L1 through L4 are done; `tests/layouttest.lua` covers them by running the
 generated code and checking every number against `ffi.sizeof`/`ffi.offsetof`
 rather than against a constant written down here.
 
@@ -186,10 +186,23 @@ that should invert when it is fixed.
    nested structs expanded. The decision on whether it Including it makes a 32-bit save refuse on 64-bit, which is
    correct, and is why tecs pairs its fingerprint with name-keyed migration.
    Nupp produces the fingerprint and stays out of the migration policy.
-4. **L4, the acceptance use.** Port the part of tecs that consumes this —
-   `structSize` for the bulk column path — in `tests/acceptance/tecs`, and check
-   that `fieldcodec.tl`'s generation becomes unnecessary rather than merely
-   smaller. If it does not, the surface is wrong and L1–L3 were guesses.
+4. ~~**L4, the acceptance use.**~~ Done, and it answered a different question
+   than it asked. `tests/bulkcolumntest.lua` writes a whole column as one
+   `putcdata` of `layoutof(T).size * count`, reads it back into fresh memory,
+   and refuses a column whose saved fingerprint is not this layout's. That is
+   the hot side of `internal/snapshot.tl`, and it needs nothing from the
+   language but the stride and the fingerprint.
+
+   The criterion was wrong, though. It asked whether `fieldcodec.tl` becomes
+   unnecessary, and it does not — because `fieldcodec` is for **table**
+   components, which have no C layout at all. Its own header says so: "Snapshot
+   codecs generated from a table component's declared `fields`". Reflection
+   cannot help a value that is not laid out, so the two serve different halves.
+
+   What reflection replaces is the hand-maintained constant: `structSize`, and
+   things like `gpu/meshlayout.tl`'s `INSTANCE_FLOATS = 16` that must agree with
+   a struct and a shader and can silently stop agreeing. That is a smaller claim
+   than the milestone made and a true one.
 
 ## Open questions
 

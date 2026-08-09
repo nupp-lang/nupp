@@ -207,6 +207,17 @@ work makes sense in.
       once per process, so a repeat claim reuses what is there, which is correct
       because the tag encodes the body.
 
+- [ ] **`require("string.buffer")` is `unknown` in a project that is not the
+      compiler.** `require("ffi")` resolves there, so the bundled declarations
+      are reaching the environment; the dotted name is what fails. Reproduced in
+      `tests/acceptance/tecs`, whose manifest is `include = { "." }`: `require`
+      returns a value that indexes to nothing, so `sb.new()` is "no field new in
+      unknown" and every use is silently untyped rather than reported.
+
+      The bare `buffer` global has the same shape of failure there, because it
+      resolves through `env.resolveModule` — so a user's project can neither
+      require the module nor reach the global. `tests/bulkcolumntest.lua` runs
+      through the compiler's own environment for that reason.
 - [ ] **A struct cannot hold a fixed C array.** `reifiableField` admits
       primitives, a nested struct and pointers, so `v: float[4]` is NUPP2201.
       C structs commonly have array members, and `T[N]` already exists as a
