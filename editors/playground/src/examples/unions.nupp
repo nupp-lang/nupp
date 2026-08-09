@@ -1,7 +1,7 @@
--- A union of string literals is a closed set of values — what other
--- languages spell `enum`, except it erases to the plain string. A union of
--- records each carrying a literal-typed field is a tagged union: comparing
--- the tag narrows the union to the one record that declares it.
+-- A union of string literals is a closed set of values — what other languages spell
+-- `enum`, except it erases to the plain string. A union of records each carrying a
+-- literal-typed field is a tagged union: comparing the tag narrows the union to the one
+-- record that declares it.
 
 local type Level = "debug" | "info" | "error"
 
@@ -20,21 +20,26 @@ local type Payload = Text | Measurement
 
 local function render(payload: Payload): string
     if payload.kind == "text" then
-        return payload.body                     -- a Text in here
+        return payload.body -- a Text in here
     end
-    return payload.value .. payload.unit        -- a Measurement in here
+    return payload.value .. payload.unit -- a Measurement in here
 end
 
 local function prefix(level: Level): string
-    if level == "debug" then return "[dbg] "
-    elseif level == "info" then return "[inf] "
-    else return "[err] " end
+    if level == "debug" then
+        return "[dbg] "
+    elseif level == "info" then
+        return "[inf] "
+    else
+        return "[err] "
+    end
 end
 
-print(prefix("info") .. render(new Text {kind = "text", body = "started"}))
-print(prefix("error") .. render(new Measurement {
-    kind = "measurement", value = 12.5, unit = "ms",
-}))
+local started = new Text {kind = "text", body = "started"}
+local elapsed = new Measurement {kind = "measurement", value = 12.5, unit = "ms"}
 
--- try breaking it: pass "trace" to prefix, or drop one of its branches and
--- see the checker name the member you left unhandled
+print(prefix("info") .. render(started))
+print(prefix("error") .. render(elapsed))
+
+-- try breaking it: pass "trace" to prefix, or drop one of its branches and see the
+-- checker name the member you left unhandled

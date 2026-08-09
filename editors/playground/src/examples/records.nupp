@@ -1,6 +1,6 @@
--- Records are tables with declared fields, built with `new`. An interface is
--- a shape, and it may implement what it declares — an implementor inherits
--- the behaviour rather than a copy of it.
+-- Records are tables with declared fields, built with `new`. An interface is a shape,
+-- and it may implement what it declares — an implementor inherits the behaviour rather
+-- than a copy of it.
 
 local interface Greeter
     name: string
@@ -10,7 +10,8 @@ local interface Greeter
     end
 end
 
-local record Person is Greeter
+local record Person is
+    Greeter
     name: string
     age: integer
 
@@ -19,7 +20,8 @@ local record Person is Greeter
     end
 end
 
-local record Robot is Greeter
+local record Robot is
+    Greeter
     name: string
 
     @override
@@ -32,9 +34,11 @@ local ada = new Person {name = "ada", age = 36}
 local unit = new Robot {name = "unit-7"}
 
 local crew: {Greeter} = {ada, unit}
-for _, member in ipairs(crew) do print(member:greet()) end
+for _, member in ipairs(crew) do
+    print(member:greet())
+end
 
 print(ada.name, ada:isAdult())
 
--- try breaking it: drop Robot's `@override`, or ask a Greeter for something
--- only a Person has
+-- try breaking it: drop Robot's `@override`, or ask a Greeter for something only a
+-- Person has

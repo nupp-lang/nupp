@@ -1,7 +1,6 @@
--- `e is T` tests a type and narrows in the branch it proves. A truthiness
--- test narrows an optional the same way, including one copied into a local.
--- A function may return a predicate, `p is T`, so the caller narrows on the
--- boolean it answers with.
+-- `e is T` tests a type and narrows in the branch it proves. A truthiness test narrows
+-- an optional the same way, including one copied into a local. A function may return a
+-- predicate, `p is T`, so the caller narrows on the boolean it answers with.
 
 local function isString(value: any): value is string
     return type(value) == "string"
@@ -9,9 +8,9 @@ end
 
 local function describe(value: string | number): string
     if value is string then
-        return "text of " .. #value .. " bytes"     -- a string in here
+        return "text of " .. #value .. " bytes" -- a string in here
     end
-    return "number " .. value                       -- a number in here
+    return "number " .. value -- a number in here
 end
 
 local record Account
@@ -21,12 +20,17 @@ end
 
 local function labelOf(account: Account): string
     local label = account.label
-    if not label then return "account " .. account.id end
-    return label            -- string, not string?, because of the test above
+    if not label then
+        return "account " .. account.id
+    end
+
+    return label -- string, not string?, because of the test above
 end
 
 local function widthOf(value: any): number
-    if isString(value) then return #value end       -- the predicate narrows
+    if isString(value) then
+        return #value
+    end -- the predicate narrows
     return 0
 end
 
@@ -35,5 +39,5 @@ print(labelOf(new Account {id = 7}))
 print(labelOf(new Account {id = 8, label = "savings"}))
 print(widthOf("four"), widthOf(true))
 
--- try breaking it: return `label` before testing it, or take `#value` in
--- describe before the `is` branch proves there is a string to measure
+-- try breaking it: return `label` before testing it, or take `#value` in describe
+-- before the `is` branch proves there is a string to measure
