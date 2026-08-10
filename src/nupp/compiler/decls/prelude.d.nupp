@@ -359,6 +359,9 @@ local nupp: {
     --- Compiled Rust regular expressions.
     regex: nupp.Regex.Library,
 
+    --- Static byte-oriented parsing-expression grammars.
+    peg: nupp.Peg.Library,
+
     --- Compiler-internal materialization conformance surface.
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
@@ -396,6 +399,58 @@ end
 record nupp.__MaterializationTestAPI
     node: function(value: integer): nupp.__MaterializationBlueprint
     factory: function(): nupp.__MaterializationFactoryBlueprint
+end
+
+--- Types for static parsing-expression grammars.
+record nupp.Peg
+    --- A compile-time-only parsing expression.
+    record Pattern
+        metamethod __add: function(self, other: Pattern): Pattern
+        metamethod __mul: function(self, other: Pattern): Pattern
+        metamethod __pow: function(self, count: integer): Pattern
+        metamethod __unm: function(self): Pattern
+        metamethod __len: function(self): Pattern
+    end
+
+    --- One named rule definition used to assemble a recursive grammar.
+    record Definition
+    end
+
+    --- A finalized compile-time matcher description with no runtime representation.
+    record Blueprint
+    end
+
+    --- A reusable materialized PEG matcher with one declared result.
+    record Matcher<R>
+        --- Matches from `init`, returning a capture or the next byte position.
+        match: function(self, subject: string, init: integer?): R?
+        metamethod __call: function(self, subject: string, init: integer?): R?
+    end
+
+    --- Compiler-owned constructors for static byte-oriented PEGs.
+    record Library
+        literal: function(text: string): Pattern
+        anyByte: function(): Pattern
+        eof: function(): Pattern
+        range: function(...: string): Pattern
+        set: function(bytes: string): Pattern
+        sequence: function(...: Pattern): Pattern
+        choice: function(...: Pattern): Pattern
+        difference: function(pattern: Pattern, excluded: Pattern): Pattern
+        zeroOrMore: function(pattern: Pattern): Pattern
+        oneOrMore: function(pattern: Pattern): Pattern
+        optional: function(pattern: Pattern): Pattern
+        andPredicate: function(pattern: Pattern): Pattern
+        notPredicate: function(pattern: Pattern): Pattern
+        capture: function(pattern: Pattern): Pattern
+        position: function(): Pattern
+        group: function(pattern: Pattern): Pattern
+        collect: function(pattern: Pattern): Pattern
+        reference: function(name: string): Pattern
+        define: function(name: string, pattern: Pattern): Definition
+        grammar: function(start: string, ...: Definition): Pattern
+        compile: function(pattern: Pattern): Blueprint
+    end
 end
 
 --- One independently configured JSON encoder and decoder.

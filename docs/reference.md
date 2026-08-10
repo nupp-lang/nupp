@@ -1144,6 +1144,49 @@ return m
 
 Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`, `NUPP2414`, `NUPP2415`, `NUPP2416`. `nupp explain <code>` says more.
 
+### Static PEG matchers
+
+`nupp.peg` builds byte-oriented parsing expressions inside a `comptime` block.
+`compile` returns an opaque blueprint, so the declaration initialized by the
+block writes its runtime type explicitly as `nupp.Peg.Matcher<R>`. Compilation
+emits a pure-Lua matcher and no LPeg dependency.
+
+Literals, any byte, end of input, byte sets and ranges combine through
+`sequence`, ordered `choice`, `difference`, repetitions and predicates. `p * q`
+is sequence, `p + q` is ordered choice, `p^n` follows LPeg's repetition rule,
+`-p` is the not predicate and `#p` is the and predicate. These operators are
+compiler-owned PEG operations at comptime; they do not enable general
+metamethod execution there.
+
+A capture returns its matched substring, `position()` returns the current byte
+position, and `collect` makes several captures one explicit array result. The
+matcher result type must agree: recognition and positions use `integer`, a
+substring uses `string`, and a homogeneous collection uses `{T}`.
+
+Recursive grammars use `reference`, `define`, and `grammar`. Every reference
+must resolve, repetitions may not contain a nullable expression, ordered-choice
+capture shapes must agree, and left recursion is rejected. Those invalid
+graphs are **NUPP2417** while the common materialization boundary and size
+diagnostics remain **NUPP2414** through **NUPP2416**.
+
+```nupp
+local m = {}
+
+const Identifier: nupp.Peg.Matcher<integer> = comptime do
+    const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
+    const tail = head + nupp.peg.range("09")
+    return nupp.peg.compile(head * tail^0 * nupp.peg.eof())
+end
+
+function m.identifier(text: string): integer?
+    return Identifier(text)
+end
+
+return m
+```
+
+Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2417`. `nupp explain <code>` says more.
+
 ### Built-in lints
 
 | Lint | Code | Category | Default |

@@ -75,6 +75,11 @@ local FEATURES: {
     host = "lua-utf8",
     binary = true,
 }, [
+    "stdlib.peg"
+] = {
+    name = "peg",
+    globals = {"nupp.peg"},
+}, [
     "stdlib.io"
 ] = {
     name = "io",

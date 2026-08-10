@@ -9,6 +9,13 @@ provider exercises the common path before a public provider depends on it.
 
 local cst = require("nupp.compiler.cst")
 local hash = require("nupp.compiler.build.hash")
+local peg = require("nupp.compiler.materialize.peg") as {
+    installEvaluator: function(any, any, any, any),
+    method: function(any, any, string, any, any): (any, any),
+    operator: function(any, string, any, any, any): (any, any),
+    finalize: function(any, any): (any, any),
+    lower: function(any, any, any): (any, any)
+}
 
 type providers.Failure = {
     readonly code: string,
@@ -20,6 +27,7 @@ local record providers
     installEvaluator: function(any, any)
     isOpaque: function(any, any): boolean
     method: function(any, any, string, any, any): (any, providers.Failure?)
+    operator: function(any, string, any, any, any): (any, providers.Failure?)
     finalize: function(any, any): (any, providers.Failure?)
     lower: function(any, any, any): (any, providers.Failure?)
 end
@@ -74,6 +82,14 @@ function providers.installEvaluator(state: any, env: any)
     state.opaque = {}
     state.intrinsics = {}
     installTest(state, env)
+    peg.installEvaluator(
+        state,
+        env,
+        function(provider, family, payload, at)
+            return opaque(state, provider, family, payload, at)
+        end,
+        provenance
+    )
 end
 
 function providers.isOpaque(state: any, value: any): boolean
@@ -96,11 +112,23 @@ function providers.method(state: any, handle: any, name: string, args: any, at: 
 
         return handle, nil
     end
+    if entry.provider == "peg" then
+        return peg.method(state, handle, name, args, at)
+    end
 
     return nil, {
         code = "NUPP2411",
         message = ("opaque %s has no comptime method %q"):format(tostring(entry.family), name),
     }
+end
+
+function providers.operator(state: any, op: string, left: any, right: any, at: any): any, providers.Failure?
+    local entry = state.opaque[left]
+    if entry and entry.provider == "peg" then
+        return peg.operator(state, op, left, right, at)
+    end
+
+    return nil, {code = "NUPP2411", message = "this operator is unavailable for opaque comptime values"}
 end
 
 local function finalizeTest(state, root)
@@ -169,6 +197,8 @@ function providers.finalize(state: any, value: any): any, providers.Failure?
             }, nil
         end
         return finalizeTest(state, value)
+    elseif entry.provider == "peg" then
+        return peg.finalize(state, value)
     end
 
     return nil, {code = "NUPP2415", message = "no finalizer owns this opaque value"}
@@ -226,6 +256,9 @@ function providers.lower(envelope: any, expected: any, env: any): any, providers
         }
     end
     if envelope.provider ~= "compiler-test" then
+        if envelope.provider == "peg" then
+            return peg.lower(envelope, expected, env)
+        end
         return nil, {code = "NUPP2415", message = "no materializer owns provider " .. envelope.provider}
     end
     local target = env and env.globalTypes and env.globalTypes["nupp.__MaterializedTest"]

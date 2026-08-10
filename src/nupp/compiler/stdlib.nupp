@@ -106,6 +106,39 @@ for _,__name in ipairs({"adler32","crc32"})do __nuppLazy(__nuppData,__name,funct
 ]=]
 )
 
+local PEG = compact(
+    [=[
+local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg)
+local function __nuppPegMachine(program)
+local Matcher={};Matcher.__index=Matcher
+local function rollback(captures,count)for index=#captures,count+1,-1 do captures[index]=nil end end
+local function parse(program,index,subject,position,captures,depth)
+if depth>10000 then error("nupp: PEG recursion exceeded 10000 calls",3)end
+local node=program.nodes[index];local op=node[1];local before=#captures
+if op=="literal"then local text=node[2];if subject:sub(position,position+#text-1)==text then return position+#text end
+elseif op=="any"then if position<=#subject then return position+1 end
+elseif op=="eof"then if position==#subject+1 then return position end
+elseif op=="set"then local byte=subject:sub(position,position);if byte~=""and node[2]:find(byte,1,true)then return position+1 end
+elseif op=="sequence"then local at=position;for child=2,#node do at=parse(program,node[child],subject,at,captures,depth+1);if not at then rollback(captures,before);return nil end end;return at
+elseif op=="choice"then for child=2,#node do local at=parse(program,node[child],subject,position,captures,depth+1);if at then return at end;rollback(captures,before)end
+elseif op=="difference"then local scratch={};if parse(program,node[3],subject,position,scratch,depth+1)then return nil end;return parse(program,node[2],subject,position,captures,depth+1)
+elseif op=="zeroOrMore"or op=="oneOrMore"then local at,count=position,0;while true do local checkpoint=#captures;local nextAt=parse(program,node[2],subject,at,captures,depth+1);if not nextAt then rollback(captures,checkpoint);break end;if nextAt==at then error("nupp: nullable PEG repetition reached runtime",3)end;at=nextAt;count=count+1 end;if op=="oneOrMore"and count==0 then rollback(captures,before);return nil end;return at
+elseif op=="optional"then local at=parse(program,node[2],subject,position,captures,depth+1);if at then return at end;rollback(captures,before);return position
+elseif op=="and"then local scratch={};if parse(program,node[2],subject,position,scratch,depth+1)then return position end
+elseif op=="not"then local scratch={};if not parse(program,node[2],subject,position,scratch,depth+1)then return position end
+elseif op=="capture"then local scratch={};local at=parse(program,node[2],subject,position,scratch,depth+1);if at then captures[#captures+1]=subject:sub(position,at-1);return at end
+elseif op=="position"then captures[#captures+1]=position;return position
+elseif op=="collect"then local scratch={};local at=parse(program,node[2],subject,position,scratch,depth+1);if at then captures[#captures+1]=scratch;return at end
+elseif op=="reference"then return parse(program,node[2],subject,position,captures,depth+1)
+else error("nupp: unknown PEG instruction "..tostring(op),3)end
+rollback(captures,before);return nil end
+function Matcher:match(subject,init)if type(subject)~="string"then error("nupp: PEG subject must be a string",2)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",2)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;local captures={};local position=parse(self._program,self._program.root,subject,init,captures,0);if not position then return nil end;if #captures==0 then return position elseif #captures==1 then return captures[1]end;error("nupp: invalid PEG result arity",2)end
+Matcher.__call=Matcher.match
+return setmetatable({_program=program},Matcher)end
+__nuppPeg.machine=__nuppPegMachine;
+]=]
+)
+
 local NATIVE = compact(
     [=[
 local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local ok,lib=pcall(ffi.load,root.."/lib/nupp_native");if ok then C=lib else C=ffi.load(root.."/../lib/nupp_native")end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end
@@ -197,6 +230,9 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
     end
     if effects["stdlib.checksums"] then
         out[#out + 1] = CHECKSUMS
+    end
+    if effects["stdlib.peg"] then
+        out[#out + 1] = PEG
     end
     local hasNative = effects[
         "native.path"

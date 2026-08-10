@@ -502,7 +502,18 @@ evalExpr = function(state, node)
     elseif kind == "unop" then
         local operand = evalExpr(state, node.operand)
         if materializeProviders.isOpaque(state, operand) then
-            fail("NUPP2411", node, "this operator is unavailable for an opaque comptime value")
+            local value, operatorFailure = materializeProviders.operator(
+                state,
+                "unary" .. tostring(node.op and node.op.kind),
+                operand,
+                nil,
+                node.op or node
+            )
+            if operatorFailure then
+                fail(operatorFailure.code, node, operatorFailure.message, operatorFailure.help)
+            end
+
+            return value
         end
         local op = node.op and node.op.kind
         if op == "not" then
@@ -520,9 +531,15 @@ evalExpr = function(state, node)
         local op = node.op and node.op.kind
         if op == "and" then
             local left = evalExpr(state, node.lhs)
+            if materializeProviders.isOpaque(state, left) then
+                fail("NUPP2411", node, "logical operators cannot observe an opaque comptime value")
+            end
             answer = left and evalExpr(state, node.rhs) or left
         elseif op == "or" then
             local left = evalExpr(state, node.lhs)
+            if materializeProviders.isOpaque(state, left) then
+                fail("NUPP2411", node, "logical operators cannot observe an opaque comptime value")
+            end
             if left then
                 answer = left
             else
@@ -530,6 +547,9 @@ evalExpr = function(state, node)
             end
         elseif op == "??" then
             local left = evalExpr(state, node.lhs)
+            if materializeProviders.isOpaque(state, left) then
+                fail("NUPP2411", node, "nil coalescing cannot observe an opaque comptime value")
+            end
             if left == nil then
                 answer = evalExpr(state, node.rhs)
             else
@@ -538,7 +558,18 @@ evalExpr = function(state, node)
         else
             local left, right = evalExpr(state, node.lhs), evalExpr(state, node.rhs)
             if materializeProviders.isOpaque(state, left) or materializeProviders.isOpaque(state, right) then
-                fail("NUPP2411", node, "this operator is unavailable for opaque comptime values")
+                local value, operatorFailure = materializeProviders.operator(
+                    state,
+                    op,
+                    left,
+                    right,
+                    node.op or node
+                )
+                if operatorFailure then
+                    fail(operatorFailure.code, node, operatorFailure.message, operatorFailure.help)
+                end
+
+                return value
             end
             if op == "+" then
                 answer = left + right

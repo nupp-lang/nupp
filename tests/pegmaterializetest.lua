@@ -1,0 +1,204 @@
+-- The public PEG materializer: static construction, worker finalization, typed matcher
+-- results, and the pure-Lua reference backend.
+local parser = require("nupp.compiler.parser")
+local gen = require("nupp.compiler.gen")
+local check = require("fragment")
+local envMod = require("nupp.compiler.env")
+
+local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+local env = envMod.new(HERE .. "/..")
+
+local function assertEq(got, want, label)
+   if got ~= want then
+      error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch",
+         tostring(want), tostring(got)), 2)
+   end
+end
+
+local function compile(source)
+   local parsed = parser.parse(source, "peg_materialize_test.g.nupp")
+   assertEq(#parsed.errors, 0, "syntax errors")
+   local diagnostics = check.check(parsed, "peg_materialize_test.g.nupp", env)
+   local code, generated = gen.generate(parsed, "peg_materialize_test")
+   for _, diagnostic in ipairs(generated) do diagnostics[#diagnostics + 1] = diagnostic end
+   return code, diagnostics
+end
+
+local function errorsOf(source)
+   local _, diagnostics = compile(source)
+   local codes = {}
+   for _, diagnostic in ipairs(diagnostics) do
+      if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
+         codes[#codes + 1] = diagnostic.code
+      end
+   end
+   return codes, diagnostics
+end
+
+local function run(source, ...)
+   local code, diagnostics = compile(source)
+   for _, diagnostic in ipairs(diagnostics) do
+      if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
+         error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code,
+            diagnostic.msg, code), 2)
+      end
+   end
+   local chunk, why = loadstring(code, "@peg_materialize_test")
+   assert(chunk, why and (why .. "\n---\n" .. code))
+   return chunk(...)
+end
+
+local M = {}
+
+function M.matchesAStaticIdentifierWithoutLPegAtRuntime()
+   local source = [[
+const Identifier: nupp.Peg.Matcher<integer> = comptime do
+    const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
+    const tail = head + nupp.peg.range("09")
+    return nupp.peg.compile(head * tail^0 * nupp.peg.eof())
+end
+return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
+]]
+   local matched, missed, called = run(source)
+   assertEq(matched, 7, "recognition returns the next byte position")
+   assertEq(missed, nil, "a failed match returns nil")
+   assertEq(called, 3, "the matcher call contract reaches the same machine")
+   local code = compile(source)
+   assert(code:find("nupp.peg.machine", 1, true), code)
+   assert(not code:find("require(\"lpeg\")", 1, true), code)
+end
+
+function M.returnsATypedSubstringCapture()
+   local value = run([[
+const Word: nupp.Peg.Matcher<string> = comptime do
+    const alpha = nupp.peg.range("az", "AZ")
+    return nupp.peg.compile(nupp.peg.capture(alpha^1) * nupp.peg.eof())
+end
+return Word("Hello")
+]])
+   assertEq(value, "Hello", "substring capture")
+end
+
+function M.collectsRepeatedCapturesExplicitly()
+   local values = run([[
+const Words: nupp.Peg.Matcher<{string}> = comptime do
+    const word = nupp.peg.capture(nupp.peg.range("az")^1)
+    const rest = (nupp.peg.literal(",") * word)^0
+    return nupp.peg.compile(nupp.peg.collect(word * rest) * nupp.peg.eof())
+end
+return Words("one,two,three")
+]])
+   assertEq(#values, 3, "collection length")
+   assertEq(table.concat(values, ":"), "one:two:three", "collection values")
+end
+
+function M.groupsRepeatedCapturesExplicitly()
+   local values = run([[
+local matcher: nupp.Peg.Matcher<{string}> = comptime do
+    local item = nupp.peg.capture(nupp.peg.range("az") ^ 1)
+    return nupp.peg.compile(nupp.peg.group(item * (nupp.peg.literal(",") * item) ^ 0) * nupp.peg.eof())
+end
+return matcher("one,two,three")
+]])
+   assertEq(table.concat(values, ":"), "one:two:three", "grouped values")
+end
+
+function M.excludesThePegMachineFromUnrelatedPrograms()
+   local code = compile("return 42")
+   assertEq(code:find("__nuppPegMachine", 1, true), nil, "unused helper")
+end
+
+function M.matchesARecursiveGrammar()
+   local matched, missed = run([[
+const Nested: nupp.Peg.Matcher<integer> = comptime do
+    const value = nupp.peg.reference("value")
+    const body = nupp.peg.literal("x")
+        + (nupp.peg.literal("(") * value * nupp.peg.literal(")"))
+    const grammar = nupp.peg.grammar("value", nupp.peg.define("value", body))
+    return nupp.peg.compile(grammar * nupp.peg.eof())
+end
+return Nested("(((x)))"), Nested("((x)")
+]])
+   assertEq(matched, 8, "recursive match")
+   assertEq(missed, nil, "unclosed recursion fails")
+end
+
+function M.supportsDifferenceAndPredicates()
+   local good, keyword, digit = run([[
+const Name: nupp.Peg.Matcher<integer> = comptime do
+    const alpha = nupp.peg.range("az")
+    const keyword = nupp.peg.literal("if") * nupp.peg.eof()
+    const name = -keyword * #alpha * alpha^1 * nupp.peg.eof()
+    return nupp.peg.compile(nupp.peg.difference(name, nupp.peg.range("09")))
+end
+return Name("item"), Name("if"), Name("7")
+]])
+   assertEq(good, 5, "predicate match")
+   assertEq(keyword, nil, "negative predicate")
+   assertEq(digit, nil, "difference")
+end
+
+function M.usesLpegExponentSemantics()
+   local twice, once, thrice, capped = run([[
+const AtLeastTwo: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.literal("a")^2 * nupp.peg.eof())
+end
+const AtMostTwo: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.literal("a")^-2 * nupp.peg.eof())
+end
+return AtLeastTwo("aa"), AtLeastTwo("a"), AtLeastTwo("aaa"), AtMostTwo("aa")
+]])
+   assertEq(twice, 3, "positive exponent minimum")
+   assertEq(once, nil, "positive exponent rejects fewer")
+   assertEq(thrice, 4, "positive exponent accepts more")
+   assertEq(capped, 3, "negative exponent maximum")
+end
+
+function M.agreesWithLpegOnTheOverlappingFloor()
+   local lpeg = require("lpeg")
+   local matcher = run([[
+const Identifier: nupp.Peg.Matcher<integer> = comptime do
+    const alpha = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
+    const alnum = alpha + nupp.peg.range("09")
+    return nupp.peg.compile(alpha * alnum^0 * nupp.peg.eof())
+end
+return Identifier
+]])
+   local alpha = lpeg.R("az", "AZ") + lpeg.P("_")
+   local reference = alpha * (alpha + lpeg.R("09"))^0 * -lpeg.P(1)
+   for _, subject in ipairs({"name", "_name9", "A0", "", "9x", "a-b"}) do
+      assertEq(matcher(subject), lpeg.match(reference, subject),
+         "LPeg differential subject " .. subject)
+   end
+end
+
+function M.rejectsNullableRepetition()
+   local codes = errorsOf([[
+const Bad: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.literal("")^0)
+end
+]])
+   assertEq(codes[1], "NUPP2417", "nullable repetition is rejected while finalizing")
+end
+
+function M.rejectsLeftRecursion()
+   local codes = errorsOf([[
+const Bad: nupp.Peg.Matcher<integer> = comptime do
+    const self = nupp.peg.reference("value")
+    const grammar = nupp.peg.grammar("value", nupp.peg.define("value", self + nupp.peg.literal("x")))
+    return nupp.peg.compile(grammar)
+end
+]])
+   assertEq(codes[1], "NUPP2417", "left recursion is rejected")
+end
+
+function M.rejectsAMatcherResultTypeMismatch()
+   local codes = errorsOf([[
+const Bad: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.capture(nupp.peg.literal("x")))
+end
+]])
+   assertEq(codes[1], "NUPP2415", "capture result and matcher type must agree")
+end
+
+return M

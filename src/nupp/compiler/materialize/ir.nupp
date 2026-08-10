@@ -11,6 +11,10 @@ source binding.
 local MAX_NODES = 20000
 local MAX_SOURCE_BYTES = 512 * 1024
 
+local HELPERS = {
+    ["nupp.peg.machine"] = "_G.nupp.peg.machine",
+}
+
 type ir.Failure = {
     readonly message: string
 }
@@ -97,6 +101,13 @@ function ir.render(root: any): string?, ir.Failure?
             end
 
             return "_nupp_m" .. tostring(node.id)
+        elseif tag == "helper" then
+            local path = HELPERS[node.name]
+            if not path then
+                return nil, "runtime-expression IR requests an unknown compiler helper"
+            end
+
+            return path
         elseif tag == "table" then
             local parts = {}
             for _, child in ipairs(node.array or {}) do
