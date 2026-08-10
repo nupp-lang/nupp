@@ -172,41 +172,38 @@ an owner necessarily ran the producer first.
 
 ### Cleanup context is owner state
 
-A raw pointer cannot secretly carry an allocator, arena, or parent handle:
+A resource cannot secretly carry its pool, allocator, arena, or parent handle:
 ownership annotations erase, and cleanup later needs a runtime place from which
 to read that context. Make the pair an explicit nominal owner and put the
 context in its fields. A custom `@drop` method can then pass every required
 argument without allocating a closure per owner:
 
 ```nupp
-cdef struct allocator end
-cdef struct block end
-cdef function ctx_free(ctx: allocator*, value: block*)
+local record Connection end
 
-local struct Allocation
-   ctx: allocator*
-   value: block*
+local record Pool
+   release: function(self: Pool, takes value: Connection)
+end
+
+local record PoolConnection
+   pool: Pool
+   connection: owned<Connection>
 
    @drop
    function close(self)
-      -- ctx_free lacks lifetime annotations, so Nupp cannot prove this pairing.
-      unsafe do
-         ctx_free(self.ctx, self.value)
-      end
+      self.pool:release(self.connection)
    end
 end
 
 @owned
-local function adopt(ctx: allocator*, value: block*): Allocation
-   return new Allocation {ctx = ctx, value = value}
+local function adopt(pool: Pool, takes connection: Connection): PoolConnection
+   return new PoolConnection {pool = pool, connection = connection}
 end
 ```
 
-This pair is a `struct` because its C pointers have a fixed layout and need no
-Lua-table features. A `record` would also be valid when table identity,
-dynamic fields, or GC-managed state are useful. Either way, the wrapper is
-visible in the API because the context is real runtime state; Nupp does not
-hide it in a side table, change pointer identity, or attach a finalizer.
+The `release` contract consumes the connection, so Nupp can check this cleanup
+without `unsafe`. The wrapper remains visible in the API because its pool is
+real runtime state; Nupp does not hide it in a side table or attach a finalizer.
 
 ### Transfer-only owners
 
@@ -512,6 +509,39 @@ end
 The same rule covers raw pointer indexing and passing a raw pointer to a plain
 C pointer parameter. Give the C parameter a truthful `borrows`, `exclusive`,
 `takes`, `retains`, or `releases` contract to use it from checked code.
+
+### Foreign calls without lifetime contracts
+
+When a C API lacks those annotations, the wrapper still has to retain its
+allocator context, but its cleanup must put the trusted boundary at the call:
+
+```nupp
+cdef struct allocator end
+cdef struct block end
+cdef function ctx_free(ctx: allocator*, value: block*)
+
+local struct Allocation
+   ctx: allocator*
+   value: block*
+
+   @drop
+   function close(self)
+      -- ctx_free has no lifetime annotations, so Nupp has no proof for this call.
+      unsafe do
+         ctx_free(self.ctx, self.value)
+      end
+   end
+end
+
+@owned
+local function adopt(ctx: allocator*, value: block*): Allocation
+   return new Allocation {ctx = ctx, value = value}
+end
+```
+
+This FFI-shaped pair is a `struct` because its C pointers have a fixed layout
+and need no Lua-table features. A `record` would also be valid when table
+identity, dynamic fields, or GC-managed state are useful.
 
 `unsafe` grants permission for unproved pointer operations. It does **not**
 suppress affine obligations or turn off the checker. Owners still must be
