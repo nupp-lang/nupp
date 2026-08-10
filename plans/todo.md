@@ -46,7 +46,7 @@ work makes sense in.
         ([design](materialization.md)): an explicitly typed comptime block may
         return a compiler-owned opaque value that a sealed provider serializes
         as one runtime expression. Benchmark PEG before the framework, ship a
-        pure-Lua parsing-machine backend first, and admit specialization only if
+        pure-Lua bytecode-VM backend first, and admit specialization only if
         it clears the recorded bar. A type-directed field codec is the second
         provider and the proof that the common layer is not PEG-shaped. No
         user-defined materializers, code AST, source splicing or generated

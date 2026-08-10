@@ -3,8 +3,8 @@ The sealed PEG materializer.
 
 The evaluator side builds identity-bearing pattern handles. Finalization resolves named
 rules, proves the graph safe, and emits a canonical flat blueprint. The compiler side
-validates that untrusted envelope again and lowers it to one call of the closed pure-Lua
-machine helper. No live handle, source fragment, or lexical binding crosses the worker.
+validates that untrusted envelope again and lowers it to compact bytecode and constant
+pools. No live handle, source fragment, or lexical binding crosses the worker.
 ]]
 
 local hash = require("nupp.compiler.build.hash")
@@ -93,7 +93,8 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
     local library = {}
 
     local function intrinsic(name, callback)
-        local token = function() end
+        local token = function()
+        end
         state.intrinsics[token] = function(at, args)
             return callback(args, at)
         end
@@ -101,11 +102,12 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
     end
 
     local function node(op, children, data, at)
-        return newOpaque("peg", "Pattern", {
-            op = op,
-            children = children or {},
-            data = data,
-        }, provenance(at, "nupp.peg." .. op))
+        return newOpaque(
+            "peg",
+            "Pattern",
+            {op = op, children = children or {}, data = data,},
+            provenance(at, "nupp.peg." .. op)
+        )
     end
 
     local function patterns(args, at, minimum)
@@ -198,12 +200,11 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
         end)
     end
     intrinsic("action", function(args, at)
-        if args.n ~= 2 or not patternEntry(state, args[1])
-            or type(args[2]) ~= "string" or not args[2]:find("^[%a_][%w_]*$") then
-            return nil, failure(
-                "NUPP2417",
-                "nupp.peg.action needs one pattern and an identifier-like action name"
-            )
+        if args.n ~= 2 or not patternEntry(
+            state,
+            args[1]
+        ) or type(args[2]) ~= "string" or not args[2]:find("^[%a_][%w_]*$") then
+            return nil, failure("NUPP2417", "nupp.peg.action needs one pattern and an identifier-like action name")
         end
 
         return node("action", {args[1]}, args[2], at)
@@ -277,7 +278,9 @@ function peg.operator(state: any, op: string, left: any, right: any, at: any): a
     end
     local function make(kind, children, data)
         local handle = {}
-        state.opaque[handle] = {
+        state.opaque[
+            handle
+        ] = {
             provider = "peg",
             family = "Pattern",
             payload = {op = kind, children = children or {}, data = data},
@@ -286,6 +289,7 @@ function peg.operator(state: any, op: string, left: any, right: any, at: any): a
 
         return handle
     end
+
     if op == "+" or op == "*" then
         if not patternEntry(state, right) then
             return nil, failure("NUPP2417", "both PEG operator operands must be patterns")
@@ -347,8 +351,13 @@ local function analyze(nodes, root, ruleRoots)
             local value = false
             if op == "literal" then
                 value = node[2] == ""
-            elseif op == "eof" or op == "position" or op == "zeroOrMore"
-                or op == "optional" or op == "and" or op == "not" then
+            elseif op == "eof"
+                or op == "position"
+                or op == "zeroOrMore"
+                or op == "optional"
+                or op == "and"
+                or op == "not"
+            then
                 value = true
             elseif op == "sequence" then
                 value = true
@@ -425,13 +434,21 @@ local function analyze(nodes, root, ruleRoots)
                     return false, cycle
                 end
             end
-        elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional"
-            or op == "and" or op == "not" or op == "capture" or op == "collect" or op == "action" then
+        elseif op == "zeroOrMore"
+            or op == "oneOrMore"
+            or op == "optional"
+            or op == "and"
+            or op == "not"
+            or op == "capture"
+            or op == "collect"
+            or op == "action"
+        then
             return leading(node[2], active)
         end
 
         return true
     end
+
     for _, ruleRoot in ipairs(ruleRoots) do
         local ok = leading(ruleRoot, {[ruleRoot] = true})
         if not ok then
@@ -561,6 +578,7 @@ local function finalizeGraph(state, rootHandle)
 
         return true
     end
+
     local discovered, discoverFailure = discoverGrammar(rootHandle, {})
     if not discovered then
         return nil, discoverFailure
@@ -682,12 +700,7 @@ local function finalizeGraph(state, rootHandle)
         payload = payload,
         provenance = origins,
         fingerprint = fingerprint,
-        summary = ("%d-node PEG, %d rules, %d actions, %s result"):format(
-            #nodes,
-            #ruleRoots,
-            #slots,
-            result
-        ),
+        summary = ("%d-node PEG, %d rules, %d actions, %s result"):format(#nodes, #ruleRoots, #slots, result),
     }, nil
 end
 
@@ -701,21 +714,24 @@ function peg.finalize(state: any, value: any): any, peg.Failure?
 end
 
 local function validateEnvelope(envelope)
-    if envelope.schema ~= 2
-        or (envelope.family ~= "Blueprint" and envelope.family ~= "FactoryBlueprint")
-        or type(envelope.payload) ~= "table" then
+    if envelope.schema ~= 2 or (
+        envelope.family ~= "Blueprint" and envelope.family ~= "FactoryBlueprint"
+    ) or type(envelope.payload) ~= "table" then
         return nil, "PEG blueprint has the wrong schema"
     end
     local nodes, root, result, ruleCount, slots = unpack(envelope.payload)
-    if type(nodes) ~= "table" or #nodes == 0 or #nodes > MAX_NODES
-        or type(root) ~= "number" or root < 1 or root > #nodes
-        or type(result) ~= "string" or type(ruleCount) ~= "number" or type(slots) ~= "table" then
+    if type(
+        nodes
+    ) ~= "table" or #nodes == 0 or #nodes > MAX_NODES or type(
+        root
+    ) ~= "number" or root < 1 or root > #nodes or type(
+        result
+    ) ~= "string" or type(ruleCount) ~= "number" or type(slots) ~= "table" then
         return nil, "PEG blueprint header is malformed"
     end
     local slotSet, previous = {}, nil
     for _, name in ipairs(slots) do
-        if type(name) ~= "string" or not name:find("^[%a_][%w_]*$")
-            or (previous and previous >= name) then
+        if type(name) ~= "string" or not name:find("^[%a_][%w_]*$") or (previous and previous >= name) then
             return nil, "PEG blueprint action slots are malformed"
         end
         slotSet[name], previous = true, name
@@ -725,9 +741,20 @@ local function validateEnvelope(envelope)
     end
     local literalBytes = 0
     local arities = {
-        literal = -1, set = -1, any = 1, eof = 1, position = 1,
-        difference = 3, zeroOrMore = 2, oneOrMore = 2, optional = 2,
-        ["and"] = 2, ["not"] = 2, capture = 2, collect = 2, reference = 2,
+        literal = -1,
+        set = -1,
+        any = 1,
+        eof = 1,
+        position = 1,
+        difference = 3,
+        zeroOrMore = 2,
+        oneOrMore = 2,
+        optional = 2,
+        ["and"] = 2,
+        ["not"] = 2,
+        capture = 2,
+        collect = 2,
+        reference = 2,
     }
     for _, node in ipairs(nodes) do
         if type(node) ~= "table" or type(node[1]) ~= "string" then
@@ -785,15 +812,17 @@ local function resultFits(result, resultType, actionReturns)
         return false
     end
 
-    return element == "any" or (element == "string" and resultType.elem == T.string)
-        or (element == "integer" and resultType.elem == T.integer)
-        or (element:find("^action:") and actionReturns
-            and actionReturns[element:sub(8)] == resultType.elem)
+    return element == "any" or (
+        element == "string" and resultType.elem == T.string
+    ) or (
+        element == "integer" and resultType.elem == T.integer
+    ) or (element:find("^action:") and actionReturns and actionReturns[element:sub(8)] == resultType.elem)
 end
 
 local function matcherResult(candidate, matcher)
-    if not candidate or not matcher or (candidate.origin or candidate) ~= matcher
-        or not candidate.typeArgs or #candidate.typeArgs ~= 1 then
+    if not candidate or not matcher or (
+        candidate.origin or candidate
+    ) ~= matcher or not candidate.typeArgs or #candidate.typeArgs ~= 1 then
         return nil
     end
 
@@ -801,8 +830,9 @@ local function matcherResult(candidate, matcher)
 end
 
 local function actionReturnTypes(slots, actions)
-    if not actions or (actions.tag ~= "nominal" and actions.tag ~= "shape")
-        or actions.indexReadKey or actions.indexWriteKey then
+    if not actions or (
+        actions.tag ~= "nominal" and actions.tag ~= "shape"
+    ) or actions.indexReadKey or actions.indexWriteKey then
         return nil, "PEG action factory input must be a closed record or shape"
     end
     local byname, count = actions.byname or {}, 0
@@ -815,8 +845,9 @@ local function actionReturnTypes(slots, actions)
     local returns = {}
     for _, name in ipairs(slots) do
         local callback = byname[name]
-        if not callback or callback.tag ~= "func" or #callback.params ~= 1
-            or callback.params[1] ~= T.string or #callback.rets ~= 1 or callback.vararg then
+        if not callback or callback.tag ~= "func" or #callback.params ~= 1 or callback.params[
+            1
+        ] ~= T.string or #callback.rets ~= 1 or callback.vararg then
             return nil, ("PEG action %s must be function(string): R"):format(name)
         end
         returns[name] = callback.rets[1]
@@ -838,6 +869,7 @@ local function selectSpecialization(validated)
 
         return index
     end
+
     local function sequence(index, out)
         index = dereference(index)
         local node = nodes[index]
@@ -851,6 +883,7 @@ local function selectSpecialization(validated)
 
         return out
     end
+
     local function byteSet(index, set)
         index = dereference(index)
         local node = nodes[index]
@@ -874,6 +907,7 @@ local function selectSpecialization(validated)
 
         return set
     end
+
     local function setText(index)
         local set = byteSet(index, {})
         if not set then
@@ -887,6 +921,7 @@ local function selectSpecialization(validated)
 
         return table.concat(bytes)
     end
+
     local root = sequence(validated.root, {})
     if #root == 3 and nodes[root[3]][1] == "eof" and validated.result == "integer" then
         local repeatNode = nodes[dereference(root[2])]
@@ -902,13 +937,16 @@ local function selectSpecialization(validated)
         if #body == 2 then
             local capture = nodes[dereference(body[1])]
             local repetition = nodes[dereference(body[2])]
-            local repeated = repetition and repetition[1] == "zeroOrMore"
-                and sequence(repetition[2], {}) or {}
+            local repeated = repetition and repetition[1] == "zeroOrMore" and sequence(repetition[2], {}) or {}
             local word = capture and capture[1] == "capture" and nodes[dereference(capture[2])]
             local separator = repeated[1] and nodes[dereference(repeated[1])]
-            if #repeated == 2 and repeated[2] == body[1]
-                and word and word[1] == "oneOrMore"
-                and separator and separator[1] == "literal" and separator[2] ~= "" then
+            if #repeated == 2 and repeated[
+                2
+            ] == body[
+                1
+            ] and word and word[
+                1
+            ] == "oneOrMore" and separator and separator[1] == "literal" and separator[2] ~= "" then
                 local bytes = setText(word[2])
                 if bytes then
                     return {kind = "list", bytes = bytes, separator = separator[2]}
@@ -929,8 +967,11 @@ local function selectSpecialization(validated)
                     local parts = sequence(choice[child], {})
                     if #parts == 3 then
                         local first, middle, last = nodes[parts[1]], dereference(parts[2]), nodes[parts[3]]
-                        if first[1] == "literal" and first[2] ~= "" and middle == rule
-                            and last[1] == "literal" and last[2] ~= "" then
+                        if first[
+                            1
+                        ] == "literal" and first[
+                            2
+                        ] ~= "" and middle == rule and last[1] == "literal" and last[2] ~= "" then
                             recursive = {open = first[2], close = last[2]}
                         end
                     end
@@ -943,6 +984,261 @@ local function selectSpecialization(validated)
     end
 
     return nil
+end
+
+local OP_END = 0
+local OP_CHAR = 1
+local OP_SET = 2
+local OP_STRING = 3
+local OP_ANY = 4
+local OP_EOF = 5
+local OP_CHOICE = 6
+local OP_COMMIT = 7
+local OP_PARTIAL_COMMIT = 8
+local OP_BACK_COMMIT = 9
+local OP_FAIL = 10
+local OP_CALL = 11
+local OP_RETURN = 12
+local OP_OPEN_CAPTURE = 13
+local OP_CLOSE_CAPTURE = 14
+local OP_OPEN_COLLECT = 15
+local OP_CLOSE_COLLECT = 16
+local OP_OPEN_ACTION = 17
+local OP_CLOSE_ACTION = 18
+local OP_POSITION = 19
+
+local function compileBytecode(validated)
+    local code, strings, sets = {}, {}, {}
+    local stringIndices, setIndices = {}, {}
+    local actionIndices = {}
+    for index, name in ipairs(validated.slots) do
+        actionIndices[name] = index
+    end
+
+    local function emit(op, argument)
+        local instruction = #code + 1
+        local operand = instruction + 1
+        code[instruction], code[operand] = op, argument or 0
+
+        return operand
+    end
+
+    local function constant(pool, indices, value)
+        local index = indices[value]
+        if not index then
+            index = #pool + 1
+            pool[index], indices[value] = value, index
+        end
+
+        return index
+    end
+
+    local function class(bytes)
+        if #bytes == 1 then
+            return nil, bytes:byte(1)
+        end
+        local included = {}
+        for offset = 1, #bytes do
+            included[bytes:byte(offset)] = true
+        end
+        local bitmap = {}
+        for byte = 0, 255 do
+            bitmap[#bitmap + 1] = included[byte] and "\1" or "\0"
+        end
+
+        return constant(sets, setIndices, table.concat(bitmap)), nil
+    end
+
+    local nodes = validated.nodes
+    local incoming, costs = {}, {}
+    for _, node in ipairs(nodes) do
+        if node[
+            1
+        ] ~= "literal" and node[1] ~= "set" and node[1] ~= "any" and node[1] ~= "eof" and node[1] ~= "position" then
+            local last = node[1] == "action" and 2 or #node
+            for child = 2, last do
+                incoming[node[child]] = (incoming[node[child]] or 0) + 1
+            end
+        end
+    end
+    local function expandedCost(index)
+        if costs[index] then
+            return costs[index]
+        end
+        local node, cost = nodes[index], 1
+        local op = node[1]
+        if op == "reference" then
+            cost = 1
+        elseif op == "sequence" then
+            cost = 0
+            for child = 2, #node do
+                cost = math.min(257, cost + expandedCost(node[child]))
+            end
+        elseif op == "choice" then
+            cost = (#node - 2) * 2
+            for child = 2, #node do
+                cost = math.min(257, cost + expandedCost(node[child]))
+            end
+        elseif op == "difference" then
+            cost = math.min(257, 3 + expandedCost(node[2]) + expandedCost(node[3]))
+        elseif op == "zeroOrMore" or op == "optional" then
+            cost = math.min(257, 2 + expandedCost(node[2]))
+        elseif op == "oneOrMore" then
+            cost = math.min(257, 2 + expandedCost(node[2]) * 2)
+        elseif op == "and" or op == "not" then
+            cost = math.min(257, 3 + expandedCost(node[2]))
+        elseif op == "capture" or op == "collect" or op == "action" then
+            cost = math.min(257, 2 + expandedCost(node[2]))
+        end
+        costs[index] = cost
+
+        return cost
+    end
+
+    for index = 1, #nodes do
+        expandedCost(index)
+    end
+    local calls, scheduled, scheduledSet, addresses = {}, {}, {}, {}
+    local captureful = false
+    local compile
+    local function call(index)
+        calls[#calls + 1] = {operand = emit(OP_CALL), target = index}
+        if not scheduledSet[index] then
+            scheduledSet[index] = true
+            scheduled[#scheduled + 1] = index
+        end
+    end
+
+    compile = function(index, forceInline)
+        local node = nodes[index]
+        local op = node[1]
+        if not forceInline and (
+            incoming[index] or 0
+        ) > 1 and costs[
+            index
+        ] > 32
+            and op ~= "literal"
+            and op ~= "set"
+            and op ~= "any"
+            and op ~= "eof"
+            and op ~= "position"
+            and op ~= "reference" then
+            call(index)
+            return
+        end
+        if op == "literal" then
+            local text = node[2]
+            if #text == 1 then
+                emit(OP_CHAR, text:byte(1))
+            elseif #text > 1 then
+                emit(OP_STRING, constant(strings, stringIndices, text))
+            end
+        elseif op == "set" then
+            local setIndex, byte = class(node[2])
+            emit(setIndex and OP_SET or OP_CHAR, setIndex or byte)
+        elseif op == "any" then
+            emit(OP_ANY)
+        elseif op == "eof" then
+            emit(OP_EOF)
+        elseif op == "sequence" then
+            for child = 2, #node do
+                compile(node[child])
+            end
+        elseif op == "choice" then
+            local commits = {}
+            for child = 2, #node - 1 do
+                local alternate = emit(OP_CHOICE)
+                compile(node[child])
+                commits[#commits + 1] = emit(OP_COMMIT)
+                code[alternate] = #code + 1
+            end
+            compile(node[#node])
+            local finish = #code + 1
+            for _, operand in ipairs(commits) do
+                code[operand] = finish
+            end
+        elseif op == "difference" then
+            local rightFailed = emit(OP_CHOICE)
+            compile(node[3])
+            local rightMatched = emit(OP_COMMIT)
+            local fail = #code + 1
+            emit(OP_FAIL)
+            local left = #code + 1
+            code[rightFailed], code[rightMatched] = left, fail
+            compile(node[2])
+        elseif op == "zeroOrMore" then
+            local stop = emit(OP_CHOICE)
+            local body = #code + 1
+            compile(node[2])
+            emit(OP_PARTIAL_COMMIT, body)
+            code[stop] = #code + 1
+        elseif op == "oneOrMore" then
+            compile(node[2])
+            local stop = emit(OP_CHOICE)
+            local body = #code + 1
+            compile(node[2])
+            emit(OP_PARTIAL_COMMIT, body)
+            code[stop] = #code + 1
+        elseif op == "optional" then
+            local absent = emit(OP_CHOICE)
+            compile(node[2])
+            local present = emit(OP_COMMIT)
+            local finish = #code + 1
+            code[absent], code[present] = finish, finish
+        elseif op == "and" then
+            local failed = emit(OP_CHOICE)
+            compile(node[2])
+            local matched = emit(OP_BACK_COMMIT)
+            local reject = #code + 1
+            emit(OP_FAIL)
+            local accept = #code + 1
+            code[failed], code[matched] = reject, accept
+        elseif op == "not" then
+            local failed = emit(OP_CHOICE)
+            compile(node[2])
+            local matched = emit(OP_COMMIT)
+            local reject = #code + 1
+            emit(OP_FAIL)
+            local accept = #code + 1
+            code[failed], code[matched] = accept, reject
+        elseif op == "capture" then
+            captureful = true
+            emit(OP_OPEN_CAPTURE)
+            compile(node[2])
+            emit(OP_CLOSE_CAPTURE)
+        elseif op == "collect" then
+            captureful = true
+            emit(OP_OPEN_COLLECT)
+            compile(node[2])
+            emit(OP_CLOSE_COLLECT)
+        elseif op == "action" then
+            captureful = true
+            emit(OP_OPEN_ACTION, actionIndices[node[3]])
+            compile(node[2])
+            emit(OP_CLOSE_ACTION)
+        elseif op == "position" then
+            captureful = true
+            emit(OP_POSITION)
+        elseif op == "reference" then
+            call(node[2])
+        end
+    end
+
+    compile(validated.root)
+    emit(OP_END)
+    local nextRule = 1
+    while nextRule <= #scheduled do
+        local index = scheduled[nextRule]
+        addresses[index] = #code + 1
+        compile(index, true)
+        emit(OP_RETURN)
+        nextRule = nextRule + 1
+    end
+    for _, patch in ipairs(calls) do
+        code[patch.operand] = addresses[patch.target]
+    end
+
+    return {code = code, strings = strings, sets = sets, actions = validated.slots, captureful = captureful,}
 end
 
 local function dataIR(value)
@@ -968,10 +1264,7 @@ end
 
 function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, any
     if not expected then
-        return nil, failure(
-            "NUPP2414",
-            "a PEG blueprint needs a directly declared nupp.peg.Matcher result type"
-        )
+        return nil, failure("NUPP2414", "a PEG blueprint needs a directly declared nupp.peg.Matcher result type")
     end
     local validated, why = validateEnvelope(envelope)
     if not validated then
@@ -982,8 +1275,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
     local resultType, actionReturns
     if #validated.slots == 0 then
         resultType = matcherResult(expected, matcher)
-    elseif expected.tag == "func" and #expected.params == 1 and #expected.rets == 1
-        and not expected.vararg then
+    elseif expected.tag == "func" and #expected.params == 1 and #expected.rets == 1 and not expected.vararg then
         resultType = matcherResult(expected.rets[1], matcher)
         local actionWhy
         actionReturns, actionWhy = actionReturnTypes(validated.slots, expected.params[1])
@@ -1003,31 +1295,15 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
             tag = "call",
             callee = {tag = "helper", name = "nupp.peg.specialized"},
             args = {dataIR(specialization)},
-        }, nil, {
-            backend = "specialized",
-            emitterAbi = 1,
-            helperAbi = 1,
-            runtimeFeatures = {"stdlib.peg"},
-        }
+        }, nil, {backend = "specialized", emitterAbi = 1, helperAbi = 1, runtimeFeatures = {"stdlib.peg"},}
     end
     local machine = {
         tag = "call",
-        callee = {tag = "helper", name = "nupp.peg.machine"},
-        args = {{
-            tag = "table",
-            fields = {
-                {name = "nodes", value = dataIR(validated.nodes)},
-                {name = "root", value = {tag = "literal", value = validated.root}},
-            },
-        }},
+        callee = {tag = "helper", name = "nupp.peg.vm"},
+        args = {dataIR(compileBytecode(validated))},
     }
     if #validated.slots == 0 then
-        return machine, nil, {
-            backend = "machine",
-            emitterAbi = 1,
-            helperAbi = 1,
-            runtimeFeatures = {"stdlib.peg"},
-        }
+        return machine, nil, {backend = "vm", emitterAbi = 2, helperAbi = 2, runtimeFeatures = {"stdlib.peg"},}
     end
     machine.args[2] = {tag = "local", id = 1}
 
@@ -1035,12 +1311,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
         tag = "function",
         params = {1},
         body = {{tag = "return", value = machine}},
-    }, nil, {
-        backend = "machine",
-        emitterAbi = 1,
-        helperAbi = 1,
-        runtimeFeatures = {"stdlib.peg"},
-    }
+    }, nil, {backend = "vm", emitterAbi = 2, helperAbi = 2, runtimeFeatures = {"stdlib.peg"},}
 end
 
 return peg

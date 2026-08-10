@@ -112,36 +112,58 @@ for _,__name in ipairs({"adler32","crc32"})do __nuppLazy(__nuppData,__name,funct
 local PEG = compact(
     [=[
 local __nuppPeg=rawget(__nupp,"peg")or{};rawset(__nupp,"peg",__nuppPeg)
-local function __nuppPegMachine(program,actions)
+local function __nuppPegVM(program,actions)
 local Matcher={};Matcher.__index=Matcher;local ACTION={}
-if actions~=nil then if type(actions)~="table"then error("nupp: PEG actions must be a table",2)end;for _,node in ipairs(program.nodes)do if node[1]=="action"then local callback=actions[node[3]];if type(callback)~="function"then error("nupp: missing PEG action "..tostring(node[3]),2)end;node[3]=callback end end end
-local function rollback(captures,count)for index=#captures,count+1,-1 do captures[index]=nil end end
-local function parse(program,index,subject,position,captures,depth)
-if depth>10000 then error("nupp: PEG recursion exceeded 10000 calls",3)end
-local node=program.nodes[index];local op=node[1];local before=#captures
-if op=="literal"then local text=node[2];if subject:sub(position,position+#text-1)==text then return position+#text end
-elseif op=="any"then if position<=#subject then return position+1 end
-elseif op=="eof"then if position==#subject+1 then return position end
-elseif op=="set"then local byte=subject:sub(position,position);if byte~=""and node[2]:find(byte,1,true)then return position+1 end
-elseif op=="sequence"then local at=position;for child=2,#node do at=parse(program,node[child],subject,at,captures,depth+1);if not at then rollback(captures,before);return nil end end;return at
-elseif op=="choice"then for child=2,#node do local at=parse(program,node[child],subject,position,captures,depth+1);if at then return at end;rollback(captures,before)end
-elseif op=="difference"then local scratch={};if parse(program,node[3],subject,position,scratch,depth+1)then return nil end;return parse(program,node[2],subject,position,captures,depth+1)
-elseif op=="zeroOrMore"or op=="oneOrMore"then local at,count=position,0;while true do local checkpoint=#captures;local nextAt=parse(program,node[2],subject,at,captures,depth+1);if not nextAt then rollback(captures,checkpoint);break end;if nextAt==at then error("nupp: nullable PEG repetition reached runtime",3)end;at=nextAt;count=count+1 end;if op=="oneOrMore"and count==0 then rollback(captures,before);return nil end;return at
-elseif op=="optional"then local at=parse(program,node[2],subject,position,captures,depth+1);if at then return at end;rollback(captures,before);return position
-elseif op=="and"then local scratch={};if parse(program,node[2],subject,position,scratch,depth+1)then return position end
-elseif op=="not"then local scratch={};if not parse(program,node[2],subject,position,scratch,depth+1)then return position end
-elseif op=="capture"then local scratch={};local at=parse(program,node[2],subject,position,scratch,depth+1);if at then captures[#captures+1]=subject:sub(position,at-1);return at end
-elseif op=="action"then local scratch={};local at=parse(program,node[2],subject,position,scratch,depth+1);if at then captures[#captures+1]={[ACTION]=node[3],subject:sub(position,at-1)};return at end
-elseif op=="position"then captures[#captures+1]=position;return position
-elseif op=="collect"then local scratch={};local at=parse(program,node[2],subject,position,scratch,depth+1);if at then captures[#captures+1]=scratch;return at end
-elseif op=="reference"then return parse(program,node[2],subject,position,captures,depth+1)
-else error("nupp: unknown PEG instruction "..tostring(op),3)end
-rollback(captures,before);return nil end
+local code,strings,sets=program.code,program.strings,program.sets
+local actionFns={};if #program.actions>0 then if type(actions)~="table"then error("nupp: PEG actions must be a table",2)end;for index,name in ipairs(program.actions)do local callback=actions[name];if type(callback)~="function"then error("nupp: missing PEG action "..tostring(name),2)end;actionFns[index]=callback end end
+local plainStack={}
+local function runPlain(subject,position)
+local pc,top,callDepth=1,0,0;local stack=plainStack;local length=#subject
+while true do local op,arg=code[pc],code[pc+1];pc=pc+2;local failed=false
+if op==0 then return position
+elseif op==1 then if subject:byte(position)==arg then position=position+1 else failed=true end
+elseif op==2 then local byte=subject:byte(position);if byte and sets[arg]:byte(byte+1)~=0 then position=position+1 else failed=true end
+elseif op==3 then local text=strings[arg];if subject:find(text,position,true)==position then position=position+#text else failed=true end
+elseif op==4 then if position<=length then position=position+1 else failed=true end
+elseif op==5 then if position~=length+1 then failed=true end
+elseif op==6 then stack[top+1],stack[top+2],stack[top+3]=arg,position,1;top=top+3
+elseif op==7 then top=top-3;pc=arg
+elseif op==8 then stack[top-1]=position;pc=arg
+elseif op==9 then position=stack[top-1];top=top-3;pc=arg
+elseif op==10 then failed=true
+elseif op==11 then callDepth=callDepth+1;if callDepth>10000 then error("nupp: PEG recursion exceeded 10000 calls",3)end;stack[top+1],stack[top+2]=pc,0;top=top+2;pc=arg
+elseif op==12 then pc=stack[top-1];top=top-2;callDepth=callDepth-1
+else error("nupp: unknown PEG opcode "..tostring(op),3)end
+if failed then while top>0 and stack[top]==0 do top=top-2;callDepth=callDepth-1 end;if top==0 then return nil end;pc,position=stack[top-2],stack[top-1];top=top-3 end end end
 local function resolve(value)if type(value)~="table"then return value end;local action=value[ACTION];if action then return action(value[1])end;for index,item in ipairs(value)do value[index]=resolve(item)end;return value end
-function Matcher:match(subject,init)if type(subject)~="string"then error("nupp: PEG subject must be a string",2)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",2)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;local captures={};local position=parse(self._program,self._program.root,subject,init,captures,0);if not position then return nil end;if #captures==0 then return position elseif #captures==1 then return resolve(captures[1])end;error("nupp: invalid PEG result arity",2)end
-Matcher.__call=Matcher.match
-return setmetatable({_program=program},Matcher)end
-__nuppPeg.machine=__nuppPegMachine;
+local captureStack,captures,frames={},{},{}
+local function runCapturing(subject,position)
+local pc,top,callDepth=1,0,0;local stack,capTop,frameTop=captureStack,0,0;local length=#subject
+while true do local op,arg=code[pc],code[pc+1];pc=pc+2;local failed=false
+if op==0 then if capTop==0 then return position elseif capTop==1 then local value=captures[1];captures[1]=nil;return resolve(value)else error("nupp: invalid PEG result arity",2)end
+elseif op==1 then if subject:byte(position)==arg then position=position+1 else failed=true end
+elseif op==2 then local byte=subject:byte(position);if byte and sets[arg]:byte(byte+1)~=0 then position=position+1 else failed=true end
+elseif op==3 then local text=strings[arg];if subject:find(text,position,true)==position then position=position+#text else failed=true end
+elseif op==4 then if position<=length then position=position+1 else failed=true end
+elseif op==5 then if position~=length+1 then failed=true end
+elseif op==6 then stack[top+1],stack[top+2],stack[top+3],stack[top+4],stack[top+5]=arg,position,capTop,frameTop,1;top=top+5
+elseif op==7 then top=top-5;pc=arg
+elseif op==8 then stack[top-3],stack[top-2],stack[top-1]=position,capTop,frameTop;pc=arg
+elseif op==9 then local saved=stack[top-2];for index=capTop,saved+1,-1 do captures[index]=nil end;position,capTop,frameTop=stack[top-3],saved,stack[top-1];top=top-5;pc=arg
+elseif op==10 then failed=true
+elseif op==11 then callDepth=callDepth+1;if callDepth>10000 then error("nupp: PEG recursion exceeded 10000 calls",3)end;stack[top+1],stack[top+2]=pc,0;top=top+2;pc=arg
+elseif op==12 then pc=stack[top-1];top=top-2;callDepth=callDepth-1
+elseif op==13 or op==15 or op==17 then frames[frameTop+1],frames[frameTop+2],frames[frameTop+3]=capTop,position,arg;frameTop=frameTop+3
+elseif op==14 then local base,start=frames[frameTop-2],frames[frameTop-1];frameTop=frameTop-3;for index=capTop,base+1,-1 do captures[index]=nil end;capTop=base+1;captures[capTop]=subject:sub(start,position-1)
+elseif op==16 then local base=frames[frameTop-2];frameTop=frameTop-3;local answer={};for index=base+1,capTop do answer[#answer+1]=captures[index];captures[index]=nil end;capTop=base+1;captures[capTop]=answer
+elseif op==18 then local base,start,slot=frames[frameTop-2],frames[frameTop-1],frames[frameTop];frameTop=frameTop-3;for index=capTop,base+1,-1 do captures[index]=nil end;capTop=base+1;captures[capTop]={[ACTION]=actionFns[slot],subject:sub(start,position-1)}
+elseif op==19 then capTop=capTop+1;captures[capTop]=position
+else error("nupp: unknown PEG opcode "..tostring(op),3)end
+if failed then while top>0 and stack[top]==0 do top=top-2;callDepth=callDepth-1 end;if top==0 then for index=capTop,1,-1 do captures[index]=nil end;return nil end;local saved=stack[top-2];for index=capTop,saved+1,-1 do captures[index]=nil end;pc,position,capTop,frameTop=stack[top-4],stack[top-3],saved,stack[top-1];top=top-5 end end end
+local run=program.captureful and runCapturing or runPlain
+function Matcher:match(subject,init)if type(subject)~="string"then error("nupp: PEG subject must be a string",2)end;if init==nil then init=1 elseif type(init)~="number"or init~=math.floor(init)then error("nupp: PEG init must be an integer",2)elseif init<0 then init=#subject+init+1 end;if init<1 then init=1 end;if init>#subject+1 then return nil end;return run(subject,init)end
+Matcher.__call=Matcher.match;return setmetatable({},Matcher)end
+__nuppPeg.vm=__nuppPegVM;
 local function __nuppPegSpecialized(plan)
 local Matcher={};Matcher.__index=Matcher
 local function run(subject,position)

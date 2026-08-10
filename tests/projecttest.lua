@@ -184,7 +184,7 @@ return Matcher("ok")
    local observation = cold.materializations[1]
    assertEq(observation.provider, "peg", "provider observation")
    assertEq(observation.schema, 2, "provider schema")
-   assertEq(observation.backend, "machine", "selected backend")
+   assertEq(observation.backend, "vm", "selected backend")
    assert(observation.blueprintSize > 0 and observation.generatedSize > 0,
       "bounded sizes are reported")
    assertEq(observation.abis.runtimeExpression, 1, "runtime-expression ABI")

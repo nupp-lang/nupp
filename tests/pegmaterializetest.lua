@@ -1,5 +1,5 @@
 -- The public PEG materializer: static construction, worker finalization, typed matcher
--- results, and the pure-Lua reference backend.
+-- results, and the pure-Lua bytecode VM backend.
 local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
@@ -103,9 +103,9 @@ return matcher("one,two,three")
    assertEq(table.concat(values, ":"), "one:two:three", "grouped values")
 end
 
-function M.excludesThePegMachineFromUnrelatedPrograms()
+function M.excludesThePegVMFromUnrelatedPrograms()
    local code = compile("return 42")
-   assertEq(code:find("__nuppPegMachine", 1, true), nil, "unused helper")
+   assertEq(code:find("__nuppPegVM", 1, true), nil, "unused helper")
 end
 
 function M.buildsATypedMatcherFactoryForRuntimeActions()
@@ -205,12 +205,71 @@ const Nested: nupp.Peg.Matcher<integer> = comptime do
     const body = nupp.peg.literal("x")
         + (nupp.peg.literal("(") * value * nupp.peg.literal(")"))
     const grammar = nupp.peg.grammar("value", nupp.peg.define("value", body))
-    return nupp.peg.compile(grammar * nupp.peg.eof())
+    return nupp.peg.compile(#nupp.peg.literal("") * grammar * nupp.peg.eof())
 end
 return Nested("(((x)))"), Nested("((x)")
 ]])
    assertEq(matched, 8, "recursive match")
    assertEq(missed, nil, "unclosed recursion fails")
+end
+
+function M.runsDeepGrammarRecursionOnTheExplicitVMStack()
+   local matched = run([[
+const Nested: nupp.Peg.Matcher<integer> = comptime do
+    const value = nupp.peg.reference("value")
+    const body = nupp.peg.literal("x")
+        + (nupp.peg.literal("(") * value * nupp.peg.literal(")"))
+    const grammar = nupp.peg.grammar("value", nupp.peg.define("value", body))
+    return nupp.peg.compile(#nupp.peg.literal("") * grammar * nupp.peg.eof())
+end
+local depth = 2000
+local subject = string.rep("(", depth) .. "x" .. string.rep(")", depth)
+return Nested(subject)
+]])
+   assertEq(matched, 4002, "deep recursive match")
+end
+
+function M.supportsPositionAnyAndOptionalOpcodes()
+   local empty, byte, tooLong = run([[
+const Located: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(
+        nupp.peg.position() * nupp.peg.optional(nupp.peg.anyByte()) * nupp.peg.eof()
+    )
+end
+return Located(""), Located("x"), Located("xy")
+]])
+   assertEq(empty, 1, "empty position")
+   assertEq(byte, 1, "position before optional byte")
+   assertEq(tooLong, nil, "optional consumes at most one byte")
+end
+
+function M.boundsBytecodeGrowthForSharedPatternGraphs()
+   local source = [[
+const Wide: nupp.Peg.Matcher<integer> = comptime do
+    const p0 = nupp.peg.literal("x")
+    const p1 = p0 * p0
+    const p2 = p1 * p1
+    const p3 = p2 * p2
+    const p4 = p3 * p3
+    const p5 = p4 * p4
+    const p6 = p5 * p5
+    const p7 = p6 * p6
+    const p8 = p7 * p7
+    const p9 = p8 * p8
+    const p10 = p9 * p9
+    const p11 = p10 * p10
+    const p12 = p11 * p11
+    const p13 = p12 * p12
+    const p14 = p13 * p13
+    const p15 = p14 * p14
+    const p16 = p15 * p15
+    return nupp.peg.compile(p16 * nupp.peg.eof())
+end
+return Wide(string.rep("x", 65536))
+]]
+   local code = compile(source)
+   assert(#code < 20000, "shared pattern graph expanded into excessive bytecode")
+   assertEq(run(source), 65537, "shared pattern match")
 end
 
 function M.supportsDifferenceAndPredicates()
@@ -262,7 +321,7 @@ return Identifier
    end
 end
 
-function M.agreesBetweenSpecializedAndReferenceBackends()
+function M.agreesBetweenSpecializedAndGeneralBackends()
    local source = [[
 const FastIdentifier: nupp.Peg.Matcher<integer> = comptime do
     const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
@@ -286,7 +345,7 @@ return FastIdentifier, RefIdentifier, FastList, RefList
 ]]
    local code = compile(source)
    assert(code:find("nupp.peg.specialized", 1, true), code)
-   assert(code:find("nupp.peg.machine", 1, true), code)
+   assert(code:find("nupp.peg.vm", 1, true), code)
    local fastIdentifier, refIdentifier, fastList, refList = run(source)
    local inputs = {"", "a", "_ok9", "9bad", "alpha,beta", "one,two,three", "one,", ",two"}
    for _, input in ipairs(inputs) do

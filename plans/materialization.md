@@ -375,7 +375,7 @@ data, access to a source binding, arbitrary global assignment, `load`, or a raw
 source fragment. The ordinary generator validates and renders this IR.
 
 Compiler helpers are also selected from a closed table. A provider may request
-`nupp.peg.machine`, for example, but cannot derive a module name from its
+`nupp.peg.vm`, for example, but cannot derive a module name from its
 payload. Helper requests participate in the target's semantic helper and
 runtime-feature accounting. A pure generated-Lua helper records no native
 feature; a future provider with a native backend would use the same conservative
@@ -476,11 +476,11 @@ These are build facts, not new manifest inputs.
 
 ## Backend selection and semantic equality
 
-A provider can offer a reference backend and a specialized backend. The build
+A provider can offer a general backend and a specialized backend. The build
 derives the choice from the existing optimization policy and backend
 availability; there is no provider-specific manifest flag. Source code and
-checked interfaces do not change. The initial PEG backend is the pure-Lua
-parsing machine. Specialized PEG source ships only after its benchmark gate.
+checked interfaces do not change. PEG's general backend is a compact pure-Lua
+bytecode VM. Specialized PEG source ships only after its benchmark gate.
 
 Both backends implement the same provider specification. Differential tests
 run the same finalized payloads and inputs through both and compare successes,
@@ -566,21 +566,26 @@ finalizes it into a normalized blueprint with stable rule indices, byte sets,
 literals, capture descriptions, action slots, FIRST sets, nullability and
 fixed-length facts.
 
-### Reference backend
+### General bytecode backend
 
-The first runtime backend quotes a flat parsing-machine program into ordinary
-data and constructs a matcher through the pure generated-Lua
-`nupp.peg.machine` helper. It exists even if specialization never wins:
+The general runtime backend lowers the finalized graph to numeric instructions
+and pooled strings and 256-byte class maps, then constructs a matcher through
+the pure generated-Lua `nupp.peg.vm` helper. The VM uses an explicit combined
+call/backtracking stack, a capture-free loop, and deferred capture/action
+opcodes. Shared subgraphs above the inline budget become subroutines so source
+growth remains bounded. It exists even if specialization never wins:
 
 - bundles need no native LPeg dependency;
 - it validates the public semantics and finalized IR;
-- it supplies the differential oracle for specialization;
+- it supplies the semantic baseline for specialization;
 - it is the real table-building workload comptime's implementation plan asks
   for.
 
-Use LPeg's parsing-machine instruction design as the starting point rather than
-inventing PEG backtracking semantics. Nupp still owns its typed result,
-capture, action and diagnostic contracts.
+Its choice, commit, partial-commit, back-commit, call and return instructions
+follow LPeg's parsing-machine design. Nupp still owns its typed result, capture,
+action and diagnostic contracts. The original recursive runtime AST interpreter
+was retired after the VM won recognition, captures, action, and recursive
+grammar benchmarks while passing the same semantic suite.
 
 ### Specialized backend gate
 
@@ -716,14 +721,14 @@ Exit test: a test provider emits both a direct value and a factory without a
 source string or synthetic declaration; generated line count and stack
 locations remain invariant; oversized output fails deterministically.
 
-### M4: PEG reference backend
+### M4: PEG general backend
 
 - Add the compiler-owned `nupp.peg` comptime and runtime type surface.
 - Implement the static pattern floor, graph validation and typed results.
 - Add PEG operator sugar with checker-owned type contracts and direct evaluator
   dispatch for the resolved compiler intrinsic, without general metamethods.
 - Finalize the analyzed graph to a canonical matcher blueprint.
-- Emit the flat program and pure-Lua parsing machine matcher.
+- Emit compact bytecode and constant pools for the pure-Lua VM matcher.
 - Differential-test the matcher against LPeg where the surfaces overlap.
 - Integrate semantic runtime-feature detection and bundle tests.
 
@@ -751,7 +756,7 @@ generation.
 - Make backend changes regenerate without re-evaluating the grammar.
 
 Exit test: the named workload clears the recorded bar, semantic results match
-the reference backend, and worst-case source/bytecode growth stays under the
+the general backend, and worst-case source/bytecode growth stays under the
 declared cap.
 
 ### M7: second provider

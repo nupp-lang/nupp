@@ -377,7 +377,7 @@ function M.pureAndNativeRuntimeFeaturesComposeAsLua()
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
    local chunk = assert(loadstring(bootstrap
-      .. " return type(nupp.peg.machine), rawget(nupp, 'regex')"))
+      .. " return type(nupp.peg.vm), rawget(nupp, 'regex')"))
    local machine, regex = chunk()
    _G.nupp = previous
    assertEq(machine, "function", "the pure PEG runtime is installed")
