@@ -264,7 +264,9 @@ neighbour keeps its name and drops its link.
 
 Every module gets its own page: its blurb, a table of the modules nested under
 it, and a table per group of what it declares — constructors, types, functions,
-and values — above the full entry for each.
+and values. The detailed reference repeats those group headings, nests each
+declaration beneath its group, and uses the same hierarchy in the page outline
+and companion Markdown.
 
 A directory with no `init.nupp` gets a page too, holding the modules below it
 and nothing else — the name every module inside it is spelled with, and it

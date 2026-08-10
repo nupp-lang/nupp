@@ -21,6 +21,13 @@ local moduleFile = urlsMod.moduleFile
 
 local api = {}
 
+type api.ItemGroup = {
+    title: string,
+    path: string,
+    kinds: boolean,
+    items: {extractMod.Item}
+}
+
 -- The default a manifest that names no `constructorPattern` gets, matched against the
 -- last dotted segment of a name.
 local DEFAULT_CONSTRUCTOR_PATTERN = "^new"
@@ -40,9 +47,52 @@ local function isConstructor(item, pattern)
     return (item.name:match("([^.]+)$") or item.name):match(pattern) ~= nil
 end
 
--- A function is written `function profile.sample(...)`, so its name carries the table it
--- was assigned into. A record or a local is declared with one identifier and never does.
--- Stripping that one prefix, when the module's own tail spells it, leaves every row of a
+local function byName(left: extractMod.Item, right: extractMod.Item): boolean
+    local leftName, rightName = left.name:lower(), right.name:lower()
+    if leftName == rightName then
+        return left.path < right.path
+    end
+
+    return leftName < rightName
+end
+
+-- Tealdoc's module pages use the same four semantic groups in the contents table and
+-- in the detailed API below it. Keeping that decision here prevents the summary, the
+-- page outline, the HTML details and the companion Markdown from each inventing a
+-- slightly different hierarchy (records versus interfaces, or variables versus
+-- values). Items are alphabetized inside a group just as they are on a Tealdoc page.
+local function itemGroups(items: {extractMod.Item}, constructorPattern: string?): {api.ItemGroup}
+    local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
+    local groups = {
+        {title = "Constructors", path = "constructors", kinds = false, items = {}},
+        {title = "Types", path = "types", kinds = true, items = {}},
+        {title = "Functions", path = "functions", kinds = true, items = {}},
+        {title = "Values", path = "values", kinds = true, items = {}},
+    }
+    for _, item in ipairs(items) do
+        local group = groups[2]
+        if isConstructor(item, pattern) then
+            group = groups[1]
+        elseif item.kind == "function" or item.kind == "method" then
+            group = groups[3]
+        elseif item.kind == "variable" then
+            group = groups[4]
+        end
+        group.items[#group.items + 1] = item
+    end
+    for _, group in ipairs(groups) do
+        table.sort(group.items, byName)
+    end
+
+    return groups
+end
+
+-- A function is written `function profile.sample(...)`, so its name carries the table
+-- it
+-- was assigned into. A record or a local is declared with one identifier and never
+-- does.
+-- Stripping that one prefix, when the module's own tail spells it, leaves every row of
+-- a
 -- module's own page as bare as the type and value rows already are.
 local function unqualifiedName(moduleName, name)
     local tail = moduleName:match("([^.]+)$") or moduleName
@@ -73,50 +123,30 @@ local function nestedModules(children: {extractMod.Module}, prefix: string, modu
         rows[
             #rows + 1
         ] = {
-            '<a href="' .. htmlEscape(prefix .. moduleFile(child.name)) .. '"><code>' .. htmlEscape(
-                child.name
-            ) .. '</code></a>',
+            '<a href="' .. htmlEscape(
+                prefix .. moduleFile(child.name)
+            ) .. '"><code>' .. htmlEscape(child.name) .. '</code></a>',
             child.namespace and namespaceSummary(modules, child.name) or inlineHtml(summaryText(child.text)),
         }
     end
 
-    return '<section class="nuppdoc-module-modules"><h2 id="modules">Modules</h2>'
-        .. tableHtml(
+    return '<section class="nuppdoc-module-modules"><h2 id="modules">Modules</h2>' .. tableHtml(
         {"Module", "Description"},
         rows
     ) .. "</section>"
 end
 
 local function moduleSummary(module: extractMod.Module, constructorPattern: string?): string
-    local pattern = constructorPattern or DEFAULT_CONSTRUCTOR_PATTERN
-    -- Constructors lead: a reader holding none of this module's values yet cannot use
-    -- anything listed below them.
-    local groups = {
-        {title = "Constructors", kinds = false, items = {}},
-        {title = "Types", kinds = true, items = {}},
-        {title = "Functions", kinds = true, items = {}},
-        {title = "Values", kinds = true, items = {}},
-    }
-    for _, item in ipairs(module.items) do
-        local group = groups[2]
-        if isConstructor(item, pattern) then
-            group = groups[1]
-        elseif item.kind == "function" or item.kind == "method" then
-            group = groups[3]
-        elseif item.kind == "variable" then
-            group = groups[4]
-        end
-        group.items[#group.items + 1] = item
-    end
+    local groups = itemGroups(module.items, constructorPattern)
     local out = {'<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>'}
     for _, group in ipairs(groups) do
         if #group.items > 0 then
             local rows = {}
             for _, item in ipairs(group.items) do
                 local row = {
-                    '<a href="#' .. htmlEscape(item.path) .. '"><code>' .. htmlEscape(
-                        unqualifiedName(module.name, item.name)
-                    ) .. '</code></a>'
+                    '<a href="#' .. htmlEscape(
+                        item.path
+                    ) .. '"><code>' .. htmlEscape(unqualifiedName(module.name, item.name)) .. '</code></a>'
                 }
                 -- A constructor's kind is the word "function" on every row of the
                 -- table, which says nothing the heading has not said already.
@@ -126,10 +156,11 @@ local function moduleSummary(module: extractMod.Module, constructorPattern: stri
                 row[#row + 1] = inlineHtml(summaryText(item.doc.text))
                 rows[#rows + 1] = row
             end
-            local headers = group.kinds and {group.title:sub(1, -2), "Kind", "Description"} or {
+            local headers = group.kinds and {
                 group.title:sub(1, -2),
+                "Kind",
                 "Description"
-            }
+            } or {group.title:sub(1, -2), "Description"}
             out[#out + 1] = '<h3>' .. group.title .. '</h3>' .. tableHtml(headers, rows)
         end
     end
@@ -161,7 +192,7 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
         #out + 1
     ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(
         item.path
-    ) .. '"><h2><code>' .. htmlEscape(
+    ) .. '"><h3><code>' .. htmlEscape(
         item.name
     ) .. '</code><span class="nuppdoc-kind-badge nuppdoc-kind-' .. htmlEscape(
         item.kind
@@ -169,7 +200,7 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
         item.kind
     ) .. '</span><a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
         item.path
-    ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h2>'
+    ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
     out[#out + 1] = markdownHtml(item.doc.text, links)
     out[
         #out + 1
@@ -182,7 +213,7 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
         for _, typearg in ipairs(item.typeargs) do
             rows[#rows + 1] = {"<code>" .. htmlEscape(typearg.name) .. "</code>", markdownHtml(typearg.text, links)}
         end
-        out[#out + 1] = "<h3>Type parameters</h3>" .. tableHtml({"Name", "Description"}, rows)
+        out[#out + 1] = "<h4>Type parameters</h4>" .. tableHtml({"Name", "Description"}, rows)
     end
     if #item.params > 0 then
         local rows = {}
@@ -195,25 +226,25 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
                 markdownHtml(param.text, links)
             }
         end
-        out[#out + 1] = "<h3>Arguments</h3>" .. tableHtml({"Name", "Type", "Description"}, rows)
+        out[#out + 1] = "<h4>Arguments</h4>" .. tableHtml({"Name", "Type", "Description"}, rows)
     end
     if #item.returns > 0 then
         local rows = {}
         for _, value in ipairs(item.returns) do
             rows[#rows + 1] = {inlineNupp(value.type, links), markdownHtml(value.text, links)}
         end
-        out[#out + 1] = "<h3>Returns</h3>" .. tableHtml({"Type", "Description"}, rows)
+        out[#out + 1] = "<h4>Returns</h4>" .. tableHtml({"Type", "Description"}, rows)
     end
-    out[#out + 1] = raisesHtml(item.raises, "h3", links)
+    out[#out + 1] = raisesHtml(item.raises, "h4", links)
     local fields, methods = splitMembers(item.members)
     if #methods > 0 then
-        out[#out + 1] = "<h3>Methods</h3>"
+        out[#out + 1] = "<h4>Methods</h4>"
         for _, method in ipairs(methods) do
             out[
                 #out + 1
             ] = '<div class="nuppdoc-api-member" id="' .. htmlEscape(
                 method.path
-            ) .. '"><h4><code>' .. htmlEscape(method.name) .. "</code></h4>"
+            ) .. '"><h5><code>' .. htmlEscape(method.name) .. "</code></h5>"
             out[#out + 1] = markdownHtml(method.text, links)
             out[
                 #out + 1
@@ -234,16 +265,16 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
                         markdownHtml(param.text, links)
                     }
                 end
-                out[#out + 1] = "<h5>Arguments</h5>" .. tableHtml({"Name", "Type", "Description"}, rows)
+                out[#out + 1] = "<h6>Arguments</h6>" .. tableHtml({"Name", "Type", "Description"}, rows)
             end
             if #method.returns > 0 then
                 local rows = {}
                 for _, value in ipairs(method.returns) do
                     rows[#rows + 1] = {inlineNupp(value.type, links), markdownHtml(value.text, links)}
                 end
-                out[#out + 1] = "<h5>Returns</h5>" .. tableHtml({"Type", "Description"}, rows)
+                out[#out + 1] = "<h6>Returns</h6>" .. tableHtml({"Type", "Description"}, rows)
             end
-            out[#out + 1] = raisesHtml(method.raises, "h5", links)
+            out[#out + 1] = raisesHtml(method.raises, "h6", links)
             out[#out + 1] = "</div>"
         end
     end
@@ -258,12 +289,13 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
                 markdownHtml(field.text, links)
             }
         end
-        out[#out + 1] = "<h3>Fields</h3>" .. tableHtml({"Name", "Type", "Description"}, rows)
+        out[#out + 1] = "<h4>Fields</h4>" .. tableHtml({"Name", "Type", "Description"}, rows)
     end
     out[#out + 1] = "</section>"
 end
 
 api.moduleSummary = moduleSummary
+api.itemGroups = itemGroups
 api.nestedModules = nestedModules
 api.renderHtmlItem = renderHtmlItem
 

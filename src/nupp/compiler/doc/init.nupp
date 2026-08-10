@@ -35,7 +35,7 @@ local moduleFile, routeFile = urlsMod.moduleFile, urlsMod.routeFile
 local relativePrefix, cleanRoute = urlsMod.relativePrefix, urlsMod.cleanRoute
 local symbolLinkIndex, symbolLinks = urlsMod.symbolLinkIndex, urlsMod.symbolLinks
 local rewriteConfiguredPageLinks = urlsMod.rewriteConfiguredPageLinks
-local moduleSummary, renderHtmlItem = apiMod.moduleSummary, apiMod.renderHtmlItem
+local moduleSummary, renderHtmlItem, itemGroups = apiMod.moduleSummary, apiMod.renderHtmlItem, apiMod.itemGroups
 local nestedModules = apiMod.nestedModules
 local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
 
@@ -128,9 +128,10 @@ function doc.markdown(
     modules: {extractMod.Module},
     title: string?,
     all: {extractMod.Module}?,
-    overview: string?
+    overview: string?,
+    constructorPattern: string?
 ): string
-    return markdownMod.render(modules, title, all, overview)
+    return markdownMod.render(modules, title, all, overview, constructorPattern)
 end
 
 local function sourceFiles(root, config, settings, requested)
@@ -477,9 +478,7 @@ local function renderSite(root, outDir, modules, title, settings)
             #ordered + 1
         ] = {
             path = route,
-            title = overview and overview.title or (
-                module.namespace and "Namespace: " or "Module: "
-            ) .. module.name,
+            title = overview and overview.title or (module.namespace and "Namespace: " or "Module: ") .. module.name,
             module = module,
             overview = overview and overview.markdown or nil,
             source = overview and overview.source or nil,
@@ -490,13 +489,14 @@ local function renderSite(root, outDir, modules, title, settings)
     local allMarkdown, linkIndex, searchEntries = {}, symbolLinkIndex(modules), {}
     for _, candidate in ipairs(pages) do
         local file = routeFile(candidate.path)
-        local markdown, body, items, current = candidate.markdown or "", {}, {}, nil
+        local markdown, body, current = candidate.markdown or "", {}, nil
+        local items: {pageMod.Entry} = {}
         if candidate.module then
             local module = candidate.module
             local children = childModules(modules, module.name)
-            current, items = module.name, {}
+            current = module.name
             for _, heading in ipairs(markdownOutline(candidate.overview)) do
-                items[#items + 1] = heading
+                items[#items + 1] = {path = heading.path, name = heading.name}
             end
             if #children > 0 then
                 items[#items + 1] = {path = "modules", name = "Modules"}
@@ -504,11 +504,18 @@ local function renderSite(root, outDir, modules, title, settings)
             if #module.items > 0 then
                 items[#items + 1] = {path = "module-contents", name = "Module contents"}
             end
-            for _, item in ipairs(module.items) do
-                items[#items + 1] = item
+            local groups = itemGroups(module.items, settings.constructorPattern)
+            for _, group in ipairs(groups) do
+                if #group.items > 0 then
+                    local entries = {}
+                    for _, item in ipairs(group.items) do
+                        entries[#entries + 1] = {path = item.path, name = item.name}
+                    end
+                    items[#items + 1] = {path = group.path, name = group.title, items = entries}
+                end
             end
             local overview = candidate.overview or ""
-            markdown = doc.markdown({module}, nil, modules, overview)
+            markdown = doc.markdown({module}, nil, modules, overview, settings.constructorPattern)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
             body[
                 #body + 1
@@ -518,9 +525,7 @@ local function renderSite(root, outDir, modules, title, settings)
             -- An overview is what the author wanted said here, so it replaces the line
             -- that stands in for one rather than repeating the subject above it.
             if overview ~= "" then
-                body[
-                    #body + 1
-                ] = markdownHtml(rewriteConfiguredPageLinks(overview, candidate, pages, file), links, 0)
+                body[#body + 1] = markdownHtml(rewriteConfiguredPageLinks(overview, candidate, pages, file), links, 0)
             elseif module.namespace then
                 body[
                     #body + 1
@@ -543,13 +548,29 @@ local function renderSite(root, outDir, modules, title, settings)
                 end
             else
                 body[#body + 1] = moduleSummary(module, settings.constructorPattern)
-                for _, item in ipairs(module.items) do
-                    renderHtmlItem(body, item, links)
+                for _, group in ipairs(groups) do
+                    if #group.items > 0 then
+                        body[
+                            #body + 1
+                        ] = '<section class="nuppdoc-api-group"><h2 id="' .. htmlEscape(
+                            group.path
+                        ) .. '">' .. htmlEscape(
+                            group.title
+                        ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
+                            group.path
+                        ) .. '" aria-label="Link to ' .. htmlEscape(group.title) .. '">#</a></h2>'
+                        for _, item in ipairs(group.items) do
+                            renderHtmlItem(body, item, links)
+                        end
+                        body[#body + 1] = "</section>"
+                    end
                 end
             end
         else
             local links = symbolLinks(linkIndex, nil, relativePrefix(file))
-            items = markdownOutline(markdown)
+            for _, heading in ipairs(markdownOutline(markdown)) do
+                items[#items + 1] = {path = heading.path, name = heading.name}
+            end
             body[#body + 1] = homeHero(candidate, links)
             local renderedMarkdown = rewriteConfiguredPageLinks(markdown, candidate, pages, file)
             local featureStart, featureEnd
@@ -703,7 +724,8 @@ end
 ---
 --- The command line assembles its overrides out of parsed option values, so they arrive
 --- as a plain table rather than as `doc.BuildOptions`; that is what is read out of it.
---- The manifest's own types are what callers hold: `nupp.compiler.build.project` hands over
+--- The manifest's own types are what callers hold: `nupp.compiler.build.project` hands
+--- over
 --- whatever it validated, and a docs target is an ordinary build target with the
 --- generator's keys on it. They arrive as those types and are read as the richer ones
 --- declared above, which describe the same tables in the detail this module needs.
@@ -735,7 +757,7 @@ function doc.build(
     filesMod.collect(opts.written)
     local code: integer, message: string? = 0, nil
     if format == "markdown" then
-        local ok, err = writeFile(output, doc.markdown(modules, title))
+        local ok, err = writeFile(output, doc.markdown(modules, title, nil, nil, settings.constructorPattern))
         if not ok then
             code, message = 1, tostring(err)
         end
@@ -747,7 +769,10 @@ function doc.build(
     elseif format == "both" then
         local ok, err = renderSite(root, output, modules, title, settings)
         if ok then
-            ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title))
+            ok, err = writeFile(
+                join(output, "api.md"),
+                doc.markdown(modules, title, nil, nil, settings.constructorPattern)
+            )
         end
         if not ok then
             code, message = 1, tostring(err)

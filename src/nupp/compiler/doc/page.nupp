@@ -18,7 +18,8 @@ local ICONS = assetsMod.ICONS
 
 local page = {}
 
---- The documentation settings the chrome reads. `nupp.compiler.doc` owns the whole table;
+--- The documentation settings the chrome reads. `nupp.compiler.doc` owns the whole
+--- table;
 --- these
 --- are the parts a header, a brand, and a `<head>` are built out of.
 type page.Settings = {
@@ -70,9 +71,15 @@ type page.Nav = {
 
 --- What the outline lists. A heading of a page and a declaration of a module both
 --- answer to a slug and a label, and the outline wants nothing else from either.
-type page.Entry = {
+type page.EntryChild = {
     name: string,
     path: string
+}
+
+type page.Entry = {
+    name: string,
+    path: string,
+    items: {page.EntryChild}?
 }
 
 -- A `public`-relative asset path is served from the site root, so it needs the page's
@@ -211,18 +218,37 @@ local function sidebar(modules, current, prefix, pages, currentPath)
     return table.concat(out)
 end
 
-local function outline(items)
+local function outlineEntries(items: {page.Entry}): string
+    local out = {}
+    for _, item in ipairs(items or {}) do
+        local children = item.items or {}
+        local link = '<a href="#' .. htmlEscape(
+            item.path
+        ) .. '" title="' .. htmlEscape(item.name) .. '">' .. htmlEscape(item.name) .. "</a>"
+        if #children > 0 then
+            out[#out + 1] = '<li class="nuppdoc-outline-section"><details open><summary>' .. link .. "</summary><ol>"
+            for _, child in ipairs(children) do
+                out[
+                    #out + 1
+                ] = '<li><a href="#' .. htmlEscape(
+                    child.path
+                ) .. '" title="' .. htmlEscape(child.name) .. '">' .. htmlEscape(child.name) .. "</a></li>"
+            end
+            out[#out + 1] = "</ol></details></li>"
+        else
+            out[#out + 1] = "<li>" .. link .. "</li>"
+        end
+    end
+
+    return table.concat(out)
+end
+
+local function outline(items: {page.Entry}?): string
     local out = {
         '<aside class="nuppdoc-outline" aria-label="On this page">'
         .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
     }
-    for _, item in ipairs(items or {}) do
-        out[
-            #out + 1
-        ] = '<li><a href="#' .. htmlEscape(
-            item.path
-        ) .. '" title="' .. htmlEscape(item.name) .. '">' .. htmlEscape(item.name) .. "</a></li>"
-    end
+    out[#out + 1] = outlineEntries(items or {})
     out[#out + 1] = "</ol></aside>"
 
     return table.concat(out)
@@ -529,7 +555,7 @@ function page.render(
         settings,
         siteTitle,
         prefix
-        )
+    )
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
         .. 'getting-started/installation/index.html">Overview</a><a href="'

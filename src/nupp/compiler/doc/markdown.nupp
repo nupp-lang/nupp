@@ -8,12 +8,14 @@ has to read as prose on its own rather than as a degraded version of the HTML.
 local stringsMod = require("nupp.compiler.doc.strings")
 local extractMod = require("nupp.compiler.doc.extract")
 local urlsMod = require("nupp.compiler.doc.urls")
+local apiMod = require("nupp.compiler.doc.api")
 
 local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markdownCell
 local summaryText = stringsMod.summaryText
 local childModules = extractMod.children
 local symbolLinkIndex = urlsMod.symbolLinkIndex
 local rewriteSymbolLinks = urlsMod.rewriteSymbolLinks
+local itemGroups = apiMod.itemGroups
 
 local markdown = {}
 
@@ -25,7 +27,8 @@ local anchors: nupp.compiler.doc.urls.Links? = nil
 local known: nupp.compiler.doc.urls.Links? = nil
 
 -- Prose an author wrote, as opposed to a signature the parser produced. Only prose is
--- searched for references: a signature is code, and `handlers[name](value)` in one is an
+-- searched for references: a signature is code, and `handlers[name](value)` in one is
+-- an
 -- index call rather than a link.
 local function prose(text: string?): string
     local text = tostring(text or "")
@@ -42,20 +45,6 @@ end
 -- the others hold a name or a type the parser read out of the source.
 local function cell(text: string?): string
     return markdownCell(prose(text))
-end
-
-local function sectionTitle(kind)
-    local names = {
-        ["function"] = "Functions",
-        method = "Methods",
-        variable = "Variables",
-        type = "Types",
-        record = "Records",
-        interface = "Interfaces",
-        struct = "Structs",
-    }
-
-    return names[kind] or (kind:sub(1, 1):upper() .. kind:sub(2) .. "s")
 end
 
 -- Function-typed members document like the functions they are, with their own arguments
@@ -196,7 +185,8 @@ function markdown.render(
     modules: {nupp.compiler.doc.extract.Module},
     title: string?,
     all: {nupp.compiler.doc.extract.Module}?,
-    overview: string?
+    overview: string?,
+    constructorPattern: string?
 ): string
     local all = all or modules
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
@@ -244,25 +234,23 @@ function markdown.render(
                 local label = "`" .. markdownEscape(child.name) .. "`"
                 local anchor = anchors and anchors[child.name]
                 local held = #childModules(all, child.name)
-                local description = child.namespace
-                    and held .. " module" .. (held == 1 and "" or "s")
-                    or markdownCell(summaryText(child.text))
+                local description = child.namespace and held .. " module" .. (
+                    held == 1 and "" or "s"
+                ) or markdownCell(summaryText(child.text))
                 out[
                     #out + 1
-                ] = "| " .. (
-                    anchor and "[" .. label .. "](" .. anchor .. ")" or label
-                ) .. " | " .. description .. " |"
+                ] = "| " .. (anchor and "[" .. label .. "](" .. anchor .. ")" or label) .. " | " .. description .. " |"
             end
             out[#out + 1] = ""
         end
-        local currentKind = nil
-        for _, item in ipairs(module.items) do
-            if item.kind ~= currentKind then
-                currentKind = item.kind
-                out[#out + 1] = "## " .. sectionTitle(item.kind)
+        for _, group in ipairs(itemGroups(module.items, constructorPattern)) do
+            if #group.items > 0 then
+                out[#out + 1] = "## " .. group.title
                 out[#out + 1] = ""
+                for _, item in ipairs(group.items) do
+                    renderMarkdownItem(out, item)
+                end
             end
-            renderMarkdownItem(out, item)
         end
         if moduleIndex < #modules then
             out[#out + 1] = "---"

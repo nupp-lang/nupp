@@ -615,8 +615,9 @@ function M.constructorPatternDecidesTheConstructorsGroup()
       settings.sources = {"src"}
       assert(doc.build(dir, config, settings, {format = "site", output = out}) == 0)
       local page = readFile(dir .. "/" .. out .. "/modules/engine/index.html")
+      local markdown = readFile(dir .. "/" .. out .. "/modules/engine.md")
       os.execute("rm -rf '" .. dir .. "'")
-      return page
+      return page, markdown
    end
 
    local function constructors(page)
@@ -626,20 +627,48 @@ function M.constructorPatternDecidesTheConstructorsGroup()
       return page:match("<h3>Functions</h3>(.-)</table>")
    end
 
-   local default = render({}, "site")
+   local default, defaultMarkdown = render({}, "site")
    assert(constructors(default):find("newEngine", 1, true), default)
    assert(functions(default):find("makeEngine", 1, true), default)
+   local defaultConstructorsAt = assert(default:find('<h2 id="constructors">Constructors',
+      1, true))
+   local defaultFunctionsAt = assert(default:find('<h2 id="functions">Functions',
+      defaultConstructorsAt, true))
+   assert(default:find('id="engine.newEngine"><h3>', defaultConstructorsAt, true)
+      < defaultFunctionsAt, default)
+   assert(default:find('id="engine.makeEngine"><h3>', defaultFunctionsAt, true),
+      default)
+   local defaultMarkdownConstructorsAt = assert(defaultMarkdown:find(
+      "\n## Constructors\n", 1, true))
+   local defaultMarkdownFunctionsAt = assert(defaultMarkdown:find(
+      "\n## Functions\n", defaultMarkdownConstructorsAt, true))
+   assert(defaultMarkdown:find("`newEngine`", defaultMarkdownConstructorsAt, true)
+      < defaultMarkdownFunctionsAt, defaultMarkdown)
+   assert(defaultMarkdown:find("`makeEngine`", defaultMarkdownFunctionsAt, true),
+      defaultMarkdown)
 
-   local renamed = render({constructorPattern = "^make"}, "renamed")
+   local renamed, renamedMarkdown = render({constructorPattern = "^make"}, "renamed")
    assert(constructors(renamed):find("<th>Constructor</th><th>Description</th>",
       1, true), renamed)
    assert(constructors(renamed):find("makeEngine", 1, true), renamed)
    assert(functions(renamed):find("newEngine", 1, true), renamed)
+   local renamedConstructorsAt = assert(renamedMarkdown:find(
+      "\n## Constructors\n", 1, true))
+   local renamedFunctionsAt = assert(renamedMarkdown:find(
+      "\n## Functions\n", renamedConstructorsAt, true))
+   assert(renamedMarkdown:find("`makeEngine`", renamedConstructorsAt, true)
+      < renamedFunctionsAt, renamedMarkdown)
+   assert(renamedMarkdown:find("`newEngine`", renamedFunctionsAt, true),
+      renamedMarkdown)
 
    -- an empty pattern is how a project says its functions are just functions
-   local none = render({constructorPattern = ""}, "none")
+   local none, noneMarkdown = render({constructorPattern = ""}, "none")
    assert(not none:find("<h3>Constructors</h3>", 1, true), none)
    assert(none:find("<h3>Functions</h3>", 1, true), none)
+   assert(not none:find('<h2 id="constructors">', 1, true), none)
+   assert(none:find('<h2 id="functions">Functions', 1, true), none)
+   assert(not noneMarkdown:find("\n## Constructors\n", 1, true), noneMarkdown)
+   assert(noneMarkdown:find("\n## Functions\n", 1, true), noneMarkdown)
 end
 
 function M.markdownLinksNestedModulesAndReferences()
@@ -933,9 +962,36 @@ function M.siteMatchesTheNuppdocPageModel()
 
    local module = readFile(dir .. "/site/modules/math/index.html")
    assert(module:find("Module contents", 1, true), module)
-   -- the fragment names the whole entry, so a link lands on its heading
-   assert(module:find('<section class="nuppdoc-api-item" id="math.add"><h2>', 1, true),
-      module)
+   -- Tealdoc-style category headings group the detailed declarations, and each
+   -- declaration is one heading level beneath its group. The fragment still names the
+   -- whole entry, so a link lands on the declaration heading.
+   local typesAt = assert(module:find(
+      '<section class="nuppdoc-api-group"><h2 id="types">Types', 1, true))
+   local functionsAt = assert(module:find(
+      '<section class="nuppdoc-api-group"><h2 id="functions">Functions', 1, true))
+   local pointAt = assert(module:find(
+      '<section class="nuppdoc-api-item" id="math.Point"><h3>', typesAt, true))
+   local addAt = assert(module:find(
+      '<section class="nuppdoc-api-item" id="math.add"><h3>', functionsAt, true))
+   assert(typesAt < pointAt and pointAt < functionsAt and functionsAt < addAt, module)
+   assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>',
+      1, true), module)
+   assert(module:find('<li class="nuppdoc-outline-section"><details open><summary>'
+      .. '<a href="#types" title="Types">Types</a></summary><ol><li>'
+      .. '<a href="#math.Point" title="Point">Point</a>', 1, true), module)
+   assert(module:find('<li class="nuppdoc-outline-section"><details open><summary>'
+      .. '<a href="#functions" title="Functions">Functions</a></summary><ol><li>'
+      .. '<a href="#math.add" title="add">add</a>', 1, true), module)
+   local moduleMarkdown = readFile(dir .. "/site/modules/math.md")
+   local markdownTypesAt = assert(moduleMarkdown:find("\n## Types\n", 1, true))
+   local markdownFunctionsAt = assert(moduleMarkdown:find(
+      "\n## Functions\n", markdownTypesAt, true))
+   assert(moduleMarkdown:find("\n### `Point`", markdownTypesAt, true)
+      < markdownFunctionsAt, moduleMarkdown)
+   assert(moduleMarkdown:find("\n### `add`", markdownFunctionsAt, true),
+      moduleMarkdown)
+   assert(not moduleMarkdown:find("\n## Records\n", 1, true), moduleMarkdown)
+   assert(not moduleMarkdown:find("\n## Variables\n", 1, true), moduleMarkdown)
    assert(module:find("Functions", 1, true), module)
    assert(module:find("Types", 1, true), module)
    assert(module:find("nuppdoc%-kind%-badge"), module)
