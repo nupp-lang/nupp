@@ -183,7 +183,7 @@ cdef struct allocator end
 cdef struct block end
 cdef function ctx_free(ctx: allocator*, value: block*)
 
-local record Allocation
+local struct Allocation
    ctx: allocator*
    value: block*
 
@@ -201,9 +201,11 @@ local function adopt(ctx: allocator*, value: block*): Allocation
 end
 ```
 
-Use a `struct` instead when the pair itself should be fixed-layout cdata. The
-wrapper is visible in the API because the context is real runtime state; Nupp
-does not hide it in a side table, change pointer identity, or attach a finalizer.
+This pair is a `struct` because its C pointers have a fixed layout and need no
+Lua-table features. A `record` would also be valid when table identity,
+dynamic fields, or GC-managed state are useful. Either way, the wrapper is
+visible in the API because the context is real runtime state; Nupp does not
+hide it in a side table, change pointer identity, or attach a finalizer.
 
 ### Transfer-only owners
 
