@@ -1,6 +1,7 @@
 local parser = require("nupp.compiler.parser")
 local cst = require("nupp.compiler.cst")
 local gen = require("nupp.compiler.gen")
+local fmt = require("nupp.compiler.fmt")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
 local types = require("nupp.compiler.types")
@@ -57,6 +58,32 @@ function M.finiteTypeOperatorSyntaxRoundTrips()
    assertEq(dump, "(tkeyof keyof (tname Cell))")
    dump = typeDump("writekeyof Cell")
    assertEq(dump, "(tkeyof writekeyof (tname Cell))")
+   dump = typeDump("{string,}")
+   assertEq(dump, "(ttuple { (tname string) , })")
+   dump = typeDump("function<F is string>(fmt: F, ...: unpackof Args<F>): string")
+   assertEq(dump,
+      "(tfunc function (generics < F is (tname string) >) ( "
+         .. "(tfuncParam fmt : (tname F)) , (tfuncParam ... : "
+         .. "(tpack unpackof (tname Args < (tname F) >))) ) : (tname string))")
+end
+
+function M.computedPackSyntaxFormatsIdempotently()
+   local source = table.concat({
+      "local function apply<F is string>(...:unpackof Args<F>):nil",
+      "end",
+      "local value:{string,}",
+   }, "\n")
+   local once, errors = fmt.format(source)
+   assertEq(#errors, 0)
+   assertEq(once, table.concat({
+      "local function apply<F is string>(...: unpackof Args<F>): nil",
+      "end",
+      "",
+      "local value: {string,}",
+   }, "\n") .. "\n")
+   local twice, again = fmt.format(once)
+   assertEq(#again, 0)
+   assertEq(twice, once)
 end
 
 function M.keyAndIndexedMemberOperatorsRespectCapabilities()
@@ -135,39 +162,11 @@ function M.staticStringPegExampleChecks()
    clean(source)
 end
 
-function M.staticFormatExampleChecksArgumentsAndErrors()
+function M.staticFormatExampleChecks()
    local file = assert(io.open(HERE .. "/../examples/static-format.nupp", "rb"))
    local source = assert(file:read("*a"))
    file:close()
    clean(source)
-
-   local cases = {
-      {
-         "local wrongType: FormatArguments<'%s has %d messages'> = "
-            .. "args2('Ada', 'three')\nprint(wrongType)",
-         'cannot initialize wrongType: {"Ada", "three"} is not a {string, number}',
-      },
-      {
-         "local missing: FormatArguments<'%s has %d messages'> = "
-            .. "args1('Ada')\nprint(missing)",
-         'cannot initialize missing: {"Ada"} is not a {string, number}',
-      },
-      {
-         "local extra: FormatArguments<'hello %s'> = args2('Ada', 3)\nprint(extra)",
-         'cannot initialize extra: {"Ada", 3} is not a {string}',
-      },
-      {
-         "local invalid: FormatArguments<'bad: %z'> = args1('value')\nprint(invalid)",
-         'cannot initialize invalid: {"value"} is not a '
-            .. '{readonly formatError: "unsupported format directive %z"}',
-      },
-   }
-   for _, case in ipairs(cases) do
-      local found = diagnostics(source .. "\n" .. case[1])
-      assertEq(#found, 1, "one static format diagnostic")
-      assertEq(found[1].code, "NUPP2001")
-      assertEq(found[1].msg, case[2])
-   end
 end
 
 function M.recursiveAliasCyclesAndMutualRecursionReportDedicatedErrors()
@@ -295,6 +294,51 @@ function M.functionPatternsInferParameterAndResultPacks()
       "local wrong: function(boolean): nil = nil as any",
       "local bad: Signature<function(string): integer> = wrong",
    }, "\n")), "NUPP2001")
+end
+
+function M.computedTypesExpandIntoCallablePacks()
+   clean(table.concat({
+      "local type Args<F> = match F",
+      "   when 'pair' then {string, number}",
+      "   when 'one' then {boolean,}",
+      "   when 'many' then {integer}",
+      "   else any end",
+      "local function apply<F is string>(kind: F, ...: unpackof Args<F>): string",
+      "   return kind end",
+      "local pair: string = apply('pair', 'x', 1)",
+      "local one: string = apply('one', true)",
+      "local many: string = apply('many', 1, 2, 3)",
+      "local dynamic: string = 'dynamic'",
+      "local gradual: string = apply(dynamic, {}, false, 3)",
+      "print(pair, one, many, gradual)",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "local type Args<F> = match F when 'pair' then {string, number} else any end",
+      "local function apply<F is string>(kind: F, ...: unpackof Args<F>): nil end",
+      "apply('pair', 'x', 'wrong')",
+   }, "\n")), "NUPP2006")
+   assertEq(codes(table.concat({
+      "local function apply(...: unpackof {string,}): nil end",
+      "apply(1)",
+   }, "\n")), "NUPP2006")
+end
+
+function M.stringFormatDerivesArgumentsFromLiteralFormats()
+   clean(table.concat({
+      "local name = 'Ada'",
+      "local count = string.format('%s has %d messages', name, 3)",
+      "local percent = string.format('100%% ready')",
+      "local decimal = string.format('%.2f', 1.5)",
+      "local method = ('%d'):format(3)",
+      "local dynamic: string = '%s'",
+      "local gradual = string.format(dynamic, {}, false, 3)",
+      "print(count, percent, decimal, method, gradual)",
+   }, "\n"))
+   assertEq(codes("local bad = string.format('%d', 'three')\nprint(bad)"), "NUPP2006")
+   assertEq(codes("local bad = string.format('%d')\nprint(bad)"), "NUPP2006")
+   assertEq(codes("local bad = string.format('%d', 1, 2)\nprint(bad)"), "NUPP2007")
+   assertEq(codes("local bad = string.format('%z', 1)\nprint(bad)"), "NUPP2006")
+   assertEq(codes("local bad = ('%d'):format('three')\nprint(bad)"), "NUPP2006")
 end
 
 function M.templateConstructionAndOneSegmentExtractionAreFinite()

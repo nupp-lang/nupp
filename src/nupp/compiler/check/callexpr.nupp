@@ -27,6 +27,7 @@ local packIsA = relations.packIsA
 local rawType = T.unwrapOwnership
 local dropSelf = generics.dropSelf
 local specializeSelf = generics.specializeSelf
+local specializeReceiver = generics.specializeReceiver
 
 local callexpr = {}
 
@@ -848,7 +849,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.markToken(member, fieldDef, mt, callable and "method" or "property")
             member.additionalDefinitions = fieldDefs
             -- o:m(...) desugars to m(o, ...): drop the self parameter
-            local first, rets, pack = c.inferCall(node, callable and dropSelf(mt) or mt, node.args)
+            local methodType = callable and specializeReceiver(mt, ot) or mt
+            local first, rets, pack = c.inferCall(node, callable and dropSelf(methodType) or methodType, node.args)
             local owner = rawType(ot)
             if owner.tag == "nominal" and owner.resourceSet and member.text == "adopt" then
                 local adopted = node.argumentPack and T.packAt(node.argumentPack, 1) or nil

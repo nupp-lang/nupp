@@ -1,8 +1,9 @@
 # Type-level computation
 
-> **Status: implemented through T5.** This is a checker feature, not an
+> **Status: implemented through T6.** This is a checker feature, not an
 > extension of `comptime`. T1--T4 provide finite structural reduction; T5 adds
-> bounded direct recursion beneath match results.
+> bounded direct recursion beneath match results; T6 connects a reduced tuple
+> or array to a callable pack with `unpackof`.
 
 ## Decision
 
@@ -116,9 +117,9 @@ implementation path from one evaluator to the other.
 - Implicit specialization or monomorphized runtime functions. Const parameters
   erase with ordinary generics.
 - Inferring const values from arbitrary function bodies or optimizer results.
-- General type-level computation over packs in the first stage. One narrowly
-  specified pack concatenation may be proposed independently for typed parser
-  combinators.
+- General pack arithmetic, pack recursion, or user-defined pack reducers.
+  `unpackof T` is the narrow bridge: a reduced tuple contributes fixed slots
+  and a reduced array contributes one homogeneous tail.
 - Reopening the withdrawn associated-type design. A future projection feature
   may consume the same reducer, but is not a prerequisite or part of this plan.
 
@@ -1066,6 +1067,24 @@ Exit test: accepted routes reduce predictably; exact cycles fail immediately;
 large progressive reductions stop at deterministic budgets; cancellation keeps
 the LSP responsive; no type-level PEG interpreter or arithmetic stunt is added
 as a success case.
+
+### T6: computed callable packs — complete
+
+- Add contextual `unpackof T` in pack position. After ordinary inference and
+  bounded type reduction, a tuple contributes fixed slots and an array
+  contributes a homogeneous tail.
+- Preserve gradual behavior when the reduced type is `any`, `unknown`, or an
+  undecidable neutral term; reject every other concrete result at the call.
+- Admit `{T,}` as the one-slot tuple spelling, distinct from the homogeneous
+  array `{T}`.
+- Use the bridge in the prelude once: `string.format` scans literal formats into
+  its trailing parameter pack while dynamic `string` formats retain `...any`.
+- Keep the runtime call untouched. This is signature specialization, not
+  function-body monomorphization or compile-time value evaluation.
+
+Exit test: ordinary `string.format(fmt, ...)` calls check wrong, missing,
+surplus, and unsupported literal directives; dynamic formats remain gradual;
+the complete suite and fixpoint build pass.
 
 ## Verification
 

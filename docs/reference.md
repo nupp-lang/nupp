@@ -273,10 +273,17 @@ Reports: `NUPP2130`, `NUPP2132`, `NUPP2133`. `nupp explain <code>` says more.
 ### Type packs and variadic generics
 
 `A...` declares a heterogeneous generic value sequence. A pack may have a fixed
-head and a generic or homogeneous tail. Under Lua's ordinary value adjustment,
-only a final unparenthesized call or bare `...` expands in an argument,
-assignment, or return list; parentheses project one value. The explicit
-`...value` field projection described above is resolved before that adjustment.
+head and a generic or homogeneous tail. `unpackof T` makes a computed tuple a
+fixed tail, or a computed array a homogeneous tail, after generic inference and
+type reduction. `{T,}` is a one-slot tuple; `{T}` remains an array. An
+undecidable computed type stays gradual, while any other result is rejected.
+
+This lets one declaration derive later parameters from an earlier literal:
+`function<F is string>(format: F, ...: unpackof Arguments<F>)`. Under Lua's
+ordinary value adjustment, only a final unparenthesized call or bare `...`
+expands in an argument, assignment, or return list; parentheses project one
+value. The explicit `...value` field projection described above is resolved
+before that adjustment.
 
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's

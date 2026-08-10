@@ -400,7 +400,8 @@ tablebody      = mappedfield
                                                 ; indexer or mixed shape [CS-8]
                / shapefield *("," (shapefield / indexer))
                                                 ; inline shape [CS-8]
-               / type *("," type)               ; one = array, several = tuple
+               / type "," [type *("," type) [","]] ; tuple, including `{T,}`
+               / type                           ; homogeneous array
 shapefield     = [propertycap] Name ":" type
 indexer        = [propertycap] "[" type "]" ":" type
 mappedfield    = propertycap "[" Name %s"in" type [%s"as" type] "]" ":" type
@@ -417,17 +418,19 @@ ftparam        = [ownershipmode] Name ":" type  ; named [CS-8 lookahead]
                / Name "..."                   ; a generic pack argument [CS-21]
                / type
 
-; A value sequence: fixed members, a homogeneous `...T` tail, or a variadic
-; generic `P...` tail. Parentheses admit zero or several fixed members and pack
-; unions. Bare comma lists are permitted only on statement function returns. [CS-21]
+; A value sequence: fixed members, a homogeneous `...T` tail, a variadic
+; generic `P...` tail, or `unpackof T`, whose computed tuple/array becomes a
+; fixed/homogeneous tail. Parentheses admit zero or several fixed members and
+; pack unions. Bare comma lists are permitted only on statement returns. [CS-21]
 typepack       = "..." type
                / Name "..."
+               / %s"unpackof" type
                / type
                / "(" [packbody] ")"
 packbody       = packitems / packunion
 packitems      = type *("," type) ["," packtail]
                / packtail
-packtail       = "..." type / Name "..."
+packtail       = "..." type / Name "..." / %s"unpackof" type
 packunion      = typepack 1*("|" typepack)
 
 ;;; ------------------------------------------------------------------

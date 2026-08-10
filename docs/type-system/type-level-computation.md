@@ -134,51 +134,31 @@ For clarity, input tokenization is only a split on single spaces. This is an
 example of what the type reducer can express, not a runtime parser library or a
 promise of LPeg-compatible syntax, diagnostics, or performance.
 
-### Static `string.format` prototype
+### Static `string.format` checking
 
-[`examples/static-format.nupp`](../../examples/static-format.nupp) uses the same
-machinery to scan a literal format string into a heterogeneous argument tuple.
-The checked tuple is expanded into the ordinary runtime function:
-
-```nupp
-local countArgs: FormatArguments<'%s has %d messages'> = args2('Ada', 3)
-local count: string =
-    string.format('%s has %d messages', unpack(countArgs))
-```
-
-A second reducer demonstrates literal result simplification for `%s` and `%%`:
+The prelude uses the same machinery once, in the declaration of `string.format`.
+Its recursive alias scans a literal format string, and `unpackof` turns the
+resulting tuple into the function's trailing parameter pack. Call sites keep the
+ordinary Lua spelling:
 
 ```nupp
-local exactPercent: Render0<'100%% ready'> = '100% ready'
-local exactGreeting: Render1<'hello %s', 'Ada'> = 'hello Ada'
+local count = string.format('%s has %d messages', 'Ada', 3)
+local point = string.format('%s=(%.2f, %.2f)', 'point', 1.5, 2.5)
 ```
 
-Those are exact static types. They do not replace the runtime call; conversions
-that cannot be represented precisely widen to `string`.
-
-Changing the second argument to a string reports the computed contract:
+Wrong, missing, surplus, and unsupported arguments report on the call:
 
 ```text
-NUPP2001: cannot initialize wrongType: {"Ada", "three"} is not a
-{string, number}
-```
-
-Missing and surplus arguments likewise compare the supplied tuple with the
-derived one. An unsupported directive remains visible in the result:
-
-```text
-NUPP2001: cannot initialize invalid: {"value"} is not a
+NUPP2006: argument 3: string is not a number
+NUPP2006: omitted argument 3 supplies nil, not number
+NUPP2007: too many arguments (expected 2, got 3)
+NUPP2006: unpackof type must reduce to a tuple or array, got
 {readonly formatError: "unsupported format directive %z"}
 ```
 
-This prototype understands `%%`, `%s`, `%q`, and the ordinary numeric
-conversion letters. It intentionally omits flags, width, precision, and more
-than four arguments. The `args1` through `args4` helpers preserve heterogeneous
-tuple slots because ordinary table literals infer homogeneous arrays.
-
-The extra tuple binding is also a current implementation boundary: call
-resolution does not yet normalize a recursive computed alias into a callable
-signature. A production `string.format` contract could remove that ceremony by
-normalizing before overload selection or by using a checker intrinsic backed by
-the same format grammar. Type-level evaluation still would not replace the
-runtime call or manufacture its result value.
+The checker understands `%%`, `%s`, `%q`, numeric conversion letters, flags,
+width, and precision, with a bounded maximum of eight consumed arguments.
+`%s` and `%q` accept `any`, matching LuaJIT's conversion behavior. A nonliteral
+format cannot determine a finite parameter list, so it retains the gradual
+`...any` contract. The return type remains `string`: this checks a runtime call;
+it does not manufacture or promise an exact result value.

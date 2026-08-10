@@ -345,6 +345,17 @@ function relations.packIsA(have: T.Pack, want: T.Pack): boolean, string?
     if have == want then
         return true
     end
+    if (have.tail and have.tail.kind == "computed") or (want.tail and want.tail.kind == "computed") then
+        local generic = require("nupp.compiler.generics")
+        local expandedHave, haveError = generic.expandComputedPack(have)
+        local expandedWant, wantError = generic.expandComputedPack(want)
+        if haveError or wantError then
+            return false, haveError or wantError
+        end
+        if expandedHave ~= have or expandedWant ~= want then
+            return relations.packIsA(expandedHave, expandedWant)
+        end
+    end
     if have.alternatives then
         for _, arm in ipairs(have.alternatives) do
             local ok, why = relations.packIsA(arm, want)

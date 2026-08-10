@@ -1840,6 +1840,93 @@ local _G: table
 --- The language version the interpreter implements, "Lua 5.1" under LuaJIT.
 local _VERSION: string
 
+-- `string.format` derives its trailing parameter pack from a literal first argument.
+-- These aliases are deliberately private implementation vocabulary: the public
+-- surface is the ordinary function below, and a nonliteral format reduces to `any`.
+local type __NuppFormatError<Message> = {readonly formatError: Message}
+
+local type __NuppFormatBuild<State> = match State
+    when {'scan', infer Format, infer Args} then
+        match Format
+            when `${infer _}%${infer Rest}` then
+                __NuppFormatBuild<{'directive', Rest, Args}>
+            else __NuppFormatBuild<{'finish', Args}>
+        end
+    when {'directive', infer Rest, infer Args} then
+        match Rest
+            when `%${infer Tail}` then __NuppFormatBuild<{'scan', Tail, Args}>
+            when `s${infer Tail}` then __NuppFormatBuild<{'push', Tail, any, Args}>
+            when `q${infer Tail}` then __NuppFormatBuild<{'push', Tail, any, Args}>
+            when `c${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `d${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `i${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `o${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `u${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `x${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `X${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `e${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `E${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `f${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `g${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `G${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
+            when `-${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `+${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when ` ${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `#${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `0${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            when `.${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
+            else __NuppFormatError<`unsupported format directive %${Rest}`>
+        end
+    when {'push', infer Tail, infer Expected, infer Args} then
+        match Args
+            when {'zero'} then __NuppFormatBuild<{'scan', Tail, {'one', Expected}}>
+            when {'one', infer A} then
+                __NuppFormatBuild<{'scan', Tail, {'two', A, Expected}}>
+            when {'two', infer A, infer B} then
+                __NuppFormatBuild<{'scan', Tail, {'three', A, B, Expected}}>
+            when {'three', infer A, infer B, infer C} then
+                __NuppFormatBuild<{'scan', Tail, {'four', A, B, C, Expected}}>
+            when {'four', infer A, infer B, infer C, infer D} then
+                __NuppFormatBuild<{'scan', Tail, {'five', A, B, C, D, Expected}}>
+            when {'five', infer A, infer B, infer C, infer D, infer E} then
+                __NuppFormatBuild<{'scan', Tail, {'six', A, B, C, D, E, Expected}}>
+            when {'six', infer A, infer B, infer C, infer D, infer E, infer F} then
+                __NuppFormatBuild<{'scan', Tail, {'seven', A, B, C, D, E, F, Expected}}>
+            when {'seven', infer A, infer B, infer C, infer D, infer E, infer F, infer G} then
+                __NuppFormatBuild<{'scan', Tail, {'eight', A, B, C, D, E, F, G, Expected}}>
+            else __NuppFormatError<'format checker supports at most eight arguments'>
+        end
+    when {'finish', infer Args} then
+        match Args
+            when {'zero'} then {never}
+            when {'one', infer A} then {A,}
+            when {'two', infer A, infer B} then {A, B}
+            when {'three', infer A, infer B, infer C} then {A, B, C}
+            when {'four', infer A, infer B, infer C, infer D} then {A, B, C, D}
+            when {'five', infer A, infer B, infer C, infer D, infer E} then {A, B, C, D, E}
+            when {'six', infer A, infer B, infer C, infer D, infer E, infer F} then {A, B, C, D, E, F}
+            when {'seven', infer A, infer B, infer C, infer D, infer E, infer F, infer G} then {A, B, C, D, E, F, G}
+            when {'eight', infer A, infer B, infer C, infer D, infer E, infer F, infer G, infer H} then
+                {A, B, C, D, E, F, G, H}
+            else __NuppFormatError<'invalid format argument accumulator'>
+        end
+    else __NuppFormatError<'invalid format parser state'>
+end
+
+local type __NuppFormatArguments<Format> = match Format
+    when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal, {'zero'}}>
+    else any
+end
+
 --- String manipulation and pattern matching. Every function here is also reachable as a
 --- method on a string value, so `s:upper()` means `string.upper(s)`.
 local string: {
@@ -1882,7 +1969,7 @@ local string: {
     --- @param fmt the format string
     --- @param ... the values that the directives consume
     --- @return the formatted string
-    format: nosuspend function(fmt: string, ...: any): string,
+    format: nosuspend function<Format is string>(fmt: Format, ...: unpackof __NuppFormatArguments<Format>): string,
 
     --- Returns an iterator over each successive match of `pat` in `s`, or over that
     --- match's captures when the pattern has any. Anchors have no special meaning here.

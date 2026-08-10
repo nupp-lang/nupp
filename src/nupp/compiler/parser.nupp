@@ -716,6 +716,9 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     n.types = {add(n, first)}
                     while cur().kind == "," do
                         add(n, advance())
+                        if cur().kind == "}" then
+                            break
+                        end
                         n.types[#n.types + 1] = add(n, parseType())
                     end
                 else
@@ -739,7 +742,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                         add(p, advance())
                         if cur().kind == ":" then
                             annotationColon(p, "in vararg type")
-                            if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                            if cur().kind == "name" and (
+                                (
+                                    tokens[i + 1] and tokens[i + 1].kind == "..."
+                                ) or (cur().text == "unpackof" and startsType(tokens[i + 1]))
+                            ) then
                                 p.type = add(p, parseTypePack())
                                 p.pack = true
                             else
@@ -905,6 +912,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     --- A complete value sequence in a function signature.
     parseTypePack = function(allowBareList: boolean?, stopAtFunctionMember: boolean?): Node
+        if cur().kind == "name" and cur().text == "unpackof" and startsType(
+            tokens[i + 1]
+        ) and tokens[i + 1].line == cur().line then
+            local n = new cst.Tpack {kind = "tpack", types = {}, tailKind = "computed"}
+            add(n, advance()).contextualOp = true
+            n.tail = add(n, parseType(nil, stopAtFunctionMember))
+            return n
+        end
         if cur().kind == "..." then
             local n = new cst.Tpack {kind = "tpack", types = {}, tailKind = "homogeneous"}
             local dots = add(n, advance())
@@ -957,6 +972,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     local dots = add(n, advance())
                     dots.generic, dots.homogeneousPack = true, true
                     n.tailKind = "homogeneous"
+                    n.tail = add(n, parseType(nil, stopAtFunctionMember))
+                    break
+                end
+                if cur().kind == "name" and cur().text == "unpackof" and startsType(
+                    tokens[i + 1]
+                ) and tokens[i + 1].line == cur().line then
+                    add(n, advance()).contextualOp = true
+                    n.tailKind = "computed"
                     n.tail = add(n, parseType(nil, stopAtFunctionMember))
                     break
                 end
@@ -1537,7 +1560,11 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     end
                     if cur().kind == ":" then
                         annotationColon(p, "in vararg annotation")
-                        if cur().kind == "name" and tokens[i + 1] and tokens[i + 1].kind == "..." then
+                        if cur().kind == "name" and (
+                            (
+                                tokens[i + 1] and tokens[i + 1].kind == "..."
+                            ) or (cur().text == "unpackof" and startsType(tokens[i + 1]))
+                        ) then
                             p.type = add(p, parseTypePack())
                         else
                             p.type = add(p, parseType())

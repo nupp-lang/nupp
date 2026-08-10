@@ -273,8 +273,8 @@ end
 --- Written as two 32-bit halves because `%x` takes a Lua number, and a whole word has
 --- lost bits by the time `format` sees it as one.
 local function hex64(value: uint64): string
-    local high = tonumber(band(rshift(value, 32), 0xFFFFFFFFULL))
-    local low = tonumber(band(value, 0xFFFFFFFFULL))
+    local high = tonumber(band(rshift(value, 32), 0xFFFFFFFFULL)) as number
+    local low = tonumber(band(value, 0xFFFFFFFFULL)) as number
     return ("%08x%08x"):format(high, low)
 end
 

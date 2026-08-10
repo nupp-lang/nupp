@@ -64,9 +64,11 @@ work makes sense in.
       the semantic member vocabulary and fingerprints with C2a, then land
       finite `keyof`/indexed/mapped operators, explicit const generic
       parameters, `match`/`infer`, template literal types, and guarded direct
-      recursive aliases. Route parsing and nested-container normalization are
-      the recursive workloads; deterministic budgets, cancellation polling,
-      cycle detection, and expansion traces bound the in-process reducer.
+      recursive aliases. `unpackof` bridges a reduced tuple or array into a
+      callable pack and powers the prelude's literal-aware `string.format`.
+      Route parsing and nested-container normalization are the recursive
+      workloads; deterministic budgets, cancellation polling, cycle detection,
+      and expansion traces bound the in-process reducer.
 - [ ] **Suspension** ([design](suspension.md)): waiting as a checked, handled
       effect. One call site parks under a scheduler and blocks without one, so
       a library that waits works inside a game frame and inside a CLI without

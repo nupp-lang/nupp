@@ -156,6 +156,8 @@ substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string, norm: No
     local tail = pack.tail
     if tail and tail.kind == "homogeneous" then
         tail = {kind = "homogeneous", type = substWith(tail.type, map, unmapped, norm), mode = tail.mode}
+    elseif tail and tail.kind == "computed" then
+        tail = {kind = "computed", type = substWith(tail.type, map, unmapped, norm)}
     elseif tail and tail.kind == "generic" then
         local replacement = map[tail.var]
         if replacement and replacement.tag == "pack" then
@@ -1163,6 +1165,12 @@ normalizeReductionPack = function(pack, memo, budget)
             return pack, err
         end
         tail = {kind = "homogeneous", type = reduced, mode = tail.mode}
+    elseif tail and tail.kind == "computed" then
+        local reduced, err = normalize(tail.type, memo, budget)
+        if err then
+            return pack, err
+        end
+        tail = {kind = "computed", type = reduced}
     end
 
     return T.pack(head, tail, pack.modes)
@@ -1475,21 +1483,62 @@ function generics.materializePack(pack: T.Pack, map: Bindings): T.Pack
     return substPackWith(pack, map, MATERIALIZE, nil)
 end
 
+--- Resolves a computed tail after its dependencies have been substituted. Tuples add
+--- fixed slots, arrays become a homogeneous tail, and an undecidable type stays
+--- gradual so a signature can retain its dynamic fallback.
+function generics.expandComputedPack(pack: T.Pack): T.Pack, string?
+    local tail = pack.tail
+    if not tail or tail.kind ~= "computed" then
+        return pack
+    end
+    local computed, reductionError = generics.reduce(tail.type)
+    if reductionError then
+        return pack, "unpackof could not reduce its type: " .. reductionError
+    end
+    if computed.tag == "tuple" then
+        local head, modes = {}, {}
+        for j, value in ipairs(pack.head) do
+            head[j], modes[j] = value, pack.modes[j] or "plain"
+        end
+        for _, value in ipairs(computed.elems) do
+            head[#head + 1], modes[#modes + 1] = value, "plain"
+        end
+        return T.pack(head, nil, modes)
+    end
+    if computed.tag == "array" then
+        return T.pack(pack.head, {kind = "homogeneous", type = computed.elem}, pack.modes)
+    end
+    if computed == T.any or computed == T.unknown or computed.tag == "neutral" or computed.tag == "typevar" then
+        return T.pack(pack.head, {kind = "unknown", type = T.any}, pack.modes)
+    end
+
+    return pack, ("unpackof type must reduce to a tuple or array, got %s"):format(T.tostring(computed))
+end
+
 --- Instantiates a generic function as one monomorphic callable. This is used when a
 --- universally generic function value is assigned to a concrete function type; the
 --- target signature supplies the arguments that an ordinary call would have supplied.
-function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
+function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func, string?
     local concrete = substWith(t, map, MATERIALIZE, nil)
-    concrete = generics.reduce(concrete)
     if concrete.tag ~= "func" then
         return t
     end
 
+    local paramPack, packError = generics.expandComputedPack(concrete.paramPack)
+    if packError then
+        return concrete, packError
+    end
+    local retPack
+    retPack, packError = generics.expandComputedPack(concrete.retPack)
+    if packError then
+        return concrete, packError
+    end
+
     return T.func(
-        concrete.paramPack.head,
-        concrete.retPack.head,
-        concrete.paramPack.tail ~= nil,
-        concrete.paramPack.modes,
+        paramPack.head,
+        retPack.head,
+        paramPack.tail ~= nil,
+        paramPack.modes,
         concrete.predicate,
         nil,
         nil,
@@ -1499,8 +1548,8 @@ function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
         concrete.ffiOut,
         concrete.varargType,
         concrete.noreturn,
-        concrete.paramPack,
-        concrete.retPack,
+        paramPack,
+        retPack,
         nil,
         concrete.yieldPack,
         concrete.resumePack,
@@ -1888,6 +1937,27 @@ function generics.specializeSelf(owner: Type?, ft: Type, receiver: Type?): Type
         -- each with `any`, so a generic method stopped inferring and its result fit
         -- wherever it was put.
         return generics.rebind(ft, {[owner.selfType] = receiver or owner})
+    end
+
+    return ft
+end
+
+--- Binds generic parameters reached through a method's receiver while preserving all
+--- binders that later explicit arguments still need to infer.
+function generics.specializeReceiver(ft: Type, receiver: Type): Type
+    if ft.tag == "intersection" then
+        local members = {}
+        for j, member in ipairs(ft.members) do
+            members[j] = generics.specializeReceiver(member, receiver)
+        end
+        return T.intersection(members)
+    end
+    if ft.tag == "func" and #ft.params >= 1 and T.hasTypevar(ft) then
+        local receiverBindings = {}
+        generics.unify(ft.params[1], receiver, receiverBindings)
+        if next(receiverBindings) then
+            return generics.rebind(ft, receiverBindings)
+        end
     end
 
     return ft

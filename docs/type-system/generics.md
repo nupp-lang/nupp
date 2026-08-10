@@ -34,6 +34,32 @@ Ordinary binders precede pack binders. Explicit pack arguments use parentheses
 to delimit one pack from the next. See [Type packs](packs.md) for list
 adjustment, correlation, and ownership rules.
 
+A computed tuple or array can supply a pack tail with `unpackof`:
+
+```nupp
+local type Arguments<Kind> = match Kind
+    when 'pair' then {string, number}
+    when 'flag' then {boolean,}
+    else any
+end
+
+local function apply<Kind is string>(
+    kind: Kind,
+    ...: unpackof Arguments<Kind>
+): string
+    return kind
+end
+
+apply('pair', 'x', 1)
+apply('flag', true)
+```
+
+Expansion happens after inference and finite type reduction. A tuple contributes
+fixed slots, an array contributes a homogeneous rest tail, and an undecidable
+result becomes `...any`. The trailing comma distinguishes the one-slot tuple
+`{T,}` from the array `{T}`. A concrete result of any other shape is rejected at
+the call.
+
 ## Constraints use `is`
 
 ```nupp

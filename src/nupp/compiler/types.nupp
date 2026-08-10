@@ -255,7 +255,7 @@ end
 
 --- How the rest of a value sequence is described. `kind` says which field beside it
 --- carries the answer: "homogeneous" reads `type` and its `mode`, "generic" reads
---- `var`, and "unknown" is the gradual tail a call site could not pin down.
+--- `var`, "computed" reads a tuple/array `type`, and "unknown" is gradual.
 type types.PackTail = {
     kind: string,
     type: types.Type?,
@@ -1309,6 +1309,9 @@ local function packTailId(tail: any): string
     if tail.kind == "generic" then
         return tail.var.id .. "..."
     end
+    if tail.kind == "computed" then
+        return "unpackof(" .. tail.type.id .. ")"
+    end
     if tail.kind == "slice" then
         return "slice(" .. tostring(tail.id) .. ")"
     end
@@ -1621,6 +1624,8 @@ function types.tostringPack(pack: types.Pack): string
             parts[#parts + 1] = "..." .. types.tostring(pack.tail.type)
         elseif pack.tail.kind == "generic" then
             parts[#parts + 1] = pack.tail.var.name .. "..."
+        elseif pack.tail.kind == "computed" then
+            parts[#parts + 1] = "unpackof " .. types.tostring(pack.tail.type)
         else
             parts[#parts + 1] = "...unknown"
         end
@@ -2317,6 +2322,8 @@ function types.tostring(t: types.Type): string
                 ps[#ps + 1] = "...: " .. types.tostring(paramTail.type)
             elseif paramTail.kind == "generic" then
                 ps[#ps + 1] = paramTail.var.name .. "..."
+            elseif paramTail.kind == "computed" then
+                ps[#ps + 1] = "...: unpackof " .. types.tostring(paramTail.type)
             else
                 ps[#ps + 1] = "..."
             end

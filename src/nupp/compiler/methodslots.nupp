@@ -125,6 +125,8 @@ local function packFingerprint(ft: any, includeLabels: boolean): string
             parts[#parts + 1] = "...:" .. fingerprint(tail.type, binders, {})
         elseif tail.kind == "generic" then
             parts[#parts + 1] = "...:" .. (binders[tail.var] or "$P")
+        elseif tail.kind == "computed" then
+            parts[#parts + 1] = "...:unpackof:" .. fingerprint(tail.type, binders, {})
         else
             parts[#parts + 1] = "...:unknown"
         end

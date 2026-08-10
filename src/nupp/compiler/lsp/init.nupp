@@ -448,7 +448,9 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
                 ] = {
                     label = tail.kind == "homogeneous" and (
                         "...: " .. T.tostring(tail.type)
-                    ) or tail.kind == "generic" and (tail.var.name .. "...") or "..."
+                    ) or tail.kind == "generic" and (tail.var.name .. "...")
+                        or tail.kind == "computed" and ("...: unpackof " .. T.tostring(tail.type))
+                        or "..."
                 }
             end
             signatures[#signatures + 1] = {label = name .. ": " .. T.tostring(candidate), parameters = parameters,}

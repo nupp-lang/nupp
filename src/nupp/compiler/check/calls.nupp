@@ -109,9 +109,21 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func
             end
         end
     end
-    local specialized = (
-        #(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0 or #(ft.constParams or {}) > 0
-    ) and generics.instantiateFunction(ft, map) or ft
+    local specialized, specializationProblem = ft, nil
+    if #(
+        ft.typeParams or {}
+    ) > 0 or #(
+        ft.packParams or {}
+    ) > 0 or #(
+        ft.constParams or {}
+    ) > 0 or (
+        ft.paramPack.tail and ft.paramPack.tail.kind == "computed"
+    ) or (ft.retPack.tail and ft.retPack.tail.kind == "computed") then
+        specialized, specializationProblem = generics.instantiateFunction(ft, map)
+    end
+    if specializationProblem then
+        return nil, specializationProblem
+    end
     local params = specialized.paramPack
     local actualCount = #argPack.head
     if not argPack.tail and actualCount > #params.head and not params.tail then
@@ -510,6 +522,7 @@ function calls.install(c: state.Checker): calls.Ops
             return T.any
         end
         local params, rets = ft.params, ft.rets
+        local paramPack, retPack = ft.paramPack, ft.retPack
         local varargType = ft.varargType
         if T.hasTypevar(ft) then
             local map = {}
@@ -543,9 +556,23 @@ function calls.install(c: state.Checker): calls.Ops
                 r2[j] = substType(r, map)
             end
             params, rets = p2, r2
+            paramPack, retPack = substPack(paramPack, map), substPack(retPack, map)
             if varargType then
                 varargType = substType(varargType, map)
             end
+        end
+        local packProblem
+        paramPack, packProblem = generics.expandComputedPack(paramPack)
+        if not packProblem then
+            retPack, packProblem = generics.expandComputedPack(retPack)
+        end
+        if packProblem then
+            c.diag("NUPP2006", site, operation .. " contract: " .. packProblem)
+            return T.any
+        end
+        params, rets = paramPack.head, retPack.head
+        if paramPack.tail and paramPack.tail.kind == "homogeneous" then
+            varargType = paramPack.tail.type
         end
         if varargType then
             for j = #params + 1, #ats do
@@ -555,7 +582,7 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
         end
-        if #ats > #params and not ft.vararg then
+        if #ats > #params and not paramPack.tail then
             c.diag("NUPP2007", site, ("%s takes %d arguments, got %d"):format(operation, #params, #ats))
         end
         for j = 1, math.min(#ats, #params) do
@@ -1371,6 +1398,7 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
         local varargType = calleeT.varargType
+        local computedParamTail = paramPack.tail and paramPack.tail.kind == "computed"
         local constInferenceFailed = false
         -- Only bind generics introduced by the callable itself. A callback type such as
         -- `function(A...): R...` inside an outer generic function mentions the outer
@@ -1422,9 +1450,25 @@ function calls.install(c: state.Checker): calls.Ops
             paramPack, retPack = substPack(paramPack, map), substPack(retPack, map)
             params, rets = paramPack.head, retPack.head
             paramModes = paramPack.modes
-            if varargType then
+            if paramPack.tail and paramPack.tail.kind == "homogeneous" then
+                varargType = paramPack.tail.type
+            elseif varargType then
                 varargType = substType(varargType, map)
             end
+        end
+        local packProblem
+        paramPack, packProblem = generics.expandComputedPack(paramPack)
+        if not packProblem then
+            retPack, packProblem = generics.expandComputedPack(retPack)
+        end
+        if packProblem then
+            c.diag("NUPP2006", node, packProblem, nil, callDetails(node))
+            paramPack = T.pack(params, {kind = "unknown", type = T.any}, paramPack.modes)
+        end
+        params, rets = paramPack.head, retPack.head
+        paramModes = paramPack.modes
+        if paramPack.tail and paramPack.tail.kind == "homogeneous" then
+            varargType = paramPack.tail.type
         end
 
         -- Substitution determines only the payload. A preservation relation then
@@ -1466,7 +1510,7 @@ function calls.install(c: state.Checker): calls.Ops
 
         local nparams = #params
         local actualCount = #argPack.head
-        if not argPack.tail and actualCount > nparams and not calleeT.vararg then
+        if not argPack.tail and actualCount > nparams and not paramPack.tail then
             c.diag(
                 "NUPP2007",
                 node,
@@ -1475,6 +1519,20 @@ function calls.install(c: state.Checker): calls.Ops
                 callDetails(node)
             )
             c.checkPackDiscard(argPack, nparams + 1, node)
+        end
+        if computedParamTail and not argPack.tail and actualCount < nparams then
+            for j = actualCount + 1, nparams do
+                local ok = isA(T.nil_, params[j])
+                if not ok then
+                    c.diag(
+                        "NUPP2006",
+                        node,
+                        ("omitted argument %d supplies nil, not %s"):format(j, T.tostring(params[j])),
+                        nil,
+                        callDetails(node)
+                    )
+                end
+            end
         end
         -- A declared element type applies to every argument past the last named
         -- parameter; an undeclared `...` still accepts anything.

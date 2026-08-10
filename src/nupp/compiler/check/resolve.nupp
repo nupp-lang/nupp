@@ -1080,6 +1080,8 @@ function resolve.install(c: state.Checker): nil
         local tail = nil
         if node.tailKind == "homogeneous" then
             tail = {kind = "homogeneous", type = c.resolveType(node.tail)}
+        elseif node.tailKind == "computed" then
+            tail = {kind = "computed", type = c.resolveType(node.tail)}
         elseif node.tailKind == "generic" then
             local base = node.tail and node.tail.base
             local pv, def

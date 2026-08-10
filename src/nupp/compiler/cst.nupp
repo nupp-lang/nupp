@@ -1899,10 +1899,10 @@ record cst.Tpack is
     --- Fixed head types.
     types: {cst.Node}
 
-    --- A generic tail name or homogeneous tail type.
+    --- A generic tail name, homogeneous tail type, or computed tuple/array type.
     tail: cst.Node?
 
-    --- `generic` or `homogeneous` when a tail is present.
+    --- `generic`, `homogeneous`, or `computed` when a tail is present.
     tailKind: string?
 end
 
