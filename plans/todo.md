@@ -206,6 +206,25 @@ work makes sense in.
         Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32
         platform layer, since theirs is 48 SDL calls and Nupp cannot link SDL
         in order to run `nupp check`.
+- [ ] **Files** ([design](files.md)): `nupp.io.files` over a `files` feature in
+      the native crate that already backs `Path`, `URI` and `regex`, through the
+      `Reader`/`Writer` contracts `nupp.io` defines, waiting through `suspend`.
+      The easier twin of S5 and worth landing first, since a filesystem needs no
+      process control and proves the same seam. tecs deletes `io/files`,
+      `internal/fileasync`, `platform/storagebackend` and its atomic-write
+      worker; the compiler stops spawning a process to read a directory.
+  - [ ] F0: the immediate tier — metadata, listing, directories, links,
+        renames and temporaries over `std::fs`. No suspension, and it deletes
+        the shell-out in `fs.nupp` on its own.
+  - [ ] F1: `File`, `DirectoryStream` and `TemporaryPath` as owners over the
+        existing contracts. Blocked on backing `Buffer` with `string.buffer`:
+        `setString` rebuilds the whole string, so writing a file through the
+        current writer is quadratic.
+  - [ ] F2: the bounded submit/poll request lane in Rust, ported from tecs's
+        `fileasync.rs` with SDL removed, `writeAtomic` among its request kinds.
+  - [ ] F3: the readiness source and the `suspend` call sites, with the
+        immediate-completion early return the cost model requires.
+  - [ ] F4: adoption — `fs.nupp` loses its fallbacks, tecs swaps its imports.
 
 ## FFI and the C boundary
 
