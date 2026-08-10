@@ -16,22 +16,26 @@ and a synchronous reduction budget has proved responsive in the checker and
 language server.
 
 The feature exists for a relationship ordinary parametric generics cannot
-state: a call argument known while checking determines another argument or the
-result's type. A literal route determining its handler fields is the proving
-case:
+state: one input type determines the fields or callback types of another. An
+event adapter derived from a record is the proving case delivered by the finite
+stages:
 
 ```nupp
-local function route<const Path: string>(
-    path: Path,
-    handler: function(args: RouteArguments<Path>): nil
-): nil
+local type Events<T> = {
+    readonly [K in keyof T as `${K}Changed`]:
+        function(callback: function(value: T.[K]): nil): nil
+}
 
-route("/users/:user/posts/:post", function(args)
-    print(args.user)
-    print(args.post)
-    print(args.missing) -- unknown field
-end)
+local type Person = {name: string, age: integer}
+local events: Events<Person> = nil as any
+events.nameChanged(function(value) print(value) end)
+events.ageChanged(function(value) print(value) end)
+local missing = events.heightChanged -- unknown field
 ```
+
+A literal route determining a handler shape is the motivating case for the
+conditional recursive stage. It is deliberately not the headline promise:
+T1--T4 are useful and complete if recursive aliases never earn admission.
 
 `comptime` cannot express that relation and will not be widened to do so. It
 runs after normal name and type resolution and requires a closed request. A
@@ -40,14 +44,12 @@ opposite sides of the phase boundary.
 
 The full phase table is:
 
-```text
-direction      mechanism                         status
--------------  --------------------------------  ----------------------------
-value -> value comptime evaluator                C1 landed
-type -> value  reflect(T) descriptor             C2a proposed
-value -> type  no general mechanism              closed deliberately
-type -> type   checker-native type reducer        proposed here
-```
+| Direction | Mechanism | Status |
+| --- | --- | --- |
+| value -> value | comptime evaluator | C1 landed |
+| type -> value | `reflect(T)` descriptor | C2a proposed |
+| value -> type | no general mechanism | closed deliberately |
+| type -> type | checker-native type reducer | proposed here |
 
 Compile-time value parameters are a narrow extension to the generic system,
 not a general value-to-type escape. Only values admitted by the const-argument
@@ -124,9 +126,39 @@ implementation path from one evaluator to the other.
 
 ## Proving cases
 
-### Literal routes
+### Event adapters
 
-The route path determines a finite structural argument type:
+Member enumeration and template construction derive an adapter surface without
+recursion:
+
+```nupp
+local type Events<T> = {
+    readonly [K in keyof T as `${K}Changed`]:
+        function(callback: function(value: T.[K]): nil): nil
+}
+
+local type Person = {
+    name: string,
+    age: integer
+}
+
+local events: Events<Person>
+events.nameChanged(function(value) print(value) end)
+events.ageChanged(function(value) print(value) end)
+local missing = events.heightChanged -- unknown field
+```
+
+This is a structural type only. It does not manufacture a record, table,
+method body, metatable, dispatcher, or event registration at run time.
+
+This is the T3 headline. It delivers a dependent API surface even if T5 is
+declined permanently.
+
+### Recursive literal routes
+
+The route path is the candidate proving case for T5, not for the finite
+feature. It requires a recursive alias to collect an arbitrary number of
+segments:
 
 ```nupp
 local type RouteNames<const Path: string> =
@@ -158,30 +190,6 @@ Structural fields retain Nupp's canonical name order even though the parser
 encountered `user` first. Source-facing diagnostics may show encounter order;
 type identity and fingerprints use canonical order.
 
-### Event adapters
-
-Member enumeration and template construction derive an adapter surface:
-
-```nupp
-local type Events<T> = {
-    readonly [K in keyof T as `${K}Changed`]:
-        function(callback: function(value: T[K]): nil): nil
-}
-
-local type Person = {
-    name: string,
-    age: integer
-}
-
-local events: Events<Person>
-events.nameChanged(function(value) print(value) end)
-events.ageChanged(function(value) print(value) end)
-events.heightChanged -- unknown field
-```
-
-This is a structural type only. It does not manufacture a record, table,
-method body, metatable, dispatcher, or event registration at run time.
-
 ### Read and write views
 
 Nupp properties carry independent capabilities, so the surface must not copy
@@ -195,19 +203,19 @@ end
 
 local type ReadKey = keyof Cell                 -- "value"
 local type WriteKey = writekeyof Cell           -- "value"
-local type ReadValue = Cell["value"]            -- string
-local type WriteValue = writeof Cell["value"]   -- string | integer
+local type ReadValue = Cell.["value"]            -- string
+local type WriteValue = writeof Cell.["value"]   -- string | integer
 ```
 
 The first mapped-type stage requires an explicit output capability:
 
 ```nupp
 local type ReadonlyView<T> = {
-    readonly [K in keyof T]: T[K]
+    readonly [K in keyof T]: T.[K]
 }
 
 local type WriteSink<T> = {
-    writeonly [K in writekeyof T]: writeof T[K]
+    writeonly [K in writekeyof T]: writeof T.[K]
 }
 ```
 
@@ -256,8 +264,22 @@ explicit non-goal and no acceptance test asks for one.
 
 ## Surface syntax
 
-Every spelling below is new and contextual in type or generic-binder position.
-No valid Lua or existing Nupp type is reinterpreted.
+Every spelling below is contextual in type or generic-binder position. The
+parser recognizes an operator only from a complete lookahead that existing
+type syntax cannot satisfy:
+
+- `keyof` and `writekeyof` are operators only when another type primary follows
+  on the same line; a terminal type named `keyof` remains a name;
+- `writeof` is an operator only before a complete `T.[K]` indexed member type;
+- `match` is an operator only when a scrutinee is followed by `when` or `else`
+  at the same nesting depth;
+- `infer` is special only in a `when` pattern and only before a pattern binder;
+  and
+- a mapped field is recognized only by `[Name in` after a property capability.
+
+These are context-sensitive additions of the same kind as the existing typed
+operators, not reserved words. The grammar notes must record the exact
+lookahead and same-line rules rather than claiming the names cannot conflict.
 
 ### Compile-time value parameters
 
@@ -350,18 +372,19 @@ The recursive stage may later spell `DeepElement<Item>` in the first arm; the
 nonrecursive stage rejects that reference under the existing NUPP2115 rule.
 Initial patterns are:
 
-```text
-literal                      "ready", true, 3
-ordinary type                string, Named, T
-array                        {infer Item}
-tuple                        {infer First, infer Second}
-map                          {[infer Key]: infer Value}
-function                     function(infer A...): infer R...
-pointer and C array          infer Item*, infer Item[?], infer Item[N]
-read-only view               const infer T
-generic nominal application Box<infer Item>
-template string              `${infer Head}:${infer Tail}`
-```
+| Pattern | Examples |
+| --- | --- |
+| literal | `"ready"`, `true`, `3` |
+| ordinary type | `string`, `Named`, `T` |
+| array | `{infer Item}` |
+| tuple | `{infer First, infer Second}` |
+| map | `{[infer Key]: infer Value}` |
+| function | `function(infer A...): infer R...` |
+| pointer | `infer Item*` |
+| C array | `infer Item[?]`, `infer Item[16]` |
+| read-only view | `const infer T` |
+| generic nominal application | `Box<infer Item>` |
+| template string | `` `${infer Head}:${infer Tail}` `` |
 
 Only forms already expressible in Nupp's public type syntax are
 pattern-matchable. Internal ownership, borrow provenance, cleanup identity,
@@ -434,9 +457,25 @@ normalization are not built-in type operations.
 ```nupp
 keyof T                 -- keys granting read capability
 writekeyof T            -- keys granting write capability
-T[K]                    -- type read through K
-writeof T[K]            -- type accepted when writing through K
+T.[K]                   -- type read through K
+writeof T.[K]           -- type accepted when writing through K
 ```
+
+The dot before `[` is mandatory. `T[N]` already means a fixed C array and T2
+extends `N` from a written numeral to an exact integer const expression, so
+reusing bare brackets for member indexing would become ambiguous precisely when
+const parameters landed:
+
+```nupp
+T[16]                   -- C array of 16 T values
+T[Rows * Columns]       -- C array with a const-expression length
+T.[16]                  -- member type at numeric key 16
+T.[K]                   -- member type at key type K
+```
+
+This is a settled surface distinction, not parser lookahead based on whether a
+name later resolves to a const parameter. C-array count expressions have the
+closed integer const grammar; indexed member brackets contain a type.
 
 For a finite set of named members, the key operators return a union of string
 literal types. Instance methods are readable value members and participate;
@@ -448,7 +487,7 @@ Indexers participate in key lookup. A broad readable string indexer makes
 `writekeyof`. Numeric table keys require numeric literal types and the integer
 const stage. C-array indexing is not member lookup and does not participate.
 
-`T[K1 | K2]` is the union of the readable member types. `writeof T[K1 | K2]`
+`T.[K1 | K2]` is the union of the readable member types. `writeof T.[K1 | K2]`
 is their intersection, because a value written through an unknown union key
 must be accepted by every possible destination. A missing capability reports
 at the indexed type operator rather than quietly producing `never`.
@@ -468,7 +507,7 @@ It may remap or drop a key:
 ```nupp
 {
     readonly [K in keyof T as `${K}Changed`]:
-        function(value: T[K]): nil
+        function(value: T.[K]): nil
 }
 
 {
@@ -477,7 +516,7 @@ It may remap or drop a key:
         when "password" then never
         else K
         end
-    ]: T[K]
+    ]: T.[K]
 }
 ```
 
@@ -486,11 +525,13 @@ The iteration binder is a singleton literal in the key and value expressions.
 name are rejected initially rather than silently unioning read types or
 intersecting write types.
 
-The first stage requires `readonly` or `writeonly` before the mapped field and
-requires the iterated key type to reduce to a finite literal union. Mapping
-over broad `string`, `integer`, `any`, `unknown`, or an unresolved key term is a
-local diagnostic. Mapped indexers and capability-preserving transforms are
-deferred.
+The first stage requires `readonly` or `writeonly` before the mapped field. A
+key term blocked only on a declared generic binder remains a neutral mapped
+shape and may cross an open generic interface. Once its binders are supplied,
+the iterated key type must reduce to a finite literal union. A closed mapping
+over broad `string`, `integer`, `any`, `unknown`, or another irreducible key
+term is a local diagnostic. Mapped indexers and capability-preserving
+transforms are deferred.
 
 The result is an ordinary interned structural shape. It carries no trace of the
 mapping operation after closed reduction and receives no nominal identity or
@@ -569,8 +610,8 @@ ConstVar(domain, identity)
 ConstOp(operation, operands)
 ```
 
-A **type term** is an ordinary interned type or a neutral type-level operation
-whose answer depends on an unresolved binder:
+A **type term** is an ordinary interned type or one `types.Neutral` variant
+whose `op` names the type-level operation blocked on an unresolved binder:
 
 ```text
 Singleton(constTerm)
@@ -581,6 +622,12 @@ Template(parts)
 MappedShape(capability, keys, keyTerm, valueTerm)
 AliasCall(aliasIdentity, typeArgs, constArgs, packArgs)
 ```
+
+These are seven operations, not seven new `Type.tag` values. The ordinary type
+algebra gains one `tag = "neutral"`; the reducer owns the exhaustive `op`
+dispatch. This limits the change to consumers that must distinguish an
+ordinary type from an unreduced term, while still requiring the explicit
+consumer audit in T1.
 
 Templates and const match patterns consume const terms and produce type terms.
 Const terms never enter `types.Type`, ordinary assignability, or runtime value
@@ -629,11 +676,32 @@ shallow question can answer first. Closed mapped shapes, key unions, indexed
 types, and templates nevertheless normalize fully before crossing a module
 boundary.
 
-The reducer is pure. Its key is the interned term identity, canonical binding
-identities, reducer semantic version, and the semantic fingerprints of nominal
-member views it inspected. Results are memoized in the checker arena. No cache
-entry contains a CST node, scope, source offset, diagnostic sink, or mutable
-nominal member table.
+The reducer is pure, but its memo key cannot contain dependencies learned only
+by running it. Lookup has two levels:
+
+```text
+key = interned term identity
+    + canonical binding identities
+    + reducer semantic version
+
+entry = reduced normal form
+      + [{semantic dependency identity, fingerprint}, ...]
+```
+
+Reduction records every nominal member view it inspects and stores those
+fingerprints beside the result. A lookup validates the recorded fingerprints
+against the current project environment before returning the normal form; a
+changed or missing dependency recomputes and replaces the entry. The query
+engine records the same identities as dependency edges for ordinary
+invalidation and observations.
+
+Neutral term interning may use the process-global type arena because the term
+is immutable structure. Dependency-sensitive reduction results may not: their
+memo belongs to the checker/project environment or a revisioned query cache.
+This distinction prevents a long-lived LSP from returning a stale hover merely
+because a structurally identical neutral survived in the global arena. No
+cache entry contains a CST node, scope, source offset, diagnostic sink, or
+mutable nominal member table.
 
 ### Open exported types
 
@@ -642,7 +710,7 @@ A generic exported alias may necessarily contain neutral terms:
 ```nupp
 type api.Events<T> = {
     readonly [K in keyof T as `${K}Changed`]:
-        function(value: T[K]): nil
+        function(value: T.[K]): nil
 }
 ```
 
@@ -656,21 +724,53 @@ dependency fingerprint. Changing a dependency and obtaining the same reduced
 closed result permits the normal incremental cutoff. A body-only edit remains
 irrelevant.
 
+### Alias hoisting and guarded self-reference
+
+The current resolver hoists an alias name but waits to resolve its body. A
+second lookup while `resolvePendingAlias` is resolving that body reports the
+recursive-alias case of NUPP2115 and installs `any`. Reducer-side cycle checks
+cannot make recursion legal while that name-level guard discards the reference
+first.
+
+T1--T4 leave this behavior unchanged. T5 changes alias declaration and
+resolution in a controlled order:
+
+1. Hoisting creates a stable alias header containing declaration identity,
+   visibility, and type/const/pack binder signatures before resolving the body.
+   It contains no partially resolved body and is not an inhabitable `Type`.
+2. The type resolver tracks whether it is resolving a result beneath a
+   `match` arm. Merely appearing in the scrutinee, pattern, mapped key, or an
+   unconditional child does not qualify.
+3. A reference from a qualifying arm to the alias currently being resolved
+   becomes `AliasCall(headerIdentity, arguments)` instead of recursively asking
+   for its unfinished body.
+4. Any other self-reference receives the new recursion-specific diagnostic.
+   It is never replaced silently by a neutral call.
+5. Successful body resolution seals the header with its canonical term and
+   fingerprint. A failed body poisons outstanding calls for that check and
+   reports at their use sites without publishing a partial interface.
+6. The first recursive stage permits direct self-recursion only. Mutually
+   recursive alias headers remain illegal until a separate need and cycle model
+   are specified.
+
+The alias header identity, not body object identity, keys `AliasCall` and the
+active reduction set. The exported interface fingerprints the sealed body, so
+changing an arm invalidates users even though the declaration identity remains
+stable.
+
 ## Semantics at gradual boundaries
 
 The reducer must not inherit TypeScript's historical edge behavior by accident.
 The initial rules are:
 
-```text
-operation             any                unknown             never
---------------------  -----------------  ------------------  ----------------
-keyof/read index      any                no known key/error  never
-write key/index       any                no known key/error  never
-ordinary match        any                match if provable   normal matching
-match each            any                match if provable   never
-mapped keys           rejected as broad rejected as broad   empty shape
-template construction string             blocked/error       never
-```
+| Operation | `any` | `unknown` | `never` |
+| --- | --- | --- | --- |
+| `keyof`/read index | `any` | no known key/error | `never` |
+| write key/index | `any` | no known key/error | `never` |
+| ordinary match | `any` | match if provable | normal matching |
+| `match each` | `any` | match if provable | `never` |
+| mapped keys | rejected as broad | rejected as broad | empty shape |
+| template construction | `string` | blocked/error | `never` |
 
 `any` stays gradual; an operation depending on its structure normally answers
 `any` rather than selecting an arbitrary arm. `unknown` reveals nothing until
@@ -679,7 +779,7 @@ values. `never` distributes to no cases and contributes no key.
 
 A type parameter's bound may answer a finite structural query inside its body,
 as existing member access uses a bound. The result remains expressed in the
-parameter where necessary: `T[K]` does not become the bound's field type if the
+parameter where necessary: `T.[K]` does not become the bound's field type if the
 actual argument may refine it covariantly.
 
 These rules receive focused tests before public utility aliases are added to
@@ -709,9 +809,13 @@ A limit diagnostic identifies the operator and its input cardinalities.
 Recursive aliases remain NUPP2115 through the finite milestones. Their later
 admission requires all of:
 
-1. At least two real dependent API workloads that finite matching cannot
-   express. Routes count as one; a type-level PEG interpreter does not count.
-2. A memo key of alias identity plus canonical type, const, and pack arguments.
+1. A T5 proposal names at least two real dependent API workloads that finite
+   matching cannot express. Multi-segment routes may count as one; the second
+   must be named and characterized before T5 starts. A type-level PEG
+   interpreter does not count.
+2. A memo key of alias identity plus canonical type, const, and pack arguments
+   and reducer semantic version, with post-reduction dependency fingerprints
+   stored and validated as specified above.
 3. Detection of an identical active key as non-progressing recursion.
 4. Separate depth, total-reduction-step, result-member, and term-allocation
    budgets.
@@ -724,9 +828,12 @@ admission requires all of:
    and observations.
 
 Only a recursive reference reached beneath a `match` arm is considered in the
-first recursive proposal. Unconditional alias cycles remain NUPP2115. A proof
-of syntactic structural decrease is not required—the budget is authoritative—
-but obvious same-argument recursion is diagnosed immediately.
+first recursive proposal. At T5, every recursive-alias case moves out of the
+NUPP2115 family and receives a dedicated code in the type-reduction subrange:
+unguarded self-reference, unsupported mutual recursion, an identical active
+key, and an exhausted budget are facets of that stated rule. A proof of
+syntactic structural decrease is not required—the budget is authoritative—but
+obvious same-argument recursion is diagnosed immediately.
 
 The reducer remains in process. Exceeding a limit is an ordinary deterministic
 type diagnostic, not a worker failure and not a reason to invoke comptime.
@@ -771,14 +878,21 @@ NUPP24xx, which belongs to comptime. Required diagnostic classes are:
 - a member key lacks the requested read or write capability;
 - a mapped key is broad, nonliteral, duplicated after remapping, or over limit;
 - finite reduction exceeds a size/visit limit;
-- recursive reduction cycles or exceeds depth/step/allocation limits; and
+- recursive reduction is unguarded, mutually recursive, cycles, or exceeds
+  depth/step/allocation limits;
 - an open neutral term reaches a boundary that requires a closed type.
+
+T1--T4 retain the current NUPP2115 recursive-alias diagnostic because all
+recursion is still forbidden. T5 migrates that case to the new dedicated code
+and adds a `nupp explain` rule with worked guarded, unguarded, cycling, and
+budgeted examples. NUPP2115 remains available to the other annotation/type
+family cases that already share it.
 
 Hover shows the written alias and a shortened reduced form. A separate verbose
 view may show a bounded reduction trace; ordinary hover must not eagerly reduce
 an expensive recursive term merely to decorate it.
 
-Go-to-definition on `T[K]` reaches the concrete member when both operands are
+Go-to-definition on `T.[K]` reaches the concrete member when both operands are
 closed and unique. References and rename operate on source declarations and
 literal member names, never on generated mapped-field tokens. Completion on a
 closed mapped shape exposes its reduced fields; completion on an open term uses
@@ -825,6 +939,12 @@ typeprimary   = ... existing forms ...
               / templatetype
               / mappedshape
 
+posttype      = typeprimary *postfix
+postfix       = "?" / "*" / carraysuffix / memberindex
+carraysuffix  = "[" ("?" / constintexp) "]"
+memberindex   = ".[" type "]"
+indexedtype   = typeprimary *postfix memberindex
+
 typematch     = "match" ["each"] type-or-const
                 1*("when" typepattern "then" type)
                 ["else" type] "end"
@@ -833,19 +953,26 @@ mappedfield   = ("readonly" / "writeonly")
                 "[" Name "in" type ["as" type] "]" ":" type
 ```
 
-This is illustrative ABNF, not a patch to `docs/grammar.abnf`. The parser plan
-must settle precedence before implementation:
+This is illustrative ABNF, not a patch to `docs/grammar.abnf`. Its decided
+precedence and disambiguation rules are:
 
-- postfix optional/pointer/C-array suffixes remain tighter than indexed member
-  types;
-- `T[K]` must remain distinguishable from existing C-array suffixes, whose
-  brackets contain `?` or a numeral rather than a type;
-- `writeof T[K]` binds to the complete indexed member type;
+- optional, pointer, C-array, and member-index postfixes apply left to right in
+  one chain, preserving Nupp's existing postfix rule;
+- `T[constintexp]` is always a C-array suffix, while only `T.[type]` is an
+  indexed member type;
+- `writeof T.[K]` binds to the complete indexed member type;
 - `keyof`/`writekeyof` bind tighter than `&` and `|`;
 - a mapped field is recognized by `Name in` after `[`, while an existing
   indexer contains a type followed by `]` and `:`; and
 - a backtick token in type position selects template-type parsing, leaving the
   runtime interpolated-string grammar unchanged.
+
+T2 updates the public C-array grammar from a written `Numeral` to
+`constintexp`; it does not rely on semantic binder lookup to decide which
+bracket form was parsed. C-array patterns initially match `?` or an exact
+written const count and infer only the element. Inferring a count from
+`infer Item[infer N]` is deferred until it has a concrete use and its own
+unambiguous pattern grammar.
 
 ## Implementation stages
 
@@ -867,23 +994,36 @@ unchanged; C2a can consume the view without learning reducer concepts.
 - Add explicit-capability finite mapped shapes without remapping.
 - Add neutral term interning, weak-head reduction, memoization, and
   fingerprints.
+- Inventory every `Type.tag` consumer and record one policy for `neutral`:
+  reduce, preserve structurally, or reject as an internal leak. Cover at least
+  relations, generic rebinding/materialization, rendering, fingerprints,
+  ownership/affinity, narrowing, method slots, documentation, LSP semantic
+  queries, optimization, and code generation. Put the inventory in a focused
+  test or checked table so a later consumer cannot silently omit the tag.
 - Reject broad mapped keys and enforce output limits.
 
 Exit test: readonly and writeonly views reduce correctly across shapes,
 records, interfaces, intersections, indexers, bounds, and module boundaries;
-no recursive alias is accepted.
+no recursive alias is accepted; every exhaustive type consumer has an asserted
+neutral policy; and no neutral reaches ownership, optimization, or codegen at a
+boundary requiring a closed type.
 
 ### T2: const parameters and literal domains
 
 - Add const binder identity, generic application arguments, and call inference.
 - Add source-spellable numeric literal types and the closed exact-integer const
   expression floor.
+- Extend C-array suffix counts from a written numeral to `constintexp`; preserve
+  bare `T[N]` for C arrays and require the decided `T.[K]` spelling for every
+  indexed member type, numeric keys included.
 - Carry const arguments in nominal and alias instantiation identity.
 - Prove erasure and no runtime specialization.
 
 Exit test: `Matrix<float, 4, 4>` and literal function inference work; dynamic
 arguments, conflicts, overflow, and unbound const parameters fail locally;
-module fingerprints distinguish values but not binder renames.
+module fingerprints distinguish values but not binder renames; and `T[16]`,
+`T[Rows * Columns]`, and `T.[16]` parse and resolve to their three specified
+forms without semantic lookahead.
 
 ### T3: nonrecursive match and templates
 
@@ -914,9 +1054,14 @@ remain within the recorded latency budget.
 This milestone does not follow automatically. It exists only after T4 records
 a keep decision satisfying §Recursive stage.
 
-- Admit recursive alias calls only beneath match arms.
+- Predeclare alias headers and teach `resolvePendingAlias` to produce an
+  `AliasCall` only for a direct self-reference beneath a match arm; keep
+  unconditional and mutual references out as specified in §Alias hoisting and
+  guarded self-reference.
 - Add active-key cycle detection, budgets, cancellation checks, observations,
   and expansion traces.
+- Move recursive aliases from NUPP2115 to the dedicated reduction diagnostic
+  and add its `nupp explain` examples.
 - Land the complete multi-segment route example.
 - Fuzz recursive terms and adversarial union/template growth.
 
@@ -947,7 +1092,7 @@ limit until its benchmark passes.
 
 ## Open questions
 
-- Whether the public names should be `keyof`/`writekeyof` and `writeof T[K]`,
+- Whether the public names should be `keyof`/`writekeyof` and `writeof T.[K]`,
   or a more symmetric capability syntax. The semantics above are fixed before
   spelling bikeshedding.
 - Whether mapped fields should eventually preserve source capabilities, and how
@@ -959,7 +1104,8 @@ limit until its benchmark passes.
   value-sized generic other than `Matrix`.
 - Whether one finite `pack.concat` operator earns a separate proposal for typed
   parser combinators and ownership-preserving adapters.
-- Which two real APIs, besides routes, are the T4 acceptance workloads.
+- Which second recursive workload must join multi-segment routes before T5 can
+  be proposed. T1--T4 do not depend on answering this.
 
 None of these changes the phase decision: type-to-type reduction is a
 checker-native feature, and comptime remains downstream, closed, and separate.
