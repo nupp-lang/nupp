@@ -1259,9 +1259,17 @@ compiler-owned PEG operations at comptime; they do not enable general
 metamethod execution there.
 
 A capture returns its matched substring, `position()` returns the current byte
-position, and `collect` makes several captures one explicit array result. The
+position, and `group` or `collect` makes several captures one explicit array result. The
 matcher result type must agree: recognition and positions use `integer`, a
 substring uses `string`, and a homogeneous collection uses `{T}`.
+
+`pattern:action("name")` leaves the named callback open until runtime. In that
+case the materialization boundary is a factory type,
+`function(Actions): nupp.Peg.Matcher<R>`. `Actions` must be a closed record or
+shape containing exactly the named slots, each with type `function(string): T`.
+The compiler binds those callbacks once when the factory is called. It invokes
+them only after the complete match succeeds, so PEG backtracking cannot cause
+user-code side effects.
 
 Recursive grammars use `reference`, `define`, and `grammar`. Every reference
 must resolve, repetitions may not contain a nullable expression, ordered-choice

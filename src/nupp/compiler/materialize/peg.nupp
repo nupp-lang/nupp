@@ -197,6 +197,17 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             return node(op, {args[1]}, nil, at)
         end)
     end
+    intrinsic("action", function(args, at)
+        if args.n ~= 2 or not patternEntry(state, args[1])
+            or type(args[2]) ~= "string" or not args[2]:find("^[%a_][%w_]*$") then
+            return nil, failure(
+                "NUPP2417",
+                "nupp.peg.action needs one pattern and an identifier-like action name"
+            )
+        end
+
+        return node("action", {args[1]}, args[2], at)
+    end)
     intrinsic("position", function(_, at)
         return node("position", nil, nil, at)
     end)
@@ -356,7 +367,7 @@ local function analyze(nodes, root, ruleRoots)
                 end
             elseif op == "difference" then
                 value = nullable[node[2]] == true
-            elseif op == "oneOrMore" or op == "capture" or op == "collect" then
+            elseif op == "oneOrMore" or op == "capture" or op == "collect" or op == "action" then
                 value = nullable[node[2]] == true
             elseif op == "reference" then
                 value = nullable[node[2]] == true
@@ -415,7 +426,7 @@ local function analyze(nodes, root, ruleRoots)
                 end
             end
         elseif op == "zeroOrMore" or op == "oneOrMore" or op == "optional"
-            or op == "and" or op == "not" or op == "capture" or op == "collect" then
+            or op == "and" or op == "not" or op == "capture" or op == "collect" or op == "action" then
             return leading(node[2], active)
         end
 
@@ -442,6 +453,8 @@ local function analyze(nodes, root, ruleRoots)
         local op = node[1]
         if op == "capture" then
             answer = {"string"}
+        elseif op == "action" then
+            answer = {"action:" .. node[3]}
         elseif op == "position" then
             answer = {"integer"}
         elseif op == "collect" then
@@ -606,6 +619,12 @@ local function finalizeGraph(state, rootHandle)
                 return nil, why
             end
             output[2] = targetIndex
+        elseif op == "action" then
+            local childIndex, why = visit(entry.payload.children[1])
+            if not childIndex then
+                return nil, why
+            end
+            output[2], output[3] = childIndex, entry.payload.data
         else
             for _, child in ipairs(entry.payload.children or {}) do
                 local childIndex, why = visit(child)
@@ -640,18 +659,35 @@ local function finalizeGraph(state, rootHandle)
     if not result then
         return nil, analysisFailure
     end
-    local payload = {nodes, root, result, #ruleRoots}
-    local fingerprint = hash.sha256("nupp.peg\0v1\0" .. canonical(payload))
+    local slotSet = {}
+    for _, node in ipairs(nodes) do
+        if node[1] == "action" then
+            slotSet[node[3]] = true
+        end
+    end
+    local slots = {}
+    for name in pairs(slotSet) do
+        slots[#slots + 1] = name
+    end
+    table.sort(slots)
+    local payload = {nodes, root, result, #ruleRoots, slots}
+    local fingerprint = hash.sha256("nupp.peg\0v2\0" .. canonical(payload))
+    local family = #slots > 0 and "FactoryBlueprint" or "Blueprint"
 
     return {
         kind = "materialized",
         provider = "peg",
-        schema = 1,
-        family = "Blueprint",
+        schema = 2,
+        family = family,
         payload = payload,
         provenance = origins,
         fingerprint = fingerprint,
-        summary = ("%d-node PEG, %d rules, %s result"):format(#nodes, #ruleRoots, result),
+        summary = ("%d-node PEG, %d rules, %d actions, %s result"):format(
+            #nodes,
+            #ruleRoots,
+            #slots,
+            result
+        ),
     }, nil
 end
 
@@ -665,14 +701,27 @@ function peg.finalize(state: any, value: any): any, peg.Failure?
 end
 
 local function validateEnvelope(envelope)
-    if envelope.schema ~= 1 or envelope.family ~= "Blueprint" or type(envelope.payload) ~= "table" then
+    if envelope.schema ~= 2
+        or (envelope.family ~= "Blueprint" and envelope.family ~= "FactoryBlueprint")
+        or type(envelope.payload) ~= "table" then
         return nil, "PEG blueprint has the wrong schema"
     end
-    local nodes, root, result, ruleCount = unpack(envelope.payload)
+    local nodes, root, result, ruleCount, slots = unpack(envelope.payload)
     if type(nodes) ~= "table" or #nodes == 0 or #nodes > MAX_NODES
         or type(root) ~= "number" or root < 1 or root > #nodes
-        or type(result) ~= "string" or type(ruleCount) ~= "number" then
+        or type(result) ~= "string" or type(ruleCount) ~= "number" or type(slots) ~= "table" then
         return nil, "PEG blueprint header is malformed"
+    end
+    local slotSet, previous = {}, nil
+    for _, name in ipairs(slots) do
+        if type(name) ~= "string" or not name:find("^[%a_][%w_]*$")
+            or (previous and previous >= name) then
+            return nil, "PEG blueprint action slots are malformed"
+        end
+        slotSet[name], previous = true, name
+    end
+    if (envelope.family == "FactoryBlueprint") ~= (#slots > 0) then
+        return nil, "PEG blueprint family does not match its action slots"
     end
     local literalBytes = 0
     local arities = {
@@ -694,11 +743,16 @@ local function validateEnvelope(envelope)
             if #node < 3 then
                 return nil, "PEG variadic instruction has too few children"
             end
+        elseif op == "action" then
+            if #node ~= 3 or type(node[2]) ~= "number" or not slotSet[node[3]] then
+                return nil, "PEG action instruction is malformed"
+            end
         elseif not arities[op] or (arities[op] > 0 and #node ~= arities[op]) then
             return nil, "PEG blueprint contains an unknown or malformed instruction"
         end
         if op ~= "literal" and op ~= "set" and op ~= "any" and op ~= "eof" and op ~= "position" then
-            for index = 2, #node do
+            local last = op == "action" and 2 or #node
+            for index = 2, last do
                 if type(node[index]) ~= "number" or node[index] < 1 or node[index] > #nodes then
                     return nil, "PEG instruction points outside the blueprint"
                 end
@@ -708,19 +762,23 @@ local function validateEnvelope(envelope)
     if literalBytes > MAX_LITERAL_BYTES then
         return nil, "PEG blueprint exceeds its literal limit"
     end
-    local fingerprint = hash.sha256("nupp.peg\0v1\0" .. canonical(envelope.payload))
+    local fingerprint = hash.sha256("nupp.peg\0v2\0" .. canonical(envelope.payload))
     if envelope.fingerprint ~= fingerprint then
         return nil, "PEG blueprint fingerprint does not match its payload"
     end
 
-    return {nodes = nodes, root = root, result = result}, nil
+    return {nodes = nodes, root = root, result = result, slots = slots}, nil
 end
 
-local function resultFits(result, resultType)
+local function resultFits(result, resultType, actionReturns)
     if result == "integer" then
         return resultType == T.integer
     elseif result == "string" then
         return resultType == T.string
+    end
+    local action = result:match("^action:(.+)$")
+    if action then
+        return actionReturns and actionReturns[action] == resultType
     end
     local element = result:match("^array:(.+)$")
     if not element or not resultType or resultType.tag ~= "array" then
@@ -729,6 +787,42 @@ local function resultFits(result, resultType)
 
     return element == "any" or (element == "string" and resultType.elem == T.string)
         or (element == "integer" and resultType.elem == T.integer)
+        or (element:find("^action:") and actionReturns
+            and actionReturns[element:sub(8)] == resultType.elem)
+end
+
+local function matcherResult(candidate, matcher)
+    if not candidate or not matcher or (candidate.origin or candidate) ~= matcher
+        or not candidate.typeArgs or #candidate.typeArgs ~= 1 then
+        return nil
+    end
+
+    return candidate.typeArgs[1]
+end
+
+local function actionReturnTypes(slots, actions)
+    if not actions or (actions.tag ~= "nominal" and actions.tag ~= "shape")
+        or actions.indexReadKey or actions.indexWriteKey then
+        return nil, "PEG action factory input must be a closed record or shape"
+    end
+    local byname, count = actions.byname or {}, 0
+    for _ in pairs(byname) do
+        count = count + 1
+    end
+    if count ~= #slots then
+        return nil, "PEG action factory input must declare exactly the blueprint's action slots"
+    end
+    local returns = {}
+    for _, name in ipairs(slots) do
+        local callback = byname[name]
+        if not callback or callback.tag ~= "func" or #callback.params ~= 1
+            or callback.params[1] ~= T.string or #callback.rets ~= 1 or callback.vararg then
+            return nil, ("PEG action %s must be function(string): R"):format(name)
+        end
+        returns[name] = callback.rets[1]
+    end
+
+    return returns
 end
 
 local function dataIR(value)
@@ -756,14 +850,25 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
     end
     local pegTypes = env and env.globalTypes and env.globalTypes["nupp.Peg"]
     local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Matcher
-    if not matcher or (expected.origin or expected) ~= matcher or not expected.typeArgs
-        or #expected.typeArgs ~= 1 or not resultFits(validated.result, expected.typeArgs[1]) then
+    local resultType, actionReturns
+    if #validated.slots == 0 then
+        resultType = matcherResult(expected, matcher)
+    elseif expected.tag == "func" and #expected.params == 1 and #expected.rets == 1
+        and not expected.vararg then
+        resultType = matcherResult(expected.rets[1], matcher)
+        local actionWhy
+        actionReturns, actionWhy = actionReturnTypes(validated.slots, expected.params[1])
+        if not actionReturns then
+            return nil, failure("NUPP2415", actionWhy as string)
+        end
+    end
+    if not resultType or not resultFits(validated.result, resultType, actionReturns) then
         return nil, failure(
             "NUPP2415",
             "PEG blueprint result " .. validated.result .. " does not match the declared matcher type"
         )
     end
-    return {
+    local machine = {
         tag = "call",
         callee = {tag = "helper", name = "nupp.peg.machine"},
         args = {{
@@ -773,6 +878,16 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?
                 {name = "root", value = {tag = "literal", value = validated.root}},
             },
         }},
+    }
+    if #validated.slots == 0 then
+        return machine, nil
+    end
+    machine.args[2] = {tag = "local", id = 1}
+
+    return {
+        tag = "function",
+        params = {1},
+        body = {{tag = "return", value = machine}},
     }, nil
 end
 

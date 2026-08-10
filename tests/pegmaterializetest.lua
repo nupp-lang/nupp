@@ -108,6 +108,96 @@ function M.excludesThePegMachineFromUnrelatedPrograms()
    assertEq(code:find("__nuppPegMachine", 1, true), nil, "unused helper")
 end
 
+function M.buildsATypedMatcherFactoryForRuntimeActions()
+   local result, calls = run([[
+local record NumberActions
+    number: function(text: string): integer
+end
+
+const Number: function(NumberActions): nupp.Peg.Matcher<integer> = comptime do
+    const digits = nupp.peg.range("09")^1
+    return nupp.peg.compile(digits:action("number") * nupp.peg.eof())
+end
+
+local calls = 0
+local matcher = Number(new NumberActions {
+    number = function(text: string): integer
+        calls = calls + 1
+        return tonumber(text) as integer
+    end,
+})
+return matcher("1234"), calls
+]])
+   assertEq(result, 1234, "action result")
+   assertEq(calls, 1, "one successful action")
+end
+
+function M.defersActionsUntilTheWholeMatchSucceeds()
+   local value, calls = run([[
+local record Actions
+    text: function(value: string): string
+end
+const Build: function(Actions): nupp.Peg.Matcher<string> = comptime do
+    const short = nupp.peg.literal("a"):action("text") * nupp.peg.literal("z")
+    const long = nupp.peg.literal("ab"):action("text")
+    return nupp.peg.compile((short + long) * nupp.peg.eof())
+end
+local calls = 0
+local matcher = Build(new Actions {
+    text = function(value: string): string
+        calls = calls + 1
+        return value
+    end,
+})
+return matcher("ab"), calls
+]])
+   assertEq(value, "ab", "winning action value")
+   assertEq(calls, 1, "failed alternative did not run its action")
+end
+
+function M.collectsTypedActionResults()
+   local values = run([[
+local record Actions
+    number: function(value: string): integer
+end
+
+const Build: function(Actions): nupp.Peg.Matcher<{integer}> = comptime do
+    const number = (nupp.peg.range("09")^1):action("number")
+    const tail = (nupp.peg.literal(",") * number)^0
+    return nupp.peg.compile(nupp.peg.collect(number * tail) * nupp.peg.eof())
+end
+
+local matcher = Build(new Actions {
+    number = function(value: string): integer
+        return tonumber(value) as integer
+    end,
+})
+return matcher("10,20,30")
+]])
+   assertEq(#values, 3, "action collection length")
+   assertEq(values[1] + values[2] + values[3], 60, "typed action collection")
+end
+
+function M.requiresTheExactActionSlotRecord()
+   local missing = errorsOf([[
+local record Empty end
+const Build: function(Empty): nupp.Peg.Matcher<string> = comptime do
+    return nupp.peg.compile(nupp.peg.literal("x"):action("text"))
+end
+]])
+   assertEq(missing[1], "NUPP2415", "missing action slot")
+
+   local wrong = errorsOf([[
+local record Actions
+    text: function(value: integer): string
+end
+const Build: function(Actions): nupp.Peg.Matcher<string> = comptime do
+    return nupp.peg.compile(nupp.peg.literal("x"):action("text"))
+end
+]])
+   assertEq(wrong[1], "NUPP2415", "wrong action signature")
+end
+
 function M.matchesARecursiveGrammar()
    local matched, missed = run([[
 const Nested: nupp.Peg.Matcher<integer> = comptime do

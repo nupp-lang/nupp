@@ -405,6 +405,8 @@ end
 record nupp.Peg
     --- A compile-time-only parsing expression.
     record Pattern
+        --- Applies one named runtime callback to the matched substring.
+        action: function(self, name: string): Pattern
         metamethod __add: function(self, other: Pattern): Pattern
         metamethod __mul: function(self, other: Pattern): Pattern
         metamethod __pow: function(self, count: integer): Pattern
@@ -446,6 +448,7 @@ record nupp.Peg
         position: function(): Pattern
         group: function(pattern: Pattern): Pattern
         collect: function(pattern: Pattern): Pattern
+        action: function(pattern: Pattern, name: string): Pattern
         reference: function(name: string): Pattern
         define: function(name: string, pattern: Pattern): Definition
         grammar: function(start: string, ...: Definition): Pattern
