@@ -92,10 +92,17 @@ work makes sense in.
         protected closure, so `return` or an unbound `break` leaving the region
         is NUPP2706. Removing that means reusing what `with` already does for
         the same problem instead of the simpler lowering here.
-        (b) coroutine handler inheritance across `create`, `resume` and `wrap`,
-        with the save/switch/restore benchmarked per resumed task. Today a new
-        coroutine inherits nothing, which is tested and safe but is not the
-        eventual semantics.
+        (b) landed, and smaller than budgeted. `suspension.create` inherits the
+        handler in force where the coroutine was made; there is no `resume` or
+        `wrap` wrapper because none is needed. Inheriting at *creation* removes
+        the per-resume save/switch/restore this milestone budgeted for
+        entirely: a resumption is `coroutine.resume`, unwrapped, costing what
+        it always did. Creation costs about 19ns and no allocation
+        (`coroutine-resume` against `nupp-create` in the harness).
+
+        It is also the better reading: what answers is the handler in force
+        where the work was started, which a reader can point at, rather than
+        one belonging to whoever happened to resume it.
   - [ ] S3: the C-call boundary — implicit `nosuspend` at known non-yieldable
         FFI and standard-library callback invocations, with safe metamethod and
         generic-loop suspension left alone and a named run-time failure for

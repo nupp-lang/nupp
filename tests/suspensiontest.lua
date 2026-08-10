@@ -353,4 +353,81 @@ function M.reportsAWaitNothingCanComplete()
       "and it says so rather than hanging: " .. tostring(err))
 end
 
+function M.aCreatedCoroutineInheritsTheHandler()
+   local handler = {park = function() end}
+   local inside = nil
+   handled(handler, function()
+      local co = suspension.create(function()
+         inside = suspension.handled()
+      end)
+      coroutine.resume(co)
+      return nil
+   end)
+   assertEq(inside, true,
+      "work started inside a handled extent is handled, not only the frames below it")
+end
+
+function M.aStockCoroutineStillInheritsNothing()
+   local handler = {park = function() end}
+   local inside = nil
+   handled(handler, function()
+      local co = coroutine.create(function()
+         inside = suspension.handled()
+      end)
+      coroutine.resume(co)
+      return nil
+   end)
+   assertEq(inside, false, "stock create is unchanged")
+end
+
+function M.inheritanceIsFixedAtCreationNotResumption()
+   -- What answers is the handler in force where the work was started, which a reader
+   -- can point at. A resumption-time rule would make a coroutine's behaviour depend on
+   -- whoever happened to resume it, which is invisible from the coroutine.
+   local outer = {park = function() end}
+   local other = {park = function() end}
+   local seen = nil
+   local co
+   handled(outer, function()
+      co = suspension.create(function()
+         seen = suspension.handled()
+      end)
+      return nil
+   end)
+   -- Created under a handler, resumed under a different one, and resumed outside any.
+   handled(other, function()
+      coroutine.resume(co)
+      return nil
+   end)
+   assertEq(seen, true, "it kept what it was created with")
+end
+
+function M.creatingOutsideAnyHandlerInheritsNothing()
+   local inside = nil
+   local co = suspension.create(function()
+      inside = suspension.handled()
+   end)
+   coroutine.resume(co)
+   assertEq(inside, false, "nothing to inherit, nothing inherited")
+end
+
+function M.aCoroutineMayInstallItsOwn()
+   local outer = {park = function() end}
+   local innerSeen, afterSeen = nil, nil
+   handled(outer, function()
+      local co = suspension.create(function()
+         local own = {park = function() end}
+         handled(own, function()
+            innerSeen = suspension.handled()
+            return nil
+         end)
+         afterSeen = suspension.handled()
+      end)
+      coroutine.resume(co)
+      return nil
+   end)
+   assertEq(innerSeen, true, "its own handler answers inside")
+   assertEq(afterSeen, true, "and the inherited one comes back after")
+end
+
 return M

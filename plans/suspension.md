@@ -310,7 +310,14 @@ no handler can be installed may specialize `suspend` directly to the blocking
 path, but a reusable library retains the branch so the identical artifact also
 works under tecs.
 
-Correct inheritance does add a fixed save/switch/restore around
+Correct inheritance turned out to need none of that. Inheriting at *creation* --
+`suspension.create` records the handler in force where the coroutine was made --
+leaves resumption alone entirely: `coroutine.resume` is used unwrapped and costs
+what it always did, and creation costs about 19ns with no allocation. The
+paragraph below is what was expected and is kept because the expectation is worth
+contrasting with the answer.
+
+An inheritance keyed on resumption would add a fixed save/switch/restore around
 `coroutine.resume` while a handler is active. With no effective handler and no
 target override, the wrapper tail-calls the raw resume fast path. A scheduler
 adapter may fuse the switch with the current-task assignment it already makes;

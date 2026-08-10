@@ -378,6 +378,43 @@ function suspension.install(handler: suspension.Handler): suspension.Installed
     return new suspension.Installed {co = co, previous = previous, handler = handler, released = false,}
 end
 
+--- Creates a coroutine that inherits the handler installed where it was created.
+---
+--- Stock `coroutine.create` gives the new thread no handler, so a library that spawns
+--- one -- a worker, a pipeline stage -- would find itself blocking inside a frame that
+--- was handling suspensions perfectly well. Inheritance is what makes a handled extent
+--- mean the work started inside it rather than only the frames literally below it.
+---
+--- Inherited at creation rather than at resumption. What answers is the handler that
+--- was in force where the coroutine was made, which is the lexical reading and the one
+--- a reader can point at; a resumption-time rule would make a coroutine's behaviour
+--- depend on who happened to resume it.
+---
+--- @param body what the coroutine runs
+--- @return the coroutine
+function suspension.create<A..., R...>(body: function(A...): R...): thread
+    local co = coroutine.create(body)
+    local inherited = effective()
+    if inherited ~= nil then
+        installed[co] = inherited
+    end
+
+    return co
+end
+
+-- There is deliberately no `resume` or `wrap` here, and their absence is the design
+-- rather than a gap.
+--
+-- Inheriting at *creation* is what makes resumption free. The plan expected a
+-- save/switch/restore around every `coroutine.resume` while a handler was active, and
+-- budgeted for it; a coroutine that carries the handler it was made under needs none of
+-- that, so `coroutine.resume` is used unwrapped and costs exactly what it always did.
+--
+-- It is also the better reading. What answers a suspension is the handler in force
+-- where the work was started, which a reader can point at; a resumption-time rule would
+-- make a coroutine's behaviour depend on whoever happened to resume it, which nobody
+-- can see from the coroutine.
+
 --- Whether a handler is installed here, which is what `blocking` against `cooperative`
 --- means to a caller deciding before it commits to waiting.
 function suspension.handled(): boolean

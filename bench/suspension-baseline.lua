@@ -56,43 +56,45 @@ local SAMPLES = tonumber(os.getenv("BENCH_SUSPENSION_SAMPLES")) or 7
 
 local root = os.getenv("TECS_LUA")
 if root then
-   if root:sub(1, 1) == "~" then
-      root = (os.getenv("HOME") or "") .. root:sub(2)
-   end
-   if root:sub(-1) == "/" then
-      root = root:sub(1, -2)
-   end
-   package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
+    if root:sub(1, 1) == "~" then
+        root = (os.getenv("HOME") or "") .. root:sub(2)
+    end
+    if root:sub(-1) == "/" then
+        root = root:sub(1, -2)
+    end
+    package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. package.path
 end
 
 local taskOk, task = pcall(require, "tecs.internal.taskruntime")
 if not taskOk then
-   task = nil
+    task = nil
 end
 
 -- The median of several runs rather than one run's mean. A scheduler's cost is spiky --
--- a GC step lands in one sample and not the next -- and reporting the middle of a set is
+-- a GC step lands in one sample and not the next -- and reporting the middle of a set
+-- is
 -- what stops a stray pause from being read as a regression.
 local function measure(body)
-   for _ = 1, 3 do
-      body()
-   end
-   local samples = {}
-   for index = 1, SAMPLES do
-      local started = clock()
-      body()
-      samples[index] = clock() - started
-   end
-   table.sort(samples)
+    for _ = 1, 3 do
+        body()
+    end
+    local samples = {}
+    for index = 1, SAMPLES do
+        local started = clock()
+        body()
+        samples[index] = clock() - started
+    end
+    table.sort(samples)
 
-   return samples[math.ceil(#samples / 2)]
+    return samples[math.ceil(#samples / 2)]
 end
 
 local rows = {}
 
 -- Bytes allocated while `body` ran, per operation.
 --
--- The collector has to be *stopped* for this to mean anything. `collectgarbage("count")`
+-- The collector has to be *stopped* for this to mean anything.
+-- `collectgarbage("count")`
 -- reports the current heap, not a cumulative total, so with the collector running the
 -- delta measures what survived a collection rather than what was allocated -- which
 -- reads a path that allocates heavily and collects promptly as one that allocates
@@ -102,203 +104,234 @@ local rows = {}
 -- Stopping the collector means the garbage is retained for the duration, so allocation
 -- sampling runs a smaller number of operations than timing does.
 local function allocated(body, operations)
-   collectgarbage("collect")
-   collectgarbage("stop")
-   local before = collectgarbage("count")
-   local ok, err = pcall(body)
-   local after = collectgarbage("count")
-   -- Restarted whatever happened: leaving the collector off after a failure would make
-   -- every later measurement, and the process, quietly wrong.
-   collectgarbage("restart")
-   collectgarbage("collect")
-   if not ok then
-      error(err, 0)
-   end
+    collectgarbage("collect")
+    collectgarbage("stop")
+    local before = collectgarbage("count")
+    local ok, err = pcall(body)
+    local after = collectgarbage("count")
+    -- Restarted whatever happened: leaving the collector off after a failure would make
+    -- every later measurement, and the process, quietly wrong.
+    collectgarbage("restart")
+    collectgarbage("collect")
+    if not ok then
+        error(err, 0)
+    end
 
-   return (after - before) * 1024 / operations
+    return (after - before) * 1024 / operations
 end
 
 local function record(name, seconds, note, bytes, operations)
-   rows[#rows + 1] = {
-      name = name,
-      seconds = seconds,
-      note = note,
-      bytes = bytes,
-      operations = operations or OPERATIONS,
-   }
+    rows[
+        #rows + 1
+    ] = {name = name, seconds = seconds, note = note, bytes = bytes, operations = operations or OPERATIONS,}
 end
 
 -- The work each path performs, so the rows differ by their machinery and not by what
 -- they compute.
 local total = 0
 local function payload(value)
-   total = total + value
+    total = total + value
 
-   return value
+    return value
 end
 
 -- Each body takes its operation count, so timing and allocation can sample the same
 -- path at different sizes: holding the garbage means allocation runs fewer rounds.
 local function directLoop(n)
-   for _ = 1, n do
-      payload(1)
-   end
+    for _ = 1, n do
+        payload(1)
+    end
 end
 
 local function bench(name, body, note, operations)
-   local timed = measure(function()
-      body(operations or OPERATIONS)
-   end)
-   local bytes = allocated(function()
-      body(operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
-   end, operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
-   record(name, timed, note, bytes, operations or OPERATIONS)
+    local timed = measure(function()
+        body(operations or OPERATIONS)
+    end)
+    local bytes = allocated(function()
+        body(operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
+    end, operations and math.max(math.floor(operations / 10), 1) or ALLOC_OPERATIONS)
+    record(name, timed, note, bytes, operations or OPERATIONS)
 end
 
 bench("direct", directLoop, "a traced loop, not a call")
 
 if task then
-   bench("blocking", function(n)
-      for _ = 1, n do
-         if task.waitMode() == "blocking" then
-            payload(1)
-         end
-      end
-   end, "waitMode check, then call through")
-
-   -- Drives a task to completion, stepping until it settles or nothing is ready.
-   local function drive(spawn, onIdle)
-      local sched = task.newScheduler()
-      local job = sched:spawn(spawn)
-      while job.status == "pending" do
-         if sched:step() == 0 then
-            if not (onIdle and onIdle()) then
-               break
+    bench("blocking", function(n)
+        for _ = 1, n do
+            if task.waitMode() == "blocking" then
+                payload(1)
             end
-         end
-      end
-      payload(job.value or 0)
-   end
+        end
+    end, "waitMode check, then call through")
 
-   -- The comparison `handled-ready` wants: identical context, identical scheduler, one
-   -- fewer protocol.
-   bench("task-direct", function(n)
-      drive(function()
-         local sum = 0
-         for _ = 1, n do
-            sum = sum + 1
-         end
+    -- Drives a task to completion, stepping until it settles or nothing is ready.
+    local function drive(spawn, onIdle)
+        local sched = task.newScheduler()
+        local job = sched:spawn(spawn)
+        while job.status == "pending" do
+            if sched:step() == 0 then
+                if not (onIdle and onIdle()) then
+                    break
+                end
+            end
+        end
+        payload(job.value or 0)
+    end
 
-         return sum
-      end)
-   end, "the same work inside a task")
+    -- The comparison `handled-ready` wants: identical context, identical scheduler, one
+    -- fewer protocol.
+    bench("task-direct", function(n)
+        drive(function()
+            local sum = 0
+            for _ = 1, n do
+                sum = sum + 1
+            end
 
-   -- The gate alone, without the await protocol wrapped round it.
-   bench("gate-only", function(n)
-      drive(function()
-         local sum = 0
-         for _ = 1, n do
-            local gate = task.newGate(function()
-            end)
-            gate:complete(1)
-            local value = gate:wait()
-            sum = sum + (value or 0)
-         end
+            return sum
+        end)
+    end, "the same work inside a task")
 
-         return sum
-      end)
-   end, "newGate, complete, wait")
+    -- The gate alone, without the await protocol wrapped round it.
+    bench("gate-only", function(n)
+        drive(function()
+            local sum = 0
+            for _ = 1, n do
+                local gate = task.newGate(function()
+                end)
+                gate:complete(1)
+                local value = gate:wait()
+                sum = sum + (value or 0)
+            end
 
-   bench("handled-ready", function(n)
-      drive(function()
-         local sum = 0
-         for _ = 1, n do
-            sum = sum + task.awaitCallback(function(resume)
-               resume(1)
+            return sum
+        end)
+    end, "newGate, complete, wait")
 
-               return function()
-               end
-            end)
-         end
+    bench("handled-ready", function(n)
+        drive(function()
+            local sum = 0
+            for _ = 1, n do
+                sum = sum + task.awaitCallback(function(resume)
+                    resume(1)
 
-         return sum
-      end)
-   end, "awaitCallback resumed synchronously")
+                    return function()
+                    end
+                end)
+            end
 
-   local PARKS = math.max(math.floor(OPERATIONS / 100), 1)
-   bench("park-resume", function(n)
-      local pending = nil
-      drive(function()
-         local sum = 0
-         for _ = 1, n do
-            sum = sum + task.awaitCallback(function(resume)
-               pending = resume
+            return sum
+        end)
+    end, "awaitCallback resumed synchronously")
 
-               return function()
-               end
-            end)
-         end
+    local PARKS = math.max(math.floor(OPERATIONS / 100), 1)
+    bench("park-resume", function(n)
+        local pending = nil
+        drive(function()
+            local sum = 0
+            for _ = 1, n do
+                sum = sum + task.awaitCallback(function(resume)
+                    pending = resume
 
-         return sum
-      end, function()
-         if pending then
-            local resume = pending
-            pending = nil
-            resume(1)
+                    return function()
+                    end
+                end)
+            end
 
-            return true
-         end
+            return sum
+        end, function()
+            if pending then
+                local resume = pending
+                pending = nil
+                resume(1)
 
-         return false
-      end)
-   end, format("%d parks, each with a scheduler round trip", PARKS), PARKS)
+                return true
+            end
+
+            return false
+        end)
+    end, format("%d parks, each with a scheduler round trip", PARKS), PARKS)
 end
 
 -- Nupp's own rows, so the acceptance gate is reproducible rather than recorded. The
 -- caller's subscription closure is allocated per call in both this and the tecs rows
--- above, so the comparison is like for like; the hoisted variant separates the runtime's
+-- above, so the comparison is like for like; the hoisted variant separates the
+-- runtime's
 -- own cost from it.
 local nuppOk, nupp = pcall(require, "nupp.suspension")
 if nuppOk then
-   bench("nupp-ready", function(n)
-      for _ = 1, n do
-         payload(nupp.suspend("bench", function(resume)
-            resume(1)
+    bench("nupp-ready", function(n)
+        for _ = 1, n do
+            payload(nupp.suspend("bench", function(resume)
+                resume(1)
 
-            return nil
-         end))
-      end
-   end, "suspend, subscription ready in the call")
+                return nil
+            end))
+        end
+    end, "suspend, subscription ready in the call")
 
-   local hoisted = function(resume)
-      resume(1)
+    local hoisted = function(resume)
+        resume(1)
 
-      return nil
-   end
-   bench("nupp-ready-h", function(n)
-      for _ = 1, n do
-         payload(nupp.suspend("bench", hoisted))
-      end
-   end, "the same, subscription hoisted out")
+        return nil
+    end
+    bench("nupp-ready-h", function(n)
+        for _ = 1, n do
+            payload(nupp.suspend("bench", hoisted))
+        end
+    end, "the same, subscription hoisted out")
 end
 
-print(format("suspension baselines: %d operations, median of %d samples; "
-   .. "allocation sampled over %d with the collector stopped",
-   OPERATIONS, SAMPLES, ALLOC_OPERATIONS))
+-- Item (b)'s cost, measured before it exists and again after. Handler inheritance
+-- means every resume saves, switches and restores, so the row is per resumed task
+-- rather than per await -- which is why it gets a budget rather than a comparison.
+local RESUMES = math.max(math.floor(OPERATIONS / 10), 1)
+bench("coroutine-resume", function(n)
+    for _ = 1, n do
+        local co = coroutine.create(function()
+            coroutine.yield()
+        end)
+        coroutine.resume(co)
+        coroutine.resume(co)
+    end
+end, "create, resume, resume: the floor inheritance adds to", RESUMES)
+
+if nuppOk then
+    bench("nupp-create", function(n)
+        for _ = 1, n do
+            local co = nupp.create(function()
+                coroutine.yield()
+            end)
+            coroutine.resume(co)
+            coroutine.resume(co)
+        end
+    end, "an inheriting create, then ordinary resumes", RESUMES)
+end
+
+print(
+    format(
+        "suspension baselines: %d operations, median of %d samples; "
+        .. "allocation sampled over %d with the collector stopped",
+        OPERATIONS,
+        SAMPLES,
+        ALLOC_OPERATIONS
+    )
+)
 if not task then
-   print("tecs rows skipped: set TECS_LUA to a compiled tecs Lua tree")
+    print("tecs rows skipped: set TECS_LUA to a compiled tecs Lua tree")
 end
 if not nuppOk then
-   print("nupp rows skipped: run with build/ on the path, or via `nupp test`")
+    print("nupp rows skipped: run with build/ on the path, or via `nupp test`")
 end
 print("")
 print(format(" %-14s %10s %10s  %s", "path", "ns/op", "bytes/op", "what it measures"))
 local rule = ("\226\148\128"):rep(14)
-print(" " .. rule .. "  " .. ("\226\148\128"):rep(8) .. "  "
-   .. ("\226\148\128"):rep(8) .. "  " .. ("\226\148\128"):rep(38))
+print(
+    " " .. rule .. "  " .. (
+        "\226\148\128"
+    ):rep(8) .. "  " .. ("\226\148\128"):rep(8) .. "  " .. ("\226\148\128"):rep(38)
+)
 for _, row in ipairs(rows) do
-   print(format(" %-14s %10.1f %10.1f  %s", row.name,
-      row.seconds / row.operations * 1e9, row.bytes or 0, row.note))
+    print(format(" %-14s %10.1f %10.1f  %s", row.name, row.seconds / row.operations * 1e9, row.bytes or 0, row.note))
 end
 print("")
 print("`direct` and `task-direct` are traced loops rather than calls: read them as the")
