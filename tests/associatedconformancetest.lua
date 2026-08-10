@@ -135,4 +135,34 @@ function M.everyMemberOfAUnionMustSatisfyIt()
       "a union satisfied it with an alternative that answers nothing")
 end
 
+-- Nominals are hoisted and then filled, and `isA` caches on the identity pair. An
+-- answer computed while a declaration was still being populated described a type
+-- that did not exist yet, and caching it made that verdict permanent.
+--
+-- Both halves are here because the members case is the older one: this is not a
+-- hazard associated types introduced, only one they would have made routine.
+function M.theRelationCacheSurvivesIncrementalPopulation()
+   local iface = T.nominal("Late", "interface")
+   iface.byname = {count = T.integer}
+   local rec = T.nominal("LateRecord", "record")
+   rec.byname = {}
+   assertEq(fits(rec, iface), false, "it does not carry the member yet")
+   rec.byname = {count = T.integer}
+   relations.invalidate()
+   assertEq(fits(rec, iface), true,
+      "a record queried before its members were read stayed wrong forever")
+
+   local holder = T.nominal("LateHolder", "interface")
+   holder.byname = {}
+   holder.associatedRequirements = {{name = "Item"}}
+   local impl = T.nominal("LateImpl", "record")
+   impl.byname = {}
+   impl.supertypes = {holder}
+   assertEq(fits(impl, holder), false, "it answers nothing yet")
+   impl.associatedAnswers = {Item = {type = T.string}}
+   relations.invalidate()
+   assertEq(fits(impl, holder), true,
+      "an answer read after the query never took effect")
+end
+
 return M

@@ -180,6 +180,16 @@ relations.disjoint = disjoint
 --- interned type that goes away takes its answers with it.
 local cache: {[Type]: {[Type]: boolean | string}} = setmetatable({}, {__mode = "k"})
 
+-- Nominals are hoisted and then filled, so an answer computed while one was still
+-- being populated is an answer about a declaration that did not exist yet. Caching it
+-- on the identity pair made that verdict permanent: a record queried before its
+-- members were read stayed "not a" forever, whatever it later turned out to carry.
+--
+-- A generation counter rather than eviction. Nothing has to know which entries a
+-- declaration could have reached, and the hot path stays one table lookup.
+local generation = 0
+local cachedAt = 0
+
 local isA: function(a: Type, b: Type): (boolean, string?)
 
 --- Whether `a` answers every associated type `b` is owed.
@@ -1053,6 +1063,10 @@ end
 --- @param a the type a value has
 --- @param b the type the position wants
 isA = function(a: Type, b: Type): boolean, string?
+    if cachedAt ~= generation then
+        cache = setmetatable({}, {__mode = "k"})
+        cachedAt = generation
+    end
     local perA = cache[a] or {}
     cache[a] = perA
     local hit = perA[b]
@@ -1069,6 +1083,15 @@ isA = function(a: Type, b: Type): boolean, string?
 end
 
 relations.isA = isA
+
+--- Discards what was decided about types that have since changed.
+---
+--- Declaration checking calls this when a nominal finishes being populated. Until it
+--- does, that declaration's surface is incomplete, and an answer about it describes a
+--- type nobody declared.
+function relations.invalidate(): nil
+    generation = generation + 1
+end
 
 --- `associated.lookup` with the fitness question answered.
 ---

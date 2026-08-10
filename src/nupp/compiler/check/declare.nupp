@@ -1593,6 +1593,10 @@ function declare.install(
             end
             checkInheritedDefaults(stat, n)
             checkInheritedRefinements(stat, n)
+            -- The declaration's surface is complete. Anything the relation decided
+            -- about it while it was still being filled was decided about a type that
+            -- did not exist yet, and caching that made the verdict permanent.
+            relations.invalidate()
             c.popScope()
             if stat.isAnnotationDefinition then
             -- The declaration is a metadata schema, not a runtime constructor. Its type
