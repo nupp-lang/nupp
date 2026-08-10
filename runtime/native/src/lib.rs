@@ -1082,20 +1082,30 @@ pub mod files {
             Failed(CString),
         }
 
-        /// One transfer's shared state. Its `Drop` returns the lane's budget, so
-        /// the charge is released when the caller and the worker have both let
-        /// go rather than when either did.
+        /// One transfer's shared state.
         pub struct Slot {
             status: AtomicI32,
             outcome: Mutex<Outcome>,
             charged: usize,
         }
 
-        impl Drop for Slot {
-            fn drop(&mut self) {
-                REQUESTS.fetch_sub(1, Ordering::AcqRel);
-                IN_FLIGHT.fetch_sub(self.charged, Ordering::AcqRel);
-            }
+        /// Returns a transfer's share of the budget.
+        ///
+        /// This is tied to the caller's handle rather than to the shared state,
+        /// which is the difference between a cap on what a program is holding
+        /// and a cap on what the workers have finished touching. The second
+        /// cannot be observed without a race: a worker publishes `READY` from
+        /// inside the state both sides share, so a caller releasing the instant
+        /// it sees the result is still counted until the worker gets around to
+        /// dropping its own reference.
+        ///
+        /// The cost is that a cancelled transfer is refunded while its worker
+        /// may still be reading. Those bytes are transient and belong to work
+        /// already in flight; what the cap exists to bound is what a caller can
+        /// keep accumulating.
+        fn refund(charge: usize) {
+            REQUESTS.fetch_sub(1, Ordering::AcqRel);
+            IN_FLIGHT.fetch_sub(charge, Ordering::AcqRel);
         }
 
         /// The caller's handle on a transfer.
@@ -1257,6 +1267,7 @@ pub mod files {
                 work,
             };
             if queue().send(job).is_err() {
+                refund(charge);
                 set_error("the file worker queue is gone");
                 return ptr::null_mut();
             }
@@ -1425,7 +1436,9 @@ pub mod files {
         #[no_mangle]
         pub unsafe extern "C" fn nuppFsDestroy(request: *mut NuppRequest) {
             if !request.is_null() {
-                drop(unsafe { Box::from_raw(request) });
+                let held = unsafe { Box::from_raw(request) };
+                refund(held.slot.charged);
+                drop(held);
             }
         }
 
@@ -1569,6 +1582,23 @@ mod tests {
             unsafe { nuppFsDestroy(request) };
         }
         assert_eq!(nuppFsPending(), before, "settled transfers return their slot");
+
+        // Releasing the instant the result appears returns the budget then, not
+        // whenever the worker gets around to letting go of the state it shares
+        // with the caller. Repeated, because the window this closes is narrow.
+        for round in 0..64 {
+            let request = submit(&format!("tight-{round}.bin"), b"payload", 0);
+            assert!(!request.is_null());
+            while unsafe { nuppFsStatus(request) } == STATUS_PENDING {
+                std::thread::yield_now();
+            }
+            unsafe { nuppFsDestroy(request) };
+            assert_eq!(
+                nuppFsPending(),
+                before,
+                "a transfer released on sight is accounted for on sight"
+            );
+        }
 
         // A read carries the bytes the worker found.
         let path = root.join("file-0.bin");

@@ -398,13 +398,20 @@ lane; the four synchronous exports they used to call are gone rather than left
 beside it. The cursor operations on an open `File` stay direct, because
 scheduling a transfer costs more than a cursor read costs to run.
 
-Two details the tecs port did not carry over. The lane prices a read by sizing
-the file **on the submitting thread**, since a lane that cannot price a
-transfer cannot bound itself, and SDL leaves the same lookup synchronous for
-the same reason. And a `Slot`'s `Drop` returns the budget, so a charge is
-released once the caller and the worker have both let go rather than when
-either did — a cancelled transfer whose worker is still reading has not given
-its bytes back yet, and saying otherwise is how a bound stops binding.
+The lane prices a read by sizing the file **on the submitting thread**, since a
+lane that cannot price a transfer cannot bound itself, and SDL leaves the same
+lookup synchronous for the same reason.
+
+The budget is returned when the **caller's handle** is destroyed. The first
+attempt tied it to the shared state instead, so that a cancelled transfer whose
+worker was still reading had not yet given its bytes back. That is a nicer
+sentence and an unobservable rule: a worker publishes `READY` from inside the
+state both sides share, so a caller releasing the instant it sees the result is
+still counted until the worker gets around to dropping its own reference. It
+shipped, and the suite caught it one run later — intermittently, because
+whether the worker had let go by then was a race. What the cap is for is
+bounding what a program can keep accumulating, and the caller's handle is
+exactly what measures that.
 
 `nuppFsWait` reads the arrival count under the same lock a worker raises it
 under. Without that, a settlement landing between the status check and the

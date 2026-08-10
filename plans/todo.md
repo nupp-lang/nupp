@@ -257,8 +257,12 @@ work makes sense in.
 
         A read is priced by sizing the file on the submitting thread, because
         a lane that cannot price a transfer cannot bound itself. The budget is
-        returned by the slot's `Drop`, so a cancelled transfer whose worker is
-        still reading has not given its bytes back yet.
+        returned when the caller's handle is destroyed. Tying it to the shared
+        state instead -- so a cancelled transfer whose worker was still reading
+        had not yet given its bytes back -- shipped and then failed
+        intermittently: a worker publishes its result from inside the state
+        both sides share, so a caller releasing on sight was still counted
+        until the worker got around to letting go.
 
         `nupp task native-test` runs the provider's own unit tests, which the
         Lua suite cannot reach: the lane's budget, its refusals, and what a
