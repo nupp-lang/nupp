@@ -239,6 +239,22 @@ reduceProjection = function(head: Type, name: string, map: Bindings, unmapped: s
 
         return T.any
     end
+    if head.tag == "union" then
+        -- Distributed: each alternative knows what it answers, so `(A | B).Item` is
+        -- `A.Item | B.Item`. Any alternative that does not reduce leaves the whole
+        -- projection standing, since the union would otherwise claim to know what one
+        -- of the values it holds does not say.
+        local arms: {Type} = {}
+        for _, member in ipairs((head as T.Union).members) do
+            local reducedArm = reduceProjection(member, name, map, unmapped, norm)
+            if reducedArm.tag == "projection" then
+                return T.projection(head, name)
+            end
+            arms[#arms + 1] = reducedArm
+        end
+
+        return T.union(arms)
+    end
     if head.tag ~= "nominal" then
         return T.projection(head, name)
     end
@@ -248,6 +264,14 @@ reduceProjection = function(head: Type, name: string, map: Bindings, unmapped: s
     local answers = (head as T.Nominal).associatedAnswers
     local entry = answers and answers[name] or nil
     if not entry then
+        return T.projection(head, name)
+    end
+    if (head as T.Nominal).declKind == "interface" then
+        -- Opaque through an interface, whatever it says. What an interface answers is
+        -- a fallback for its implementors, and one of them may answer otherwise, so a
+        -- value known only as the interface cannot be said to answer it. This is the
+        -- same rule `associated.lookup` applies, and the two have to agree: a test
+        -- pins them together.
         return T.projection(head, name)
     end
     local answer = entry.type

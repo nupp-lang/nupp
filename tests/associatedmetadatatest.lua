@@ -16,7 +16,7 @@ end
 
 -- A generic declaration with one parameter and whatever metadata the case needs.
 local function declaring(name, params, spec)
-   local n = T.nominal(name, "interface")
+   local n = T.nominal(name, spec.kind or "record")
    n.typeParams = params
    n.selfType = T.typevar("self", name .. ":self")
    if spec.order then
@@ -83,22 +83,41 @@ end
 -- An inherited default keeps the binder it was written under, so a later
 -- implementor reads it as itself. This is the copy-down the withdrawn attempt got
 -- wrong by dropping the binder.
+--
+-- The interface itself stays opaque. Its default is a fallback for implementors, and
+-- one of them may answer otherwise, so a value known only as the interface cannot be
+-- said to answer it.
 function M.anInheritedDefaultRebindsToItsImplementor()
-   local source = declaring("Source", {}, {order = {"Value"}})
+   local source = declaring("Source", {}, {kind = "interface", order = {"Value"}})
    local default = {
       type = source.selfType,
       selfBinder = source.selfType,
       isDefault = true,
    }
    source.associatedAnswers = {Value = default}
-   assertEq(shown(T.projection(source, "Value")), "Source",
-      "the interface reads its own default as itself")
-   -- The implementor takes the entry unchanged, binder and all.
+   assertEq(shown(T.projection(source, "Value")), "Source.Value",
+      "an interface resolved its own default")
+   -- Copying it to a concrete implementor is what makes it an answer, and the binder
+   -- rebinds there.
    local taker = T.nominal("Taker", "record")
    taker.associatedAnswers = {Value = default}
    local reduced = generics.normalize(T.projection(taker, "Value")).type
    assertEq(reduced, taker, "the default did not rebind to the implementor")
    assert(reduced ~= source, "the default stayed with the interface")
+end
+
+-- The same rule, stated directly: an override must not be shadowed by the default a
+-- value's interface declares.
+function M.anInterfaceNeverExposesADefaultAnImplementorOverrides()
+   local iface = declaring("I", {}, {kind = "interface", order = {"Item"}})
+   iface.associatedAnswers = {Item = {type = T.string, isDefault = true}}
+   local impl = T.nominal("R", "record")
+   impl.supertypes = {iface}
+   impl.associatedAnswers = {Item = {type = T.integer}}
+   assertEq(shown(T.projection(iface, "Item")), "I.Item",
+      "a value typed as the interface exposed the default")
+   assertEq(shown(T.projection(impl, "Item")), "integer",
+      "the implementor's own answer")
 end
 
 function M.everyPieceOfMetadataSurvivesInstantiation()
@@ -136,7 +155,7 @@ function M.aProjectionThroughAnInstantiatedAnswerNormalizesFully()
       answers = {Value = {type = param}},
    })
    local ofString = generics.instantiate(inner, {[param] = T.string})
-   local outer = T.nominal("Outer", "interface")
+   local outer = T.nominal("Outer", "record")
    outer.associatedAnswers = {Value = {type = T.projection(ofString, "Value")}}
    assertEq(shown(T.projection(outer, "Value")), "string")
    assertEq(shown(T.array(T.projection(outer, "Value"))), "{string}")

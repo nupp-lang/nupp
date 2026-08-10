@@ -17,7 +17,7 @@ end
 -- A declaration answering `Item` with `answer`. Answers live apart from
 -- `nestedTypes` so a private alias can never be mistaken for one.
 local function answering(name, answers, aliases)
-   local n = T.nominal(name, "interface")
+   local n = T.nominal(name, "record")
    n.associatedAnswers = {}
    for member, answer in pairs(answers or {}) do
       n.associatedAnswers[member] = {type = answer}
@@ -100,7 +100,7 @@ function M.aGradualHeadReducesToAnyAndSaysSo()
 end
 
 function M.aDirectCycleIsReportedAndNotFollowed()
-   local loop = T.nominal("Loop", "interface")
+   local loop = T.nominal("Loop", "record")
    loop.associatedAnswers = {Item = {type = T.projection(loop, "Item")}}
    local result = generics.normalize(T.projection(loop, "Item"))
    assert(result.cycle, "a direct cycle went unreported")
@@ -110,8 +110,8 @@ function M.aDirectCycleIsReportedAndNotFollowed()
 end
 
 function M.aTwoNodeCycleIsReported()
-   local a = T.nominal("A", "interface")
-   local b = T.nominal("B", "interface")
+   local a = T.nominal("A", "record")
+   local b = T.nominal("B", "record")
    a.associatedAnswers = {Item = {type = T.projection(b, "Item")}}
    b.associatedAnswers = {Item = {type = T.projection(a, "Item")}}
    local result = generics.normalize(T.projection(a, "Item"))
@@ -171,9 +171,9 @@ end
 -- displays. Two declarations may share a displayed name; keying the slice on the
 -- label would report a loop that runs through the wrong one.
 function M.aCycleIsSlicedByIdentityNotByName()
-   local outer = T.nominal("Same", "interface")
-   local inner = T.nominal("Same", "interface")
-   local tail = T.nominal("Tail", "interface")
+   local outer = T.nominal("Same", "record")
+   local inner = T.nominal("Same", "record")
+   local tail = T.nominal("Tail", "record")
    assert(outer ~= inner, "two declarations, one displayed name")
    outer.associatedAnswers = {Item = {type = T.projection(inner, "Item")}}
    inner.associatedAnswers = {Item = {type = T.projection(tail, "Item")}}

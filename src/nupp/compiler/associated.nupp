@@ -149,11 +149,28 @@ end
 
 local lookupInto: function(head: Type, name: string): associated.Lookup
 
+--- Whether a declaration is one values are actually built as, so what it answers is
+--- what a value of it answers.
+---
+--- An interface is not. Its default is a fallback for implementors, and an implementor
+--- may answer otherwise, so a value known only as the interface cannot be said to
+--- answer the default: `interface I` defaulting `Item` to `string`, with
+--- `record R is I` answering `integer`, would otherwise let an `I` expose a `string`
+--- that no `R` has. Through an interface the projection stays opaque at its bound.
+local function concreteDeclaration(head: Type): boolean
+    return head.tag == "nominal" and (head as T.Nominal).declKind ~= "interface"
+end
+
 --- Settles the answer once requirements and candidates are in hand.
 local function settle(result: associated.Lookup, head: Type): associated.Lookup
     if #result.requirements == 0 then
         result.reason = "unknown"
 
+        return result
+    end
+    if not concreteDeclaration(head) then
+        -- Opaque, and not a failure: the candidates are reported so an implementor can
+        -- be held to them, but nothing here resolves.
         return result
     end
     local answer = result.answer
@@ -250,11 +267,24 @@ lookupInto = function(head: Type, name: string): associated.Lookup
         -- Every alternative has to state it, since the value is one of them and the
         -- projection has to mean something whichever it is. The bounds unite: an
         -- answer only has to satisfy the alternative it came from.
+        --
+        -- The answer distributes. Each alternative already knows what it answers, so
+        -- `(A | B).Item` is `A.Item | B.Item` -- refusing to say that would discard
+        -- what is known for every value the union can hold.
         local bounds: {Type} = {}
+        local resolvedArms: {Type} = {}
+        local settled = true
         for _, member in ipairs((head as T.Union).members) do
             local arm = lookupInto(member, name)
-            if #arm.requirements == 0 then
+            if #arm.requirements == 0 and not arm.gradual then
                 result.reason = "incomplete"
+
+                return result
+            end
+            if arm.reason then
+                -- One alternative that cannot answer decides the union: there is a
+                -- value it could hold for which the projection means nothing.
+                result.reason = arm.reason
 
                 return result
             end
@@ -264,13 +294,28 @@ lookupInto = function(head: Type, name: string): associated.Lookup
             if arm.bound then
                 bounds[#bounds + 1] = arm.bound
             end
+            if arm.gradual then
+                result.gradual = true
+                settled = false
+            elseif arm.resolved then
+                resolvedArms[#resolvedArms + 1] = arm.resolved
+            else
+                settled = false
+            end
         end
         if #bounds > 0 then
             result.bound = T.union(bounds)
         end
-        -- A union answers nothing of its own; the alternatives do, and they need not
-        -- agree. What the projection stands for is settled per alternative.
-        result.reason = "missing"
+        if result.gradual then
+            return result
+        end
+        if settled and #resolvedArms > 0 then
+            result.resolved = T.union(resolvedArms)
+        elseif not settled then
+            -- An alternative that is merely opaque -- an interface, say -- leaves the
+            -- whole projection opaque rather than wrong.
+            result.answer = nil
+        end
 
         return result
     end

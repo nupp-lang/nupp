@@ -5,6 +5,7 @@
 -- differ in whether one answer is owed or two, and in what it has to satisfy.
 local T = require("nupp.compiler.types")
 local associated = require("nupp.compiler.associated")
+local generics = require("nupp.compiler.generics")
 
 local function assertEq(got, want, label)
    if got ~= want then
@@ -41,6 +42,13 @@ local function decl(name, spec)
       end
    end
    return n
+end
+
+-- An answering site. Only a declaration values are built as resolves an answer, so
+-- every case about what a projection stands for uses one of these.
+local function impl(name, spec)
+   spec.kind = "record"
+   return decl(name, spec)
 end
 
 local function shownBound(result)
@@ -100,9 +108,9 @@ function M.anAnswerIsCheckedAgainstEveryBound()
    local a = decl("A2", {requires = {{"Item", NAMED}}})
    local b = decl("B2", {requires = {{"Item", COUNTED}}})
    local both = T.intersection({NAMED, COUNTED})
-   local good = decl("Good", {is = {a, b}, answers = {Item = {type = both}}})
+   local good = impl("Good", {is = {a, b}, answers = {Item = {type = both}}})
    assertEq(associated.lookup(good, "Item").reason, nil, "an answer fitting both")
-   local half = decl("Half", {is = {a, b}, answers = {Item = {type = NAMED}}})
+   local half = impl("Half", {is = {a, b}, answers = {Item = {type = NAMED}}})
    assertEq(associated.lookup(half, "Item").reason, "unfit",
       "an answer satisfying one contract and not the other")
 end
@@ -112,7 +120,7 @@ function M.aSingleDefaultIsInherited()
       requires = {{"Item"}},
       answers = {Item = {type = T.string, isDefault = true}},
    })
-   local taker = decl("Taker2", {is = {source}})
+   local taker = impl("Taker2", {is = {source}})
    local found = associated.lookup(taker, "Item")
    assertEq(found.reason, nil)
    assertEq(T.tostring(found.resolved), "string")
@@ -127,10 +135,10 @@ function M.distinctDefaultsConflict()
       requires = {{"Item"}},
       answers = {Item = {type = T.integer, isDefault = true}},
    })
-   local taker = decl("Taker3", {is = {a, b}})
+   local taker = impl("Taker3", {is = {a, b}})
    assertEq(associated.lookup(taker, "Item").reason, "conflict")
    -- Writing the answer settles it.
-   local written = decl("Written", {is = {a, b}, answers = {Item = {type = T.string}}})
+   local written = impl("Written", {is = {a, b}, answers = {Item = {type = T.string}}})
    assertEq(associated.lookup(written, "Item").reason, nil)
    assertEq(T.tostring(associated.lookup(written, "Item").resolved), "string")
 end
@@ -145,7 +153,7 @@ function M.twoSelfDefaultsConvergeOnOneImplementor()
    b.associatedAnswers = {
       Item = {type = b.selfType, selfBinder = b.selfType, isDefault = true},
    }
-   local taker = decl("Taker4", {kind = "record", is = {a, b}})
+   local taker = impl("Taker4", {is = {a, b}})
    local found = associated.lookup(taker, "Item")
    assertEq(found.reason, nil, "two `= self` defaults are one answer")
    assertEq(found.resolved, taker, "and the answer is the implementor")
@@ -158,7 +166,7 @@ function M.aSameDefaultThroughADiamondCountsOnce()
    })
    local left = decl("Left2", {is = {top}})
    local right = decl("Right2", {is = {top}})
-   local bottom = decl("Bottom2", {is = {left, right}})
+   local bottom = impl("Bottom2", {is = {left, right}})
    local found = associated.lookup(bottom, "Item")
    assertEq(found.reason, nil, "one default reached twice read as a conflict")
    assertEq(#found.defaults, 1)
@@ -177,9 +185,38 @@ function M.aUnionHeadNeedsEveryAlternativeToDeclareIt()
    local b = decl("B6", {requires = {{"Item", COUNTED}}})
    local bare = decl("Bare", {})
    local found = associated.lookup(T.union({a, b}), "Item")
-   assertEq(found.reason, "missing", "a union answers nothing of its own")
+   assertEq(found.reason, nil, "two contracts that both state it")
    boundHas(found, "union", NAMED, COUNTED)
+   assertEq(found.resolved, nil, "neither alternative answers, so nothing resolves")
    assertEq(associated.lookup(T.union({a, bare}), "Item").reason, "incomplete")
+end
+
+-- The answer distributes: each alternative already knows what it answers, so
+-- refusing to say would discard what is known for every value the union can hold.
+function M.aUnionAnswerDistributesAcrossItsAlternatives()
+   local contract = decl("Holds", {requires = {{"Item"}}})
+   local left = impl("Left3", {is = {contract}, answers = {Item = {type = T.string}}})
+   local right = impl("Right3", {is = {contract}, answers = {Item = {type = T.integer}}})
+   local found = associated.lookup(T.union({left, right}), "Item")
+   assertEq(found.reason, nil)
+   assertEq(T.tostring(found.resolved), "integer | string")
+   -- and the normalizer agrees
+   assertEq(T.tostring(generics.normalize(T.projection(T.union({left, right}), "Item")).type),
+      "integer | string")
+end
+
+-- One alternative that cannot answer decides the union, because the value could be
+-- that one.
+function M.aUnionIsOnlyAsSettledAsItsWeakestAlternative()
+   local contract = decl("Holds2", {requires = {{"Item"}}})
+   local answered = impl("Answered", {is = {contract}, answers = {Item = {type = T.string}}})
+   local unanswered = impl("Unanswered", {is = {contract}})
+   assertEq(associated.lookup(T.union({answered, unanswered}), "Item").reason, "missing")
+   -- An opaque alternative is not a failure, but it does leave the union opaque.
+   local opaque = decl("Opaque", {requires = {{"Item"}}})
+   local mixed = associated.lookup(T.union({answered, opaque}), "Item")
+   assertEq(mixed.reason, nil)
+   assertEq(mixed.resolved, nil, "an opaque alternative resolved anyway")
 end
 
 function M.anUnprojectableHeadIsRefused()
@@ -191,8 +228,13 @@ function M.anUnprojectableHeadIsRefused()
    -- different fact and a different message.
    local bounded = T.typevar("B", "lookup-test:bounded")
    bounded.bound = decl("Bounded", {requires = {{"Item"}}})
-   assertEq(associated.lookup(bounded, "Item").reason, "missing")
+   local through = associated.lookup(bounded, "Item")
+   assertEq(through.reason, nil, "a bounded binder can be projected")
+   assertEq(through.resolved, nil, "and stays opaque, since the bound is a contract")
    assertEq(associated.lookup(bounded, "Other").reason, "unknown")
+   -- A concrete declaration owing an answer and giving none is the missing case.
+   local owing = impl("Owing", {is = {bounded.bound}})
+   assertEq(associated.lookup(owing, "Item").reason, "missing")
 end
 
 -- `any` is the gradual case, and only reachable by materializing a projection that
@@ -204,7 +246,7 @@ function M.aGradualHeadIsNotAReason()
 end
 
 function M.aChainedProjectionValidatesAgainstTheFirstBound()
-   local inner = decl("Inner", {requires = {{"Item"}}, answers = {Item = {type = NAMED}}})
+   local inner = impl("Inner", {requires = {{"Item"}}, answers = {Item = {type = NAMED}}})
    local outer = decl("Outer", {requires = {{"Step", inner}}})
    local binder = T.typevar("T", "lookup-test:chain")
    binder.bound = outer
@@ -217,7 +259,6 @@ function M.aChainedProjectionValidatesAgainstTheFirstBound()
 end
 
 function M.boundsFollowGenericInstantiation()
-   local generics = require("nupp.compiler.generics")
    local param = T.typevar("E", "lookup-test:generic")
    local holder = decl("Holder", {requires = {{"Item", param}}})
    holder.typeParams = {param}
@@ -232,6 +273,46 @@ function M.boundsFollowGenericInstantiation()
    bad.supertypes = {ofNamed}
    bad.associatedAnswers = {Item = {type = T.string}}
    assertEq(associated.lookup(bad, "Item").reason, "unfit")
+end
+
+-- The normalizer reduces projections and the query answers about them, and they
+-- cannot both be the authority. `generics` may not require `associated` -- that
+-- would close the require graph -- so the two implement the same rules separately,
+-- and this pins them together.
+function M.theNormalizerAndTheQueryAgree()
+   local contract = decl("Agreed", {requires = {{"Item"}}})
+   local answered = impl("AgreedRecord", {is = {contract}, answers = {Item = {type = T.string}}})
+   local defaulted = decl("AgreedDefault", {
+      requires = {{"Item"}},
+      answers = {Item = {type = T.string, isDefault = true}},
+   })
+   local inheriting = impl("AgreedTaker", {is = {defaulted}})
+   inheriting.associatedAnswers = {Item = defaulted.associatedAnswers.Item}
+   local binder = T.typevar("T", "agree-test:binder")
+   binder.bound = contract
+   local heads = {
+      answered,
+      contract,
+      defaulted,
+      inheriting,
+      binder,
+      T.union({answered, answered}),
+      T.string,
+      T.any,
+   }
+   for _, head in ipairs(heads) do
+      local found = associated.lookup(head, "Item")
+      local reduced = generics.normalize(T.projection(head, "Item")).type
+      if found.resolved then
+         assertEq(reduced, found.resolved,
+            "the query resolved " .. T.tostring(head) .. ".Item and the normalizer did not")
+      elseif found.gradual then
+         assertEq(reduced, T.any, "a gradual head reduced to something else")
+      else
+         assertEq(reduced.tag, "projection",
+            "the normalizer reduced " .. T.tostring(head) .. ".Item and the query did not")
+      end
+   end
 end
 
 return M
