@@ -230,7 +230,10 @@ common dotted prefix among a call's expansions is evaluated once. Projected leaf
 fields remain direct positional arguments rather than generated locals. Ordinary
 arguments are captured only when they must stay ahead of a later path binding;
 a trailing call can still fill the remaining positional slots with its multiple
-results.
+results. This lowering applies to functions, callable records, methods,
+constructors, and specialized calls with a statically known positional pack.
+Safe calls guard the optional callee, receiver, and method before binding any
+expanded argument path; their taken branch uses the same positional signature.
 ]=],
         example = [=[
 local interface XY

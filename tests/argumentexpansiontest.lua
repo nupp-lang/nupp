@@ -180,6 +180,132 @@ function M.nestedExpansionStaysAtItsShortCircuitEvaluationPoint()
       "a nested expansion needs an expression-local wrapper:\n" .. code)
 end
 
+function M.safeFunctionExpansionBindsItsPathOnlyOnTheTakenBranch()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local reads = 0",
+      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local entity = setmetatable({}, {__index = function(_, _)",
+      "   reads = reads + 1",
+      "   return position",
+      "end}) as Entity",
+      "local function add(x: number, y: number): number return x + y end",
+      "local maybe: function(number, number) | nil = nil",
+      "local skipped = maybe?.(...entity.position)",
+      "maybe = add",
+      "local called = maybe?.(...entity.position)",
+      "return tostring(reads) .. tostring(skipped) .. tostring(called)",
+   }, "\n"))
+   assertEq(answer, "1nil3")
+   assert(code:find("==nil then return nil", 1, true), code)
+end
+
+function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local reads = 0",
+      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local entity = setmetatable({}, {__index = function(_, _)",
+      "   reads = reads + 1",
+      "   return position",
+      "end}) as Entity",
+      "local function take(x: number, y: number): nil end",
+      "local maybe: function(number, number) | nil = nil",
+      "maybe?.(...entity.position)",
+      "maybe = take",
+      "maybe?.(...entity.position)",
+      "return reads",
+   }, "\n"))
+   assertEq(answer, 1)
+   assert(code:find("~=nil then", 1, true), code)
+   assert(not code:find("(function()", 1, true), code)
+end
+
+function M.returnedSafeExpansionUsesEarlyReturnsWithoutAWrapper()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local function add(x: number, y: number): number return x + y end",
+      "local maybe: function(number, number) | nil = add",
+      "local position = new Vec3 {x = 5, y = 6, z = 7}",
+      "local entity = new Entity {position = position}",
+      "return maybe?.(...entity.position)",
+   }, "\n"))
+   assertEq(answer, 11)
+   assert(code:find("==nil then return nil", 1, true), code)
+   assert(not code:find("(function()", 1, true), code)
+end
+
+function M.safeReceiverAndMethodExpansionUsesStagedGuards()
+   local answer = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local record Drawer",
+      "   draw: function(self: Drawer, x: number, y: number) | nil",
+      "end",
+      "local reads = 0",
+      "local position = new Vec3 {x = 2, y = 3, z = 4}",
+      "local entity = setmetatable({}, {__index = function(_, _)",
+      "   reads = reads + 1",
+      "   return position",
+      "end}) as Entity",
+      "local drawer: Drawer | nil = nil",
+      "local skipped = drawer?.:draw?.(...entity.position)",
+      "drawer = new Drawer {draw = function(_, x: number, y: number): number",
+      "   return x + y",
+      "end}",
+      "local called = drawer?.:draw?.(...entity.position)",
+      "return tostring(reads) .. tostring(skipped) .. tostring(called)",
+   }, "\n"))
+   assertEq(answer, "1nil5")
+end
+
+function M.constructorCallsReuseTheSameExpansionPlan()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local record Point",
+      "   x: number",
+      "   y: number",
+      "   constructor(x: number, y: number)",
+      "      self.x = x",
+      "      self.y = y",
+      "   end",
+      "end",
+      "local position = new Vec3 {x = 7, y = 8, z = 9}",
+      "local entity = new Entity {position = position}",
+      "local point = new Point(...entity.position)",
+      "return point.x * 10 + point.y",
+   }, "\n"))
+   assertEq(answer, 78)
+   assertEq(select(2, code:gsub("entity%.position", "")), 1, code)
+end
+
+function M.callableObjectsReuseTheOrdinaryExpansionPlan()
+   local answer = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local record Adder",
+      "   metamethod __call: function(self, x: number, y: number): number",
+      "end",
+      "local adder = setmetatable({}, {__call = function(_, x: number, y: number): number",
+      "   return x + y",
+      "end}) as Adder",
+      "local position = new Vec3 {x = 4, y = 5, z = 6}",
+      "local entity = new Entity {position = position}",
+      "return adder(...entity.position)",
+   }, "\n"))
+   assertEq(answer, 9)
+end
+
 function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
    local answer = run(vector .. "\n" .. table.concat({
       "local record Entity",

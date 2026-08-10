@@ -66,6 +66,20 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
 
     local handlers = {}
 
+    local function withoutNil(t: Type): Type
+        if t.tag ~= "union" then
+            return t
+        end
+        local nonnil = {}
+        for _, member in ipairs(t.members) do
+            if member ~= T.nil_ then
+                nonnil[#nonnil + 1] = member
+            end
+        end
+
+        return T.union(nonnil)
+    end
+
     handlers.call = function(node: cst.Call | cst.SafeCall): Type
         -- The intrinsic dispatch below asks the same three questions of every call —
         -- what is being called, what it is dotted off, and what was passed — so they
@@ -271,6 +285,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             callee.callCallee = true
         end
         local calleeT = callee and c.infer(callee) or T.any
+        if node.kind == "safeCall" then
+            calleeT = withoutNil(calleeT)
+        end
         node.calleeType = rawType(calleeT)
         c.nosuspend.call(node)
         local wrappedEntry = calleeName ~= "" and c.lookupEntry(calleeName) or nil
@@ -656,6 +673,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
+        if node.kind == "safeCall" then
+            local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+            pack = T.packUnion({calledPack, T.pack({T.nil_})})
+            first = T.optional(first)
+            rets = pack.head
+        end
         c.lastCallRets = rets
         node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
 
@@ -673,20 +696,6 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- makes the whole call optional, and both drop the nil they check for before
         -- the lookup that follows.
         local optional = node.safeObj ~= nil or node.safeMethod ~= nil
-        local function withoutNil(t: Type): Type
-            if t.tag ~= "union" then
-                return t
-            end
-            local nonnil = {}
-            for _, m in ipairs(t.members) do
-                if m ~= T.nil_ then
-                    nonnil[#nonnil + 1] = m
-                end
-            end
-
-            return T.union(nonnil)
-        end
-
         if node.safeObj then
             ot = withoutNil(ot)
         end
@@ -751,9 +760,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
                 node.overloadMember = node.overloadMember or selectedMember
             end
+            if optional then
+                local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
+                pack = T.packUnion({calledPack, T.pack({T.nil_})})
+                first = T.optional(first)
+                rets = pack.head
+            end
             c.lastCallRets = rets
             node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
-            return optional and T.optional(first) or first
+            return first
         end
         if ot ~= T.any and ot ~= T.table_ and ot.tag ~= "map" then
             if ot.tag == "shape" or ot.tag == "nominal" then

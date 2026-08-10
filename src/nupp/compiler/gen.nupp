@@ -657,27 +657,38 @@ function gen.generate(
         return root, parts
     end
 
-    local function ordinaryExpansionCall(call): boolean
+    local function expansionCall(call): boolean
         if call.kind == "methodCall" then
-            return not call.safeObj and not call.safeMethod and call.obj ~= nil and call.name ~= nil
+            return call.obj ~= nil and call.name ~= nil
         end
 
-        return call.kind == "call" and not call.staticCallee
-            and not call.callableBindings
-            and not call.tableIntrinsic
-            and not call.ffiOutContracts
-            and not call.ownershipIntrinsic
+        if call.kind ~= "call" and call.kind ~= "safeCall" then
+            return false
+        end
+        if call.kind == "safeCall" then
+            return not call.tableIntrinsic
+                and not call.ffiOutContracts
+                and not call.ownershipIntrinsic
+                and not call.ffiIntrinsic
+                and not call.carrayElem
+                and not call.cheaderCdef
+                and not call.constructorCall
+                and not call.recordConstruct
+                and not call.layoutOf
+                and not call.passPinnedPointer
+        end
+
+        return not call.ownershipIntrinsic
             and not call.ffiIntrinsic
             and not call.carrayElem
             and not call.cheaderCdef
-            and not call.constructorCall
             and not call.recordConstruct
             and not call.layoutOf
             and not call.passPinnedPointer
     end
 
     function expansion.callPlan(call): any
-        if not ordinaryExpansionCall(call) or not call.obj or not call.args or not call.args.loweredArgs then
+        if not expansionCall(call) or not call.obj or not call.args or not call.args.loweredArgs then
             return nil
         end
         local hasDotted = false
@@ -691,20 +702,51 @@ function gen.generate(
             return nil
         end
 
-        local plan = {steps = {}, pathAliases = {}, argAliases = {}, argFields = {}}
+        local plan = {
+            call = call,
+            setupSteps = {},
+            afterReceiverSteps = {},
+            steps = {},
+            pathAliases = {},
+            argAliases = {},
+            argFields = {},
+        }
+        plan.delegate = call.staticCallee or call.tableIntrinsic or call.ffiOutContracts or call.constructorCall
         if call.kind == "methodCall" then
             plan.receiverAlias = nextTemp()
-            plan.steps[
-                #plan.steps + 1
+            plan.setupSteps[
+                #plan.setupSteps + 1
             ] = {kind = "expr", name = plan.receiverAlias, expr = call.obj, at = call.obj}
             plan.methodName = call.overloadMember or call.name.text
+            plan.safeReceiver = call.safeObj ~= nil
+            if call.safeMethod then
+                plan.methodAlias = nextTemp()
+                plan.afterReceiverSteps[
+                    #plan.afterReceiverSteps + 1
+                ] = {
+                    kind = "field",
+                    name = plan.methodAlias,
+                    base = plan.receiverAlias,
+                    field = plan.methodName,
+                    at = call,
+                }
+                plan.safeMethod = true
+            end
+            plan.isSafe = plan.safeReceiver or plan.safeMethod
+        elseif call.kind == "safeCall" then
+            plan.calleeAlias = nextTemp()
+            plan.setupSteps[
+                #plan.setupSteps + 1
+            ] = {kind = "expr", name = plan.calleeAlias, expr = call.obj, at = call.obj}
+            plan.safeCallee = true
+            plan.isSafe = true
         elseif call.obj.kind ~= "name" then
             -- A name is already a one-use leaf in the final call. More involved
             -- callees are captured before path bindings so their evaluation point does
             -- not move.
             plan.calleeAlias = nextTemp()
-            plan.steps[
-                #plan.steps + 1
+            plan.setupSteps[
+                #plan.setupSteps + 1
             ] = {kind = "expr", name = plan.calleeAlias, expr = call.obj, at = call.obj}
         end
 
@@ -761,8 +803,8 @@ function gen.generate(
         return plan
     end
 
-    function expansion.emitSteps(plan)
-        for _, step in ipairs(plan.steps) do
+    function expansion.emitSteps(steps)
+        for _, step in ipairs(steps) do
             e("const " .. step.name .. "=", sourceLine(step.at))
             if step.kind == "field" then
                 e(step.base .. "." .. step.field)
@@ -810,6 +852,113 @@ function gen.generate(
             end
             expansion.emitArgument(argument, args)
         end
+    end
+
+    function expansion.activate(plan): any
+        local prior = {
+            aliases = expansion.argumentAliases,
+            fields = expansion.argumentFields,
+        }
+        expansion.argumentAliases = plan.argAliases
+        expansion.argumentFields = plan.argFields
+        expansion.plans[plan.call] = plan
+
+        return prior
+    end
+
+    function expansion.restore(plan, prior)
+        expansion.plans[plan.call] = nil
+        expansion.argumentAliases = prior.aliases
+        expansion.argumentFields = prior.fields
+    end
+
+    function expansion.emitCall(call, plan)
+        if plan.methodAlias then
+            e(plan.methodAlias .. "(" .. plan.receiverAlias, sourceLine(call))
+            if call.args and #(call.args.loweredArgs or {}) > 0 then
+                e(",")
+                expansion.emitArgs(call.args)
+            end
+            e(")")
+        elseif plan.receiverAlias then
+            e(plan.receiverAlias .. ":" .. plan.methodName, sourceLine(call))
+            emit(call.args)
+        else
+            if plan.calleeAlias then
+                e(plan.calleeAlias, sourceLine(call))
+            else
+                emit(call.obj)
+            end
+            emit(call.args)
+        end
+    end
+
+    function expansion.emitExpression(call, plan)
+        e("(function()", sourceLine(call))
+        expansion.emitSteps(plan.setupSteps)
+        if plan.safeReceiver then
+            e("if " .. plan.receiverAlias .. "==nil then return nil end;")
+        end
+        expansion.emitSteps(plan.afterReceiverSteps)
+        if plan.safeCallee then
+            e("if " .. plan.calleeAlias .. "==nil then return nil end;")
+        end
+        if plan.safeMethod then
+            e("if " .. plan.methodAlias .. "==nil then return nil end;")
+        end
+        expansion.emitSteps(plan.steps)
+        e("return")
+        local prior = expansion.activate(plan)
+        if plan.delegate then
+            emit(call)
+        else
+            expansion.emitCall(call, plan)
+        end
+        expansion.restore(plan, prior)
+        e("end)()")
+    end
+
+    function expansion.emitStatement(statement, call, plan)
+        expansion.emitSteps(plan.setupSteps)
+        local guards = 0
+        if plan.safeReceiver then
+            e("if " .. plan.receiverAlias .. "~=nil then")
+            guards = guards + 1
+        end
+        expansion.emitSteps(plan.afterReceiverSteps)
+        if plan.safeCallee then
+            e("if " .. plan.calleeAlias .. "~=nil then")
+            guards = guards + 1
+        end
+        if plan.safeMethod then
+            e("if " .. plan.methodAlias .. "~=nil then")
+            guards = guards + 1
+        end
+        expansion.emitSteps(plan.steps)
+        local prior = expansion.activate(plan)
+        emit(statement)
+        expansion.restore(plan, prior)
+        for _ = 1, guards do
+            e("end")
+        end
+    end
+
+    function expansion.emitReturn(statement, plan)
+        expansion.emitSteps(plan.setupSteps)
+        if plan.safeReceiver then
+            e("if " .. plan.receiverAlias .. "==nil then return nil end;")
+        end
+        expansion.emitSteps(plan.afterReceiverSteps)
+        if plan.safeCallee then
+            e("if " .. plan.calleeAlias .. "==nil then return nil end;")
+        end
+        if plan.safeMethod then
+            e("if " .. plan.methodAlias .. "==nil then return nil end;")
+        end
+        expansion.emitSteps(plan.steps)
+        local prior = expansion.activate(plan)
+        emit(statement)
+        expansion.restore(plan, prior)
     end
 
     local function coverageRuntime()
@@ -988,53 +1137,26 @@ function gen.generate(
         if not expansion.statementActive[x] then
             local direct = expansion.directCall(x)
             local plan = direct and expansion.callPlan(direct) or nil
-            if plan then
+            if plan and (not plan.isSafe or kind == "callStmt" or kind == "returnStmt") then
                 expansion.statementActive[x] = true
-                expansion.emitSteps(plan)
-                local priorAliases = expansion.argumentAliases
-                local priorFields = expansion.argumentFields
-                expansion.argumentAliases = plan.argAliases
-                expansion.argumentFields = plan.argFields
-                expansion.plans[direct] = plan
-                emit(x)
-                expansion.plans[direct] = nil
-                expansion.argumentAliases = priorAliases
-                expansion.argumentFields = priorFields
+                if plan.isSafe and kind == "returnStmt" then
+                    expansion.emitReturn(x, plan)
+                else
+                    expansion.emitStatement(x, direct, plan)
+                end
                 expansion.statementActive[x] = nil
                 return
             end
         end
-        if kind == "call" or kind == "methodCall" then
+        if kind == "call" or kind == "safeCall" or kind == "methodCall" then
             local activePlan = expansion.plans[x]
-            if activePlan then
-                if activePlan.receiverAlias then
-                    e(activePlan.receiverAlias .. ":" .. activePlan.methodName, sourceLine(x))
-                    emit(x.args)
-                else
-                    if activePlan.calleeAlias then
-                        e(activePlan.calleeAlias, sourceLine(x))
-                    else
-                        emit(x.obj)
-                    end
-                    emit(x.args)
-                end
+            if activePlan and not activePlan.delegate then
+                expansion.emitCall(x, activePlan)
                 return
             end
-            local plan = expansion.callPlan(x)
+            local plan = not activePlan and expansion.callPlan(x) or nil
             if plan then
-                e("(function()", sourceLine(x))
-                expansion.emitSteps(plan)
-                e("return")
-                local priorAliases = expansion.argumentAliases
-                local priorFields = expansion.argumentFields
-                expansion.argumentAliases = plan.argAliases
-                expansion.argumentFields = plan.argFields
-                expansion.plans[x] = plan
-                emit(x)
-                expansion.plans[x] = nil
-                expansion.argumentAliases = priorAliases
-                expansion.argumentFields = priorFields
-                e("end)()")
+                expansion.emitExpression(x, plan)
                 return
             end
         end
@@ -1679,7 +1801,8 @@ function gen.generate(
             end
             emit(x.obj)
             e("(")
-            local args = x.args and x.args.exprs or {}
+            local loweredArgs = x.args and x.args.loweredArgs or nil
+            local args = loweredArgs or (x.args and x.args.exprs or {})
             local outputAt = {}
             for j, output in ipairs(x.ffiOutContracts) do
                 outputAt[output.cIndex] = holders[j]
@@ -1692,7 +1815,11 @@ function gen.generate(
                 if outputAt[cIndex] then
                     e(outputAt[cIndex])
                 else
-                    emit(args[argumentIndex])
+                    if loweredArgs then
+                        expansion.emitArgument(args[argumentIndex], x.args)
+                    else
+                        emit(args[argumentIndex])
+                    end
                     argumentIndex = argumentIndex + 1
                 end
             end

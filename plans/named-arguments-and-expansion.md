@@ -72,6 +72,12 @@ binding requires their evaluation point to stay ahead of it; a suffix and a
 final multi-result call remain direct. A later lowering may admit arbitrary
 operand expressions without changing these rules.
 
+The same plan applies to every statically known callable parameter pack:
+functions, callable records, methods, constructors, and specialized compiler
+calls that retain ordinary positional arguments. Safe function and method calls
+guard the callee, receiver, or optional method before evaluating any expanded
+argument path.
+
 ## Selection
 
 Call checking first identifies the named suffix. For each callable candidate it
@@ -163,6 +169,31 @@ or assignment receives bindings directly. When a call is nested inside another
 expression, its bindings stay at that exact evaluation point so short-circuiting
 remains lazy. Neither form allocates an argument table or performs runtime arity
 selection.
+
+A safe call keeps the same final positional signature but places expansion
+bindings inside its taken branch:
+
+```nupp
+maybeDraw?.(...entity.body.position)
+```
+
+conceptually generates:
+
+```lua
+local draw = maybeDraw
+if draw ~= nil then
+    local body = entity.body
+    local position = body.position
+    draw(position.x, position.y)
+end
+```
+
+A safe call statement uses `if` directly, and a returned safe call uses early
+returns. A safe call nested in another expression uses an expression-local
+wrapper that returns `nil` from the untaken branch and the original result pack
+from the taken branch. Safe receiver and safe method checks are staged
+separately, so a nil receiver prevents method lookup and either check prevents
+argument evaluation.
 
 `expands` declarations generate no runtime member. Formatting preserves
 `...value` without a space and formats named arguments with spaces around `=`.
