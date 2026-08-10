@@ -13,8 +13,8 @@ the complete model.
 
 ## Declaring a resource
 
-Two annotations. `@drop` marks the operation that consumes the resource, and
-`@owned` marks the function that produces one:
+`@drop` marks the operation that consumes the resource; `@owned` marks the
+function that produces one:
 
 ```nupp
 local record File

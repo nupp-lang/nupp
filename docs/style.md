@@ -43,7 +43,7 @@ link between them.
 
 Titles are short, and they are one of two kinds.
 
-**Descriptive** — a noun phrase for the thing the section is about:
+**Descriptive** is a noun phrase for the thing the section is about:
 
 ```
  Inlining
@@ -53,7 +53,7 @@ Titles are short, and they are one of two kinds.
  Diagnostics
 ```
 
-**Declarative or imperative** — a sentence that states the fact the section
+**Declarative or imperative** is a sentence that states the fact the section
 proves, when the fact is the point:
 
 ```
@@ -80,8 +80,8 @@ are banned outright:
  Notes / Miscellaneous   Split it or drop it
 ```
 
-Sentence case. No trailing colons or question marks. No FAQ framing — a
-question as a heading is a fact you have not committed to yet. Stop at H3;
+Sentence case. No trailing colons or question marks. A question as a heading
+is a fact you have not committed to yet, so skip FAQ framing. Stop at H3;
 reaching H4 usually means the page should split.
 
 ## Layering
@@ -137,8 +137,8 @@ Link generously. A page is a node, not a document.
 - One page owns each concept; the rest link to it and state only what they
   need. `with.md` states what `with` does with a value and links `ownership.md`
   for the model.
-- Say what is on the other end. `See [ownership.md](ownership.md) for the
-  complete contract reference` — never a bare "see here" or a naked URL.
+- Say what is on the other end, as in `See [ownership.md](ownership.md) for
+  the complete contract reference`. Never a bare "see here" or a naked URL.
 - Diagnostic codes link to the reference anchor the compiler already emits, so
   a code in prose and a code in terminal output land in the same place.
 - Doc comments in `src/` link the same way. A `---` block that names a concept
@@ -186,8 +186,8 @@ to it; the command says everything else.
 `::: note`, `info`, `tip`, `warning`, `danger`. Use them for exactly two jobs:
 
 - **Scope, at the top of a page**, when a reader is likely to reach for a
-  feature they do not need — the `@effects` note on
-  [effects.md](effects.md) is the model.
+  feature they do not need. The `@effects` note on [effects.md](effects.md)
+  is the model.
 - **A trap**, where the obvious reading is wrong and the consequence is
   silent.
 
@@ -210,16 +210,16 @@ the guarantee.
 
 - **"You" for the reader, never "we".** There is no narrator, and the compiler
   is not a person the reader is in a room with.
-- **No hedging** — "generally", "typically", "should usually" — unless the
+- **No hedging** ("generally", "typically", "should usually") unless the
   imprecision is real, in which case name the condition instead.
 - **No filler**: "simply", "just", "note that", "it is worth mentioning", "in
   order to", "basically". Cut the sentence or make it a claim.
 - **No marketing.** "Powerful", "elegant", "blazing", "seamless" say nothing
   checkable. The comparison that earns its place is a specific one: what Lua
   gives you, what Nupp adds, what it costs.
-- **Credit the prior art plainly** when a comparison helps —
-  "which is the part Python's context managers and Java's try-with-resources do
-  not have" — and never as a dunk.
+- **Credit the prior art plainly** when a comparison helps, as in "which is
+  the part Python's context managers and Java's try-with-resources do not
+  have", and never as a dunk.
 - **Own the limits in the same voice as the features.** "The model is
   intentionally smaller than Rust's" is a sentence about design, not an
   apology. Never apologize for the design, and never promise a future version
@@ -234,8 +234,8 @@ the guarantee.
   written as `nupp check`, in code style, without the leading `./bin/`.
 - **The checker _reports_** a diagnostic. It does not throw, complain, warn
   about, or yell. Code _reports_ `NUPP2112`; a program does not "get" it.
-- **Typed source _lowers to_** Lua or cdata. It compiles to, generates, or
-  emits nothing — one verb, used consistently.
+- **Typed source _lowers to_** Lua or cdata. It does not compile to, generate,
+  or emit anything; lowers to is the one verb, used consistently.
 - **Types are _erased_** when they leave no runtime trace. `@effects` is
   type-erased; `struct` is not.
 - **A resource is _dropped_, _transferred_, or _borrowed_.** It is not freed,
@@ -271,14 +271,26 @@ local function openSession(id: uint64): Session
 - Tag descriptions are lowercase fragments with no period: `@param id the
   stable account identifier`.
 - `@raises` says what makes it raise, one line per condition.
-- Module blurbs — the `--[[ ]]` block at the top of a file — open with what the
+- Module blurbs, the `--[[ ]]` block at the top of a file, open with what the
   module is for, in one sentence, and link the page that owns the concept.
 
 ## Mechanics
 
 - Hard-wrap prose at 80 columns. Do not reflow a paragraph you did not touch.
 - One blank line between blocks, none at the top of a section.
-- Em dashes with spaces around them — like this.
+- No em dashes. Restructure the sentence: split it in two, subordinate one
+  clause to the other, or reorder it. Do not just swap the dash for a
+  semicolon or colon in the same spot, and do not leave a fragment standing
+  where the dash was.
+
+  ```
+   Not                                       Write
+   ────────────────────────────────────────  ─────────────────────────────
+   Two annotations. `@drop` marks the        `@drop` marks the operation
+   operation that consumes the resource,     that consumes the resource;
+   and `@owned` marks the function that      `@owned` marks the function
+   produces one.                             that produces one.
+  ```
 - Ordinary quotes, not curly, everywhere except inside prose already using
   them.
 - Lists are parallel: all fragments or all sentences, all starting with the
@@ -314,10 +326,13 @@ page is next edited, rather than in one sweep.
 - Banned headings are still live: "What developers gain", "What is public",
   "What this costs", "What is inferred", "What a struct field may hold", and
   "What Nupp is".
+- Em dashes are still live throughout the handwritten pages, doc comments, and
+  CLI help text; only this guide and `ownership.md`'s "Declaring a resource"
+  section have been brought into line with the no-em-dash rule.
 
 ## Next
 
-- [docs/tooling/doc.md](tooling/doc.md) — the fences, admonitions, code groups,
+- [docs/tooling/doc.md](tooling/doc.md): the fences, admonitions, code groups,
   and tags this guide assumes.
-- [docs/diagnostics.md](diagnostics.md) — what a diagnostic carries, and the
+- [docs/diagnostics.md](diagnostics.md): what a diagnostic carries, and the
   anchors pages link to.
