@@ -107,3 +107,29 @@ input must be represented by a type or literal const argument, all types erase,
 and a runtime parser or comptime value computation is still needed to produce
 runtime data. Type-level PEG interpreters are possible only within the stated
 budgets and are not a compatibility or performance target.
+
+### Static PEG prototype
+
+[`examples/static-string-peg.nupp`](../../examples/static-string-peg.nupp) is a
+checked, deliberately small PEG interpreter. Its grammar is assembled from
+types:
+
+```nupp
+-- command := ('get' name | 'set' name 'to' value) End
+local type Get = Sequence<Token<'get'>, Capture<'name'>>
+local type Set = Sequence<Token<'set'>,
+    Sequence<Capture<'name'>,
+        Sequence<Token<'to'>, Capture<'value'>>>>
+local type Command = Sequence<Choice<Get, Set>, End>
+
+local parsed: Parse<Command, 'set theme to dark'> = nil as any
+local name: 'theme' = parsed.captures.name
+local value: 'dark' = parsed.captures.value
+```
+
+The interpreter includes sequence, ordered choice with backtracking, named
+one-token captures, greedy zero-or-more, and end-of-input. It uses a tagged
+tuple machine so all transitions happen through one guarded recursive alias.
+For clarity, input tokenization is only a split on single spaces. This is an
+example of what the type reducer can express, not a runtime parser library or a
+promise of LPeg-compatible syntax, diagnostics, or performance.

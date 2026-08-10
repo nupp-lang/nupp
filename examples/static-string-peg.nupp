@@ -1,0 +1,186 @@
+-- A deliberately small PEG interpreter evaluated entirely by the type checker.
+--
+-- Input is a string of space-separated tokens. The grammar supports literal
+-- tokens, named one-token captures, sequencing, ordered choice, repetition,
+-- and end-of-input. The parser itself exists only in types: Parse<G, S> reduces
+-- to an Accepted or Rejected type while checking this file.
+
+-- Grammar nodes. The aliases make the grammar readable; their values are
+-- tagged structural tuples so the evaluator can decompose them.
+local type Token<Text> = {'token', Text}
+local type Capture<Name> = {'capture', Name}
+local type Sequence<Left, Right> = {'sequence', Left, Right}
+local type Choice<Left, Right> = {'choice', Left, Right}
+local type ZeroOrMore<Pattern> = {'zero-or-more', Pattern}
+local type End = {'end'}
+
+-- Public results.
+local type Accepted<Rest, Captures> = {
+    readonly status: 'accepted',
+    readonly rest: Rest,
+    readonly captures: Captures
+}
+
+local type Rejected = {
+    readonly status: 'rejected'
+}
+
+-- Machine states and continuations. Encoding control as data lets Evaluate
+-- use one directly recursive alias; Nupp intentionally rejects mutually
+-- recursive aliases.
+local type Run<Pattern, Input, Success, Failure, Captures> =
+    {'run', Pattern, Input, Success, Failure, Captures}
+local type Pass<Input, Success, Failure, Captures> =
+    {'pass', Input, Success, Failure, Captures}
+local type Fail<Failure> = {'fail', Failure}
+local type Take<Expected, Input, Success, Failure, Captures> =
+    {'take', Expected, Input, Success, Failure, Captures}
+local type TakeCapture<Name, Input, Success, Failure, Captures> =
+    {'take-capture', Name, Input, Success, Failure, Captures}
+local type Compare<Expected, Actual, Rest, Success, Failure, Captures> =
+    {'compare', Expected, Actual, Rest, Success, Failure, Captures}
+
+local type Done = {'done'}
+local type Reject = {'reject'}
+local type Then<Pattern, Success> = {'then', Pattern, Success}
+local type Try<Pattern, Input, Success, Failure, Captures> =
+    {'try', Pattern, Input, Success, Failure, Captures}
+local type Repeat<Pattern, Input, Success, Failure> =
+    {'repeat', Pattern, Input, Success, Failure}
+local type StopRepeat<Input, Success, Failure, Captures> =
+    {'stop-repeat', Input, Success, Failure, Captures}
+
+local type NoCaptures = {readonly [K in never]: string}
+
+local type Evaluate<State> = match State
+    -- Grammar dispatch.
+    when {'run', {'token', infer Expected}, infer Input, infer Success,
+        infer Failure, infer Captures} then
+        Evaluate<Take<Expected, Input, Success, Failure, Captures>>
+    when {'run', {'capture', infer Name}, infer Input, infer Success,
+        infer Failure, infer Captures} then
+        Evaluate<TakeCapture<Name, Input, Success, Failure, Captures>>
+    when {'run', {'sequence', infer Left, infer Right}, infer Input,
+        infer Success, infer Failure, infer Captures} then
+        Evaluate<Run<Left, Input, Then<Right, Success>, Failure, Captures>>
+    when {'run', {'choice', infer Left, infer Right}, infer Input,
+        infer Success, infer Failure, infer Captures} then
+        Evaluate<Run<Left, Input, Success,
+            Try<Right, Input, Success, Failure, Captures>, Captures>>
+    when {'run', {'zero-or-more', infer Pattern}, infer Input,
+        infer Success, infer Failure, infer Captures} then
+        Evaluate<Run<Pattern, Input,
+            Repeat<Pattern, Input, Success, Failure>,
+            StopRepeat<Input, Success, Failure, Captures>, Captures>>
+    when {'run', {'end'}, infer Input, infer Success,
+        infer Failure, infer Captures} then
+        match Input
+            when '' then Evaluate<Pass<Input, Success, Failure, Captures>>
+            else Evaluate<Fail<Failure>>
+        end
+
+    -- Split one token from the static input, then compare it with a literal.
+    when {'take', infer Expected, infer Input, infer Success,
+        infer Failure, infer Captures} then
+        match Input
+            when `${infer Actual} ${infer Rest}` then
+                Evaluate<Compare<Expected, Actual, Rest,
+                    Success, Failure, Captures>>
+            else Evaluate<Compare<Expected, Input, '',
+                Success, Failure, Captures>>
+        end
+    when {'compare', infer Expected, infer Actual, infer Rest, infer Success,
+        infer Failure, infer Captures} then
+        match Actual
+            when Expected then
+                Evaluate<Pass<Rest, Success, Failure, Captures>>
+            else Evaluate<Fail<Failure>>
+        end
+
+    -- A capture consumes any non-empty token and intersects a named readonly
+    -- field into the result shape.
+    when {'take-capture', infer Name, infer Input, infer Success,
+        infer Failure, infer Captures} then
+        match Input
+            when '' then Evaluate<Fail<Failure>>
+            when `${infer Actual} ${infer Rest}` then
+                Evaluate<Pass<Rest, Success, Failure,
+                    Captures & {readonly [K in Name]: Actual}>>
+            else Evaluate<Pass<'', Success, Failure,
+                Captures & {readonly [K in Name]: Input}>>
+        end
+
+    -- Success continuations.
+    when {'pass', infer Input, {'done'}, infer Failure, infer Captures} then
+        Accepted<Input, Captures>
+    when {'pass', infer Input, {'then', infer Pattern, infer Success},
+        infer Failure, infer Captures} then
+        Evaluate<Run<Pattern, Input, Success, Failure, Captures>>
+    when {'pass', infer Input,
+        {'repeat', infer Pattern, infer Previous, infer Success, infer Failure},
+        infer IterationFailure, infer Captures} then
+        match Input
+            -- A nullable repeated pattern would otherwise loop forever.
+            when Previous then Rejected
+            else Evaluate<Run<Pattern, Input,
+                Repeat<Pattern, Input, Success, Failure>,
+                StopRepeat<Input, Success, Failure, Captures>, Captures>>
+        end
+
+    -- Failure continuations implement PEG ordered choice and the successful
+    -- stopping condition of zero-or-more. Both restore input and captures.
+    when {'fail', {'try', infer Pattern, infer Input, infer Success,
+        infer Failure, infer Captures}} then
+        Evaluate<Run<Pattern, Input, Success, Failure, Captures>>
+    when {'fail', {'stop-repeat', infer Input, infer Success,
+        infer Failure, infer Captures}} then
+        Evaluate<Pass<Input, Success, Failure, Captures>>
+    when {'fail', {'reject'}} then Rejected
+    else Rejected
+end
+
+local type Parse<Grammar, Input> =
+    Evaluate<Run<Grammar, Input, Done, Reject, NoCaptures>>
+
+-- command := ('get' name | 'set' name 'to' value) End
+local type Get = Sequence<Token<'get'>, Capture<'name'>>
+local type Set = Sequence<Token<'set'>,
+    Sequence<Capture<'name'>,
+        Sequence<Token<'to'>, Capture<'value'>>>>
+local type Command = Sequence<Choice<Get, Set>, End>
+
+-- Ordered choice backtracks after the longer branch consumes input and fails.
+-- statement := ('show' name 'details' | 'show' name) End
+local type LongShow = Sequence<Token<'show'>,
+    Sequence<Capture<'item'>, Token<'details'>>>
+local type ShortShow = Sequence<Token<'show'>, Capture<'item'>>
+local type Show = Sequence<Choice<LongShow, ShortShow>, End>
+
+-- Repetition is greedy. This grammar accepts zero or more "ha" tokens.
+local type Ha = Token<'ha'>
+local type Laugh = Sequence<ZeroOrMore<Ha>, End>
+
+-- These assignments are compile-time proofs. Keeping them in an uncalled
+-- function lets the example run without pretending that types produce values.
+local function staticProofs(): nil
+    local get: Parse<Command, 'get profile'> = nil as any
+    local getName: 'profile' = get.captures.name
+
+    local set: Parse<Command, 'set theme to dark'> = nil as any
+    local setName: 'theme' = set.captures.name
+    local setValue: 'dark' = set.captures.value
+
+    local show: Parse<Show, 'show account'> = nil as any
+    local shownItem: 'account' = show.captures.item
+
+    local laugh: Parse<Laugh, 'ha ha ha'> = nil as any
+    local laughRest: '' = laugh.rest
+
+    -- This assertion succeeds only if the failed parse reduces to Rejected.
+    local rejected: Rejected = nil as Parse<Command, 'delete profile'>
+
+    print(getName, setName, setValue, shownItem, laughRest, rejected)
+end
+
+if false then staticProofs() end
+print('the static PEG example passed type checking')

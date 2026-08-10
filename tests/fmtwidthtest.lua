@@ -429,7 +429,11 @@ function M.formatterOutputStillChecks()
    -- structural sanity: format then reparse the whole corpus of examples
    local parser = require("nupp.compiler.parser")
    local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-   for _, rel in ipairs({ "/../examples/todo.nupp", "/../examples/cinterop.nupp" }) do
+   for _, rel in ipairs({
+      "/../examples/todo.nupp",
+      "/../examples/cinterop.nupp",
+      "/../examples/static-string-peg.nupp",
+   }) do
       local f = assert(io.open(HERE .. rel))
       local src = f:read("*a")
       f:close()

@@ -128,6 +128,13 @@ function M.guardedRecursiveAliasesParseRoutesAndNestedContainers()
    }, "\n"))
 end
 
+function M.staticStringPegExampleChecks()
+   local file = assert(io.open(HERE .. "/../examples/static-string-peg.nupp", "rb"))
+   local source = assert(file:read("*a"))
+   file:close()
+   clean(source)
+end
+
 function M.recursiveAliasCyclesAndMutualRecursionReportDedicatedErrors()
    local cycleSource = table.concat({
       "local type Loop<T> = match T when infer X then Loop<X> end",
