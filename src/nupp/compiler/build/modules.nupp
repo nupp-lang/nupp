@@ -56,11 +56,22 @@ type modules.Result = {
     effects: {[string]: any}?
 }
 
-local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.compiler.types.Type]: boolean}?): string
+--- Canonical binder numbering for one fingerprint: the number each binder was given,
+--- and how many have been handed out. Numbering by first encounter rather than by
+--- name is what makes two binders that shadow each other compare unequal, and what
+--- keeps renaming one from reading as a changed interface.
+local type Binders = {order: {[nupp.compiler.types.Type]: integer}, count: integer}
+
+local function typeFingerprint(
+    t: nupp.compiler.types.Type?,
+    active: {[nupp.compiler.types.Type]: boolean}?,
+    binders: Binders?
+): string
     if not t then
         return "nil"
     end
     active = active or {}
+    binders = binders or {order = {}, count = 0}
     if active[t] then
         -- Only some tags carry a name. One that does not is identified by its tag,
         -- which every type has, and asking is what the cast is for.
@@ -91,20 +102,11 @@ local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.comp
         for _, field in ipairs(t.fields or {}) do
             fields[
                 #fields + 1
-            ] = field.name .. ":r=" .. typeFingerprint(
-                field.read,
-                active
-            ) .. ":w=" .. typeFingerprint(field.write, active)
+            ] = field.name .. ":r=" .. typeFingerprint(field.read, active, binders) .. ":w=" .. typeFingerprint(field.write, active, binders)
         end
         fields[
             #fields + 1
-        ] = "index:r=" .. typeFingerprint(
-            t.indexReadKey,
-            active
-        ) .. ":" .. typeFingerprint(
-            t.indexReadValue,
-            active
-        ) .. ":w=" .. typeFingerprint(t.indexWriteKey, active) .. ":" .. typeFingerprint(t.indexWriteValue, active)
+        ] = "index:r=" .. typeFingerprint(t.indexReadKey, active, binders) .. ":" .. typeFingerprint(t.indexReadValue, active, binders) .. ":w=" .. typeFingerprint(t.indexWriteKey, active, binders) .. ":" .. typeFingerprint(t.indexWriteValue, active, binders)
         value = "shape(" .. table.concat(fields, ",") .. ")"
     elseif tag == "func" then
         local params, returns = {}, {}
@@ -115,10 +117,10 @@ local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.comp
                 t.paramNames and t.paramNames[index] or ""
             ) .. "=" .. tostring(
                 t.paramModes and t.paramModes[index] or "plain"
-            ) .. ":" .. typeFingerprint(item, active)
+            ) .. ":" .. typeFingerprint(item, active, binders)
         end
         for _, item in ipairs(t.rets or {}) do
-            returns[#returns + 1] = typeFingerprint(item, active)
+            returns[#returns + 1] = typeFingerprint(item, active, binders)
         end
         -- The suspension guarantee is part of the boundary a dependent compiled
         -- against, so a body that starts yielding has to invalidate a reuse of it. The
@@ -131,39 +133,51 @@ local function typeFingerprint(t: nupp.compiler.types.Type?, active: {[nupp.comp
             t.vararg and ",..." or ""
         ) .. ")->(" .. table.concat(returns, ",") .. ")" .. (t.noYield and "!noyield" or "")
     elseif tag == "array" or tag == "ptr" then
-        value = tag .. "(" .. typeFingerprint(t.elem, active) .. ")"
+        value = tag .. "(" .. typeFingerprint(t.elem, active, binders) .. ")"
     elseif tag == "owned" then
         local cleanupIds = {}
         for j, cleanup in ipairs(t.cleanups or {}) do
             cleanupIds[j] = cleanup.id
         end
-        value = tag .. "(" .. table.concat(cleanupIds, ",") .. "," .. typeFingerprint(t.inner, active) .. ")"
+        value = tag .. "(" .. table.concat(cleanupIds, ",") .. "," .. typeFingerprint(t.inner, active, binders) .. ")"
     elseif tag == "borrowed" or tag == "pinned" then
-        value = tag .. "(" .. typeFingerprint(t.inner, active) .. ")"
+        value = tag .. "(" .. typeFingerprint(t.inner, active, binders) .. ")"
     elseif tag == "map" then
         value = "map(r=" .. (
-            t.readable and typeFingerprint(t.key, active) or "nil"
+            t.readable and typeFingerprint(t.key, active, binders) or "nil"
         ) .. ":" .. (
-            t.readable and typeFingerprint(t.value, active) or "nil"
-        ) .. ",w=" .. typeFingerprint(t.writeKey, active) .. ":" .. typeFingerprint(t.writeValue, active) .. ")"
+            t.readable and typeFingerprint(t.value, active, binders) or "nil"
+        ) .. ",w=" .. typeFingerprint(t.writeKey, active, binders) .. ":" .. typeFingerprint(t.writeValue, active, binders) .. ")"
     elseif tag == "tuple" then
         local items = {}
         for _, item in ipairs(t.elems or {}) do
-            items[#items + 1] = typeFingerprint(item, active)
+            items[#items + 1] = typeFingerprint(item, active, binders)
         end
         value = "tuple(" .. table.concat(items, ",") .. ")"
     elseif tag == "union" or tag == "intersection" then
         local items = {}
         for _, item in ipairs(t.members or {}) do
-            items[#items + 1] = typeFingerprint(item, active)
+            items[#items + 1] = typeFingerprint(item, active, binders)
         end
         table.sort(items)
         ;
         value = tag .. "(" .. table.concat(items, tag == "union" and "|" or "&") .. ")"
     elseif tag == "literal" then
-        value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active) .. ")"
+        value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
     elseif tag == "typevar" then
-        value = "typevar(" .. t.name .. ")"
+        -- By position rather than by name. A binder's name is not its identity: two
+        -- that shadow each other are two types and have to compare unequal, or an
+        -- interface that changed compares unchanged and nothing downstream rebuilds.
+        -- Numbering in first-encounter order also means renaming one is not a change,
+        -- and neither is moving the declaration, which the interned identity records
+        -- by source position.
+        local at = binders.order[t]
+        if not at then
+            at = binders.count + 1
+            binders.count = at
+            binders.order[t] = at
+        end
+        value = "typevar#" .. at
     else
         value = tag or tostring(t)
     end
