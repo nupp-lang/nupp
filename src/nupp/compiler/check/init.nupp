@@ -1268,6 +1268,26 @@ function checkMod.check(
 
     c.checkStat = checkStat
 
+    --- Gives a hoisted nominal the identities of records nested anywhere beneath it.
+    --- Their bodies are still filled when the owning declaration is checked, but an
+    --- earlier statement may already name `Owner.Nested`.
+    local function hoistNestedNominals(owner, entries)
+        owner.nestedTypes = owner.nestedTypes or {}
+        for _, entry in ipairs(entries or {}) do
+            if entry.kind == "recordDecl" then
+                local nested = entry.hoistedType or T.nominal(entry.name.text, entry.declKind)
+                entry.hoistedType = nested
+                nested.byname = nested.byname or {}
+                nested.writeByname = nested.writeByname or {}
+                nested.staticByname = nested.staticByname or {}
+                nested.staticWriteByname = nested.staticWriteByname or {}
+                nested.runtimePath = (owner.runtimePath or owner.name) .. "." .. entry.name.text
+                owner.nestedTypes[entry.name.text] = nested
+                hoistNestedNominals(nested, entry.entries)
+            end
+        end
+    end
+
     -- Binds every type a block declares before any body is checked, so declarations in
     -- one block may name each other whatever the order. A nominal is created and bound
     -- here and filled in when its statement is reached; an alias's value waits until
@@ -1290,6 +1310,7 @@ function checkMod.check(
                 if c.qualifierOf(decl) then
                     n.runtimePath = key
                 end
+                hoistNestedNominals(n, decl.entries)
                 c.bindType(key, n, nil)
             elseif k == "typeAlias" and decl.name and decl.value then
                 local waiting = {node = decl.value, tok = decl.name, decl = decl}

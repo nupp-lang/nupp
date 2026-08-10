@@ -560,6 +560,19 @@ function M.nestedTypesResolveThroughTheirOwnersTable()
    }, "\n")), "")
 end
 
+-- Hoisting reaches into a record namespace as well as hoisting the owner. This
+-- matters when an earlier declaration describes a value using a nested type.
+function M.nestedRecordsResolveBeforeTheirOwnersBody()
+   assertEq(diagsOf(table.concat({
+      "local m: {factory: m.Container.Factory}",
+      "record m.Container",
+      "    record Factory",
+      "        create: function(): Container",
+      "    end",
+      "end",
+   }, "\n")), "")
+end
+
 -- A declaration attaches to one table. A deeper path would bind the type under
 -- one name and assign the runtime value to another, which silently stamped a
 -- nil metatable.

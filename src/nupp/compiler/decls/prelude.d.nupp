@@ -354,7 +354,7 @@ local nupp: {
     math: nupp.MathLibrary,
 
     --- Compiled Rust regular expressions.
-    regex: nupp.RegexLibrary
+    regex: nupp.Regex.Library
 }
 
 --- One independently configured JSON encoder and decoder.
@@ -1094,43 +1094,55 @@ record nupp.MathLibrary
     deltaAngle: function(from: number, to: number): number
 end
 
---- One byte-range match from a compiler-provided regular expression.
-record nupp.RegexMatch
-    --- Bytes copied from the matched range.
-    value: string
-
-    --- The first matched byte using a 1-based index.
-    first: integer
-
-    --- The inclusive last matched byte, or `first - 1` for an empty match.
-    last: integer
-
-    --- The capture-group index, with zero for the whole match.
-    index: integer
-
-    --- The capture name, or nil for an unnamed group.
-    name: string?
-end
-
---- The whole match, numbered captures, and named aliases from one search.
-record nupp.RegexCaptures
-    --- Group zero, which covers the whole match.
-    whole: nupp.RegexMatch
-
-    --- Explicit groups by 1-based index. An unmatched group leaves a hole.
-    groups: {nupp.RegexMatch}
-
-    --- The number of explicit groups, including groups that did not match.
-    groupCount: integer
-
-    -- Capture names are pattern-defined, so dot access cannot be enumerated statically.
-    -- It remains gradual while numbered groups stay precise.
-    named: any
-end
-
 --- A compiled Rust regular expression. Positions are 1-based inclusive byte indexes,
 --- matching Lua's string functions.
 record nupp.Regex
+    --- One byte-range match from a compiler-provided regular expression.
+    record Match
+        --- Bytes copied from the matched range.
+        value: string
+
+        --- The first matched byte using a 1-based index.
+        first: integer
+
+        --- The inclusive last matched byte, or `first - 1` for an empty match.
+        last: integer
+
+        --- The capture-group index, with zero for the whole match.
+        index: integer
+
+        --- The capture name, or nil for an unnamed group.
+        name: string?
+    end
+
+    --- The whole match, numbered captures, and named aliases from one search.
+    record Captures
+        --- Group zero, which covers the whole match.
+        whole: Match
+
+        --- Explicit groups by 1-based index. An unmatched group leaves a hole.
+        groups: {Match}
+
+        --- The number of explicit groups, including groups that did not match.
+        groupCount: integer
+
+        -- Capture names are pattern-defined, so dot access cannot be enumerated statically.
+        -- It remains gradual while numbered groups stay precise.
+        named: any
+    end
+
+    --- The compiler-provided regular-expression library.
+    record Library
+        --- Compiles a UTF-8 pattern using Rust regex syntax.
+        ---
+        --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
+        --- result; the Lua collector releases its native allocation.
+        ---
+        --- @param pattern Rust regex syntax
+        --- @return a reusable compiled expression
+        compile: function(pattern: string): Regex
+    end
+
     --- The source pattern unchanged.
     pattern: string
 
@@ -1145,14 +1157,14 @@ record nupp.Regex
     --- @param subject arbitrary bytes
     --- @param init the first byte considered under `string.find`'s rules
     --- @return the matched bytes and their range, or nil
-    find: function(self: nupp.Regex, subject: string, init: integer?): nupp.RegexMatch?
+    find: function(self: nupp.Regex, subject: string, init: integer?): Match?
 
     --- Finds the first match and every capture group it populated.
     ---
     --- @param subject arbitrary bytes
     --- @param init the first byte considered under the same rules as `find`
     --- @return the whole match, numbered groups, and named aliases, or nil
-    captures: function(self: nupp.Regex, subject: string, init: integer?): nupp.RegexCaptures?
+    captures: function(self: nupp.Regex, subject: string, init: integer?): Captures?
 
     --- Replaces the first match, expanding `$0`, `$1`, `$name`, `${name}`, and `$$`
     --- capture references in the replacement.
@@ -1160,18 +1172,6 @@ record nupp.Regex
 
     --- Replaces every non-overlapping match using `replace`'s capture syntax.
     replaceAll: function(self: nupp.Regex, subject: string, replacement: string): string
-end
-
---- The compiler-provided regular-expression library.
-record nupp.RegexLibrary
-    --- Compiles a UTF-8 pattern using Rust regex syntax.
-    ---
-    --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
-    --- result; the Lua collector releases its native allocation.
-    ---
-    --- @param pattern Rust regex syntax
-    --- @return a reusable compiled expression
-    compile: function(pattern: string): nupp.Regex
 end
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or

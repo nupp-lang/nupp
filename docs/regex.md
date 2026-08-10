@@ -68,7 +68,7 @@ Reports whether any part of the arbitrary-byte `subject` matches.
 ### `find`
 
 ```nupp
-local match: nupp.RegexMatch? = expression:find(subject, init)
+local match: nupp.Regex.Match? = expression:find(subject, init)
 ```
 
 Finds the first match at or after `init`, or returns nil. The optional `init`
@@ -88,7 +88,7 @@ assert(found.last == 6)
 ### `captures`
 
 ```nupp
-local captures: nupp.RegexCaptures? = expression:captures(subject, init)
+local captures: nupp.Regex.Captures? = expression:captures(subject, init)
 ```
 
 Finds the first match and every capture group it populated. `init` follows the
@@ -96,7 +96,7 @@ same rules as `find`.
 
 `groups` may contain holes when optional groups do not participate. Iterate
 from 1 through `groupCount`, rather than using `#groups`. Each named entry
-aliases the same `nupp.RegexMatch` stored at its numbered index.
+aliases the same `nupp.Regex.Match` stored at its numbered index.
 
 ```nupp
 local pair = nupp.regex.compile([[(?<key>\w+)=(\d+)]])
@@ -109,7 +109,7 @@ assert(captures.named.key.value == "hp")
 ```
 
 Capture names are pattern-defined, so the static type of `named` is gradual.
-Numbered groups retain their precise `nupp.RegexMatch` type.
+Numbered groups retain their precise `nupp.Regex.Match` type.
 
 ### `replace`
 
@@ -147,7 +147,7 @@ When nothing matches, it returns the original string unchanged.
 
 ## Result records
 
-### `nupp.RegexMatch`
+### `nupp.Regex.Match`
 
 One matched byte range:
 
@@ -159,13 +159,13 @@ One matched byte range:
 | `index` | `integer` | Capture index, with zero for the whole match. |
 | `name` | `string?` | Capture name, or nil for an unnamed group. |
 
-### `nupp.RegexCaptures`
+### `nupp.Regex.Captures`
 
 The result of one capture search:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `whole` | `nupp.RegexMatch` | Group zero, covering the whole match. |
-| `groups` | `{nupp.RegexMatch}` | Explicit groups by 1-based index; unmatched groups leave holes. |
+| `whole` | `nupp.Regex.Match` | Group zero, covering the whole match. |
+| `groups` | `{nupp.Regex.Match}` | Explicit groups by 1-based index; unmatched groups leave holes. |
 | `groupCount` | `integer` | Number of explicit groups, including ones that did not match. |
 | `named` | `any` | Matched names mapped to the same values in `groups`. |

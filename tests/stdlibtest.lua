@@ -133,9 +133,10 @@ function M.nativeFeaturesAreResolvedEffects()
    local regex = effectsOf("local expression = nupp.regex.compile('a+')")
    assert(regex["native.regex"], "nupp.regex records its native effect")
    assertClean(table.concat({
+      "local library: nupp.Regex.Library = nupp.regex",
       "local expression: nupp.Regex = nupp.regex.compile('a+')",
-      "local match: nupp.RegexMatch? = expression:find('aaa')",
-      "local captures: nupp.RegexCaptures? = expression:captures('aaa')",
+      "local match: nupp.Regex.Match? = expression:find('aaa')",
+      "local captures: nupp.Regex.Captures? = expression:captures('aaa')",
    }, "\n"))
    assertEq((diagsOf("local expression: NuppRegex")), "NUPP2101:1",
       "regex nominals do not leak into the ambient type namespace")

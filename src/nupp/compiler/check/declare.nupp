@@ -740,7 +740,7 @@ function declare.install(
             for _, e in ipairs(stat.entries) do
                 if e.kind == "recordDecl" then
                     local nestedKind = e.declKind
-                    local nested = T.nominal(e.name.text, nestedKind)
+                    local nested = e.hoistedType or T.nominal(e.name.text, nestedKind)
                     e.hoistedType = nested
                     -- A nested declaration's runtime table hangs off its owner's, which
                     -- is what `is` has to compare against.
