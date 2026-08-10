@@ -45,13 +45,33 @@ say("root", root)
 say("separator", package.config:sub(1, 1))
 say("jit.os", (jit and jit.os) or "?")
 
+-- Quoting is the caller's job, and it differs: a single-quoted pathspec is
+-- unquoted by a POSIX shell and taken literally by `cmd.exe`, where it then
+-- matches nothing. An earlier version of this probe passed one, harvested an
+-- empty file list on Windows alone, and reproduced the very symptom it was
+-- investigating out of thin air.
+--
+-- The result is checked rather than the exit status, because this interpreter's
+-- `popen` close answers `true` whatever the command did. A sentinel says the
+-- command ran; a non-empty list says it found something. A probe that cannot
+-- tell "no files" from "no answer" is worse than none.
 local function gitFiles(pattern)
-    local out = {}
-    local listing = assert(io.popen("git -C " .. root .. " ls-files " .. pattern .. " 2>&1"))
+    local command = 'git -C "' .. root .. '" ls-files'
+    if pattern then
+        command = command .. ' "' .. pattern .. '"'
+    end
+    local listing = assert(io.popen(command .. " 2>&1 && echo __GIT_OK__"))
+    local out, ran = {}, false
     for line in listing:lines() do
-        out[#out + 1] = root .. "/" .. line
+        if line == "__GIT_OK__" then
+            ran = true
+        elseif line ~= "" then
+            out[#out + 1] = root .. "/" .. line
+        end
     end
     listing:close()
+    assert(ran, "git ls-files did not run: " .. command .. "\n" .. table.concat(out, "\n"))
+    assert(#out > 0, "git ls-files matched nothing: " .. command)
     table.sort(out)
     return out
 end
@@ -60,8 +80,8 @@ end
 -- walks the tree: the header store is keyed on a toolchain fingerprint, and that
 -- fingerprint lists the compiler's own sources. Untracked files fall outside the
 -- fingerprint, which changes the key but not what is stored under it.
-local tracked = gitFiles("'src/*.nupp'")
-local everything = gitFiles("")
+local tracked = gitFiles("src/*.nupp")
+local everything = gitFiles(nil)
 say("tracked-count", tostring(#tracked))
 say("tracked-first", tostring(tracked[1]))
 say("tracked-total", tostring(#everything))
