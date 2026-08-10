@@ -480,4 +480,22 @@ function M.selfParseClean()
    end
 end
 
+-- Two generic closes are one shift token to the lexer. The inner list takes the
+-- token and the outer takes a zero-width stand-in, so the source still prints back.
+function M.nestedGenericsCloseWithOneShiftToken()
+   assertRoundtrip("local a: Box<Box<integer>> = x\n")
+   assertRoundtrip("local b: Box<Box<Box<string>>> = x\n")
+   assertRoundtrip("local c: Box<Box<Box<Box<string>>>> = x\n")
+   assertRoundtrip("local d: Box<Box<integer> > = x\n")
+   assertRoundtrip("local e = 8 >> 2\n")
+   assertRoundtrip("local f = a >> b >> c\n")
+end
+
+function M.nestedGenericsParseWithoutErrors()
+   local result = parser.parse("local a: Box<Box<integer>> = x\n")
+   assertEq(#result.errors, 0,
+      "nested generic close reported: "
+      .. (result.errors[1] and result.errors[1].msg or ""))
+end
+
 return M

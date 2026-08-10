@@ -1039,7 +1039,16 @@ local function fingerprintTokens(tokens, omitMarked)
     local parts = {}
     for _, tok in ipairs(tokens) do
         if tok.kind ~= "eof" and not (omitMarked and tok.formatOmit) then
-            parts[#parts + 1] = tok.kind .. "\1" .. tok.text
+            if tok.kind == ">>" then
+                -- Two generic closes and the shift operator are one token to the
+                -- lexer, so `Box<Box<T> >` and `Box<Box<T>>` differ here and mean
+                -- the same program. Both streams record the halves, which keeps
+                -- closing up that space from reading as a changed program.
+                parts[#parts + 1] = ">\1>"
+                parts[#parts + 1] = ">\1>"
+            else
+                parts[#parts + 1] = tok.kind .. "\1" .. tok.text
+            end
         end
     end
 

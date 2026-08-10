@@ -239,6 +239,32 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return missing("name")
     end
 
+    -- Where a `>>` was half consumed. The lexer reads two generic closes as one
+    -- shift token, so the inner list takes the token itself and the outer takes a
+    -- zero-width stand-in at the position just past it. Tying that to an index
+    -- rather than to a flag keeps a half consume from reaching a later `>` when an
+    -- error moved the cursor in between. The token stream is never rewritten,
+    -- which is what leaves the formatter's round trip comparing like with like.
+    local genericCloseHalfAt: integer? = nil
+
+    --- Closes a generic list, taking half of a `>>` when two of them close at once.
+    local function expectGenericClose(what: string): Token
+        if genericCloseHalfAt == i then
+            genericCloseHalfAt = nil
+            local at = cur()
+
+            return {kind = ">", text = "", trivia = {}, offset = at.offset, line = at.line, col = at.col}
+        end
+        if cur().kind == ">>" then
+            local tok = advance()
+            genericCloseHalfAt = i
+
+            return tok
+        end
+
+        return expect(">", what)
+    end
+
     -- Runs fn with the no-method restriction lifted (inside (), [], {}, args).
 
     --- Runs `fn` with the ternary depth cleared, as a bracketed context does, then
@@ -419,7 +445,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             end
             add(g, advance())
         until false
-        add(g, expect(">", "to close generic parameter list")).generic = true
+        add(g, expectGenericClose("to close generic parameter list")).generic = true
         n.generics = add(n, g)
 
         return g
@@ -489,7 +515,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     add(n, advance())
                     n.typeArgs[#n.typeArgs + 1] = add(n, packArgs and parseTypePack(false) or parseType())
                 end
-                add(n, expect(">", "to close type arguments")).generic = true
+                add(n, expectGenericClose("to close type arguments")).generic = true
             end
             return n
         elseif kind == "(" then
@@ -983,7 +1009,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 ] and baseTok.text == "ffi" then
                     add(n, advance()).generic = true
                     n.ffiTypeArg = add(n, parseType())
-                    add(n, expect(">", "to close a type argument")).generic = true
+                    add(n, expectGenericClose("to close a type argument")).generic = true
                 end
             elseif kind == "[" then
                 local n = new cst.BracketIndex {kind = "bracketIndex"}
