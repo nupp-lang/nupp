@@ -356,6 +356,77 @@ return FastIdentifier, RefIdentifier, FastList, RefList
    end
 end
 
+function M.emitsAndRunsFixedWidthRecognitionPrograms()
+   local source = [[
+const Date: nupp.Peg.Matcher<integer> = comptime do
+    const digit = nupp.peg.range("09")
+    return nupp.peg.compile(
+        digit * digit * digit * digit * nupp.peg.literal("-")
+        * digit * digit * nupp.peg.literal("-") * digit * digit
+        * nupp.peg.eof()
+    )
+end
+return Date("2026-08-10"), Date("2026/08/10"), Date:match("x2026-08-10", 2)
+]]
+   local code = compile(source)
+   assert(code:find("fastFixed={", 1, true), code)
+   local matched, missed, offset = run(source)
+   assertEq(matched, 11, "fixed-width call match")
+   assertEq(missed, nil, "fixed-width byte rejection")
+   assertEq(offset, 12, "fixed-width explicit start position")
+end
+
+function M.emitsAndRunsPackedPrefixScanPrograms()
+   local source = [[
+const Route: nupp.Peg.Matcher<integer> = comptime do
+    const method = nupp.peg.literal("GET")
+        + nupp.peg.literal("POST")
+        + nupp.peg.literal("PUT")
+        + nupp.peg.literal("PATCH")
+        + nupp.peg.literal("DELETE")
+    const path = (nupp.peg.range("az", "09") + nupp.peg.set("/_-"))^1
+    const version = nupp.peg.literal(" HTTP/1.")
+        * (nupp.peg.literal("0") + nupp.peg.literal("1"))
+    return nupp.peg.compile(method * nupp.peg.literal(" ") * path * version * nupp.peg.eof())
+end
+return Route("GET /users/42 HTTP/1.1"), Route("HEAD /users/42 HTTP/1.1"),
+    Route("GET /Users/42 HTTP/1.1"), Route:match("xPOST /items HTTP/1.0", 2)
+]]
+   local code = compile(source)
+   assert(code:find("fastScan={", 1, true), code)
+   assert(code:find("packedKeys={", 1, true), code)
+   local matched, methodMiss, pathMiss, offset = run(source)
+   assertEq(matched, 23, "packed scan call match")
+   assertEq(methodMiss, nil, "packed scan prefix rejection")
+   assertEq(pathMiss, nil, "packed scan class rejection")
+   assertEq(offset, 22, "packed scan explicit start position")
+end
+
+function M.fallsBackForScanProgramsOutsideThePackedShape()
+   local longMatched, longMissed, separatorMatched, separatorMissed = run([[
+const Command: nupp.Peg.Matcher<integer> = comptime do
+    const name = nupp.peg.literal("OPTIONS") + nupp.peg.literal("CONNECT")
+    return nupp.peg.compile(
+        name * nupp.peg.literal(" ") * nupp.peg.range("az")^1
+        * nupp.peg.literal("!") * nupp.peg.eof()
+    )
+end
+const Label: nupp.Peg.Matcher<integer> = comptime do
+    const name = nupp.peg.literal("GET") + nupp.peg.literal("PUT")
+    return nupp.peg.compile(
+        name * nupp.peg.literal("::") * nupp.peg.range("az")^1
+        * nupp.peg.literal("!") * nupp.peg.eof()
+    )
+end
+return Command("OPTIONS value!"), Command("OPTION value!"),
+    Label("GET::value!"), Label("GET:value!")
+]])
+   assertEq(longMatched, 15, "long prefix scan fallback")
+   assertEq(longMissed, nil, "long prefix fallback rejection")
+   assertEq(separatorMatched, 12, "multi-byte separator fallback")
+   assertEq(separatorMissed, nil, "multi-byte separator rejection")
+end
+
 function M.rejectsNullableRepetition()
    local codes = errorsOf([[
 const Bad: nupp.Peg.Matcher<integer> = comptime do

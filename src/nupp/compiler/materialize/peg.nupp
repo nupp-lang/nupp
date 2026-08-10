@@ -1050,6 +1050,62 @@ local function compileBytecode(validated)
     end
 
     local nodes = validated.nodes
+    local function fixedSequence(index, out)
+        local node = nodes[index]
+        local op = node[1]
+        if op == "literal" then
+            if #out + #node[2] > 64 then
+                return nil
+            end
+            for offset = 1, #node[2] do
+                out[#out + 1] = node[2]:byte(offset)
+            end
+        elseif op == "set" then
+            if #out >= 64 then
+                return nil
+            end
+            local setIndex, byte = class(node[2])
+            out[#out + 1] = byte or (setIndex + 255)
+        elseif op == "sequence" then
+            for child = 2, #node do
+                if not fixedSequence(node[child], out) then
+                    return nil
+                end
+            end
+        elseif op == "choice" then
+            local members = {}
+            for child = 2, #node do
+                local candidate = {}
+                if not fixedSequence(node[child], candidate) or #candidate ~= 1 then
+                    return nil
+                end
+                local encoded = candidate[1]
+                if encoded < 256 then
+                    members[encoded] = true
+                else
+                    local bitmap = sets[encoded - 255]
+                    for byte = 0, 255 do
+                        if bitmap:byte(byte + 1) ~= 0 then
+                            members[byte] = true
+                        end
+                    end
+                end
+            end
+            local bytes = {}
+            for byte = 0, 255 do
+                if members[byte] then
+                    bytes[#bytes + 1] = string.char(byte)
+                end
+            end
+            local setIndex, byte = class(table.concat(bytes))
+            out[#out + 1] = byte or (setIndex + 255)
+        else
+            return nil
+        end
+
+        return out
+    end
+
     local incoming, costs = {}, {}
     for _, node in ipairs(nodes) do
         if node[
@@ -1238,7 +1294,121 @@ local function compileBytecode(validated)
         code[patch.operand] = addresses[patch.target]
     end
 
-    return {code = code, strings = strings, sets = sets, actions = validated.slots, captureful = captureful,}
+    local parts = {}
+    local function flatten(index)
+        local node = nodes[index]
+        if node[1] == "sequence" then
+            for child = 2, #node do
+                flatten(node[child])
+            end
+        else
+            parts[#parts + 1] = index
+        end
+    end
+
+    flatten(validated.root)
+    local fastFixed
+    if validated.result == "integer" and #parts > 1 and nodes[parts[#parts]][1] == "eof" then
+        local checks = {}
+        for index = 1, #parts - 1 do
+            if not fixedSequence(parts[index], checks) then
+                checks = nil
+                break
+            end
+        end
+        if checks and #checks >= 4 then
+            fastFixed = checks
+        end
+    end
+
+    local fastScan
+    if validated.result == "integer" and #parts >= 5 and nodes[parts[#parts]][1] == "eof" then
+        local prefix, separator, repetition = nodes[parts[1]], nodes[parts[2]], nodes[parts[3]]
+        if prefix[
+            1
+        ] == "choice" and separator[
+            1
+        ] == "literal" and separator[2] ~= "" and (repetition[1] == "zeroOrMore" or repetition[1] == "oneOrMore") then
+            local prefixes, prefixFree, maximum = {}, true, 0
+            local function collectPrefixes(index)
+                local candidate = nodes[index]
+                if candidate[1] == "choice" then
+                    for child = 2, #candidate do
+                        if not collectPrefixes(candidate[child]) then
+                            return nil
+                        end
+                    end
+                elseif candidate[1] == "literal" and candidate[2] ~= "" then
+                    prefixes[#prefixes + 1] = candidate[2]
+                    maximum = math.max(maximum, #candidate[2])
+                else
+                    return nil
+                end
+
+                return true
+            end
+
+            if not collectPrefixes(parts[1]) then
+                prefixFree = false
+            end
+            for left = 1, #prefixes do
+                for right = 1, #prefixes do
+                    if left ~= right and prefixes[right]:sub(1, #prefixes[left]) == prefixes[left] then
+                        prefixFree = false
+                    end
+                end
+                if prefixes[left]:find(separator[2]:sub(1, 1), 1, true) then
+                    prefixFree = false
+                end
+            end
+            local scan = fixedSequence(repetition[2], {})
+            local suffix = {}
+            for index = 4, #parts - 1 do
+                if not fixedSequence(parts[index], suffix) then
+                    suffix = nil
+                    break
+                end
+            end
+            if prefixFree and scan and #scan == 1 and suffix and #suffix > 0 and #suffix <= 16 then
+                local keys, packedKeys, lengths = {}, {}, {}
+                local canPack = maximum <= 6 and #prefixes <= 8 and #separator[2] == 1
+                for index, text in ipairs(prefixes) do
+                    local key = 1
+                    local packed = 0
+                    for offset = 1, #text do
+                        key = key * 257 + text:byte(offset)
+                        if canPack then
+                            packed = packed * 256 + text:byte(offset)
+                        end
+                    end
+                    keys[index], lengths[index] = key, #text
+                    if canPack then
+                        packedKeys[index] = packed * 8 + #text
+                    end
+                end
+                fastScan = {
+                    keys = keys,
+                    packedKeys = canPack and packedKeys or nil,
+                    lengths = lengths,
+                    maximum = maximum,
+                    separator = separator[2],
+                    scan = scan[1],
+                    minimum = repetition[1] == "oneOrMore" and 1 or 0,
+                    suffix = suffix,
+                }
+            end
+        end
+    end
+
+    return {
+        code = code,
+        strings = strings,
+        sets = sets,
+        fastFixed = fastFixed,
+        fastScan = fastScan,
+        actions = validated.slots,
+        captureful = captureful,
+    }
 end
 
 local function dataIR(value)
@@ -1295,7 +1465,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
             tag = "call",
             callee = {tag = "helper", name = "nupp.peg.specialized"},
             args = {dataIR(specialization)},
-        }, nil, {backend = "specialized", emitterAbi = 1, helperAbi = 1, runtimeFeatures = {"stdlib.peg"},}
+        }, nil, {backend = "specialized", emitterAbi = 2, helperAbi = 2, runtimeFeatures = {"stdlib.peg"},}
     end
     local machine = {
         tag = "call",
@@ -1303,7 +1473,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
         args = {dataIR(compileBytecode(validated))},
     }
     if #validated.slots == 0 then
-        return machine, nil, {backend = "vm", emitterAbi = 2, helperAbi = 2, runtimeFeatures = {"stdlib.peg"},}
+        return machine, nil, {backend = "vm", emitterAbi = 3, helperAbi = 3, runtimeFeatures = {"stdlib.peg"},}
     end
     machine.args[2] = {tag = "local", id = 1}
 
@@ -1311,7 +1481,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
         tag = "function",
         params = {1},
         body = {{tag = "return", value = machine}},
-    }, nil, {backend = "vm", emitterAbi = 2, helperAbi = 2, runtimeFeatures = {"stdlib.peg"},}
+    }, nil, {backend = "vm", emitterAbi = 3, helperAbi = 3, runtimeFeatures = {"stdlib.peg"},}
 end
 
 return peg

@@ -9,6 +9,12 @@ backend expressions, versions provider/helper/emitter/runtime-expression ABIs,
 reports bounded observations from JSON builds, and enforces evaluator, call,
 wall-clock, result, protocol, IR and provider limits.
 
+The later anchored-recognition comparison with Rust `regex` now also clears
+every named workload. On the recorded LuaJIT run, PEG reached 1.09x for short
+identifiers, 1.59x for long identifiers, 1.61x for fixed dates and 1.20x for
+HTTP routes, for a 1.35x geometric mean. The benchmark remains
+`bench/peg-vs-rust-regex.nupp` rather than replacing the semantic LPeg suite.
+
 The remaining work is deliberately outside the closed materialization core:
 add declaration annotations and fine-grained cross-module invalidation to the
 now structural C2a reflection graph, replace the synchronous LSP wait with
@@ -572,8 +578,14 @@ The general runtime backend lowers the finalized graph to numeric instructions
 and pooled strings and 256-byte class maps, then constructs a matcher through
 the pure generated-Lua `nupp.peg.vm` helper. The VM uses an explicit combined
 call/backtracking stack, a capture-free loop, and deferred capture/action
-opcodes. Shared subgraphs above the inline budget become subroutines so source
-growth remains bounded. It exists even if specialization never wins:
+opcodes. Its recognizer tier detects fixed-width whole matches and bounded
+prefix/class/suffix scans while lowering, then records compact superinstruction
+operands beside the fallback bytecode. Fixed checks are unrolled at the common
+ten-byte width; short prefix choices use length-tagged packed keys; byte classes
+use 256-byte maps; and the nine-byte route suffix tier packs its fixed bytes
+into two comparisons. Shared subgraphs above the inline budget become
+subroutines so source growth remains bounded. It exists even if specialization
+never wins:
 
 - bundles need no native LPeg dependency;
 - it validates the public semantics and finalized IR;
@@ -614,6 +626,11 @@ Likely specializations include literal fusion, byte-class comparison or lookup
 selection, FIRST-byte choice dispatch, tight spans, tail-rule elimination and
 omission of capture state from capture-free rules. These are hypotheses until
 the benchmark records them.
+
+The shipped span specializer uses precomputed 256-byte membership maps and
+fuses matcher validation with its hot recognition loop. That avoids both
+pattern-table dispatch and an extra Lua call per match while retaining the same
+`:match(subject, init)` and callable matcher contracts.
 
 ## Second proving case: type-directed field codecs
 
