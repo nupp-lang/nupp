@@ -1581,42 +1581,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return n
     end
 
-    --- Whether an `associated type` member begins here. Contextual on the rule the
-    --- rest of the grammar's added words follow: a field named `associated` is
-    --- followed by a colon, and `type` has to sit on the introducer's own line.
-    local function startsAssociatedType(at: integer): boolean
-        local kw = tokens[at]
-        if not kw or kw.kind ~= "name" or kw.text ~= "associated" then
-            return false
-        end
-        local word = tokens[at + 1]
-
-        return word ~= nil and word.kind == "name" and word.text == "type" and word.line == kw.line
-    end
-
-    --- `associated type Name`, with an optional `is Bound` and an optional `= Type`.
-    --- An interface states the requirement; a record answers it. Both are the same
-    --- node, because only an interface can be inherited from, so where it is written
-    --- already says which was meant.
-    local function parseAssociatedType(): Node
-        local n = new cst.TypeAlias {kind = "typeAlias", visibility = "nested"}
-        n.associatedKeyword = advance()
-        add(n, n.associatedKeyword)
-        n.keyword = advance()
-        add(n, n.keyword)
-        n.name = add(n, expectName("after 'associated type'"))
-        if cur().kind == "name" and cur().text == "is" then
-            add(n, advance())
-            n.bound = add(n, parseType())
-        end
-        if cur().kind == "=" then
-            add(n, advance())
-            n.value = add(n, parseType())
-        end
-
-        return n
-    end
-
     local function parseRecordBody(n)
         n.entries = {}
         while cur().kind ~= "end" and cur().kind ~= "eof" do
@@ -1626,9 +1590,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 attached[#attached + 1] = add(n, application)
             end
             local e
-            if startsAssociatedType(i) then
-                e = parseAssociatedType()
-            elseif startsTypedecl(i) then
+            if startsTypedecl(i) then
                 e = parseTypedecl(nil, "nested")
             elseif cur().kind == "function" then
                 e = new cst.InlineMethod {kind = "inlineMethod"}

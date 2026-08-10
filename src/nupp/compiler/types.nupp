@@ -337,24 +337,6 @@ record types.Metatable
     of: types.Type
 end
 
---- A type reached through another: `T.Item` is whatever `T` answers the associated
---- type `Item` with. It reduces to that answer the moment the head is a declaration,
---- and stays put while the head is still a binder -- which is what lets a signature
---- name a type its own declaration does not know.
----
---- Its identity embeds the head's, so two spellings of one projection are one type and
---- two binders that share a name are not.
-record types.Projection
-    id: string
-    tag: 'projection'
-
-    --- What it is reached through.
-    of: types.Type
-
-    --- The associated member's name.
-    name: string
-end
-
 --- A declared type: record, interface or struct. One identity per declaration, never
 --- shared with another declaration of the same shape.
 record types.Nominal
@@ -384,31 +366,8 @@ record types.Nominal
     --- Metamethod protocol contracts, deliberately separate from value members.
     metamethods: {[string]: types.Type}
 
-    --- Nested declarations addressable through this nominal namespace. An answered
-    --- associated type lands here too, so reaching one by path costs no new lookup.
+    --- Nested declarations addressable through this nominal namespace.
     nestedTypes: {[string]: types.Type}
-
-    --- Associated types this declaration states as requirements, in declaration order.
-    --- An interface states them; whatever takes the contract answers them.
-    associatedOrder: {string}?
-
-    --- What may answer each requirement. A name in `associatedOrder` with no entry
-    --- here was declared without a bound and accepts anything.
-    associatedBounds: {[string]: types.Type}?
-
-    --- Requirements this declaration answered with a default, so an implementor that
-    --- says nothing still answers and one that says something replaces rather than
-    --- collides.
-    associatedDefaults: {[string]: boolean}?
-
-    --- Which nested names arrived through `associated type` rather than `type`. A
-    --- plain nested alias answers nothing and is not inherited, so the two cannot be
-    --- told apart by what they hold.
-    associatedAnswers: {[string]: boolean}?
-
-    --- Declaration sites of the associated members, for go-to-definition and for
-    --- saying where an unanswered requirement was stated.
-    associatedDefs: any
 
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?
@@ -503,7 +462,7 @@ record types.Nominal
 end
 
 --- Any type.
-type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Metatable | types.Projection | types.Nominal | types.ProtocolThread | types.GenericAlias
+type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Metatable | types.Nominal | types.ProtocolThread | types.GenericAlias
 
 --- One field of a structural shape. `type` is accepted as the legacy spelling passed by
 --- compiler internals and means an ordinary read-write property.
@@ -1409,25 +1368,6 @@ function types.metatable(t: types.Type): types.Type
     end)
 end
 
---- `of.name`: the associated type `name` as whatever `of` answers it with.
----
---- Reduces immediately when the head already answers, so a projection only survives
---- interning while its head is a binder. That keeps every downstream tag switch from
---- having to know about a projection that could have been the answer.
-function types.projection(of: types.Type, name: string): types.Type
-    if of.tag == "nominal" then
-        local answered = (of as types.Nominal).nestedTypes
-        local direct = answered and answered[name] or nil
-        if direct then
-            return direct
-        end
-    end
-
-    return intern("proj(" .. of.id .. "," .. name .. ")", function()
-        return new types.Projection {tag = "projection", of = of, name = name}
-    end)
-end
-
 -- Cheap containment test used to decide whether instantiation is needed.
 function types.hasTypevar(t: types.Type): boolean
     return t.id:find("tv(", 1, true) ~= nil or t.id:find("pv(", 1, true) ~= nil
@@ -1565,8 +1505,6 @@ function types.tostring(t: types.Type): string
         return t.name
     elseif tag == "metatable" then
         return "metatable<" .. types.tostring(t.of) .. ">"
-    elseif tag == "projection" then
-        return types.tostring(t.of) .. "." .. t.name
     elseif tag == "literal" then
         if t.base == types.string then
             return ("%q"):format(t.constant)

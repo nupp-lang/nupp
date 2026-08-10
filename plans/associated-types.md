@@ -1,5 +1,12 @@
 # Associated types
 
+> **Status: proposed. Not implemented.** A first attempt landed and was withdrawn
+> — see [Why the first attempt was withdrawn](#why-the-first-attempt-was-withdrawn)
+> for what it got wrong and the order to rebuild it in. No `associated type`
+> syntax exists today. Three repairs the attempt turned up were kept, because
+> none of them is about this feature: splitting `>>`, fingerprinting binders by
+> position, and the generic-method inference fix.
+
 ## Decision
 
 An interface may declare a type it does not name, and every declaration taking
@@ -349,6 +356,89 @@ unchanged, and adoption is opt-in per interface.
 interface gains a member and every existing implementor already answers it.
 Only implementors needing a different answer are edited.
 
+## Why the first attempt was withdrawn
+
+It shipped syntax, conformance and projection, and passed 1361 tests, and the
+tests did not establish what they appeared to. The withdrawal was additive: the
+surface came out, the three unrelated repairs stayed.
+
+**The motivating case did not work.** `associated type Value = self` reduced to
+an internal type variable that behaves gradually, so the projection fit
+anything. The positive test asserted a clean check, which a gradual result also
+gives — the same failure mode as the F-bounded experiment this plan criticizes,
+reproduced in its own test suite. The negative assertion that should have been
+written first:
+
+    local wrong: {string} = arch:get(new Position {componentId = 1, x = 0})
+
+That passed. `{integer}` passed too. Two causes: the inherited default is copied
+down without rebinding `self` to the answering declaration, and reduction is one
+step in the projection constructor rather than a fixed point.
+
+The split is worth recording, because only half the case was broken.
+`associated type Value = T` on a generic interface **did** pin — `{number}` is
+not `{string}` reports correctly, since instantiation substitutes `T`. Only the
+`= self` arm leaked. That is the worse half to lose: `= self` was the migration
+lever, the thing that let existing implementors answer without being edited.
+Without it, adoption costs an explicit answer on every implementor, which is the
+cost the default existed to remove.
+
+**Confirmed alongside it:**
+
+- Generic interfaces lose the contract at instantiation. `associatedOrder`,
+  bounds, defaults and definitions are not carried, so `record Broken is
+  Source<string>` may omit a required answer, and supplying it then reports
+  NUPP2131 — the paradox where answering is an error and not answering is not.
+- Bounds constrain an answer but are unreachable through a projection. `T.Item`
+  carries no bound, and member lookup only understands bounded binders, so
+  `item.name` under `associated type Item is Named` reports NUPP2004.
+- Resolution was too permissive: `T.Missing` on an unrelated or unbounded `T`
+  produced a projection with no diagnostic.
+- An interface default was never checked against its own bound, so
+  `associated type Item is Named = integer` checked clean.
+- Two contracts declaring the same name silently used the first. An answer
+  satisfying one bound and violating the other passed.
+- NUPP2129 is documented and not implemented: an unbound associated type beside
+  a `matches` refinement checks clean.
+- Normalization with cycle detection, the `gradual-projection` lint, reification
+  checks and the tooling behaviour never landed.
+
+**The root cause is one conflation.** Substitution has two jobs and one
+implementation: *preserve* binders the map says nothing about, and *materialize*
+them into `any`. Rebinding `self` over a method needs the first and got the
+second, which is what silently stopped every generic method from inferring; the
+`= self` leak is the same defect reached from the other side. The attempt
+patched `specializeSelf` to map a function's own binders to themselves, which
+treats the symptom. Splitting the operation is the fix, and the projection
+constructor must stop pretending one reduction step is normalization.
+
+### Rebuild order
+
+1. Split substitution into a preserving and a materializing operation.
+2. Add fixed-point normalization with cycle detection.
+3. Carry and substitute associated metadata through generic instantiation.
+4. Add projection validation, bounds, `self` rebinding, and multi-contract
+   conflict rules. Same-name requirements coalesce; an answer satisfies every
+   bound; conflicting defaults require an explicit answer.
+5. Restore syntax and conformance checking.
+6. Restore tooling and documentation once the negative matrix passes.
+
+### Minimum test matrix
+
+Every claimed relationship needs a positive *and* a negative assertion, and the
+negative is written first. A clean check proves nothing on its own, because a
+gradual result also checks clean.
+
+- Default `Value = self` accepts `Position` and rejects `string`.
+- Explicit `Value = self` does the same.
+- `Value = T` accepts the instantiated type and rejects another.
+- A generic interface requires an answer, and accepts a valid one.
+- A projection bound exposes its members, and an invalid default reports.
+- `T.Missing`, and `T.Item` on an unbounded `T`, report at the projection.
+- Conflicting inherited requirements and conflicting defaults report.
+- A cyclic projection reports rather than hanging or going gradual.
+- Structural satisfaction with no answering site is handled explicitly.
+
 ## Adoption in this tree
 
 Almost none, and for a structural reason worth writing down: **there is not one
@@ -365,13 +455,13 @@ or FFI boundary. Neither is implementor variation.
 
 Surveyed candidates, for the record:
 
-- **`spec.Handler.run: function(any): integer`** (`cli/spec.nupp:201`) is the one
-  real fit — 19 implementors, and the only declaration in the tree whose comment
-  apologizes for exactly what this fixes. It is still only a partial win: the
-  dispatcher holds a `spec.Handler?` of unknown implementor, so the two call
-  sites keep a cast, and 15 of the 19 bodies can be tightened today by writing
-  `parsed: spec.Result` with no new feature. Worth doing on its own merits, not
-  as a demonstration of this one.
+- **`spec.Handler.run: function(any): integer`** (`cli/spec.nupp:201`) looked like
+  the one real fit and is not one. Its 19 "implementors" are 19 *instances* of a
+  single record, and an associated type varies per declaration, not per
+  instance — there is no answering site. The right cleanup is a
+  `ParsedHandler | RawHandler` tagged union with `run(spec.Result)` and
+  `run({string})`, which also removes the `raw` boolean. Worth doing on its own,
+  and not with this feature.
 - **`cache.DependencyRecord`** is a union of what any provider returns, but
   dispatch is on a runtime string from the manifest and the record round-trips
   through JSON. Load-bearing, correctly dynamic on the read path.

@@ -184,21 +184,6 @@ function resolve.install(c: state.Checker): nil
                         return applyTypeArgs(declared, node)
                     end
                 end
-                -- A binder is a namespace too. `T.Item` is the associated type `Item`
-                -- as whatever T turns out to answer it with, and it stays a projection
-                -- until the head is a declaration -- which is what lets a signature
-                -- name a type its own declaration does not know. `self.Item` arrives
-                -- here as well, because `self` binds to a binder like any other.
-                local head = names[1] and c.lookupType(names[1]) or nil
-                if head and (head.tag == "typevar" or head.tag == "projection") then
-                    for j = 2, #names do
-                        head = T.projection(head, names[j])
-                    end
-                    local projected = T.projection(head, typeName)
-                    c.markToken(lastTok, nil, projected, "type")
-
-                    return applyTypeArgs(projected, node)
-                end
                 -- A record/interface is also a type namespace for declarations nested
                 -- in its body (`builtins.Transform2D`). Prefer that lexical path before
                 -- treating the prefix as a module name. A declaration attached to a
