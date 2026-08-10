@@ -1,0 +1,79 @@
+local T = require("nupp.compiler.types")
+local reflection = require("nupp.compiler.reflection")
+local json = require("cjson").new()
+
+local function assertEq(got, want, label)
+   if got ~= want then
+      error(("%s:\n  want: %s\n  got:  %s"):format(label or "mismatch",
+         tostring(want), tostring(got)), 2)
+   end
+end
+
+local function recursiveNode(valueType)
+   local node = T.nominal("Node", "record")
+   node.byname = {value = valueType, next = T.optional(node)}
+   node.writeByname = {value = valueType, next = T.optional(node)}
+   node.fieldOrder = {"value", "next"}
+   return node
+end
+
+local M = {}
+
+function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
+   local descriptor = reflection.describe(recursiveNode(T.string), "Node")
+   assertEq(descriptor.schema, 1, "reflection schema")
+   assertEq(descriptor.root, 1, "root index")
+   assertEq(descriptor.fields[1].name, "value", "declaration order begins with value")
+   assertEq(descriptor.fields[2].name, "next", "declaration order retains next")
+   local encoded = json.encode(descriptor)
+   assert(#encoded > 0, "the recursive descriptor is plain JSON data")
+   local reachesRoot = false
+   for _, entry in ipairs(descriptor.types) do
+      for _, member in ipairs(entry.members or {}) do
+         if member == descriptor.root then reachesRoot = true end
+      end
+   end
+   assert(reachesRoot, "the recursive edge refers back to the root index")
+end
+
+function M.fingerprintsSemanticsRatherThanNominalAllocationIdentity()
+   local first = reflection.describe(recursiveNode(T.string), "Node")
+   local second = reflection.describe(recursiveNode(T.string), "Node")
+   local changed = reflection.describe(recursiveNode(T.number), "Node")
+   assertEq(first.fingerprint, second.fingerprint,
+      "equivalent declarations ignore process-local nominal ids")
+   assert(first.fingerprint ~= changed.fingerprint,
+      "changing a reflected field changes the semantic fingerprint")
+end
+
+function M.coversStructuralFunctionsCollectionsAndCapabilities()
+   local callback = T.func(
+      {T.array(T.union({T.string, T.integer}))},
+      {T.shape({
+         {name = "readable", read = T.string},
+         {name = "writable", write = T.number},
+      })},
+      false,
+      {"borrows"},
+      nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, true,
+      {"values"}
+   )
+   local descriptor = reflection.describe(callback, "Callback")
+   local kinds = {}
+   for _, entry in ipairs(descriptor.types) do kinds[entry.kind] = true end
+   for _, kind in ipairs({"func", "array", "union", "shape", "string", "integer", "number"}) do
+      assert(kinds[kind], "descriptor includes " .. kind)
+   end
+   local fn = descriptor.types[descriptor.root]
+   assertEq(fn.parameters[1].name, "values", "parameter name")
+   assertEq(fn.parameters[1].mode, "borrows", "parameter mode")
+   assertEq(fn.noYield, true, "suspension guarantee")
+   local result = descriptor.types[fn.returns[1]]
+   assertEq(result.fields[1].name, "readable", "shape fields are canonical")
+   assertEq(result.fields[1].readable, true, "read capability")
+   assertEq(result.fields[1].writable, false, "read-only capability")
+   assertEq(result.fields[2].readable, false, "write-only capability")
+   assertEq(result.fields[2].writable, true, "write capability")
+end
+
+return M

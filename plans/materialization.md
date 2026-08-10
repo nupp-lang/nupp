@@ -10,9 +10,10 @@ reports bounded observations from JSON builds, and enforces evaluator, call,
 wall-clock, result, protocol, IR and provider limits.
 
 The remaining work is deliberately outside the closed materialization core:
-complete C2a's reflection schema beyond the landed record-field slice, replace
-the synchronous LSP wait with cancellable process suspension, and run the
-field-codec provider against the external tecs acceptance corpus.
+add declaration annotations and fine-grained cross-module invalidation to the
+now structural C2a reflection graph, replace the synchronous LSP wait with
+cancellable process suspension, and run the field-codec provider against the
+external tecs acceptance corpus.
 
 ## Decision
 

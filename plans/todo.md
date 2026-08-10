@@ -19,6 +19,10 @@ work makes sense in.
         structural vocabulary; semantic type fingerprints and module interface
         dependencies. Target-independent and blocked on nothing. Shared with a
         future derive phase, so it is not shaped around comptime's convenience.
+        The versioned indexed graph, immutable user-code views, recursive type
+        handling, structural vocabulary, and semantic fingerprints have landed;
+        declaration annotations, reflection-aware editor features, and precise
+        cross-module invalidation remain.
   - [ ] C2b: target-aware `sizeof`/`alignof`/`offsetof`. Blocked on a
         compile-time layout model, which nupp has deliberately not built:
         `layoutof` answers the same question at run time through the FFI,
@@ -51,8 +55,9 @@ work makes sense in.
         C3, then M5 and the M0-approved M6. C2a and M3 unlock the field-codec
         provider M7. C2a does not block PEG.
         M1–M7 and the persistent/observability/resource-limit portions of M8
-        have landed. The remaining closure is the full C2a descriptor vocabulary,
-        cancellation/non-blocking LSP work above, and the external tecs corpus run.
+        have landed. The remaining closure is C2a annotation and invalidation
+        precision, cancellation/non-blocking LSP work above, and the external
+        tecs corpus run.
 - [ ] **Type-level computation**
       ([design](type-level-computation.md)): a checker-native, type-to-type
       reducer for dependent API surfaces. It is separate from comptime: share

@@ -224,6 +224,8 @@ local function buildEnvironment(state)
     env.tonumber = tonumber
     env.type = function(value)
         if materializeProviders.isOpaque(state, value) then
+            local kind = materializeProviders.opaqueKind(state, value)
+            if kind then return kind end
             error("type is unavailable for an opaque comptime value", 0)
         end
 
@@ -247,13 +249,22 @@ local function buildEnvironment(state)
         error(("tostring is unavailable for a %s at comptime"):format(kind), 0)
     end
 
-    env.ipairs = ipairs
+    env.ipairs = function(value)
+        if materializeProviders.isOpaque(state, value) then
+            local iterator, failure = materializeProviders.iterator(state, value, true)
+            if failure then error(failure.message, 0) end
+            return iterator, value, 0
+        end
+        return ipairs(value)
+    end
 
     --- Iteration in the one order the serializer also uses, so that walking a table and
     --- writing it down cannot disagree, and neither depends on the allocator.
     env.pairs = function(t)
         if materializeProviders.isOpaque(state, t) then
-            error("pairs is unavailable for an opaque comptime value", 0)
+            local iterator, failure = materializeProviders.iterator(state, t, false)
+            if failure then error(failure.message, 0) end
+            return iterator, t, nil
         end
         if type(t) ~= "table" then
             error("pairs expects a table", 0)
@@ -838,7 +849,17 @@ evalExpr = function(state, node)
             answer = nil
         else
             if materializeProviders.isOpaque(state, object) then
-                fail("NUPP2411", node, "an opaque comptime value exposes only its declared intrinsic methods")
+                local value, indexFailure = materializeProviders.index(
+                    state,
+                    object,
+                    node.name and node.name.text or "",
+                    node
+                )
+                if indexFailure then
+                    fail(indexFailure.code, node, indexFailure.message, indexFailure.help)
+                end
+
+                return value
             end
             if type(object) ~= "table" then
                 fail("NUPP2412", node, ("a %s cannot be indexed"):format(type(object)))
@@ -861,7 +882,13 @@ evalExpr = function(state, node)
             answer = nil
         else
             if materializeProviders.isOpaque(state, object) then
-                fail("NUPP2411", node, "an opaque comptime value cannot be indexed dynamically")
+                local key = evalExpr(state, node.expr)
+                local value, indexFailure = materializeProviders.index(state, object, key, node)
+                if indexFailure then
+                    fail(indexFailure.code, node, indexFailure.message, indexFailure.help)
+                end
+
+                return value
             end
             if type(object) ~= "table" then
                 fail("NUPP2412", node, ("a %s cannot be indexed"):format(type(object)))

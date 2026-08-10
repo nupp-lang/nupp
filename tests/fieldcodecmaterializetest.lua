@@ -89,6 +89,43 @@ return {x = encoded.x, y = encoded.y}
    assertEq(encoded.y, 4, "the reflected helper selects y")
 end
 
+function M.inspectsTheImmutableReflectionSchemaInUserComptimeCode()
+   local src = [[
+local record Pair
+    left: string
+    right: integer
+end
+@comptime local function summarize(info: TypeInfo): string
+    local names = {}
+    for index, field in ipairs(info.fields) do
+        names[index] = field.name .. ":" .. field.kind
+    end
+    assert(type(info) == "table")
+    assert(info.types == info.types)
+    assert(nil ~= info.types)
+    return info.schema .. ":" .. info.types[info.root].kind
+        .. ":" .. #info.fields .. ":" .. table.concat(names, ",")
+end
+return comptime do return summarize(reflect(Pair)) end
+]]
+   assertEq(run(src), "1:record:2:left:string,right:integer",
+      "user comptime code reads the versioned descriptor graph")
+end
+
+function M.rejectsMutationOfReflectionViews()
+   local codes = errorsOf([[
+local record Pair
+    left: string
+end
+return comptime do
+    local info = reflect(Pair)
+    info.name = "Changed"
+    return info.name
+end
+]])
+   assertEq(codes[1], "NUPP2411", "reflection views reject mutation")
+end
+
 function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
    local codes = errorsOf([[
 local record Position x: number end

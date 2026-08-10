@@ -420,18 +420,21 @@ the declaration.
 }
 ```
 
-It should eventually cover fields and their types, declaration order,
-annotations, generic arguments, unions, interfaces, function signatures, and
-nominal identity — the whole structural vocabulary the checker has, not the
-struct-shaped subset an earlier draft showed. Layout facts are not members of
+Schema 1 covers fields and their types, declaration order, generic arguments,
+unions and intersections, interfaces, shapes and indexers, function signatures
+and packs, ownership wrappers, arrays, pointers, C types, and nominal names. It
+uses one indexed, acyclic `types` array, so recursive semantic graphs can cross
+the worker protocol without leaking checker objects or allocation identities.
+Declaration annotations remain to be added. Layout facts are not members of
 this descriptor. Where a target is selected and the type has a layout, they are
 available separately, so that a reader can tell which answers travel with the
 program and which travel with the machine.
 
 Field order is declaration order. Recursive types are represented by stable
-read-only handles, not recursively copied tables. A `TypeInfo` handle can be
-inspected and compared during comptime evaluation but cannot be returned as a
-quoted runtime value.
+read-only indexed views, not recursively copied tables. A `TypeInfo` handle can
+be inspected, deterministically iterated and compared during comptime
+evaluation but cannot be returned as a quoted runtime value. Its fingerprint
+hashes the canonical semantic graph, not process-local nominal identifiers.
 
 Reflection is read-only data processing. It cannot add fields, methods, types,
 or declarations. Reflection of an unresolved generic type variable is rejected

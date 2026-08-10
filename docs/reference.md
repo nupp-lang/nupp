@@ -1123,7 +1123,8 @@ the same step and call-depth budgets as their caller, and are erased from the
 generated module. They may be called only from a comptime block or another
 `@comptime` helper; using one as a runtime value is **NUPP2415**. Generic,
 variadic and cross-module comptime helpers are not yet available. A helper may
-accept `TypeInfo` and pass it to a sealed reflection consumer.
+accept `TypeInfo`, inspect its immutable descriptor graph, and pass it to a
+sealed reflection consumer.
 
 Comptime is not a macro system: it produces data, never declarations or source
 text. Declaring a function inside a block remains **NUPP2411**; reusable helpers
@@ -1229,10 +1230,21 @@ Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2417`. `nupp explain <code>` s
 ### Semantic reflection and field codecs
 
 `reflect(T)` resolves `T` in a type position and creates an immutable,
-target-independent semantic descriptor for comptime. A descriptor is
-compiler-owned: it can be passed to a sealed comptime service, but it cannot
-escape as a runtime table. Reflection reads declared meaning, not FFI layout;
-`sizeof`, alignment, and offsets remain separate target-dependent questions.
+target-independent semantic descriptor for comptime. Schema 1 represents the
+possibly recursive type as an acyclic indexed graph: `root` selects a node in
+`types`, and edges between nodes are integer indices. The graph covers nominal
+records, interfaces and structs; shapes, fields and indexers; function
+signatures and packs; generic arguments; unions and intersections; ownership
+wrappers; arrays, pointers and C types. The root's common fields are also
+available directly as `kind`, `name`, `fields`, and `fingerprint`.
+
+User comptime code may read descriptor members, use `#`, and traverse arrays
+with deterministic `ipairs` or `pairs`. Views preserve identity for equality
+but reject mutation and cannot escape as runtime tables. The fingerprint is
+computed from the canonical semantic graph rather than the checker's
+process-local type identities. Reflection reads declared meaning, not FFI
+layout; `sizeof`, alignment, and offsets remain separate target-dependent
+questions.
 
 `nupp.fieldcodec.compile(reflect(R))` is the first non-PEG materializer. For a
 record `R`, it produces a `nupp.FieldCodec.KeyedCodec<R>` whose `encode` method

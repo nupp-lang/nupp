@@ -460,7 +460,62 @@ record nupp.Peg
 end
 
 --- An immutable compile-time description of one resolved semantic type.
+record TypeInfoField
+    readonly name: string
+    readonly kind: string
+    readonly typeName: string?
+    readonly type: integer?
+    readonly readable: boolean
+    readonly writable: boolean
+end
+
+--- One named or positional edge in the indexed semantic type graph.
+record TypeInfoEntry
+    readonly name: string?
+    readonly type: integer?
+    readonly read: integer?
+    readonly write: integer?
+    readonly readable: boolean?
+    readonly writable: boolean?
+    readonly mode: string?
+    readonly bound: integer?
+    readonly answer: integer?
+    readonly default: boolean?
+    readonly [string]: any
+end
+
+record TypeInfoNode
+    readonly kind: string
+    readonly name: string?
+    readonly nominal: boolean?
+    readonly fields: {TypeInfoEntry}?
+    readonly staticFields: {TypeInfoEntry}?
+    readonly metamethods: {TypeInfoEntry}?
+    readonly nestedTypes: {TypeInfoEntry}?
+    readonly associatedTypes: {TypeInfoEntry}?
+    readonly members: {integer}?
+    readonly parameters: {TypeInfoEntry}?
+    readonly returns: {integer}?
+    readonly typeArguments: {integer}?
+    readonly supertypes: {integer}?
+    readonly element: integer?
+    readonly body: integer?
+    readonly of: integer?
+    readonly origin: integer?
+    readonly noReturn: boolean?
+    readonly noYield: boolean?
+    readonly [string]: any
+end
+
 record TypeInfo
+    readonly schema: integer
+    readonly root: integer
+    readonly types: {TypeInfoNode}
+    readonly kind: string
+    readonly name: string
+    readonly qualifiedName: string
+    readonly fields: {TypeInfoField}
+    readonly fingerprint: string
 end
 
 --- Reflects a concrete type for use inside a `comptime` block.

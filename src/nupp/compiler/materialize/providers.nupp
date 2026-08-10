@@ -33,6 +33,9 @@ local record providers
     installEvaluator: function(any, any)
     reflect: function(any, any, any): any
     isOpaque: function(any, any): boolean
+    opaqueKind: function(any, any): string?
+    index: function(any, any, any, any): (any, providers.Failure?)
+    iterator: function(any, any, boolean): (any, providers.Failure?)
     method: function(any, any, string, any, any): (any, providers.Failure?)
     operator: function(any, string, any, any, any): (any, providers.Failure?)
     finalize: function(any, any): (any, providers.Failure?)
@@ -89,6 +92,7 @@ end
 
 function providers.installEvaluator(state: any, env: any)
     state.opaque = {}
+    state.reflectionViews = {}
     state.intrinsics = {}
     installTest(state, env)
     peg.installEvaluator(
@@ -109,12 +113,72 @@ function providers.installEvaluator(state: any, env: any)
     )
 end
 
+local function reflectionValue(state, value, at)
+    if type(value) ~= "table" then
+        return value
+    end
+    local prior = state.reflectionViews[value]
+    if prior then
+        return prior
+    end
+    local handle = opaque(state, "reflection", "TypeInfoView", value, provenance(at, "reflect-view"))
+    state.reflectionViews[value] = handle
+
+    return handle
+end
+
 function providers.reflect(state: any, descriptor: any, at: any): any
-    return opaque(state, "reflection", "TypeInfo", descriptor, provenance(at, "reflect"))
+    local handle = opaque(state, "reflection", "TypeInfo", descriptor, provenance(at, "reflect"))
+    state.reflectionViews[descriptor] = handle
+
+    return handle
 end
 
 function providers.isOpaque(state: any, value: any): boolean
     return type(value) == "table" and state.opaque[value] ~= nil
+end
+
+function providers.opaqueKind(state: any, value: any): string?
+    local entry = state.opaque[value]
+    return entry and entry.provider == "reflection" and "table" or nil
+end
+
+function providers.index(state: any, handle: any, key: any, at: any): any, providers.Failure?
+    local entry = state.opaque[handle]
+    if not entry or entry.provider ~= "reflection" or type(entry.payload) ~= "table" then
+        return nil, {code = "NUPP2411", message = "this opaque comptime value cannot be indexed"}
+    end
+    if type(key) ~= "string" and type(key) ~= "number" then
+        return nil, {code = "NUPP2411", message = "reflection indices must be strings or numbers"}
+    end
+
+    return reflectionValue(state, entry.payload[key], at), nil
+end
+
+function providers.iterator(state: any, handle: any, array: boolean): any, providers.Failure?
+    local entry = state.opaque[handle]
+    if not entry or entry.provider ~= "reflection" or type(entry.payload) ~= "table" then
+        return nil, {code = "NUPP2411", message = "this opaque comptime value cannot be iterated"}
+    end
+    local payload = entry.payload
+    local keys = {}
+    if array then
+        for index = 1, #payload do keys[index] = index end
+    else
+        for key in pairs(payload) do keys[#keys + 1] = key end
+        table.sort(keys, function(left, right)
+            if type(left) ~= type(right) then return type(left) < type(right) end
+            return left < right
+        end)
+    end
+    local cursor = 0
+
+    return function()
+        cursor = cursor + 1
+        local key = keys[cursor]
+        if key == nil then return nil end
+        return key, reflectionValue(state, payload[key], nil)
+    end, nil
 end
 
 function providers.method(state: any, handle: any, name: string, args: any, at: any): any, providers.Failure?
@@ -145,6 +209,25 @@ end
 
 function providers.operator(state: any, op: string, left: any, right: any, at: any): any, providers.Failure?
     local entry = state.opaque[left]
+    if (op == "==" or op == "~=") and not entry then
+        local rightEntry = state.opaque[right]
+        if rightEntry and rightEntry.provider == "reflection" then
+            return op == "~=", nil
+        end
+    end
+    if entry and entry.provider == "reflection" then
+        if op == "unary#" then
+            return #entry.payload, nil
+        elseif op == "==" or op == "~=" then
+            local other = state.opaque[right]
+            local equal = other and other.provider == "reflection" and other.payload == entry.payload or false
+            if op == "==" then
+                return equal, nil
+            else
+                return not equal, nil
+            end
+        end
+    end
     if entry and entry.provider == "peg" then
         return peg.operator(state, op, left, right, at)
     end
