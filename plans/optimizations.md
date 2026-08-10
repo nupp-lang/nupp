@@ -81,6 +81,17 @@ Each entry is tagged with where its win lands:
 - `cold` **Field-read CSE.** Repeated reads of the same path collapse
   within a region containing no call, no assignment reaching the path,
   and no yield.
+- `core` **Declaration-directed call projection.** Implemented as
+  always-on lowering rather than an `OPT-n` pass. A declaration's
+  `expands` contract and the call's `...value` signal make the intended
+  field set and arity static. Statement-level calls bind reusable dotted
+  prefixes once and leave one-use leaves in the flat positional call,
+  replacing the locals a performance-conscious Lua author would otherwise
+  write by hand. Nested expressions repeat prefixes rather than creating an
+  immediately invoked closure: the lowering never introduces a function,
+  upvalue, argument table, varargs pack, or runtime arity choice. Safe calls
+  retain their lazy nil guards. This is useful before tracing and removes
+  dependence on whether LuaJIT happens to discover field-read CSE.
 - `core` **Method devirtualization.** When the checker knows the
   receiver's type, `obj:m()` resolves to the defining table's field
   without walking `__index`. Note that a metamethod contract is trusted,

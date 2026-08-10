@@ -289,14 +289,22 @@ nupp fixpoint --binary]],
                      },
                      {
                         title = "Optimize what the JIT can't infer",
-                        details = "Nupp leaves hot loops to LuaJIT's tracer and specializes the "
-                           .. "work that happens before a trace exists: constants, table shapes, "
-                           .. "and facts preserved by types.",
-                        code = [[local function packetSize(): integer
-    return 8 * 1024 + 32
+                        details = "Nupp leaves hot loops to LuaJIT's tracer and uses types where "
+                           .. "the tracer cannot: declared call projections share stable table "
+                           .. "paths and become flat positional arguments without tables, "
+                           .. "varargs, or closures.",
+                        code = [[local record Vec2
+    x: number
+    y: number
+    expands (x, y)
 end
 
--- -O1 folds this before LuaJIT ever sees the function.]],
+update(
+    ...entity.body.position,
+    ...entity.body.velocity,
+    delta
+)
+-- entity.body is read once; update receives x, y, x, y, delta.]],
                      },
                      {
                         title = "Compute what you can before the program runs",
