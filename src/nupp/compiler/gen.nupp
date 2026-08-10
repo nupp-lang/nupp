@@ -627,9 +627,9 @@ function gen.generate(
     end
 
     -- Value expansion promises that a dotted operand is evaluated once. Calls in
-    -- statement-root position receive these bindings as ordinary generated locals;
-    -- calls nested in another expression use a local wrapper at their exact evaluation
-    -- point. Both forms use the same plan and therefore the same argument ordering.
+    -- statement-root position receive reusable path bindings as ordinary generated
+    -- locals; calls nested in another expression use a local wrapper at their exact
+    -- evaluation point. Projected leaves remain in the call because each is read once.
     -- Keep the emitter's expansion dependencies behind one upvalue. LuaJIT caps a
     -- function at 60 upvalues, and this generator deliberately sits close to that
     -- boundary because emit handles every syntax kind.
@@ -691,23 +691,17 @@ function gen.generate(
             return nil
         end
 
-        local plan = {steps = {}, pathAliases = {}, argAliases = {}}
+        local plan = {steps = {}, pathAliases = {}, argAliases = {}, argFields = {}}
         if call.kind == "methodCall" then
             plan.receiverAlias = nextTemp()
             plan.steps[
                 #plan.steps + 1
             ] = {kind = "expr", name = plan.receiverAlias, expr = call.obj, at = call.obj}
-            plan.calleeAlias = nextTemp()
-            plan.steps[
-                #plan.steps + 1
-            ] = {
-                kind = "field",
-                name = plan.calleeAlias,
-                base = plan.receiverAlias,
-                field = call.overloadMember or call.name.text,
-                at = call,
-            }
-        else
+            plan.methodName = call.overloadMember or call.name.text
+        elseif call.obj.kind ~= "name" then
+            -- A name is already a one-use leaf in the final call. More involved
+            -- callees are captured before path bindings so their evaluation point does
+            -- not move.
             plan.calleeAlias = nextTemp()
             plan.steps[
                 #plan.steps + 1
@@ -737,7 +731,14 @@ function gen.generate(
             return base
         end
 
-        for _, argument in ipairs(call.args.loweredArgs) do
+        local lastDotted = 0
+        for index, argument in ipairs(call.args.loweredArgs) do
+            if argument.generatedKind == "field" and argument.source and argument.source.kind == "dotIndex" then
+                lastDotted = index
+            end
+        end
+
+        for index, argument in ipairs(call.args.loweredArgs) do
             if argument.generatedKind == "field" then
                 local base
                 if argument.source and argument.source.kind == "name" then
@@ -746,13 +747,11 @@ function gen.generate(
                     base = bindPath(argument.source)
                 end
                 if base then
-                    local alias = nextTemp()
-                    plan.argAliases[argument] = alias
-                    plan.steps[
-                        #plan.steps + 1
-                    ] = {kind = "field", name = alias, base = base, field = argument.name, at = argument.source}
+                    plan.argFields[argument] = {base = base, field = argument.name}
                 end
-            elseif argument.generatedKind == "expr" and not argument.pack then
+            elseif argument.generatedKind == "expr" and not argument.pack and index < lastDotted then
+                -- Only arguments that must stay ahead of a later path binding need a
+                -- temporary. The suffix can remain directly in the positional call.
                 local alias = nextTemp()
                 plan.argAliases[argument] = alias
                 plan.steps[#plan.steps + 1] = {kind = "expr", name = alias, expr = argument.expr, at = argument.expr}
@@ -789,8 +788,11 @@ function gen.generate(
 
     function expansion.emitArgument(argument, owner)
         local alias = expansion.argumentAliases and expansion.argumentAliases[argument]
+        local field = expansion.argumentFields and expansion.argumentFields[argument]
         if alias then
             e(alias, sourceLine(argument.expr or argument.source or owner))
+        elseif field then
+            e(field.base .. "." .. field.field, sourceLine(argument.source or owner))
         elseif argument.generatedKind == "field" then
             emit(argument.source)
             e("." .. argument.name, sourceLine(argument.source))
@@ -990,11 +992,14 @@ function gen.generate(
                 expansion.statementActive[x] = true
                 expansion.emitSteps(plan)
                 local priorAliases = expansion.argumentAliases
+                local priorFields = expansion.argumentFields
                 expansion.argumentAliases = plan.argAliases
+                expansion.argumentFields = plan.argFields
                 expansion.plans[direct] = plan
                 emit(x)
                 expansion.plans[direct] = nil
                 expansion.argumentAliases = priorAliases
+                expansion.argumentFields = priorFields
                 expansion.statementActive[x] = nil
                 return
             end
@@ -1003,14 +1008,14 @@ function gen.generate(
             local activePlan = expansion.plans[x]
             if activePlan then
                 if activePlan.receiverAlias then
-                    e(activePlan.calleeAlias .. "(" .. activePlan.receiverAlias, sourceLine(x))
-                    if x.args and #(x.args.loweredArgs or {}) > 0 then
-                        e(",")
-                        expansion.emitArgs(x.args)
-                    end
-                    e(")")
+                    e(activePlan.receiverAlias .. ":" .. activePlan.methodName, sourceLine(x))
+                    emit(x.args)
                 else
-                    e(activePlan.calleeAlias, sourceLine(x))
+                    if activePlan.calleeAlias then
+                        e(activePlan.calleeAlias, sourceLine(x))
+                    else
+                        emit(x.obj)
+                    end
                     emit(x.args)
                 end
                 return
@@ -1021,11 +1026,14 @@ function gen.generate(
                 expansion.emitSteps(plan)
                 e("return")
                 local priorAliases = expansion.argumentAliases
+                local priorFields = expansion.argumentFields
                 expansion.argumentAliases = plan.argAliases
+                expansion.argumentFields = plan.argFields
                 expansion.plans[x] = plan
                 emit(x)
                 expansion.plans[x] = nil
                 expansion.argumentAliases = priorAliases
+                expansion.argumentFields = priorFields
                 e("end)()")
                 return
             end

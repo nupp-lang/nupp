@@ -154,10 +154,12 @@ Interfaces pass expansions to declarations that take their contract. A bounded
 type parameter sees its interface bound's projections, so generic adapters use
 the same syntax. An expansion operand is a name or dotted field path, such as
 `...entity.position`. Bind calls, computed indexes, and other producing
-expressions to a local before expanding them. Each dotted operand and every
-common dotted prefix among a call's expansions is evaluated once. Projected
-fields and ordinary arguments retain source evaluation order, including a final
-ordinary call whose multiple results fill the remaining positional slots.
+expressions to a local before expanding them. Each dotted operand path and every
+common dotted prefix among a call's expansions is evaluated once. Projected leaf
+fields remain direct positional arguments rather than generated locals. Ordinary
+arguments are captured only when they must stay ahead of a later path binding;
+a trailing call can still fill the remaining positional slots with its multiple
+results.
 
 ```nupp
 local interface XY

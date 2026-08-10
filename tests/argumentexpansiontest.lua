@@ -104,9 +104,11 @@ function M.dottedPlaceExpansionLowersThroughEmbeddedRecords()
    assert(positionTemp, code)
    assert(code:find(positionTemp .. ".x", 1, true), code)
    assert(code:find(positionTemp .. ".y", 1, true), code)
+   assert(not code:match("const __nuppT%d+= " .. positionTemp .. "%.[xy]"),
+      "one-use leaf projections should stay in the call:\n" .. code)
 end
 
-function M.sharedPrefixesAndArgumentsAreEvaluatedOnceInSourceOrder()
+function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
    local answer, code = run(vector .. "\n" .. table.concat({
       "local record Body",
       "   position: Vec3",
@@ -142,11 +144,17 @@ function M.sharedPrefixesAndArgumentsAreEvaluatedOnceInSourceOrder()
       "update(head(), ...entity.body.position, ...entity.body.velocity, tail = tail())",
       "return events",
    }, "\n"))
-   assertEq(answer, "HBPxyVXYTU")
+   assertEq(answer, "HBPVxyXYTU")
    assertEq(select(2, code:gsub("entity%.body", "")), 1,
       "the common entity.body prefix is bound once:\n" .. code)
    assert(not code:find("(function()", 1, true),
       "a statement call should use locals, not a wrapper:\n" .. code)
+   assert(not code:match("const __nuppT%d+= update"),
+      "a named callee should remain direct:\n" .. code)
+   assert(not code:match("const __nuppT%d+= tail"),
+      "the trailing argument suffix should remain direct:\n" .. code)
+   assertEq(select(2, code:gsub("const __nuppT%d+= __nuppT%d+%.[xyXY]", "")), 0,
+      "projected leaves should remain direct call arguments:\n" .. code)
 end
 
 function M.nestedExpansionStaysAtItsShortCircuitEvaluationPoint()

@@ -65,10 +65,12 @@ name followed by zero or more ordinary dotted field accesses. This covers both
 `...position` and flattened embedded values such as
 `...entity.transform.position`. Calls, safe navigation, computed indexing, and
 other producing expressions are rejected. Lowering evaluates each dotted
-operand once and shares common dotted prefixes across expansions in the same
-call. Projected fields and ordinary arguments are then captured in source order;
-a final ordinary multi-result call remains in the expanding position. A later
-lowering may admit arbitrary operand expressions without changing these rules.
+operand path once and shares common dotted prefixes across expansions in the
+same call. Projected leaf fields remain direct positional arguments because each
+is read only once. Ordinary arguments are captured only when a later path
+binding requires their evaluation point to stay ahead of it; a suffix and a
+final multi-result call remain direct. A later lowering may admit arbitrary
+operand expressions without changing these rules.
 
 ## Selection
 
@@ -150,17 +152,17 @@ generates ordinary locals and a positional Lua call, conceptually:
 ```lua
 local body = entity.body
 local position = body.position
-local px, py = position.x, position.y
 local velocity = body.velocity
-local vx, vy = velocity.x, velocity.y
-update(px, py, vx, vy, delta)
+update(position.x, position.y, velocity.x, velocity.y, delta)
 ```
 
-Generated names are collision-free. A call that is itself a statement, return,
-initializer, or assignment receives locals directly. When a call is nested
-inside another expression, its bindings stay at that exact evaluation point so
-short-circuiting remains lazy. Neither form allocates an argument table or
-performs runtime arity selection.
+Generated names are collision-free. Only reusable path nodes are bound; the
+callee, projected leaves, and trailing arguments remain direct when they are
+already evaluated once. A call that is itself a statement, return, initializer,
+or assignment receives bindings directly. When a call is nested inside another
+expression, its bindings stay at that exact evaluation point so short-circuiting
+remains lazy. Neither form allocates an argument table or performs runtime arity
+selection.
 
 `expands` declarations generate no runtime member. Formatting preserves
 `...value` without a space and formats named arguments with spaces around `=`.
