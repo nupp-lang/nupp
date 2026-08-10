@@ -71,4 +71,30 @@ custom codecs, transient components, and C-layout handling unchanged.
 
 ## Recorded results
 
-Not measured in this commit.
+Measured on 2026-08-09 with LuaJIT 2.1.1785577137 and LPeg 1.1.0. Times are
+the benchmark's median of seven rounds.
+
+| Workload | Engine | Build µs | First µs | Matches/s | Bytes/match | Trace aborts |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| identifier | reference | 0.75 | 0.37 | 6,467,469 | 202.9 | 14 |
+| identifier | specialized | 5.30 | 11.00 | 11,128,009 | 11.9 | 0 |
+| identifier | LPeg | 2.44 | 2.49 | 8,459,760 | 11.3 | 0 |
+| captures | reference | 0.95 | 1.46 | 974,371 | 298.9 | 9 |
+| captures | specialized | 7.29 | 22.10 | 2,703,482 | 148.3 | 2 |
+| captures | LPeg | 3.04 | 3.67 | 1,460,764 | 147.3 | 0 |
+| recursive | reference | 0.63 | 1.49 | 968,948 | 466.9 | 13 |
+| recursive | specialized | 4.16 | 8.83 | 6,790,864 | 12.0 | 0 |
+| recursive | LPeg | 4.27 | 4.96 | 1,318,305 | 11.3 | 0 |
+
+The specialized/reference gains are 1.72x for identifiers, 2.77x for captures,
+and 7.01x for recursion: a 3.22x geometric mean against the frozen 1.50x gate.
+The reference and specialized forms both reach the probe ceiling of depth 2,048;
+LPeg reaches 255. All clear the required depth 128.
+
+Generated source is 1,769 bytes for the shared reference helper plus programs
+and 1,588 bytes for the three specialized matchers, a 0.90x ratio. Matcher
+bytecode is 1,080 bytes for the reference machine and 1,018 bytes for the
+specialized functions, a 0.94x ratio. Neither pure-Lua form has a bundle
+dependency; the measured LPeg module is 91,560 bytes.
+
+Decision: **keep M6**. The handwritten specializer clears every frozen M0 gate.
