@@ -16,7 +16,8 @@ local process = {}
 --- are what a single string can say.
 type process.Options = {
     cwd: string?,
-    env: {[string]: string}?
+    env: {[string]: string}?,
+    timeoutMs: integer?
 }
 
 local windows = package.config:sub(1, 1) == "\\"
@@ -112,6 +113,91 @@ function process.capture(argv: {string}, opts: process.Options?): integer, strin
     os.remove(tmp)
 
     return code, output
+end
+
+--- Runs one command in its own process and bounds how long the caller waits.
+---
+--- This is the minimum process primitive the comptime worker needs. The command writes
+--- only to its private output file, so a crash cannot corrupt a protocol stream. On
+--- POSIX the asynchronous command's pid is killed when the wall-clock limit expires.
+--- Windows retains the synchronous fallback until the native process host supplies the
+--- same primitive there; the evaluator's deterministic step budget still bounds Nupp
+--- execution on that path.
+function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
+    opts = (opts or {}) as process.Options
+    if windows or not opts.timeoutMs then
+        return process.capture(argv, opts)
+    end
+
+    local ffi = require("ffi")
+    local hasTimeval = pcall(ffi.typeof, "struct nupp_timeval[1]")
+    if not hasTimeval then
+        local micros = ffi.os == "Linux" and "long" or "int"
+        assert(loadstring(([=[local ffi = require("ffi"); ffi.cdef[[
+            struct nupp_timeval { long tv_sec; %s tv_usec; };
+            int gettimeofday(struct nupp_timeval *timeval, void *timezone);
+        ]]]=]):format(micros), "=nupp-process-cdef"))()
+    end
+    assert(loadstring([=[local ffi = require("ffi"); ffi.cdef[[
+        int kill(int pid, int signal);
+        int usleep(unsigned int microseconds);
+    ]]]=], "=nupp-process-control-cdef"))()
+    local C: any = ffi.C
+    local timevalType: any = "struct nupp_timeval[1]"
+    local function now(): number
+        local value: any = ffi.new(timevalType)
+        C.gettimeofday(value, nil)
+        return assert(tonumber(value[0].tv_sec)) + assert(tonumber(value[0].tv_usec)) / 1000000
+    end
+
+    local outputPath, pidPath = os.tmpname(), os.tmpname()
+    os.remove(pidPath)
+    local command = process.command(argv, opts)
+        .. " >" .. quote(outputPath) .. " 2>&1 & echo $! >" .. quote(pidPath)
+    local launched = exitCode(os.execute(command))
+    if launched ~= 0 then
+        os.remove(outputPath)
+        os.remove(pidPath)
+        return launched, ""
+    end
+
+    local pid
+    for _ = 1, 100 do
+        local file = io.open(pidPath, "rb")
+        if file then
+            pid = tonumber(file:read("*a"))
+            file:close()
+            if pid then
+                break
+            end
+        end
+        C.usleep(1000)
+    end
+    if not pid then
+        os.remove(outputPath)
+        os.remove(pidPath)
+        return 1, "the worker did not publish its process id"
+    end
+
+    local deadline = now() + opts.timeoutMs / 1000
+    local timedOut = false
+    while C.kill(pid, 0) == 0 do
+        if now() >= deadline then
+            timedOut = true
+            C.kill(pid, 9)
+            break
+        end
+        C.usleep(5000)
+    end
+    local file = io.open(outputPath, "rb")
+    local output = file and file:read("*a") or ""
+    if file then
+        file:close()
+    end
+    os.remove(outputPath)
+    os.remove(pidPath)
+
+    return timedOut and 124 or 0, output
 end
 
 return process

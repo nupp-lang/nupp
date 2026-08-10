@@ -1,0 +1,145 @@
+--[[
+The private comptime worker protocol.
+
+The parent sends source, not a live CST or evaluator heap. The child parses that source,
+runs the bounded evaluator, and returns one JSON value. A worker crash therefore loses
+one request rather than the compiler or language server, and no host object can cross
+the boundary materialization will later use.
+]]
+
+local cjson = require("cjson").new()
+local process = require("nupp.compiler.build.process")
+
+type worker.Failure = {
+    readonly code: string,
+    readonly message: string,
+    readonly help: string?
+}
+
+local record worker
+    main: function({string}): integer
+    evaluate: function(string, string): (string?, worker.Failure?)
+end
+
+cjson.encode_empty_table_as_object(false)
+cjson.encode_invalid_numbers(false)
+
+local function read(path)
+    local file, err = io.open(path, "rb")
+    if not file then
+        return nil, err
+    end
+    local text = file:read("*a")
+    file:close()
+
+    return text
+end
+
+local function write(path, text)
+    local file, err = io.open(path, "wb")
+    if not file then
+        return nil, err
+    end
+    file:write(text)
+    file:close()
+
+    return true
+end
+
+local function findComptime(node)
+    if type(node) ~= "table" then
+        return nil
+    end
+    if node.kind == "comptimeExpr" then
+        return node
+    end
+    for _, child in ipairs(node) do
+        local found = findComptime(child)
+        if found then
+            return found
+        end
+    end
+
+    return nil
+end
+
+--- Child entry point. The request file contains only the exact comptime expression.
+function worker.main(argv: {string}): integer
+    local requestPath = argv[1]
+    if not requestPath then
+        io.write(cjson.encode({ok = false, code = "NUPP2412", message = "missing worker request"}), "\n")
+        return 0
+    end
+    local source, readErr = read(requestPath)
+    if not source then
+        io.write(cjson.encode({ok = false, code = "NUPP2412", message = tostring(readErr)}), "\n")
+        return 0
+    end
+    local parsed = require("nupp.compiler.parser").parse("return " .. source, "=comptime-worker")
+    if #(parsed.errors or {}) > 0 then
+        io.write(cjson.encode({
+            ok = false,
+            code = "NUPP2412",
+            message = "the comptime worker could not parse its checked request",
+        }), "\n")
+        return 0
+    end
+    local node = findComptime(parsed.root)
+    if not node then
+        io.write(cjson.encode({ok = false, code = "NUPP2412", message = "worker request has no comptime block"}), "\n")
+        return 0
+    end
+
+    local comptime = require("nupp.compiler.comptime") as {
+        evaluateDirect: function(any, any): (string?, any, any)
+    }
+    local quoted, _, failure = comptime.evaluateDirect(node, node.body)
+    if failure then
+        io.write(cjson.encode({
+            ok = false,
+            code = failure.code,
+            message = failure.message,
+            help = failure.help,
+        }), "\n")
+    else
+        io.write(cjson.encode({ok = true, quoted = quoted}), "\n")
+    end
+
+    return 0
+end
+
+--- Parent entry point. A valid response is the only successful completion; truncated
+--- output, a non-JSON crash message and a killed worker are all local failures.
+function worker.evaluate(source: string, root: string): string?, worker.Failure?
+    local requestPath = os.tmpname()
+    local wrote, writeErr = write(requestPath, source)
+    if not wrote then
+        return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
+    end
+    local code, output = process.captureIsolated(
+        {root .. "/bin/nupp", "__comptime-worker", requestPath},
+        {env = {NUPP_COMPTIME_WORKER_CHILD = "1"}, timeoutMs = 2000}
+    )
+    os.remove(requestPath)
+    if code == 124 then
+        return nil, {
+            code = "NUPP2412",
+            message = "comptime evaluation exceeded the 2000 ms worker timeout",
+            help = "make the computation smaller or move the unbounded work to run time",
+        }
+    end
+    local decoded, response = pcall(cjson.decode, output)
+    if not decoded or type(response) ~= "table" then
+        return nil, {
+            code = "NUPP2412",
+            message = "the comptime worker crashed or returned an invalid response: " .. tostring(response or output),
+        }
+    end
+    if not response.ok then
+        return nil, {code = response.code or "NUPP2412", message = response.message or "comptime evaluation failed", help = response.help}
+    end
+
+    return response.quoted, nil
+end
+
+return worker

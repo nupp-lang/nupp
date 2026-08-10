@@ -137,6 +137,24 @@ function M.windowsMkdirUsesNativePathAndIsIdempotent()
    assertEq(table.concat(posix, " "), "mkdir -p build/nupp")
 end
 
+function M.isolatedProcessStopsAtItsWallClockDeadline()
+   if jit.os == "Windows" then return end
+   local code = process.captureIsolated(
+      {"sh", "-c", "while :; do :; done"},
+      {timeoutMs = 50}
+   )
+   assertEq(code, 124, "the process is killed at its deadline")
+end
+
+function M.isolatedProcessCapturesACompletedResponse()
+   local code, output = process.captureIsolated(
+      {"sh", "-c", "printf worker-ready"},
+      {timeoutMs = 1000}
+   )
+   assertEq(code, 0, "the completed child succeeds")
+   assertEq(output, "worker-ready", "the private output is returned")
+end
+
 function M.manifestValidationRejectsInvalidReferencesAndCycles()
    local missing = tempProject({
       ["nupp.lua"] = [[

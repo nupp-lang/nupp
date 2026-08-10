@@ -283,6 +283,33 @@ function M.stopsEndlessRecursionOfBlocks()
    assertEq(codes[1], "NUPP2411", "a nested block is refused")
 end
 
+function M.boundsAnEndlessLoop()
+   local codes, diags = errorsOf("return comptime do while true do end end")
+   assertEq(codes[1], "NUPP2412", "the evaluator budget stops an endless loop")
+   local found
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2412" then found = diag.msg end
+   end
+   assertTrue(found and (found:find("steps", 1, true) or found:find("timeout", 1, true)),
+      "the diagnostic names the bound: " .. tostring(found))
+end
+
+function M.recoversWhenTheWorkerCrashes()
+   if jit.os == "Windows" then return end
+   local root = os.tmpname()
+   os.remove(root)
+   assertEq(os.execute(("mkdir -p %q/bin"):format(root)), 0)
+   local launcher = assert(io.open(root .. "/bin/nupp", "wb"))
+   launcher:write("#!/bin/sh\nkill -9 $$\n")
+   launcher:close()
+   assertEq(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
+   local worker = require("nupp.compiler.comptime_worker")
+   local _, failure = worker.evaluate("comptime do return 1 end", root)
+   os.execute(("rm -rf %q"):format(root))
+   assertTrue(failure and failure.message:find("crashed", 1, true),
+      "the parent converts a worker crash into one failure")
+end
+
 function M.requiresAResult()
    local codes = errorsOf("return comptime do local a = 1 end")
    assertEq(codes[1], "NUPP2412", "a block with no return is refused")

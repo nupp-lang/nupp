@@ -29,6 +29,7 @@ local isToken = cst.isToken
 --- The exact-integer range, matching what `OPT-3` treats as exact for the same reason:
 --- a double holds these and reads them back unchanged.
 local MAX_EXACT_INTEGER = 9007199254740991
+local MAX_STEPS = 100000
 
 -- A raised evaluation failure. Errors travel as a table so a `pcall` boundary can tell
 -- one of ours from a genuine evaluator bug, which should not be reported as the user's
@@ -310,7 +311,19 @@ local RETURN = {}
 
 --- One evaluation in progress: the scopes, the budget, and the answer.
 local function newState(env, libraries)
-    return {env = env, libraries = libraries, result = nil}
+    return {env = env, libraries = libraries, result = nil, steps = 0}
+end
+
+local function step(state, node)
+    state.steps = state.steps + 1
+    if state.steps > MAX_STEPS then
+        fail(
+            "NUPP2412",
+            node,
+            ("comptime evaluation exceeded %d steps"):format(MAX_STEPS),
+            "make the computation smaller or move the unbounded work to run time"
+        )
+    end
 end
 
 local function scope(parent)
@@ -414,6 +427,7 @@ evalExpr = function(state, node)
     if not node or isToken(node) then
         return nil
     end
+    step(state, node)
     local kind = node.kind
     local answer
     if kind == "number" then
@@ -723,6 +737,7 @@ execStatement = function(state, stat)
     if isToken(stat) then
         return
     end
+    step(state, stat)
     local kind = stat.kind
     if kind == "localStmt" then
         local values = evalList(state, stat.exprs or {})
@@ -830,6 +845,7 @@ execStatement = function(state, stat)
         end
         local index = from
         while (by > 0 and index <= to) or (by < 0 and index >= to) do
+            step(state, stat)
             local inner = scope(state.scope)
             if stat.var then
                 declare(inner, stat.var.text, index)
@@ -862,6 +878,7 @@ execStatement = function(state, stat)
             )
         end
         while true do
+            step(state, stat)
             local got = callValues(state, stat, iterator, {n = 2, invariant, control})
             if got[1] == nil then
                 break
@@ -980,7 +997,7 @@ type comptime.Failure = {
 --- @param block its body
 --- @return the result as canonical Lua source, its type, then the failure if there was
 ---   one
-function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?
+function comptime.evaluateDirect(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?
     local env, libraries = buildEnvironment()
     local state = newState(env, libraries)
     state.scope = scope(nil)
@@ -1011,6 +1028,48 @@ function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, 
     end
 
     return quoted as string, typeOf(state.result), nil
+end
+
+--- Evaluates through the isolated worker when the compiler was launched from its
+--- checkout. Unit embedders without a compiler root retain the same bounded direct
+--- evaluator; the private worker command itself sets the child marker to prevent a
+--- recursive spawn.
+function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?
+    local root = os.getenv("NUPP_COMPILER_ROOT")
+    if root and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
+        local worker = require("nupp.compiler.comptime_worker") as {
+            evaluate: function(string, string): (string?, any)
+        }
+        local quoted, failure = worker.evaluate(cst.textOf(node), root)
+        if failure then
+            return nil, nil, {
+                code = failure.code,
+                node = node,
+                message = failure.message,
+                help = failure.help,
+            } as comptime.Failure
+        end
+        local chunk, loadErr = loadstring("return " .. tostring(quoted), "=comptime-result")
+        if not chunk then
+            return nil, nil, {
+                code = "NUPP2412",
+                node = node,
+                message = "the comptime worker returned an invalid literal: " .. tostring(loadErr),
+            } as comptime.Failure
+        end
+        local ok, value = pcall(chunk)
+        if not ok then
+            return nil, nil, {
+                code = "NUPP2412",
+                node = node,
+                message = "the comptime worker result did not load: " .. tostring(value),
+            } as comptime.Failure
+        end
+
+        return quoted, typeOf(value), nil
+    end
+
+    return comptime.evaluateDirect(node, block)
 end
 
 return comptime

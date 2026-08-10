@@ -182,6 +182,18 @@ function cli.main(argv: {string}): integer
         io.write(mainHelp())
         return 0
     end
+    if name == "__comptime-worker" then
+        local rest: {string} = {}
+        for index = 2, #argv do
+            rest[#rest + 1] = argv[index]
+        end
+
+        local worker = require("nupp.compiler.comptime_worker") as {
+            main: function({string}): integer
+        }
+
+        return worker.main(rest)
+    end
     local rest: {string} = {}
     for index = 2, #argv do
         rest[#rest + 1] = argv[index]
