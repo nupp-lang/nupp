@@ -14,7 +14,7 @@ they are not members of the record below; use `buf:tostring()`.
 --- hand back the buffer itself, so calls chain.
 ---
 --- Exported, so code that passes buffers around can name the type: `function
---- render(out: buffer.Buffer): buffer.Buffer`.
+--- render(out: string.buffer.Buffer): string.buffer.Buffer`.
 record Buffer
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string

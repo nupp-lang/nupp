@@ -328,26 +328,6 @@ function expr.install(c: state.Checker): nil
                     return T.any
                 end
             end
-            -- `buffer` is the string.buffer module, without the require.
-            --
-            -- LuaJIT keeps it in `package.loaded` and puts nothing on the `string`
-            -- table, so `string.buffer.new` would be a member this runtime does not
-            -- have -- the reason `jit.util` and friends are modules here rather than
-            -- prelude fields (nupp.compiler.env). A compiler-provided global is the
-            -- shape
-            -- that
-            -- already exists for `carray` and `cheader`, and it is the one used here.
-            --
-            -- Last, so anything actually named `buffer` wins: a local, a global, a
-            -- project value. Only a name nothing else claims becomes the module.
-            if not entry and nameText == "buffer" and c.env and c.env.resolveModule then
-                local moduleType = c.env.resolveModule(c.env, "string.buffer")
-                if moduleType then
-                    node.bufferIntrinsic = true
-                    c.markToken(nameTok, nil, moduleType, "variable")
-                    return moduleType
-                end
-            end
             c.markToken(
                 nameTok,
                 entry and entry.definition,

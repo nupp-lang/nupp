@@ -124,13 +124,14 @@ Each used builtin is bound once per generated module and omitted when unused.
 definition, so a locally shadowed `table` is untouched, and generated modules
 remain standalone under external LuaJIT.
 
-### The `buffer` global
+### The `string.buffer` builtin
 
-`string.buffer` is reachable as a bare `buffer`, with no `require`:
+`string.buffer` is reachable through the builtin `string` namespace with no
+source-level `require`:
 
 ::: code-group
 ```nupp [Original Nupp]
-local b = buffer.new()
+local b = string.buffer.new()
 b:put("a", "b")
 return b:tostring()
 ```
@@ -142,17 +143,16 @@ return b:tostring()
 ```
 :::
 
-It is a compiler-provided global, the way `carray` and `cheader` are, rather
-than a member of `string`. LuaJIT keeps the module in `package.loaded` and puts
-nothing on the `string` table — unlike `table.new`, which `require("table.new")`
-really does install — so `string.buffer.new` would name something this runtime
-does not have.
+LuaJIT keeps the module in `package.loaded` and puts nothing on the runtime
+`string` table. Nupp projects that module through its builtin namespace and
+lowers the whole expression to a private `require("string.buffer")` binding;
+generated code does not modify the table. Recognition follows the stable
+prelude definition, so a locally shadowed `string` is ordinary table access.
 
-The name resolves last, so a local, a global, or a project value called
-`buffer` all win, and writing the `require` yourself still works. `OPT-5` shares
-the same binding, so a module that both uses `buffer` and has an accumulator
-lowered requires `string.buffer` once. Like the table intrinsics this is a
-lowering rather than a pass, so it works at `-O0`.
+Writing the `require` yourself still works. `OPT-5` shares the same private
+binding, so a module that both uses `string.buffer` and has an accumulator
+lowered requires the module once. Like the table intrinsics this is a lowering
+rather than a pass, so it works at `-O0`.
 
 Compiler-only bindings are `const` when the lowering assigns them once. Loop
 controls, counters, cache-miss slots, and other mutable storage remain `local`.

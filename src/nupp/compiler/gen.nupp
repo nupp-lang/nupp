@@ -416,8 +416,8 @@ function gen.generate(
     local needsNewTab = false
     local needsClearTab = false
     local needsCloneTab = false
-    local needsBuffer = false
-    local bufferName
+    local compilerModules: {[string]: string} = {}
+    local compilerModuleOrder: {string} = {}
     local needsLayout = false
     local layoutName
     local needsSuspension = false
@@ -458,9 +458,21 @@ function gen.generate(
         return nextTemp()
     end
 
-    -- The `string.buffer` binding OPT-5 appends through, bound once per module like the
-    -- table intrinsics beside it. Reserved rather than assumed, so a user local called
-    -- `__nuppBuffer` does not collide with it.
+    -- A module projected through a builtin namespace is required once per generated
+    -- module. Reserved rather than assumed, so a user local with the preferred name
+    -- does not collide with it. OPT-5 reaches string.buffer through the same registry.
+
+    local function compilerModuleName(moduleName: string): string
+        local name = compilerModules[moduleName]
+        if not name then
+            local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
+            name = reservedName(preferred)
+            compilerModules[moduleName] = name
+            compilerModuleOrder[#compilerModuleOrder + 1] = moduleName
+        end
+
+        return name as string
+    end
 
     local function metatypeHelper()
         needsMetatypeOnce = true
@@ -469,9 +481,7 @@ function gen.generate(
     end
 
     local function concatBufferName()
-        needsBuffer = true
-        bufferName = bufferName or reservedName("__nuppBuffer")
-        return bufferName
+        return compilerModuleName("string.buffer")
     end
 
     -- The suspension runtime, bound once per module that installs a handler, the way
@@ -2545,11 +2555,10 @@ function gen.generate(
             e(")")
             return
 
-        elseif kind == "name" and x.bufferIntrinsic then
-            -- The module the checker resolved this name to, bound once per generated
-            -- module. `OPT-5` shares the same binding, so a file that both writes
-            -- `buffer` and has an accumulator lowered requires string.buffer once.
-            e(concatBufferName(), sourceLine(x))
+        elseif kind == "dotIndex" and x.compilerModule then
+            -- The module the checker projected through a builtin namespace. OPT-5
+            -- shares this binding when the module is string.buffer.
+            e(compilerModuleName(x.compilerModule), sourceLine(x))
 
         elseif kind == "localStmt" and x.concatBuffer then
             -- The accumulator keeps its declaration, so anything reading it after the
@@ -2777,8 +2786,8 @@ function gen.generate(
     if needsSuspension then
         code = ("const %s = require(\"nupp.suspension\"); "):format(suspensionName) .. code
     end
-    if needsBuffer then
-        code = ("const %s = require(\"string.buffer\"); "):format(bufferName) .. code
+    for _, moduleName in ipairs(compilerModuleOrder) do
+        code = ("const %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
     end
     if needsFfi then
         -- joins line 1 without adding a line (the invariant holds)

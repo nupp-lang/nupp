@@ -20,6 +20,12 @@ local rawType = T.unwrapOwnership
 
 local index = {}
 
+-- Modules projected through builtin namespaces. The source path deliberately lives
+-- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
+-- that table, so codegen replaces the whole expression with a private require binding.
+-- Recognition by the root's definition leaves a locally shadowed namespace alone.
+local COMPILER_MODULES: {[string]: string} = {["string.buffer"] = "string.buffer"}
+
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -46,6 +52,23 @@ function index.install(c: state.Checker): state.ExprHandlers
         if target.kind == "name" then
             local holderTok = target.token
             holderName = holderTok and holderTok.text or ""
+        end
+        if kind == "dotIndex" and not node.writeContext then
+            local sourcePath = holderName ~= "" and holderName .. "." .. memberName or ""
+            local moduleName = COMPILER_MODULES[sourcePath]
+            local holder = moduleName and c.lookupEntry(holderName) or nil
+            local builtin = moduleName and c.env and c.env.globals and c.env.globals[holderName] or nil
+            if holder and builtin and holder.definition == builtin.definition and c.env and c.env.resolveModule then
+                local moduleType = c.env.resolveModule(c.env, moduleName)
+                if moduleType then
+                    c.infer(target)
+                    node.compilerModule = moduleName
+                    node.immutablePath = true
+                    node.resolvedType = moduleType
+                    c.markToken(member, nil, moduleType, "property")
+                    return moduleType
+                end
+            end
         end
         if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
             return c.cNamespaceType()

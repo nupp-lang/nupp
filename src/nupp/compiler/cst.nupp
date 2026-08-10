@@ -75,9 +75,9 @@ interface cst.Hints
     --- A string accumulator lowered to a `string.buffer` by `OPT-5`.
     concatBuffer: any
 
-    --- A bare `buffer` the checker resolved to the string.buffer module, which codegen
-    --- emits as the binding it requires once per module.
-    bufferIntrinsic: boolean?
+    --- A builtin namespace path the checker resolved to a module, which codegen emits
+    --- as a private require binding once per generated module.
+    compilerModule: string?
 
     --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type spec,
     --- and the nested struct ctypes the spec's `$` placeholders consume.
