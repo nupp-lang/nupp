@@ -1,7 +1,7 @@
 # Installation
 
 Nupp is written in Nupp. A checkout carries a stage-0 compiler already lowered
-to Lua, so building the real one takes a LuaJIT and nothing else.
+to Lua, so building the real one takes a LuaJIT and a Rust toolchain.
 
 ## What you need
 
@@ -12,6 +12,12 @@ build carrying those extensions. `bin/nupp` reads `luajit -v` and says which
 build is wanted, so an older interpreter fails with a sentence instead of a
 syntax error on a line nobody wrote.
 
+**A Rust toolchain, with Cargo.** The compiler lists its own sources through
+[`nupp.io.files`](../files.md), which a native provider implements, so
+`bin/nupp` builds that provider before stage 0 needs it. `nupp --help` and
+`nupp <command> --help` work without one, because they read no source file;
+everything else stops with a sentence naming the reason.
+
 Everything else is optional and buys one feature each:
 
 ```
@@ -20,12 +26,11 @@ Everything else is optional and buys one feature each:
  lua-cjson      --json output and the LSP server  luarocks install
  lunamark       nupp doc                          nupp doc
  Scintillua     highlighting in generated sites   nupp doc
- Rust toolchain building the binary host stub     rustup
 ```
 
-That table is about a **checkout**. A stamped binary carries all three of the
-first ones already — see [the binary](#a-self-contained-binary) — and needs
-nothing installed to check, compile, run or document a project.
+That table is about a **checkout**. A stamped binary carries all three already
+(see [the binary](#a-self-contained-binary)) and needs nothing installed to
+check, compile, run or document a project.
 
 ## From a checkout
 

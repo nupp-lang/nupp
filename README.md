@@ -7,7 +7,8 @@ Nupp is a gradually typed superset of LuaJIT's Lua dialect, implementing every
 adding to them rather than subtracting
 ([docs/grammar.abnf](docs/grammar.abnf)). Most of that syntax is written
 straight through to the output, because LuaJIT 2.1 backported it; generated
-code needs LuaJIT 2.1.1784535649 or newer. Unlike every existing typed Lua, its
+code needs LuaJIT 2.1.1784535649 or newer. Building Nupp also needs a Rust
+toolchain: see [Requirements](#requirements). Unlike every existing typed Lua, its
 types are not always erased: `struct` declarations lower to FFI cdata (fixed
 layout, no hash lookups) and C headers import as typed declarations. Owned C
 resources are affine: `@owned(...)` records deterministic cleanup obligations,
@@ -40,6 +41,20 @@ default `@drop` operations, affine records, checked owned/borrowed C output
 parameters, parameter-effect inference, and raw coroutine suspension. See
 [docs/ownership.md](docs/ownership.md) for the complete contract reference and
 [plans/plan.md](plans/plan.md) for the broader roadmap.
+
+## Requirements
+
+LuaJIT 2.1.1784535649 or newer, and a Rust toolchain with Cargo.
+
+Cargo is not optional. The compiler lists its own sources through
+[`nupp.io.files`](docs/files.md), and that facility is implemented in
+`runtime/native`, so the first thing `./bin/nupp` does in a fresh checkout is
+build it. `nupp --help` and `nupp <command> --help` still work without it,
+because they read no source file; everything else stops with a message naming
+the reason rather than a loader traceback.
+
+An application you build with Nupp needs Cargo only when it reaches a facility
+that has a native provider. That has not changed, and most programs need none.
 
     nupp ast [--json] <file>    dump an indented parsed syntax tree
     nupp check [file...]        check files, or the manifest project graph
