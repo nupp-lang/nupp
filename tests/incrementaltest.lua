@@ -291,6 +291,30 @@ function M.removingGlobalOverlayInvalidatesDependents()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.bundledModuleTypesResolveThroughTheIncrementalGraph()
+   local dir = os.tmpname()
+   os.remove(dir)
+   os.execute("mkdir -p '" .. dir .. "'")
+   local path = dir .. "/main.nupp"
+   local file = assert(io.open(path, "wb"))
+   file:write(table.concat({
+      [[local buffer = require("string.buffer")]],
+      "local record Thing",
+      "   buf: buffer.Buffer",
+      "end",
+      "local thing = new Thing {buf = buffer.new()}",
+      "return thing.buf:tostring()",
+   }, "\n"))
+   file:close()
+
+   local inc = incremental.new(dir, {cache = false})
+   local result = inc.checkFile(path)
+   assertEq(#result.diags, 0,
+      "bundled type exports survive an earlier value-side lookup")
+
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A bundled module is loaded when something asks for it. Together they cost
 -- about as much as the prelude, and a file that does not require `ffi` is not
 -- made any more correct by the compiler having worked out what `ffi` would

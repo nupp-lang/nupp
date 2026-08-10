@@ -323,7 +323,11 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     q:define("moduleExports", function(self, name)
         local path = modulePath(self, name)
         if not path then
-            return nil
+            -- Type-side lookups need the bundled declaration's exports just as the
+            -- value side above needs its interface. Project files still shadow the
+            -- declaration because this fallback is reached only when no path won.
+            local bundled = env.bundled and env.bundled[name]
+            return bundled and bundled.exports or nil
         end
         local r = self:get("checkModule", path)
 

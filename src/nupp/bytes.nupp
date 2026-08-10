@@ -1,0 +1,309 @@
+--[[
+Typed binary reads and writes over a string.buffer.Buffer.
+
+A Buffer already moves raw bytes with put/get and reserve/commit/ref; Reader and
+Writer add the missing piece, a sized integer or float landing on those bytes
+without hand-rolling the ffi.cast each time.
+
+Both read and write host-endian, the same as every other cast in this codebase
+(nupp.compiler.build.hash): LuaJIT itself only ships little-endian, so that is
+the honest default. A format that has to be byte-order-fixed casts and swaps
+explicitly; this module carries no LE/BE variants until something needs one.
+
+A short read raises, matching Buffer:get. Buffer:skip is the one method that
+clamps instead of raising, and Reader does not inherit that.
+]]
+
+local bytes = {}
+
+local function needBytes(avail: uint64, need: integer): nil
+    if avail < (need as uint64) then
+        error(("bytes.Reader: need %d bytes, have %d"):format(need, avail))
+    end
+end
+
+--- A cursor for typed reads over a buffer's unconsumed data. Consumes as it reads, the
+--- same direction as Buffer:get.
+record bytes.Reader
+    buf: string.buffer.Buffer
+end
+
+--- Wraps `data` for typed reads.
+---
+--- A string is copied into a fresh buffer. Passing an existing buffer instead lets a
+--- caller mix `buf:get(...)` and `reader:readInt32()` over the same bytes.
+---
+--- @export
+--- @param data the bytes to read, or the buffer to read from
+--- @return the reader
+function bytes.newReader(data: string | string.buffer.Buffer): bytes.Reader
+    local buf: string.buffer.Buffer
+    if type(data) == "string" then
+        buf = string.buffer.new():set(data as string)
+    else
+        buf = data as string.buffer.Buffer
+    end
+
+    return new bytes.Reader {buf = buf}
+end
+
+--- How many unread bytes remain.
+function bytes.Reader:remaining(): integer
+    return #self.buf as integer
+end
+
+--- Discards `n` unread bytes. Raises if fewer remain.
+function bytes.Reader:skip(n: integer): bytes.Reader
+    local _, avail = self.buf:ref()
+    needBytes(avail, n)
+    self.buf:skip(n)
+
+    return self
+end
+
+--- Reads `n` raw bytes. Raises if fewer remain.
+function bytes.Reader:readBytes(n: integer): string
+    local _, avail = self.buf:ref()
+    needBytes(avail, n)
+
+    return self.buf:get(n)
+end
+
+--- Reads one unsigned byte.
+function bytes.Reader:readUint8(): uint8
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 1)
+    local view = ffi.cast<uint8[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(1)
+
+    return v
+end
+
+--- Reads one signed byte.
+function bytes.Reader:readInt8(): int8
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 1)
+    local view = ffi.cast<int8[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(1)
+
+    return v
+end
+
+--- Reads a host-endian unsigned 16-bit integer.
+function bytes.Reader:readUint16(): uint16
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 2)
+    local view = ffi.cast<uint16[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(2)
+
+    return v
+end
+
+--- Reads a host-endian signed 16-bit integer.
+function bytes.Reader:readInt16(): int16
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 2)
+    local view = ffi.cast<int16[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(2)
+
+    return v
+end
+
+--- Reads a host-endian unsigned 32-bit integer.
+function bytes.Reader:readUint32(): uint32
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 4)
+    local view = ffi.cast<uint32[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(4)
+
+    return v
+end
+
+--- Reads a host-endian signed 32-bit integer.
+function bytes.Reader:readInt32(): int32
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 4)
+    local view = ffi.cast<int32[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(4)
+
+    return v
+end
+
+--- Reads a host-endian unsigned 64-bit integer.
+function bytes.Reader:readUint64(): uint64
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 8)
+    local view = ffi.cast<uint64[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(8)
+
+    return v
+end
+
+--- Reads a host-endian signed 64-bit integer.
+function bytes.Reader:readInt64(): int64
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 8)
+    local view = ffi.cast<int64[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(8)
+
+    return v
+end
+
+--- Reads a host-endian 32-bit float.
+function bytes.Reader:readFloat32(): float
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 4)
+    local view = ffi.cast<float[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(4)
+
+    return v
+end
+
+--- Reads a host-endian 64-bit float.
+function bytes.Reader:readFloat64(): number
+    local ptr, avail = self.buf:ref()
+    needBytes(avail, 8)
+    local view = ffi.cast<number[?]>(ptr)
+    local v = view[0]
+    self.buf:skip(8)
+
+    return v
+end
+
+--- A cursor for typed writes, appending to a buffer.
+record bytes.Writer
+    buf: string.buffer.Buffer
+end
+
+--- Wraps `buf` for typed writes, or starts a fresh buffer when omitted.
+---
+--- @export
+--- @param buf the buffer to append to
+--- @return the writer
+function bytes.newWriter(buf: string.buffer.Buffer?): bytes.Writer
+    return new bytes.Writer {buf = buf or string.buffer.new()}
+end
+
+--- Appends `s` unchanged.
+function bytes.Writer:writeBytes(s: string): bytes.Writer
+    self.buf:put(s)
+
+    return self
+end
+
+--- Writes one unsigned byte.
+function bytes.Writer:writeUint8(v: uint8): bytes.Writer
+    local ptr = self.buf:reserve(1)
+    local view = ffi.cast<uint8[?]>(ptr)
+    view[0] = v
+    self.buf:commit(1)
+
+    return self
+end
+
+--- Writes one signed byte.
+function bytes.Writer:writeInt8(v: int8): bytes.Writer
+    local ptr = self.buf:reserve(1)
+    local view = ffi.cast<int8[?]>(ptr)
+    view[0] = v
+    self.buf:commit(1)
+
+    return self
+end
+
+--- Writes a host-endian unsigned 16-bit integer.
+function bytes.Writer:writeUint16(v: uint16): bytes.Writer
+    local ptr = self.buf:reserve(2)
+    local view = ffi.cast<uint16[?]>(ptr)
+    view[0] = v
+    self.buf:commit(2)
+
+    return self
+end
+
+--- Writes a host-endian signed 16-bit integer.
+function bytes.Writer:writeInt16(v: int16): bytes.Writer
+    local ptr = self.buf:reserve(2)
+    local view = ffi.cast<int16[?]>(ptr)
+    view[0] = v
+    self.buf:commit(2)
+
+    return self
+end
+
+--- Writes a host-endian unsigned 32-bit integer.
+function bytes.Writer:writeUint32(v: uint32): bytes.Writer
+    local ptr = self.buf:reserve(4)
+    local view = ffi.cast<uint32[?]>(ptr)
+    view[0] = v
+    self.buf:commit(4)
+
+    return self
+end
+
+--- Writes a host-endian signed 32-bit integer.
+function bytes.Writer:writeInt32(v: int32): bytes.Writer
+    local ptr = self.buf:reserve(4)
+    local view = ffi.cast<int32[?]>(ptr)
+    view[0] = v
+    self.buf:commit(4)
+
+    return self
+end
+
+--- Writes a host-endian unsigned 64-bit integer.
+function bytes.Writer:writeUint64(v: uint64): bytes.Writer
+    local ptr = self.buf:reserve(8)
+    local view = ffi.cast<uint64[?]>(ptr)
+    view[0] = v
+    self.buf:commit(8)
+
+    return self
+end
+
+--- Writes a host-endian signed 64-bit integer.
+function bytes.Writer:writeInt64(v: int64): bytes.Writer
+    local ptr = self.buf:reserve(8)
+    local view = ffi.cast<int64[?]>(ptr)
+    view[0] = v
+    self.buf:commit(8)
+
+    return self
+end
+
+--- Writes a host-endian 32-bit float.
+function bytes.Writer:writeFloat32(v: float): bytes.Writer
+    local ptr = self.buf:reserve(4)
+    local view = ffi.cast<float[?]>(ptr)
+    view[0] = v
+    self.buf:commit(4)
+
+    return self
+end
+
+--- Writes a host-endian 64-bit float.
+function bytes.Writer:writeFloat64(v: number): bytes.Writer
+    local ptr = self.buf:reserve(8)
+    local view = ffi.cast<number[?]>(ptr)
+    view[0] = v
+    self.buf:commit(8)
+
+    return self
+end
+
+--- The buffer being written to, for `:tostring()`, passing to a C call, or handing off
+--- to `bytes.newReader`.
+function bytes.Writer:buffer(): string.buffer.Buffer
+    return self.buf
+end
+
+return bytes
