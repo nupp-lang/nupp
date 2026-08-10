@@ -11,6 +11,10 @@ work makes sense in.
       the rest is below. Reach for it for a program that needs a generated
       table, not for one that wants a constant: those keep turning out to have
       cheaper answers, `OPT-3` having since taken `//` and the bit operators.
+  - [ ] Materialization M0: run the standalone handwritten specialized PEG and
+        pure-Lua reference-machine benchmark now. It has no comptime milestone
+        prerequisite. Record workloads and numeric margins before measuring;
+        delete the specialized-backend milestone if it misses that margin.
   - [ ] C2a: immutable `reflect(T)` descriptors over the checker's full
         structural vocabulary; semantic type fingerprints and module interface
         dependencies. Target-independent and blocked on nothing. Shared with a
@@ -38,6 +42,9 @@ work makes sense in.
         provider and the proof that the common layer is not PEG-shaped. No
         user-defined materializers, code AST, source splicing or generated
         declarations.
+        Order the work as C4's worker floor, then M1–M3; M4 additionally needs
+        C3, then M5 and the M0-approved M6. C2a and M3 unlock the field-codec
+        provider M7. C2a does not block PEG.
 - [ ] **Suspension** ([design](suspension.md)): waiting as a checked, handled
       effect. One call site parks under a scheduler and blocks without one, so
       a library that waits works inside a game frame and inside a CLI without

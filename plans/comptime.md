@@ -354,6 +354,13 @@ materializer table. The provider finalizes the live opaque value into a
 canonical, acyclic blueprint in the evaluator worker and serializes it as one
 runtime expression during generation.
 
+The provider defines a partial type-level relation from its closed opaque
+result family to accepted explicit runtime types. This is not subtyping or a
+general conversion; the checker makes the expression's runtime type exactly
+the written expected type only when that relation succeeds. The formal rules
+and no-slot/factory distinction are specified in
+[materialization.md](materialization.md#the-materialization-relation).
+
 This is not a general escape from quotability. User types cannot register a
 provider; a block cannot return source, syntax, declarations or a runtime
 binding; and removing the explicit runtime type produces a diagnostic rather
@@ -567,6 +574,7 @@ fileText(path)
          -> evalComptime(request fingerprint)
          -> quotable result: attach and typecheck a synthetic literal
          -> opaque result: validate its explicit materialization relation
+                           and lower under the active build context
     -> moduleInterface(name)
     -> generate checked CST
 ```
@@ -603,7 +611,10 @@ A compiler-owned opaque result follows the separate
 [materialization](materialization.md) path. The checker requires a directly
 declared expected runtime type, selects a provider by resolved identity, and
 validates the finalized blueprint's result and action-slot relation. It does
-not construct a synthetic function or declaration during checking.
+not construct a synthetic function or declaration during checking. Check and
+build run the same target- and optimization-keyed lowering query; check discards
+the output, while build may reuse it. Thus checking cannot accept a blueprint
+whose backend or generated expression fails only when build reaches it.
 
 ### Generator and line numbers
 

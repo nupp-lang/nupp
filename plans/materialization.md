@@ -80,8 +80,9 @@ The initial and acceptance cases are:
   it without linking LPeg.
 - **Type-directed codecs.** A descriptor built from `reflect(T)` becomes a
   typed encoder/decoder or field projection. The real acceptance workload is
-  the source-generating field codec described in `plans/layout.md`, not a toy
-  derive invented for this feature.
+  the keyed codec `fieldcodec.tl` builds through `load()` at run time from a
+  table component's declared `fields`. It is not a C-layout codec and does not
+  replace the struct size and fingerprint work in `plans/layout.md`.
 
 Other plausible providers include finite state machines, declarative command
 parsers, binary layouts and protocol validators. None is admitted merely
@@ -108,17 +109,23 @@ the expression:
 
 ```nupp
 const Identifier: nupp.peg.Matcher<integer> = comptime do
-    const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
-    const tail = head + nupp.peg.range("09")
-    return nupp.peg.compile(head * tail^0)
+    const head = nupp.peg.choice(
+        nupp.peg.range("az", "AZ"),
+        nupp.peg.literal("_")
+    )
+    const tail = nupp.peg.choice(head, nupp.peg.range("09"))
+    return nupp.peg.compile(
+        nupp.peg.sequence(head, nupp.peg.zeroOrMore(tail))
+    )
 end
 ```
 
 The checker resolves `nupp.peg.Matcher<integer>` before evaluating the block.
-The block itself returns a comptime-only `nupp.peg.Blueprint<integer, nil>`.
-The PEG provider declares the materialization relation between those types.
-The expression's runtime type is the written `Matcher<integer>`, and generated
-Lua constructs that value directly.
+The block itself returns a comptime-only `nupp.peg.Blueprint<integer>`. The
+expression's runtime type is the written `Matcher<integer>`, and generated Lua
+constructs that value directly. A blueprint with runtime inputs has the
+distinct type `nupp.peg.FactoryBlueprint<R, S>`; `nil` is not used to mean an
+empty slot set.
 
 The expected type must be attached directly to the declaration or field whose
 initializer is the block. These do not select a provider:
@@ -150,7 +157,9 @@ end
 
 const buildNumber:
         function(NumberActions): nupp.peg.Matcher<number> = comptime do
-    const digits = nupp.peg.capture(nupp.peg.range("09")^1)
+    const digits = nupp.peg.capture(
+        nupp.peg.oneOrMore(nupp.peg.range("09"))
+    )
     return nupp.peg.compile(digits:action("number"))
 end
 
@@ -161,12 +170,39 @@ const Number = buildNumber(new NumberActions {
 })
 ```
 
-The provider accepts two declared shapes initially:
+### The materialization relation
 
-- `R`, where the blueprint needs no runtime slots and materializes directly as
-  `R`;
-- `function(A): R`, where `A` is a record and the blueprint's named slots are
-  exactly the fields of `A`, with compatible parameter and result types.
+The checker learns one new kind of type relation. It is a provider-owned,
+partial type-level function over a closed opaque result type `O` and the
+directly declared expected runtime type `E`:
+
+```text
+materialization(O, E) -> accepted bindings | mismatch
+```
+
+It is not subtyping and does not add a general conversion. After typechecking
+the block and resolving the written expected type, the checker asks the one
+provider registered for the resolved nominal roots of `O` and `E`. Acceptance
+makes the comptime expression's runtime type exactly `E`; mismatch is reported
+at that explicit boundary. Provider selection and this relation run before
+evaluation only as far as needed to establish that an opaque result family is
+possible, then validate its finalized result and slot schema afterward.
+
+PEG declares exactly these relations initially:
+
+```text
+Blueprint<R> -> Matcher<R>
+
+FactoryBlueprint<R, S> -> function(A): Matcher<R>
+    when A is a resolved nominal record
+    and fields(A) are exactly slots(S), by name and function type
+```
+
+`S` is the blueprint's immutable slot schema, not a runtime table. Result type
+arguments must be identical after ordinary type resolution; this relation does
+not widen `R` or infer it from `E`. Slot compatibility uses the normal function
+assignment rule, including parameter and result packs, after exact field-name
+equality has established which declarations correspond.
 
 The generated factory binds action fields to locals once and closes over those
 locals. Matching pays the callback call, not a table lookup on every action.
@@ -210,10 +246,26 @@ grammars therefore remain graphs while they are assembled. They do not weaken
 the ordinary rule that a quoted table cannot contain sharing or cycles.
 
 Only direct intrinsic operations can observe or combine an opaque value. For a
-PEG pattern those include constructors, methods and the checked operators the
-prelude declares. An arbitrary table cannot forge one, and `tostring`, `pairs`,
-equality against an unrelated handle, serialization and runtime escape are
-unavailable unless the provider specifies them.
+PEG pattern those initially include constructors and methods. An arbitrary
+table cannot forge one, and `tostring`, `pairs`, equality against an unrelated
+handle, serialization and runtime escape are unavailable unless the provider
+specifies them.
+
+The implementation keeps opaque payloads in a private evaluator registry keyed
+by fresh handle identity. The handle's Lua table, if a table is used as the
+implementation box, carries neither the payload nor a public tag; only registry
+membership makes it opaque. Every evaluator operation and result path tests
+that membership before ordinary Lua dispatch, table traversal, metatable checks
+or quotability. Returning a handle without a selected materialization boundary
+therefore reports an opaque-value/materialization diagnostic, never NUPP2413's
+complaint about a table with a metatable. User code cannot reach the registry or
+manufacture an existing identity.
+
+Operator sugar is not part of the opaque-value floor. M4 may add PEG's `+`,
+`*`, `^` and unary operators only after the checker declares their typed
+contracts and the evaluator dispatches the resolved compiler-owned operation
+directly. It does not enable general Lua metamethod dispatch at comptime, and
+ordinary quoted tables with metatables remain NUPP2413.
 
 Reusable `@comptime` functions may accept and return opaque values. File-local
 helpers are enough for the first implementation; cross-module comptime helpers
@@ -271,7 +323,7 @@ The registry is a static compiler table. A registration contains:
 ```text
 provider id and schema version
 opaque comptime result types
-accepted explicit runtime type families
+materialization-relation implementation
 payload validator and fingerprint version
 reference backend, when the provider has one
 specialized backend, when justified
@@ -325,11 +377,13 @@ This preserves the line-count invariant and requires no source map. A runtime
 failure in generated machinery points at the materialization expression;
 callbacks passed through a factory retain their own ordinary source locations.
 
-Every provider has generated source and per-function size limits below the
-LuaJIT parser and bytecode limits. A large value may split work among nested
-private closures while remaining one logical source line. A value that still
-exceeds a limit is rejected with its blueprint size and the provider-specific
-way to divide it.
+Every provider has generated-source and per-function bytecode limits below the
+LuaJIT parser and bytecode ceilings. Generated functions also stay below
+LuaJIT's hard limits of 200 local variables and 60 upvalues. The expression IR
+renderer splits a large value among nested private closures before it reaches
+any of those limits while keeping one logical source line. A value that still
+exceeds a provider's lower declared cap is rejected with its blueprint size,
+the limit it reached and the provider-specific way to divide it.
 
 ## Provenance and diagnostics
 
@@ -348,13 +402,16 @@ A PEG error can consequently say both where the invalid operation was applied
 and where a surprising child came from:
 
 ```text
-NUPP2417: repetition can match the empty string
+NUPPxxxx: repetition can match the empty string
   grammar.nupp:9:38
       return nupp.peg.compile(head * tail^0)
                                      ^^^^^^
   the repeated pattern is empty when built by
   grammar.nupp:4:14  token(p) -- nupp.peg.space()^0
 ```
+
+`NUPPxxxx` is illustrative. The provider reserves its real code through the
+ordinary diagnostic registry when the diagnostic is implemented.
 
 Provider diagnostics reserve codes through the ordinary registry rather than
 claiming a range in advance. The common layer needs codes for:
@@ -371,12 +428,17 @@ normal `help`, `related`, `docs` and whole-fix structure.
 
 ## Checking, building and tooling
 
-`nupp check` evaluates, finalizes and validates a materializable block because
-its type and diagnostics depend on the result. It does not need to lower the
-runtime-expression IR. `nupp build` selects a backend and performs lowering.
+`nupp check` evaluates, finalizes, validates and lowers a materializable block
+under the selected target and optimization context because emission validity is
+part of whether that program checks. It discards the rendered output. `nupp
+build` uses the same query and may reuse its cached lowering, so a clean check
+cannot later fail merely because build first discovered an unavailable backend,
+an oversized generated function or invalid expression IR. A different target
+or optimization policy is a different query, as it already is for other
+target-sensitive checks.
 
-The LSP uses the same isolated query and never materializes on the protocol
-loop. Hover shows:
+The LSP uses the same isolated evaluation and lowering query for its active
+build context and never materializes on the protocol loop. Hover shows:
 
 - the declared runtime type;
 - provider name and backend-independent blueprint summary;
@@ -451,8 +513,8 @@ A new provider is accepted only with all of the following:
 4. Structural provenance and domain diagnostics.
 5. A typed plan for runtime inputs through a declared factory, or proof that it
    needs none.
-6. Resource bounds for evaluation, payload, generated source and runtime
-   recursion or storage.
+6. Resource bounds for evaluation, payload, generated source, per-function
+   bytecode, locals, upvalues and runtime recursion or storage.
 7. A reference implementation or independent semantic oracle used in tests.
 8. A real repository or validation-target workload.
 9. A benchmark before any specialized backend, with an explicit pass/fail bar.
@@ -507,9 +569,10 @@ capture, action and diagnostic contracts.
 
 ### Specialized backend gate
 
-Before the materialization framework is implemented, hand-write the Lua that a
-specialized backend would emit for representative real patterns and compare it
-with LPeg 1.1.0 and the planned pure-Lua machine. Record separately:
+M0 has no implementation prerequisite and runs now, before the materialization
+framework. Hand-write both the Lua that a specialized backend would emit and a
+small reference-machine prototype for representative real patterns, then
+compare them with LPeg 1.1.0. Record separately:
 
 - construction and first-match time;
 - warm capture-free throughput;
@@ -519,11 +582,13 @@ with LPeg 1.1.0 and the planned pure-Lua machine. Record separately:
 - generated source and LuaJIT bytecode size;
 - bundled artifact dependencies and size.
 
-The primary pass condition is useful pure-Lua bundle performance with no LPeg
-linked, not a universal win over LPeg's tuned C VM. A specialized backend lands
-only if it materially improves a named real workload over the pure-Lua machine
-without an unacceptable size or trace-compiler regression. The measured bar is
-written into the benchmark before implementation starts.
+The primary acceptance condition for the reference machine is useful pure-Lua
+bundle performance with no LPeg linked, not a universal win over LPeg's tuned C
+VM. The specialized prototype has a separate, numeric improvement margin over
+that machine for named workloads, with source-size, bytecode-size and
+trace-compiler caps. The benchmark records workloads and every threshold before
+results are measured. If the handwritten specializer misses that margin, M6 is
+deleted from this plan rather than deferred.
 
 Likely specializations include literal fusion, byte-class comparison or lookup
 selection, FIRST-byte choice dispatch, tight spans, tail-rule elimination and
@@ -533,13 +598,15 @@ the benchmark records them.
 ## Second proving case: type-directed field codecs
 
 The second provider consumes immutable `TypeInfo` rather than a PEG graph. Its
-acceptance case is the tecs field codec described in `plans/layout.md`, which
-currently generates Lua source at run time from declared component fields.
+acceptance case is the keyed table-component codec `fieldcodec.tl` builds with
+runtime `load()` from each component's declared `fields`, as described in
+`plans/layout.md`.
 
 The first reachable slice need not design a serialization framework. It can
 materialize one narrow, typed field projection or keyed codec whose semantics
-are already exercised by that workload. Struct raw-column encoding remains
-dependent on its layout and ownership contract; record field traversal is
+are already exercised by that workload. This does not replace the struct size
+and fingerprint work in that plan. Struct raw-column encoding remains dependent
+on its layout and ownership contract; keyed record-field traversal is
 target-independent and can land with C2a reflection.
 
 This provider must reuse, unchanged:
@@ -554,6 +621,25 @@ This provider must reuse, unchanged:
 If it requires PEG opcodes, rule concepts or pattern-shaped callbacks in the
 common layer, the layer is wrong and is revised before the provider lands.
 
+## Scheduling and prerequisites
+
+M0 is unblocked today and runs independently of C2a, C3, C4 and every
+materialization milestone. The implementation order is:
+
+```text
+C1 (landed)
+    -> C4 worker floor -> M1 -> M2 -> M3
+                                      -> M4 -> M5 -> M6, only if M0 earned it
+C3 -----------------------------------^
+C2a -------------------------------> M7
+M3 --------------------------------> M7
+```
+
+C3 may proceed in parallel with M1 through M3, but both C3 and M3 are required
+for M4. C2a need not block PEG; it and M3 are required for M7. M8 follows two
+working providers. The rest of C4 may continue after its worker floor without
+blocking provider work that already satisfies that floor.
+
 ## Milestones
 
 ### M0: evidence and two acceptance descriptions
@@ -562,15 +648,19 @@ common layer, the layer is wrong and is revised before the provider lands.
 - Choose the real PEG patterns and bundle target that define success.
 - Write the exact first field-codec acceptance surface against the tecs
   workload, without implementing it.
+- Record all pass margins and size caps before measuring either prototype.
 - Record performance, allocation, generated-size and dependency baselines.
 
-Exit test: the plan names a useful pure-Lua PEG performance bar and a second
-non-PEG output that the same framework can represent.
+Exit test: the committed benchmark is runnable, names its real patterns and
+bundle target, contains numeric thresholds written before its measurements and
+records both prototypes' results. It makes an explicit keep/delete decision for
+M6. If the specializer misses its recorded margin, this edit deletes M6. The
+field-codec acceptance description names the runtime `load()` path to remove.
 
 ### M1: opaque values and explicit materialization boundaries
 
 - Add nominal compiler-owned opaque values to the comptime evaluator.
-- Permit intrinsic constructors, methods and declared operators on them.
+- Permit intrinsic constructors and methods on them.
 - Carry constructor call-site and comptime-frame provenance.
 - Require a directly declared expected runtime type.
 - Add the closed provider registry and materialization-relation checking.
@@ -580,9 +670,11 @@ Use a compiler-test-only provider to exercise the boundary before a public
 namespace depends on it. This milestone may run against the direct evaluator;
 it deliberately cannot expose a public provider yet.
 
-Exit test: a block can construct, combine and return a cyclic opaque graph;
-ordinary quotable tables retain their current rules; a missing or inferred
-boundary fails locally; no generated code exists yet.
+Exit test: a block can construct, combine through methods and return a cyclic
+opaque graph; a user table cannot forge a handle; ordinary quotable tables
+retain their current rules; a missing or inferred boundary fails locally with
+an opaque/materialization diagnostic rather than NUPP2413; no generated code
+exists yet.
 
 ### M2: finalization, worker protocol and cache cutoff
 
@@ -613,6 +705,8 @@ locations remain invariant; oversized output fails deterministically.
 
 - Add the compiler-owned `nupp.peg` comptime and runtime type surface.
 - Implement the static pattern floor, graph validation and typed results.
+- Add PEG operator sugar with checker-owned type contracts and direct evaluator
+  dispatch for the resolved compiler intrinsic, without general metamethods.
 - Finalize the analyzed graph to a canonical matcher blueprint.
 - Emit the flat program and pure-Lua parsing machine matcher.
 - Differential-test the matcher against LPeg where the surfaces overlap.
@@ -634,7 +728,8 @@ generation.
 
 ### M6: specialized PEG backend, only if earned
 
-- Freeze the benchmark and pass bar from M0.
+- Exist only when M0's handwritten prototype cleared its recorded margin.
+- Keep the frozen benchmark and pass bar from M0.
 - Lower the analyzed blueprint directly to specialized expression IR.
 - Add only the optimizations with a measured case.
 - Differential- and fuzz-test reference and specialized backends.
@@ -642,7 +737,7 @@ generation.
 
 Exit test: the named workload clears the recorded bar, semantic results match
 the reference backend, and worst-case source/bytecode growth stays under the
-declared cap. If it does not clear the bar, M4 remains the shipped design.
+declared cap.
 
 ### M7: second provider
 
@@ -688,15 +783,17 @@ language proposal.
 Every materializer extends these common invariants:
 
 - explicit-boundary positive and negative cases;
+- every declared materialization relation and near-miss;
 - provider selection by resolved identity rather than spelling;
-- opaque-value runtime escape refusal;
+- opaque-value forgery and runtime escape refusal before ordinary table checks;
 - worker finalization and hostile-payload validation;
 - canonical fingerprints across construction order and processes;
 - provenance through loops, helpers and recursion;
 - action-slot name, parameter, result and extra-field checks;
+- check/build lowering agreement for each target and optimization context;
 - line-count and generated-source loadability;
 - backend-independent runtime behavior;
-- generated-size, recursion and resource limits;
+- generated-size, bytecode, local, upvalue, recursion and resource limits;
 - query compute counters for body, type, blueprint and backend changes;
 - LSP cancellation, diagnostics, hover and worker recovery;
 - pure-Lua bundle execution with unavailable native features;
