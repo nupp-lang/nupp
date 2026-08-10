@@ -442,8 +442,7 @@ function gen.generate(
     local withCacheName
     local withCacheSites = 0
     local withStack = {}
-    local emitLoopDepth = 0
-    local emitFunctionDepth = 0
+    local emitDepth = {loop = 0, fn = 0}
     local coverageOn = coverage == true or type(coverage) == "table"
     local coveragePath = coverageOn and (
         type(coverage) == "table" and (coverage as gen.CoverageRequest).path or filename
@@ -984,7 +983,12 @@ function gen.generate(
         return COVERAGE_STATEMENTS[node.kind] == true
     end
 
+    local emitAutomaticBlock
     local function emitChildren(n)
+        if n.kind == "block" and n.automaticOwners and #n.automaticOwners > 0 then
+            emitAutomaticBlock(n)
+            return
+        end
         for _, child in ipairs(n) do
             emit(child)
         end
@@ -1066,17 +1070,199 @@ function gen.generate(
         return found
     end
 
-    local function activeWith()
-        local ctx = withStack[#withStack]
-        if ctx and ctx.functionDepth == emitFunctionDepth then
-            return ctx
+    local function automaticCaptures(block, bindings)
+        local localBindings = {}
+        local firstOffset
+        for _, binding in ipairs(bindings or {}) do
+            localBindings[binding.name and binding.name.definition] = true
+            local offset = binding.name and binding.name.offset
+            if offset and (not firstOffset or offset < firstOffset) then
+                firstOffset = offset
+            end
+        end
+        local captured = false
+        local function walk(node)
+            if captured or not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "name" and node.token and node.token.definition then
+                local definition = node.token.definition
+                local token = definition.token
+                if not localBindings[definition]
+                    and token
+                    and firstOffset
+                    and token.offset < firstOffset
+                    and token.line ~= 0
+                then
+                    captured = true
+                    return
+                end
+            end
+            for _, child in ipairs(node) do
+                walk(child)
+            end
+        end
+        walk(block)
+
+        return captured
+    end
+
+    -- Turns the owner declarations in one lexical block into the same semantic region
+    -- `with` lowers. The checker supplied the exact cleanup entries; this pass never
+    -- guesses from a type name or a method spelling. Activations retain their source
+    -- positions inside the protected body, so staggered acquisitions fuse without
+    -- moving intervening work or extending an inner block's lifetime.
+    emitAutomaticBlock = function(block)
+        local stats = block.stats or {}
+        if block.automaticDirect then
+            for _, stat in ipairs(stats) do
+                emit(stat)
+            end
+            local owner = block.automaticDirect
+            for _, cleanup in ipairs(owner.cleanups or {}) do
+                local call = cleanupCall(cleanup, owner.name)
+                if call then
+                    e(call .. ";", owner.boundary and owner.boundary.line or nil)
+                end
+            end
+            return
+        end
+        local first
+        for index, stat in ipairs(stats) do
+            if stat.automaticOwners and #stat.automaticOwners > 0 then
+                first = index
+                break
+            end
+        end
+        if not first then
+            for _, child in ipairs(block) do
+                emit(child)
+            end
+            return
+        end
+        for index = 1, first - 1 do
+            emit(stats[index])
+        end
+        local bindings, sequence, bodyStats = {}, {}, {}
+        for index = first, #stats do
+            local stat = stats[index]
+            local owners = stat.automaticOwners or {}
+            local ownerCount = 0
+            for j = 1, #(stat.names or {}) do
+                if owners[j] and owners[j].lowerable then
+                    ownerCount = ownerCount + 1
+                end
+            end
+            if stat.kind == "localStmt" and ownerCount > 0 then
+                local group = {}
+                for j = 1, #(stat.names or {}) do
+                    local owner = owners[j]
+                    if owner and owner.lowerable then
+                        local exprs = stat.exprs or {}
+                        local expr = exprs[j] or exprs[#exprs]
+                        local binding = {
+                            kind = "withBinding",
+                            name = stat.names[j],
+                            expr = expr,
+                            declarationIndex = j,
+                            acquiredType = owner.type,
+                            ownerCleanups = owner.cleanups,
+                            automaticOwner = owner,
+                            isConst = stat.isConst,
+                        }
+                        bindings[#bindings + 1] = binding
+                        group[#group + 1] = binding
+                    end
+                end
+                local simple = #(stat.names or {}) == 1 and #(stat.exprs or {}) == 1
+                sequence[#sequence + 1] = simple
+                    and {bindings = group}
+                    or {declaration = stat, bindings = group}
+            else
+                sequence[#sequence + 1] = {stat = stat}
+                bodyStats[#bodyStats + 1] = stat
+            end
+        end
+        if #bindings == 0 then
+            -- The checker keeps unsupported declaration shapes diagnosed rather than
+            -- allowing an owner the generator cannot protect. Reaching this branch is
+            -- therefore recovery-only; preserve the original source emission.
+            for _, item in ipairs(sequence) do emit(item.stat) end
+            return
+        end
+        local body: any = {kind = "block", stats = bodyStats}
+        for _, stat in ipairs(bodyStats) do
+            body[#body + 1] = stat
+        end
+        local region: any = {
+            kind = "withStmt",
+            withTok = bindings[1].name,
+            doTok = bindings[1].name,
+            endTok = cst.lastToken(block),
+            bindings = bindings,
+            body = body,
+            automaticRegion = true,
+            automaticSequence = sequence,
+        }
+        region.automaticComplex = #bindings == 1 and sequence[1] and sequence[1].declaration ~= nil
+        region.capturesEnclosing = automaticCaptures(body, bindings)
+        emit(region)
+    end
+
+    local function activeWith(move)
+        local owner = move and (move.owner or move) or nil
+        for index = #withStack, 1, -1 do
+            local ctx = withStack[index]
+            if ctx.functionDepth == emitDepth.fn then
+                if owner then
+                    local state = ctx.automaticMap and ctx.automaticMap[owner]
+                    if state then
+                        if move.field and state.fields then
+                            return state.fields[move.field]
+                        end
+                        return state.whole
+                    end
+                else
+                    return ctx
+                end
+            elseif not owner then
+                break
+            end
+        end
+
+        return nil
+    end
+
+    local function automaticSlot(move)
+        local owner = move and (move.owner or move) or nil
+        if not owner then return nil end
+        for index = #withStack, 1, -1 do
+            local ctx = withStack[index]
+            if ctx.functionDepth == emitDepth.fn then
+                local state = ctx.automaticMap and ctx.automaticMap[owner]
+                if state then return state.slot end
+            end
         end
 
         return nil
     end
 
     local function emitPackedReturn(ctx, x)
-        e(("return \"return\",%s("):format(withPackName), sourceLine(x))
+        local actives, seen = {}, {}
+        for _, expr in ipairs(x.exprs or {}) do
+            local move = expr.automaticOwnerMove
+            local active = move and activeWith(move) or nil
+            if active and not seen[active] then
+                seen[active] = true
+                actives[#actives + 1] = active
+            end
+        end
+        local packed = #actives > 0 and nextTemp() or nil
+        if packed then
+            e(("do const %s=%s("):format(packed, withPackName), sourceLine(x))
+        else
+            e(("return \"return\",%s("):format(withPackName), sourceLine(x))
+        end
         for j, expr in ipairs(x.exprs or {}) do
             if j > 1 then
                 e(",")
@@ -1084,6 +1270,12 @@ function gen.generate(
             emit(expr)
         end
         e(")")
+        if packed then
+            for _, active in ipairs(actives) do
+                e(("; %s=false"):format(active))
+            end
+            e(("; return \"return\",%s end"):format(packed))
+        end
     end
 
     emit = function(x)
@@ -1104,6 +1296,10 @@ function gen.generate(
         end
 
         local kind = x.kind
+        if kind == "block" and x.automaticOwners and #x.automaticOwners > 0 then
+            emitChildren(x)
+            return
+        end
         if coverageOn and kind == "block" then
             for _, child in ipairs(x) do
                 if coverageStatement(child) then
@@ -1112,6 +1308,23 @@ function gen.generate(
                 emit(child)
             end
             return
+        end
+        if x.automaticOwnerReinit then
+            local active = activeWith(x.automaticOwnerReinit)
+            if active then
+                local reinit = x.automaticOwnerReinit
+                local slot = not reinit.field and automaticSlot(reinit) or nil
+                x.automaticOwnerReinit = nil
+                e("(function(__p) ", sourceLine(x))
+                if slot then
+                    e(slot .. "=__p; ")
+                end
+                e(active .. "=true; return __p end)(")
+                emit(x)
+                e(")")
+                x.automaticOwnerReinit = reinit
+                return
+            end
         end
         if kind == "recordDecl" and x.isAnnotationDefinition then
             -- Annotation schemas are compile-time model metadata, even when written
@@ -1644,7 +1857,7 @@ function gen.generate(
                     names[#names + 1] = p.name.text
                 end
                 e("|" .. table.concat(names, ", ") .. "| ->", line)
-                emitFunctionDepth = emitFunctionDepth + 1
+                emitDepth.fn = emitDepth.fn + 1
                 if x.expr then
                     -- Parentheses force the expression form to return exactly one
                     -- result, as LuaJIT 3.0 specifies it; the 2.1 backport passes a
@@ -1657,7 +1870,7 @@ function gen.generate(
                     emit(x.body)
                     e("end")
                 end
-                emitFunctionDepth = emitFunctionDepth - 1
+                emitDepth.fn = emitDepth.fn - 1
                 return
             end
             local names = {}
@@ -1665,7 +1878,7 @@ function gen.generate(
                 names[#names + 1] = p.namedVararg and "..." or p.name.text
             end
             e("function(" .. table.concat(names, ", ") .. ")", line)
-            emitFunctionDepth = emitFunctionDepth + 1
+            emitDepth.fn = emitDepth.fn + 1
             e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
             if x.expr then
                 -- Parentheses force the expression form to return exactly one result,
@@ -1676,18 +1889,18 @@ function gen.generate(
             else
                 emit(x.body)
             end
-            emitFunctionDepth = emitFunctionDepth - 1
+            emitDepth.fn = emitDepth.fn - 1
             e("end")
 
         elseif kind == "funcbody" and x.varargParam then
-            emitFunctionDepth = emitFunctionDepth + 1
+            emitDepth.fn = emitDepth.fn + 1
             for _, child in ipairs(x) do
                 if child == x.body then
                     e(("const %s = { n = select(\"#\", ...), ... }"):format(x.varargParam.name.text))
                 end
                 emit(child)
             end
-            emitFunctionDepth = emitFunctionDepth - 1
+            emitDepth.fn = emitDepth.fn - 1
 
         elseif kind == "istring" then
             local piecesOpen = false
@@ -1853,6 +2066,11 @@ function gen.generate(
         elseif kind == "call" and x.ownershipIntrinsic then
             local args = x.args and x.args.exprs or {}
             local line = sourceLine(x)
+            local move = args[1] and args[1].automaticOwnerMove or nil
+            local movedActive = move and activeWith(move) or nil
+            if movedActive and (x.ownershipIntrinsic == "dispose" or x.ownershipIntrinsic == "intoRaw") then
+                e(("(function() %s=false; return "):format(movedActive), line)
+            end
             if x.ownershipIntrinsic == "borrow" then
                 if args[1] then
                     emit(args[1])
@@ -1922,6 +2140,9 @@ function gen.generate(
                     e("nil")
                 end
                 e(")")
+            end
+            if movedActive and (x.ownershipIntrinsic == "dispose" or x.ownershipIntrinsic == "intoRaw") then
+                e(" end)()")
             end
             return
 
@@ -2006,17 +2227,73 @@ function gen.generate(
             end
             return
 
+        elseif (kind == "call" or kind == "methodCall")
+            and x.automaticOwnerMoves
+            and not x.resourceAdoptCleanups
+        then
+            -- Evaluate the complete callee/receiver and argument list before ending
+            -- the caller's cleanup responsibility. Once the wrapper body begins the
+            -- callee is about to receive every `takes` value, so a raise belongs to
+            -- the callee's terminal contract rather than this lexical region.
+            local activeNames, seen = {}, {}
+            for _, move in ipairs(x.automaticOwnerMoves or {}) do
+                local activeName = activeWith(move)
+                if activeName and not seen[activeName] then
+                    seen[activeName] = true
+                    activeNames[#activeNames + 1] = activeName
+                end
+            end
+            local callable = nextTemp()
+            e(("(function(%s,...) "):format(callable), sourceLine(x))
+            for _, activeName in ipairs(activeNames) do
+                e(("%s=false; "):format(activeName))
+            end
+            if kind == "methodCall" then
+                e(("return %s:%s(...)"):format(callable, x.overloadMember or x.name.text))
+            else
+                e(("return %s(...)"):format(callable))
+            end
+            e(" end)(")
+            emit(x.obj)
+            local args = x.args
+            local values = args and args.exprs or {}
+            if args and args.table then
+                values = {args.table}
+            end
+            if args and args.string then
+                values = {args.string}
+            end
+            if args and args.loweredArgs then
+                if #args.loweredArgs > 0 then
+                    e(",")
+                    expansion.emitArgs(args)
+                end
+            else
+                for _, value in ipairs(values) do
+                    e(",")
+                    emit(value)
+                end
+            end
+            e(")")
+            return
+
         elseif kind == "methodCall" and x.resourceAdoptCleanups then
             local line = sourceLine(x)
-            emit(x.obj)
-            e(":adopt(", line)
             local args = x.args and x.args.exprs or {}
-            if args[1] then
-                emit(args[1])
-            else
-                e("nil")
+            local activeNames, seen = {}, {}
+            for _, move in ipairs(x.automaticOwnerMoves or {}) do
+                local activeName = activeWith(move)
+                if activeName and not seen[activeName] then
+                    seen[activeName] = true
+                    activeNames[#activeNames + 1] = activeName
+                end
             end
-            e(",function(__p) local __first,__suppressed=nil,0; ")
+            local object, value = nextTemp(), nextTemp()
+            e(("(function(%s,%s) "):format(object, value), line)
+            for _, activeName in ipairs(activeNames) do
+                e(("%s=false; "):format(activeName))
+            end
+            e(("return %s:adopt(%s,function(__p) local __first,__suppressed=nil,0; "):format(object, value))
             for _, cleanup in ipairs(x.resourceAdoptCleanups) do
                 local call = protectedCleanupCall(cleanup, "__p", "pcall")
                 if call then
@@ -2032,6 +2309,15 @@ function gen.generate(
                 .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
                 .. "..\" cleanup failure(s))\",0) else error(__first,0) end end end)"
             )
+            e(" end)(")
+            emit(x.obj)
+            e(",")
+            if args[1] then
+                emit(args[1])
+            else
+                e("nil")
+            end
+            e(")")
             return
 
         elseif kind == "methodCall" and x.overloadMember then
@@ -2104,11 +2390,11 @@ function gen.generate(
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
-            emitFunctionDepth = emitFunctionDepth + 1
+            emitDepth.fn = emitDepth.fn + 1
             if body.body then
                 emit(body.body)
             end
-            emitFunctionDepth = emitFunctionDepth - 1
+            emitDepth.fn = emitDepth.fn - 1
             local endTok
             for j = #body, 1, -1 do
                 local child = body[j]
@@ -2164,11 +2450,11 @@ function gen.generate(
             if body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }"):format(body.varargParam.name.text))
             end
-            emitFunctionDepth = emitFunctionDepth + 1
+            emitDepth.fn = emitDepth.fn + 1
             if body.body then
                 emit(body.body)
             end
-            emitFunctionDepth = emitFunctionDepth - 1
+            emitDepth.fn = emitDepth.fn - 1
             local endTok
             for j = #body, 1, -1 do
                 local child = body[j]
@@ -2206,11 +2492,11 @@ function gen.generate(
             if x.body.varargParam then
                 e(("const %s = { n = select(\"#\", ...), ... }"):format(x.body.varargParam.name.text))
             end
-            emitFunctionDepth = emitFunctionDepth + 1
+            emitDepth.fn = emitDepth.fn + 1
             if x.body.body then
                 emit(x.body.body)
             end
-            emitFunctionDepth = emitFunctionDepth - 1
+            emitDepth.fn = emitDepth.fn - 1
             -- close on the source's own `end` so the line count is unchanged
             local endTok
             for j = #x.body, 1, -1 do
@@ -2279,15 +2565,38 @@ function gen.generate(
             local cleanupError = nextTemp()
             local hasCleanupError = nextTemp()
             local owners = {}
+            local active = {}
+            local fieldActive = {}
+            local fieldActiveOrder = {}
+            local automaticMap = {}
             for j = 1, #(x.bindings or {}) do
                 owners[j] = nextTemp()
+                local automatic = x.bindings[j].automaticOwner
+                if automatic and (automatic.conditional or automatic.moved or automatic.movedFields) then
+                    active[j] = nextTemp()
+                    fieldActive[j] = {}
+                    fieldActiveOrder[j] = {}
+                    for field in pairs(automatic.movedFields or {}) do
+                        fieldActiveOrder[j][#fieldActiveOrder[j] + 1] = field
+                    end
+                    table.sort(fieldActiveOrder[j])
+                    for _, field in ipairs(fieldActiveOrder[j]) do
+                        fieldActive[j][field] = nextTemp()
+                    end
+                    automaticMap[automatic] = {
+                        whole = active[j],
+                        fields = fieldActive[j],
+                        slot = owners[j],
+                    }
+                end
             end
             local variadic = usesVararg(x.body)
             local ctx = {
-                entryLoopDepth = emitLoopDepth,
-                functionDepth = emitFunctionDepth,
+                entryLoopDepth = emitDepth.loop,
+                functionDepth = emitDepth.fn,
                 labels = labelsIn(x.body),
                 gotos = {},
+                automaticMap = automaticMap,
             }
             -- A body that resolves nothing from an enclosing scope produces a region
             -- with no upvalues, so one region can serve every execution. That is what
@@ -2295,7 +2604,10 @@ function gen.generate(
             -- execution is `NYI: bytecode FNEW` and aborts the enclosing trace whether
             -- or not it captures. Acquisition moves out of the protected region because
             -- a lone binding that fails to acquire leaves nothing to clean up.
-            local shared = not x.capturesEnclosing and #(x.bindings or {}) == 1
+            local shared = not x.capturesEnclosing
+                and #(x.bindings or {}) == 1
+                and not active[1]
+                and not x.automaticComplex
             if shared then
                 withCacheSites = withCacheSites + 1
                 local slot = withCacheSites
@@ -2303,7 +2615,15 @@ function gen.generate(
                 local binding = x.bindings[1]
                 e("do const ", x.withTok and x.withTok.line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
+                local move = binding.expr and binding.expr.automaticOwnerMove or nil
+                local movedActive = move and activeWith(move) or nil
+                if movedActive then
+                    e(("(function(__p) %s=false; return __p end)("):format(movedActive))
+                end
                 emit(binding.expr)
+                if movedActive then
+                    e(")")
+                end
                 e(
                     (
                         "; local %s=%s[%d]; if not %s then %s=function(%s%s)"
@@ -2334,20 +2654,174 @@ function gen.generate(
             else
                 e(("do local %s=0; local "):format(count), x.withTok and x.withTok.line or sourceLine(x))
                 e(table.concat(owners, ","))
+                for j = 1, #(x.bindings or {}) do
+                    if active[j] then
+                        e(("; local %s=false"):format(active[j]))
+                    end
+                    for _, field in ipairs(fieldActiveOrder[j] or {}) do
+                        e(("; local %s=false"):format(fieldActive[j][field]))
+                    end
+                end
                 e(
                     (
                         "; const %s,%s,%s=%s(function(%s)"
                     ):format(ok, tag, payload, withGlobals.xpcall, variadic and "..." or "")
                 )
                 withStack[#withStack + 1] = ctx
-                for j, binding in ipairs(x.bindings or {}) do
-                    e(("%s="):format(owners[j]), sourceLine(binding.expr))
-                    emit(binding.expr)
-                    e(("; %s=%d; const %s=%s;"):format(count, j, binding.name.text, owners[j]))
+                local function emitAcquired(binding, expr)
+                    local move = expr and expr.automaticOwnerMove or nil
+                    local movedActive = move and activeWith(move) or nil
+                    if movedActive then
+                        e(("(function(__p) %s=false; return __p end)("):format(movedActive))
+                    end
+                    emit(expr)
+                    if movedActive then
+                        e(")")
+                    end
                 end
-                e("do")
-                if x.body then
-                    emit(x.body)
+                local function activateValue(j, binding, value)
+                    e(("%s="):format(owners[j]), sourceLine(binding.expr))
+                    e(value)
+                    e(("; %s=%d;"):format(count, j))
+                    if active[j] then
+                        e((" %s=true;"):format(active[j]))
+                    end
+                    for _, field in ipairs(fieldActiveOrder[j] or {}) do
+                        e((" %s=true;"):format(fieldActive[j][field]))
+                    end
+                end
+                local function activationCondition(binding)
+                    local alternatives = binding.automaticOwner and binding.automaticOwner.activation or nil
+                    if not alternatives then
+                        return nil
+                    end
+                    local clauses = {}
+                    for _, tests in ipairs(alternatives) do
+                        local parts = {}
+                        for _, test in ipairs(tests) do
+                            local name = binding.automaticOwner.correlation.names[test.index]
+                            local constant = test.constant
+                            local literal = type(constant) == "string" and ("%q"):format(constant)
+                                or constant == nil and "nil"
+                                or tostring(constant)
+                            parts[#parts + 1] = ("%s==%s"):format(name, literal)
+                        end
+                        clauses[#clauses + 1] = "(" .. table.concat(parts, " and ") .. ")"
+                    end
+
+                    return table.concat(clauses, " or ")
+                end
+                local function activate(j, binding, deferName)
+                    local value = nextTemp()
+                    e(("const %s="):format(value), sourceLine(binding.expr))
+                    emitAcquired(binding, binding.expr)
+                    e(";")
+                    activateValue(j, binding, value)
+                    if not deferName then
+                        e((" %s %s=%s;"):format(
+                            binding.isConst and "const" or "local",
+                            binding.name.text,
+                            owners[j]
+                        ))
+                    end
+                end
+                if x.automaticSequence then
+                    local bindingIndex = {}
+                    for j, binding in ipairs(x.bindings or {}) do
+                        bindingIndex[binding] = j
+                    end
+                    e("do")
+                    for _, item in ipairs(x.automaticSequence) do
+                        if item.declaration then
+                            local stat = item.declaration
+                            local names, exprs = stat.names or {}, stat.exprs or {}
+                            local bySlot = {}
+                            for _, binding in ipairs(item.bindings) do
+                                bySlot[binding.declarationIndex] = binding
+                            end
+                            local staged = {}
+                            for exprIndex, expr in ipairs(exprs) do
+                                if exprIndex == #exprs and #names > #exprs then
+                                    local packed = nextTemp()
+                                    e(("const %s=%s("):format(packed, withPackName), sourceLine(expr))
+                                    emitAcquired(bySlot[exprIndex], expr)
+                                    e(");")
+                                    for nameIndex = exprIndex, #names do
+                                        staged[nameIndex] = ("%s[%d]"):format(
+                                            packed,
+                                            nameIndex - exprIndex + 1
+                                        )
+                                    end
+                                else
+                                    local value = nextTemp()
+                                    e(("const %s="):format(value), sourceLine(expr))
+                                    emitAcquired(bySlot[exprIndex], expr)
+                                    e(";")
+                                    staged[exprIndex] = value
+                                end
+                                if exprIndex < #exprs then
+                                    local binding = bySlot[exprIndex]
+                                    if binding then
+                                        activateValue(bindingIndex[binding], binding, staged[exprIndex])
+                                    end
+                                end
+                            end
+                            for nameIndex = #exprs, #names do
+                                local binding = bySlot[nameIndex]
+                                if binding and not binding.automaticOwner.conditional then
+                                    activateValue(bindingIndex[binding], binding, staged[nameIndex])
+                                end
+                            end
+                            e(stat.isConst and " const " or " local ")
+                            for nameIndex, name in ipairs(names) do
+                                if nameIndex > 1 then e(",") end
+                                e(name.text)
+                            end
+                            e("=")
+                            for nameIndex = 1, #names do
+                                if nameIndex > 1 then e(",") end
+                                e(staged[nameIndex] or "nil")
+                            end
+                            e(";")
+                            for _, binding in ipairs(item.bindings) do
+                                if binding.automaticOwner.conditional then
+                                    local j = bindingIndex[binding]
+                                    activateValue(j, binding, staged[binding.declarationIndex])
+                                    if active[j] then
+                                        e((" %s=%s;"):format(
+                                            active[j],
+                                            activationCondition(binding) or "false"
+                                        ))
+                                    end
+                                end
+                            end
+                        elseif item.bindings then
+                            -- Evaluate and register every initializer before exposing
+                            -- any of this declaration's names, matching Lua's local
+                            -- declaration visibility while still protecting a prefix
+                            -- when a later initializer raises.
+                            for _, binding in ipairs(item.bindings) do
+                                activate(bindingIndex[binding], binding, true)
+                            end
+                            for _, binding in ipairs(item.bindings) do
+                                e((" %s %s=%s;"):format(
+                                    binding.isConst and "const" or "local",
+                                    binding.name.text,
+                                    owners[bindingIndex[binding]]
+                                ))
+                            end
+                        elseif item.stat then
+                            emit(item.stat)
+                        end
+                    end
+                else
+                    for j, binding in ipairs(x.bindings or {}) do
+                        activate(j, binding)
+                    end
+                    e("do")
+                    if x.body then
+                        emit(x.body)
+                    end
                 end
                 e(("end; return \"normal\" end,%s%s);"):format(withIdName, variadic and ",..." or ""))
                 withStack[#withStack] = nil
@@ -2355,8 +2829,33 @@ function gen.generate(
             e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
             for j = #(x.bindings or {}), 1, -1 do
                 local binding = x.bindings[j]
-                e(("if %s>=%d then "):format(count, j))
+                local present = binding.automaticOwner and binding.automaticOwner.optional
+                if active[j] then
+                    e(
+                        ("if %s>=%d and %s%s then "):format(
+                            count,
+                            j,
+                            active[j],
+                            present and (" and " .. owners[j] .. "~=nil") or ""
+                        )
+                    )
+                else
+                    e(
+                        ("if %s>=%d%s then "):format(
+                            count,
+                            j,
+                            present and (" and " .. owners[j] .. "~=nil") or ""
+                        )
+                    )
+                end
                 for _, cleanup in ipairs(binding.ownerCleanups or {}) do
+                    local fieldName = cleanup.kind == "field"
+                        and fieldActive[j]
+                        and fieldActive[j][cleanup.field]
+                        or nil
+                    if fieldName then
+                        e(("if %s then "):format(fieldName))
+                    end
                     local call = protectedCleanupCall(cleanup, owners[j], withGlobals.pcall)
                     if call then
                         local cok, cerr = nextTemp(), nextTemp()
@@ -2366,6 +2865,9 @@ function gen.generate(
                                 " if not %s then %s=%s+1; %s[%s]=%s end;"
                             ):format(cok, hasCleanupError, hasCleanupError, cleanupError, hasCleanupError, cerr)
                         )
+                    end
+                    if fieldName then
+                        e("end;")
                     end
                 end
                 e("end;")
@@ -2448,7 +2950,7 @@ function gen.generate(
 
         elseif (
             kind == "breakStmt" or kind == "continueStmt"
-        ) and activeWith() and emitLoopDepth <= activeWith().entryLoopDepth then
+        ) and activeWith() and emitDepth.loop <= activeWith().entryLoopDepth then
             local completion = kind == "breakStmt" and "break" or "continue"
             activeWith()[completion .. "Exit"] = true
             e(("return %q"):format(completion), sourceLine(x))
@@ -2476,11 +2978,11 @@ function gen.generate(
             for j = 3, #names do
                 e(("local %s=nil;"):format(names[j].text))
             end
-            emitLoopDepth = emitLoopDepth + 1
+            emitDepth.loop = emitDepth.loop + 1
             if x.body then
                 emit(x.body)
             end
-            emitLoopDepth = emitLoopDepth - 1
+            emitDepth.loop = emitDepth.loop - 1
             local endTok
             for j = #x, 1, -1 do
                 local child = x[j]
@@ -2496,9 +2998,9 @@ function gen.generate(
             local lastLine = nil
             for _, child in ipairs(x) do
                 if child == x.body then
-                    emitLoopDepth = emitLoopDepth + 1
+                    emitDepth.loop = emitDepth.loop + 1
                     emit(child)
-                    emitLoopDepth = emitLoopDepth - 1
+                    emitDepth.loop = emitDepth.loop - 1
                 else
                     emit(child)
                 end
@@ -2511,7 +3013,7 @@ function gen.generate(
             finishConcatBuffer(x, lastLine)
 
         elseif kind == "funcbody" then
-            emitFunctionDepth = emitFunctionDepth + 1
+            emitDepth.fn = emitDepth.fn + 1
             if x.varargParam then
                 for _, child in ipairs(x) do
                     if child == x.body then
@@ -2532,7 +3034,7 @@ function gen.generate(
                     emit(child)
                 end
             end
-            emitFunctionDepth = emitFunctionDepth - 1
+            emitDepth.fn = emitDepth.fn - 1
 
         elseif kind == "pragmaStmt" then
             if x.eraseComptimeFunction then

@@ -151,9 +151,9 @@ return 3
 ]], "assigned and never read afterwards")
 end
 
--- An owned value that goes unread already has a rule with something to say
--- about it, and two reports about one binding is one too many.
-function M.anOwnedValueKeepsItsOwnDiagnostic()
+-- An unread owner still performs meaningful cleanup. It is neither forgotten
+-- ownership nor an unused ordinary value, so both diagnostics stay quiet.
+function M.anAutomaticOwnerIsNotUnused()
    local codes = {}
    for _, diag in ipairs(diagnostics([[
 local record Handle
@@ -177,8 +177,8 @@ return work
 ]])) do
       codes[#codes + 1] = diag.code
    end
-   assertEq(table.concat(codes, " "), "NUPP2603",
-      "the ownership rule reports, and this lint stays quiet")
+   assertEq(table.concat(codes, " "), "",
+      "automatic cleanup is meaningful use and needs no ownership repair")
 end
 
 function M.aDeclarationFileDeclaresWhatLivesElsewhere()

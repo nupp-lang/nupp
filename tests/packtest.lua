@@ -314,7 +314,7 @@ function M.affinePackResultsCannotBeSilentlyDiscarded()
    assertEq(codes(declaration .. "\nmake()"), "NUPP2605")
 end
 
-function M.protectedCallOwnersExistOnlyInTheSuccessArm()
+function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
    local declaration = table.concat({
       "@owned(cleanup = release)",
       "cdef function acquire(): voidptr",
@@ -331,7 +331,7 @@ function M.protectedCallOwnersExistOnlyInTheSuccessArm()
       "if ok then",
       "   print(resource)",
       "end",
-   }, "\n")), "NUPP2603")
+   }, "\n")), "")
 end
 
 function M.genericPackForwardingKeepsBorrowProvenance()
@@ -355,7 +355,7 @@ function M.genericPackForwardingKeepsBorrowProvenance()
       "local view = forward(borrow(owner))",
       "resource_free(owner)",
       "print(view.value)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
    clean(declaration .. "\n" .. table.concat({
       "local owner = resource_new()",
       "do",

@@ -422,6 +422,8 @@ function checkMod.check(
         packTypes = {},
         typeDefs = {},
         pending = {},
+        automaticOwners = {},
+        depth = 0,
         parent = nil
     }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
@@ -556,6 +558,7 @@ function checkMod.check(
             packTypes = {},
             typeDefs = {},
             pending = {},
+            automaticOwners = {},
             parent = c.scope,
             depth = (c.scope and c.scope.depth or 0) + 1
         }
@@ -566,7 +569,9 @@ function checkMod.check(
             local state = entry.ownershipOrigin or entry
             if not entry.ownershipOrigin and ownershipKind and ownershipKind(
                 state.t
-            ) == "owned" and not state.moved then
+            ) == "owned" and not state.moved and not (
+                state.automaticOwner and state.automaticOwner.lowerable
+            ) then
                 c.diag(
                     "NUPP2603",
                     entry.definition and entry.definition.token,
@@ -734,9 +739,7 @@ function checkMod.check(
                 def.kind = kind
             end
         end
-        c.scope.vars[
-            name
-        ] = {
+        local entry = {
             t = t,
             ann = annotated ~= nil and annotated or old and old.ann or false,
             constant = constant == true or (tok == nil and old and old.constant) or false,
@@ -745,6 +748,23 @@ function checkMod.check(
             moved = false,
             functionDepth = c.functionDepth,
         }
+        c.scope.vars[name] = entry
+        -- A visible `takes` body has no producer-specific cleanup witness: its mode
+        -- says responsibility transferred, but its payload type does not say which
+        -- producer supplied the owner. Ordinary locals carry the exact cleanup list
+        -- and can therefore become lexical automatic-cleanup entries.
+        if kind ~= "parameter" and t and t.tag == "owned" and #(t.cleanups or {}) > 0 then
+            local automatic = {
+                name = name,
+                token = tok,
+                entry = entry,
+                cleanups = t.cleanups,
+                optional = own.optionalOwned(t),
+            }
+            entry.automaticOwner = automatic
+            c.scope.automaticOwners = c.scope.automaticOwners or {}
+            c.scope.automaticOwners[#c.scope.automaticOwners + 1] = automatic
+        end
         c.markToken(tok, def, t, def and def.kind or kind)
     end
     c.bindType = function(name, t, tok)
@@ -1398,6 +1418,9 @@ function checkMod.check(
         if not scopeManaged then
             c.pushScope()
         end
+        if block and block.kind == "block" then
+            c.scope.block = block
+        end
         hoistDeclarations(block)
         local stats = block and block.kind == "block" and block.stats or {}
         local wasNext = c.nextStat
@@ -1406,6 +1429,35 @@ function checkMod.check(
             checkStat(stat)
         end
         c.nextStat = wasNext
+        if block and block.kind == "block" and #(c.scope.automaticOwners or {}) > 0 then
+            block.automaticOwners = c.scope.automaticOwners
+            local boundary = cst.lastToken(block)
+            local function cleanupName(cleanup)
+                if cleanup.kind == "function" then
+                    return cleanup.name or cleanup.id
+                elseif cleanup.kind == "method" then
+                    return ":" .. cleanup.name
+                elseif cleanup.kind == "field" then
+                    return cleanup.field .. " -> " .. cleanupName(cleanup.cleanup)
+                end
+                return cleanup.id or cleanup.kind
+            end
+            for _, owner in ipairs(c.scope.automaticOwners) do
+                owner.boundary = boundary
+                local cleanups = {}
+                for _, cleanup in ipairs(owner.cleanups or {}) do
+                    cleanups[#cleanups + 1] = cleanupName(cleanup)
+                end
+                if owner.entry and owner.entry.definition then
+                    owner.entry.definition.automaticCleanup = {
+                        line = boundary and boundary.line or 0,
+                        column = boundary and boundary.col or 0,
+                        cleanups = cleanups,
+                        status = owner.moved and "moved" or "automatic",
+                    }
+                end
+            end
+        end
         if not scopeManaged then
             c.popScope()
         end
@@ -1500,6 +1552,45 @@ function checkMod.check(
     end
 
     local facts = analysis.run(result as nupp.compiler.analysis.Target, c)
+    -- The narrow direct case needs no protected call: the acquisition is the
+    -- block's final statement, there is no live-interval body to raise, and every
+    -- cleanup body is visible and proven non-raising by the same effect summaries
+    -- used elsewhere. Everything less certain keeps the shared protected lowering.
+    local effectQueries = analysis.queries(facts)
+    local function cleanupNonRaising(cleanup): boolean
+        if cleanup.kind == "field" then
+            return cleanupNonRaising(cleanup.cleanup)
+        end
+        if cleanup.kind ~= "function" or not effectQueries then
+            return false
+        end
+        local known = effectQueries.known(cleanup.token)
+        if not known then
+            return false
+        end
+        local visible = effectQueries.visible(known.summary)
+        local free = visible and effectQueries.free(known.summary, {"raises"}) or false
+
+        return free == true
+    end
+    for _, block in ipairs(facts.bodies or {}) do
+        local owners = block.automaticOwners or {}
+        if #owners == 1 then
+            local owner = owners[1]
+            local last = block.stats and block.stats[#block.stats] or nil
+            local direct = owner.lowerable
+                and owner.stat == last
+                and not owner.optional
+                and not owner.moved
+                and owner.movedFields == nil
+            for _, cleanup in ipairs(owner.cleanups or {}) do
+                direct = direct and cleanupNonRaising(cleanup)
+            end
+            if direct then
+                block.automaticDirect = owner
+            end
+        end
+    end
     finalizeBoundary(c)
     -- Both of these needed the whole file before they could answer, so they answer here
     -- and their diagnostics are put back in source order with everything else.

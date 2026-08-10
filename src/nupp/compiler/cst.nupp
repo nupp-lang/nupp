@@ -24,6 +24,20 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- Semantic cleanup entries activated in this lexical block. The checker owns the
+    --- entries; code generation consumes them without rediscovering ownership from
+    --- syntax or payload types.
+    automaticOwners: any
+    automaticDirect: any
+    automaticRegion: boolean?
+    automaticSequence: any
+
+    --- The automatic cleanup entry bound or moved by this node.
+    automaticOwner: any
+    automaticOwnerMove: any
+    automaticOwnerMoves: any
+    automaticOwnerReinit: any
+
     --- A raw memory operation admitted only because it is inside `unsafe do`.
     --- The ownership audit consumes this after checking.
     unsafeOwnershipOperation: string?

@@ -798,10 +798,12 @@ return m
         title = "Owned resources",
         codes = {"NUPP2603", "NUPP2615"},
         body = [=[
-`@owned(cleanup)` says a result carries a cleanup obligation. An owned value must
-be discharged before it leaves scope: disposed, passed to a `takes` parameter,
-returned as an owner, or converted with `intoRaw`. Forgetting is a compile error,
-not a leak.
+`@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local
+with known cleanup is destroyed automatically at its lexical scope boundary.
+Disposing it, passing it to a `takes` parameter, returning it as an owner, or
+converting it with `intoRaw` ends or transfers that responsibility exactly once.
+An opaque or otherwise unresolved owner still requires an explicit terminal;
+forgetting that choice is a compile error, not a leak.
 
 Parameter modes say what a call does with what it is given: `takes` consumes,
 `borrows` does not (and the borrow cannot escape), `exclusive` borrows with no
@@ -865,13 +867,16 @@ return m
         title = "with scopes",
         codes = {"NUPP2610"},
         body = [=[
-`with` is the only place Nupp closes something for you. The resource is released
-when the block ends — on fallthrough, on `return`, on loop control, on a `goto`
-leaving the body, and on an error raised anywhere inside.
+An ordinary locally disposable owner is destroyed automatically at its lexical
+scope boundary unless it was moved, returned, explicitly disposed, or
+transferred. `with` gives an owner a stricter exact extent: the resource is
+released when the block ends — on fallthrough, on `return`, on loop control, on
+a `goto` leaving the body, and on an error raised anywhere inside.
 
 Each acquisition is a single-value context whose first result must be a
 non-optional owner with at least one known cleanup. An optional owner has to be
-narrowed first. Inside the body the binding is a borrow. Several resources may
+narrowed first. Inside the body the binding is a borrow that cannot move or
+escape. Several resources may
 share one scope, separated by commas.
 ]=],
         example = [=[

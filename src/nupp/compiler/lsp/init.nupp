@@ -323,6 +323,17 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
         local name = def and def.name or tok.text
         local prefix = def and def.cdef and "cdef " or def and def.constant and "const " or ""
         local value = "```nupp\n" .. prefix .. name .. ": " .. T.tostring(t) .. "\n```"
+        local automatic = def and def.automaticCleanup
+        if automatic then
+            if automatic.status == "moved" then
+                value = value .. "\n\nOwnership moves before the lexical cleanup boundary."
+            else
+                value = value .. ("\n\nAutomatically destroyed after line %d with `%s`."):format(
+                    automatic.line,
+                    table.concat(automatic.cleanups or {}, "`, then `")
+                )
+            end
+        end
         local docs = documentationFor(def)
         if docs then
             value = value .. "\n\n" .. docs
@@ -383,6 +394,7 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
                 documentation = documentationFor(def),
                 definition = definitionLocation(def),
                 range = tokenRange(doc.text, tok),
+                automaticCleanup = def and def.automaticCleanup or nil,
             }
         )
     end

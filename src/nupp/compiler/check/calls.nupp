@@ -1533,22 +1533,52 @@ function calls.install(c: state.Checker): calls.Ops
                 if withBorrow then
                     c.diag("NUPP2614", argNodes[j], "a visible 'with' borrow cannot be consumed")
                 end
-                if not withBorrow then
+                local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
+                    node.safeObj ~= nil or node.safeMethod ~= nil
+                )
+                if conditional then
+                    c.diag(
+                        "NUPP2602",
+                        argNodes[j] or node,
+                        "a conditional call cannot take ownership; narrow the callee or receiver first"
+                    )
+                elseif not withBorrow then
+                    local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
                     c.moveExpression(
-                        cst.isToken(argNodes[j]) and node or argNodes[j],
+                        movedNode,
                         ats[j],
                         ("argument %d"):format(j)
                     )
+                    if movedNode.automaticOwnerMove then
+                        node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                        node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = movedNode.automaticOwnerMove
+                    end
                 end
             elseif preservationResult then
                 local kind = c.ownershipKind(ats[j])
                 if kind == "owned" or kind == "pinned" then
-                    c.moveExpression(
-                        cst.isToken(argNodes[j]) and node or argNodes[j],
-                        ats[j],
-                        ("argument %d preserved as result %d"):format(j, preservationResult),
-                        kind
+                    local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
+                    local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
+                        node.safeObj ~= nil or node.safeMethod ~= nil
                     )
+                    if conditional then
+                        c.diag(
+                            "NUPP2602",
+                            movedNode,
+                            "a conditional call cannot preserve ownership; narrow the callee or receiver first"
+                        )
+                    else
+                        c.moveExpression(
+                            movedNode,
+                            ats[j],
+                            ("argument %d preserved as result %d"):format(j, preservationResult),
+                            kind
+                        )
+                        if movedNode.automaticOwnerMove then
+                            node.automaticOwnerMoves = node.automaticOwnerMoves or {}
+                            node.automaticOwnerMoves[#node.automaticOwnerMoves + 1] = movedNode.automaticOwnerMove
+                        end
+                    end
                 end
             elseif mode == "scoped" then
                 local callback = rawType(ats[j])

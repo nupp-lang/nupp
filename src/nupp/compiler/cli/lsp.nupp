@@ -193,6 +193,15 @@ local SYMBOL = {
         location = reportMod.LOCATION,
         range = reportMod.RANGE,
         children = {type = "array", items = {["$ref"] = "#/definitions/symbol"}},
+        automaticCleanup = {
+            type = "object",
+            properties = {
+                line = {type = "integer"},
+                column = {type = "integer"},
+                cleanups = {type = "array", items = {type = "string"}},
+                status = {type = "string"},
+            },
+        },
     },
 }
 

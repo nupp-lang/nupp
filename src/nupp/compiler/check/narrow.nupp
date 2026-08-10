@@ -666,7 +666,9 @@ function narrow.install(c: state.Checker): narrow.Ops
                     ownership = conditionalOwnership
                     or entry
                     and entry.ownership
-                    or nil, moved = moved, ownershipOrigin = ownershipOrigin, functionDepth = entry
+                    or nil, moved = moved, ownershipOrigin = ownershipOrigin,
+                    automaticOwner = entry and entry.automaticOwner or nil,
+                    functionDepth = entry
                     and entry.functionDepth
                     or c.functionDepth, threadPhase = entry
                     and entry.threadPhase

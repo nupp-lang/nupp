@@ -1,5 +1,11 @@
 # Explicit resource scopes — design record
 
+> **Ownership-default decision superseded.** The implementation and
+> [automatic-destruction.md](automatic-destruction.md) now make locally
+> disposable ordinary owners destroy automatically at lexical scope exit.
+> This document remains authoritative for `with` as an exact borrowed extent;
+> the decision below records the earlier baseline.
+
 The reference for using `with` is [docs/with.md](../docs/with.md). This file
 records why it is shaped the way it is, what was rejected, and what is
 deferred.

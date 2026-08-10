@@ -1,8 +1,8 @@
 # Automatic destruction for ordinary owners
 
-> **Status: proposed. Not implemented.** This plan reverses the ordinary-local
-> cleanup decision in [with.md](with.md) while preserving `with` itself. Nothing
-> in the language auto-destroys an ordinary owner today.
+> **Status: implemented.** This plan reverses the ordinary-local cleanup
+> decision in [with.md](with.md) while preserving `with` itself. Locally
+> disposable ordinary owners now auto-destroy at lexical scope exit.
 
 ## Decision
 
@@ -114,6 +114,10 @@ protocol transitions rather than for the ordinary case.
   native crash, or deliberate `intoRaw` abandonment.
 - Making arbitrary typestate a destructor problem. Ownership tokens continue
   to represent token-shaped protocol states only.
+- Inferring a producer-specific cleanup witness for a visible `takes`
+  parameter. The erased parameter ABI carries responsibility but not which of
+  several producers supplied the value; such parameters remain explicit
+  terminal consumers unless their contract is extended with a witness.
 
 ## Dependency on ownership hardening
 
@@ -195,10 +199,14 @@ If `configure` raises, this function destroys `file`. If it succeeds, the
 return transfers the exact capability to the caller. Returning a non-owning
 view of `file` remains rejected.
 
-A `takes` parameter is an owner activated at function entry. A visible Nupp
-body may consume, transfer, return under an owning contract, or leave it for
-automatic destruction. A bodyless `takes` declaration continues to state that
-the foreign implementation consumes the argument during the call.
+A `takes` parameter is an owner activated at function entry, but its erased
+payload does not carry the producer-specific cleanup witness needed for an
+automatic fallback. A visible Nupp body must therefore consume, transfer,
+return under an owning contract, or explicitly dispose it through a cleanup
+known to that body. A bodyless `takes` declaration continues to state that the
+foreign implementation consumes the argument during the call. Automatically
+destroying untouched `takes` parameters would require a future hidden witness
+ABI or a type-level destructor and is deliberately not guessed here.
 
 ### Cleanup choice
 
@@ -596,8 +604,9 @@ This stage changes architecture, not language behavior.
 ### AD-S2: Compute automatic cleanup facts
 
 - Mark disposable owners at lexical boundaries instead of reporting them.
-- Cover fallthrough, return, loop control, outward `goto`, and function
-  parameters received with `takes`.
+- Cover fallthrough, return, loop control, and outward `goto`. Keep function
+  parameters received with `takes` explicit until their producer-specific
+  cleanup witness has a representable ABI.
 - Deactivate entries on every existing transfer operation.
 - Support optional owners and partially moved affine records.
 - Keep the feature gated until `AD-S3` handles raised edges.

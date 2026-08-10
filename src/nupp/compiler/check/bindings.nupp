@@ -136,6 +136,15 @@ function bindings.install(c: state.Checker): state.StatHandlers
             c.bindVar(nameTok.text, bound, ann ~= nil, nameTok, nil, stat.isConst)
             local boundEntry = c.scope.vars[nameTok.text]
             local initNode = initializers[j]
+            if boundEntry and boundEntry.automaticOwner then
+                local automatic = boundEntry.automaticOwner
+                automatic.stat = stat
+                automatic.index = j
+                automatic.expr = initNode
+                automatic.type = bound
+                stat.automaticOwners = stat.automaticOwners or {}
+                stat.automaticOwners[j] = automatic
+            end
             if boundEntry and bound.tag == "protocolThread" then
                 if initNode and initNode.coroutineIntrinsic == "create" then
                     boundEntry.threadPhase = "new"
@@ -285,6 +294,16 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 c.unused.declared(nameTok, boundEntry, boundEntry.requiredModule and "require" or "variable")
             end
         end
+        -- A declaration is one acquisition group: Lua evaluates every initializer
+        -- before any of its new names becomes visible. The automatic lowering can
+        -- preserve that rule while registering each successful acquisition. A final
+        -- expanding result is staged as one pack by the generator, so mixed ordinary
+        -- and owning slots retain their correlation too.
+        local automaticOwners = stat.automaticOwners or {}
+        local automaticLowerable = #initializers > 0 and #initializers <= #stat.names
+        for _, automatic in pairs(automaticOwners) do
+            automatic.lowerable = automaticLowerable
+        end
         local exprCount = #initializers
         local expanded = exprCount > 0 and initializers[exprCount] or nil
         local correlated = expanded and expanded.valuePack
@@ -297,6 +316,63 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     entry.packCorrelation = group
                     entry.packCorrelationIndex = index
                     group.names[index] = stat.names[j].text
+                end
+            end
+            -- A correlated slot may be an owner on only some alternatives: `pcall`
+            -- returns an owner only with its true discriminator. Reify that conditional
+            -- capability on the declaration when literal sibling slots distinguish
+            -- every owning arm. The generator activates cleanup only under those same
+            -- literal tests; an indistinguishable pack remains explicitly diagnosed.
+            for resultIndex = 1, #stat.names - exprCount + 1 do
+                local ownedType, activation, compatible = nil, {}, true
+                for _, alternative in ipairs(correlated.alternatives) do
+                    local resultType = alternative.head and alternative.head[resultIndex]
+                    if resultType and ownershipKind(resultType) == "owned" then
+                        if ownedType and ownedType.id ~= resultType.id then
+                            compatible = false
+                            break
+                        end
+                        ownedType = ownedType or resultType
+                        local tests = {}
+                        for slotIndex, slotType in ipairs(alternative.head or {}) do
+                            if slotIndex ~= resultIndex and slotType.tag == "literal" then
+                                tests[#tests + 1] = {
+                                    index = slotIndex,
+                                    constant = slotType.constant,
+                                }
+                            end
+                        end
+                        if #tests == 0 then
+                            compatible = false
+                            break
+                        end
+                        activation[#activation + 1] = tests
+                    end
+                end
+                local nameIndex = exprCount + resultIndex - 1
+                local entry = nameIndex >= 1 and c.lookupEntry(stat.names[nameIndex].text) or nil
+                if compatible and ownedType and entry and not entry.automaticOwner and #(
+                    ownedType.cleanups or {}
+                ) > 0 then
+                    local automatic = {
+                        name = stat.names[nameIndex].text,
+                        token = stat.names[nameIndex],
+                        entry = entry,
+                        cleanups = ownedType.cleanups,
+                        optional = false,
+                        conditional = true,
+                        activation = activation,
+                        correlation = group,
+                        stat = stat,
+                        index = nameIndex,
+                        expr = expanded,
+                        type = ownedType,
+                        lowerable = true,
+                    }
+                    entry.automaticOwner = automatic
+                    c.scope.automaticOwners[#c.scope.automaticOwners + 1] = automatic
+                    stat.automaticOwners = stat.automaticOwners or {}
+                    stat.automaticOwners[nameIndex] = automatic
                 end
             end
         end
@@ -325,6 +401,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 local targetName = targetTok.text
                 local entry = c.lookupEntry(targetName)
                 local entryState = ownershipState(entry)
+                local entryWasMoved = entryState and entryState.moved or false
                 c.markToken(
                     targetTok,
                     entry and entry.definition,
@@ -395,6 +472,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     end
                     if written then
                         moveExpression(written, et, "assignment", incomingKind)
+                        if entryWasMoved and entry.automaticOwner then
+                            written.automaticOwnerReinit = {owner = entry.automaticOwner}
+                        end
                     end
                     entry.t, entry.ownership = et, incomingKind
                     entryState.t, entryState.ownership, entryState.moved = et, incomingKind, false
@@ -440,6 +520,12 @@ function bindings.install(c: state.Checker): state.StatHandlers
                                 c.diag("NUPP2602", written or stat, "reinitialized field must keep its exact cleanup contract")
                             end
                             moveExpression(written, et, "affine field reinitialization", "owned")
+                            if written and container.automaticOwner then
+                                written.automaticOwnerReinit = {
+                                    owner = container.automaticOwner,
+                                    field = field,
+                                }
+                            end
                             container.movedFields[field] = nil
                             container.movedFieldTypes[field] = et
                             partialReinit = true

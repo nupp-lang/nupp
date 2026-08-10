@@ -1,11 +1,11 @@
 # Resource ownership, borrowing, and FFI safety
 
 Nupp gives C pointers and ordinary Lua values the same affine resource
-model. The checker finds missing cleanup, double consumption, use after move,
+model. The checker arranges ordinary lexical cleanup and finds invalid cleanup,
+double consumption, use after move,
 dangling lexical borrows, and unproved raw-pointer use before the program runs.
 The model is intentionally smaller than Rust's: there are no named lifetimes,
-no typestate, no borrow checker for arbitrary object graphs, and no automatic
-destruction at ordinary scope exit.
+no typestate and no borrow checker for arbitrary object graphs.
 
 The central rule is:
 
@@ -24,7 +24,7 @@ shared pointer, a pointer retained by C, and an already-freed pointer. Cleanup
 conventions live in comments and tests. Nupp turns those conventions into
 checked interfaces:
 
-- a returned owner must be disposed or transferred exactly once;
+- a locally disposable owner is destroyed at lexical scope exit unless moved;
 - a `takes` call moves its argument and later use is rejected;
 - a derived borrow cannot outlive or be stored away from its source;
 - C cannot retain Lua-managed memory without a pinned anchor and a declared
@@ -67,6 +67,7 @@ occasional use-after-free.
 | `nupp.borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
 | `nupp.pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
 | `with x = acquire() do ... end` | Deterministically clean an owner on every exit. |
+| `local x = acquire()` | Keep a movable owner and destroy it at its lexical boundary unless transferred. |
 | `sets.new(): ResourceSet` | A checked dynamic collection that reifies per-owner discharge. |
 | `unsafe do ... end` | Permit operations whose lifetime proof is deliberately abandoned. |
 
@@ -123,9 +124,13 @@ widget_adopt(value)
 nupp.dispose(value)              -- NUPP2601: value was moved
 ```
 
-Every live owner must be discharged along every checked path. The valid exits
-are `dispose`, a `takes` call, an ownership-preserving move, an `@owned` return,
-or `intoRaw` inside `unsafe`. Ignoring an owned call result is an error.
+Every live owner must be discharged along every checked path. A locally
+disposable ordinary binding is discharged automatically at its lexical scope
+boundary, including raised and structured exits. A successful `dispose`,
+`takes` call, ownership-preserving move, `@owned` return, or `intoRaw` inside
+`unsafe` transfers or ends that responsibility and suppresses automatic
+cleanup. Ignoring an owned call result is still an error. Transfer-only owners
+remain errors unless an explicit terminal consumes them.
 
 `@owned` works on Nupp functions and managed Lua values too:
 
@@ -625,7 +630,7 @@ end
 
 ## Structured `with` scopes
 
-`with` is the only implicit cleanup construct. It takes each acquisition,
+`with` is the exact-extent cleanup construct. It takes each acquisition,
 exposes a borrow in the body, and runs recorded cleanup on every exit:
 
 ```nupp
@@ -635,11 +640,12 @@ end
 ```
 
 Acquisitions occur left to right and cleanup occurs right to left. Cleanup also
-runs for early return, loop control, and errors. Ordinary local owners do not
-auto-dispose at scope exit; use `with` when lexical cleanup is intended, and
-manual `dispose` or transfer when the exact lifetime matters. If the body and
-cleanup both fail, Nupp preserves the body failure as the primary error and
-reports the cleanup failure with it.
+runs for early return, loop control, and errors. Ordinary local owners use the
+same cleanup machinery but remain movable. Use `with` when the body must see
+only a non-escaping borrow, `dispose` for early release, and an explicit
+terminal operation when successful completion has protocol meaning. If the
+body and cleanup both fail, Nupp preserves the body failure as the primary
+error and reports the cleanup failure with it.
 
 Every cleanup function and `@dispose` body must be non-suspending. A foreign or
 bodyless cleanup makes this trusted promise; a visible body is checked from its
@@ -692,7 +698,10 @@ end
 `nupp.dispose(self.second)` does not work here. `dispose` needs a value whose static
 type carries a cleanup list, and a field spelled `owned<File>` records the
 obligation without recording how to discharge it; that reports `NUPP2602` and
-names the fix. The same applies inside a function to a `takes` parameter.
+names the fix. The same applies inside a function to a `takes` parameter: its
+erased payload does not carry the producer-specific cleanup witness, so an
+untouched `takes` parameter is not automatically destroyed. Its body must use
+an explicit matching terminal, transfer, or owning return.
 
 Nominal records may also retain declared borrows:
 
@@ -792,8 +801,8 @@ callee contract, an owner or borrow may not cross it. Convert through
   connected/authenticated/committed.
 - No prohibition on shared mutation. `borrows` permits stable mutation;
   `exclusive` exists only for operations requiring exclusivity.
-- No automatic cleanup for ordinary locals. Determinism is explicit through
-  `dispose`, `takes`, or `with`.
+- No automatic terminal choice for opaque or multi-terminal protocols. Ordinary
+  locals auto-destroy only when their exact producer cleanup is known.
 - No inference of ownership from names such as `new`, `close`, or `free`.
 - No arbitrary affine table storage; dynamic ownership is confined to `ResourceSet`.
 - No proof of C implementation behavior, allocator pairing, cleanup body
@@ -817,7 +826,8 @@ Use this order when binding an API:
    and require callers to pin managed memory.
 5. Name the source of every borrowed return or output.
 6. Keep raw operations in the smallest possible `unsafe do` block.
-7. Prefer `with` for lexical resources and explicit transfer elsewhere.
+7. Use ordinary locals for movable lexical owners, `with` for exact borrowed
+   extents, and explicit operations for early release or meaningful terminals.
 
 This surface makes the common path short while preserving annotations exactly
 where inference cannot originate or where a stable public contract is useful.
@@ -826,3 +836,5 @@ Run `nupp ownership-audit --json [file...]` to enumerate foreign pointer
 parameters/results, every explicit unsafe assertion region, and each recognized
 raw memory operation inside one. The report is an inventory of the trusted
 surface, not a claim that the foreign implementation was verified.
+Add `--regions` to include deterministic automatic-cleanup region identities,
+activation and cleanup order, and their protected lowering class.

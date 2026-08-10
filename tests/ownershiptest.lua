@@ -404,7 +404,7 @@ function M.aBorrowedResultBlocksReleasingItsSource()
       "local held = peek(pool)",
       "dispose(pool)",
       "print(held.items)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.aMethodResultCanBorrowTheReceiver()
@@ -414,7 +414,7 @@ function M.aMethodResultCanBorrowTheReceiver()
       "local item = pool:get(1)",
       "dispose(pool)",
       "print(item.name)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.aBorrowedResultIsReleasedWithItsScope()
@@ -531,7 +531,7 @@ function M.theHeldSourceCannotBeReleasedFirst()
       "local tls = open_tls(sock)",
       "dispose(sock)",
       "dispose(tls)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 -- The layered case a `with` was always meant to express. Reverse cleanup
@@ -554,7 +554,7 @@ function M.anOwningResultThatBorrowsIsStillOwned()
       "local sock = open_socket()",
       "local tls = open_tls(sock)",
       "dispose(sock)",
-   }, "\n")), "NUPP2603 NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.aMethodBorrowedReturnElidesToTheReceiver()
@@ -567,7 +567,7 @@ function M.aMethodBorrowedReturnElidesToTheReceiver()
       "local item = pool:first()",
       "dispose(pool)",
       "print(item.name)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.aMethodReturningAPlainValueDoesNotBorrow()
@@ -600,7 +600,7 @@ function M.aChainOfBorrowsStillHoldsTheRoot()
       "local second = peek(first)",
       "dispose(pool)",
       "print(second.items)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.aDerivedBorrowCannotOutliveItsIntermediate()
@@ -613,7 +613,7 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
       "   held = peek(inner)",
       "end",
       "dispose(pool)",
-   }, "\n")), "NUPP2603 NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2603 NUPP2602")
 end
 
 function M.aDerivedBorrowCannotBeStored()
@@ -624,7 +624,7 @@ function M.aDerivedBorrowCannotBeStored()
       "local first = peek(pool)",
       "sink[1] = peek(first)",
       "dispose(pool)",
-   }, "\n")), "NUPP2603 NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2603 NUPP2602")
 end
 
 -- The declaration is the contract: a result declared `borrows p` may be
@@ -640,8 +640,8 @@ function M.aBorrowMayBeDerivedThroughAnIntermediate()
    }, "\n"))
 end
 
-function M.liveOwnersMustBeDischarged()
-   assertEq(codes(RESOURCE .. "\nlocal value = resource_new()"), "NUPP2603")
+function M.liveDisposableOwnersAreDestroyedAutomatically()
+   assertEq(codes(RESOURCE .. "\nlocal value = resource_new()"), "")
    assertEq(codes(RESOURCE .. "\nresource_new()"), "NUPP2605")
 end
 
@@ -1001,7 +1001,7 @@ function M.rawReconstructionRequiresUnsafe()
       "unsafe do",
       "   local value = fromRaw(raw, wrong)",
       "end",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.rawAbandonmentRequiresUnsafe()
@@ -1091,7 +1091,7 @@ function M.borrowedResultsCanNameMultipleSources()
       "resource_free(left)",
       "dispose(joined)",
       "resource_free(right)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
 end
 
 function M.affineRecordsDisposeOwnedFieldsInReverseOrder()
@@ -1423,7 +1423,7 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
       "local owner = make_owner()",
       "local status, view = get_view(owner)",
       "dispose(owner)",
-   }, "\n")), "NUPP2603 NUPP2602")
+   }, "\n")), "NUPP2602")
    assertClean(declarations .. "\n" .. table.concat({
       "local owner = make_owner()",
       "do",
@@ -1717,7 +1717,7 @@ end
 -- resolved through an open table as `any`, and every annotation on it was
 -- accepted and then meant nothing. `@owned` is how that was noticed: the
 -- obligation simply never existed.
-function M.aQualifiedFunctionCarriesItsOwnedContract()
+function M.aQualifiedFunctionCarriesAnAutomaticallyDischargedOwnedContract()
    assertEq(codes(table.concat({
       "local m = {}",
       "local function closeFile(file: LuaFile)",
@@ -1730,8 +1730,8 @@ function M.aQualifiedFunctionCarriesItsOwnedContract()
       "   return file",
       "end",
       "local handle = m.open('x')",
-   }, "\n")), "NUPP2603",
-      "the owner from m.open still has to be discharged")
+   }, "\n")), "",
+      "the owner from m.open is tracked for automatic discharge")
 end
 
 function M.aFunctionValuedFieldCanDeclareAnOwningProducer()

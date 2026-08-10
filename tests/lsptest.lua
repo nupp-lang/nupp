@@ -243,6 +243,54 @@ function M.hoverShowsDocsDeclaredInAnotherFile()
       "cross-file docs")
 end
 
+function M.hoverAndInspectExposeAutomaticCleanup()
+   local projectDir = makeDir()
+   local path = projectDir .. "/owner.nupp"
+   local uri = "file://" .. path
+   local source = table.concat({
+      "local record Handle",
+      "   name: string",
+      "end",
+      "local function close_handle(value: Handle)",
+      "end",
+      "@owned(close_handle)",
+      "local function open_handle(): Handle",
+      "   return new Handle {name = 'a'}",
+      "end",
+      "local function work()",
+      "   local handle = open_handle()",
+      "   print(handle.name)",
+      "end",
+      "",
+   }, "\n")
+   local out = runSession({
+      { jsonrpc = "2.0", id = 1, method = "initialize", params = {} },
+      { jsonrpc = "2.0", method = "textDocument/didOpen", params = {
+         textDocument = { uri = uri, languageId = "nupp", version = 1,
+            text = source } } },
+      { jsonrpc = "2.0", id = 10, method = "textDocument/hover",
+        params = { textDocument = { uri = uri },
+           position = { line = 10, character = 10 } } },
+      { jsonrpc = "2.0", id = 11, method = "$/nupp/inspect",
+        params = { textDocument = { uri = uri },
+           position = { line = 10, character = 10 } } },
+      { jsonrpc = "2.0", id = 2, method = "shutdown" },
+      { jsonrpc = "2.0", method = "exit" },
+   }, projectDir)
+   os.execute("rm -rf '" .. projectDir .. "'")
+
+   local hover = responseWithId(out, 10).result
+   assertContains(hover.contents.value,
+      "Automatically destroyed after line 12 with `close_handle`.",
+      "automatic cleanup hover")
+   local inspected = responseWithId(out, 11).result
+   assert(inspected.automaticCleanup
+      and inspected.automaticCleanup.status == "automatic"
+      and inspected.automaticCleanup.line == 12
+      and inspected.automaticCleanup.cleanups[1] == "close_handle",
+      "inspect returns the structured cleanup boundary")
+end
+
 function M.republishesDependentDiagnostics()
    local projectDir = os.tmpname()
    os.remove(projectDir)
@@ -2574,11 +2622,10 @@ function M.codeActionWrapsAnOwnerInAWithScope()
    assert(diagnostics and #diagnostics == 0, "the rewritten file checks clean")
 end
 
--- An owner that is never disposed is reported (NUPP2603), and the enclosing
--- `with` is that diagnostic's fix, offered where the author is already looking.
--- With no dispose to end at, the scope runs to the end of the block, which is
--- where the obligation came due.
-function M.codeActionOffersAWithScopeAsTheLiveOwnerFix()
+-- An automatically destroyed owner can still be tightened to a borrowed
+-- extent explicitly. It is a refactor now, not a repair for a live-owner
+-- diagnostic, and the scope still runs to the end of the block.
+function M.codeActionOffersAWithScopeForAnAutomaticOwner()
    local projectDir = tempProject()
    local source = OWNER_PRELUDE .. table.concat({
       "local function work()",
@@ -2595,9 +2642,10 @@ function M.codeActionOffersAWithScopeAsTheLiveOwnerFix()
    os.execute("rm -rf '" .. projectDir .. "'")
 
    local action = actionNamed(actions, "Wrap in a 'with' scope")
-   assert(action.kind == "quickfix", "the live-owner diagnostic offers it")
-   assert(action.diagnostics and action.diagnostics[1].code == "NUPP2603",
-      "and the action carries that diagnostic")
+   assert(action.kind == "refactor.rewrite",
+      "an automatic owner needs no diagnostic quickfix")
+   assert(not action.diagnostics or #action.diagnostics == 0,
+      "the refactor carries no obsolete live-owner diagnostic")
    assertContains(rewritten,
       "    with handle = open_resource(\"a\") do\n        use(handle)\n    end\n",
       "the scope runs to the end of the block")

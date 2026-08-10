@@ -306,7 +306,8 @@ return wrong
 end
 
 -- Typed is not enough on its own: the `@owned` contract has to cross too, or a
--- `with` cannot acquire what the library hands back and nothing has to close it.
+-- `with` cannot acquire what the library hands back and an ordinary local
+-- cannot arrange automatic cleanup.
 function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
    local dir = tempProject({
       ["nupp.lua"] = STD_MANIFEST,
@@ -331,10 +332,11 @@ return 1
       "the standard-library private cleanup links and runs: " .. acquired)
 
    -- The obligation crosses too, which is the other half of the contract being
-   -- real rather than erased at the boundary.
-   local leaked = run(dir, "'" .. NUPP .. "' check --strict leak.nupp")
-   assert(leaked:find("NUPP2603", 1, true),
-      "an owner that is never discharged is still reported: " .. leaked)
+   -- real rather than erased at the boundary. An untouched ordinary owner is
+   -- now discharged by its lexical scope rather than diagnosed as forgotten.
+   local checked, checkOk = run(dir, "'" .. NUPP .. "' check --strict leak.nupp")
+   assert(checkOk and not checked:find("NUPP2603", 1, true),
+      "the ordinary owner receives automatic cleanup: " .. checked)
    os.execute("rm -rf '" .. dir .. "'")
 end
 

@@ -6,14 +6,18 @@ local optionsMod = require("nupp.compiler.cli.options")
 local command = spec.command{
     name = "ownership-audit",
     summary = "List foreign pointer contracts and unsafe assertion sites",
-    usage = {"nupp ownership-audit [--format text|json] [file...]"},
-    options = optionsMod.format(),
+    usage = {"nupp ownership-audit [--format text|json] [--regions] [file...]"},
+    options = optionsMod.join(
+        {name = "--regions", help = "Include automatic cleanup regions"},
+        optionsMod.format()
+    ),
     detail = "With no files, scans Nupp sources under src. The report enumerates trusted C contracts and explicit unsafe regions; it does not verify foreign implementations.",
     schema = {
         type = "object",
         properties = {
             foreign = {type = "array", items = {type = "object"}},
             unsafe = {type = "array", items = {type = "object"}},
+            regions = {type = "array", items = {type = "object"}},
         },
         required = {"foreign", "unsafe"},
     },
@@ -50,11 +54,11 @@ end
 local function run(parsed: any): integer
     local fs = require("nupp.compiler.fs")
     local parser = require("nupp.compiler.parser")
-    local check = require("nupp.compiler.check")
+    local check: any = require("nupp.compiler.check")
     local env = require("nupp.compiler.env").new(".")
     local T = require("nupp.compiler.types")
     local cst = require("nupp.compiler.cst")
-    local foreign, unsafeSites = {}, {}
+    local foreign, unsafeSites, regions = {}, {}, {}
     local failed = false
 
     local function firstToken(node)
@@ -73,9 +77,62 @@ local function run(parsed: any): integer
         return nil
     end
 
+    local function cleanupName(cleanup)
+        if cleanup.kind == "function" then
+            return cleanup.name or cleanup.id
+        elseif cleanup.kind == "method" then
+            return ":" .. cleanup.name
+        elseif cleanup.kind == "field" then
+            return cleanup.field .. " -> " .. cleanupName(cleanup.cleanup)
+        end
+        return cleanup.id or cleanup.kind
+    end
+
     local function visit(node, file, inUnsafe)
         if not node or cst.isToken(node) then
             return
+        end
+        if parsed.values.regions and node.kind == "block" and node.automaticOwners then
+            local owners = {}
+            for _, owner in ipairs(node.automaticOwners) do
+                if owner.lowerable then
+                    local cleanups, cleanupIds = {}, {}
+                    for _, cleanup in ipairs(owner.cleanups or {}) do
+                        cleanups[#cleanups + 1] = cleanupName(cleanup)
+                        cleanupIds[#cleanupIds + 1] = cleanup.id
+                    end
+                    owners[#owners + 1] = {
+                        name = owner.name,
+                        line = owner.token and owner.token.line or 0,
+                        column = owner.token and owner.token.col or 0,
+                        capability = table.concat(cleanupIds, "+"),
+                        cleanups = cleanups,
+                        optional = owner.optional == true,
+                        mayMove = owner.moved == true or owner.movedFields ~= nil,
+                    }
+                end
+            end
+            if #owners > 0 then
+                local activation, cleanup = {}, {}
+                for _, owner in ipairs(owners) do
+                    activation[#activation + 1] = owner.name
+                end
+                for j = #owners, 1, -1 do
+                    cleanup[#cleanup + 1] = owners[j].name
+                end
+                regions[#regions + 1] = {
+                    file = file,
+                    line = owners[1].line,
+                    column = owners[1].column,
+                    lowering = node.automaticDirect and "direct" or #owners > 1 and "fused" or "general",
+                    protection = node.automaticDirect
+                        and "elided: empty live interval and non-raising cleanup"
+                        or "raised exits and cleanup failures",
+                    activationOrder = activation,
+                    cleanupOrder = cleanup,
+                    owners = owners,
+                }
+            end
         end
         if node.kind == "cdefFunc" and node.signatureType then
             local ft = node.signatureType
@@ -163,7 +220,25 @@ local function run(parsed: any): integer
     table.sort(unsafeSites, function(a: any, b: any): boolean
         return a.file == b.file and a.line < b.line or a.file < b.file
     end)
+    table.sort(regions, function(a: any, b: any): boolean
+        return a.file == b.file and (
+            a.line == b.line and a.column < b.column or a.line < b.line
+        ) or a.file < b.file
+    end)
+    local regionOrdinals = {}
+    for _, region in ipairs(regions) do
+        local capabilities = {}
+        for _, owner in ipairs(region.owners) do
+            capabilities[#capabilities + 1] = owner.capability
+        end
+        local base = "automatic:" .. table.concat(capabilities, "|")
+        regionOrdinals[base] = (regionOrdinals[base] or 0) + 1
+        region.id = base .. "#" .. tostring(regionOrdinals[base])
+    end
     local report = {foreign = foreign, unsafe = unsafeSites}
+    if parsed.values.regions then
+        report.regions = regions
+    end
     if parsed.values.format == "json" then
         require("nupp.compiler.cli.report").write(report)
     else
@@ -180,6 +255,20 @@ local function run(parsed: any): integer
         io.write("Unsafe assertion sites\n")
         for _, entry in ipairs(unsafeSites) do
             io.write(("  %s:%d:%d  %s\n"):format(entry.file, entry.line, entry.column, entry.kind))
+        end
+        if parsed.values.regions then
+            io.write("Automatic cleanup regions\n")
+            for _, region in ipairs(regions) do
+                io.write(("  %s:%d:%d  %s  [%s]\n"):format(
+                    region.file,
+                    region.line,
+                    region.column,
+                    region.id,
+                    region.lowering
+                ))
+                io.write("    activate: " .. table.concat(region.activationOrder, ", ") .. "\n")
+                io.write("    cleanup: " .. table.concat(region.cleanupOrder, ", ") .. "\n")
+            end
         end
     end
     return failed and 1 or 0

@@ -309,6 +309,16 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "   local bytes = ffi.cast<const uint8[?]>(text)",
       "   print(bytes[0])",
       "end",
+      "local record Resource name: string end",
+      "local function close_resource(value: Resource) end",
+      "@owned(close_resource)",
+      "local function open_resource(): Resource",
+      "   return new Resource {name = 'audit'}",
+      "end",
+      "local function use_resource()",
+      "   local value = open_resource()",
+      "   print(value.name)",
+      "end",
       "",
    }, "\n"))
    source:close()
@@ -325,9 +335,23 @@ function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
       "the explicit unsafe boundary and operation are enumerable")
    assert(report.unsafe[2].kind == "unchecked C memory indexing",
       "the report names the trusted raw operation")
+   assert(report.regions == nil, "automatic regions remain opt-in")
+
+   local regions = json.decode(capture((
+      "ownership-audit --json --regions '%s/surface.g.nupp'"
+   ):format(dir))).regions
+   assert(#regions == 1 and regions[1].owners[1].name == "value",
+      "automatic cleanup sites are enumerable")
+   assert(regions[1].id:find("function:", 1, true)
+      and regions[1].activationOrder[1] == "value"
+      and regions[1].cleanupOrder[1] == "value",
+      "region identity and ordering are semantic and deterministic")
+   assert(regions[1].lowering == "general",
+      "the audit reports the selected protected lowering")
 
    local schema = json.decode(capture("ownership-audit --schema"))
-   assert(schema.properties.foreign and schema.properties.unsafe,
+   assert(schema.properties.foreign and schema.properties.unsafe
+      and schema.properties.regions,
       "the machine report has a discoverable schema")
    os.execute("rm -rf '" .. dir .. "'")
 end

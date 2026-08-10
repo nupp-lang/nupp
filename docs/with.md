@@ -1,8 +1,8 @@
 # Explicit resource scopes
 
 A file, a socket, a C allocation, or any other value produced by an `@owned`
-function carries a cleanup obligation that the checker will not let you drop.
-`with` is the construct that discharges it for you:
+function carries a cleanup obligation. An ordinary local destroys it at its
+lexical boundary. `with` gives that cleanup an exact borrowed extent:
 
 ```nupp
 local function closeFile(file: LuaFile)
@@ -23,12 +23,11 @@ end
 
 The resource is released when the block ends — on fallthrough, on `return`,
 on loop control, on a `goto` leaving the body, and on an error raised anywhere
-inside. `with` is the *only* place Nupp closes something on your behalf. An
-ordinary local owner is not closed because its scope ended; the checker
-requires an explicit `dispose`, a `takes` call, or an owning return instead.
-Forgetting both `with` and an explicit disposition is a compile error, which
-is the part Python's context managers and Java's try-with-resources do not
-have.
+inside. An ordinary owner receives the same error-safe cleanup at the end of
+its lexical scope, but remains movable, returnable, and explicitly disposable.
+`with` is distinct because the visible name is only a borrow: it cannot move,
+escape, be returned, or close early. Use it when the bounded extent is the
+important part of the protocol, not merely to remember cleanup.
 
 The complete ownership model — `@owned`, `takes`, `borrows`, pins, raw
 pointers, affine records — is in [ownership.md](ownership.md). This page is
@@ -143,9 +142,9 @@ it, by declaring the tie:
 local function openTls(borrows socket: Socket): TLS borrows socket
 ```
 
-The result is an ordinary owner that still has to be discharged; what the
-annotation adds is that the socket cannot be released while the session holds
-it:
+The result is an ordinary owner that will be discharged automatically at its
+lexical boundary unless moved; what the annotation adds is that the socket
+cannot be released while the session holds it:
 
 ```nupp
 local socket = openSocket()
