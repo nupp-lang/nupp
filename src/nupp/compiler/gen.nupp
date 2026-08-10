@@ -817,15 +817,22 @@ function gen.generate(
 
     function expansion.directCall(statement)
         local kind = statement.kind
+        local direct
         if kind == "callStmt" then
-            return statement.expr
+            direct = statement.expr
         elseif (
             kind == "returnStmt" or kind == "localStmt" or kind == "assignStmt"
         ) and statement.exprs and #statement.exprs == 1 then
-            return statement.exprs[1]
+            direct = statement.exprs[1]
         end
 
-        return nil
+        -- `new` is erased around its constructor call, so it can use the containing
+        -- statement's bindings without an expression wrapper too.
+        if direct and direct.kind == "newExpr" then
+            return direct.call
+        end
+
+        return direct
     end
 
     function expansion.emitArgument(argument, owner)
@@ -891,31 +898,6 @@ function gen.generate(
             end
             emit(call.args)
         end
-    end
-
-    function expansion.emitExpression(call, plan)
-        e("(function()", sourceLine(call))
-        expansion.emitSteps(plan.setupSteps)
-        if plan.safeReceiver then
-            e("if " .. plan.receiverAlias .. "==nil then return nil end;")
-        end
-        expansion.emitSteps(plan.afterReceiverSteps)
-        if plan.safeCallee then
-            e("if " .. plan.calleeAlias .. "==nil then return nil end;")
-        end
-        if plan.safeMethod then
-            e("if " .. plan.methodAlias .. "==nil then return nil end;")
-        end
-        expansion.emitSteps(plan.steps)
-        e("return")
-        local prior = expansion.activate(plan)
-        if plan.delegate then
-            emit(call)
-        else
-            expansion.emitCall(call, plan)
-        end
-        expansion.restore(plan, prior)
-        e("end)()")
     end
 
     function expansion.emitStatement(statement, call, plan)
@@ -1152,11 +1134,6 @@ function gen.generate(
             local activePlan = expansion.plans[x]
             if activePlan and not activePlan.delegate then
                 expansion.emitCall(x, activePlan)
-                return
-            end
-            local plan = not activePlan and expansion.callPlan(x) or nil
-            if plan then
-                expansion.emitExpression(x, plan)
                 return
             end
         end

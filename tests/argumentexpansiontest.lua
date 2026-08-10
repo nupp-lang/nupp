@@ -157,7 +157,7 @@ function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
       "projected leaves should remain direct call arguments:\n" .. code)
 end
 
-function M.nestedExpansionStaysAtItsShortCircuitEvaluationPoint()
+function M.nestedExpansionUsesDirectProjectionsWithoutAWrapper()
    local answer, code = run(vector .. "\n" .. table.concat({
       "local record Entity",
       "   position: Vec3",
@@ -175,12 +175,12 @@ function M.nestedExpansionStaysAtItsShortCircuitEvaluationPoint()
       "local called = enabled and draw(...entity.position)",
       "return reads",
    }, "\n"))
-   assertEq(answer, 1)
-   assert(code:find("(function()", 1, true),
-      "a nested expansion needs an expression-local wrapper:\n" .. code)
+   assertEq(answer, 2)
+   assert(not code:find("(function()", 1, true),
+      "a nested expansion must not allocate a wrapper:\n" .. code)
 end
 
-function M.safeFunctionExpansionBindsItsPathOnlyOnTheTakenBranch()
+function M.nestedSafeExpansionUsesTheNativeSafeCallWithoutAWrapper()
    local answer, code = run(vector .. "\n" .. table.concat({
       "local record Entity",
       "   position: Vec3",
@@ -198,8 +198,9 @@ function M.safeFunctionExpansionBindsItsPathOnlyOnTheTakenBranch()
       "local called = maybe?.(...entity.position)",
       "return tostring(reads) .. tostring(skipped) .. tostring(called)",
    }, "\n"))
-   assertEq(answer, "1nil3")
-   assert(code:find("==nil then return nil", 1, true), code)
+   assertEq(answer, "2nil3")
+   assert(code:find("?.", 1, true), code)
+   assert(not code:find("(function()", 1, true), code)
 end
 
 function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()
@@ -242,7 +243,7 @@ function M.returnedSafeExpansionUsesEarlyReturnsWithoutAWrapper()
 end
 
 function M.safeReceiverAndMethodExpansionUsesStagedGuards()
-   local answer = run(vector .. "\n" .. table.concat({
+   local answer, code = run(vector .. "\n" .. table.concat({
       "local record Entity",
       "   position: Vec3",
       "end",
@@ -250,20 +251,24 @@ function M.safeReceiverAndMethodExpansionUsesStagedGuards()
       "   draw: function(self: Drawer, x: number, y: number) | nil",
       "end",
       "local reads = 0",
+      "local calls = 0",
       "local position = new Vec3 {x = 2, y = 3, z = 4}",
       "local entity = setmetatable({}, {__index = function(_, _)",
       "   reads = reads + 1",
       "   return position",
       "end}) as Entity",
       "local drawer: Drawer | nil = nil",
-      "local skipped = drawer?.:draw?.(...entity.position)",
+      "drawer?.:draw?.(...entity.position)",
       "drawer = new Drawer {draw = function(_, x: number, y: number): number",
+      "   calls = calls + 1",
       "   return x + y",
       "end}",
-      "local called = drawer?.:draw?.(...entity.position)",
-      "return tostring(reads) .. tostring(skipped) .. tostring(called)",
+      "drawer?.:draw?.(...entity.position)",
+      "return reads * 10 + calls",
    }, "\n"))
-   assertEq(answer, "1nil5")
+   assertEq(answer, 11)
+   assert(code:find("~=nil then", 1, true), code)
+   assert(not code:find("(function()", 1, true), code)
 end
 
 function M.constructorCallsReuseTheSameExpansionPlan()
@@ -382,7 +387,7 @@ function M.aTrailingOrdinaryCallStillExpandsItsResultPack()
 end
 
 function M.aNestedExpansionPreservesItsTrailingResultPack()
-   local answer = run(vector .. "\n" .. table.concat({
+   local answer, code = run(vector .. "\n" .. table.concat({
       "local record Entity",
       "   position: Vec3",
       "end",
@@ -395,6 +400,7 @@ function M.aNestedExpansionPreservesItsTrailingResultPack()
       "return tostring(total(...entity.position, pair()))",
    }, "\n"))
    assertEq(answer, "10")
+   assert(not code:find("(function()", 1, true), code)
 end
 
 function M.interfacesExposeInheritedExpansionCapabilitiesToGenerics()

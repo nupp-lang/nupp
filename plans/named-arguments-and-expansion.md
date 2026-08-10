@@ -64,13 +64,15 @@ An expansion operand is required to be a stable value path: a local or other
 name followed by zero or more ordinary dotted field accesses. This covers both
 `...position` and flattened embedded values such as
 `...entity.transform.position`. Calls, safe navigation, computed indexing, and
-other producing expressions are rejected. Lowering evaluates each dotted
-operand path once and shares common dotted prefixes across expansions in the
-same call. Projected leaf fields remain direct positional arguments because each
-is read only once. Ordinary arguments are captured only when a later path
-binding requires their evaluation point to stay ahead of it; a suffix and a
-final multi-result call remain direct. A later lowering may admit arbitrary
-operand expressions without changing these rules.
+other producing expressions are rejected. When a call can host statement-level
+bindings, lowering evaluates each dotted operand path once and shares common
+dotted prefixes across expansions in the same call. Projected leaf fields remain
+direct positional arguments because each is read only once. Ordinary arguments
+are captured only when a later path binding requires their evaluation point to
+stay ahead of it; a suffix and a final multi-result call remain direct. A nested
+expression instead emits direct projections and may repeat a prefix rather than
+introducing a closure. A later lowering may admit arbitrary operand expressions
+without changing these rules.
 
 The same plan applies to every statically known callable parameter pack:
 functions, callable records, methods, constructors, and specialized compiler
@@ -164,11 +166,12 @@ update(position.x, position.y, velocity.x, velocity.y, delta)
 
 Generated names are collision-free. Only reusable path nodes are bound; the
 callee, projected leaves, and trailing arguments remain direct when they are
-already evaluated once. A call that is itself a statement, return, initializer,
-or assignment receives bindings directly. When a call is nested inside another
-expression, its bindings stay at that exact evaluation point so short-circuiting
-remains lazy. Neither form allocates an argument table or performs runtime arity
-selection.
+already evaluated once. An ordinary call that is itself a statement, return,
+initializer, or assignment receives bindings directly. Safe call statements use
+guards and returned safe calls use early returns. Calls in expression-valued
+positions that cannot host those statements emit their projected leaves directly
+instead. Expansion lowering never introduces a function, closure, upvalue,
+argument table, or runtime arity selection.
 
 A safe call keeps the same final positional signature but places expansion
 bindings inside its taken branch:
@@ -189,11 +192,20 @@ end
 ```
 
 A safe call statement uses `if` directly, and a returned safe call uses early
-returns. A safe call nested in another expression uses an expression-local
-wrapper that returns `nil` from the untaken branch and the original result pack
-from the taken branch. Safe receiver and safe method checks are staged
-separately, so a nil receiver prevents method lookup and either check prevents
-argument evaluation.
+returns. A safe call nested in another expression retains LuaJIT's native safe
+operator and repeats a prefix when necessary:
+
+```lua
+local drawn = enabled and maybeDraw?.(
+    entity.body.position.x,
+    entity.body.position.y
+)
+```
+
+This keeps the native guard's argument laziness without allocating an
+immediately invoked closure. Safe receiver and safe method checks in statement
+lowering are staged separately, so a nil receiver prevents method lookup and
+either check prevents argument evaluation.
 
 `expands` declarations generate no runtime member. Formatting preserves
 `...value` without a space and formats named arguments with spaces around `=`.

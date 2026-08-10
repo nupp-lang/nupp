@@ -225,15 +225,15 @@ Interfaces pass expansions to declarations that take their contract. A bounded
 type parameter sees its interface bound's projections, so generic adapters use
 the same syntax. An expansion operand is a name or dotted field path, such as
 `...entity.position`. Bind calls, computed indexes, and other producing
-expressions to a local before expanding them. Each dotted operand path and every
-common dotted prefix among a call's expansions is evaluated once. Projected leaf
-fields remain direct positional arguments rather than generated locals. Ordinary
-arguments are captured only when they must stay ahead of a later path binding;
-a trailing call can still fill the remaining positional slots with its multiple
-results. This lowering applies to functions, callable records, methods,
-constructors, and specialized calls with a statically known positional pack.
-Safe calls guard the optional callee, receiver, and method before binding any
-expanded argument path; their taken branch uses the same positional signature.
+expressions to a local before expanding them. A statement-level call evaluates
+each dotted operand path and common prefix once, while projected leaves remain
+direct positional arguments. A nested expression instead repeats prefixes when
+needed; expansion never introduces a closure or upvalue. A trailing call can
+still fill the remaining positional slots with its multiple results. This
+applies to functions, callable records, methods, constructors, and specialized
+calls with a statically known positional pack. Safe statements and returns guard
+the optional callee, receiver, and method before binding paths; nested safe calls
+retain the native safe operator and its lazy argument evaluation.
 ]=],
         example = [=[
 local interface XY
