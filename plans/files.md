@@ -463,14 +463,61 @@ runs.
 Not covered: the language-server claim in the original exit test, which is F4's
 rather than this milestone's.
 
-### F4: adoption
+### F4: adoption — blocked, and on more than it looked
 
-- `fs.nupp`'s shell-out and `io.open` paths removed.
-- tecs swaps its imports, deletes the four modules, and installs its runtime as
-  the handler.
+Both halves were attempted and neither is a swap. Recorded here because
+"adoption" as one milestone hid two separate projects.
 
-Exit test: tecs's own `files` tests pass against `nupp.io.files` with only the
-import changed; tecs links no SDL asynchronous I/O; the compiler spawns no
+**The compiler cannot adopt this without a Rust toolchain.** Rewriting
+`fs.listFiles` over `files.list` is ten lines, and it does not build:
+
+```
+src/nupp/compiler/fs.nupp:125: error: NUPP2004: no field "files" in
+  {Path: Library, URI: Library, newBuffer: ..., newStringReader: ...}
+```
+
+`bootstrap/nupp.lua` is a pre-generated compiler carrying the prelude it was
+generated from, and that prelude predates `nupp.io.files`. So the bootstrap has
+to be regenerated first — and then a fresh clone's bootstrap reaches
+`nupp.io.files` while listing the sources it is about to compile, which means
+`nupp_native` has to be built and loadable *before* the compiler runs at all.
+Building it needs Cargo:
+
+```
+ Step                              Needs
+ ────────────────────────────────  ──────────────────────────────────
+ regenerate bootstrap/nupp.lua     a compiler that knows the member
+ fresh clone runs ./bin/nupp       nupp_native, with the files feature
+ build nupp_native                 Cargo
+```
+
+Today Cargo is needed only by a target that selects a native facility. Adopting
+here makes it a prerequisite for building Nupp at all, and `bin/nupp` grows a
+Cargo invocation and a `NUPP_NATIVE_LIBRARY` export, since the staged
+`build/lib/nupp_native` is on neither path the generated loader tries. That is a
+decision about what the project depends on rather than a cleanup, and it is what
+F0 declined to take on its own authority.
+
+The shell-out is still worth deleting and the reason has not changed. What is
+missing is a decision, not an implementation.
+
+**tecs is Teal, which this milestone did not account for.** "Swaps its imports"
+assumed a Nupp consumer. `tecs.io.files` is `.tl`, and `nupp.io.files` is an
+ambient global installed by a generated chunk rather than a module anything can
+`require`. Reaching it from Teal needs at least:
+
+- the `nupp` bootstrap chunk installed in tecs's runtime, so the global exists;
+- a `.d.tl` describing the surface, since Teal cannot read a `.d.nupp`;
+- `nupp_native` built with the `files` feature and loadable from tecs;
+- `nupp/suspension.lua` staged, which for a Teal consumer nothing does; and
+- tecs's `taskruntime` adapted to the `Suspension` handler interface.
+
+The last is the interesting one and the rest is plumbing. None of it is an
+import swap, and the `readLink`/`userFolder` string-versus-`Path` divergence
+recorded under F0 sits on top of it.
+
+Exit test, unchanged and unmet: tecs's own `files` tests pass against
+`nupp.io.files`; tecs links no SDL asynchronous I/O; the compiler spawns no
 process to read a directory.
 
 ## Test matrix

@@ -288,7 +288,24 @@ work makes sense in.
         The pump is chosen per wait: `nuppFsPoll` under a handler, which must
         not block a frame, and `nuppFsWait` without one, since the built-in
         blocking path drives sources in a loop and would otherwise spin.
-  - [ ] F4: adoption — `fs.nupp` loses its fallbacks, tecs swaps its imports.
+  - [ ] F4: adoption. Blocked on two decisions rather than on work, and both
+        were found by attempting it.
+
+        The compiler cannot adopt `nupp.io.files` without making Cargo a
+        prerequisite for building Nupp at all. `bootstrap/nupp.lua` carries the
+        prelude it was generated from, so the member has to be regenerated into
+        it first; a fresh clone's bootstrap then reaches `nupp.io.files` while
+        listing the sources it is about to compile, so `nupp_native` has to
+        exist before the compiler runs. `bin/nupp` would also grow a Cargo
+        invocation and a `NUPP_NATIVE_LIBRARY` export, since the staged
+        `build/lib/nupp_native` is on neither path the generated loader tries.
+
+        tecs is Teal, which the milestone did not account for: `nupp.io.files`
+        is an ambient global installed by a generated chunk, not a module a
+        `.tl` file can require. It needs the bootstrap chunk in tecs's runtime,
+        a `.d.tl` surface, the cdylib, `nupp/suspension.lua` staged for a
+        consumer nothing stages it for, and `taskruntime` adapted to the
+        `Suspension` interface. The last is the interesting part.
 
 ## FFI and the C boundary
 
