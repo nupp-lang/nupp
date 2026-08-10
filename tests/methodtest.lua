@@ -1072,4 +1072,32 @@ function M.multiValueReturnsInAssignments()
    assertEq(diagsOf(two .. "\nb, a = two()"), "NUPP2001:6 NUPP2001:6")
 end
 
+-- A method's own type parameters are not free when `self` is rebound to the
+-- receiver. Substituting a map that mentions only `self` replaced each with `any`,
+-- so a generic method stopped inferring and its result fit wherever it was put --
+-- silently, because `any` fits everything.
+function M.aGenericMethodStillInfers()
+   local mistyped = table.concat({
+      "local record Box",
+      "   function idOf<C>(self, value: C): C",
+      "      return value",
+      "   end",
+      "end",
+      "local box = new Box {}",
+      "local wrong: string = box:idOf(42)",
+      "return wrong",
+   }, "\n") .. "\n"
+   assertEq(diagsOf(mistyped), "NUPP2001:7", "a generic method stopped inferring")
+   assertClean(table.concat({
+      "local record Box",
+      "   function idOf<C>(self, value: C): C",
+      "      return value",
+      "   end",
+      "end",
+      "local box = new Box {}",
+      "local kept: integer = box:idOf(42)",
+      "return kept",
+   }, "\n") .. "\n")
+end
+
 return M

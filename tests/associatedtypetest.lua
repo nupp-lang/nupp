@@ -177,4 +177,80 @@ function M.associatedIsStillAnOrdinaryFieldName()
    }, "\n") .. "\n")
 end
 
+-- The reason the feature exists: one signature whose result follows the argument.
+-- Neither an overload set nor an F-bounded parameter can express this -- the first
+-- is ambiguous because a bare binder matches everything, the second infers `any`.
+function M.aProjectionFollowsTheArgument()
+   local source = READER .. table.concat({
+      "local record Lines is Reader",
+      "   associated type Item = string",
+      "end",
+      "local record Counts is Reader",
+      "   associated type Item = integer",
+      "end",
+      "local function first<T is Reader>(source: T): T.Item?",
+      "   return nil as any",
+      "end",
+      "local a: string? = first(new Lines {})",
+      "local b: integer? = first(new Counts {})",
+      "return a, b",
+   }, "\n") .. "\n"
+   clean(source)
+   reports(READER .. table.concat({
+      "local record Lines is Reader",
+      "   associated type Item = string",
+      "end",
+      "local function first<T is Reader>(source: T): T.Item?",
+      "   return nil as any",
+      "end",
+      "local wrong: integer? = first(new Lines {})",
+      "return wrong",
+   }, "\n") .. "\n", "NUPP2001")
+end
+
+-- A projection through a method, which is where the Tecs case lives.
+function M.aProjectionReducesThroughAMethod()
+   clean(table.concat({
+      "local interface Component",
+      "   componentId: integer",
+      "   associated type Value = self",
+      "end",
+      "local interface ScalarComponent<T> is Component",
+      "   componentId: integer",
+      "   scalarDefault: T",
+      "   associated type Value = T",
+      "end",
+      "local record Position is Component",
+      "   componentId: integer",
+      "   x: number",
+      "end",
+      "local record Archetype",
+      "   function get<C is Component>(self, component: C): {C.Value}",
+      "      return nil as any",
+      "   end",
+      "end",
+      "local arch = new Archetype {}",
+      "local held: {Position} = arch:get(new Position {componentId = 1, x = 0})",
+      "local scalar: ScalarComponent<number> = nil as any",
+      "local raw: {number} = arch:get(scalar)",
+      "return held, raw",
+   }, "\n") .. "\n")
+end
+
+-- An answer written in terms of the declaration's own parameters follows the
+-- instantiation, not the binder it was written as.
+function M.aProjectionThroughAnInstantiationSubstitutes()
+   reports(table.concat({
+      "local interface Cell<T>",
+      "   associated type Value = T",
+      "end",
+      "local holder: Cell<string> = nil as any",
+      "local function valueOf<C is Cell<string>>(c: C): C.Value",
+      "   return nil as any",
+      "end",
+      "local wrong: integer = valueOf(holder)",
+      "return wrong",
+   }, "\n") .. "\n", "NUPP2001")
+end
+
 return M

@@ -68,6 +68,11 @@ function generics.subst(t: Type, map: Bindings): Type
     local tag = t.tag
     if tag == "typevar" then
         return map[t] or T.any
+    elseif tag == "projection" then
+        -- Reduction belongs to the constructor: it hands back the answer as soon as
+        -- the head is a declaration carrying one, so substituting the head is the whole
+        -- of normalizing a projection and there is no second pass to keep in step.
+        return T.projection(generics.subst(t.of, map), t.name)
     elseif tag == "array" then
         return T.array(generics.subst(t.elem, map))
     elseif tag == "map" then
@@ -288,6 +293,14 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for name, ft in pairs(n.staticWriteByname or {}) do
         inst.staticWriteByname[name] = generics.subst(ft, map)
     end
+    -- An answered associated type may be written in terms of the declaration's own
+    -- parameters, as `associated type Value = T` is, so it has to be substituted with
+    -- everything else. Without this a projection through an instantiation reduces to
+    -- the uninstantiated answer, which is the binder rather than the argument.
+    inst.nestedTypes = {}
+    for name, nested in pairs(n.nestedTypes or {}) do
+        inst.nestedTypes[name] = generics.subst(nested, map)
+    end
     inst.overloadedMethods = {}
     inst.overloadedStatics = {}
     inst.methodEntries = {}
@@ -501,7 +514,18 @@ function generics.specializeSelf(owner: Type?, ft: Type, receiver: Type?): Type
         return T.intersection(members)
     end
     if owner and owner.tag == "nominal" and owner.selfType then
-        return generics.subst(ft, {[owner.selfType] = receiver or owner})
+        local map: Bindings = {[owner.selfType] = receiver or owner}
+        -- A method's own binders are not free here. Substituting a map that says
+        -- nothing about them replaces each with `any`, which is how a generic method
+        -- stopped inferring without anyone noticing: the result was gradual, so it fit
+        -- wherever it was put. Mapping each to itself rebinds only `self`.
+        if ft.tag == "func" and ft.typeParams then
+            for _, tv in ipairs(ft.typeParams) do
+                map[tv] = tv
+            end
+        end
+
+        return generics.subst(ft, map)
     end
 
     return ft
