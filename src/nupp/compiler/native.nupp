@@ -80,12 +80,11 @@ local FEATURES: {
     "stdlib.peg"
 ] = {
     name = "peg",
-    globals = {"nupp.peg"},
 }, [
-    "stdlib.peg.re"
+    "stdlib.peg.compile"
 ] = {
-    name = "peg_re",
-    globals = {"nupp.peg.re"},
+    name = "peg_compile",
+    globals = {"nupp.peg.compile"},
     emittedOnly = true,
 }, [
     "stdlib.fieldcodec"

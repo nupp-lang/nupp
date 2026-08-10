@@ -250,8 +250,22 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
     end)
 
     intrinsic("rePattern", function(args, at)
-        if args.n ~= 1 or type(args[1]) ~= "string" then
-            return nil, failure("NUPP2417", "nupp.peg.re.pattern needs one string")
+        if (args.n ~= 1 and args.n ~= 2) or type(args[1]) ~= "string" then
+            return nil, failure("NUPP2417", "nupp.peg.compile needs one grammar string")
+        end
+        local options = args[2]
+        if options ~= nil and type(options) ~= "table" then
+            return nil, failure("NUPP2417", "nupp.peg.compile options must be a table")
+        end
+        local backend = options and options.backend or "auto"
+        if backend ~= "auto" and backend ~= "vm" then
+            return nil, failure("NUPP2417", "nupp.peg.compile backend must be 'auto' or 'vm'")
+        end
+        if options and options.actions ~= nil then
+            return nil, failure(
+                "NUPP2417",
+                "comptime PEG actions are supplied to the materialized matcher factory"
+            )
         end
         local make = {literal = function(text)
             return node("literal", nil, text, at)
@@ -293,7 +307,7 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
                 "peg",
                 "Definition",
                 {name = name, pattern = pattern},
-                provenance(at, "nupp.peg.re.pattern")
+                provenance(at, "nupp.peg.compile")
             )
         end, grammar = function(start, definitions)
             return node("grammar", definitions, start, at)
@@ -303,13 +317,16 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
             return nil, failure("NUPP2417", why and why.message or "invalid PEG re grammar")
         end
 
-        return pattern
+        return newOpaque(
+            "peg",
+            "Blueprint",
+            {pattern = pattern, backend = backend},
+            provenance(at, "nupp.peg.compile")
+        )
     end)
-    library.re = {pattern = library.rePattern}
-    library.rePattern = nil
 
     env.nupp = env.nupp or {}
-    env.nupp.peg = library
+    env.nupp.peg = {compile = library.rePattern}
 end
 
 function peg.method(state: any, handle: any, name: string, args: any, at: any): any, peg.Failure?
@@ -581,7 +598,7 @@ local function analyze(nodes, root, ruleRoots)
             end
             if #got > 0 and not collected then
                 visiting[index] = nil
-                return nil, failure("NUPP2417", "capture-producing repetition must be wrapped in nupp.peg.collect")
+                return nil, failure("NUPP2417", "capture-producing repetition must be wrapped in {| ... |}")
             end
             answer = got
         elseif op == "reference" then
@@ -599,13 +616,13 @@ local function analyze(nodes, root, ruleRoots)
         return nil, why
     end
     if #result > 1 then
-        return nil, failure("NUPP2417", "a PEG matcher produces one result; wrap captures in nupp.peg.collect")
+        return nil, failure("NUPP2417", "a PEG matcher produces one result; wrap captures in {| ... |}")
     end
 
     return result[1] or "integer", nil
 end
 
-local function finalizeGraph(state, rootHandle)
+local function finalizeGraph(state, rootHandle, backend)
     local rootEntry = patternEntry(state, rootHandle)
     if not rootEntry then
         return nil, failure("NUPP2417", "PEG blueprint root is not a pattern")
@@ -748,14 +765,14 @@ local function finalizeGraph(state, rootHandle)
         slots[#slots + 1] = name
     end
     table.sort(slots)
-    local payload = {nodes, root, result, #ruleRoots, slots}
-    local fingerprint = hash.sha256("nupp.peg\0v2\0" .. canonical(payload))
+    local payload = {nodes, root, result, #ruleRoots, slots, backend or "auto"}
+    local fingerprint = hash.sha256("nupp.peg\0v3\0" .. canonical(payload))
     local family = #slots > 0 and "FactoryBlueprint" or "Blueprint"
 
     return {
         kind = "materialized",
         provider = "peg",
-        schema = 2,
+        schema = 3,
         family = family,
         payload = payload,
         provenance = origins,
@@ -770,23 +787,25 @@ function peg.finalize(state: any, value: any): any, peg.Failure?
         return nil, failure("NUPP2415", "the value is not a PEG blueprint")
     end
 
-    return finalizeGraph(state, entry.payload.pattern)
+    return finalizeGraph(state, entry.payload.pattern, entry.payload.backend)
 end
 
 local function validateEnvelope(envelope)
-    if envelope.schema ~= 2 or (
+    if envelope.schema ~= 3 or (
         envelope.family ~= "Blueprint" and envelope.family ~= "FactoryBlueprint"
     ) or type(envelope.payload) ~= "table" then
         return nil, "PEG blueprint has the wrong schema"
     end
-    local nodes, root, result, ruleCount, slots = unpack(envelope.payload)
+    local nodes, root, result, ruleCount, slots, backend = unpack(envelope.payload)
     if type(
         nodes
     ) ~= "table" or #nodes == 0 or #nodes > MAX_NODES or type(
         root
     ) ~= "number" or root < 1 or root > #nodes or type(
         result
-    ) ~= "string" or type(ruleCount) ~= "number" or type(slots) ~= "table" then
+    ) ~= "string" or type(ruleCount) ~= "number" or type(slots) ~= "table" or (
+        backend ~= "auto" and backend ~= "vm"
+    ) then
         return nil, "PEG blueprint header is malformed"
     end
     local slotSet, previous = {}, nil
@@ -849,12 +868,12 @@ local function validateEnvelope(envelope)
     if literalBytes > MAX_LITERAL_BYTES then
         return nil, "PEG blueprint exceeds its literal limit"
     end
-    local fingerprint = hash.sha256("nupp.peg\0v2\0" .. canonical(envelope.payload))
+    local fingerprint = hash.sha256("nupp.peg\0v3\0" .. canonical(envelope.payload))
     if envelope.fingerprint ~= fingerprint then
         return nil, "PEG blueprint fingerprint does not match its payload"
     end
 
-    return {nodes = nodes, root = root, result = result, slots = slots}, nil
+    return {nodes = nodes, root = root, result = result, slots = slots, backend = backend}, nil
 end
 
 local function resultFits(result, resultType, actionReturns)
@@ -999,14 +1018,21 @@ local function selectSpecialization(validated)
             local repetition = nodes[dereference(body[2])]
             local repeated = repetition and repetition[1] == "zeroOrMore" and sequence(repetition[2], {}) or {}
             local word = capture and capture[1] == "capture" and nodes[dereference(capture[2])]
+            local repeatedCapture = repeated[2] and nodes[dereference(repeated[2])]
+            local repeatedWord = repeatedCapture
+                and repeatedCapture[1] == "capture"
+                and nodes[dereference(repeatedCapture[2])]
             local separator = repeated[1] and nodes[dereference(repeated[1])]
-            if #repeated == 2 and repeated[
-                2
-            ] == body[
-                1
-            ] and word and word[
-                1
-            ] == "oneOrMore" and separator and separator[1] == "literal" and separator[2] ~= "" then
+            if #repeated == 2
+                and word
+                and word[1] == "oneOrMore"
+                and repeatedWord
+                and repeatedWord[1] == "oneOrMore"
+                and setText(word[2]) == setText(repeatedWord[2])
+                and separator
+                and separator[1] == "literal"
+                and separator[2] ~= ""
+            then
                 local bytes = setText(word[2])
                 if bytes then
                     return {kind = "list", bytes = bytes, separator = separator[2]}
@@ -1519,7 +1545,7 @@ function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, a
             "PEG blueprint result " .. validated.result .. " does not match the declared matcher type"
         )
     end
-    local specialization = selectSpecialization(validated)
+    local specialization = validated.backend == "auto" and selectSpecialization(validated) or nil
     if specialization then
         return {
             tag = "call",

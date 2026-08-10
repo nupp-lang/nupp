@@ -12,8 +12,8 @@ local MAX_NODES = 20000
 local MAX_SOURCE_BYTES = 512 * 1024
 
 local HELPERS = {
-    ["nupp.peg.vm"] = "_G.nupp.peg.vm",
-    ["nupp.peg.specialized"] = "_G.nupp.peg.specialized",
+    ["nupp.peg.vm"] = "__nuppPegVM",
+    ["nupp.peg.specialized"] = "__nuppPegSpecialized",
     ["nupp.fieldcodec.keyed"] = "_G.nupp.fieldcodec.keyed",
 }
 

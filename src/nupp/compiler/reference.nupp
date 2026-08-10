@@ -1276,51 +1276,46 @@ return m
         title = "PEG matchers",
         codes = {"NUPP2414", "NUPP2415", "NUPP2416", "NUPP2417"},
         body = [=[
-`nupp.peg` builds byte-oriented parsing expressions inside a `comptime` block.
-`compile` returns an opaque blueprint, so the declaration initialized by the
-block writes its runtime type explicitly as `nupp.Peg.Matcher<R>`. Compilation
-emits a pure-Lua matcher and no LPeg dependency.
+`nupp.peg.compile(grammar, options?)` is the sole PEG construction API. It
+accepts LPeg-re-style byte grammar text at either phase and emits a pure-Lua
+matcher with no LPeg dependency. A call inside `comptime` returns an opaque
+blueprint, so its declaration writes the runtime type explicitly as
+`nupp.Peg.Matcher<R>`. An ordinary runtime call returns `Matcher<any>`.
 
-Literals, any byte, end of input, byte sets and ranges combine through
-`sequence`, ordered `choice`, `difference`, repetitions and predicates. `p * q`
-is sequence, `p + q` is ordered choice, `p^n` follows LPeg's repetition rule,
-`-p` is the not predicate and `#p` is the and predicate. These operators are
-compiler-owned PEG operations at comptime; they do not enable general
-metamethod execution there.
+A capture `{ p }` returns its matched substring, `{}` returns the current byte
+position, and `{| p |}` makes several captures one explicit array result. The
+static matcher result type must agree: recognition and positions use `integer`,
+a substring uses `string`, and a homogeneous collection uses `{T}`.
 
-A capture returns its matched substring, `position()` returns the current byte
-position, and `group` or `collect` makes several captures one explicit array result. The
-matcher result type must agree: recognition and positions use `integer`, a
-substring uses `string`, and a homogeneous collection uses `{T}`.
-
-`pattern:action("name")` leaves the named callback open until runtime. In that
-case the materialization boundary is a factory type,
+`p => name` or `p -> name` leaves a named callback open until runtime. For a
+static grammar the materialization boundary is a factory type,
 `function(Actions): nupp.Peg.Matcher<R>`. `Actions` must be a closed record or
 shape containing exactly the named slots, each with type `function(string): T`.
 The compiler binds those callbacks once when the factory is called. It invokes
 them only after the complete match succeeds, so PEG backtracking cannot cause
 user-code side effects.
 
-Recursive grammars use `reference`, `define`, and `grammar`. Every reference
-must resolve, repetitions may not contain a nullable expression, ordered-choice
-capture shapes must agree, and left recursion is rejected. Those invalid
-graphs are **NUPP2417** while the common materialization boundary and size
-diagnostics remain **NUPP2414** through **NUPP2416**.
+Recursive grammars use `name <- p` definitions and `name` or `<name>`
+references. Every reference must resolve, repetitions may not contain a
+nullable expression, ordered-choice capture shapes must agree, and left
+recursion is rejected. Those invalid grammars are **NUPP2417** while the common
+materialization boundary and size diagnostics remain **NUPP2414** through
+**NUPP2416**.
 
-The pure-Lua parsing machine is the semantic fallback. The compiler selects
-measured straight-line matchers for anchored byte spans, delimited substring
-lists, and simple nested delimiters; unsupported graphs retain the machine.
-Backend selection changes only regenerated runtime code, never the canonical
-comptime blueprint or the matcher's public type and behavior.
+Both phases lower to the same optimized plan and instantiate the same matcher
+factories. `auto`, the default backend, selects measured straight-line matchers
+for anchored byte spans, delimited substring lists, and simple nested
+delimiters, plus fixed-width and bounded prefix/class/suffix recognition tiers.
+Unsupported graphs retain the general bytecode machine. At runtime the parsed
+plan is cached by grammar text and backend. The runtime parse and planning cost
+is paid once; a selected specialization has the same hot matcher code as its
+static counterpart.
 
-`nupp.peg.re` provides an LPeg-re-style textual frontend to the same matcher
-semantics. `re.pattern(source)` is comptime-only: pass its result to
-`nupp.peg.compile`, retain a precise `Matcher<R>` type, and let the materializer
-select the specialized or VM backend. `re.compile(source, actions)` accepts a
-runtime string, validates and compiles it to the general VM, and returns
-`Matcher<any>`. Runtime programs cache the compiled bytecode by grammar text.
-They cannot use the static specializer because their grammar is not known when
-the module is built.
+Pass `{backend = "vm"}` to skip specialization and force the bounded bytecode
+interpreter. This is useful for cold grammars, reproducible comparisons, or
+hosts that prefer predictable setup. Runtime action callbacks go in
+`{actions = callbacks}`. Static action callbacks remain factory inputs because
+comptime cannot capture runtime values.
 
 The notation supports quoted byte strings, `.`, byte classes and ranges,
 predefined ASCII classes such as `%a`, `%d`, `%s`, and `%w`, sequence, ordered
@@ -1335,9 +1330,9 @@ definition facility in LPeg's `re` module.
 local m = {}
 
 const Identifier: nupp.Peg.Matcher<integer> = comptime do
-    return nupp.peg.compile(nupp.peg.re.pattern([[
+    return nupp.peg.compile([[
         [a-zA-Z_] [a-zA-Z_0-9]* !.
-    ]]))
+    ]])
 end
 
 function m.identifier(text: string): integer?
@@ -1345,7 +1340,7 @@ function m.identifier(text: string): integer?
 end
 
 function m.matcher(grammar: string): nupp.Peg.Matcher<any>
-    return nupp.peg.re.compile(grammar)
+    return nupp.peg.compile(grammar)
 end
 
 return m

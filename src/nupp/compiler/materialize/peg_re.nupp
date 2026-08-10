@@ -473,7 +473,7 @@ end
 
 function pegRe.parse(source: string, make: any): any?, pegRe.Failure?
     if type(source) ~= "string" then
-        return nil, new pegRe.Failure {message = "nupp.peg.re needs a string"}
+        return nil, new pegRe.Failure {message = "nupp.peg.compile needs a grammar string"}
     end
     local state = {source = source, position = 1, depth = 0, grammar = false, make = make}
     skip(state)

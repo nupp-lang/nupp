@@ -1390,6 +1390,10 @@ function gen.generate(
                 error("checked materialization IR failed during generation: " .. tostring(failure and failure.message))
             end
             e(rendered, sourceLine(x))
+            local observation = x.materializationObservation
+            for _, effect in ipairs(observation and observation.runtimeFeatures or {}) do
+                emittedFeatureEffects[effect] = "materialized"
+            end
             return
         end
         if x.folded then
@@ -1397,7 +1401,9 @@ function gen.generate(
             return
         end
         if x.compilerFeatureEffect then
-            emittedFeatureEffects[x.compilerFeatureEffect] = true
+            if not emittedFeatureEffects[x.compilerFeatureEffect] then
+                emittedFeatureEffects[x.compilerFeatureEffect] = "emitted"
+            end
         end
         if kind == "dotIndex" and x.overloadMember then
             emit(x.obj)
@@ -3184,6 +3190,11 @@ function gen.generate(
         local feature = native.feature(effect)
         if not feature or not feature.emittedOnly or emittedFeatureEffects[effect] then
             runtimeEffects[effect] = value
+        end
+    end
+    for effect, state in pairs(emittedFeatureEffects) do
+        if state == "materialized" then
+            runtimeEffects[effect] = true
         end
     end
     local nativeBootstrap = native.bootstrap(runtimeEffects)

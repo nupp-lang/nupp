@@ -421,10 +421,11 @@ function M.pureAndNativeRuntimeFeaturesComposeAsLua()
    local previous = rawget(_G, "nupp")
    _G.nupp = nil
    local chunk = assert(loadstring(bootstrap
-      .. " return type(nupp.peg.vm), rawget(nupp, 'regex')"))
-   local machine, regex = chunk()
+      .. " return type(nupp.peg), next(nupp.peg), rawget(nupp, 'regex')"))
+   local pegType, pegField, regex = chunk()
    _G.nupp = previous
-   assertEq(machine, "function", "the pure PEG runtime is installed")
+   assertEq(pegType, "table", "the pure PEG runtime is installed")
+   assertEq(pegField, nil, "internal PEG helpers are not public fields")
    assertEq(regex, nil, "the native regex runtime stays lazy")
 end
 

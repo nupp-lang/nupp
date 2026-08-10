@@ -2,47 +2,30 @@
 -- Run with: ./bin/nupp run -O2 bench/peg-vm.nupp
 
 local Identifier: nupp.Peg.Matcher<integer> = comptime do
-    local head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
-    local tail = head + nupp.peg.range("09")
-    return nupp.peg.compile(#nupp.peg.literal("") * head * tail ^ 0 * nupp.peg.eof())
+    return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.", {backend = "vm"})
 end
 
 local Date: nupp.Peg.Matcher<integer> = comptime do
-    local digit = nupp.peg.range("09")
-    return nupp.peg.compile(
-        digit * digit * digit * digit * nupp.peg.literal(
-            "-"
-        ) * digit * digit * nupp.peg.literal("-") * digit * digit * nupp.peg.eof()
-    )
+    return nupp.peg.compile("[0-9]^4 '-' [0-9]^2 '-' [0-9]^2 !.", {backend = "vm"})
 end
 
 local Route: nupp.Peg.Matcher<integer> = comptime do
-    local method = nupp.peg.literal(
-        "GET"
-    ) + nupp.peg.literal("POST") + nupp.peg.literal("PUT") + nupp.peg.literal("PATCH") + nupp.peg.literal("DELETE")
-    local pathByte = nupp.peg.range("az", "09") + nupp.peg.set("/_-")
-    local version = nupp.peg.literal("HTTP/1.") * (nupp.peg.literal("0") + nupp.peg.literal("1"))
-    return nupp.peg.compile(
-        method * nupp.peg.literal(" ") * pathByte ^ 1 * nupp.peg.literal(" ") * version * nupp.peg.eof()
-    )
+    return nupp.peg.compile([[
+        ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
+        [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
+    ]], {backend = "vm"})
 end
 
 local Word: nupp.Peg.Matcher<string> = comptime do
-    return nupp.peg.compile(nupp.peg.capture(nupp.peg.range("az") ^ 1) * nupp.peg.eof())
+    return nupp.peg.compile("{ [a-z]+ } !.", {backend = "vm"})
 end
 
 local Words: nupp.Peg.Matcher<{string}> = comptime do
-    local word = nupp.peg.capture(nupp.peg.range("az") ^ 1)
-    return nupp.peg.compile(
-        #nupp.peg.literal("") * nupp.peg.collect(word * (nupp.peg.literal(",") * word) ^ 0) * nupp.peg.eof()
-    )
+    return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.", {backend = "vm"})
 end
 
 local Nested: nupp.Peg.Matcher<integer> = comptime do
-    local value = nupp.peg.reference("value")
-    local body = nupp.peg.literal("x") + (nupp.peg.literal("(") * value * nupp.peg.literal(")"))
-    local grammar = nupp.peg.grammar("value", nupp.peg.define("value", body))
-    return nupp.peg.compile(#nupp.peg.literal("") * grammar * nupp.peg.eof())
+    return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "vm"})
 end
 
 local record Actions
@@ -50,7 +33,7 @@ local record Actions
 end
 
 local NumberFactory: function(Actions): nupp.Peg.Matcher<integer> = comptime do
-    return nupp.peg.compile((nupp.peg.range("09") ^ 1):action("number") * nupp.peg.eof())
+    return nupp.peg.compile("[0-9]+ => number !.", {backend = "vm"})
 end
 local Number = NumberFactory(new Actions {number = function(text: string): integer
     return tonumber(text) as integer

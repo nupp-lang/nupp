@@ -173,7 +173,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 ]],
       ["src/main.nupp"] = [[
 const Matcher: nupp.Peg.Matcher<integer> = comptime do
-    return nupp.peg.compile(nupp.peg.literal("ok"))
+    return nupp.peg.compile("'ok'")
 end
 return Matcher("ok")
 ]],
@@ -183,7 +183,7 @@ return Matcher("ok")
    assertEq(#cold.materializations, 1, "the cold build reports its materialization")
    local observation = cold.materializations[1]
    assertEq(observation.provider, "peg", "provider observation")
-   assertEq(observation.schema, 2, "provider schema")
+   assertEq(observation.schema, 3, "provider schema")
    assertEq(observation.backend, "vm", "selected backend")
    assert(observation.blueprintSize > 0 and observation.generatedSize > 0,
       "bounded sizes are reported")

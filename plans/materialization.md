@@ -9,17 +9,20 @@ backend expressions, versions provider/helper/emitter/runtime-expression ABIs,
 reports bounded observations from JSON builds, and enforces evaluator, call,
 wall-clock, result, protocol, IR and provider limits.
 
-PEG now also has one LPeg-re-style textual notation at both phases.
-`nupp.peg.re.pattern` parses a constant grammar into the existing opaque graph,
-so static code retains typed results and specialization.
-`nupp.peg.re.compile` validates a runtime grammar and compiles it to the same
-general pure-Lua VM contract, with cached bytecode and a dynamic result type.
+PEG now has one LPeg-re-style textual API at both phases.
+`nupp.peg.compile` parses constant grammar text into the opaque graph, so static
+code retains typed results and specialization. The same call at runtime uses
+the same plan contract and matcher factories, caches the plan by grammar and
+backend, and returns a dynamic result type. `{backend = "vm"}` is the explicit
+specialization opt-out.
 
 The later anchored-recognition comparison with Rust `regex` now also clears
-every named workload. On the recorded LuaJIT run, PEG reached 1.09x for short
-identifiers, 1.59x for long identifiers, 1.61x for fixed dates and 1.20x for
-HTTP routes, for a 1.35x geometric mean. The benchmark remains
-`bench/peg-vs-rust-regex.nupp` rather than replacing the semantic LPeg suite.
+every named workload. On the recorded LuaJIT run, runtime-compiled PEG reached
+1.06x for short identifiers, 1.56x for long identifiers, 1.74x for fixed dates
+and 1.21x for HTTP routes, for a 1.37x geometric mean. Its geometric mean
+against the static matcher was 0.99x; compiling the three dynamic grammars cost
+about 1.1 ms. The benchmark remains `bench/peg-vs-rust-regex.nupp` rather than
+replacing the semantic LPeg suite.
 
 The remaining work is deliberately outside the closed materialization core:
 add declaration annotations and fine-grained cross-module invalidation to the
@@ -136,34 +139,26 @@ the expression:
 
 ```nupp
 const Identifier: nupp.peg.Matcher<integer> = comptime do
-    const head = nupp.peg.choice(
-        nupp.peg.range("az", "AZ"),
-        nupp.peg.literal("_")
-    )
-    const tail = nupp.peg.choice(head, nupp.peg.range("09"))
-    return nupp.peg.compile(
-        nupp.peg.sequence(head, nupp.peg.zeroOrMore(tail))
-    )
+    return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 ```
 
 The checker resolves `nupp.peg.Matcher<integer>` before evaluating the block.
-The block itself returns a comptime-only `nupp.peg.Blueprint<integer>`. The
-expression's runtime type is the written `Matcher<integer>`, and generated Lua
-constructs that value directly. A blueprint with runtime inputs has the
-distinct type `nupp.peg.FactoryBlueprint<R, S>`; `nil` is not used to mean an
-empty slot set.
+The evaluator internally returns a sealed blueprint. The expression's runtime
+type is the written `Matcher<integer>`, and generated Lua constructs that value
+directly. A blueprint with runtime action slots materializes as a factory;
+these internal graph and blueprint types are not part of the public PEG API.
 
 The expected type must be attached directly to the declaration or field whose
 initializer is the block. These do not select a provider:
 
 ```nupp
 local inferred = comptime do
-    return nupp.peg.compile(pattern)
+    return nupp.peg.compile("'ok'")
 end -- opaque result needs an explicit materializable runtime type
 
 consume(comptime do
-    return nupp.peg.compile(pattern)
+    return nupp.peg.compile("'ok'")
 end) -- a call parameter is not an explicit materialization boundary
 ```
 
@@ -184,10 +179,7 @@ end
 
 const buildNumber:
         function(NumberActions): nupp.peg.Matcher<number> = comptime do
-    const digits = nupp.peg.capture(
-        nupp.peg.oneOrMore(nupp.peg.range("09"))
-    )
-    return nupp.peg.compile(digits:action("number"))
+    return nupp.peg.compile("[0-9]+ => number !.")
 end
 
 const Number = buildNumber(new NumberActions {
@@ -387,7 +379,7 @@ data, access to a source binding, arbitrary global assignment, `load`, or a raw
 source fragment. The ordinary generator validates and renders this IR.
 
 Compiler helpers are also selected from a closed table. A provider may request
-`nupp.peg.vm`, for example, but cannot derive a module name from its
+the internal PEG VM helper, for example, but cannot derive a module name from its
 payload. Helper requests participate in the target's semantic helper and
 runtime-feature accounting. A pure generated-Lua helper records no native
 feature; a future provider with a native backend would use the same conservative
@@ -431,10 +423,9 @@ and where a surprising child came from:
 ```text
 NUPPxxxx: repetition can match the empty string
   grammar.nupp:9:38
-      return nupp.peg.compile(head * tail^0)
-                                     ^^^^^^
-  the repeated pattern is empty when built by
-  grammar.nupp:4:14  token(p) -- nupp.peg.space()^0
+      return nupp.peg.compile("item <- ('')* item")
+                                      ^^^^^
+  the repeated expression is nullable
 ```
 
 `NUPPxxxx` is illustrative. The provider reserves its real code through the
@@ -567,13 +558,13 @@ The PEG surface is byte-oriented and deliberately smaller than LPeg:
 - substring, position, group and explicit collection captures;
 - named runtime action slots through a factory.
 
-The same floor is available as LPeg-re-style text. Constant text passes through
-`nupp.peg.re.pattern` to the opaque graph and static materializer; runtime text
-passes through `nupp.peg.re.compile` to the general VM and returns
-`Matcher<any>`. Match-time captures, locale-dependent classes and arbitrary Lua
-pattern values remain deferred. Match-time captures are last because their
-callback can decide success and move the subject position; they are not merely
-post-match value conversion.
+This floor is available only as LPeg-re-style text through
+`nupp.peg.compile`. Constant text passes to the opaque graph and static
+materializer; runtime text produces the same optimized plan contract and
+returns `Matcher<any>`. Match-time captures, locale-dependent classes and
+arbitrary Lua pattern values remain deferred. Match-time captures are last
+because their callback can decide success and move the subject position; they
+are not merely post-match value conversion.
 
 The evaluator builds an opaque pattern graph. `nupp.peg.compile` validates and
 finalizes it into a normalized blueprint with stable rule indices, byte sets,
@@ -584,7 +575,7 @@ fixed-length facts.
 
 The general runtime backend lowers the finalized graph to numeric instructions
 and pooled strings and 256-byte class maps, then constructs a matcher through
-the pure generated-Lua `nupp.peg.vm` helper. The VM uses an explicit combined
+the pure generated-Lua PEG VM helper. The VM uses an explicit combined
 call/backtracking stack, a capture-free loop, and deferred capture/action
 opcodes. Its recognizer tier detects fixed-width whole matches and bounded
 prefix/class/suffix scans while lowering, then records compact superinstruction
@@ -749,9 +740,8 @@ locations remain invariant; oversized output fails deterministically.
 ### M4: PEG general backend
 
 - Add the compiler-owned `nupp.peg` comptime and runtime type surface.
-- Implement the static pattern floor, graph validation and typed results.
-- Add PEG operator sugar with checker-owned type contracts and direct evaluator
-  dispatch for the resolved compiler intrinsic, without general metamethods.
+- Implement the textual grammar floor, graph validation and typed results.
+- Keep pattern nodes and their composition internal to the textual frontend.
 - Finalize the analyzed graph to a canonical matcher blueprint.
 - Emit compact bytecode and constant pools for the pure-Lua VM matcher.
 - Differential-test the matcher against LPeg where the surfaces overlap.

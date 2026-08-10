@@ -1,4 +1,4 @@
--- Generated static PEG matchers against Nupp's Rust regex native provider.
+-- Static and runtime-generated PEG matchers against Nupp's Rust regex provider.
 --
 -- Build the provider and run this file from the repository root:
 --   cargo build --release --locked --manifest-path runtime/regex/Cargo.toml
@@ -16,35 +16,29 @@ local ITERATIONS = 250000
 
 local pegSetupStarted = os.clock()
 local Identifier: nupp.Peg.Matcher<integer> = comptime do
-    local head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
-    local tail = head + nupp.peg.range("09")
-    return nupp.peg.compile(head * tail^0 * nupp.peg.eof())
+    return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 
 local Date: nupp.Peg.Matcher<integer> = comptime do
-    local digit = nupp.peg.range("09")
-    return nupp.peg.compile(
-        digit * digit * digit * digit * nupp.peg.literal("-")
-        * digit * digit * nupp.peg.literal("-") * digit * digit
-        * nupp.peg.eof()
-    )
+    return nupp.peg.compile("[0-9]^4 '-' [0-9]^2 '-' [0-9]^2 !.")
 end
 
 local Route: nupp.Peg.Matcher<integer> = comptime do
-    local method = nupp.peg.literal("GET")
-        + nupp.peg.literal("POST")
-        + nupp.peg.literal("PUT")
-        + nupp.peg.literal("PATCH")
-        + nupp.peg.literal("DELETE")
-    local pathByte = nupp.peg.range("az", "09") + nupp.peg.set("/_-")
-    local version = nupp.peg.literal("HTTP/1.")
-        * (nupp.peg.literal("0") + nupp.peg.literal("1"))
-    return nupp.peg.compile(
-        method * nupp.peg.literal(" ") * pathByte^1
-        * nupp.peg.literal(" ") * version * nupp.peg.eof()
-    )
+    return nupp.peg.compile([[
+        ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
+        [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
+    ]])
 end
 local pegSetupMicros = (os.clock() - pegSetupStarted) * 1000000
+
+local dynamicSetupStarted = os.clock()
+local DynamicIdentifier = nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
+local DynamicDate = nupp.peg.compile("[0-9]^4 '-' [0-9]^2 '-' [0-9]^2 !.")
+local DynamicRoute = nupp.peg.compile([[
+    ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
+    [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
+]])
+local dynamicSetupMicros = (os.clock() - dynamicSetupStarted) * 1000000
 
 -- Resolve the lazy native provider before measuring pattern compilation itself.
 local regexLibrary: nupp.Regex.Library = nupp.regex
@@ -58,6 +52,7 @@ local record Workload
     name: string
     subjects: {string}
     peg: function(string): boolean
+    dynamic: function(string): boolean
     regex: function(string): boolean
 end
 
@@ -66,6 +61,7 @@ local workloads = {
         name = "identifier-short",
         subjects = {"player_1", "_x", "Velocity2", "abc123", "1player", "bad-name", "", "two words"},
         peg = function(subject: string): boolean return Identifier(subject) ~= nil end,
+        dynamic = function(subject: string): boolean return DynamicIdentifier(subject) ~= nil end,
         regex = function(subject: string): boolean return identifierRegex:isMatch(subject) end,
     },
     new Workload {
@@ -81,6 +77,7 @@ local workloads = {
             "materialized_identifier_0123456789_abcdefghijklmnopqrstuvwxy!",
         },
         peg = function(subject: string): boolean return Identifier(subject) ~= nil end,
+        dynamic = function(subject: string): boolean return DynamicIdentifier(subject) ~= nil end,
         regex = function(subject: string): boolean return identifierRegex:isMatch(subject) end,
     },
     new Workload {
@@ -90,6 +87,7 @@ local workloads = {
             "2026/08/10", "26-08-10", "2026-8-10", "2026-08-100",
         },
         peg = function(subject: string): boolean return Date(subject) ~= nil end,
+        dynamic = function(subject: string): boolean return DynamicDate(subject) ~= nil end,
         regex = function(subject: string): boolean return dateRegex:isMatch(subject) end,
     },
     new Workload {
@@ -105,6 +103,7 @@ local workloads = {
             "GET /users/42 HTTP/2.0",
         },
         peg = function(subject: string): boolean return Route(subject) ~= nil end,
+        dynamic = function(subject: string): boolean return DynamicRoute(subject) ~= nil end,
         regex = function(subject: string): boolean return routeRegex:isMatch(subject) end,
     },
 }
@@ -140,31 +139,37 @@ local function measure(test: function(string): boolean, subjects: {string}): num
     return median(samples)
 end
 
-print(string.format("generated PEG vs Rust regex, %s, %d rounds x %d matches",
+print(string.format("static/runtime PEG vs Rust regex, %s, %d rounds x %d matches",
     jit.version, ROUNDS, ITERATIONS
 ))
-print(string.format("runtime setup for 3 matchers: PEG %.1f us, regex compile %.1f us",
-    pegSetupMicros, regexSetupMicros
+print(string.format("setup for 3 matchers: static %.1f us, dynamic %.1f us, regex %.1f us",
+    pegSetupMicros, dynamicSetupMicros, regexSetupMicros
 ))
-print("workload                 PEG matches/s  regex matches/s  PEG/regex")
-print("-----------------------  -------------  ---------------  ---------")
+print("workload                  static/s    dynamic/s      regex/s  dyn/static  dyn/regex")
+print("-----------------------  -----------  -----------  -----------  ----------  ---------")
 
-local ratios = {}
+local ratios, phaseRatios = {}, {}
 for _, workload in ipairs(workloads) do
     for _, subject in ipairs(workload.subjects) do
         assert(workload.peg(subject) == workload.regex(subject),
             workload.name .. " engines disagree on " .. subject)
+        assert(workload.dynamic(subject) == workload.peg(subject),
+            workload.name .. " PEG phases disagree on " .. subject)
     end
     local peg = measure(workload.peg, workload.subjects)
+    local dynamic = measure(workload.dynamic, workload.subjects)
     local regex = measure(workload.regex, workload.subjects)
-    local ratio = peg / regex
+    local ratio = dynamic / regex
     ratios[#ratios + 1] = ratio
-    print(string.format("%-23s  %13.0f  %15.0f  %8.2fx", workload.name, peg, regex, ratio))
+    phaseRatios[#phaseRatios + 1] = dynamic / peg
+    print(string.format("%-23s  %11.0f  %11.0f  %11.0f  %9.2fx  %8.2fx",
+        workload.name, peg, dynamic, regex, dynamic / peg, ratio))
 end
 
-local product = 1
+local product, phaseProduct = 1, 1
 for _, ratio in ipairs(ratios) do product = product * ratio end
-print(string.format("geometric mean                                      %8.2fx",
-    product^(1 / #ratios)
+for _, ratio in ipairs(phaseRatios) do phaseProduct = phaseProduct * ratio end
+print(string.format("geometric mean                                      %9.2fx  %8.2fx",
+    phaseProduct^(1 / #phaseRatios), product^(1 / #ratios)
 ))
 assert(sink > 0)

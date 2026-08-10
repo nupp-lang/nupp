@@ -409,27 +409,16 @@ record nupp.__MaterializationTestAPI
     factory: function(): nupp.__MaterializationFactoryBlueprint
 end
 
---- Types for static parsing-expression grammars.
+--- Types for byte-oriented parsing-expression grammars.
 record nupp.Peg
-    --- A compile-time-only parsing expression.
-    record Pattern
-        --- Applies one named runtime callback to the matched substring.
-        action: function(self, name: string): Pattern
+    --- Runtime controls for grammar compilation.
+    type CompileOptions = {
+        --- Runtime callbacks named by `=>` or `->` action slots.
+        actions: {[string]: function(string): any}?,
 
-        metamethod __add: function(self, other: Pattern): Pattern
-        metamethod __mul: function(self, other: Pattern): Pattern
-        metamethod __pow: function(self, count: integer): Pattern
-        metamethod __unm: function(self): Pattern
-        metamethod __len: function(self): Pattern
-    end
-
-    --- One named rule definition used to assemble a recursive grammar.
-    record Definition
-    end
-
-    --- A finalized compile-time matcher description with no runtime representation.
-    record Blueprint
-    end
+        --- `auto` selects shared specializations; `vm` always uses bytecode.
+        backend: ('auto' | 'vm')?,
+    }
 
     --- A reusable materialized PEG matcher with one declared result.
     record Matcher<R>
@@ -439,40 +428,12 @@ record nupp.Peg
         metamethod __call: function(self, subject: string, init: integer?): R?
     end
 
-    --- LPeg-style textual grammar syntax, shared by comptime and runtime compilation.
-    record Re
-        --- Parses static grammar text into a pattern inside a comptime block.
-        pattern: function(source: string): Pattern
-
-        --- Parses and compiles dynamic grammar text into a general runtime matcher.
-        compile: function(source: string, actions: {[string]: function(string): any}?): Matcher<any>
-    end
-
-    --- Compiler-owned constructors for static byte-oriented PEGs.
+    --- Compiles LPeg-re-style grammar text at compile time or run time.
     record Library
-        literal: function(text: string): Pattern
-        anyByte: function(): Pattern
-        eof: function(): Pattern
-        range: function(...: string): Pattern
-        set: function(bytes: string): Pattern
-        sequence: function(...: Pattern): Pattern
-        choice: function(...: Pattern): Pattern
-        difference: function(pattern: Pattern, excluded: Pattern): Pattern
-        zeroOrMore: function(pattern: Pattern): Pattern
-        oneOrMore: function(pattern: Pattern): Pattern
-        optional: function(pattern: Pattern): Pattern
-        andPredicate: function(pattern: Pattern): Pattern
-        notPredicate: function(pattern: Pattern): Pattern
-        capture: function(pattern: Pattern): Pattern
-        position: function(): Pattern
-        group: function(pattern: Pattern): Pattern
-        collect: function(pattern: Pattern): Pattern
-        action: function(pattern: Pattern, name: string): Pattern
-        reference: function(name: string): Pattern
-        define: function(name: string, pattern: Pattern): Definition
-        grammar: function(start: string, ...: Definition): Pattern
-        compile: function(pattern: Pattern): Blueprint
-        re: Re
+        compile: function(
+            source: string,
+            options: CompileOptions?
+        ): Matcher<any>
     end
 end
 
