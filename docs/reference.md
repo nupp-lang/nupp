@@ -227,7 +227,7 @@ return m
 
 Reports: `NUPP2101`, `NUPP2131`. `nupp explain <code>` says more.
 
-### Finite type-level computation
+### Type-level computation
 
 `keyof T` and `writekeyof T` enumerate readable and writable keys. `T.[K]` and
 `writeof T.[K]` project their value types. A readonly or writeonly mapped shape
@@ -237,8 +237,11 @@ iterates finite literal keys and may remap them with `as`.
 distributes over a union. `infer` bindings belong to one arm. Backtick template
 types concatenate finite string literal sets and split literal strings at
 unambiguous separators in a match pattern. Function patterns may capture their
-parameter and result packs with `function(infer A...): infer R...`. Recursive
-aliases remain NUPP2115.
+parameter and result packs with `function(infer A...): infer R...`.
+
+A generic alias may refer directly to itself beneath a match result. Reduction
+is memoized and bounded; an unconditional reference, mutual recursion, an
+identical active application, or an exhausted recursive budget is NUPP2133.
 
 ```nupp
 local m = {}
@@ -251,15 +254,21 @@ local type Events<T> = {
 local type Element<T> =
     match T when {infer Item} then Item else T end
 
+local type DeepElement<T> = match T
+    when {infer Item} then DeepElement<Item>
+    else T
+end
+
 local events: Events<{name: string}> = nil as any
 local callback: function(value: string): nil = events.nameChanged
 local element: Element<{integer}> = 1
-print(callback, element)
+local deep: DeepElement<{{integer}}> = 1
+print(callback, element, deep)
 
 return m
 ```
 
-Reports: `NUPP2130`, `NUPP2132`. `nupp explain <code>` says more.
+Reports: `NUPP2130`, `NUPP2132`, `NUPP2133`. `nupp explain <code>` says more.
 
 ### Type packs and variadic generics
 
@@ -1317,6 +1326,7 @@ Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418`. `nupp explain <code>` s
 | NUPP2124 | An intersection is provably uninhabited |
 | NUPP2125 | No overload accepts a call |
 | NUPP2126 | Several overloads accept a call |
+| NUPP2133 | A recursive type alias is unsafe or exceeds its budget |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |

@@ -40,6 +40,8 @@ function resolve.install(c: state.Checker): nil
     local requiredAs, requireBindsName = edits.requiredAs, edits.requireBindsName
     local requireEdit = edits.requireEdit
     local pointerShaped = c.pointerShaped
+    local recursiveArmDepth = 0
+    local recursiveBlockedDepth = 0
 
     local function constBinding(name: string): T.ConstTerm?
         local found = c.lookupType(name)
@@ -98,42 +100,96 @@ function resolve.install(c: state.Checker): nil
         return names
     end
 
+    local function constArgument(arg, parameter, at)
+        if not arg then
+            c.diag("NUPP2131", at, ("const parameter %s is unbound"):format(parameter.name))
+            return nil
+        end
+        local term = consteval.fromType(c.resolveType(arg))
+        if not term then
+            c.diag(
+                "NUPP2131",
+                arg,
+                ("argument for const parameter %s is not compile-time-known"):format(parameter.name)
+            )
+            return nil
+        end
+        local reduced, constError = consteval.reduce(term)
+        if constError then
+            c.diag("NUPP2131", arg, constError)
+        end
+        local domain = reduced.tag == "constLiteral"
+            and reduced.domain
+            or reduced.tag == "constVar"
+            and reduced.domain
+            or nil
+        if domain and domain ~= parameter.domain then
+            c.diag(
+                "NUPP2131",
+                arg,
+                ("const parameter %s requires %s, got %s"):format(parameter.name, parameter.domain, domain)
+            )
+        end
+
+        return reduced
+    end
+
+    local function aliasArgumentMap(alias, node)
+        local map, ordinaryAt, packAt, constAt = {}, 1, 1, 1
+        for position, arg in ipairs(node.typeArgs or {}) do
+            local kind = alias.paramKinds and alias.paramKinds[position]
+            if kind == "const" then
+                local cv = alias.constParams[constAt]
+                if cv then
+                    map[cv] = constArgument(arg, cv, node)
+                end
+                constAt = constAt + 1
+            elseif kind == "pack" or not kind and (
+                arg.kind == "tpack"
+                or arg.kind == "tpackUnion"
+                or arg.kind == "tparen"
+                and packAt <= #alias.packParams
+                and ordinaryAt > #alias.typeParams
+            ) then
+                local pack = arg.kind == "tparen" and T.pack({c.resolveType(arg.inner)}) or c.resolvePack(arg)
+                local pv = alias.packParams[packAt]
+                if pv then
+                    map[pv], packAt = pack, packAt + 1
+                end
+            else
+                local tv = alias.typeParams[ordinaryAt]
+                if tv then
+                    map[tv], ordinaryAt = c.resolveType(arg), ordinaryAt + 1
+                else
+                    c.diag("NUPP2121", arg, "ambiguous or surplus generic alias argument")
+                end
+            end
+        end
+        for j = constAt, #alias.constParams do
+            constArgument(nil, alias.constParams[j], node)
+        end
+        c.validateTypeBounds(alias.typeParams, alias.typeBounds, map, node)
+        return map
+    end
+
+    local function recursiveAliasCall(header: T.AliasHeader, node): Type
+        local map = aliasArgumentMap(header, node)
+        local typeArgs, packArgs, constArgs = {}, {}, {}
+        for j, parameter in ipairs(header.typeParams) do
+            typeArgs[j] = map[parameter] or T.any
+        end
+        for j, parameter in ipairs(header.packParams) do
+            packArgs[j] = map[parameter] or T.pack({}, {kind = "unknown", type = T.any})
+        end
+        for j, parameter in ipairs(header.constParams) do
+            constArgs[j] = map[parameter] or parameter
+        end
+        return T.aliasCall(header, typeArgs, packArgs, constArgs)
+    end
+
     -- A generic application means the same thing however the name was reached, so every
     -- way of resolving a type name ends here rather than only the unqualified one.
     local function applyTypeArgs(t, node)
-        local function constArgument(arg, parameter)
-            if not arg then
-                c.diag("NUPP2131", node, ("const parameter %s is unbound"):format(parameter.name))
-                return nil
-            end
-            local term = consteval.fromType(c.resolveType(arg))
-            if not term then
-                c.diag(
-                    "NUPP2131",
-                    arg,
-                    ("argument for const parameter %s is not compile-time-known"):format(parameter.name)
-                )
-                return nil
-            end
-            local reduced, constError = consteval.reduce(term)
-            if constError then
-                c.diag("NUPP2131", arg, constError)
-            end
-            local domain = reduced.tag == "constLiteral"
-                and reduced.domain
-                or reduced.tag == "constVar"
-                and reduced.domain
-                or nil
-            if domain and domain ~= parameter.domain then
-                c.diag(
-                    "NUPP2131",
-                    arg,
-                    ("const parameter %s requires %s, got %s"):format(parameter.name, parameter.domain, domain)
-                )
-            end
-
-            return reduced
-        end
 
         -- A refinement is what `is` compiles to, and every path that resolves a
         -- declared name arrives here, so this is the one place it has to be attached
@@ -142,46 +198,15 @@ function resolve.install(c: state.Checker): nil
             node.wherePredicate = t.predicate
         end
         if t and t.tag == "genericAlias" then
-            local map, ordinaryAt, packAt = {}, 1, 1
-            local constAt = 1
-            for position, arg in ipairs(node.typeArgs or {}) do
-                local kind = t.paramKinds and t.paramKinds[position]
-                if kind == "const" then
-                    local cv = t.constParams[constAt]
-                    if cv then
-                        map[cv] = constArgument(arg, cv)
-                    end
-                    constAt = constAt + 1
-                elseif kind == "pack" or not kind and (
-                    arg.kind == "tpack"
-                    or arg.kind == "tpackUnion"
-                    or arg.kind == "tparen"
-                    and packAt <= #t.packParams
-                    and ordinaryAt > #t.typeParams
-                ) then
-                    local packNode = arg
-                    local pack = arg.kind == "tparen" and T.pack({c.resolveType(arg.inner)}) or c.resolvePack(packNode)
-                    local pv = t.packParams[packAt]
-                    if pv then
-                        map[pv], packAt = pack, packAt + 1
-                    end
-                else
-                    local tv = t.typeParams[ordinaryAt]
-                    if tv then
-                        map[tv], ordinaryAt = c.resolveType(arg), ordinaryAt + 1
-                    else
-                        c.diag("NUPP2121", arg, "ambiguous or surplus generic alias argument")
-                    end
-                end
-            end
-            for j = constAt, #t.constParams do
-                constArgument(nil, t.constParams[j])
-            end
-            c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
+            local map = aliasArgumentMap(t, node)
             local rebound = generics.materialize(t.body, map)
             local reduced, reductionError = generics.reduce(rebound, {}, c.reducerMemo)
             if reductionError then
-                c.diag("NUPP2130", node, reductionError)
+                c.diag(
+                    reductionError:find("recursive alias", 1, true) and "NUPP2133" or "NUPP2130",
+                    node,
+                    reductionError
+                )
             end
             return reduced
         end
@@ -195,7 +220,7 @@ function resolve.install(c: state.Checker): nil
             if kind == "const" then
                 local cv = t.constParams and t.constParams[constAt]
                 if cv then
-                    map[cv] = constArgument(arg, cv)
+                    map[cv] = constArgument(arg, cv, node)
                 end
                 constAt = constAt + 1
             elseif kind == "type" then
@@ -376,18 +401,26 @@ function resolve.install(c: state.Checker): nil
         end
         local kind = node.kind
         if kind == "tmatch" then
+            recursiveBlockedDepth = recursiveBlockedDepth + 1
             local scrutinee = c.resolveType(node.scrutinee)
+            recursiveBlockedDepth = recursiveBlockedDepth - 1
             local arms = {}
             for _, child in ipairs(node.arms or {}) do
                 if child.kind == "tmatchArm" then
                     c.pushScope()
+                    recursiveBlockedDepth = recursiveBlockedDepth + 1
                     local pattern = compilePattern(child.pattern, {})
+                    recursiveBlockedDepth = recursiveBlockedDepth - 1
+                    recursiveArmDepth = recursiveArmDepth + 1
                     local result = c.resolveType(child.result)
+                    recursiveArmDepth = recursiveArmDepth - 1
                     c.popScope()
                     arms[#arms + 1] = T.matchArm(pattern, result)
                 end
             end
+            recursiveArmDepth = recursiveArmDepth + 1
             local fallback = node.fallback and c.resolveType(node.fallback) or T.never
+            recursiveArmDepth = recursiveArmDepth - 1
             arms[#arms + 1] = T.matchArm(T.matchPattern("default"), fallback)
             local term = T.neutral("match", scrutinee, nil, nil, nil, nil, nil, nil, nil, nil, node.each, arms)
             local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
@@ -534,6 +567,30 @@ function resolve.install(c: state.Checker): nil
                     return T.borrowed(inner)
                 end
                 return T.pinned(inner)
+            end
+
+            local resolving = c.resolvingAlias[name]
+            if resolving then
+                if c.activeAlias ~= resolving then
+                    c.diag(
+                        "NUPP2133",
+                        node,
+                        ("mutually recursive aliases are not supported: %s refers to %s"):format(
+                            c.activeAlias and c.activeAlias.name or "an alias",
+                            name
+                        )
+                    )
+                    return T.any
+                elseif recursiveArmDepth == 0 or recursiveBlockedDepth > 0 then
+                    c.diag(
+                        "NUPP2133",
+                        node,
+                        ("recursive reference to %q must appear beneath a match arm"):format(name)
+                    )
+                    return T.any
+                end
+                c.markToken(base, resolving.definition, nil, "type")
+                return recursiveAliasCall(resolving.header, node)
             end
 
             local t, def, lookupErr, moduleName, visibility, conflicts = T.builtins[name], nil
@@ -754,7 +811,9 @@ function resolve.install(c: state.Checker): nil
             end
             return T.map(key, value)
         elseif kind == "tmapped" then
+            recursiveBlockedDepth = recursiveBlockedDepth + 1
             local keys = c.resolveType(node.keys)
+            recursiveBlockedDepth = recursiveBlockedDepth - 1
             local binderToken = node.binder
             if not binderToken then
                 return T.any
@@ -763,7 +822,9 @@ function resolve.install(c: state.Checker): nil
             local binder = c.typevarAt(binderToken, "mapped") as T.TypeVar
             c.bindType(binderToken.text, binder, binderToken)
             local value = c.resolveType(node.value)
+            recursiveBlockedDepth = recursiveBlockedDepth + 1
             local remap = node.remap and c.resolveType(node.remap) or nil
+            recursiveBlockedDepth = recursiveBlockedDepth - 1
             c.popScope()
             local capability = node.capability and node.capability.propertyCapability or "read"
             local term = T.neutral("mapped", nil, nil, capability, binder, keys, value, remap)
@@ -1048,30 +1109,40 @@ function resolve.install(c: state.Checker): nil
     -- is wanted.
     c.resolvePendingAlias = function(name, waiting, owner)
         if c.resolvingAlias[name] then
-            c.diag("NUPP2115", waiting.tok, ("type %q is defined in terms of itself"):format(name))
+            c.diag("NUPP2133", waiting.tok, ("type %q has unsupported recursive resolution"):format(name))
             owner.pending[name] = nil
             owner.types[name] = T.any
             return T.any
         end
-        c.resolvingAlias[name] = true
         local saved = c.scope
         c.scope = owner
         local t
         local decl = waiting.decl
+        local typeParams, typeBounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
         if decl and decl.generics then
             c.pushScope()
-            local typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(
                 decl.generics,
                 "type-alias"
             )
-            local body = c.resolveType(waiting.node)
+        end
+        local identity = (c.filename or "<source>") .. ":" .. tostring(waiting.tok.offset) .. ":" .. name
+        local header = T.aliasHeader(identity, name, typeParams, typeBounds, packParams, constParams, paramKinds)
+        local context = {name = name, header = header, definition = c.scope.typeDefs[name] or owner.typeDefs[name]}
+        local previousActive = c.activeAlias
+        c.resolvingAlias[name] = context
+        c.activeAlias = context
+        local body = c.resolveType(waiting.node)
+        header.body = body
+        c.activeAlias = previousActive
+        c.resolvingAlias[name] = nil
+        if decl and decl.generics then
             c.popScope()
-            t = T.genericAlias(name, body, typeParams, typeBounds, packParams, constParams, paramKinds)
+            t = T.genericAlias(name, body, typeParams, typeBounds, packParams, constParams, paramKinds, header)
         else
-            t = c.resolveType(waiting.node)
+            t = body
         end
         c.scope = saved
-        c.resolvingAlias[name] = nil
         owner.pending[name] = nil
         owner.types[name] = t
         waiting.resolved = t

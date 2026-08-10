@@ -209,6 +209,19 @@ function reflection.describe(root: any, qualifiedName: string?): any
                 out.constParameters[position] = intern(parameter)
             end
             out.parameterKinds = t.paramKinds or {}
+        elseif tag == "neutral" and t.op == "alias" then
+            out.operation = "recursiveAlias"
+            out.name = t.aliasHeader and t.aliasHeader.name or nil
+            out.typeArguments, out.packArguments, out.constArguments = {}, {}, {}
+            for position, argument in ipairs(t.aliasTypeArgs or {}) do
+                out.typeArguments[position] = intern(argument)
+            end
+            for position, argument in ipairs(t.aliasPackArgs or {}) do
+                out.packArguments[position] = intern(argument)
+            end
+            for position, argument in ipairs(t.aliasConstArgs or {}) do
+                out.constArguments[position] = intern(argument)
+            end
         elseif tag == "literal" then
             out.value = t.constant
             out.base = intern(t.base)

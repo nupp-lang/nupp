@@ -247,6 +247,19 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
         end
         return T.intersection(members)
     elseif tag == "neutral" then
+        if t.op == "alias" then
+            local typeArgs, packArgs, constArgs = {}, {}, {}
+            for j, argument in ipairs(t.aliasTypeArgs or {}) do
+                typeArgs[j] = substWith(argument, map, unmapped, norm)
+            end
+            for j, argument in ipairs(t.aliasPackArgs or {}) do
+                packArgs[j] = substPackWith(argument, map, unmapped, norm)
+            end
+            for j, argument in ipairs(t.aliasConstArgs or {}) do
+                constArgs[j] = substConst(argument, map)
+            end
+            return T.aliasCall(t.aliasHeader as T.AliasHeader, typeArgs, packArgs, constArgs)
+        end
         local innerMap = map
         if t.binder then
             innerMap = {}
@@ -290,7 +303,10 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
             t.matchEach,
             matchArms
         )
-        if not T.hasTypevar(rebound) and generics.reduce then
+        if not T.hasTypevar(rebound)
+            and not rebound.id:find("neutral(alias:", 1, true)
+            and generics.reduce
+        then
             local reduced = generics.reduce(rebound)
             return reduced
         end
@@ -575,11 +591,50 @@ local type ReductionMemoEntry = {
     error: string?
 }
 local type ReductionMemo = {[Type]: ReductionMemoEntry}
+type generics.ReductionControl = {
+    cancelled: function(): boolean
+}
 local type ReductionBudget = {
-    visits: integer
+    visits: integer,
+    aliasDepth: integer,
+    aliasSteps: integer,
+    allocations: integer,
+    activeAliases: {[string]: integer},
+    aliasTrace: {string},
+    control: generics.ReductionControl?
 }
 
 local normalize: function(Type, ReductionMemo, ReductionBudget): (Type, string?)
+
+local MAX_RECURSIVE_ALIAS_DEPTH = 128
+local MAX_RECURSIVE_ALIAS_STEPS = 1024
+local MAX_RECURSIVE_TERM_ALLOCATIONS = 4096
+local MAX_RECURSIVE_RESULT_MEMBERS = 256
+
+local function aliasTrace(budget: ReductionBudget, next: string?): string
+    local entries = {}
+    for j, entry in ipairs(budget.aliasTrace) do
+        entries[j] = entry
+    end
+    if next then
+        entries[#entries + 1] = next
+    end
+    return #entries > 0 and "; expansion: " .. table.concat(entries, " -> ") or ""
+end
+
+local function aliasLabel(header: T.AliasHeader, typeArgs: {Type}, packArgs: {T.Pack}, constArgs: {T.ConstTerm}): string
+    local arguments = {}
+    for _, argument in ipairs(typeArgs) do
+        arguments[#arguments + 1] = T.tostring(argument)
+    end
+    for _, argument in ipairs(packArgs) do
+        arguments[#arguments + 1] = T.tostringPack(argument)
+    end
+    for _, argument in ipairs(constArgs) do
+        arguments[#arguments + 1] = T.tostringConst(argument)
+    end
+    return header.name .. (#arguments > 0 and "<" .. table.concat(arguments, ", ") .. ">" or "")
+end
 
 local function reduceKeyof(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
     local subject, err = normalize(t.subject as Type, memo, budget)
@@ -1080,8 +1135,139 @@ local function reduceMatch(t: T.Neutral, memo: ReductionMemo, budget: ReductionB
     return reduceOneMatch(t, scrutinee, memo, budget)
 end
 
+local normalizeReductionPack: function(T.Pack, ReductionMemo, ReductionBudget): (T.Pack, string?)
+normalizeReductionPack = function(pack, memo, budget)
+    if pack.alternatives then
+        local alternatives = {}
+        for j, alternative in ipairs(pack.alternatives) do
+            local err
+            alternatives[j], err = normalizeReductionPack(alternative, memo, budget)
+            if err then
+                return pack, err
+            end
+        end
+        return T.packUnion(alternatives)
+    end
+    local head = {}
+    for j, member in ipairs(pack.head) do
+        local err
+        head[j], err = normalize(member, memo, budget)
+        if err then
+            return pack, err
+        end
+    end
+    local tail = pack.tail
+    if tail and tail.kind == "homogeneous" then
+        local reduced, err = normalize(tail.type, memo, budget)
+        if err then
+            return pack, err
+        end
+        tail = {kind = "homogeneous", type = reduced, mode = tail.mode}
+    end
+
+    return T.pack(head, tail, pack.modes)
+end
+
+local function reduceAlias(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local header = t.aliasHeader as T.AliasHeader
+    if not header or not header.body then
+        return T.any, "recursive alias body was not sealed"
+    end
+    local typeArgs, packArgs, constArgs = {}, {}, {}
+    for j, argument in ipairs(t.aliasTypeArgs or {}) do
+        local err
+        typeArgs[j], err = normalize(argument, memo, budget)
+        if err then
+            return T.any, err
+        end
+    end
+    for j, argument in ipairs(t.aliasPackArgs or {}) do
+        local err
+        packArgs[j], err = normalizeReductionPack(argument, memo, budget)
+        if err then
+            return T.any, err
+        end
+    end
+    for j, argument in ipairs(t.aliasConstArgs or {}) do
+        local err
+        constArgs[j], err = consteval.reduce(argument)
+        if err then
+            return T.any, err
+        end
+    end
+    local call = T.aliasCall(header, typeArgs, packArgs, constArgs)
+    if T.hasTypevar(call) then
+        return call
+    end
+
+    local key = call.id
+    local label = aliasLabel(header, typeArgs, packArgs, constArgs)
+    if budget.activeAliases[key] then
+        return T.any, "recursive alias made no progress at " .. label .. aliasTrace(budget, label)
+    end
+    if budget.aliasDepth >= MAX_RECURSIVE_ALIAS_DEPTH then
+        return T.any, (
+            "recursive alias depth exceeded %d at %s%s"
+        ):format(MAX_RECURSIVE_ALIAS_DEPTH, label, aliasTrace(budget, label))
+    end
+    budget.aliasSteps = budget.aliasSteps + 1
+    if budget.aliasSteps > MAX_RECURSIVE_ALIAS_STEPS then
+        return T.any, (
+            "recursive alias reduction exceeded %d steps at %s%s"
+        ):format(MAX_RECURSIVE_ALIAS_STEPS, label, aliasTrace(budget, label))
+    end
+    -- Count the instantiated call term and its argument terms.  This is separate from
+    -- reducer visits: a wide application can allocate heavily without being deep.
+    budget.allocations = budget.allocations + 1 + #typeArgs + #packArgs + #constArgs
+    if budget.allocations > MAX_RECURSIVE_TERM_ALLOCATIONS then
+        return T.any, (
+            "recursive alias reduction exceeded %d term allocations at %s%s"
+        ):format(MAX_RECURSIVE_TERM_ALLOCATIONS, label, aliasTrace(budget, label))
+    end
+
+    local bindings = {}
+    for j, parameter in ipairs(header.typeParams) do
+        bindings[parameter] = typeArgs[j] or T.any
+    end
+    for j, parameter in ipairs(header.packParams) do
+        bindings[parameter] = packArgs[j] or T.pack({}, {kind = "unknown", type = T.any})
+    end
+    for j, parameter in ipairs(header.constParams) do
+        bindings[parameter] = constArgs[j] or parameter
+    end
+
+    budget.activeAliases[key] = #budget.aliasTrace + 1
+    budget.aliasTrace[#budget.aliasTrace + 1] = label
+    budget.aliasDepth = budget.aliasDepth + 1
+    local expanded = substWith(header.body, bindings, PRESERVE)
+    local out, err = normalize(expanded, memo, budget)
+    budget.aliasDepth = budget.aliasDepth - 1
+    budget.aliasTrace[#budget.aliasTrace] = nil
+    budget.activeAliases[key] = nil
+
+    if not err then
+        local memberCount = 0
+        if out.tag == "union" or out.tag == "intersection" then
+            memberCount = #out.members
+        elseif out.tag == "shape" then
+            memberCount = #out.fields
+        end
+        if memberCount > MAX_RECURSIVE_RESULT_MEMBERS then
+            err = (
+                "recursive alias result has %d members; limit is %d"
+            ):format(memberCount, MAX_RECURSIVE_RESULT_MEMBERS)
+            out = T.any
+        end
+    end
+
+    return out, err
+end
+
 normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Type, string?
     budget.visits = budget.visits + 1
+    if budget.control and budget.control.cancelled and budget.visits % 32 == 0 and budget.control.cancelled() then
+        return T.any, "type reduction cancelled"
+    end
     if budget.visits > MAX_REDUCTION_VISITS then
         return T.any, ("finite type reduction exceeded %d visited nodes"):format(MAX_REDUCTION_VISITS)
     end
@@ -1105,6 +1291,8 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             out, err = reduceTemplate(t, memo, budget)
         elseif t.op == "match" then
             out, err = reduceMatch(t, memo, budget)
+        elseif t.op == "alias" then
+            out, err = reduceAlias(t, memo, budget)
         else
             err = "unknown type reduction operation " .. string.format("%q", t.op)
             out = T.any
@@ -1243,7 +1431,9 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             )
         end
     end
-    if memo then
+    -- Failures can depend on the caller's remaining recursion budget or cancellation
+    -- state.  Only successful normal forms are revision-memoized.
+    if memo and not err then
         memo[t] = {type = out, error = err}
     end
 
@@ -1253,9 +1443,26 @@ end
 --- Rebinds the supplied arguments and then normalizes every decidable neutral term.
 --- The memo belongs to one checker/project revision; callers must not share it through
 --- the process-global type arena.
-function generics.reduce(t: Type, map: Bindings?, memo: ReductionMemo?): Type, string?
+function generics.reduce(
+    t: Type,
+    map: Bindings?,
+    memo: ReductionMemo?,
+    control: generics.ReductionControl?
+): Type, string?
     local rebound = substWith(t, map or {}, PRESERVE)
-    return normalize(rebound, memo or {}, {visits = 0})
+    return normalize(
+        rebound,
+        memo or {},
+        {
+            visits = 0,
+            aliasDepth = 0,
+            aliasSteps = 0,
+            allocations = 0,
+            activeAliases = {},
+            aliasTrace = {},
+            control = control
+        }
+    )
 end
 
 --- `generics.rebind` for a value sequence.

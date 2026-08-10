@@ -3,6 +3,8 @@ local cst = require("nupp.compiler.cst")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
+local types = require("nupp.compiler.types")
+local generics = require("nupp.compiler.generics")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -88,8 +90,76 @@ function M.broadAndMissingMemberReductionsReportLocally()
    assertEq(codes("local value: {name: string}.['missing']"), "NUPP2130")
 end
 
-function M.recursiveAliasesRemainForbiddenBeforeTheRecursiveGate()
-   assertEq(codes("local type Loop<T> = Loop<T>"), "NUPP2115")
+function M.recursiveAliasesMustBeGuardedByAMatchArm()
+   assertEq(codes("local type Loop<T> = Loop<T>"), "NUPP2133")
+   local scrutinee = diagnostics(table.concat({
+      "local type Loop<T> = match Loop<T>",
+      "   when infer X then X else T end",
+   }, "\n"))
+   assertEq(scrutinee[1] and scrutinee[1].code, "NUPP2133")
+   local mappedKey = diagnostics(table.concat({
+      "local type Loop<T> = match T when infer X then",
+      "   {readonly [K in Loop<X>]: string} else T end",
+   }, "\n"))
+   local foundRecursive = false
+   for _, diagnostic in ipairs(mappedKey) do
+      foundRecursive = foundRecursive or diagnostic.code == "NUPP2133"
+   end
+   assert(foundRecursive, "a recursive mapped key reports the recursive rule")
+end
+
+function M.guardedRecursiveAliasesParseRoutesAndNestedContainers()
+   clean(table.concat({
+      "local type Segment<S> = match S",
+      "   when `:${infer Name}` then {readonly [K in Name]: string}",
+      "   else {readonly [K in never]: string} end",
+      "local type RouteParameters<Path> = match Path",
+      "   when `${infer Head}/${infer Tail}` then",
+      "      Segment<Head> & RouteParameters<Tail>",
+      "   else Segment<Path> end",
+      "local params: RouteParameters<'users/:user/posts/:post'> =",
+      "   {user = 'ada', post = 'hello'}",
+      "local user: string = params.user",
+      "local post: string = params.post",
+      "local type DeepElement<T> = match T",
+      "   when {infer Item} then DeepElement<Item>",
+      "   else T end",
+      "local element: DeepElement<{{{integer}}}> = 42",
+   }, "\n"))
+end
+
+function M.recursiveAliasCyclesAndMutualRecursionReportDedicatedErrors()
+   local cycleSource = table.concat({
+      "local type Loop<T> = match T when infer X then Loop<X> end",
+      "local value: Loop<string>",
+   }, "\n")
+   assertEq(codes(cycleSource), "NUPP2133")
+   local cycle = diagnostics(cycleSource)[1]
+   assert(cycle.msg:find("expansion:", 1, true), "cycle carries a bounded expansion trace")
+   assertEq(codes(table.concat({
+      "local type Left<T> = match T when infer X then Right<X> end",
+      "local type Right<T> = match T when infer X then Left<X> end",
+   }, "\n")), "NUPP2133")
+end
+
+function M.recursiveAliasDepthAndReducerCancellationAreBounded()
+   local nested = "integer"
+   for _ = 1, 130 do nested = "{" .. nested .. "}" end
+   assertEq(codes(table.concat({
+      "local type DeepElement<T> = match T",
+      "   when {infer Item} then DeepElement<Item> else T end",
+      "local value: DeepElement<" .. nested .. ">",
+   }, "\n")), "NUPP2133")
+
+   local deep = types.string
+   for _ = 1, 40 do deep = types.array(deep) end
+   local polls = 0
+   local _, err = generics.reduce(deep, nil, nil, {cancelled = function()
+      polls = polls + 1
+      return true
+   end})
+   assertEq(err, "type reduction cancelled")
+   assertEq(polls, 1, "the finite reducer polls its cancellation control")
 end
 
 function M.constParametersSizeArraysWithoutRuntimeSpecialization()

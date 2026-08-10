@@ -253,7 +253,28 @@ local function typeFingerprint(
     elseif tag == "literal" then
         value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
     elseif tag == "neutral" then
-        local templates, arms = {}, {}
+        local templates, arms, aliasArguments = {}, {}, {}
+        local function packFingerprint(pack: nupp.compiler.types.Pack): string
+            if pack.alternatives then
+                local alternatives = {}
+                for j, alternative in ipairs(pack.alternatives) do
+                    alternatives[j] = packFingerprint(alternative)
+                end
+                return "packunion(" .. table.concat(alternatives, "|") .. ")"
+            end
+            local head = {}
+            for j, member in ipairs(pack.head) do
+                head[j] = (pack.modes[j] or "plain") .. ":" .. typeFingerprint(member, active, binders)
+            end
+            local tail = pack.tail
+            local tailFingerprint = "-"
+            if tail and tail.kind == "generic" then
+                tailFingerprint = "generic:" .. binderFingerprint(tail.var, binders, "packvar")
+            elseif tail and tail.type then
+                tailFingerprint = tail.kind .. ":" .. typeFingerprint(tail.type, active, binders)
+            end
+            return "pack(" .. table.concat(head, ",") .. ";" .. tailFingerprint .. ")"
+        end
         for _, part in ipairs(t.templateParts or {}) do
             templates[
                 #templates + 1
@@ -305,6 +326,15 @@ local function typeFingerprint(
         for j, arm in ipairs(t.matchArms or {}) do
             arms[j] = patternFingerprint(arm.pattern) .. "=>" .. typeFingerprint(arm.result, active, binders)
         end
+        for _, argument in ipairs(t.aliasTypeArgs or {}) do
+            aliasArguments[#aliasArguments + 1] = "type=" .. typeFingerprint(argument, active, binders)
+        end
+        for _, argument in ipairs(t.aliasPackArgs or {}) do
+            aliasArguments[#aliasArguments + 1] = "pack=" .. packFingerprint(argument)
+        end
+        for _, argument in ipairs(t.aliasConstArgs or {}) do
+            aliasArguments[#aliasArguments + 1] = "const=" .. constFingerprint(argument, binders)
+        end
         value = "neutral#1(" .. t.op .. ":" .. tostring(
             t.capability or "-"
         ) .. ":subject=" .. typeFingerprint(
@@ -337,7 +367,12 @@ local function typeFingerprint(
         ) .. ":template=" .. table.concat(
             templates,
             ","
-        ) .. ":match=" .. (t.matchEach and "each:" or "one:") .. table.concat(arms, ",") .. ")"
+        ) .. ":match=" .. (t.matchEach and "each:" or "one:") .. table.concat(
+            arms,
+            ","
+        ) .. ":alias=" .. (
+            t.aliasHeader and t.aliasHeader.name or "-"
+        ) .. "<" .. table.concat(aliasArguments, ",") .. ">)"
     elseif tag == "genericAlias" then
         local parameters = {}
         for _, parameter in ipairs(t.typeParams or {}) do

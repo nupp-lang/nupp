@@ -58,15 +58,15 @@ work makes sense in.
         have landed. The remaining closure is C2a annotation and invalidation
         precision, cancellation/non-blocking LSP work above, and the external
         tecs corpus run.
-- [ ] **Type-level computation**
+- [x] **Type-level computation**
       ([design](type-level-computation.md)): a checker-native, type-to-type
       reducer for dependent API surfaces. It is separate from comptime: share
       the semantic member vocabulary and fingerprints with C2a, then land
       finite `keyof`/indexed/mapped operators, explicit const generic
-      parameters, nonrecursive `match`/`infer`, and template literal types.
-      Recursive aliases remain conditional on real workloads, synchronous LSP
-      budgets, and a recorded keep decision; a type-level PEG interpreter is
-      explicitly not an acceptance case.
+      parameters, `match`/`infer`, template literal types, and guarded direct
+      recursive aliases. Route parsing and nested-container normalization are
+      the recursive workloads; deterministic budgets, cancellation polling,
+      cycle detection, and expansion traces bound the in-process reducer.
 - [ ] **Suspension** ([design](suspension.md)): waiting as a checked, handled
       effect. One call site parks under a scheduler and blocks without one, so
       a library that waits works inside a game frame and inside a CLI without

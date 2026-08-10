@@ -299,8 +299,8 @@ return m
     },
 
     new reference.Section {
-        title = "Finite type-level computation",
-        codes = {"NUPP2130", "NUPP2132"},
+        title = "Type-level computation",
+        codes = {"NUPP2130", "NUPP2132", "NUPP2133"},
         body = [=[
 `keyof T` and `writekeyof T` enumerate readable and writable keys. `T.[K]` and
 `writeof T.[K]` project their value types. A readonly or writeonly mapped shape
@@ -310,8 +310,11 @@ iterates finite literal keys and may remap them with `as`.
 distributes over a union. `infer` bindings belong to one arm. Backtick template
 types concatenate finite string literal sets and split literal strings at
 unambiguous separators in a match pattern. Function patterns may capture their
-parameter and result packs with `function(infer A...): infer R...`. Recursive
-aliases remain NUPP2115.
+parameter and result packs with `function(infer A...): infer R...`.
+
+A generic alias may refer directly to itself beneath a match result. Reduction
+is memoized and bounded; an unconditional reference, mutual recursion, an
+identical active application, or an exhausted recursive budget is NUPP2133.
 ]=],
         example = [=[
 local m = {}
@@ -324,10 +327,16 @@ local type Events<T> = {
 local type Element<T> =
     match T when {infer Item} then Item else T end
 
+local type DeepElement<T> = match T
+    when {infer Item} then DeepElement<Item>
+    else T
+end
+
 local events: Events<{name: string}> = nil as any
 local callback: function(value: string): nil = events.nameChanged
 local element: Element<{integer}> = 1
-print(callback, element)
+local deep: DeepElement<{{integer}}> = 1
+print(callback, element, deep)
 
 return m
 ]=],

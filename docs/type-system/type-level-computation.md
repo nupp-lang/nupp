@@ -1,6 +1,6 @@
 # Type-level computation
 
-Nupp can compute finite types while checking a program. This is a second,
+Nupp can compute bounded types while checking a program. This is a second,
 type-checker-local reducer: it does not execute runtime code, invoke comptime,
 generate declarations, or specialize function bodies.
 
@@ -72,6 +72,38 @@ A construction hole containing a finite string-literal union creates a
 Cartesian product. One operation may produce at most 256 fields or template
 members and visit at most 4096 reducer nodes.
 
-Recursive aliases remain NUPP2115. Finite matching deliberately does not make
-a type-level PEG or general parser evaluator: multi-segment parsing still needs
-hand-unrolling, generated declarations, or a runtime parser.
+## Guarded recursive aliases
+
+A generic alias may refer directly to itself beneath a `when` or `else` result.
+The match must eventually select a result that does not recurse for the supplied
+arguments. Unconditional recursion and mutually recursive aliases are rejected.
+
+```nupp
+local type Segment<Part> = match Part
+    when `:${infer Name}` then {readonly [K in Name]: string}
+    else {readonly [K in never]: string}
+end
+
+local type RouteParameters<Path> = match Path
+    when `${infer Head}/${infer Tail}` then
+        Segment<Head> & RouteParameters<Tail>
+    else Segment<Path>
+end
+
+local type Params = RouteParameters<'users/:user/posts/:post'>
+-- {readonly user: string} & {readonly post: string}
+```
+
+Recursive reduction is memoized by alias identity and canonical type, pack, and
+const arguments. Identical active arguments report NUPP2133 immediately. A
+request is also bounded to 128 recursive calls, 1024 alias reductions, 4096
+term allocations, 256 result members, and the general 4096-node reduction
+limit. Diagnostics include a bounded expansion trace, and the reducer polls a
+cancellation control while it works.
+
+This is enough for literal route parsing, nested-container normalization, and
+similar structurally decreasing computations. It is not runtime parsing: the
+input must be represented by a type or literal const argument, all types erase,
+and a runtime parser or comptime value computation is still needed to produce
+runtime data. Type-level PEG interpreters are possible only within the stated
+budgets and are not a compatibility or performance target.

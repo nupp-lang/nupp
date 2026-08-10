@@ -284,6 +284,20 @@ record types.ProtocolThread
     returnPack: types.Pack
 end
 
+--- The stable identity and binder signature of a recursive alias.  The checker creates
+--- the header before resolving the body, then seals `body` exactly once.  Alias calls
+--- point here instead of copying a partially-resolved body into the type arena.
+record types.AliasHeader
+    id: string
+    name: string
+    body: types.Type?
+    typeParams: {types.Type}
+    typeBounds: {types.Type}
+    packParams: {types.PackVar}
+    constParams: {types.ConstVar}
+    paramKinds: {string}
+end
+
 --- A structural generic alias awaiting explicit type and pack arguments.
 record types.GenericAlias
     id: string
@@ -295,6 +309,7 @@ record types.GenericAlias
     packParams: {types.PackVar}
     constParams: {types.ConstVar}
     paramKinds: {string}
+    header: types.AliasHeader?
 end
 
 --- A function.
@@ -426,6 +441,10 @@ record types.Neutral
     templateParts: {types.TemplatePart}?
     matchEach: boolean?
     matchArms: {types.MatchArm}?
+    aliasHeader: types.AliasHeader?
+    aliasTypeArgs: {types.Type}?
+    aliasPackArgs: {types.Pack}?
+    aliasConstArgs: {types.ConstTerm}?
 end
 
 --- The metatable a receiver type carries, which is a record's own runtime table: the
@@ -736,6 +755,7 @@ local capabilityIdentity = setmetatable({}, {__mode = "k"})
 local nextCapabilityIdentity: integer = 0
 local constArena: {[string]: types.ConstTerm} = {}
 local patternArena: {[string]: types.MatchPattern} = {}
+local aliasHeaderSerial = 0
 
 local function flowIdentity(value: any): integer
     if value == nil then
@@ -1530,7 +1550,8 @@ function types.genericAlias(
     typeBounds: {types.Type}?,
     packParams: {types.PackVar}?,
     constParams: {types.ConstVar}?,
-    paramKinds: {string}?
+    paramKinds: {string}?,
+    header: types.AliasHeader?
 ): types.Type
     local parts = {"alias(" .. name, body.id}
     for _, tv in ipairs(typeParams or {}) do
@@ -1553,9 +1574,34 @@ function types.genericAlias(
             typeBounds = typeBounds or {},
             packParams = packParams or {},
             constParams = constParams or {},
-            paramKinds = paramKinds or {}
+            paramKinds = paramKinds or {},
+            header = header
         }
     end)
+end
+
+--- Creates the declaration-local header used by recursive alias calls.  Headers are
+--- intentionally not interned: their body is sealed after the declaration has been
+--- resolved, while every type placed in the global arena remains immutable.
+function types.aliasHeader(
+    identity: string,
+    name: string,
+    typeParams: {types.Type}?,
+    typeBounds: {types.Type}?,
+    packParams: {types.PackVar}?,
+    constParams: {types.ConstVar}?,
+    paramKinds: {string}?
+): types.AliasHeader
+    aliasHeaderSerial = aliasHeaderSerial + 1
+    return new types.AliasHeader {
+        id = "alias-header(" .. identity .. "#" .. tostring(aliasHeaderSerial) .. ")",
+        name = name,
+        typeParams = typeParams or {},
+        typeBounds = typeBounds or {},
+        packParams = packParams or {},
+        constParams = constParams or {},
+        paramKinds = paramKinds or {}
+    }
 end
 
 function types.tostringPack(pack: types.Pack): string
@@ -1956,6 +2002,39 @@ function types.neutral(
     end)
 end
 
+--- Interns one application of a recursive alias header.  The header body is not part
+--- of the key: declaration identity plus canonical arguments name the request, while
+--- the enclosing exported alias fingerprints the sealed body.
+function types.aliasCall(
+    header: types.AliasHeader,
+    typeArgs: {types.Type}?,
+    packArgs: {types.Pack}?,
+    constArgs: {types.ConstTerm}?
+): types.Type
+    local ids = {header.id}
+    for _, argument in ipairs(typeArgs or {}) do
+        ids[#ids + 1] = "t:" .. argument.id
+    end
+    for _, argument in ipairs(packArgs or {}) do
+        ids[#ids + 1] = "p:" .. argument.id
+    end
+    for _, argument in ipairs(constArgs or {}) do
+        ids[#ids + 1] = "c:" .. argument.id
+    end
+    local id = "neutral(alias:" .. table.concat(ids, ",") .. ")"
+
+    return intern(id, function()
+        return new types.Neutral {
+            tag = "neutral",
+            op = "alias",
+            aliasHeader = header,
+            aliasTypeArgs = typeArgs or {},
+            aliasPackArgs = packArgs or {},
+            aliasConstArgs = constArgs or {}
+        }
+    end)
+end
+
 function types.metatable(t: types.Type): types.Type
     return intern("metatable(" .. t.id .. ")", function()
         return new types.Metatable {tag = "metatable", of = t}
@@ -2165,7 +2244,20 @@ function types.tostring(t: types.Type): string
     elseif tag == "typevar" then
         return t.name
     elseif tag == "neutral" then
-        if t.op == "singleton" then
+        if t.op == "alias" then
+            local arguments = {}
+            for _, argument in ipairs(t.aliasTypeArgs or {}) do
+                arguments[#arguments + 1] = types.tostring(argument)
+            end
+            for _, argument in ipairs(t.aliasPackArgs or {}) do
+                arguments[#arguments + 1] = types.tostringPack(argument)
+            end
+            for _, argument in ipairs(t.aliasConstArgs or {}) do
+                arguments[#arguments + 1] = types.tostringConst(argument)
+            end
+            local name = t.aliasHeader and t.aliasHeader.name or "<recursive alias>"
+            return name .. (#arguments > 0 and "<" .. table.concat(arguments, ", ") .. ">" or "")
+        elseif t.op == "singleton" then
             return types.tostringConst(t.constTerm as types.ConstTerm)
         elseif t.op == "keyof" then
             return (t.capability == "write" and "writekeyof " or "keyof ") .. types.tostring(t.subject as types.Type)

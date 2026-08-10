@@ -603,10 +603,10 @@ function M.methodsAttachToAQualifiedRecord()
    }, "\n")), "")
 end
 
--- Hoisting must not make a self-referential alias loop forever.
+-- Hoisting must not make mutually recursive aliases loop forever.
 function M.anAliasDefinedInTermsOfItselfIsReported()
    assertEq(diagsOf("local type A = B\nlocal type B = A\nlocal x: A = 1"),
-      "NUPP2115")
+      "NUPP2133")
 end
 
 -- Methods are hoisted too: their signatures are published before any body

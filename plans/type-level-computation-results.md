@@ -24,7 +24,7 @@ third finite workload in the focused tests.
 - One mapped shape or template product produces at most 256 members.
 - One finite reduction visits at most 4096 nodes.
 - The focused semantic-member suite checks 5 cases in about 4 ms.
-- The T0--T3 language suite checks 19 cases in about 85 ms. The semantic-member
+- The T0--T5 language suite checks 22 cases in about 120 ms. The semantic-member
   suite checks 5 cases in about 4 ms.
 - A self-host rebuild after changing the exported `Type` representation takes
   two compiler passes, about 14 seconds each on this machine. The following
@@ -36,22 +36,27 @@ third finite workload in the focused tests.
 - A fresh CLI LSP inspection of the route handler parameter takes about 0.5
   seconds including process startup and renders the reduced type as
   `{readonly post: string, readonly user: string}`.
-- After rebasing onto the landed reflection, associated-type, comptime-worker,
-  materialization, and PEG bytecode work, the complete suite passes 1,532
-  tests in about 117 seconds. `nupp fixpoint` also passes.
+- With guarded recursion, reflection, associated types, comptime workers,
+  materialization, and PEG bytecode enabled, the complete suite passes 1,523
+  tests in about 144 seconds. `nupp fixpoint` also passes.
 
 Reflection now serializes ordinary fields and indexers through the same member
 view used by access, `keyof`, indexed lookup, and mapped shapes. Its descriptor
 also carries const binders, const arguments, and exact C-array count terms.
 
-The route floor accepts four segments. A fifth segment is intentionally outside
-this alias and does not silently start recursive reduction; extending that
-ceiling means adding another explicit finite layer.
+The route alias now accepts as many literal segments as fit the recursive
+budgets. It no longer has a written four-segment ceiling.
 
-## Recursive gate
+## Recursive gate result
 
-Finite unrolling is sufficient for the two accepted APIs at their stated
-ceilings. Multi-segment routes are the only demonstrated recursive workload;
-the plan requires a second real workload before T5 may begin. Recursive aliases
-therefore remain NUPP2115, and no `AliasCall` or recursive reducer budget is
-implemented.
+T5 is admitted. Multi-segment route parsing and recursively nested container
+normalization are two useful workloads finite aliases cannot express. The
+four-segment route fixture is replaced by a structurally decreasing alias with
+no written segment ceiling.
+
+Hoisted aliases now carry stable per-check headers. A direct self-reference
+beneath a match result becomes an `AliasCall`; unconditional and mutual
+references report NUPP2133. Reduction detects an identical active canonical
+application, memoizes completed applications, polls a cancellation control,
+and enforces independent depth, step, allocation, result-member, and general
+visit budgets. Failures include a bounded instantiated-alias trace.

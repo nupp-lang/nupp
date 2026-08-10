@@ -333,6 +333,21 @@ local ENTRIES: {
     related = {"NUPP2125", "NUPP2208"},
     docs = "docs/type-system/intersections.md#overload-selection",
 }, {
+    code = "NUPP2133",
+    summary = "A recursive type alias is unsafe or exceeds its budget",
+    rule = "A generic alias may refer directly to itself only beneath a match "
+    .. "result. Each application is memoized by its canonical arguments. "
+    .. "Unconditional and mutual recursion are rejected; repeating an active "
+    .. "application or exhausting a deterministic reducer budget reports the "
+    .. "bounded expansion trace.",
+    wrong = "local type Loop<T> = Loop<T>\nreturn Loop\n",
+    right = "local type DeepElement<T> = match T\n"
+    .. "    when {infer Item} then DeepElement<Item>\n"
+    .. "    else T\nend\n"
+    .. "local value: DeepElement<{{integer}}> = 1\nreturn value\n",
+    related = {"NUPP2130", "NUPP2132"},
+    docs = "docs/type-system/type-level-computation.md#guarded-recursive-aliases",
+}, {
     code = "NUPP2202",
     summary = "A declaration is built with 'new'",
     rule = "Records and structs are constructed with `new`. Calling a "

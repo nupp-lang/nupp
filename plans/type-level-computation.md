@@ -1,9 +1,8 @@
 # Type-level computation
 
-> **Status: proposed. Not implemented.** This is a checker feature, not an
-> extension of `comptime`. The finite structural stages are specified for
-> implementation; recursive reduction has a separate admission gate and is not
-> implied by landing the earlier stages.
+> **Status: implemented through T5.** This is a checker feature, not an
+> extension of `comptime`. T1--T4 provide finite structural reduction; T5 adds
+> bounded direct recursion beneath match results.
 
 ## Decision
 
@@ -11,9 +10,8 @@ Nupp will admit a small, explicitly staged language for deriving a type from
 other types and compile-time-known generic values. It begins with terminating
 structural operators: member keys, indexed member types, mapped structural
 shapes, type pattern matching, and string-template types. Recursive generic
-aliases remain forbidden until those operators have proved useful on real APIs
-and a synchronous reduction budget has proved responsive in the checker and
-language server.
+aliases are admitted only as direct self-references beneath match results and
+run under deterministic synchronous reduction budgets.
 
 The feature exists for a relationship ordinary parametric generics cannot
 state: one input type determines the fields or callback types of another. An
@@ -49,7 +47,7 @@ The full phase table is:
 | value -> value | comptime evaluator | C1 landed |
 | type -> value | `reflect(T)` descriptor | C2a landed |
 | value -> type | no general mechanism | closed deliberately |
-| type -> type | checker-native type reducer | T1--T4 landed |
+| type -> type | checker-native type reducer | T1--T5 landed |
 
 Compile-time value parameters are a narrow extension to the generic system,
 not a general value-to-type escape. Only values admitted by the const-argument
@@ -804,15 +802,14 @@ These are documented compiler constants, participate in the reducer semantic
 version where they affect accepted programs, and are not source-level knobs.
 A limit diagnostic identifies the operator and its input cardinalities.
 
-### Recursive stage
+### Recursive stage (landed)
 
-Recursive aliases remain NUPP2115 through the finite milestones. Their later
-admission requires all of:
+Recursive aliases remained NUPP2115 through the finite milestones. T5 admitted
+them after implementing all of:
 
-1. A T5 proposal names at least two real dependent API workloads that finite
-   matching cannot express. Multi-segment routes may count as one; the second
-   must be named and characterized before T5 starts. A type-level PEG
-   interpreter does not count.
+1. Two dependent workloads finite matching cannot express: multi-segment route
+   parameters and recursively nested container-result normalization. A
+   type-level PEG interpreter is not an acceptance workload.
 2. A memo key of alias identity plus canonical type, const, and pack arguments
    and reducer semantic version, with post-reduction dependency fingerprints
    stored and validated as specified above.
@@ -1049,10 +1046,10 @@ Exit test: at least two APIs remove duplicated type declarations, their error
 messages name source concepts rather than reducer internals, and normal edits
 remain within the recorded latency budget.
 
-### T5: recursive aliases, conditional
+### T5: recursive aliases — complete
 
-This milestone does not follow automatically. It exists only after T4 records
-a keep decision satisfying §Recursive stage.
+This milestone was admitted after the two workloads and reducer controls in
+§Recursive stage were demonstrated.
 
 - Predeclare alias headers and teach `resolvePendingAlias` to produce an
   `AliasCall` only for a direct self-reference beneath a match arm; keep
@@ -1104,8 +1101,6 @@ limit until its benchmark passes.
   value-sized generic other than `Matrix`.
 - Whether one finite `pack.concat` operator earns a separate proposal for typed
   parser combinators and ownership-preserving adapters.
-- Which second recursive workload must join multi-segment routes before T5 can
-  be proposed. T1--T4 do not depend on answering this.
 
 None of these changes the phase decision: type-to-type reduction is a
 checker-native feature, and comptime remains downstream, closed, and separate.
