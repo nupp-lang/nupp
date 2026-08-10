@@ -278,7 +278,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return r
     end
 
-    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parseTypePack, parseStatement, parseReturnType
+    local parseExp, parseBlock, parseSuffixedexp, parseTableconstructor, parseFuncbody, parseType, parsePosttype, parseTypePack, parseStatement, parseReturnType, parseIstring
+    local typePatternDepth = 0
 
     -- Tokens that can begin a type expression.
     local TYPE_START = {
@@ -428,15 +429,26 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         local g = new cst.Generics {kind = "generics"}
         add(g, advance()).generic = true
-        g.names, g.bounds, g.packs = {}, {}, {}
+        g.names, g.bounds, g.packs, g.consts, g.domains = {}, {}, {}, {}, {}
         repeat
             local at = #g.names + 1
-            g.names[at] = add(g, expectName("in generic parameter list"))
-            if cur().kind == "..." then
+            local isConst = cur().kind == "name" and cur().text == "const" and tokens[
+                i + 1
+            ] and tokens[i + 1].kind == "name" and tokens[i + 2] and tokens[i + 2].kind == ":"
+            if isConst then
+                add(g, advance()).contextualOp = true
+                g.names[at] = add(g, advance())
+                g.consts[at] = true
+                annotationColon(g, "after const generic parameter")
+                g.domains[at] = add(g, expectName("as const parameter domain"))
+            else
+                g.names[at] = add(g, expectName("in generic parameter list"))
+            end
+            if not isConst and cur().kind == "..." then
                 g.packs[at] = true
                 add(g, advance()).generic = true
             end
-            if cur().kind == "name" and cur().text == "is" then
+            if not isConst and cur().kind == "name" and cur().text == "is" then
                 add(g, advance())
                 g.bounds[at] = add(g, parseType())
             end
@@ -461,12 +473,77 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         end
         local k = tok.kind
 
-        return k == "name" or k == "nil" or k == "{" or k == "function" or k == "(" or k == "string"
+        return k == "name"
+            or k == "nil"
+            or k == "{"
+            or k == "function"
+            or k == "("
+            or k == "string"
+            or k == "number"
+            or k == "true"
+            or k == "false"
+            or k == "istringOpen"
     end
 
     --- A type without its postfixes.
     local function parseTypePrimary(): Node
         local kind = cur().kind
+        if typePatternDepth > 0 and kind == "name" and cur().text == "infer" and tokens[
+            i + 1
+        ] and tokens[i + 1].kind == "name" then
+            local n = new cst.Tinfer {kind = "tinfer"}
+            add(n, advance()).contextualOp = true
+            n.name = add(n, advance())
+            if cur().kind == "..." then
+                n.pack = true
+                add(n, advance()).generic = true
+            end
+            return n
+        end
+        if kind == "name" and cur().text == "match" and startsType(tokens[i + 1]) then
+            local n = new cst.Tmatch {kind = "tmatch", arms = {}}
+            add(n, advance()).contextualOp = true
+            if cur().kind == "name" and cur().text == "each" then
+                n.each = true
+                add(n, advance()).contextualOp = true
+            end
+            n.scrutinee = add(n, parseType())
+            while cur().kind == "name" and cur().text == "when" do
+                local arm = new cst.TmatchArm {kind = "tmatchArm"}
+                add(arm, advance()).contextualOp = true
+                typePatternDepth = typePatternDepth + 1
+                arm.pattern = add(arm, parseType())
+                typePatternDepth = typePatternDepth - 1
+                if not (cur().kind == "then") then
+                    errAt(cur(), "'then' expected after type-match pattern")
+                end
+                add(arm, expect("then", "after type-match pattern"))
+                arm.result = add(arm, parseType())
+                n.arms[#n.arms + 1] = add(n, arm)
+            end
+            if cur().kind == "else" then
+                add(n, advance())
+                n.fallback = add(n, parseType())
+            end
+            add(n, expect("end", "to close type match"))
+            return n
+        end
+        if kind == "name" and (
+            cur().text == "keyof" or cur().text == "writekeyof"
+        ) and startsType(tokens[i + 1]) and tokens[i + 1].line == cur().line then
+            local n = new cst.Tkeyof {kind = "tkeyof", capability = cur().text == "keyof" and "read" or "write"}
+            add(n, advance()).contextualOp = true
+            n.inner = add(n, parseTypePrimary())
+            return n
+        end
+        if kind == "name" and cur().text == "writeof" and startsType(
+            tokens[i + 1]
+        ) and tokens[i + 1].line == cur().line then
+            local n = new cst.Twriteof {kind = "twriteof"}
+            add(n, advance()).contextualOp = true
+            n.inner = add(n, parsePosttype())
+            return n
+        end
         -- `const T` is a read-only view of T. `const` is only a modifier when a type
         -- follows it; on its own it is a type name like any other, which is what keeps
         -- `local x: const` meaning what it did.
@@ -491,7 +568,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.inner = add(n, parseTypePrimary())
             return n
         end
-        if kind == "string" or kind == "true" or kind == "false" then
+        if kind == "string" or kind == "number" or kind == "true" or kind == "false" then
             -- a literal type: the set containing exactly this value, which is what
             -- makes a discriminated union declarable. `false` earns its place here
             -- because a function that returns a result or false is a Lua idiom, and
@@ -503,7 +580,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         if kind == "name" or kind == "nil" then
             local n = new cst.Tname {kind = "tname"}
             n.base = add(n, advance())
-            while cur().kind == "." do
+            while cur().kind == "." and tokens[i + 1] and tokens[i + 1].kind == "name" do
                 add(n, advance())
                 add(n, expectName("after '.' in type name"))
             end
@@ -540,6 +617,33 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         elseif kind == "{" then
             local n
             local addOpen = advance()
+            if cur().kind == "name" and (
+                cur().text == "readonly" or cur().text == "writeonly"
+            ) and tokens[
+                i + 1
+            ] and tokens[
+                i + 1
+            ].kind == "[" and tokens[
+                i + 2
+            ] and tokens[i + 2].kind == "name" and tokens[i + 3] and tokens[i + 3].kind == "in" then
+                local mapped = new cst.Tmapped {kind = "tmapped"}
+                add(mapped, addOpen)
+                mapped.capability = add(mapped, advance())
+                mapped.capability.propertyCapability = mapped.capability.text == "readonly" and "read" or "write"
+                add(mapped, advance())
+                mapped.binder = add(mapped, advance())
+                add(mapped, advance()).contextualOp = true
+                mapped.keys = add(mapped, parseType())
+                if cur().kind == "name" and cur().text == "as" then
+                    add(mapped, advance()).contextualOp = true
+                    mapped.remap = add(mapped, parseType())
+                end
+                add(mapped, expect("]", "to close mapped member"))
+                annotationColon(mapped, "in mapped member")
+                mapped.value = add(mapped, parseType())
+                add(mapped, expect("}", "to close mapped shape"))
+                return mapped
+            end
             local function shapeMember(): Node
                 local capability = nil
                 if cur().kind == "name" and (
@@ -718,6 +822,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 end
             end
             return n
+        elseif kind == "istringOpen" then
+            return parseIstring()
         end
         errAt(cur(), "type expected")
         local n = new cst.ErrorType {kind = "errorType"}
@@ -729,7 +835,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- primtype with postfix '?'/'*' applied ('T*?' = nullable pointer).
 
     --- A type with `?`, `*` and `[N]` applied.
-    local function parsePosttype(): Node
+    parsePosttype = function(): Node
         local t = parseTypePrimary()
         while true do
             local k = cur().kind
@@ -751,12 +857,18 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 add(n, advance()).typePostfix = true
                 if cur().kind == "?" then
                     add(n, advance()).typePostfix = true
-                elseif cur().kind == "number" then
-                    n.count = add(n, advance())
                 else
-                    errAt(cur(), "C array length: write T[?] for a " .. "variable-length array or T[N] for a fixed one")
+                    n.count = add(n, parseExp())
                 end
                 add(n, expect("]", "to close a C array type")).typePostfix = true
+                t = n
+            elseif k == "." and tokens[i + 1] and tokens[i + 1].kind == "[" then
+                local n = new cst.Tmember {kind = "tmember"}
+                n.object = add(n, t)
+                add(n, advance()).typePostfix = true
+                add(n, advance()).typePostfix = true
+                n.key = add(n, parseType())
+                add(n, expect("]", "to close an indexed member type")).typePostfix = true
                 t = n
             else
                 return t
@@ -1204,12 +1316,12 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
     -- Interpolated string: `text ${expr} more ${expr} end`.
 
     --- An interpolated string and everything inside it.
-    local function parseIstring(): Node
+    parseIstring = function(): Node
         local n = new cst.Istring {kind = "istring"}
         add(n, advance()) -- istringOpen
         n.parts = {}
         while true do
-            n.parts[#n.parts + 1] = add(n, resetNoMethod(parseExp))
+            n.parts[#n.parts + 1] = add(n, typePatternDepth > 0 and parseType() or resetNoMethod(parseExp))
             local k = cur().kind
             if k == "istringMid" then
                 add(n, advance())

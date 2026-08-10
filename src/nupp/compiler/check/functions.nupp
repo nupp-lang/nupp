@@ -356,7 +356,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         local scopedCandidates = scopedCallbackParameters(body, true)
         local vararg = false
         local varargType = nil
-        local typeParams, typeBounds, packParams
+        local typeParams, typeBounds, packParams, constParams, paramKinds
         local expectedParams: {Type}? = nil
         local expected = expectedFuncbodies[body]
         if expected then
@@ -368,7 +368,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.functionDepth = c.functionDepth + 1
         c.pushScope()
         if body.generics then
-            typeParams, typeBounds, packParams = c.bindGenerics(body.generics, "function")
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
         end
         if selfType then
             c.bindVar(
@@ -728,7 +728,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             nil,
             paramNames,
             preservesResults,
-            nil
+            nil,
+            constParams,
+            paramKinds
         )
     end
 
@@ -743,10 +745,10 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
             explicitSelf = nil
         end
-        local typeParams, typeBounds, packParams
+        local typeParams, typeBounds, packParams, constParams, paramKinds
         c.pushScope()
         if body and body.generics then
-            typeParams, typeBounds, packParams = c.bindGenerics(body.generics, "function")
+            typeParams, typeBounds, packParams, constParams, paramKinds = c.bindGenerics(body.generics, "function")
         end
         if selfType then
             params[1] = selfType
@@ -827,7 +829,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             nil,
             paramNames,
             preservesResults,
-            nil
+            nil,
+            constParams,
+            paramKinds
         )
     end
 
@@ -972,7 +976,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                     ft.noYield,
                     names,
                     next(preserves) and preserves or nil,
-                    ft.foreign
+                    ft.foreign,
+                    ft.constParams,
+                    ft.paramKinds
                 )
                 owner.writeByname[member] = owner.byname[member]
             elseif owner.declKind == "record" or owner.declKind == "interface" then

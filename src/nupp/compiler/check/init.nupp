@@ -19,6 +19,7 @@ reference for their shape and their families.
 ]]
 
 local T = require("nupp.compiler.types")
+local consteval = require("nupp.compiler.consteval")
 local lints = require("nupp.compiler.lints")
 local fixits = require("nupp.compiler.check.fixits")
 local annotate = require("nupp.compiler.check.annotate")
@@ -384,6 +385,7 @@ function checkMod.check(
     -- One run's whole state, so the passes below reach it through `c` rather than by
     -- being lexically inside one function. See nupp.compiler.check.state.
     local c = new state.Checker {result = result, filename = filename, env = env, opts = opts,
+        reducerMemo = {},
         comptimeDepth = 0,
         comptimeFunctionDepth = 0,
         comptimeFunctions = {},
@@ -837,18 +839,42 @@ function checkMod.check(
             (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic-pack")
         )
     end
+    c.constvarAt = function(tok, domain, role)
+        return T.constvar(
+            tok.text,
+            domain,
+            (filename as string) .. ":" .. tostring(tok.offset) .. ":" .. (role or "generic-const")
+        )
+    end
 
     -- Binds a generic clause in its surrounding scope and resolves aligned upper bounds
     -- after each binder is visible.
     c.bindGenerics = function(generics, role)
-        local params, bounds, packParams = {}, {}, {}
+        local params, bounds, packParams, constParams, paramKinds = {}, {}, {}, {}, {}
         local sawPack = false
         for j, nameTok in ipairs(generics and generics.names or {}) do
             local isPack = generics.packs and generics.packs[j]
-            if isPack then
+            local isConst = generics.consts and generics.consts[j]
+            if isConst then
+                local domainToken = generics.domains and generics.domains[j]
+                local domain = domainToken and domainToken.text or "unknown"
+                if domain ~= "string" and domain ~= "boolean" and domain ~= "integer" then
+                    c.diag(
+                        "NUPP2131",
+                        domainToken or nameTok,
+                        "const parameter domain must be string, boolean, or integer"
+                    )
+                    domain = "string"
+                end
+                local cv = c.constvarAt(nameTok, domain, role)
+                constParams[#constParams + 1] = cv
+                paramKinds[j] = "const"
+                c.bindType(nameTok.text, consteval.singleton(cv), nameTok)
+            elseif isPack then
                 sawPack = true
                 local pv = c.packvarAt(nameTok, role)
                 packParams[#packParams + 1] = pv
+                paramKinds[j] = "pack"
                 c.bindPack(nameTok.text, pv, nameTok)
             else
                 if sawPack then
@@ -856,6 +882,7 @@ function checkMod.check(
                 end
                 local tv = c.typevarAt(nameTok, role)
                 params[#params + 1] = tv
+                paramKinds[j] = "type"
                 c.bindType(nameTok.text, tv, nameTok)
             end
             local boundNode = generics.bounds and generics.bounds[j]
@@ -869,7 +896,7 @@ function checkMod.check(
             end
         end
 
-        return params, bounds, packParams
+        return params, bounds, packParams, constParams, paramKinds
     end
 
     ---------------------------------------------------------------------

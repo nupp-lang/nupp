@@ -360,6 +360,8 @@ predicate      = Name %s"is" type               ; [CS-16] the function answers
                                                 ; is a boolean
 generics       = "<" genericparam *("," genericparam) ">"
 genericparam   = Name ["..."] ["is" type]      ; `...` declares a pack [CS-21]
+               / %s"const" Name ":" constdomain
+constdomain    = %s"string" / %s"boolean" / %s"integer"
 
 coroutineprotocol = %s"yields" typepack %s"resumes" typepack
 
@@ -372,14 +374,22 @@ cmpexp         =/ borexp *("is" type)
 ; Types:
 type           = intersection *("|" intersection)
 intersection   = posttype *("&" posttype)       ; tighter than union [CS-22]
-posttype       = primtype *("?" / "*" / carraysuffix)
-                                                ; optional / pointer / C array,
+posttype       = primtype *("?" / "*" / carraysuffix / memberindex)
+                                                ; optional / pointer / C array / member,
                                                 ; postfix, left to right:
                                                 ; T*? = nullable ptr
-carraysuffix   = "[" ("?" / Numeral) "]"        ; T[?] variable-length,
+carraysuffix   = "[" ("?" / constintexp) "]"    ; T[?] variable-length,
                                                 ; T[N] fixed. Zero-based cdata,
                                                 ; unlike the one-based {T}.
+memberindex    = ".[" type "]"                 ; T.[K], never a C array
+constintexp    = constintterm *(("+" / "-" / "*" / "//" / "%") constintterm)
+constintterm   = Numeral / Name / "(" constintexp ")"
 primtype       = ["const"] primtype              ; read-only view [CS-15]
+               / %s"keyof" primtype
+               / %s"writekeyof" primtype
+               / %s"writeof" posttype
+               / typematch
+               / templatetype
                / LiteralString                  ; a literal type: the set
                                                 ; containing just that value
                / "nil" / "true" / "false"
@@ -390,13 +400,20 @@ primtype       = ["const"] primtype              ; read-only view [CS-15]
 typename       = Name *("." Name) ["<" typearg *("," typearg) ">"]
 typearg        = type / typepack                 ; packs only where accepted [CS-21]
 tabletype      = "{" tablebody "}"
-tablebody      = indexer *("," (indexer / shapefield))
+tablebody      = mappedfield
+               / indexer *("," (indexer / shapefield))
                                                 ; indexer or mixed shape [CS-8]
                / shapefield *("," (shapefield / indexer))
                                                 ; inline shape [CS-8]
                / type *("," type)               ; one = array, several = tuple
 shapefield     = [propertycap] Name ":" type
 indexer        = [propertycap] "[" type "]" ":" type
+mappedfield    = propertycap "[" Name %s"in" type [%s"as" type] "]" ":" type
+typematch      = %s"match" [%s"each"] type
+                 1*(%s"when" typepattern %s"then" type)
+                 [%s"else" type] %s"end"
+typepattern    = type                           ; `infer Name` is contextual here
+templatetype   = istringOpen type *(istringMid type) istringClose
 functype       = "function" [generics] "(" [ftparams] ")"
                  [":" typepack] [coroutineprotocol]
 ftparams       = ftparam *("," ftparam)

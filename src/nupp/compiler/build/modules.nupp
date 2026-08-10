@@ -63,7 +63,38 @@ type modules.Result = {
 --- and how many have been handed out. Numbering by first encounter rather than by
 --- name is what makes two binders that shadow each other compare unequal, and what
 --- keeps renaming one from reading as a changed interface.
-local type Binders = {order: {[nupp.compiler.types.Type]: integer}, count: integer}
+local type Binders = {
+    order: {[any]: integer},
+    count: integer
+}
+
+local function binderFingerprint(binder: any, binders: Binders, prefix: string): string
+    local at = binders.order[binder]
+    if not at then
+        at = binders.count + 1
+        binders.count = at
+        binders.order[binder] = at
+    end
+
+    return prefix .. "#" .. at
+end
+
+local function constFingerprint(term: nupp.compiler.types.ConstTerm?, binders: Binders): string
+    if not term then
+        return "nil"
+    end
+    if term.tag == "constLiteral" then
+        return "const(" .. term.domain .. ":" .. stable(term.value) .. ")"
+    elseif term.tag == "constVar" then
+        return binderFingerprint(term, binders, "constvar") .. ":" .. term.domain
+    end
+    local operands = {}
+    for j, operand in ipairs(term.operands) do
+        operands[j] = constFingerprint(operand, binders)
+    end
+
+    return "constop(" .. term.operation .. ":" .. table.concat(operands, ",") .. ")"
+end
 
 local function typeFingerprint(
     t: nupp.compiler.types.Type?,
@@ -99,20 +130,58 @@ local function typeFingerprint(
         -- This loop used to read `t.fields`, which nominals stopped having when the
         -- member map was renamed to `byname`, so it had been contributing nothing for
         -- some time. Saying so is the fix; putting the members back in is not.
-        value = "nominal(" .. tostring(t.declKind) .. ":" .. tostring(t.name) .. ")"
+        local arguments = {}
+        for _, argument in ipairs(t.typeArgs or {}) do
+            arguments[#arguments + 1] = typeFingerprint(argument, active, binders)
+        end
+        for _, argument in ipairs(t.constArgs or {}) do
+            arguments[#arguments + 1] = constFingerprint(argument, binders)
+        end
+        value = "nominal(" .. tostring(
+            t.declKind
+        ) .. ":" .. tostring(t.name) .. (#arguments > 0 and "<" .. table.concat(arguments, ",") .. ">" or "") .. ")"
     elseif tag == "shape" then
         local fields = {}
         for _, field in ipairs(t.fields or {}) do
             fields[
                 #fields + 1
-            ] = field.name .. ":r=" .. typeFingerprint(field.read, active, binders) .. ":w=" .. typeFingerprint(field.write, active, binders)
+            ] = field.name .. ":r=" .. typeFingerprint(
+                field.read,
+                active,
+                binders
+            ) .. ":w=" .. typeFingerprint(field.write, active, binders)
         end
         fields[
             #fields + 1
-        ] = "index:r=" .. typeFingerprint(t.indexReadKey, active, binders) .. ":" .. typeFingerprint(t.indexReadValue, active, binders) .. ":w=" .. typeFingerprint(t.indexWriteKey, active, binders) .. ":" .. typeFingerprint(t.indexWriteValue, active, binders)
+        ] = "index:r=" .. typeFingerprint(
+            t.indexReadKey,
+            active,
+            binders
+        ) .. ":" .. typeFingerprint(
+            t.indexReadValue,
+            active,
+            binders
+        ) .. ":w=" .. typeFingerprint(
+            t.indexWriteKey,
+            active,
+            binders
+        ) .. ":" .. typeFingerprint(t.indexWriteValue, active, binders)
         value = "shape(" .. table.concat(fields, ",") .. ")"
     elseif tag == "func" then
         local params, returns = {}, {}
+        local typeAt: integer, packAt: integer, constAt: integer = 1, 1, 1
+        for _, kind in ipairs(t.paramKinds or {}) do
+            if kind == "type" then
+                binderFingerprint((t.typeParams or {})[typeAt], binders, "typevar")
+                typeAt = typeAt + 1
+            elseif kind == "pack" then
+                binderFingerprint((t.packParams or {})[packAt], binders, "packvar")
+                packAt = packAt + 1
+            elseif kind == "const" then
+                binderFingerprint((t.constParams or {})[constAt], binders, "constvar")
+                constAt = constAt + 1
+            end
+        end
         for index, item in ipairs(t.params or {}) do
             params[
                 #params + 1
@@ -137,6 +206,12 @@ local function typeFingerprint(
         ) .. ")->(" .. table.concat(returns, ",") .. ")" .. (t.noYield and "!noyield" or "")
     elseif tag == "array" or tag == "ptr" then
         value = tag .. "(" .. typeFingerprint(t.elem, active, binders) .. ")"
+    elseif tag == "carray" then
+        value = "carray(" .. typeFingerprint(
+            t.elem,
+            active,
+            binders
+        ) .. ":" .. constFingerprint(t.countTerm, binders) .. ")"
     elseif tag == "owned" then
         local cleanupIds = {}
         for j, cleanup in ipairs(t.cleanups or {}) do
@@ -150,7 +225,11 @@ local function typeFingerprint(
             t.readable and typeFingerprint(t.key, active, binders) or "nil"
         ) .. ":" .. (
             t.readable and typeFingerprint(t.value, active, binders) or "nil"
-        ) .. ",w=" .. typeFingerprint(t.writeKey, active, binders) .. ":" .. typeFingerprint(t.writeValue, active, binders) .. ")"
+        ) .. ",w=" .. typeFingerprint(
+            t.writeKey,
+            active,
+            binders
+        ) .. ":" .. typeFingerprint(t.writeValue, active, binders) .. ")"
     elseif tag == "tuple" then
         local items = {}
         for _, item in ipairs(t.elems or {}) do
@@ -173,6 +252,104 @@ local function typeFingerprint(
         value = "proj(" .. typeFingerprint(t.of, active, binders) .. "," .. t.name .. ")"
     elseif tag == "literal" then
         value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
+    elseif tag == "neutral" then
+        local templates, arms = {}, {}
+        for _, part in ipairs(t.templateParts or {}) do
+            templates[
+                #templates + 1
+            ] = type(
+                part
+            ) == "string" and "text(" .. stable(
+                part
+            ) .. ")" or typeFingerprint(part as nupp.compiler.types.Type, active, binders)
+        end
+        local function patternFingerprint(pattern: nupp.compiler.types.MatchPattern): string
+            local children, parts = {}, {}
+            for j, child in ipairs(pattern.children or {}) do
+                children[j] = patternFingerprint(child)
+            end
+            for j, part in ipairs(pattern.templateParts or {}) do
+                parts[
+                    j
+                ] = type(
+                    part
+                ) == "string" and "text(" .. stable(
+                    part
+                ) .. ")" or patternFingerprint(part as nupp.compiler.types.MatchPattern)
+            end
+
+            return "pattern(" .. pattern.kind .. ":" .. (
+                pattern.binder and binderFingerprint(pattern.binder, binders, "infer") or "-"
+            ) .. ":" .. typeFingerprint(
+                pattern.expected,
+                active,
+                binders
+            ) .. ":" .. table.concat(
+                children,
+                ","
+            ) .. ":" .. table.concat(
+                parts,
+                ","
+            ) .. ":" .. constFingerprint(
+                pattern.countTerm,
+                binders
+            ) .. ":params=" .. tostring(
+                pattern.paramCount or "-"
+            ) .. ":" .. (
+                pattern.paramPackBinder and binderFingerprint(pattern.paramPackBinder, binders, "inferpack") or "-"
+            ) .. ":returns=" .. (
+                pattern.retPackBinder and binderFingerprint(pattern.retPackBinder, binders, "inferpack") or "-"
+            ) .. ")"
+        end
+
+        for j, arm in ipairs(t.matchArms or {}) do
+            arms[j] = patternFingerprint(arm.pattern) .. "=>" .. typeFingerprint(arm.result, active, binders)
+        end
+        value = "neutral#1(" .. t.op .. ":" .. tostring(
+            t.capability or "-"
+        ) .. ":subject=" .. typeFingerprint(
+            t.subject,
+            active,
+            binders
+        ) .. ":key=" .. typeFingerprint(
+            t.key,
+            active,
+            binders
+        ) .. ":binder=" .. typeFingerprint(
+            t.binder,
+            active,
+            binders
+        ) .. ":keys=" .. typeFingerprint(
+            t.keys,
+            active,
+            binders
+        ) .. ":value=" .. typeFingerprint(
+            t.value,
+            active,
+            binders
+        ) .. ":remap=" .. typeFingerprint(
+            t.remap,
+            active,
+            binders
+        ) .. ":const=" .. constFingerprint(
+            t.constTerm,
+            binders
+        ) .. ":template=" .. table.concat(
+            templates,
+            ","
+        ) .. ":match=" .. (t.matchEach and "each:" or "one:") .. table.concat(arms, ",") .. ")"
+    elseif tag == "genericAlias" then
+        local parameters = {}
+        for _, parameter in ipairs(t.typeParams or {}) do
+            parameters[#parameters + 1] = typeFingerprint(parameter, active, binders)
+        end
+        for _, parameter in ipairs(t.packParams or {}) do
+            parameters[#parameters + 1] = binderFingerprint(parameter, binders, "packvar")
+        end
+        for _, parameter in ipairs(t.constParams or {}) do
+            parameters[#parameters + 1] = binderFingerprint(parameter, binders, "constvar") .. ":" .. parameter.domain
+        end
+        value = "alias(" .. table.concat(parameters, ",") .. ":" .. typeFingerprint(t.body, active, binders) .. ")"
     elseif tag == "typevar" then
         -- By position rather than by name. A binder's name is not its identity: two
         -- that shadow each other are two types and have to compare unequal, or an
@@ -180,13 +357,7 @@ local function typeFingerprint(
         -- Numbering in first-encounter order also means renaming one is not a change,
         -- and neither is moving the declaration, which the interned identity records
         -- by source position.
-        local at = binders.order[t]
-        if not at then
-            at = binders.count + 1
-            binders.count = at
-            binders.order[t] = at
-        end
-        value = "typevar#" .. at
+        value = binderFingerprint(t, binders, "typevar")
     else
         value = tag or tostring(t)
     end

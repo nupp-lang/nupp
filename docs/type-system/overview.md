@@ -155,6 +155,8 @@ are is more useful than pretending they do not exist.
 - [Overloads and overrides](overloads.md) — callable intersections, separate
   method bodies, interface defaults, and constructors.
 - [Generics](generics.md) — type parameters, inference, and bounds.
+- [Type-level computation](type-level-computation.md) — finite member transforms,
+  const parameters, matching, and template literal types.
 - [Type packs](packs.md) — heterogeneous variadics, Lua value-list adjustment,
   protected calls, and coroutine protocols.
 - [Narrowing](narrowing.md) — what proves what, and what does not.

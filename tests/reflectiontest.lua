@@ -76,4 +76,21 @@ function M.coversStructuralFunctionsCollectionsAndCapabilities()
    assertEq(result.fields[2].writable, true, "write capability")
 end
 
+function M.carriesConstBindersAndArrayTermsInTheSharedDescriptorVocabulary()
+   local size = T.constvar("Size", "integer", "reflection:const")
+   local count = T.constOp("*", {size, T.constLiteral("integer", 2)})
+   local alias = T.genericAlias("Buffer", T.carray(T.uint8, nil, count),
+      nil, nil, nil, {size}, {"const"})
+   local descriptor = reflection.describe(alias, "Buffer")
+   local root = descriptor.types[descriptor.root]
+   assertEq(root.parameterKinds[1], "const", "generic parameter kind")
+   local parameter = descriptor.types[root.constParameters[1]]
+   assertEq(parameter.kind, "constVar", "const binder descriptor")
+   assertEq(parameter.domain, "integer", "const binder domain")
+   local body = descriptor.types[root.body]
+   local term = descriptor.types[body.countTerm]
+   assertEq(term.kind, "constOp", "C array count term")
+   assertEq(term.operation, "*", "C array count operation")
+end
+
 return M

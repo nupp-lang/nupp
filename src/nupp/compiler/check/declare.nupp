@@ -341,7 +341,6 @@ function declare.install(
         return nil
     end
 
-
     --- Records which defaults a declaration takes, and refuses the ones it cannot
     --- choose between.
     ---
@@ -729,7 +728,15 @@ function declare.install(
             end
             n.typeParams, n.typeBounds = nil, nil
             if stat.generics then
-                n.typeParams, n.typeBounds = c.bindGenerics(stat.generics, "nominal")
+                local nominalTypes, nominalBounds, nominalPacks, nominalConsts, nominalKinds = c.bindGenerics(
+                    stat.generics,
+                    "nominal"
+                )
+                n.typeParams, n.typeBounds = nominalTypes, nominalBounds
+                n.constParams, n.paramKinds = nominalConsts, nominalKinds
+                if #nominalPacks > 0 then
+                    c.diag("NUPP2121", stat.generics, "nominal declarations do not accept pack parameters")
+                end
             end
             n.fieldOrder = {}
             n.fieldDefs = {}

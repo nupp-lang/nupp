@@ -59,4 +59,18 @@ function M.projectionsOffDistinctBindersDoNotCollide()
       "two projections fingerprinted alike: " .. modules.typeFingerprint(a))
 end
 
+function M.constBindersRenameCanonicallyAndValuesStayDistinct()
+   local rows = types.constvar("Rows", "integer", "before:10:const")
+   local renamed = types.constvar("Height", "integer", "after:10:const")
+   local four = types.constLiteral("integer", 4)
+   local first = types.carray(types.float, nil, types.constOp("*", {rows, four}))
+   local second = types.carray(types.float, nil, types.constOp("*", {renamed, four}))
+   assert(modules.typeFingerprint(first) == modules.typeFingerprint(second),
+      "renaming a const binder changed its interface fingerprint")
+
+   local sixteen = types.carray(types.float, 16)
+   local thirtyTwo = types.carray(types.float, 32)
+   assert(modules.typeFingerprint(sixteen) ~= modules.typeFingerprint(thirtyTwo),
+      "different const values fingerprinted alike")
+end
 return M

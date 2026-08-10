@@ -1,0 +1,43 @@
+-- Two finite dependent APIs: field-derived events and a four-segment route floor.
+
+local type Events<T> = {readonly [K in keyof T as `${K}Changed`]: function(value: T.[K]): nil}
+
+local type Tail<Path> = match Path when `${infer _}/${infer Rest}` then Rest else never
+end
+
+local type Head<Path> = match Path when `${infer First}/${infer _}` then First else Path
+end
+
+local type Parameter<Segment> = match Segment when `:${infer Name}` then Name else never
+end
+
+local type Tail1<Path> = Tail<Path>
+local type Tail2<Path> = Tail<Tail1<Path>>
+local type Tail3<Path> = Tail<Tail2<Path>>
+local type Segment1<Path> = Head<Path>
+local type Segment2<Path> = Head<Tail1<Path>>
+local type Segment3<Path> = Head<Tail2<Path>>
+local type Segment4<Path> = Head<Tail3<Path>>
+local type Parameter1<Path> = Parameter<Segment1<Path>>
+local type Parameter2<Path> = Parameter<Segment2<Path>>
+local type Parameter3<Path> = Parameter<Segment3<Path>>
+local type Parameter4<Path> = Parameter<Segment4<Path>>
+
+local type RouteParameters<
+    Path
+    > = {readonly [K in Parameter1<Path> | Parameter2<Path> | Parameter3<Path> | Parameter4<Path>]: string}
+
+local events: Events<{
+    name: string,
+    age: integer
+}> = nil as any
+local onName: function(value: string): nil = events.nameChanged
+local onAge: function(value: integer): nil = events.ageChanged
+
+local function handleRoute(params: RouteParameters<'users/:user/posts/:post'>): string
+    local user: string = params.user
+    local post: string = params.post
+    return user .. ":" .. post
+end
+
+print(onName, onAge, handleRoute({user = '42', post = '7',}))

@@ -12,6 +12,8 @@ Applying the same arguments to the same declaration yields the identical type, s
 ]]
 
 local T = require("nupp.compiler.types")
+local members = require("nupp.compiler.members")
+local consteval = require("nupp.compiler.consteval")
 local narrowing = require("nupp.compiler.narrowing")
 
 local generics = {}
@@ -31,6 +33,7 @@ local type Bindings = {[any]: any}
 local EMPTY: Bindings = {}
 
 local PRESERVE = "preserve"
+
 local MATERIALIZE = "materialize"
 
 --- Normalization state, carried through the walk when one is running. Absent means
@@ -67,6 +70,72 @@ local reduceProjection: function(
 ): Type
 
 local substWith: function(t: Type, map: Bindings, unmapped: string, norm: Normalizing?): Type
+local substPattern: function(pattern: T.MatchPattern, map: Bindings, unmapped: string): T.MatchPattern
+
+local function substConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
+    if term.tag == "constVar" then
+        local replacement = map[term]
+        if replacement and replacement.tag ~= "pack" then
+            return replacement as T.ConstTerm
+        end
+    elseif term.tag == "constOp" then
+        local operands = {}
+        for j, operand in ipairs(term.operands) do
+            operands[j] = substConst(operand, map)
+        end
+        return T.constOp(term.operation, operands)
+    end
+
+    return term
+end
+
+substPattern = function(pattern: T.MatchPattern, map: Bindings, unmapped: string): T.MatchPattern
+    local children, parts = nil, nil
+    if pattern.children then
+        children = {}
+        for j, child in ipairs(pattern.children) do
+            children[j] = substPattern(child, map, unmapped)
+        end
+    end
+    if pattern.templateParts then
+        parts = {}
+        for j, part in ipairs(pattern.templateParts) do
+            parts[j] = type(part) == "string" and part or substPattern(part as T.MatchPattern, map, unmapped)
+        end
+    end
+
+    return T.matchPattern(
+        pattern.kind,
+        pattern.binder,
+        pattern.expected and substWith(pattern.expected, map, unmapped) or nil,
+        children,
+        parts,
+        pattern.countTerm and substConst(pattern.countTerm, map) or nil,
+        pattern.paramCount,
+        pattern.paramPackBinder,
+        pattern.retPackBinder
+    )
+end
+
+local function preservePatternBinders(pattern: T.MatchPattern, map: Bindings): nil
+    if pattern.binder then
+        map[pattern.binder] = pattern.binder
+    end
+    if pattern.paramPackBinder then
+        map[pattern.paramPackBinder] = T.pack({}, {kind = "generic", var = pattern.paramPackBinder})
+    end
+    if pattern.retPackBinder then
+        map[pattern.retPackBinder] = T.pack({}, {kind = "generic", var = pattern.retPackBinder})
+    end
+    for _, child in ipairs(pattern.children or {}) do
+        preservePatternBinders(child, map)
+    end
+    for _, part in ipairs(pattern.templateParts or {}) do
+        if type(part) ~= "string" then
+            preservePatternBinders(part as T.MatchPattern, map)
+        end
+    end
+end
 
 --- A pack with its binders replaced per `map`, unmapped ones per `unmapped`.
 local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string, norm: Normalizing?): T.Pack
@@ -177,10 +246,68 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
             members[j] = substWith(m, map, unmapped, norm)
         end
         return T.intersection(members)
+    elseif tag == "neutral" then
+        local innerMap = map
+        if t.binder then
+            innerMap = {}
+            for variable, replacement in pairs(map) do
+                innerMap[variable] = replacement
+            end
+            innerMap[t.binder] = t.binder
+        end
+        local templateParts = nil
+        if t.templateParts then
+            templateParts = {}
+            for j, part in ipairs(t.templateParts) do
+                templateParts[j] = type(part) == "string" and part or substWith(part as Type, map, unmapped)
+            end
+        end
+        local matchArms = nil
+        if t.matchArms then
+            matchArms = {}
+            for j, arm in ipairs(t.matchArms) do
+                local armMap = {}
+                for variable, replacement in pairs(map) do
+                    armMap[variable] = replacement
+                end
+                preservePatternBinders(arm.pattern, armMap)
+                matchArms[
+                    j
+                ] = T.matchArm(substPattern(arm.pattern, armMap, unmapped), substWith(arm.result, armMap, unmapped))
+            end
+        end
+        local rebound = T.neutral(
+            t.op,
+            t.subject and substWith(t.subject, map, unmapped) or nil,
+            t.key and substWith(t.key, map, unmapped) or nil,
+            t.capability,
+            t.binder,
+            t.keys and substWith(t.keys, map, unmapped) or nil,
+            t.value and substWith(t.value, innerMap, unmapped) or nil,
+            t.remap and substWith(t.remap, innerMap, unmapped) or nil,
+            t.constTerm and substConst(t.constTerm, map) or nil,
+            templateParts,
+            t.matchEach,
+            matchArms
+        )
+        if not T.hasTypevar(rebound) and generics.reduce then
+            local reduced = generics.reduce(rebound)
+            return reduced
+        end
+        return rebound
     elseif tag == "ptr" then
         return T.ptr(substWith(t.elem, map, unmapped, norm))
     elseif tag == "carray" then
-        return T.carray(substWith(t.elem, map, unmapped, norm), t.count)
+        local term = t.countTerm and substConst(t.countTerm, map) or nil
+        local count = t.count
+        if term then
+            local reduced = consteval.reduce(term)
+            term = reduced
+            if reduced.tag == "constLiteral" and reduced.domain == "integer" then
+                count = reduced.value as integer
+            end
+        end
+        return T.carray(substWith(t.elem, map, unmapped, norm), count, term)
     elseif tag == "const" then
         return T.constOf(substWith(t.inner, map, unmapped, norm))
     elseif tag == "ctype" then
@@ -202,6 +329,18 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
         )
     elseif tag == "genericAlias" then
         return substWith(t.body, map, unmapped, norm)
+    elseif tag == "nominal" and t.origin then
+        local origin = t.origin as T.Nominal
+        local applied = {}
+        for j, parameter in ipairs(origin.typeParams or {}) do
+            local argument = t.typeArgs and t.typeArgs[j] or T.any
+            applied[parameter] = substWith(argument, map, unmapped, norm)
+        end
+        for j, parameter in ipairs(origin.constParams or {}) do
+            local argument = t.constArgs and t.constArgs[j] or parameter
+            applied[parameter] = substConst(argument, map)
+        end
+        return generics.instantiate(origin, applied)
     elseif tag == "func" then
         local paramPack = substPackWith(t.paramPack, map, unmapped, norm)
         local retPack = substPackWith(t.retPack, map, unmapped, norm)
@@ -219,7 +358,7 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
-            t.noYield, t.paramNames, t.preservesResults, t.foreign)
+            t.noYield, t.paramNames, t.preservesResults, t.foreign, t.constParams, t.paramKinds)
     end
 
     return t
@@ -381,6 +520,744 @@ function generics.materialize(t: Type, map: Bindings): Type
     return substWith(t, map, MATERIALIZE, nil)
 end
 
+local MAX_MAPPED_FIELDS = 256
+local MAX_REDUCTION_VISITS = 4096
+
+local function literalKeys(t: Type): {T.Literal}?
+    if t == T.never then
+        return {}
+    end
+    if t.tag == "literal" and (t.base == T.string or t.base == T.integer) then
+        return {t}
+    end
+    if t.tag ~= "union" then
+        return nil
+    end
+    local out: {T.Literal} = {}
+    for _, member in ipairs(t.members) do
+        if member == T.never then
+        -- A distributed match with no result contributes no mapped keys.
+        elseif member.tag ~= "literal" or (member.base ~= T.string and member.base ~= T.integer) then
+            return nil
+        else
+            out[#out + 1] = member
+        end
+    end
+
+    return out
+end
+
+local function keyFits(key: Type, allowed: Type): boolean
+    if allowed == T.any then
+        return true
+    end
+    if key == allowed then
+        return true
+    end
+    if key.tag == "literal" then
+        if key.base == allowed then
+            return true
+        end
+        if allowed.tag == "union" then
+            for _, member in ipairs(allowed.members) do
+                if keyFits(key, member) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local type ReductionMemoEntry = {
+    type: Type,
+    error: string?
+}
+local type ReductionMemo = {[Type]: ReductionMemoEntry}
+local type ReductionBudget = {
+    visits: integer
+}
+
+local normalize: function(Type, ReductionMemo, ReductionBudget): (Type, string?)
+
+local function reduceKeyof(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local subject, err = normalize(t.subject as Type, memo, budget)
+    if err then
+        return T.any, err
+    end
+    local surfaceSubject = subject
+    if subject.tag == "typevar" and subject.bound then
+        surfaceSubject, err = normalize(subject.bound, memo, budget)
+        if err then
+            return T.any, err
+        end
+    elseif T.hasTypevar(subject) or subject.tag == "neutral" then
+        return T.neutral("keyof", subject, nil, t.capability), nil
+    end
+    if surfaceSubject == T.any then
+        return T.any
+    elseif surfaceSubject == T.unknown then
+        return T.any, "unknown has no known member keys"
+    elseif surfaceSubject == T.never then
+        return T.never
+    end
+    local surface = members.view(surfaceSubject)
+    local keys = {}
+    for _, entry in ipairs(surface.ordered) do
+        if t.capability == "write" and entry.writeType or t.capability ~= "write" and entry.readType then
+            keys[#keys + 1] = T.literal(entry.name, T.string)
+        end
+    end
+    local indexer = t.capability == "write" and surface.writeIndexer or surface.readIndexer
+    if indexer then
+        keys[#keys + 1] = indexer.keyType
+    end
+
+    return #keys > 0 and T.union(keys) or T.never
+end
+
+local function reduceMember(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local subject, subjectErr = normalize(t.subject as Type, memo, budget)
+    if subjectErr then
+        return T.any, subjectErr
+    end
+    local key, keyErr = normalize(t.key as Type, memo, budget)
+    if keyErr then
+        return T.any, keyErr
+    end
+    if T.hasTypevar(subject) or T.hasTypevar(key) or subject.tag == "neutral" or key.tag == "neutral" then
+        return T.neutral("member", subject, key, t.capability), nil
+    end
+    if subject == T.any or key == T.any then
+        return T.any
+    elseif subject == T.unknown then
+        return T.any, "unknown has no known members"
+    elseif subject == T.never or key == T.never then
+        return T.never
+    end
+    local keys = literalKeys(key)
+    if not keys then
+        return T.any, "indexed member key must be a finite union of literal keys"
+    end
+    local surface = members.view(subject)
+    local values = {}
+    for _, literal in ipairs(keys) do
+        local entry = literal.base == T.string and surface.byname[tostring(literal.constant)] or nil
+        local value = entry and (t.capability == "write" and entry.writeType or entry.readType) or nil
+        if not value then
+            local indexer = t.capability == "write" and surface.writeIndexer or surface.readIndexer
+            if indexer and keyFits(literal, indexer.keyType) then
+                value = indexer.valueType
+            end
+        end
+        if not value then
+            return T.any, (
+                "member %q has no %s capability"
+            ):format(tostring(literal.constant), t.capability == "write" and "write" or "read")
+        end
+        values[#values + 1] = value
+    end
+    if #values == 0 then
+        return T.never
+    end
+
+    return t.capability == "write" and T.intersection(values) or T.union(values)
+end
+
+local function reduceMapped(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local keysType, err = normalize(t.keys as Type, memo, budget)
+    if err then
+        return T.any, err
+    end
+    if T.hasTypevar(keysType) or keysType.tag == "neutral" then
+        return T.neutral("mapped", nil, nil, t.capability, t.binder, keysType, t.value, t.remap), nil
+    end
+    local keys = literalKeys(keysType)
+    if not keys then
+        return T.any, "mapped keys must be a finite union of string or integer literals"
+    end
+    if #keys > MAX_MAPPED_FIELDS then
+        return T.any, ("mapped shape has %d fields; limit is %d"):format(#keys, MAX_MAPPED_FIELDS)
+    end
+    local fields, seen = {}, {}
+    for _, key in ipairs(keys) do
+        local name = tostring(key.constant)
+        local dropped = false
+        if t.remap then
+            local remapped = substWith(t.remap, {[t.binder] = key}, PRESERVE)
+            local reducedRemap, remapError = normalize(remapped, memo, budget)
+            if remapError then
+                return T.any, remapError
+            end
+            if reducedRemap == T.never then
+                dropped = true
+            elseif reducedRemap.tag ~= "literal" or reducedRemap.base ~= T.string then
+                return T.any, "mapped key remap must reduce to a string literal or never"
+            else
+                name = reducedRemap.constant as string
+            end
+        end
+        if not dropped then
+            if seen[name] then
+                return T.any, ("mapped key %q is duplicated"):format(name)
+            end
+            seen[name] = true
+            local value = substWith(t.value as Type, {[t.binder] = key}, PRESERVE)
+            local reduced, valueErr = normalize(value, memo, budget)
+            if valueErr then
+                return T.any, valueErr
+            end
+            fields[
+                #fields + 1
+            ] = {
+                name = name,
+                read = t.capability == "read" and reduced or nil,
+                write = t.capability == "write" and reduced or nil
+            }
+        end
+    end
+
+    return T.shape(fields)
+end
+
+local function templateAlternatives(t: Type): {string}?
+    if t.tag == "literal" and t.base == T.string then
+        return {t.constant as string}
+    end
+    if t.tag ~= "union" then
+        return nil
+    end
+    local out = {}
+    for _, member in ipairs(t.members) do
+        if member.tag ~= "literal" or member.base ~= T.string then
+            return nil
+        end
+        out[#out + 1] = member.constant as string
+    end
+
+    return out
+end
+
+local function reduceTemplate(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local products = {""}
+    for _, part in ipairs(t.templateParts or {}) do
+        if type(part) == "string" then
+            for j = 1, #products do
+                products[j] = products[j] .. (part as string)
+            end
+        else
+            local reduced, err = normalize(part as Type, memo, budget)
+            if err then
+                return T.any, err
+            end
+            if reduced == T.any then
+                return T.string
+            end
+            if T.hasTypevar(reduced) or reduced.tag == "neutral" then
+                return T.neutral("template", nil, nil, nil, nil, nil, nil, nil, nil, t.templateParts), nil
+            end
+            local alternatives = templateAlternatives(reduced)
+            if not alternatives then
+                return T.any, "template holes must reduce to finite string literals"
+            end
+            if #products * #alternatives > MAX_MAPPED_FIELDS then
+                return T.any, ("template product exceeds %d members"):format(MAX_MAPPED_FIELDS)
+            end
+            local expanded = {}
+            for _, prefix in ipairs(products) do
+                for _, suffix in ipairs(alternatives) do
+                    expanded[#expanded + 1] = prefix .. suffix
+                end
+            end
+            products = expanded
+        end
+    end
+    local out = {}
+    for j, value in ipairs(products) do
+        out[j] = T.literal(value, T.string)
+    end
+
+    return T.union(out)
+end
+
+local function bindPattern(binder: T.TypeVar?, actual: Type, captures: Bindings): boolean
+    if not binder then
+        return true
+    end
+    local prior = captures[binder]
+    if prior then
+        return prior == actual
+    end
+    captures[binder] = actual
+
+    return true
+end
+
+local function bindPackPattern(binder: T.PackVar?, actual: T.Pack, captures: Bindings): boolean
+    if not binder then
+        return true
+    end
+    local prior = captures[binder]
+    if prior then
+        return prior == actual
+    end
+    captures[binder] = actual
+
+    return true
+end
+
+local function fitsOrdinaryPattern(actual: Type, expected: Type): boolean
+    if actual == expected or actual == T.any or expected == T.any then
+        return true
+    end
+    if actual.tag == "literal" and actual.base == expected then
+        return true
+    end
+    if actual.tag == "union" then
+        for _, member in ipairs(actual.members) do
+            if not fitsOrdinaryPattern(member, expected) then
+                return false
+            end
+        end
+        return true
+    end
+    if expected.tag == "union" then
+        for _, member in ipairs(expected.members) do
+            if fitsOrdinaryPattern(actual, member) then
+                return true
+            end
+        end
+    end
+    if actual.tag == "nominal" and expected.tag == "nominal" then
+        return (actual.origin or actual) == (expected.origin or expected)
+    end
+
+    return false
+end
+
+local function matchTemplatePattern(pattern: T.MatchPattern, actual: Type, captures: Bindings): boolean, string?
+    if actual.tag ~= "literal" or actual.base ~= T.string then
+        return false
+    end
+    local source = actual.constant as string
+    local at = 1
+    local parts = pattern.templateParts or {}
+    for j, part in ipairs(parts) do
+        if type(part) == "string" then
+            local literal = part as string
+            if source:sub(at, at + #literal - 1) ~= literal then
+                return false
+            end
+            at = at + #literal
+        else
+            local hole = part as T.MatchPattern
+            if hole.kind ~= "infer" then
+                return false, "template patterns only admit infer holes"
+            end
+            local following = parts[j + 1]
+            local finish
+            if type(following) == "string" and following ~= "" then
+                local found = source:find(following as string, at, true)
+                if not found then
+                    return false
+                end
+                finish = found - 1
+            elseif j == #parts or (following == "" and j + 1 == #parts) then
+                finish = #source
+            else
+                return false, "adjacent inferred template segments are ambiguous"
+            end
+            local value = T.literal(source:sub(at, finish), T.string)
+            if not bindPattern(hole.binder, value, captures) then
+                return false
+            end
+            at = finish + 1
+        end
+    end
+
+    return at == #source + 1
+end
+
+local matchPattern: function(
+    pattern: T.MatchPattern,
+    actual: Type,
+    captures: Bindings,
+    memo: ReductionMemo,
+    budget: ReductionBudget
+): (boolean?, string?)
+
+matchPattern = function(pattern, actual, captures, memo, budget)
+    if pattern.kind == "default" then
+        return true
+    end
+    if pattern.kind == "infer" then
+        return bindPattern(pattern.binder, actual, captures)
+    end
+    if pattern.kind == "template" then
+        return matchTemplatePattern(pattern, actual, captures)
+    end
+    if pattern.kind == "ordinary" then
+        local expected, err = normalize(pattern.expected as Type, memo, budget)
+        if err then
+            return nil, err
+        end
+        if T.hasTypevar(expected) or expected.tag == "neutral" then
+            return nil
+        end
+        return fitsOrdinaryPattern(actual, expected)
+    end
+    local children = pattern.children or {}
+    if pattern.kind == "array" then
+        return actual.tag == "array" and matchPattern(children[1], actual.elem, captures, memo, budget) or false
+    elseif pattern.kind == "tuple" then
+        if actual.tag ~= "tuple" or #actual.elems ~= #children then
+            return false
+        end
+        for j, child in ipairs(children) do
+            local matched, err = matchPattern(child, actual.elems[j], captures, memo, budget)
+            if not matched then
+                return matched, err
+            end
+        end
+        return true
+    elseif pattern.kind == "map" then
+        if actual.tag ~= "map" or not actual.readable then
+            return false
+        end
+        local keyMatch, keyErr = matchPattern(children[1], actual.key, captures, memo, budget)
+        if not keyMatch then
+            return keyMatch, keyErr
+        end
+        return matchPattern(children[2], actual.value, captures, memo, budget)
+    elseif pattern.kind == "ptr" then
+        return actual.tag == "ptr" and matchPattern(children[1], actual.elem, captures, memo, budget) or false
+    elseif pattern.kind == "carray" then
+        if actual.tag ~= "carray" then
+            return false
+        end
+        if pattern.countTerm then
+            local expectedCount, countErr = consteval.reduce(pattern.countTerm)
+            if countErr then
+                return nil, countErr
+            end
+            if expectedCount.tag ~= "constLiteral" or actual.count ~= expectedCount.value then
+                return false
+            end
+        end
+        return matchPattern(children[1], actual.elem, captures, memo, budget)
+    elseif pattern.kind == "const" then
+        return actual.tag == "const" and matchPattern(children[1], actual.inner, captures, memo, budget) or false
+    elseif pattern.kind == "nominal" then
+        if actual.tag ~= "nominal" then
+            return false
+        end
+        local expected = pattern.expected as T.Nominal
+        local origin = actual.origin or actual
+        if origin ~= expected then
+            return false
+        end
+        if #(actual.typeArgs or {}) ~= #children then
+            return false
+        end
+        for j, child in ipairs(children) do
+            local matched, err = matchPattern(child, actual.typeArgs[j], captures, memo, budget)
+            if not matched then
+                return matched, err
+            end
+        end
+        return true
+    elseif pattern.kind == "func" then
+        if actual.tag ~= "func" then
+            return false
+        end
+        local paramCount = pattern.paramCount or (0 as integer)
+        local function matchPack(first: integer, count: integer, binder: T.PackVar?, actualPack: T.Pack)
+            if actualPack.alternatives then
+                return nil
+            end
+            if #actualPack.head < count then
+                return false
+            end
+            if not binder and (#actualPack.head ~= count or actualPack.tail) then
+                return false
+            end
+            for offset = 0, count - 1 do
+                local matched, err = matchPattern(
+                    children[first + offset],
+                    actualPack.head[offset + 1],
+                    captures,
+                    memo,
+                    budget
+                )
+                if not matched then
+                    return matched, err
+                end
+            end
+            if binder then
+                local rest, modes = {}, {}
+                for j = count + 1, #actualPack.head do
+                    rest[#rest + 1] = actualPack.head[j]
+                    modes[#modes + 1] = actualPack.modes[j] or "plain"
+                end
+                if not bindPackPattern(binder, T.pack(rest, actualPack.tail, modes), captures) then
+                    return false
+                end
+            end
+
+            return true
+        end
+
+        local paramsMatched, paramsErr = matchPack(1 as integer, paramCount, pattern.paramPackBinder, actual.paramPack)
+        if not paramsMatched then
+            return paramsMatched, paramsErr
+        end
+        local returnsMatched, returnsErr = matchPack(
+            (paramCount + 1) as integer,
+            (#children - paramCount) as integer,
+            pattern.retPackBinder,
+            actual.retPack
+        )
+        if not returnsMatched then
+            return returnsMatched, returnsErr
+        end
+        return true
+    end
+
+    return false, "unknown type-match pattern " .. string.format("%q", pattern.kind)
+end
+
+local function reduceOneMatch(
+    t: T.Neutral,
+    scrutinee: Type,
+    memo: ReductionMemo,
+    budget: ReductionBudget
+): Type, string?
+    for _, arm in ipairs(t.matchArms or {}) do
+        local captures = {}
+        local matched, err = matchPattern(arm.pattern, scrutinee, captures, memo, budget)
+        if err then
+            return T.any, err
+        end
+        if matched == nil then
+            return T.neutral("match", scrutinee, nil, nil, nil, nil, nil, nil, nil, nil, t.matchEach, t.matchArms)
+        end
+        if matched then
+            local result = substWith(arm.result, captures, PRESERVE)
+            return normalize(result, memo, budget)
+        end
+    end
+
+    return T.never
+end
+
+local function reduceMatch(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local scrutinee, err = normalize(t.subject as Type, memo, budget)
+    if err then
+        return T.any, err
+    end
+    if T.hasTypevar(scrutinee) or scrutinee.tag == "neutral" then
+        return T.neutral("match", scrutinee, nil, nil, nil, nil, nil, nil, nil, nil, t.matchEach, t.matchArms), nil
+    end
+    if scrutinee == T.any then
+        return T.any
+    end
+    if t.matchEach then
+        if scrutinee == T.never then
+            return T.never
+        end
+        local inputs = scrutinee.tag == "union" and scrutinee.members or {scrutinee}
+        local outputs = {}
+        for j, input in ipairs(inputs) do
+            outputs[j], err = reduceOneMatch(t, input, memo, budget)
+            if err then
+                return T.any, err
+            end
+        end
+        return T.union(outputs)
+    end
+
+    return reduceOneMatch(t, scrutinee, memo, budget)
+end
+
+normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    budget.visits = budget.visits + 1
+    if budget.visits > MAX_REDUCTION_VISITS then
+        return T.any, ("finite type reduction exceeded %d visited nodes"):format(MAX_REDUCTION_VISITS)
+    end
+    local cached = memo and memo[t]
+    if cached then
+        return cached.type, cached.error
+    end
+    local out, err = t, nil
+    if t.tag == "neutral" then
+        if t.op == "singleton" then
+            local term
+            term, err = consteval.reduce(t.constTerm as T.ConstTerm)
+            out = not err and consteval.singleton(term) or T.any
+        elseif t.op == "keyof" then
+            out, err = reduceKeyof(t, memo, budget)
+        elseif t.op == "member" then
+            out, err = reduceMember(t, memo, budget)
+        elseif t.op == "mapped" then
+            out, err = reduceMapped(t, memo, budget)
+        elseif t.op == "template" then
+            out, err = reduceTemplate(t, memo, budget)
+        elseif t.op == "match" then
+            out, err = reduceMatch(t, memo, budget)
+        else
+            err = "unknown type reduction operation " .. string.format("%q", t.op)
+            out = T.any
+        end
+    elseif t.tag == "union" or t.tag == "intersection" then
+        local parts = {}
+        for j, member in ipairs(t.members) do
+            parts[j], err = normalize(member, memo, budget)
+            if err then
+                break
+            end
+        end
+        if not err then
+            out = t.tag == "union" and T.union(parts) or T.intersection(parts)
+        end
+    elseif t.tag == "array" then
+        local elem
+        elem, err = normalize(t.elem, memo, budget)
+        if not err then
+            out = T.array(elem)
+        end
+    elseif t.tag == "map" then
+        local readKey, readValue, writeKey, writeValue = nil, nil, nil, nil
+        if t.readable then
+            readKey, err = normalize(t.key, memo, budget)
+        end
+        if not err and t.readable then
+            readValue, err = normalize(t.value, memo, budget)
+        end
+        if not err and t.writeKey then
+            writeKey, err = normalize(t.writeKey, memo, budget)
+        end
+        if not err and t.writeValue then
+            writeValue, err = normalize(t.writeValue, memo, budget)
+        end
+        if not err then
+            out = T.indexer(readKey, readValue, writeKey, writeValue)
+        end
+    elseif t.tag == "tuple" then
+        local elems = {}
+        for j, elem in ipairs(t.elems) do
+            elems[j], err = normalize(elem, memo, budget)
+            if err then
+                break
+            end
+        end
+        if not err then
+            out = T.tuple(elems)
+        end
+    elseif t.tag == "ptr" then
+        local elem
+        elem, err = normalize(t.elem, memo, budget)
+        if not err then
+            out = T.ptr(elem)
+        end
+    elseif t.tag == "carray" then
+        local elem
+        elem, err = normalize(t.elem, memo, budget)
+        local count, term = t.count, t.countTerm
+        if not err and term then
+            term, err = consteval.reduce(term)
+            if not err and term.tag == "constLiteral" then
+                if term.domain ~= "integer" or (term.value as integer) < 0 then
+                    err = "C array length must be a non-negative integer const"
+                else
+                    count = term.value as integer
+                end
+            end
+        end
+        if not err then
+            out = T.carray(elem, count, term)
+        end
+    elseif t.tag == "const" then
+        local inner
+        inner, err = normalize(t.inner, memo, budget)
+        if not err then
+            out = T.constOf(inner)
+        end
+    elseif t.tag == "owned" or t.tag == "borrowed" or t.tag == "pinned" then
+        local inner
+        inner, err = normalize(t.inner, memo, budget)
+        if not err then
+            if t.tag == "owned" then
+                out = T.owned(inner, t.cleanups)
+            elseif t.tag == "borrowed" then
+                out = T.borrowed(inner)
+            else
+                out = T.pinned(inner)
+            end
+        end
+    elseif t.tag == "ctype" then
+        local inner
+        inner, err = normalize(t.of, memo, budget)
+        if not err then
+            out = T.ctype(inner)
+        end
+    elseif t.tag == "metatable" then
+        local inner
+        inner, err = normalize(t.of, memo, budget)
+        if not err then
+            out = T.metatable(inner)
+        end
+    elseif t.tag == "shape" then
+        local fields = {}
+        for j, field in ipairs(t.fields) do
+            local read, write = nil, nil
+            if field.read then
+                read, err = normalize(field.read, memo, budget)
+            end
+            if not err and field.write then
+                write, err = normalize(field.write, memo, budget)
+            end
+            fields[j] = {name = field.name, read = read, write = write}
+            if err then
+                break
+            end
+        end
+        local readKey, readValue, writeKey, writeValue = t.indexReadKey, t.indexReadValue, t.indexWriteKey, t.indexWriteValue
+        if not err and readKey then
+            readKey, err = normalize(readKey, memo, budget)
+        end
+        if not err and readValue then
+            readValue, err = normalize(readValue, memo, budget)
+        end
+        if not err and writeKey then
+            writeKey, err = normalize(writeKey, memo, budget)
+        end
+        if not err and writeValue then
+            writeValue, err = normalize(writeValue, memo, budget)
+        end
+        if not err then
+            out = T.shape(
+                fields,
+                {readKey = readKey, readValue = readValue, writeKey = writeKey, writeValue = writeValue,},
+                t.fresh
+            )
+        end
+    end
+    if memo then
+        memo[t] = {type = out, error = err}
+    end
+
+    return out, err
+end
+
+--- Rebinds the supplied arguments and then normalizes every decidable neutral term.
+--- The memo belongs to one checker/project revision; callers must not share it through
+--- the process-global type arena.
+function generics.reduce(t: Type, map: Bindings?, memo: ReductionMemo?): Type, string?
+    local rebound = substWith(t, map or {}, PRESERVE)
+    return normalize(rebound, memo or {}, {visits = 0})
+end
+
 --- `generics.rebind` for a value sequence.
 function generics.rebindPack(pack: T.Pack, map: Bindings): T.Pack
     return substPackWith(pack, map, PRESERVE, nil)
@@ -396,6 +1273,7 @@ end
 --- target signature supplies the arguments that an ordinary call would have supplied.
 function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
     local concrete = substWith(t, map, MATERIALIZE, nil)
+    concrete = generics.reduce(concrete)
     if concrete.tag ~= "func" then
         return t
     end
@@ -481,6 +1359,10 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for _, tv in ipairs(n.typeParams or {}) do
         parts[#parts + 1] = (map[tv] or T.any).id
     end
+    for _, cv in ipairs(n.constParams or {}) do
+        local value = map[cv] as T.ConstTerm?
+        parts[#parts + 1] = value and value.id or "unbound"
+    end
     local key = table.concat(parts, "|")
     local cached = instantiations[key]
     if cached then
@@ -492,6 +1374,11 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     for j, tv in ipairs(n.typeParams or {}) do
         inst.typeArgs[j] = map[tv] or T.any
     end
+    inst.constArgs = {}
+    for j, cv in ipairs(n.constParams or {}) do
+        inst.constArgs[j] = map[cv] or cv
+    end
+    inst.paramKinds = n.paramKinds
     inst.fieldOrder = n.fieldOrder
     inst.expansions = n.expansions
     inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE, nil) or nil
@@ -667,6 +1554,17 @@ function generics.unify(param: Type, arg: Type, map: Bindings): nil
             local bound = map[param]
             map[param] = bound and T.union({bound, arg}) or arg
         end
+    elseif tag == "neutral" and param.op == "singleton" and param.constTerm and param.constTerm.tag == "constVar" then
+        local actual = consteval.fromType(arg)
+        local variable = param.constTerm
+        if actual then
+            local prior = map[variable]
+            if prior and prior.id ~= actual.id then
+                map[variable] = T.constOp("conflict", {prior as T.ConstTerm, actual})
+            else
+                map[variable] = actual
+            end
+        end
     elseif tag == "array" then
         if arg.tag == "array" then
             generics.unify(param.elem, arg.elem, map)
@@ -832,7 +1730,8 @@ function generics.dropSelf(ft: Type): Type
         end
         return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, borrowsParam, borrowsSelf, next(borrowsParams) and borrowsParams or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign)
+            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign,
+            ft.constParams, ft.paramKinds)
     end
 
     return ft
@@ -900,7 +1799,9 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
             end
             return next(shifted) and shifted or nil
         end)(),
-        ft.foreign
+        ft.foreign,
+        ft.constParams,
+        ft.paramKinds
     )
 end
 

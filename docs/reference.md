@@ -80,6 +80,9 @@ variable-length C array and `T[N]` a fixed one. C arrays are zero-based cdata,
 unlike the one-based `{T}`. `|` builds a union, a string literal is the type
 containing just that value, and `const T` is a read-only view.
 
+The fixed count may be an exact integer const expression. `T.[K]` is instead a
+semantic member lookup; its mandatory dot keeps those two meanings separate.
+
 Arithmetic on `integer` widens to `number`; annotate a result `number` unless you
 have narrowed it back.
 
@@ -200,7 +203,9 @@ Reports: `NUPP2006`, `NUPP2118`, `NUPP2125`, `NUPP2126`. `nupp explain <code>` s
 ### Generics and bounds
 
 Type parameters go in angle brackets after the name. `T is Bound` constrains one,
-and the bound is an ordinary type — usually an interface.
+and the bound is an ordinary type — usually an interface. A
+`const Name: string|boolean|integer` binder carries a compile-time-known value
+through a type and erases from runtime code.
 
 ```nupp
 local m = {}
@@ -220,7 +225,41 @@ end
 return m
 ```
 
-Reports: `NUPP2101`. `nupp explain <code>` says more.
+Reports: `NUPP2101`, `NUPP2131`. `nupp explain <code>` says more.
+
+### Finite type-level computation
+
+`keyof T` and `writekeyof T` enumerate readable and writable keys. `T.[K]` and
+`writeof T.[K]` project their value types. A readonly or writeonly mapped shape
+iterates finite literal keys and may remap them with `as`.
+
+`match` selects the first decidable pattern; `match each` is the only form that
+distributes over a union. `infer` bindings belong to one arm. Backtick template
+types concatenate finite string literal sets and split literal strings at
+unambiguous separators in a match pattern. Function patterns may capture their
+parameter and result packs with `function(infer A...): infer R...`. Recursive
+aliases remain NUPP2115.
+
+```nupp
+local m = {}
+
+local type Events<T> = {
+    readonly [K in keyof T as `${K}Changed`]:
+        function(value: T.[K]): nil
+}
+
+local type Element<T> =
+    match T when {infer Item} then Item else T end
+
+local events: Events<{name: string}> = nil as any
+local callback: function(value: string): nil = events.nameChanged
+local element: Element<{integer}> = 1
+print(callback, element)
+
+return m
+```
+
+Reports: `NUPP2130`, `NUPP2132`. `nupp explain <code>` says more.
 
 ### Type packs and variadic generics
 

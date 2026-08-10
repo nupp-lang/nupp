@@ -10,6 +10,7 @@ the difference is only what the callee turns out to be.
 ]]
 
 local T = require("nupp.compiler.types")
+local members = require("nupp.compiler.members")
 local relations = require("nupp.compiler.relations")
 local generics = require("nupp.compiler.generics")
 local cst = require("nupp.compiler.cst")
@@ -21,7 +22,12 @@ local isA = relations.isA
 local rawType = T.unwrapOwnership
 -- A call site has run inference: a binder nothing reached becomes `any`, which
 -- leaves the application gradual rather than leaking a binder into the caller.
-local substType = generics.materialize
+local function substType(t: Type, map: {[any]: any}): Type
+    local materialized = generics.materialize(t, map)
+    local reduced = generics.reduce(materialized)
+    return reduced
+end
+
 local substPack = generics.materializePack
 local unify = generics.unify
 local unifyPack = generics.unifyPack
@@ -63,10 +69,34 @@ local function isExpansionPath(node: cst.Node?): boolean
     return node.kind == "dotIndex" and isExpansionPath(node.obj)
 end
 
+local function constInferenceProblem(ft: T.Func, map: {[any]: any}): string?
+    for _, cv in ipairs(ft.constParams or {}) do
+        local value = map[cv]
+        if not value then
+            return ("const parameter %s cannot be inferred from a runtime value"):format(cv.name)
+        end
+        if value.tag == "constOp" and value.operation == "conflict" then
+            return ("conflicting const inferences for %s"):format(cv.name)
+        end
+        local domain = value.domain
+        if domain and domain ~= cv.domain then
+            return ("const parameter %s requires %s, got %s"):format(cv.name, cv.domain, domain)
+        end
+    end
+
+    return nil
+end
+
 local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func?, string?
     local map = {}
-    if T.hasTypevar(ft) and (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0) then
+    if T.hasTypevar(
+        ft
+    ) and (#(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0 or #(ft.constParams or {}) > 0) then
         unifyPack(ft.paramPack, argPack, map)
+        local constProblem = constInferenceProblem(ft, map)
+        if constProblem then
+            return nil, constProblem
+        end
         for j, tv in ipairs(ft.typeParams or {}) do
             local bound = ft.typeBounds and ft.typeBounds[j]
             local actual = map[tv]
@@ -80,7 +110,7 @@ local function probeArm(ft: T.Func, argPack: T.Pack, cdefCall: boolean?): T.Func
         end
     end
     local specialized = (
-        #(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0
+        #(ft.typeParams or {}) > 0 or #(ft.packParams or {}) > 0 or #(ft.constParams or {}) > 0
     ) and generics.instantiateFunction(ft, map) or ft
     local params = specialized.paramPack
     local actualCount = #argPack.head
@@ -261,68 +291,25 @@ function calls.install(c: state.Checker): calls.Ops
         if t.tag == "literal" then
             return c.fieldType(t.base, name)
         end
-        if t.tag == "typevar" and t.bound then
-            local bound = t.bound as Type
-            local ft, fieldDef = c.fieldType(bound, name)
-            if ft and bound.tag == "nominal" then
-                ft = specializeSelf(bound, ft, t)
-            end
-            return ft, fieldDef
-        end
-        if t.tag == "union" then
-            local parts = {}
-            for _, m in ipairs(t.members) do
-                local ft = c.fieldType(m, name)
-                if not ft then
-                    return nil
-                end
-                parts[#parts + 1] = ft
-            end
-            if #parts > 0 then
-                return T.union(parts)
-            end
-            return nil
-        end
-        if t.tag == "intersection" then
-            local parts, definitions = {}, {}
-            for _, m in ipairs(t.members) do
-                local ft, definition = c.fieldType(m, name)
-                if ft then
-                    parts[#parts + 1] = ft
-                    if definition then
-                        definitions[#definitions + 1] = definition
-                    end
-                end
-            end
-            if #parts > 0 then
-                return T.intersection(parts), definitions[1], definitions
-            end
-            return nil
-        end
-        if t.tag == "shape" then
-            local named = t.byname[name]
-            if named then
-                return named
-            end
-            local indexKey, indexValue = t.indexReadKey, t.indexReadValue
-            if indexKey and indexValue and isA(T.string, indexKey) then
-                return T.optional(indexValue)
-            end
-        elseif t.tag == "nominal" and t.byname then
-            local ft = t.byname[name]
-            local indexKey, indexValue = t.indexReadKey, t.indexReadValue
-            if not ft and indexKey and indexValue and isA(T.string, indexKey) then
-                return T.optional(indexValue)
-            end
-            return ft and specializeSelf(t, ft, t) or nil, t.fieldDefs and t.fieldDefs[name] or nil
-        elseif t.tag == "map" then
-            if not t.readable or not isA(T.string, t.key) then
-                return nil
-            end
-            return T.optional(t.value)
-        elseif t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
+        if t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
             -- string values carry the string library as methods
             return c.env.stringLib.byname[name]
+        end
+
+        local surface = members.view(t)
+        local entry = surface.byname[name]
+        if entry and entry.readType then
+            local ft = entry.readType
+            if t.tag == "nominal" then
+                ft = specializeSelf(t, ft, t)
+            elseif t.tag == "typevar" and t.bound and t.bound.tag == "nominal" then
+                ft = specializeSelf(t.bound, ft, t)
+            end
+            return ft, entry.definition, entry.definitions
+        end
+        local indexer = surface.readIndexer
+        if indexer and isA(T.string, indexer.keyType) then
+            return T.optional(indexer.valueType)
         end
 
         return nil
@@ -346,64 +333,20 @@ function calls.install(c: state.Checker): calls.Ops
             end
             return c.fieldWriteType(owner, name)
         end
-        if t.tag == "typevar" and t.bound then
-            local bound = t.bound as Type
-            local ft, fieldDef = c.fieldWriteType(bound, name)
-            if ft and bound.tag == "nominal" then
-                ft = specializeSelf(bound, ft, t)
+        local surface = members.view(t)
+        local entry = surface.byname[name]
+        if entry and entry.writeType then
+            local ft = entry.writeType
+            if t.tag == "nominal" then
+                ft = specializeSelf(t, ft, t)
+            elseif t.tag == "typevar" and t.bound and t.bound.tag == "nominal" then
+                ft = specializeSelf(t.bound, ft, t)
             end
-            return ft, fieldDef
+            return ft, entry.definition, entry.definitions
         end
-        if t.tag == "union" then
-            local accepted = nil
-            for _, m in ipairs(t.members) do
-                local ft = c.fieldWriteType(m, name)
-                if not ft then
-                    return nil
-                end
-                if not accepted or isA(ft, accepted) then
-                    accepted = ft
-                elseif not isA(accepted, ft) then
-                    return T.never
-                end
-            end
-            return accepted
-        end
-        if t.tag == "intersection" then
-            local accepted, definitions = {}, {}
-            for _, m in ipairs(t.members) do
-                local ft, definition = c.fieldWriteType(m, name)
-                if ft then
-                    accepted[#accepted + 1] = ft
-                    if definition then
-                        definitions[#definitions + 1] = definition
-                    end
-                end
-            end
-            if #accepted > 0 then
-                return T.union(accepted), definitions[1], definitions
-            end
-            return nil
-        end
-        if t.tag == "shape" then
-            local named = t.writeByname[name]
-            if named then
-                return named
-            end
-            if t.indexWriteKey and isA(T.string, t.indexWriteKey) then
-                return t.indexWriteValue
-            end
-        elseif t.tag == "nominal" and t.writeByname then
-            local ft = t.writeByname[name]
-            if not ft and t.indexWriteKey and isA(T.string, t.indexWriteKey) then
-                return t.indexWriteValue
-            end
-            return ft and specializeSelf(t, ft, t) or nil, t.writeFieldDefs and t.writeFieldDefs[name] or nil
-        elseif t.tag == "map" then
-            if not t.writeKey or not isA(T.string, t.writeKey) then
-                return nil
-            end
-            return t.writeValue
+        local indexer = surface.writeIndexer
+        if indexer and isA(T.string, indexer.keyType) then
+            return indexer.valueType
         end
 
         return nil
@@ -425,41 +368,14 @@ function calls.install(c: state.Checker): calls.Ops
             end
             return names
         end
-        if t.tag == "typevar" and t.bound then
-            return c.fieldNames(t.bound, writing)
-        end
-        if t.tag == "union" then
-            local shared = nil
-            for _, member in ipairs(t.members) do
-                local names = c.fieldNames(member, writing)
-                if not shared then
-                    shared = names
-                else
-                    for name in pairs(shared) do
-                        if not names[name] then
-                            shared[name] = nil
-                        end
-                    end
-                end
-            end
-            return shared or {}
-        end
-        if t.tag == "intersection" then
-            local names = {}
-            for _, member in ipairs(t.members) do
-                for name in pairs(c.fieldNames(member, writing)) do
-                    names[name] = true
-                end
-            end
-            return names
-        end
         local names = {}
-        if (t.tag == "shape" or t.tag == "nominal") and t.byname then
-            local members = writing and t.writeByname or t.byname
-            for name in pairs(members or {}) do
-                names[name] = true
+        local surface = members.view(t)
+        for _, entry in ipairs(surface.ordered) do
+            if writing and entry.writeType or not writing and entry.readType then
+                names[entry.name] = true
             end
-        elseif t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
+        end
+        if t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
             for name in pairs(c.env.stringLib.byname) do
                 names[name] = true
             end
@@ -831,7 +747,9 @@ function calls.install(c: state.Checker): calls.Ops
                             selectedSignature.noYield,
                             selectedSignature.paramNames,
                             selectedSignature.preservesResults,
-                            selectedSignature.foreign
+                            selectedSignature.foreign,
+                            selectedSignature.constParams,
+                            selectedSignature.paramKinds
                         )
                     end
                     node.valuePack = pack
@@ -1453,14 +1371,24 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
         local varargType = calleeT.varargType
+        local constInferenceFailed = false
         -- Only bind generics introduced by the callable itself. A callback type such as
         -- `function(A...): R...` inside an outer generic function mentions the outer
         -- binders, but calling that callback must preserve those symbolic packs rather
         -- than treating them as a fresh generic signature and replacing an unbound
         -- result pack with `...any`.
-        if T.hasTypevar(calleeT) and (#(calleeT.typeParams or {}) > 0 or #(calleeT.packParams or {}) > 0) then
+        if T.hasTypevar(
+            calleeT
+        ) and (
+            #(calleeT.typeParams or {}) > 0 or #(calleeT.packParams or {}) > 0 or #(calleeT.constParams or {}) > 0
+        ) then
             local map = {}
             unifyPack(paramPack, argPack, map)
+            local constProblem = constInferenceProblem(calleeT, map)
+            if constProblem then
+                constInferenceFailed = true
+                c.diag("NUPP2131", node, constProblem)
+            end
             -- The extra arguments bind the element type too, which is what makes
             -- `math.min(a, b)` over integers stay an integer.
             if varargType then
@@ -1577,7 +1505,12 @@ function calls.install(c: state.Checker): calls.Ops
                     argNodes[j].passPinnedPointer = true
                 end
             end
-            local ok, why = isA(actualForCheck, params[j])
+            local ok, why
+            if constInferenceFailed then
+                ok = true
+            else
+                ok, why = isA(actualForCheck, params[j])
+            end
             if not ok then
                 c.diag(
                     "NUPP2006",
@@ -1822,7 +1755,9 @@ function calls.install(c: state.Checker): calls.Ops
             calleeT.noYield,
             calleeT.paramNames,
             calleeT.preservesResults,
-            calleeT.foreign
+            calleeT.foreign,
+            calleeT.constParams,
+            calleeT.paramKinds
         )
 
         return T.packAt(retPack, 1) or T.nil_, retPack.head, retPack

@@ -11,6 +11,7 @@ The doctrine is structural for shape and nominal for provenance. It is gradual:
 ]]
 
 local T = require("nupp.compiler.types")
+local members = require("nupp.compiler.members")
 
 local relations = {}
 
@@ -397,56 +398,19 @@ end
 local type PropertyType = T.Shape | T.Nominal
 
 local function intersectionSurface(t: T.Intersection): T.Shape
-    local byName = {}
-    local readKeys, readValues, writeKeys, writeValues = {}, {}, {}, {}
-    local function add(member: Type)
-        if member.tag == "intersection" then
-            for _, nested in ipairs(member.members) do
-                add(nested)
-            end
-            return
-        end
-        if member.tag == "shape" or member.tag == "nominal" then
-            for name, read in pairs(member.byname or {}) do
-                local entry = byName[name] or {name = name, reads = {}, writes = {}}
-                entry.reads[#entry.reads + 1] = read
-                byName[name] = entry
-            end
-            for name, write in pairs(member.writeByname or {}) do
-                local entry = byName[name] or {name = name, reads = {}, writes = {}}
-                entry.writes[#entry.writes + 1] = write
-                byName[name] = entry
-            end
-            if member.indexReadKey and member.indexReadValue then
-                readKeys[#readKeys + 1] = member.indexReadKey
-                readValues[#readValues + 1] = member.indexReadValue
-            end
-            if member.indexWriteKey and member.indexWriteValue then
-                writeKeys[#writeKeys + 1] = member.indexWriteKey
-                writeValues[#writeValues + 1] = member.indexWriteValue
-            end
-        end
-    end
-
-    add(t)
+    local surface = members.view(t)
     local fields = {}
-    for _, entry in pairs(byName) do
-        fields[
-            #fields + 1
-        ] = {
-            name = entry.name,
-            read = #entry.reads > 0 and T.intersection(entry.reads) or nil,
-            write = #entry.writes > 0 and T.union(entry.writes) or nil
-        }
+    for _, entry in ipairs(surface.ordered) do
+        fields[#fields + 1] = {name = entry.name, read = entry.readType, write = entry.writeType}
     end
 
     return T.shape(
         fields,
         {
-            readKey = #readKeys > 0 and T.union(readKeys) or nil,
-            readValue = #readValues > 0 and T.intersection(readValues) or nil,
-            writeKey = #writeKeys > 0 and T.union(writeKeys) or nil,
-            writeValue = #writeValues > 0 and T.union(writeValues) or nil,
+            readKey = surface.readIndexer and surface.readIndexer.keyType or nil,
+            readValue = surface.readIndexer and surface.readIndexer.valueType or nil,
+            writeKey = surface.writeIndexer and surface.writeIndexer.keyType or nil,
+            writeValue = surface.writeIndexer and surface.writeIndexer.valueType or nil,
         }
     ) as T.Shape
 end
@@ -513,6 +477,9 @@ local function check(a: Type, b: Type): boolean, string?
     local atag, btag = a.tag, b.tag
     if atag == "any" or btag == "any" then
         return true
+    end
+    if atag == "neutral" or btag == "neutral" then
+        return false, ("blocked type term %s is not identical to %s"):format(T.tostring(a), T.tostring(b))
     end
     -- `never` is uninhabited, so a value of it (there being none) fits anywhere.
     -- `unknown` is the reverse: everything fits into it, but it fits nowhere else on
@@ -670,6 +637,12 @@ local function check(a: Type, b: Type): boolean, string?
     -- Box<integer> fits Box<number> exactly as integer fits number. Covariant, like the
     -- array rule above.
     if atag == "nominal" and btag == "nominal" and a.origin and a.origin == b.origin then
+        local aConsts, bConsts = a.constArgs or {}, b.constArgs or {}
+        for j, value in ipairs(aConsts) do
+            if bConsts[j] ~= value then
+                return false, ("%s and %s have different const argument %d"):format(T.tostring(a), T.tostring(b), j)
+            end
+        end
         if next(a.byname or {}) or next(a.writeByname or {}) or a.indexReadValue or a.indexWriteValue then
             local ok, why = propertiesFit(a, b)
             if not ok then

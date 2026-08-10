@@ -1170,6 +1170,12 @@ record cst.Generics is
 
     --- Whether the aligned name is a generic pack binder, `A...`.
     packs: {boolean}
+
+    --- Whether the aligned name is a compile-time value binder.
+    consts: {boolean}
+
+    --- Its aligned const domain token (`string`, `boolean`, or `integer`).
+    domains: {lexer.Token}
 end
 
 --- One parameter of a function body, a short function, or a cdef.
@@ -1761,6 +1767,69 @@ record cst.Tconst is
     inner: cst.Node?
 end
 
+--- `keyof T` or `writekeyof T`.
+record cst.Tkeyof is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tkeyof'
+
+    --- `read` for `keyof`, `write` for `writekeyof`.
+    capability: string
+
+    inner: cst.Node?
+end
+
+--- `writeof T.[K]`.
+record cst.Twriteof is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'twriteof'
+
+    inner: cst.Node?
+end
+
+--- `infer Item` inside one type-match pattern.
+record cst.Tinfer is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tinfer'
+
+    name: lexer.Token?
+
+    pack: boolean?
+end
+
+--- One `when Pattern then Result` arm of a type match.
+record cst.TmatchArm is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tmatchArm'
+
+    pattern: cst.Node?
+
+    result: cst.Node?
+end
+
+--- `match [each] T when Pattern then Result else Fallback end`.
+record cst.Tmatch is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tmatch'
+
+    each: boolean?
+
+    scrutinee: cst.Node?
+
+    arms: {cst.Node}
+
+    fallback: cst.Node?
+end
+
 --- A literal type: the set containing exactly one value.
 record cst.Tliteral is
     cst.Hints
@@ -1990,7 +2059,37 @@ record cst.Tcarray is
     element: cst.Node?
 
     --- The fixed length, absent for `T[?]`.
-    count: lexer.Token?
+    count: cst.Node?
+end
+
+--- `T.[K]`, an indexed semantic member type.
+record cst.Tmember is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tmember'
+
+    object: cst.Node?
+
+    key: cst.Node?
+end
+
+--- `{readonly [K in Keys]: Value}` or its write-only counterpart.
+record cst.Tmapped is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tmapped'
+
+    capability: lexer.Token?
+
+    binder: lexer.Token?
+
+    keys: cst.Node?
+
+    remap: cst.Node?
+
+    value: cst.Node?
 end
 
 --- `A | B`.
@@ -2077,7 +2176,7 @@ end
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
+type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tkeyof | cst.Twriteof | cst.Tinfer | cst.TmatchArm | cst.Tmatch | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Tmapped | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tmember | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token

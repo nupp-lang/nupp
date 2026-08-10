@@ -124,7 +124,7 @@ local function cdefCType(t)
         -- pointer is what viewing memory as one means anyway.
         local element = cdefCType(t.element)
         if element then
-            return element .. "[" .. (t.count and t.count.text or "?") .. "]"
+            return element .. "[" .. (t.count and cst.textOf(t.count) or "?") .. "]"
         end
     elseif t.kind == "tptr" then
         local inner = cdefCType(t.inner)
@@ -646,10 +646,7 @@ function gen.generate(
     -- Keep the emitter's expansion dependencies behind one upvalue. LuaJIT caps a
     -- function at 60 upvalues, and this generator deliberately sits close to that
     -- boundary because emit handles every syntax kind.
-    local expansion = {
-        plans = {},
-        statementActive = {},
-    }
+    local expansion = {plans = {}, statementActive = {},}
 
     local function dottedExpansionParts(node): string?, {string}?
         if not node or cst.isToken(node) then
@@ -875,10 +872,7 @@ function gen.generate(
     end
 
     function expansion.activate(plan): any
-        local prior = {
-            aliases = expansion.argumentAliases,
-            fields = expansion.argumentFields,
-        }
+        local prior = {aliases = expansion.argumentAliases, fields = expansion.argumentFields,}
         expansion.argumentAliases = plan.argAliases
         expansion.argumentFields = plan.argFields
         expansion.plans[plan.call] = plan
@@ -1391,13 +1385,15 @@ function gen.generate(
                         local element = t.element
                         local spelling = element and element.kind == "tname" and C_PRIM[element.base.text] or nil
                         if spelling then
-                            cdecl[#cdecl + 1] = spelling .. " " .. fname .. "[" .. t.count.text .. "];"
+                            cdecl[#cdecl + 1] = spelling .. " " .. fname .. "[" .. cst.textOf(t.count) .. "];"
                         elseif element and element.kind == "tname" and structTag[element.base.text] then
                             cdecl[
                                 #cdecl + 1
-                            ] = "struct " .. structTag[element.base.text] .. " " .. fname .. "[" .. t.count.text .. "];"
+                            ] = "struct " .. structTag[
+                                element.base.text
+                            ] .. " " .. fname .. "[" .. cst.textOf(t.count) .. "];"
                         elseif element and element.kind == "tname" then
-                            cdecl[#cdecl + 1] = "$ " .. fname .. "[" .. t.count.text .. "];"
+                            cdecl[#cdecl + 1] = "$ " .. fname .. "[" .. cst.textOf(t.count) .. "];"
                             params[#params + 1] = element.base.text
                         else
                             diag(entry.name, "NUPP3002", "cannot reify this array element type")

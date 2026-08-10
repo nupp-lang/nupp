@@ -2,6 +2,7 @@
 
 local hash = require("nupp.compiler.build.hash")
 local stable = require("nupp.compiler.build.cache").stable
+local members = require("nupp.compiler.members")
 
 local record reflection
     SCHEMA: integer
@@ -45,10 +46,13 @@ function reflection.describe(root: any, qualifiedName: string?): any
             out.name = t.name
             out.nominal = true
             out.fields = {}
-            for _, name in ipairs(t.fieldOrder or {}) do
-                local read, write = t.byname[name], t.writeByname[name]
-                out.fields[#out.fields + 1] = {
-                    name = name,
+            local view = members.view(t)
+            for _, field in ipairs(view.ordered) do
+                local read, write = field.readType, field.writeType
+                out.fields[
+                    #out.fields + 1
+                ] = {
+                    name = field.name,
                     read = intern(read),
                     write = intern(write),
                     readable = read ~= nil,
@@ -57,17 +61,15 @@ function reflection.describe(root: any, qualifiedName: string?): any
             end
             out.staticFields = {}
             for _, name in ipairs(sortedNames(t.staticByname)) do
-                out.staticFields[#out.staticFields + 1] = {
-                    name = name,
-                    read = intern(t.staticByname[name]),
-                    write = intern(t.staticWriteByname[name]),
-                }
+                out.staticFields[
+                    #out.staticFields + 1
+                ] = {name = name, read = intern(t.staticByname[name]), write = intern(t.staticWriteByname[name]),}
             end
             out.index = {
-                readKey = intern(t.indexReadKey),
-                readValue = intern(t.indexReadValue),
-                writeKey = intern(t.indexWriteKey),
-                writeValue = intern(t.indexWriteValue),
+                readKey = intern(view.readIndexer and view.readIndexer.keyType),
+                readValue = intern(view.readIndexer and view.readIndexer.valueType),
+                writeKey = intern(view.writeIndexer and view.writeIndexer.keyType),
+                writeValue = intern(view.writeIndexer and view.writeIndexer.valueType),
             }
             out.metamethods = {}
             for _, name in ipairs(sortedNames(t.metamethods)) do
@@ -79,7 +81,9 @@ function reflection.describe(root: any, qualifiedName: string?): any
             end
             out.associatedTypes = {}
             for _, name in ipairs(t.associatedOrder or {}) do
-                out.associatedTypes[#out.associatedTypes + 1] = {
+                out.associatedTypes[
+                    #out.associatedTypes + 1
+                ] = {
                     name = name,
                     bound = intern(t.associatedBounds and t.associatedBounds[name]),
                     answer = intern(t.nestedTypes and t.nestedTypes[name]),
@@ -95,28 +99,37 @@ function reflection.describe(root: any, qualifiedName: string?): any
             for _, argument in ipairs(t.typeArgs or {}) do
                 out.typeArguments[#out.typeArguments + 1] = intern(argument)
             end
+            out.constArguments = {}
+            for _, argument in ipairs(t.constArgs or {}) do
+                out.constArguments[#out.constArguments + 1] = intern(argument)
+            end
             out.origin = intern(t.origin)
         elseif tag == "shape" then
             out.fields = {}
-            for _, field in ipairs(t.fields or {}) do
-                out.fields[#out.fields + 1] = {
+            local view = members.view(t)
+            for _, field in ipairs(view.ordered) do
+                out.fields[
+                    #out.fields + 1
+                ] = {
                     name = field.name,
-                    read = intern(field.read),
-                    write = intern(field.write),
-                    readable = field.read ~= nil,
-                    writable = field.write ~= nil,
+                    read = intern(field.readType),
+                    write = intern(field.writeType),
+                    readable = field.readType ~= nil,
+                    writable = field.writeType ~= nil,
                 }
             end
             out.index = {
-                readKey = intern(t.indexReadKey),
-                readValue = intern(t.indexReadValue),
-                writeKey = intern(t.indexWriteKey),
-                writeValue = intern(t.indexWriteValue),
+                readKey = intern(view.readIndexer and view.readIndexer.keyType),
+                readValue = intern(view.readIndexer and view.readIndexer.valueType),
+                writeKey = intern(view.writeIndexer and view.writeIndexer.keyType),
+                writeValue = intern(view.writeIndexer and view.writeIndexer.valueType),
             }
         elseif tag == "func" then
             out.parameters, out.returns = {}, {}
             for position, parameter in ipairs(t.params or {}) do
-                out.parameters[position] = {
+                out.parameters[
+                    position
+                ] = {
                     name = t.paramNames and t.paramNames[position] or "",
                     mode = t.paramModes and t.paramModes[position] or "plain",
                     type = intern(parameter),
@@ -136,6 +149,11 @@ function reflection.describe(root: any, qualifiedName: string?): any
                 out.typeParameters[position] = intern(parameter)
                 out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
             end
+            out.constParameters = {}
+            for position, parameter in ipairs(t.constParams or {}) do
+                out.constParameters[position] = intern(parameter)
+            end
+            out.parameterKinds = t.paramKinds or {}
             out.parameterPack = intern(t.paramPack)
             out.returnPack = intern(t.retPack)
             out.yieldPack = intern(t.yieldPack)
@@ -179,7 +197,7 @@ function reflection.describe(root: any, qualifiedName: string?): any
         elseif tag == "genericAlias" then
             out.name = t.name
             out.body = intern(t.body)
-            out.typeParameters, out.typeBounds, out.packParameters = {}, {}, {}
+            out.typeParameters, out.typeBounds, out.packParameters, out.constParameters = {}, {}, {}, {}
             for position, parameter in ipairs(t.typeParams or {}) do
                 out.typeParameters[position] = intern(parameter)
                 out.typeBounds[position] = intern(t.typeBounds and t.typeBounds[position])
@@ -187,6 +205,10 @@ function reflection.describe(root: any, qualifiedName: string?): any
             for position, parameter in ipairs(t.packParams or {}) do
                 out.packParameters[position] = intern(parameter)
             end
+            for position, parameter in ipairs(t.constParams or {}) do
+                out.constParameters[position] = intern(parameter)
+            end
+            out.parameterKinds = t.paramKinds or {}
         elseif tag == "literal" then
             out.value = t.constant
             out.base = intern(t.base)
@@ -195,16 +217,35 @@ function reflection.describe(root: any, qualifiedName: string?): any
             out.bound = intern(t.bound)
         elseif tag == "packvar" then
             out.name = t.name
+        elseif tag == "constLiteral" then
+            out.domain = t.domain
+            out.value = t.value
+        elseif tag == "constVar" then
+            out.name = t.name
+            out.domain = t.domain
+        elseif tag == "constOp" then
+            out.operation = t.operation
+            out.operands = {}
+            for position, operand in ipairs(t.operands or {}) do
+                out.operands[position] = intern(operand)
+            end
         elseif tag == "projection" then
             out.of = intern(t.of)
             out.name = t.name
-        elseif tag == "array" or tag == "ptr" or tag == "owned"
-            or tag == "borrowed" or tag == "pinned" or tag == "const" then
+        elseif tag == "array"
+            or tag == "ptr"
+            or tag == "owned"
+            or tag == "borrowed"
+            or tag == "pinned"
+            or tag == "const"
+        then
             out.element = intern(t.elem or t.inner)
             if tag == "owned" then
                 out.cleanups = {}
                 for position, cleanup in ipairs(t.cleanups or {}) do
-                    out.cleanups[position] = {
+                    out.cleanups[
+                        position
+                    ] = {
                         kind = cleanup.kind,
                         key = cleanup.key,
                         name = cleanup.name,
@@ -216,6 +257,7 @@ function reflection.describe(root: any, qualifiedName: string?): any
         elseif tag == "carray" then
             out.element = intern(t.elem)
             out.count = t.count
+            out.countTerm = intern(t.countTerm)
         elseif tag == "ctype" or tag == "metatable" then
             out.of = intern(t.of)
         end
@@ -224,19 +266,16 @@ function reflection.describe(root: any, qualifiedName: string?): any
     end
 
     local rootIndex = intern(root)
-    local descriptor = {
-        schema = reflection.SCHEMA,
-        root = rootIndex,
-        types = types,
-        qualifiedName = qualifiedName,
-    }
+    local descriptor = {schema = reflection.SCHEMA, root = rootIndex, types = types, qualifiedName = qualifiedName,}
     local rootType = types[rootIndex or 0] or {}
     descriptor.kind = rootType.kind
     descriptor.name = rootType.name or qualifiedName
     descriptor.fields = {}
     for _, field in ipairs(rootType.fields or {}) do
         local fieldType = types[field.read or field.write or 0] or {}
-        descriptor.fields[#descriptor.fields + 1] = {
+        descriptor.fields[
+            #descriptor.fields + 1
+        ] = {
             name = field.name,
             kind = fieldType.kind,
             typeName = fieldType.name,
@@ -245,9 +284,7 @@ function reflection.describe(root: any, qualifiedName: string?): any
             writable = field.writable,
         }
     end
-    descriptor.fingerprint = hash.sha256(
-        "nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor)
-    )
+    descriptor.fingerprint = hash.sha256("nupp.reflect\0v" .. tostring(reflection.SCHEMA) .. "\0" .. stable(descriptor))
 
     return descriptor
 end

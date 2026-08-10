@@ -47,9 +47,9 @@ The full phase table is:
 | Direction | Mechanism | Status |
 | --- | --- | --- |
 | value -> value | comptime evaluator | C1 landed |
-| type -> value | `reflect(T)` descriptor | C2a proposed |
+| type -> value | `reflect(T)` descriptor | C2a landed |
 | value -> type | no general mechanism | closed deliberately |
-| type -> type | checker-native type reducer | proposed here |
+| type -> type | checker-native type reducer | T1--T4 landed |
 
 Compile-time value parameters are a narrow extension to the generic system,
 not a general value-to-type escape. Only values admitted by the const-argument
@@ -94,7 +94,7 @@ implementation path from one evaluator to the other.
    and format strings into types.
 4. Keep every pre-recursion stage terminating by construction and bounded in
    output size.
-5. Give C2a reflection, mapped types, `keyof`, derives, and documentation one
+5. Give reflection, mapped types, `keyof`, derives, and documentation one
    semantic answer for a type's members and capabilities.
 6. Preserve content-addressed type identity, module invalidation, incremental
    cutoff, fixpoint builds, and responsive LSP operations.
@@ -539,8 +539,8 @@ runtime artifact.
 
 ## Shared semantic type vocabulary
 
-C2a reflection and the finite structural operators must not independently
-decide what a member is. Add one checker-owned, immutable semantic view:
+Reflection and the finite structural operators must not independently decide
+what a member is. They use one checker-owned, immutable semantic view:
 
 ```text
 members(T) -> {
@@ -570,7 +570,7 @@ Consumers project it differently:
 - `keyof` and `writekeyof` project key types;
 - indexed member types project value types;
 - mapped shapes enumerate finite entries;
-- C2a serializes the public reflection subset;
+- reflection serializes the public descriptor subset;
 - documentation and future derives may retain declaration order and
   annotations.
 
@@ -919,9 +919,9 @@ interface identity must include semantics rather than spelling:
 7. Count reductions, memo hits, limit failures, and invalidated dependent
    interfaces in the existing query observation machinery.
 
-This work overlaps C2a's requirement for semantic reflected-type fingerprints.
-It should be implemented once under the semantic member view, then consumed by
-both features. Neither consumer defines the other's cache format.
+This work shares reflection's semantic type fingerprints. It is implemented
+once under the semantic member view and consumed by both features. Neither
+consumer defines the other's cache format.
 
 ## Grammar work
 
@@ -980,13 +980,13 @@ unambiguous pattern grammar.
 
 - Specify and implement the immutable semantic member view.
 - Move existing read/write member lookup to it without changing behavior.
-- Add semantic member fingerprints suitable for C2a and reducer dependencies.
+- Add semantic member fingerprints suitable for reflection and reducer dependencies.
 - Commit route, event, capability, template-product, and invalidation fixtures
   as rejected/pending acceptance cases.
 - Measure current check, hover, completion, and one exported-type edit.
 
 Exit test: existing member access, relations, module hashes, and fixpoint are
-unchanged; C2a can consume the view without learning reducer concepts.
+unchanged; reflection consumes the view without learning reducer concepts.
 
 ### T1: finite structural operators
 

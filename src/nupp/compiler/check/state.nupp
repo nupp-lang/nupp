@@ -103,6 +103,9 @@ record state.Checker
     --- The caller's options: strict, moduleName, seeded exports, and the rest.
     opts: any
 
+    --- Dependency-sensitive type reductions cached only for this checker revision.
+    reducerMemo: any
+
     --- Whether this file describes an interface it does not own, so its bare
     --- declarations are that interface rather than a file's private ones.
     declarationFile: boolean
@@ -433,6 +436,8 @@ record state.Checker
 
     --- A fresh type parameter for one binder.
     typevarAt: function(tok: any, role: string): Type
+
+    constvarAt: function(tok: any, domain: string, role: string): T.ConstVar
 
     packvarAt: function(tok: any, role: string): any
 

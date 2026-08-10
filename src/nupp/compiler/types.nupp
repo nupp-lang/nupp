@@ -125,6 +125,57 @@ record types.CArray
     tag: 'carray'
     elem: types.Type
     count: integer?
+    countTerm: types.ConstTerm?
+end
+
+--- One value admitted in a closed const domain.
+record types.ConstLiteral
+    id: string
+    tag: 'constLiteral'
+    domain: string
+    value: string | boolean | integer
+end
+
+--- A compile-time value binder.
+record types.ConstVar
+    id: string
+    tag: 'constVar'
+    name: string
+    domain: string
+end
+
+--- One operation in the deliberately closed const expression grammar.
+record types.ConstOp
+    id: string
+    tag: 'constOp'
+    operation: string
+    operands: {types.ConstTerm}
+end
+
+type types.ConstTerm = types.ConstLiteral | types.ConstVar | types.ConstOp
+
+type types.TemplatePart = string | types.Type
+
+--- A resolved, source-spellable type-match pattern.
+record types.MatchPattern
+    id: string
+    kind: string
+    binder: types.TypeVar?
+    expected: types.Type?
+    children: {types.MatchPattern}?
+    templateParts: {types.MatchPatternPart}?
+    countTerm: types.ConstTerm?
+    paramCount: integer?
+    paramPackBinder: types.PackVar?
+    retPackBinder: types.PackVar?
+end
+
+type types.MatchPatternPart = string | types.MatchPattern
+
+record types.MatchArm
+    id: string
+    pattern: types.MatchPattern
+    result: types.Type
 end
 
 --- One operation that can discharge an owned value. Function references carry the
@@ -242,6 +293,8 @@ record types.GenericAlias
     typeParams: {types.Type}
     typeBounds: {types.Type}
     packParams: {types.PackVar}
+    constParams: {types.ConstVar}
+    paramKinds: {string}
 end
 
 --- A function.
@@ -328,6 +381,8 @@ record types.Func
     retPack: types.Pack
 
     packParams: {types.PackVar}?
+    constParams: {types.ConstVar}?
+    paramKinds: {string}?
     yieldPack: types.Pack?
     resumePack: types.Pack?
 end
@@ -352,6 +407,25 @@ record types.TypeVar
 
     --- Upper bound declared with `T is Bound`, when one exists.
     bound: types.Type?
+end
+
+--- A type-level operation blocked on an unresolved binder.  All operations share one
+--- type tag; `op` is reducer-owned and never dispatched by runtime code generation.
+record types.Neutral
+    id: string
+    tag: 'neutral'
+    op: string
+    capability: string?
+    subject: types.Type?
+    key: types.Type?
+    binder: types.TypeVar?
+    keys: types.Type?
+    value: types.Type?
+    remap: types.Type?
+    constTerm: types.ConstTerm?
+    templateParts: {types.TemplatePart}?
+    matchEach: boolean?
+    matchArms: {types.MatchArm}?
 end
 
 --- The metatable a receiver type carries, which is a record's own runtime table: the
@@ -563,6 +637,8 @@ record types.Nominal
     --- every instantiation shares.
     typeArgs: {types.Type}?
 
+    constArgs: {types.ConstTerm}?
+
     origin: types.Type?
 
     --- Declaration sites of the fields, for go-to-definition.
@@ -586,6 +662,10 @@ record types.Nominal
     typeParams: {types.Type}?
 
     typeBounds: {types.Type}?
+
+    constParams: {types.ConstVar}?
+
+    paramKinds: {string}?
 
     --- The declaration-scoped binder used by the `self` type.
     selfType: types.Type?
@@ -620,7 +700,7 @@ record types.Nominal
 end
 
 --- Any type.
-type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Metatable | types.Projection | types.Nominal | types.ProtocolThread | types.GenericAlias
+type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Neutral | types.Metatable | types.Projection | types.Nominal | types.ProtocolThread | types.GenericAlias
 
 --- One field of a structural shape. `type` is accepted as the legacy spelling passed by
 --- compiler internals and means an ordinary read-write property.
@@ -654,6 +734,8 @@ local packVarArena: {[string]: types.PackVar} = {}
 local capabilityArena: {[string]: types.Capability} = {}
 local capabilityIdentity = setmetatable({}, {__mode = "k"})
 local nextCapabilityIdentity: integer = 0
+local constArena: {[string]: types.ConstTerm} = {}
+local patternArena: {[string]: types.MatchPattern} = {}
 
 local function flowIdentity(value: any): integer
     if value == nil then
@@ -928,7 +1010,9 @@ function types.union(members: {types.Type}): types.Type
                     prior.noYield,
                     nil,
                     prior.preservesResults,
-                    prior.foreign
+                    prior.foreign,
+                    prior.constParams,
+                    prior.paramKinds
                 )
                 seen[prior] = nil
                 seen[merged] = true
@@ -1248,6 +1332,124 @@ function types.packvar(name: string, identity: string?): types.PackVar
     return made
 end
 
+function types.constLiteral(domain: string, value: string | boolean | integer): types.ConstLiteral
+    local key = "cl(" .. domain .. ":" .. tostring(value) .. ")"
+    local found = constArena[key]
+    if found then
+        return found as types.ConstLiteral
+    end
+    local made = new types.ConstLiteral {tag = "constLiteral", domain = domain, value = value}
+    made.id = key
+    constArena[key] = made
+
+    return made
+end
+
+function types.constvar(name: string, domain: string, identity: string?): types.ConstVar
+    local key = "cv(" .. (identity or name) .. ":" .. domain .. ")"
+    local found = constArena[key]
+    if found then
+        return found as types.ConstVar
+    end
+    local made = new types.ConstVar {tag = "constVar", name = name, domain = domain}
+    made.id = key
+    constArena[key] = made
+
+    return made
+end
+
+function types.constOp(operation: string, operands: {types.ConstTerm}): types.ConstOp
+    local ids = {}
+    for j, operand in ipairs(operands) do
+        ids[j] = operand.id
+    end
+    local key = "co(" .. operation .. ":" .. table.concat(ids, ",") .. ")"
+    local found = constArena[key]
+    if found then
+        return found as types.ConstOp
+    end
+    local made = new types.ConstOp {tag = "constOp", operation = operation, operands = operands}
+    made.id = key
+    constArena[key] = made
+
+    return made
+end
+
+function types.tostringConst(term: types.ConstTerm): string
+    if term.tag == "constLiteral" then
+        return term.domain == "string" and string.format("%q", term.value) or tostring(term.value)
+    elseif term.tag == "constVar" then
+        return term.name
+    end
+    if #term.operands == 1 then
+        return term.operation .. types.tostringConst(term.operands[1])
+    end
+
+    return "(" .. types.tostringConst(
+        term.operands[1]
+    ) .. " " .. term.operation .. " " .. types.tostringConst(term.operands[2]) .. ")"
+end
+
+function types.matchPattern(
+    kind: string,
+    binder: types.TypeVar?,
+    expected: types.Type?,
+    children: {types.MatchPattern}?,
+    templateParts: {types.MatchPatternPart}?,
+    countTerm: types.ConstTerm?,
+    paramCount: integer?,
+    paramPackBinder: types.PackVar?,
+    retPackBinder: types.PackVar?
+): types.MatchPattern
+    local childIds, partIds = {}, {}
+    for j, child in ipairs(children or {}) do
+        childIds[j] = child.id
+    end
+    for j, part in ipairs(templateParts or {}) do
+        partIds[j] = type(part) == "string" and "s:" .. (part as string) or "p:" .. (part as types.MatchPattern).id
+    end
+    local id = "pattern(" .. kind .. ":" .. (
+        binder and binder.id or "-"
+    ) .. ":" .. (
+        expected and expected.id or "-"
+    ) .. ":" .. table.concat(
+        childIds,
+        ","
+    ) .. ":" .. table.concat(
+        partIds,
+        ","
+    ) .. ":" .. (
+        countTerm and countTerm.id or "-"
+    ) .. ":" .. tostring(
+        paramCount or "-"
+    ) .. ":" .. (
+        paramPackBinder and paramPackBinder.id or "-"
+    ) .. ":" .. (retPackBinder and retPackBinder.id or "-") .. ")"
+    local found = patternArena[id]
+    if found then
+        return found
+    end
+    local made = new types.MatchPattern {
+        kind = kind,
+        binder = binder,
+        expected = expected,
+        children = children,
+        templateParts = templateParts,
+        countTerm = countTerm,
+        paramCount = paramCount,
+        paramPackBinder = paramPackBinder,
+        retPackBinder = retPackBinder
+    }
+    made.id = id
+    patternArena[id] = made
+
+    return made
+end
+
+function types.matchArm(pattern: types.MatchPattern, result: types.Type): types.MatchArm
+    return new types.MatchArm {id = pattern.id .. "=>" .. result.id, pattern = pattern, result = result}
+end
+
 function types.packUnion(alternatives: {types.Pack}): types.Pack
     local flat, seen, ids = {}, {}, {}
     for _, p in ipairs(alternatives) do
@@ -1326,7 +1528,9 @@ function types.genericAlias(
     body: types.Type,
     typeParams: {types.Type}?,
     typeBounds: {types.Type}?,
-    packParams: {types.PackVar}?
+    packParams: {types.PackVar}?,
+    constParams: {types.ConstVar}?,
+    paramKinds: {string}?
 ): types.Type
     local parts = {"alias(" .. name, body.id}
     for _, tv in ipairs(typeParams or {}) do
@@ -1334,6 +1538,9 @@ function types.genericAlias(
     end
     for _, pv in ipairs(packParams or {}) do
         parts[#parts + 1] = pv.id
+    end
+    for _, cv in ipairs(constParams or {}) do
+        parts[#parts + 1] = cv.id
     end
     local key = table.concat(parts, "|") .. ")"
 
@@ -1344,7 +1551,9 @@ function types.genericAlias(
             body = body,
             typeParams = typeParams or {},
             typeBounds = typeBounds or {},
-            packParams = packParams or {}
+            packParams = packParams or {},
+            constParams = constParams or {},
+            paramKinds = paramKinds or {}
         }
     end)
 end
@@ -1402,7 +1611,9 @@ function types.func(
     noYield: boolean?,
     paramNames: {string}?,
     preservesResults: {integer}?,
-    foreign: boolean?
+    foreign: boolean?,
+    constParams: {types.ConstVar}?,
+    paramKinds: {string}?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -1453,6 +1664,13 @@ function types.func(
             pp[j] = pv.id
         end
         key = key .. "|<" .. table.concat(pp, ",") .. ">"
+    end
+    if constParams and #constParams > 0 then
+        local cp = {}
+        for j, cv in ipairs(constParams) do
+            cp[j] = cv.id
+        end
+        key = key .. "|<const " .. table.concat(cp, ",") .. ">"
     end
     if yieldPack then
         key = key .. "|yields" .. yieldPack.id
@@ -1527,6 +1745,8 @@ function types.func(
             paramPack = paramPack,
             retPack = retPack,
             packParams = packParams,
+            constParams = constParams,
+            paramKinds = paramKinds,
             yieldPack = yieldPack,
             resumePack = resumePack
         }
@@ -1576,7 +1796,9 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         want,
         fn.paramNames,
         fn.preservesResults,
-        fn.foreign
+        fn.foreign,
+        fn.constParams,
+        fn.paramKinds
     )
 end
 
@@ -1614,7 +1836,9 @@ function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
         fn.noYield,
         fn.paramNames,
         fn.preservesResults,
-        fn.foreign
+        fn.foreign,
+        fn.constParams,
+        fn.paramKinds
     )
 end
 
@@ -1633,9 +1857,10 @@ end
 -- Zero-indexed, like the C array it is, and distinct from a Lua table so the two
 -- indexing conventions never blur together. `count` is nil for a variable-length array
 -- (T[?]) and a number for a fixed one (T[N]); the two are different types.
-function types.carray(elem: types.Type, count: integer?): types.Type
-    return intern("carray(" .. elem.id .. "," .. tostring(count) .. ")", function()
-        return new types.CArray {tag = "carray", elem = elem, count = count}
+function types.carray(elem: types.Type, count: integer?, countTerm: types.ConstTerm?): types.Type
+    local term = countTerm or (count and types.constLiteral("integer", count) or nil)
+    return intern("carray(" .. elem.id .. "," .. (term and term.id or "?") .. ")", function()
+        return new types.CArray {tag = "carray", elem = elem, count = count, countTerm = term}
     end)
 end
 
@@ -1666,6 +1891,71 @@ function types.typevar(name: string, identity: string?): types.Type
     end)
 end
 
+--- Interns one blocked type-level operation.  The reducer decides whether a
+--- constructor is closed before calling this; this function only gives identical
+--- symbolic terms identical object identity.
+function types.neutral(
+    op: string,
+    subject: types.Type?,
+    key: types.Type?,
+    capability: string?,
+    binder: types.TypeVar?,
+    keys: types.Type?,
+    value: types.Type?,
+    remap: types.Type?,
+    constTerm: types.ConstTerm?,
+    templateParts: {types.TemplatePart}?,
+    matchEach: boolean?,
+    matchArms: {types.MatchArm}?
+): types.Type
+    local templateIds = {}
+    for j, part in ipairs(templateParts or {}) do
+        templateIds[j] = type(part) == "string" and "s:" .. (part as string) or "t:" .. (part as types.Type).id
+    end
+    local armIds = {}
+    for j, arm in ipairs(matchArms or {}) do
+        armIds[j] = arm.id
+    end
+    local id = "neutral(" .. op .. ":" .. (
+        capability or "-"
+    ) .. ":" .. (
+        subject and subject.id or "-"
+    ) .. ":" .. (
+        key and key.id or "-"
+    ) .. ":" .. (
+        binder and binder.id or "-"
+    ) .. ":" .. (
+        keys and keys.id or "-"
+    ) .. ":" .. (
+        value and value.id or "-"
+    ) .. ":" .. (
+        remap and remap.id or "-"
+    ) .. ":" .. (
+        constTerm and constTerm.id or "-"
+    ) .. ":" .. table.concat(
+        templateIds,
+        ","
+    ) .. ":" .. (matchEach and "each" or "one") .. ":" .. table.concat(armIds, ",") .. ")"
+
+    return intern(id, function()
+        return new types.Neutral {
+            tag = "neutral",
+            op = op,
+            capability = capability,
+            subject = subject,
+            key = key,
+            binder = binder,
+            keys = keys,
+            value = value,
+            remap = remap,
+            constTerm = constTerm,
+            templateParts = templateParts,
+            matchEach = matchEach,
+            matchArms = matchArms
+        }
+    end)
+end
+
 function types.metatable(t: types.Type): types.Type
     return intern("metatable(" .. t.id .. ")", function()
         return new types.Metatable {tag = "metatable", of = t}
@@ -1685,9 +1975,48 @@ function types.hasProjection(t: types.Type): boolean
     return t.id:find("proj(", 1, true) ~= nil
 end
 
+local function tostringPattern(pattern: types.MatchPattern): string
+    if pattern.kind == "infer" then
+        return "infer " .. (pattern.binder and pattern.binder.name or "_")
+    end
+    if pattern.kind == "ordinary" then
+        return types.tostring(pattern.expected as types.Type)
+    end
+    if pattern.kind == "default" then
+        return "_"
+    end
+    if pattern.kind == "array" then
+        return "{" .. tostringPattern((pattern.children as {types.MatchPattern})[1]) .. "}"
+    end
+    if pattern.kind == "ptr" then
+        return tostringPattern((pattern.children as {types.MatchPattern})[1]) .. "*"
+    end
+    if pattern.kind == "template" then
+        local parts = {}
+        for j, part in ipairs(pattern.templateParts or {}) do
+            parts[j] = type(part) == "string" and part or "${" .. tostringPattern(part as types.MatchPattern) .. "}"
+        end
+        return "`" .. table.concat(parts) .. "`"
+    end
+
+    return "<" .. pattern.kind .. " pattern>"
+end
 -- Cheap containment test used to decide whether instantiation is needed.
 function types.hasTypevar(t: types.Type): boolean
-    return t.id:find("tv(", 1, true) ~= nil or t.id:find("pv(", 1, true) ~= nil
+    if t.tag == "nominal" and t.origin then
+        for _, argument in ipairs(t.typeArgs or {}) do
+            if types.hasTypevar(argument) then
+                return true
+            end
+        end
+        for _, argument in ipairs(t.constArgs or {}) do
+            if argument.id:find("cv(", 1, true) then
+                return true
+            end
+        end
+    end
+
+    return t.id:find("tv(", 1, true) ~= nil or t.id:find("pv(", 1, true) ~= nil or t.id:find("cv(", 1, true) ~= nil
 end
 
 ---------------------------------------------------------------------------
@@ -1718,10 +2047,25 @@ end
 function types.tostring(t: types.Type): string
     local tag = t.tag
     if tag == "nominal" then
-        if t.typeArgs and #t.typeArgs > 0 then
+        if #(t.typeArgs or {}) > 0 or #(t.constArgs or {}) > 0 then
             local parts: {string} = {}
-            for j, a in ipairs(t.typeArgs) do
-                parts[j] = types.tostring(a)
+            local typeAt: integer, constAt: integer = 1, 1
+            for _, kind in ipairs(t.paramKinds or {}) do
+                if kind == "type" then
+                    parts[#parts + 1] = types.tostring((t.typeArgs as {types.Type})[typeAt])
+                    typeAt = typeAt + 1
+                elseif kind == "const" then
+                    parts[#parts + 1] = types.tostringConst((t.constArgs as {types.ConstTerm})[constAt])
+                    constAt = constAt + 1
+                end
+            end
+            if #parts == 0 then
+                for _, argument in ipairs(t.typeArgs or {}) do
+                    parts[#parts + 1] = types.tostring(argument)
+                end
+                for _, argument in ipairs(t.constArgs or {}) do
+                    parts[#parts + 1] = types.tostringConst(argument)
+                end
             end
             return t.name .. "<" .. table.concat(parts, ", ") .. ">"
         end
@@ -1805,7 +2149,7 @@ function types.tostring(t: types.Type): string
         if t.elem.tag == "union" or t.elem.tag == "intersection" then
             elem = "(" .. elem .. ")"
         end
-        return elem .. "[" .. (t.count and tostring(t.count) or "?") .. "]"
+        return elem .. "[" .. (t.countTerm and types.tostringConst(t.countTerm) or "?") .. "]"
     elseif tag == "ptr" then
         local elem = types.tostring(t.elem)
         if t.elem.tag == "union" or t.elem.tag == "intersection" then
@@ -1820,6 +2164,41 @@ function types.tostring(t: types.Type): string
         return "pinned<" .. types.tostring(t.inner) .. ">"
     elseif tag == "typevar" then
         return t.name
+    elseif tag == "neutral" then
+        if t.op == "singleton" then
+            return types.tostringConst(t.constTerm as types.ConstTerm)
+        elseif t.op == "keyof" then
+            return (t.capability == "write" and "writekeyof " or "keyof ") .. types.tostring(t.subject as types.Type)
+        elseif t.op == "member" then
+            return (
+                t.capability == "write" and "writeof " or ""
+            ) .. types.tostring(t.subject as types.Type) .. ".[" .. types.tostring(t.key as types.Type) .. "]"
+        elseif t.op == "mapped" then
+            return "{" .. (
+                t.capability == "write" and "writeonly" or "readonly"
+            ) .. " [" .. (
+                t.binder and t.binder.name or "K"
+            ) .. " in " .. types.tostring(t.keys as types.Type) .. "]: " .. types.tostring(t.value as types.Type) .. "}"
+        elseif t.op == "template" then
+            local parts = {}
+            for j, part in ipairs(t.templateParts or {}) do
+                parts[j] = type(part) == "string" and part or "${" .. types.tostring(part as types.Type) .. "}"
+            end
+            return "`" .. table.concat(parts) .. "`"
+        elseif t.op == "match" then
+            local arms = {}
+            for _, arm in ipairs(t.matchArms or {}) do
+                if arm.pattern.kind == "default" then
+                    arms[#arms + 1] = "else " .. types.tostring(arm.result)
+                else
+                    arms[#arms + 1] = "when " .. tostringPattern(arm.pattern) .. " then " .. types.tostring(arm.result)
+                end
+            end
+            return "match " .. (
+                t.matchEach and "each " or ""
+            ) .. types.tostring(t.subject as types.Type) .. " " .. table.concat(arms, " ") .. " end"
+        end
+        return "<" .. t.op .. ">"
     elseif tag == "metatable" then
         return "metatable<" .. types.tostring(t.of) .. ">"
     elseif tag == "projection" then
@@ -1880,6 +2259,9 @@ function types.tostring(t: types.Type): string
         end
         for _, pv in ipairs(t.packParams or {}) do
             binders[#binders + 1] = pv.name .. "..."
+        end
+        for _, cv in ipairs(t.constParams or {}) do
+            binders[#binders + 1] = "const " .. cv.name .. ": " .. cv.domain
         end
         local generic = #binders > 0 and "<" .. table.concat(binders, ", ") .. ">" or ""
         return "function" .. generic .. "(" .. table.concat(ps, ", ") .. ")" .. ret .. protocol
