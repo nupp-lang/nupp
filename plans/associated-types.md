@@ -349,6 +349,50 @@ unchanged, and adoption is opt-in per interface.
 interface gains a member and every existing implementor already answers it.
 Only implementors needing a different answer are edited.
 
+## Adoption in this tree
+
+Almost none, and for a structural reason worth writing down: **there is not one
+`record X is Y` in `src/`.** Every interface the compiler and standard library
+declare — `cdecl`'s ten, `envMod.Env`, `nupp.Reader` and `nupp.Writer`,
+`methodslots`, `symbols.Symbol`, `cst.Hints` — is satisfied structurally, with no
+declaration naming it. An associated type needs a contract with an answering
+site, so adopting one here means first nominalizing something.
+
+The `any` in this tree is also mostly not the kind this feature repairs. Most of
+it is require-cycle erasure, where naming the real type would close the graph
+into a loop and the module comment says so; the rest is a genuine serialization
+or FFI boundary. Neither is implementor variation.
+
+Surveyed candidates, for the record:
+
+- **`spec.Handler.run: function(any): integer`** (`cli/spec.nupp:201`) is the one
+  real fit — 19 implementors, and the only declaration in the tree whose comment
+  apologizes for exactly what this fixes. It is still only a partial win: the
+  dispatcher holds a `spec.Handler?` of unknown implementor, so the two call
+  sites keep a cast, and 15 of the 19 bodies can be tightened today by writing
+  `parsed: spec.Result` with no new feature. Worth doing on its own merits, not
+  as a demonstration of this one.
+- **`cache.DependencyRecord`** is a union of what any provider returns, but
+  dispatch is on a runtime string from the manifest and the record round-trips
+  through JSON. Load-bearing, correctly dynamic on the read path.
+- **`store.Store`** genuinely varies its value type, but per *instance*, not per
+  implementor. That is `store.Store<V>`, an ordinary parameter.
+- **`profile.SampleSession` / `TraceSession`** duplicate a shape and differ in
+  their report type, so the feature would describe them exactly — but nothing is
+  erased today and nothing in the tree is generic over a session. It would add
+  an abstraction with one consumer per implementor.
+- **`query.nupp`** was the motivating example in the first draft of this plan and
+  is the wrong place. Dispatch is keyed on a runtime string, the memo and input
+  tables are irreducibly heterogeneous across query kinds, `Def.fn`'s `q: any` is
+  a forward-reference the file already solves elsewhere with a forward
+  declaration, and a typed `get` would still return an optional because of the
+  re-entrant cycle edge. It is also the early-cutoff engine, which is the last
+  place to prototype a type feature.
+
+The consumer this was designed for is Tecs' `archetype:get`, which is out of
+tree. Landing the feature without forcing an in-tree user is the right trade;
+the alternative is inventing contracts so the feature has somewhere to live.
+
 ## Diagnostics
 
 - **NUPP2127** — a declaration takes a contract and leaves an associated type
