@@ -107,88 +107,80 @@ end
 local envMod = require("nupp.compiler.env")
 
 local incremental = require("nupp.compiler.incremental")
-local ok, inc = pcall(incremental.new, root)
+
+-- The include set a compiler build uses, named rather than inherited, so the
+-- order below is the order `buildModules` walks and not whatever the root
+-- happens to contain.
+local ok, inc = pcall(incremental.new, root, {
+    config = {include = {"src", "build/generated"}},
+})
 if not ok then
     say("incremental.new", "failed", tostring(inc))
     io.write(table.concat(lines, "\n"), "\n")
     return
 end
 
--- Counted against what git says, and sampled, because "zero" and "malformed"
--- are different answers and both are possible here.
-local enumerated = inc.projectFiles()
-say("projectFiles", tostring(#enumerated), "git-says=" .. #tracked)
-for index = 1, math.min(#enumerated, 4) do
-    say("projectFile", enumerated[index])
-end
-local wanted = root .. "/src/nupp/compiler/types.nupp"
-local hit = false
-for _, path in ipairs(enumerated) do
-    if path == wanted then hit = true end
-end
-say("projectFiles-contains", wanted, tostring(hit))
+say("manifest-include", table.concat((envMod.new(root).config or {}).include or {}, ","))
 
 local targets = {
-    ["src/nupp/compiler/cst.nupp"] = "Tname",
-    ["src/nupp/compiler/types.nupp"] = "AssociatedReached",
-    ["src/nupp/compiler/cli/spec.nupp"] = "Handler",
+    {file = "src/nupp/compiler/cst.nupp", name = "Tname"},
+    {file = "src/nupp/compiler/types.nupp", name = "AssociatedReached"},
+    {file = "src/nupp/compiler/cli/spec.nupp", name = "Handler"},
 }
 
--- Stage one: what the store hands back for each file, through the query graph
--- rather than by calling projectHeader directly.
-for relative in pairs(targets) do
-    local path = root .. "/" .. relative
-    local header = inc.projectHeader(path)
-    if not header then
-        say("header", relative, "nil")
-    else
-        say("header", relative, "module=" .. tostring(header.moduleName),
-            "declarations=" .. #(header.declarations or {}))
-    end
-end
-
--- Stage two: whether the assembled index carries the names that go missing.
-local index = inc.projectIndex()
-say("index", "modules=" .. tostring(index and index.modules and (function()
-    local n = 0
-    for _ in pairs(index.modules) do n = n + 1 end
-    return n
-end)() or "?"))
--- `byName` is keyed on the bare declaration name and holds every module that
--- declares it, so the question is whether the owning module is among them.
-for relative, wanted in pairs(targets) do
-    local owner
+-- Whether the index still carries each name from its owning module. Asked
+-- before and after every check that reports something, because a name that
+-- disappears partway names the check that removed it.
+local function indexState(label)
+    local index = inc.projectIndex()
+    local owners = {}
     for name, path in pairs((index and index.modules) or {}) do
-        if path:sub(-#relative) == relative then owner = name end
+        owners[path] = name
     end
-    local entries = ((index and index.byName) or {})[wanted]
-    local found = false
-    for _, entry in ipairs(entries or {}) do
-        if entry.moduleName == owner then found = true end
+    for _, target in ipairs(targets) do
+        local owner = owners[root .. "/" .. target.file]
+        local found = false
+        for _, entry in ipairs(((index and index.byName) or {})[target.name] or {}) do
+            if entry.moduleName == owner then found = true end
+        end
+        say("index", label, target.name, "owner=" .. tostring(owner),
+            "present=" .. tostring(found))
     end
-    say("index-name", wanted, "owner=" .. tostring(owner),
-        "entries=" .. #(entries or {}), "from-owner=" .. tostring(found))
 end
 
--- Stage three: what checking actually reports for the files that failed.
-for _, relative in ipairs({
-    "src/nupp/compiler/parser.nupp",
-    "src/nupp/compiler/associated.nupp",
-    "src/nupp/compiler/cli/check.nupp",
-}) do
-    local path = root .. "/" .. relative
-    local checked = pcall(inc.checkFile, path) and inc.checkFile(path) or nil
-    if not checked then
-        say("check", relative, "raised")
-    else
-        local count = #(checked.diags or {})
-        say("check", relative, "diags=" .. count)
-        for index2 = 1, math.min(count, 3) do
-            local d = checked.diags[index2]
-            say("check-diag", relative, tostring(d.code), tostring(d.line),
-                tostring(d.msg):sub(1, 110))
+indexState("initial")
+
+local ordered = envMod.listSourceFiles(inc.env, false)
+say("sourceFiles", tostring(#ordered))
+
+-- `main` first, the way a build reaches it, then everything else in order.
+local first = root .. "/src/nupp/compiler/main.nupp"
+local queue = {first}
+for _, path in ipairs(ordered) do
+    if path ~= first then queue[#queue + 1] = path end
+end
+
+local reported = 0
+for position, path in ipairs(queue) do
+    local checked
+    local fine = pcall(function() checked = inc.checkFile(path) end)
+    local count = fine and #((checked or {}).diags or {}) or -1
+    if count ~= 0 then
+        reported = reported + 1
+        local relative = (path:gsub("^" .. root:gsub("%p", "%%%0") .. "/", ""))
+        say("first-diagnostics", tostring(position), relative, "diags=" .. count)
+        for index = 1, math.min(count, 4) do
+            local d = checked.diags[index]
+            say("diag", relative, tostring(d.code), tostring(d.line),
+                tostring(d.msg):sub(1, 100))
         end
+        indexState("after:" .. relative)
+        if reported >= 2 then break end
     end
+end
+if reported == 0 then
+    say("first-diagnostics", "none", "checked=" .. #queue)
+    indexState("final")
 end
 
 io.write(table.concat(lines, "\n"), "\n")
