@@ -430,7 +430,9 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     end
 
     for _, field in ipairs(shape.fields or {}) do
-        if field.kind == "tshapeField" then
+        local info = parseDoc(docLines(field))
+        if field.kind == "tshapeField"
+            and (includePrivate or (not privateName(field.name.text) and not info.tags.internal)) then
             addModule(field, prefix)
         end
     end

@@ -214,6 +214,12 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
       "      --- Encodes a value.",
       "      encode: function(value: any): string",
       "   },",
+      "   --- Test-only helpers.",
+      "   --- @internal",
+      "   test: {",
+      "      --- Should not appear in public documentation.",
+      "      hidden: function(): nil",
+      "   },",
       "   math: lib.MathLibrary",
       "}",
       "",
@@ -246,6 +252,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    assert(byName["lib.data"].items[1].name == "encode")
    assert(byName["lib.data"].items[1].kind == "function")
    assert(byName["lib.data"].items[1].doc.text == "Encodes a value.")
+   assert(not byName["lib.test"], "an internal namespace field leaked into public docs")
    assert(byName["lib.math"], "a field spelled by name follows it to the same file's record")
    assert(byName["lib.math"].items[1].name == "add")
    assert(byName["lib.math"].items[1].params[1].name == "a")
@@ -253,11 +260,17 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    assert(byName["lib.math.vec2"].text == "Vector helpers.")
    assert(byName["lib.math.vec2"].items[1].name == "length")
 
-   local private = assert(doc.extract(source, "src/lib.d.nupp", "lib", {
+   local private, privateErrors, privateExtra = doc.extract(source, "src/lib.d.nupp", "lib", {
       includeAll = true,
       includePrivate = true,
-   }))
+   })
+   assert(private, privateErrors and privateErrors[1] and privateErrors[1].msg)
    assert(#private.items == 2, "private docs must retain internal declarations")
+   local privateByName = {}
+   for _, mod in ipairs(privateExtra or {}) do
+      privateByName[mod.name] = mod
+   end
+   assert(privateByName["lib.test"], "private docs must retain internal namespace fields")
 end
 
 function M.standardDataApiHasCompleteDocumentation()
