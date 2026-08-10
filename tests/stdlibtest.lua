@@ -262,6 +262,50 @@ function M.compilerProvidedPureLibraries()
    assert(ok, problem)
 end
 
+function M.openFilesAreOwnersOverTheSharedReaderContract()
+   local gen = require("nupp.compiler.gen")
+
+   assertClean(table.concat({
+      "local files = nupp.io.files",
+      "do",
+      "    local file = files.open('input.txt') as nupp.Files.File",
+      "    local reader: nupp.Reader = file:newReader()",
+      "    local writer: nupp.Writer = file:newWriter()",
+      "    local bytes: string? = reader:read(16)",
+      "    local wrote: boolean = writer:write('x')",
+      "end",
+   }, "\n"))
+
+   assertClean(table.concat({
+      "local buffer = nupp.io.newBuffer()",
+      "local reader = nupp.io.newStringReader('abc')",
+      "local moved: integer? = reader:readInto(buffer)",
+      "local info = nupp.io.files.info('x')",
+      "local size: integer? = info and info.size",
+   }, "\n"))
+
+   assertEq((diagsOf("local n: number = nupp.io.files.read('x')")), "NUPP2001:1")
+   assertEq((diagsOf("nupp.io.files.info(42)")), "NUPP2006:1")
+   -- An owner nobody binds has nowhere to be cleaned up from, and `open` is the
+   -- first prelude member for which that is true.
+   assertEq((diagsOf("nupp.io.files.open('x')")), "NUPP2605:1")
+   assertEq((diagsOf("nupp.io.files.createTemporaryFile()")), "NUPP2605:1")
+
+   -- The prelude marks `open` and the temporaries `@owned`, so a binding the
+   -- program drops is disposed where it goes out of scope rather than leaking.
+   local source = table.concat({
+      "local file = nupp.io.files.open('input.txt') as nupp.Files.File",
+      "print(file)",
+   }, "\n")
+   local parsed = parser.parse(source, "owned.g.nupp")
+   assertEq(#parsed.errors, 0, "syntax errors in the ownership fragment")
+   sharedEnv.loaded = {}
+   check.check(parsed, "owned.g.nupp", sharedEnv)
+   local code = gen.generate(parsed, "owned")
+   assert(code:find(":close()", 1, true),
+      "an open file is disposed at the end of its scope")
+end
+
 function M.bufferAppendsInAmortizedConstantTime()
    local bootstrap = native.bootstrap({["stdlib.io"] = true})
    local previous = rawget(_G, "nupp")

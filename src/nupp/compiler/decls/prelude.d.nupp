@@ -877,6 +877,106 @@ record nupp.Files
         readOnly: boolean
     end
 
+    --- How an open file may be used. The three update modes read and write:
+    --- `r+` needs an existing file, `w+` truncates one, and `a+` appends.
+    type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+
+    --- What a seek offset is measured from.
+    type Origin = "set" | "current" | "end"
+
+    --- Answers each line in turn, and nil at the end of the file.
+    type LineIterator = function(): string?
+
+    --- An open file, and the obligation to close it.
+    ---
+    --- Readers and writers opened from it satisfy the same [`nupp.Reader`
+    --- and `nupp.Writer`](../docs/io.md) contracts a buffer's do, so code
+    --- written against those works over a file without knowing one is there.
+    record File
+        --- Opens a forward-only reader at the file's current position.
+        --- @param self this file
+        --- @return the new reader
+        newReader: function(self: nupp.Files.File): nupp.Reader
+
+        --- Opens a forward-only writer at the file's current position.
+        --- @param self this file
+        --- @return the new writer
+        newWriter: function(self: nupp.Files.File): nupp.Writer
+
+        --- Answers the file's byte length without moving the cursor.
+        --- @param self this file
+        --- @return the byte length, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        size: function(self: nupp.Files.File): (integer?, string?)
+
+        --- Moves the cursor and answers where it landed.
+        --- @param self this file
+        --- @param offset the distance to move
+        --- @param origin what the offset is measured from, defaulting to the
+        ---     start
+        --- @return the new position, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        seek: function(
+            self: nupp.Files.File, offset: integer?, origin: nupp.Files.Origin?
+        ): (integer?, string?)
+
+        --- Answers the cursor's current position.
+        --- @param self this file
+        --- @return the position, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        position: function(self: nupp.Files.File): (integer?, string?)
+
+        --- Pushes buffered writes at the operating system.
+        --- @param self this file
+        --- @return whether the flush succeeded
+        --- @return a failure reason, when unsuccessful
+        flush: function(self: nupp.Files.File): (boolean, string?)
+
+        --- Whether this file has been closed.
+        --- @param self this file
+        --- @return whether it is closed
+        isReleased: function(self: nupp.Files.File): boolean
+
+        --- Closes the file. Repeated calls are safe.
+        --- @param self this file
+        --- @return whether the close succeeded
+        @dispose
+        close: nosuspend function(takes self: nupp.Files.File): boolean
+    end
+
+    --- A created temporary path, and the obligation to settle it.
+    ---
+    --- Closing removes it. `persist` moves it somewhere permanent instead and
+    --- discharges the obligation, which is the whole reason to make one: write
+    --- to a name nobody else can take, then put it where it belongs.
+    record TemporaryPath
+        --- Answers the created path.
+        --- @param self this temporary path
+        --- @return the path text
+        toString: function(self: nupp.Files.TemporaryPath): string
+
+        --- Moves this path to a permanent destination, replacing what is there.
+        --- @param self this temporary path
+        --- @param destination where to move it
+        --- @return whether the move happened
+        --- @return a failure reason, when unsuccessful
+        persist: function(
+            self: nupp.Files.TemporaryPath, destination: string | nupp.Path
+        ): (boolean, string?)
+
+        --- Whether this path has been removed or persisted.
+        --- @param self this temporary path
+        --- @return whether it is settled
+        isReleased: function(self: nupp.Files.TemporaryPath): boolean
+
+        --- Removes the path. Repeated calls, and a call after `persist`, are
+        --- safe and do nothing.
+        --- @param self this temporary path
+        --- @return whether the removal succeeded
+        @dispose
+        close: nosuspend function(takes self: nupp.Files.TemporaryPath): boolean
+    end
+
     --- One directory child, as the directory itself describes it.
     record Entry
         --- The child's name, without any directory part.
@@ -1010,24 +1110,113 @@ record nupp.Files
         --- @return a failure reason, when unsuccessful
         list: function(path: string | nupp.Path): ({nupp.Files.Entry}?, string?)
 
-        --- Creates a uniquely named empty file and answers its path.
+        --- Reads a whole file.
+        ---
+        --- #### Examples
+        ---
+        --- Read a file's bytes, or report why not:
+        ---
+        --- ```nupp
+        --- local text, reason = nupp.io.files.read("nupp.lua")
+        --- assert(text, reason)
+        --- ```
+        --- @param path the file to read
+        --- @return the contents, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        read: function(path: string | nupp.Path): (string?, string?)
+
+        --- Writes a whole file, replacing its contents.
+        --- @param path the file to write
+        --- @param bytes the contents
+        --- @return whether the write succeeded
+        --- @return a failure reason, when unsuccessful
+        write: function(
+            path: string | nupp.Path, bytes: string | nupp.ByteView
+        ): (boolean, string?)
+
+        --- Adds to the end of a file, creating it when it does not exist.
+        --- @param path the file to extend
+        --- @param bytes what to add
+        --- @return whether the write succeeded
+        --- @return a failure reason, when unsuccessful
+        append: function(
+            path: string | nupp.Path, bytes: string | nupp.ByteView
+        ): (boolean, string?)
+
+        --- Writes a whole file through a temporary beside it, so an interrupted
+        --- write leaves the destination as it was rather than half replaced.
+        --- @param path the file to write
+        --- @param bytes the contents
+        --- @return whether the write succeeded
+        --- @return a failure reason, when unsuccessful
+        writeAtomic: function(
+            path: string | nupp.Path, bytes: string | nupp.ByteView
+        ): (boolean, string?)
+
+        --- Copies a file's contents over a destination.
+        --- @param from the file to copy
+        --- @param to where to copy it
+        --- @return whether the copy succeeded
+        --- @return a failure reason, when unsuccessful
+        copy: function(
+            from: string | nupp.Path, to: string | nupp.Path
+        ): (boolean, string?)
+
+        --- Opens a file and hands over the obligation to close it.
+        ---
+        --- #### Examples
+        ---
+        --- Read a header without holding the whole file:
+        ---
+        --- ```nupp
+        --- do
+        ---     local file = assert(nupp.io.files.open("image.png"))
+        ---     print(file:newReader():read(8))
+        --- end
+        --- ```
+        --- @param path the file to open
+        --- @param mode how it may be used, defaulting to reading
+        --- @return the open file, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        @owned
+        open: function(
+            path: string | nupp.Path, mode: nupp.Files.Mode?
+        ): (nupp.Files.File?, string?)
+
+        --- Iterates a file's lines, closing it at the end.
+        ---
+        --- A trailing carriage return is removed, so a file written on either
+        --- platform reads the same. The iterator stops at the end of the file;
+        --- abandoning it early leaves the file open until it is collected.
+        --- @param path the file to read
+        --- @return an iterator answering each line, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        lines: function(
+            path: string | nupp.Path
+        ): (nupp.Files.LineIterator?, string?)
+
+        --- Creates a uniquely named empty file and hands over the obligation to
+        --- remove or persist it.
         ---
         --- The file is created rather than merely proposed, so no second caller
         --- can take the name in between.
         --- @param options where to create it and how to name it
         --- @return the created path, or nil on failure
         --- @return a failure reason, when unsuccessful
+        @owned
         createTemporaryFile: function(
             options: nupp.Files.TemporaryOptions?
-        ): (string?, string?)
+        ): (nupp.Files.TemporaryPath?, string?)
 
-        --- Creates a uniquely named empty directory and answers its path.
+        --- Creates a uniquely named empty directory and hands over the
+        --- obligation to remove or persist it.
         --- @param options where to create it and how to name it
         --- @return the created path, or nil on failure
         --- @return a failure reason, when unsuccessful
+        @owned
         createTemporaryDirectory: function(
             options: nupp.Files.TemporaryOptions?
-        ): (string?, string?)
+        ): (nupp.Files.TemporaryPath?, string?)
 
         --- Reads the process's current working directory.
         --- @return the current directory, or nil on failure

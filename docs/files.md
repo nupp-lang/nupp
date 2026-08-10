@@ -11,9 +11,9 @@ for _, entry in ipairs(assert(files.list("src"))) do
 end
 ```
 
-Every operation here answers before a transfer could have started. Reading and
-writing a file's bytes is a separate layer, and until it lands the byte
-vocabulary on [byte I/O](io.md) works over memory only.
+A file's bytes move through the same `Reader` and `Writer` contracts a buffer
+uses, so a parser written against [byte I/O](io.md) works over a file without
+knowing one is there.
 
 A path argument is a string or a [`Path`](path-uri.md#paths); a path result is a
 string. Operations that fail because of the environment answer `nil, reason` or
@@ -79,9 +79,10 @@ assert(files.remove("out/stale", true))
 
 `createDirectory` creates every missing parent, and an existing directory
 succeeds — a caller building a tree wants that rather than a race with its own
-earlier call. `rename` replaces an existing destination. `remove` takes a file, a
-symbolic link, or an empty directory; the second argument removes a directory's
-contents with it, and without it a populated directory answers a reason.
+earlier call. `rename` replaces an existing destination. `remove` takes a file,
+a symbolic link, or an empty directory; the second argument removes a
+directory's contents with it, and without it a populated directory answers a
+reason.
 
 `setReadOnly` sets or clears the write refusal that `info` reports.
 
@@ -93,12 +94,85 @@ assert(scratch, reason)
 ```
 
 The file or directory is *created*, not proposed, so no second caller can take
-the name between the answer and the use. `directory` selects where, defaulting to
-the platform's temporary directory; `prefix` and `suffix` bracket the generated
-part, which is what puts an extension on a temporary file.
+the name between the answer and the use. `directory` selects where, defaulting
+to the platform's temporary directory; `prefix` and `suffix` bracket the
+generated part, which is what puts an extension on a temporary file.
 
-Nothing removes these for you. Pair one with `files.remove` — this is the
-operation an owner and a `with` scope will cover once files own resources.
+A temporary is an owner: closing it removes what it created, and the checker
+runs that cleanup at the end of the scope whether the block falls through,
+returns early, or raises.
+
+```nupp
+do
+    local scratch = assert(files.createTemporaryFile({suffix = ".json"}))
+    assert(files.write(scratch:toString(), encoded))
+    assert(scratch:persist("out/report.json"))
+end
+```
+
+`persist` moves it somewhere permanent and discharges the obligation, so the
+close that follows does nothing. That pair is the reason to make one: write to a
+name nobody else can take, then put it where it belongs — a reader never sees a
+half-written file under the final name.
+
+## Reading and writing a whole file
+
+```nupp
+local text, reason = files.read("nupp.lua")
+assert(text, reason)
+assert(files.write("out/report.json", encoded))
+```
+
+`append` adds to the end and creates a missing file. `copy` duplicates one path
+over another. `writeAtomic` writes through a temporary beside the destination
+and renames over it, so an interrupted write leaves the destination as it was
+rather than half replaced — and a failed one removes the temporary rather than
+leaving it behind.
+
+A NUL byte is content, not a terminator, in every direction.
+
+```nupp
+for line in assert(files.lines("access.log")) do
+    print(line)
+end
+```
+
+`lines` closes the file when it reaches the end. A trailing carriage return is
+removed, so a file written on either platform reads the same. Abandoning the
+iterator early leaves the file open until it is collected; open it yourself when
+you mean to stop.
+
+## Reading and writing through a cursor
+
+`open` hands over a `File` and the obligation to close it:
+
+```nupp
+do
+    local file = assert(files.open("image.png"))
+    local reader = file:newReader()
+    print(reader:read(8))
+end
+```
+
+The reader and writer satisfy `nupp.Reader` and `nupp.Writer`, so `read`,
+`readInto`, `transferTo`, `write`, `writeFrom`, `writeView` and `flush` mean
+what they mean over a buffer. `readInto` lands bytes in the destination
+buffer's own storage rather than in a string on the way there, and `transferTo`
+streams a file of any size through a fixed window:
+
+```nupp
+do
+    local source = assert(files.open("input.bin"))
+    local sink = assert(files.open("output.bin", "w"))
+    print(source:newReader():transferTo(sink:newWriter()))
+end
+```
+
+`mode` is `r`, `w`, `a`, or the update modes `r+`, `w+` and `a+`, matching C and
+Lua. `seek(offset, origin)` moves the cursor, with `origin` one of `set`,
+`current` or `end`; `position` and `size` answer where it is and how long the
+file is. A reader or writer over a closed file answers a reason rather than
+raising.
 
 ## Where the platform keeps things
 
@@ -123,7 +197,9 @@ initializes nothing, which is the rule for every
 
 ## Next
 
-- [docs/io.md](io.md) — the buffer, reader and writer contracts a file layer
-  will implement.
+- [docs/io.md](io.md) — the buffer, reader and writer contracts a file
+  implements.
+- [docs/ownership.md](ownership.md) — what an owner is, and when its cleanup
+  runs.
 - [docs/path-uri.md](path-uri.md) — building and normalizing the names this
   namespace takes.

@@ -870,6 +870,272 @@ pub mod files {
         missing("no unused temporary name was found")
     }
 
+    /// Reads a whole file.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesRead(data: *const u8, length: usize) -> *mut NuppBytes {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return missing(error),
+        };
+        match fs::read(path) {
+            Ok(bytes) => output_bytes(bytes),
+            Err(error) => missing(error),
+        }
+    }
+
+    unsafe fn borrowed<'a>(data: *const u8, length: usize) -> &'a [u8] {
+        if length == 0 {
+            &[]
+        } else {
+            unsafe { slice::from_raw_parts(data, length) }
+        }
+    }
+
+    /// Writes a whole file, replacing its contents or extending them.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesWrite(
+        data: *const u8,
+        length: usize,
+        bytes: *const u8,
+        bytes_length: usize,
+        append: bool,
+    ) -> bool {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        if bytes.is_null() && bytes_length != 0 {
+            return refused("file contents are null");
+        }
+        let contents = unsafe { borrowed(bytes, bytes_length) };
+        if !append {
+            return settled(fs::write(path, contents));
+        }
+        use std::io::Write;
+        let opened = fs::OpenOptions::new().append(true).create(true).open(path);
+        match opened {
+            Ok(mut file) => settled(file.write_all(contents)),
+            Err(error) => refused(error),
+        }
+    }
+
+    /// Writes a whole file through a temporary beside it, so an interrupted
+    /// write leaves the destination as it was rather than half replaced.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesWriteAtomic(
+        data: *const u8,
+        length: usize,
+        bytes: *const u8,
+        bytes_length: usize,
+    ) -> bool {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        if bytes.is_null() && bytes_length != 0 {
+            return refused("file contents are null");
+        }
+        let contents = unsafe { borrowed(bytes, bytes_length) };
+        let directory = path.parent().unwrap_or(Path::new("."));
+        let stamp = RandomState::new().build_hasher().finish();
+        let temporary = directory.join(format!(".nupp-write-{stamp:016x}"));
+        use std::io::Write;
+        let written = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .and_then(|mut file| {
+                file.write_all(contents)?;
+                file.sync_all()
+            })
+            .and_then(|()| fs::rename(&temporary, path));
+        match written {
+            Ok(()) => true,
+            Err(error) => {
+                let _ = fs::remove_file(&temporary);
+                refused(error)
+            }
+        }
+    }
+
+    /// Copies a file's contents and permission bits over a destination.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesCopy(
+        from: *const u8,
+        from_length: usize,
+        to: *const u8,
+        to_length: usize,
+    ) -> bool {
+        let from = match unsafe { at(from, from_length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let to = match unsafe { at(to, to_length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        settled(fs::copy(from, to))
+    }
+
+    /// An open file. Owned by the caller, which is what makes closing it a
+    /// checked obligation rather than a habit.
+    pub struct NuppFile {
+        handle: fs::File,
+    }
+
+    /// Opens a file. `mode` selects read, truncating write, append, and the
+    /// three update modes, in that order.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileOpen(
+        data: *const u8,
+        length: usize,
+        mode: u32,
+    ) -> *mut NuppFile {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => {
+                set_error(error);
+                return ptr::null_mut();
+            }
+        };
+        let mut options = fs::OpenOptions::new();
+        match mode {
+            0 => options.read(true),
+            1 => options.write(true).create(true).truncate(true),
+            2 => options.append(true).create(true),
+            3 => options.read(true).write(true),
+            4 => options.read(true).write(true).create(true).truncate(true),
+            5 => options.read(true).append(true).create(true),
+            _ => {
+                set_error("unknown file mode");
+                return ptr::null_mut();
+            }
+        };
+        match options.open(path) {
+            Ok(handle) => Box::into_raw(Box::new(NuppFile { handle })),
+            Err(error) => {
+                set_error(error);
+                ptr::null_mut()
+            }
+        }
+    }
+
+    /// Reads at most `length` bytes. Answers zero at the end of the file and -1
+    /// on failure, so a short read is progress rather than an error.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileRead(
+        file: *mut NuppFile,
+        into: *mut u8,
+        length: usize,
+    ) -> i64 {
+        use std::io::Read;
+        if file.is_null() || (into.is_null() && length != 0) {
+            set_error("file read has no destination");
+            return -1;
+        }
+        let file = unsafe { &mut *file };
+        let destination = if length == 0 {
+            &mut [][..]
+        } else {
+            unsafe { slice::from_raw_parts_mut(into, length) }
+        };
+        match file.handle.read(destination) {
+            Ok(count) => count as i64,
+            Err(error) => {
+                set_error(error);
+                -1
+            }
+        }
+    }
+
+    /// Writes every byte or fails, which is what a caller counting bytes wants.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileWrite(
+        file: *mut NuppFile,
+        from: *const u8,
+        length: usize,
+    ) -> i64 {
+        use std::io::Write;
+        if file.is_null() || (from.is_null() && length != 0) {
+            set_error("file write has no source");
+            return -1;
+        }
+        let file = unsafe { &mut *file };
+        match file.handle.write_all(unsafe { borrowed(from, length) }) {
+            Ok(()) => length as i64,
+            Err(error) => {
+                set_error(error);
+                -1
+            }
+        }
+    }
+
+    /// Moves the cursor. `whence` is the start, the current position, or the
+    /// end, in that order. Answers the new position, or -1 on failure.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileSeek(file: *mut NuppFile, offset: i64, whence: u32) -> i64 {
+        use std::io::{Seek, SeekFrom};
+        if file.is_null() {
+            set_error("file seek has no file");
+            return -1;
+        }
+        let file = unsafe { &mut *file };
+        let target = match whence {
+            0 => SeekFrom::Start(offset.max(0) as u64),
+            1 => SeekFrom::Current(offset),
+            2 => SeekFrom::End(offset),
+            _ => {
+                set_error("unknown seek origin");
+                return -1;
+            }
+        };
+        match file.handle.seek(target) {
+            Ok(position) => position as i64,
+            Err(error) => {
+                set_error(error);
+                -1
+            }
+        }
+    }
+
+    /// Answers the file's byte length without moving the cursor.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileSize(file: *mut NuppFile) -> i64 {
+        if file.is_null() {
+            set_error("file size has no file");
+            return -1;
+        }
+        let file = unsafe { &*file };
+        match file.handle.metadata() {
+            Ok(metadata) => metadata.len() as i64,
+            Err(error) => {
+                set_error(error);
+                -1
+            }
+        }
+    }
+
+    /// Pushes buffered writes at the operating system.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileFlush(file: *mut NuppFile) -> bool {
+        use std::io::Write;
+        if file.is_null() {
+            return refused("file flush has no file");
+        }
+        settled(unsafe { &mut *file }.handle.flush())
+    }
+
+    /// Closes and releases the file. Repeated calls are the binding's problem,
+    /// not this one's: a released handle must not be passed again.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFileClose(file: *mut NuppFile) -> bool {
+        if file.is_null() {
+            return true;
+        }
+        drop(unsafe { Box::from_raw(file) });
+        true
+    }
+
     /// Answers the process's current working directory.
     #[no_mangle]
     pub extern "C" fn nuppFilesCurrentDirectory() -> *mut NuppBytes {

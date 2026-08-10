@@ -86,8 +86,8 @@ handler, `handle suspension`, coroutine-local inheritance, ordered readiness
 sources, `nosuspend`, NUPP2701, NUPP2702, and the S4 rule permitting a handled
 suspension across a live obligation are all built. What remains is a library
 that uses them, and the S4 rule is what makes a *file* API possible at all: a
-read that cannot cross a `with` cannot be performed by anything that opened a
-file.
+read that cannot cross a live cleanup obligation cannot be performed by
+anything that opened a file.
 
 ### The compiler is a consumer, not a bystander
 
@@ -136,17 +136,17 @@ waiting work, because listing a directory never needed to wait.
 ## The surface
 
 ```nupp
-with file = nupp.io.files.open("input.txt") do
-    local header = file:newReader():read(64)
-    print(header)
+do
+    local file = assert(nupp.io.files.open("input.txt"))
+    print(file:newReader():read(64))
 end
 ```
 
-`open` is an `@owned` function, so the checker reports NUPP2602 for a `File`
-whose disposal is not recorded, and `with` discharges it across fallthrough,
-errors and structured control flow. `DirectoryStream` and `TemporaryPath` are
-owners for the same reason. This is where Nupp improves on the original: tecs
-declares `is Closeable` and documents the obligation, and Nupp enforces it.
+`open` is an `@owned` function, so a `File` nobody binds reports NUPP2605 and
+one that goes out of scope is closed across fallthrough, early return and
+errors. `TemporaryPath` is an owner for the same reason. This is where Nupp
+improves on the original: tecs declares `is Closeable` and documents the
+obligation, and Nupp enforces it.
 
 The namespace divides on one axis that matters, because it is the axis the
 implementation divides on:
@@ -357,18 +357,34 @@ every operation against a real filesystem, including the symbolic-link and
 listing cases; a target that resolves no `files` member carries none of the
 declarations.
 
-### F1: the surface
+### F1: the surface — done
 
-- `File`, `DirectoryStream`, `TemporaryPath` as owners, over the existing
-  `Reader`/`Writer` contracts.
-`Buffer` is already backed by an FFI byte array, so a transfer through it is
-linear and a native read has somewhere to write bytes into. Handing the lane a
-pointer into that array, rather than copying through a Lua string, is F2's to
-decide.
+- `File` and `TemporaryPath` as owners, over the existing `Reader`/`Writer`
+  contracts.
+- Whole-file `read`, `write`, `append`, `writeAtomic`, `copy` and `lines`.
+- `docs/files.md`, and `nupp.io.files` listed in `stdlib.md`.
 
-Exit test: a file round-trips through `Reader:transferTo(writer)`; a 256 MiB
-file transfers in linear time; a `File` bound outside `with` and not disposed
-reports NUPP2602; the existing `nupp.io` tests are untouched.
+The reader and writer are declared as `nupp.Reader` and `nupp.Writer`, which
+are interfaces, so conformance is structural and a parser written against a
+buffer takes a file with no adapter. `readInto` and `writeFrom` reach into the
+destination buffer's FFI storage directly, which is the payoff for backing
+`Buffer` with an array: a native read lands where the bytes belong rather than
+in a Lua string on the way there.
+
+Transfers are synchronous here. F2 replaces the mechanism and F3 adds the
+`suspend`; the surface above does not move.
+
+`with` had been removed from the language by the time this landed, so the
+ownership story is the lexical one: a `File` nobody binds reports NUPP2605, and
+one that goes out of scope is closed on fallthrough, early return and error.
+
+`DirectoryStream` did not land. `list` answers a table, which is the whole of
+what a caller needs until a directory is too large to hold, and streaming it
+belongs with the request lane rather than ahead of it.
+
+Exit test met: a file round-trips through `Reader:transferTo(writer)`; a 300 KiB
+payload streams through a fixed window; the generated Lua for an unbound `File`
+carries its `close`; the existing `nupp.io` tests are untouched.
 
 ### F2: the request lane
 
@@ -389,7 +405,7 @@ releases its handle and its bytes; no worker touches a `lua_State`.
 
 Exit test: one program reads a file unchanged under no handler and under a test
 handler; a read inside `nosuspend` reports NUPP2701 naming the chain; a read
-holding a `with` obligation runs cleanup on cancellation; a settled request does
+holding a live obligation runs cleanup on cancellation; a settled request does
 not allocate a subscription; the language server's file reads stop blocking its
 loop.
 
@@ -408,7 +424,7 @@ process to read a directory.
 - immediate operations: each one, on each platform, plus the failure each has
   (missing path, permission, not a directory, cross-device rename)
 - ownership: an undisposed `File`, `DirectoryStream` and `TemporaryPath`; each
-  discharged by `with`, by transfer, and by explicit disposal
+  discharged at scope exit, by transfer, and by explicit disposal
 - transfers: empty file, embedded NUL bytes, a file larger than the per-request
   cap, a partial read at EOF, and a write that fills the lane
 - suspension: blocked, parked, cancelled, refused in a region, refused across a
@@ -459,5 +475,5 @@ No range is reserved. The rules this namespace needs are already enforced:
   process library this shares a platform layer's worth of lessons with.
 - [docs/io.md](../docs/io.md) — the buffer, reader and writer contracts this
   namespace implements.
-- [docs/ownership.md](../docs/ownership.md) — `@owned`, `with`, and what a
-  suspension may cross.
+- [docs/ownership.md](../docs/ownership.md) — `@owned`, lexical cleanup, and
+  what a suspension may cross.

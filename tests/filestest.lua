@@ -10,7 +10,7 @@ local nativeStage = require("nupp.compiler.build.native")
 
 local M = {}
 
-local root, provider, previous
+local root, provider, buffers, previous
 local unavailable
 
 local function temporaryRoot()
@@ -32,12 +32,14 @@ function M.beforeAll()
    -- from a string, so it has no beside; name the staged library outright, which
    -- is the same substitution the NUPP_NATIVE_LIBRARY override performs.
    local library = ("%q"):format(root .. "/out/lib/nupp_native")
-   local source = native.bootstrap({["native.files"] = true}):gsub(
-      'os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)
+   local source = native.bootstrap({
+      ["native.files"] = true, ["stdlib.io"] = true,
+   }):gsub('os%.getenv%("NUPP_NATIVE_LIBRARY"%)', function() return library end)
    previous = rawget(_G, "nupp")
    _G.nupp = nil
    assert(loadstring(source))()
    provider = _G.nupp.io.files
+   buffers = _G.nupp.io
 end
 
 function M.afterAll()
@@ -161,23 +163,197 @@ function M.temporariesAreCreatedNotProposed()
    local file = assert(files.createTemporaryFile({
       directory = inRoot("temporary"), prefix = "unit-", suffix = ".tmp",
    }))
-   assert(files.isFile(file), "the temporary file exists when its name is answered")
-   assert(file:find("/unit-", 1, true) and file:sub(-4) == ".tmp",
-      "the generated name carries the prefix and suffix: " .. file)
+   local name = file:toString()
+   assert(files.isFile(name), "the temporary file exists when its name is answered")
+   assert(name:find("/unit-", 1, true) and name:sub(-4) == ".tmp",
+      "the generated name carries the prefix and suffix: " .. name)
 
    local other = assert(files.createTemporaryFile({directory = inRoot("temporary")}))
-   assert(other ~= file, "two temporaries do not collide")
+   test.notEqual(other:toString(), name, "two temporaries do not collide")
 
    local directory = assert(files.createTemporaryDirectory({
       directory = inRoot("temporary"),
    }))
-   assert(files.isDirectory(directory))
+   assert(files.isDirectory(directory:toString()))
 
    local absent, reason = files.createTemporaryFile({
       directory = inRoot("temporary/absent"),
    })
    test.equal(absent, nil)
    assert(type(reason) == "string", "an unusable directory answers a reason")
+
+   assert(other:close())
+   assert(directory:close())
+   assert(file:close())
+end
+
+function M.aTemporaryIsRemovedOnCloseAndKeptOnPersist()
+   local files = ready()
+   assert(files.createDirectory(inRoot("settling")))
+   local doomed = assert(files.createTemporaryFile({directory = inRoot("settling")}))
+   local name = doomed:toString()
+   assert(files.isFile(name))
+   assert(doomed:close())
+   assert(not files.exists(name), "closing removes what was created")
+   assert(doomed:isReleased())
+   assert(doomed:close(), "closing twice is safe")
+
+   local kept = assert(files.createTemporaryFile({directory = inRoot("settling")}))
+   assert(files.write(kept:toString(), "final"))
+   assert(kept:persist(inRoot("settling/report.txt")))
+   assert(kept:isReleased(), "persisting discharges the obligation")
+   assert(kept:close(), "closing a persisted temporary does nothing")
+   test.equal(assert(files.read(inRoot("settling/report.txt"))), "final",
+      "the persisted file survives the close")
+end
+
+function M.wholeFilesAreReadWrittenAndCopied()
+   local files = ready()
+   assert(files.createDirectory(inRoot("whole")))
+   assert(files.write(inRoot("whole/a.txt"), "hello"))
+   test.equal(assert(files.read(inRoot("whole/a.txt"))), "hello")
+   assert(files.append(inRoot("whole/a.txt"), " world"))
+   test.equal(assert(files.read(inRoot("whole/a.txt"))), "hello world")
+
+   assert(files.append(inRoot("whole/new.txt"), "created"),
+      "appending creates a missing file")
+   test.equal(assert(files.read(inRoot("whole/new.txt"))), "created")
+
+   assert(files.writeAtomic(inRoot("whole/a.txt"), "replaced"))
+   test.equal(assert(files.read(inRoot("whole/a.txt"))), "replaced")
+   local remaining = assert(files.list(inRoot("whole")))
+   for _, entry in ipairs(remaining) do
+      assert(not entry.name:find("^%.nupp%-write%-"),
+         "an atomic write leaves no temporary behind: " .. entry.name)
+   end
+
+   assert(files.copy(inRoot("whole/a.txt"), inRoot("whole/b.txt")))
+   test.equal(assert(files.read(inRoot("whole/b.txt"))), "replaced")
+
+   assert(files.write(inRoot("whole/empty.txt"), ""))
+   test.equal(assert(files.read(inRoot("whole/empty.txt"))), "")
+   assert(files.write(inRoot("whole/nul.bin"), "a\0b"))
+   test.equal(assert(files.read(inRoot("whole/nul.bin"))), "a\0b",
+      "a NUL byte is content, not a terminator")
+
+   local missing, reason = files.read(inRoot("whole/absent"))
+   test.equal(missing, nil)
+   assert(type(reason) == "string")
+end
+
+function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
+   local files = ready()
+   assert(files.createDirectory(inRoot("atomic")))
+   assert(files.write(inRoot("atomic/kept.txt"), "original"))
+   local written, reason = files.writeAtomic(
+      inRoot("atomic/absent/kept.txt"), "replacement")
+   assert(not written and type(reason) == "string")
+   test.equal(assert(files.read(inRoot("atomic/kept.txt"))), "original")
+end
+
+function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
+   local files = ready()
+   assert(files.createDirectory(inRoot("handles")))
+   assert(files.write(inRoot("handles/source.txt"), "hello world!"))
+
+   local file = assert(files.open(inRoot("handles/source.txt")))
+   test.equal(assert(file:size()), 12)
+   local reader = file:newReader()
+   test.equal(reader:read(5), "hello")
+   test.equal(assert(file:position()), 5)
+   test.equal(reader:read(64), " world!")
+   test.equal(reader:read(64), "", "a reader at the end answers no bytes")
+   test.equal(assert(file:seek(6)), 6)
+   test.equal(reader:read(5), "world")
+   test.equal(assert(file:seek(-1, "end")), 11)
+   test.equal(reader:read(4), "!")
+   assert(file:close())
+   assert(file:isReleased())
+   test.equal(select(2, reader:read(1)), "the file is closed",
+      "a reader over a closed file says so")
+
+   local out = assert(files.open(inRoot("handles/sink.txt"), "w"))
+   local writer = out:newWriter()
+   assert(writer:write("prefix:"))
+   assert(writer:flush())
+   assert(out:close())
+   test.equal(assert(files.read(inRoot("handles/sink.txt"))), "prefix:")
+
+   local missing, reason = files.open(inRoot("handles/absent"))
+   test.equal(missing, nil)
+   assert(type(reason) == "string")
+   test.raises(function() files.open(inRoot("handles/sink.txt"), "sideways") end,
+      "no mode named")
+end
+
+function M.transfersMoveBytesWithoutAStringInBetween()
+   local files = ready()
+   assert(files.createDirectory(inRoot("transfer")))
+   local payload = ("chunk"):rep(60000)
+   assert(files.write(inRoot("transfer/big.bin"), payload))
+
+   local source = assert(files.open(inRoot("transfer/big.bin")))
+   local sink = assert(files.open(inRoot("transfer/copy.bin"), "w"))
+   test.equal(source:newReader():transferTo(sink:newWriter()), #payload)
+   assert(source:close())
+   assert(sink:close())
+   test.equal(assert(files.read(inRoot("transfer/copy.bin"))), payload)
+
+   local file = assert(files.open(inRoot("transfer/big.bin")))
+   local buffer = buffers.newBuffer()
+   local reader = file:newReader()
+   test.equal(reader:readInto(buffer, 0, 5), 5)
+   test.equal(buffer:getString(), "chunk")
+   test.equal(reader:readInto(buffer, 8, 5), 5, "a read lands where it is told")
+   test.equal(buffer:getString(), "chunk\0\0\0chunk",
+      "the gap before an offset reads as zero bytes")
+   assert(file:close())
+end
+
+function M.aBufferWritesIntoAFileFromItsOwnStorage()
+   local files = ready()
+   assert(files.createDirectory(inRoot("frombuffer")))
+   local buffer = buffers.newBuffer("prefix:body")
+   local file = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
+   local writer = file:newWriter()
+   test.equal(writer:writeFrom(buffer, 0, 7), 7)
+   test.equal(writer:writeFrom(buffer, 7), 4)
+   test.equal(writer:writeView(buffer:view(0, 3)), 3)
+   assert(writer:flush())
+   assert(file:close())
+   test.equal(assert(files.read(inRoot("frombuffer/out.bin"))), "prefix:bodypre")
+   test.raises(function()
+      local other = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
+      other:newWriter():writeFrom(buffer, 8, 40)
+   end, "past the end")
+end
+
+function M.linesSplitOnEitherPlatformsEnding()
+   local files = ready()
+   assert(files.createDirectory(inRoot("lines")))
+   assert(files.write(inRoot("lines/mixed.txt"), "one\ntwo\r\nthree"))
+   local seen = {}
+   for line in assert(files.lines(inRoot("lines/mixed.txt"))) do
+      seen[#seen + 1] = line
+   end
+   test.equal(table.concat(seen, "|"), "one|two|three")
+
+   assert(files.write(inRoot("lines/trailing.txt"), "only\n"))
+   local counted = 0
+   for line in assert(files.lines(inRoot("lines/trailing.txt"))) do
+      counted = counted + 1
+      test.equal(line, "only")
+   end
+   test.equal(counted, 1, "a trailing newline does not make an empty line")
+
+   assert(files.write(inRoot("lines/empty.txt"), ""))
+   for _ in assert(files.lines(inRoot("lines/empty.txt"))) do
+      error("an empty file has no lines")
+   end
+
+   local missing, reason = files.lines(inRoot("lines/absent"))
+   test.equal(missing, nil)
+   assert(type(reason) == "string")
 end
 
 function M.pathsAndFoldersAnswerTheEnvironment()

@@ -233,10 +233,19 @@ work makes sense in.
         `path` provider too. And `fs.nupp` did not adopt it: the compiler uses
         no native facility today, and making it the first program that cannot
         build without a Rust artifact is F4's decision to take, not F0's.
-  - [ ] F1: `File`, `DirectoryStream` and `TemporaryPath` as owners over the
-        existing contracts. The storage this needed has landed: `nupp.io`'s
-        buffer holds an FFI byte array rather than rebuilding a Lua string per
-        write, so a transfer is linear and a native read has somewhere to land.
+  - [x] F1: `File` and `TemporaryPath` as owners over the existing contracts,
+        with whole-file read, write, append, atomic write, copy and lines.
+
+        Done. The reader and writer are declared as `nupp.Reader` and
+        `nupp.Writer`, which are interfaces, so a parser written against a
+        buffer takes a file with no adapter. `readInto` and `writeFrom` reach
+        the destination buffer's FFI storage directly, which is what backing
+        `Buffer` with an array bought.
+
+        Transfers are synchronous; F2 replaces the mechanism and F3 adds the
+        `suspend` without moving the surface. `DirectoryStream` did not land —
+        `list` answers a table, and streaming a directory belongs with the
+        request lane rather than ahead of it.
   - [ ] F2: the bounded submit/poll request lane in Rust, ported from tecs's
         `fileasync.rs` with SDL removed, `writeAtomic` among its request kinds.
   - [ ] F3: the readiness source and the `suspend` call sites, with the
