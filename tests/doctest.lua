@@ -532,6 +532,19 @@ function M.highlightsCurrentNuppSyntaxWithTheParser()
    assert(html:find("nuppdoc-token-type", 1, true), html)
 end
 
+function M.linksOnlyTheDeclaredMembersOfAContainerSignature()
+   local html = highlight.nuppSource(table.concat({
+      "interface Buffer",
+      "    length: function(self: Buffer): integer",
+      "end",
+   }, "\n"), nil, {length = "#Buffer.length"})
+   assert(html:find('<a class="nuppdoc-code-link nuppdoc-code-link-property" '
+      .. 'href="#Buffer.length"><span class="token property '
+      .. 'nuppdoc-token-property">length</span></a>', 1, true), html)
+   assert(not html:find('href="#Buffer.length"><span class="token variable '
+      .. 'nuppdoc-token-variable">self</span>', 1, true), html)
+end
+
 function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
    local root = HERE .. "/.."
    highlight.configureScintillua(root, {lexers = "docs/lexers"})
@@ -1046,6 +1059,8 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(typesAt < pointAt and pointAt < functionsAt and functionsAt < addAt, module)
    assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>',
       1, true), module)
+   assert(module:find('href="../../modules/math/index.html#math.Point.x"',
+      1, true), "record members in the complete signature must link to their docs")
    assert(module:find('<li class="nuppdoc-outline-section"><details open><summary>'
       .. '<a href="#types" title="Types">Types</a></summary><ol><li>'
       .. '<a href="#math.Point" title="Point">Point</a>', 1, true), module)
@@ -1159,7 +1174,7 @@ function M.siteMatchesTheNuppdocPageModel()
       1, true), branchModule)
    assert(branchModule:find('<a href="../../modules/engine/index.html#engine.Engine">'
       .. "<code>engine.Engine</code></a>", 1, true), branchModule)
-   assert(branchModule:find('<a href="../../modules/engine/index.html#engine.Engine">'
+   assert(branchModule:find('<a href="../../modules/engine/index.html#engine.Engine.running">'
       .. "<code>engine.Engine.running</code></a>", 1, true), branchModule)
    -- a name nothing documents still renders, rather than becoming an empty link
    assert(branchModule:find("never <code>nothing.at.all</code>", 1, true),

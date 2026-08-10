@@ -235,11 +235,41 @@ local function lineWriter(source)
     return {lines = lines, append = append}
 end
 
-local function highlightNuppLines(source, links)
+-- A complete record or interface signature is parsed as one top-level declaration.
+-- Its entry tokens are unambiguous even when their bare names are not: `length` here
+-- means this container's `length`, not every member with that common name elsewhere.
+local function containerMemberUrls(parsed, memberLinks)
+    local urls = {}
+    if not memberLinks then
+        return urls
+    end
+    for _, block in ipairs(parsed.root.blocks or {}) do
+        for _, outer in ipairs(block.stats or {}) do
+            local declaration = outer
+            while declaration.kind == "pragmaStmt" and declaration.stat do
+                declaration = declaration.stat
+            end
+            if declaration.kind == "recordDecl" then
+                for _, entry in ipairs(declaration.entries or {}) do
+                    local name = entry.name
+                    local url = name and memberLinks[name.text]
+                    if url then
+                        urls[name] = url
+                    end
+                end
+            end
+        end
+    end
+
+    return urls
+end
+
+local function highlightNuppLines(source, links, memberLinks)
     local out = lineWriter(source)
     local parsed = parser.parse(source, "documentation-code-block.nupp")
     local tokens = parsed.tokens
     local syntaxKinds = semantic.syntaxKinds(parsed)
+    local memberUrls = containerMemberUrls(parsed, memberLinks)
     for index, token in ipairs(tokens) do
         for _, trivia in ipairs(token.trivia) do
             if trivia.kind == "comment" or trivia.kind == "hashbang" then
@@ -250,8 +280,8 @@ local function highlightNuppLines(source, links)
         end
         if token.kind ~= "eof" then
             local style = tokenStyle(tokens, index, syntaxKinds)
-            local url = nil
-            if links and token.kind == "name" and not declarationName(tokens, index) then
+            local url = memberUrls[token]
+            if not url and links and token.kind == "name" and not declarationName(tokens, index) then
                 url = links[qualifiedName(tokens, index)] or links[token.text]
             end
             out.append(token.text, tokenClasses(style, token.text), url and {url = url, style = style} or nil)
@@ -264,8 +294,12 @@ local function highlightNuppLines(source, links)
     return out.lines
 end
 
-local function highlightNupp(source: string, links: nupp.compiler.doc.urls.Links?): string
-    return table.concat(highlightNuppLines(source, links), "\n")
+local function highlightNupp(
+    source: string,
+    links: nupp.compiler.doc.urls.Links?,
+    memberLinks: nupp.compiler.doc.urls.Links?
+): string
+    return table.concat(highlightNuppLines(source, links, memberLinks), "\n")
 end
 
 local SCINTILLUA_ALIASES = {

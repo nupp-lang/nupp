@@ -66,8 +66,9 @@ local function symbolLinkIndex(modules: {nupp.compiler.doc.extract.Module}, targ
             local tail = item.name:match("([^.]+)$")
             addSymbolLink(links, ambiguous, tail, url)
             for _, member in ipairs(item.members) do
-                addSymbolLink(links, ambiguous, member.path, url)
-                addSymbolLink(links, ambiguous, item.name .. "." .. member.name, url)
+                local memberUrl = target(module.name, member.path)
+                addSymbolLink(links, ambiguous, member.path, memberUrl)
+                addSymbolLink(links, ambiguous, item.name .. "." .. member.name, memberUrl)
             end
         end
     end
@@ -149,7 +150,9 @@ local function symbolLinks(index: urls.Links, module: nupp.compiler.doc.extract.
             links[item.name] = url
             links[item.name:match("([^.]+)$") or item.name] = url
             for _, member in ipairs(item.members) do
-                links[item.name .. "." .. member.name] = url
+                local memberUrl = prefix .. moduleFile(module.name) .. "#" .. member.path
+                links[member.path] = memberUrl
+                links[item.name .. "." .. member.name] = memberUrl
             end
         end
     end

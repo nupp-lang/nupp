@@ -187,6 +187,24 @@ local function raisesHtml(raises, heading, links)
     return "<" .. heading .. ">Raises</" .. heading .. "><ul>" .. table.concat(entries) .. "</ul>"
 end
 
+-- Bare member names are deliberately absent from the site-wide link index because
+-- they collide across containers. Inside one complete structure declaration the owner
+-- is known, so give the highlighter the exact target for each entry token.
+local function structureMemberLinks(item, links)
+    if not links or #item.members == 0 then
+        return nil
+    end
+    local members = {}
+    for _, member in ipairs(item.members) do
+        local url = links[item.name .. "." .. member.name] or links[member.path]
+        if url then
+            members[member.name] = url
+        end
+    end
+
+    return next(members) and members or nil
+end
+
 local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.compiler.doc.urls.Links?): nil
     out[
         #out + 1
@@ -206,7 +224,8 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: nupp.
         #out + 1
     ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>' .. '<code class="language-nupp">' .. highlightNupp(
         item.signature,
-        links
+        links,
+        structureMemberLinks(item, links)
     ) .. "</code></pre></div>"
     if #item.typeargs > 0 then
         local rows = {}
