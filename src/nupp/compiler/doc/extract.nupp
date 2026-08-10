@@ -9,6 +9,7 @@ documentation never invokes the checker.
 local cst = require("nupp.compiler.cst")
 local parser = require("nupp.compiler.parser")
 local docblock = require("nupp.compiler.docblock")
+local formatter = require("nupp.compiler.fmt")
 local stringsMod = require("nupp.compiler.doc.strings")
 local filesMod = require("nupp.compiler.doc.files")
 
@@ -106,6 +107,52 @@ end
 
 local function syntax(node)
     return trim(cst.textOf(node))
+end
+
+-- A structure's signature is its complete declaration, not only its opening line.
+-- Documentation is rendered beside the code block, so omit `---` trivia while
+-- preserving ordinary comments and every syntax token, then let the language's own
+-- formatter decide indentation and line breaks.
+local function structureSignature(node)
+    local parts: {string} = {}
+    local function walk(child)
+        if cst.isToken(child) then
+            local triviaParts: {string} = {}
+            local removedDocumentation = false
+            for _, trivia in ipairs(child.trivia) do
+                if trivia.kind == "comment" and trivia.text:match("^%-%-%-") then
+                    removedDocumentation = true
+                else
+                    triviaParts[#triviaParts + 1] = trivia.text
+                end
+            end
+            local triviaText = table.concat(triviaParts)
+            if removedDocumentation then
+                if triviaText:match("^%s*$") then
+                    triviaText = "\n"
+                else
+                    repeat
+                        local collapsed, count = triviaText:gsub("\n[ \t]*\n[ \t]*", "\n")
+                        triviaText = collapsed
+                    until count == 0
+                end
+            end
+            parts[#parts + 1] = triviaText
+            parts[#parts + 1] = child.text
+        else
+            for _, nested in ipairs(child) do
+                walk(nested)
+            end
+        end
+    end
+    walk(node)
+    local source = trim(table.concat(parts))
+    local formatted, errors = formatter.format(source, "documentation-signature.nupp")
+    if #errors > 0 then
+        return source
+    end
+
+    return trim(formatted)
 end
 
 -- The `---` run and its tags are read by nupp.compiler.docblock, because the checker reads
@@ -376,19 +423,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
     elseif stat.kind == "recordDecl" then
         name, kind = stat.name.text, stat.declKind
         public = public or stat.visibility == "module" or stat.visibility == "global"
-        signature = (
-            stat.visibility == "global" and "global " or stat.visibility == "local" and "local " or ""
-        ) .. stat.declKind .. " " .. declaredName(stat) .. genericText(stat)
-        if stat.supertypes and #stat.supertypes > 0 then
-            local inherited = {}
-            for j, supertype in ipairs(stat.supertypes) do
-                inherited[j] = syntax(supertype)
-            end
-            signature = signature .. " is " .. table.concat(inherited, ", ")
-        end
-        if stat.whereClause then
-            signature = signature .. " " .. syntax(stat.whereClause)
-        end
+        signature = structureSignature(stat)
     elseif stat.kind == "cdefStruct" then
         name, kind, public = stat.name.text, "struct", true
         signature = "cdef struct " .. name

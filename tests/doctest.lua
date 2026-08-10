@@ -170,8 +170,18 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
    local module = assert(doc.extract(source, "src/task.nupp", "task",
       {includeAll = true, includePrivate = true}))
    local task = module.items[1]
-   assert(task.signature == "record Task<T is Value> is Named, Runnable where true",
-      task.signature)
+   assert(task.signature == table.concat({
+      "record Task<T is Value> is",
+      "    Named,",
+      "    Runnable",
+      "    where true",
+      "    metamethod __call: function(self, value: T): self",
+      "    function describe(prefix: string): string",
+      "        return prefix",
+      "    end",
+      "end",
+   }, "\n"), task.signature)
+   assert(not task.signature:find("---", 1, true), task.signature)
    assert(task.members[1].name == "__call" and task.members[1].isMetamethod)
    assert(task.members[2].name == "describe" and task.members[2].isFunction)
    assert(task.members[2].params[1].name == "prefix")
@@ -307,9 +317,11 @@ function M.standardIOApiHasCompleteDocumentation()
       Writer = true,
    }
    local found = {}
+   local path
    for _, item in ipairs(module.items) do
       if expected[item.name] then
          found[item.name] = true
+         if item.name == "Path" then path = item end
          local prefix = "nupp." .. item.name
          assert(item.doc.text ~= "", prefix .. " has no documentation")
          for _, member in ipairs(item.members) do
@@ -329,6 +341,12 @@ function M.standardIOApiHasCompleteDocumentation()
    for name in pairs(expected) do
       assert(found[name], "the prelude did not document nupp." .. name)
    end
+   assert(path, "the prelude did not document nupp.Path")
+   assert(path.signature:sub(1, #"record nupp.Path\n    toString:")
+      == "record nupp.Path\n    toString:", path.signature)
+   assert(path.signature:sub(-#"    isRelative: function(self: nupp.Path): boolean\nend")
+      == "    isRelative: function(self: nupp.Path): boolean\nend", path.signature)
+   assert(not path.signature:find("---", 1, true), path.signature)
 end
 
 function M.standardMathApiHasCompleteDocumentation()
