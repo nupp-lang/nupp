@@ -23,3 +23,11 @@ test("provides LuaJIT's global unpack compatibility helper", () => {
   ].join("\n"));
   lua.lua_close(L);
 });
+
+test("does not expose native environment variables", () => {
+  const L = lauxlib.luaL_newstate();
+  lualib.luaL_openlibs(L);
+  run(L, hostRuntime);
+  run(L, 'assert(os.getenv("NUPP_COMPILER_ROOT") == nil)');
+  lua.lua_close(L);
+});

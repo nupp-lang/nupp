@@ -16,6 +16,10 @@ recompute and changes no answer.
 
 arg = {}
 os.exit = function(...) return ... end
+-- Fengari exposes getenv only under Node. A browser cannot launch the
+-- filesystem-backed comptime worker, so reporting no compiler-root variables
+-- selects the evaluator's in-process path.
+os.getenv = function() return nil end
 
 -- Lua 5.1 and LuaJIT's `loadstring`, which 5.2 folded into `load` and 5.3 --
 -- fengari's dialect -- does not define at all. nupp.compiler.optimize's constant folder
