@@ -189,7 +189,7 @@ local struct Allocation
 
    @drop
    function close(self)
-      -- The C declaration cannot prove this allocator/value pairing.
+      -- ctx_free lacks lifetime annotations, so Nupp cannot prove this pairing.
       unsafe do
          ctx_free(self.ctx, self.value)
       end
