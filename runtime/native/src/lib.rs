@@ -3,9 +3,14 @@
 use std::cell::RefCell;
 use std::ffi::{c_char, CString};
 use std::ptr;
-#[cfg(any(feature = "path", feature = "uri", feature = "sha256"))]
+#[cfg(any(
+    feature = "path",
+    feature = "uri",
+    feature = "sha256",
+    feature = "files"
+))]
 use std::slice;
-#[cfg(any(feature = "path", feature = "uri"))]
+#[cfg(any(feature = "path", feature = "uri", feature = "files"))]
 use std::str;
 
 thread_local! {
@@ -13,7 +18,7 @@ thread_local! {
         RefCell::new(CString::new("no error").expect("static text has no NUL"));
 }
 
-#[cfg(any(feature = "path", feature = "uri"))]
+#[cfg(any(feature = "path", feature = "uri", feature = "files"))]
 fn set_error(error: impl ToString) {
     let message = error.to_string().replace('\0', "\\0");
     LAST_ERROR.with(|slot| {
@@ -30,7 +35,7 @@ pub struct NuppBytes {
     bytes: Box<[u8]>,
 }
 
-#[cfg(feature = "path")]
+#[cfg(any(feature = "path", feature = "files"))]
 fn output_bytes(bytes: Vec<u8>) -> *mut NuppBytes {
     Box::into_raw(Box::new(NuppBytes {
         bytes: bytes.into_boxed_slice(),
@@ -62,7 +67,7 @@ pub unsafe extern "C" fn nuppBytesDestroy(bytes: *mut NuppBytes) {
     }
 }
 
-#[cfg(any(feature = "path", feature = "uri"))]
+#[cfg(any(feature = "path", feature = "uri", feature = "files"))]
 unsafe fn text<'a>(data: *const u8, length: usize, what: &str) -> Result<&'a str, String> {
     if data.is_null() && length != 0 {
         return Err(format!("{what} is null"));
@@ -542,6 +547,378 @@ pub unsafe extern "C" fn nuppSha256(bytes: *const u8, length: usize, output: *mu
     }
     unsafe { *output.add(64) = 0 }
     true
+}
+
+/// The immediate half of `nupp.io.files`: metadata, listing, and the directory
+/// operations that answer before a request could have been submitted. Transfers
+/// belong to the request lane, not here.
+#[cfg(feature = "files")]
+pub mod files {
+    use super::*;
+    use std::fs;
+    use std::hash::{BuildHasher, Hasher, RandomState};
+    use std::path::{Path, PathBuf};
+    use std::time::UNIX_EPOCH;
+
+    pub const KIND_FILE: u32 = 1;
+    pub const KIND_DIRECTORY: u32 = 2;
+    pub const KIND_OTHER: u32 = 3;
+    pub const KIND_SYMLINK: u32 = 4;
+
+    const ATTEMPTS: u32 = 64;
+
+    /// What one resolved path is. Mirrored by `NuppFileInfo` in the Lua binding,
+    /// so field order and widths are part of the ABI.
+    #[repr(C)]
+    pub struct FileInfo {
+        pub kind: u32,
+        pub read_only: bool,
+        pub size: u64,
+        pub modified: f64,
+    }
+
+    unsafe fn at<'a>(data: *const u8, length: usize) -> Result<&'a Path, String> {
+        Ok(Path::new(unsafe { text(data, length, "path") }?))
+    }
+
+    fn refused(error: impl ToString) -> bool {
+        set_error(error);
+        false
+    }
+
+    fn missing(error: impl ToString) -> *mut NuppBytes {
+        set_error(error);
+        ptr::null_mut()
+    }
+
+    fn settled<T>(result: std::io::Result<T>) -> bool {
+        match result {
+            Ok(_) => true,
+            Err(error) => refused(error),
+        }
+    }
+
+    fn named(path: PathBuf) -> *mut NuppBytes {
+        match path.into_os_string().into_string() {
+            Ok(text) => output_bytes(text.into_bytes()),
+            Err(_) => missing("path is not valid UTF-8"),
+        }
+    }
+
+    /// Describes one path. `follow` resolves a symbolic link to its target, which
+    /// is the difference between asking what a name refers to and asking what the
+    /// name itself is.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesInfo(
+        data: *const u8,
+        length: usize,
+        follow: bool,
+        out: *mut FileInfo,
+    ) -> bool {
+        if out.is_null() {
+            return refused("file info output is null");
+        }
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let metadata = if follow {
+            fs::metadata(path)
+        } else {
+            fs::symlink_metadata(path)
+        };
+        let metadata = match metadata {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let kind = if metadata.is_symlink() {
+            KIND_SYMLINK
+        } else if metadata.is_file() {
+            KIND_FILE
+        } else if metadata.is_dir() {
+            KIND_DIRECTORY
+        } else {
+            KIND_OTHER
+        };
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|value| match value.duration_since(UNIX_EPOCH) {
+                Ok(since) => Some(since.as_secs_f64()),
+                Err(before) => Some(-before.duration().as_secs_f64()),
+            })
+            .unwrap_or(0.0);
+        unsafe {
+            *out = FileInfo {
+                kind,
+                read_only: metadata.permissions().readonly(),
+                size: metadata.len(),
+                modified,
+            }
+        };
+        true
+    }
+
+    /// Reads a symbolic link's target without resolving it.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesReadLink(data: *const u8, length: usize) -> *mut NuppBytes {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return missing(error),
+        };
+        match fs::read_link(path) {
+            Ok(target) => named(target),
+            Err(error) => missing(error),
+        }
+    }
+
+    /// Creates a symbolic link. `directory` selects Windows's directory link and
+    /// is ignored elsewhere, because only Windows distinguishes the two.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesCreateSymlink(
+        target: *const u8,
+        target_length: usize,
+        link: *const u8,
+        link_length: usize,
+        directory: bool,
+    ) -> bool {
+        let target = match unsafe { at(target, target_length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let link = match unsafe { at(link, link_length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        #[cfg(windows)]
+        let made = if directory {
+            std::os::windows::fs::symlink_dir(target, link)
+        } else {
+            std::os::windows::fs::symlink_file(target, link)
+        };
+        #[cfg(not(windows))]
+        let made = {
+            let _ = directory;
+            std::os::unix::fs::symlink(target, link)
+        };
+        settled(made)
+    }
+
+    /// Sets or clears the read-only bit.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesSetReadOnly(
+        data: *const u8,
+        length: usize,
+        read_only: bool,
+    ) -> bool {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let mut permissions = match fs::metadata(path) {
+            Ok(value) => value.permissions(),
+            Err(error) => return refused(error),
+        };
+        permissions.set_readonly(read_only);
+        settled(fs::set_permissions(path, permissions))
+    }
+
+    /// Creates a directory and every missing parent. An existing directory is
+    /// success, which is what a caller building a tree wants.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesCreateDirectory(data: *const u8, length: usize) -> bool {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        settled(fs::create_dir_all(path))
+    }
+
+    /// Removes a file, a symbolic link, or an empty directory. `recursive`
+    /// removes a directory's contents with it.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesRemove(
+        data: *const u8,
+        length: usize,
+        recursive: bool,
+    ) -> bool {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        if metadata.is_dir() {
+            settled(if recursive {
+                fs::remove_dir_all(path)
+            } else {
+                fs::remove_dir(path)
+            })
+        } else {
+            settled(fs::remove_file(path))
+        }
+    }
+
+    /// Renames a path, replacing an existing destination.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesRename(
+        from: *const u8,
+        from_length: usize,
+        to: *const u8,
+        to_length: usize,
+    ) -> bool {
+        let from = match unsafe { at(from, from_length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        let to = match unsafe { at(to, to_length) } {
+            Ok(value) => value,
+            Err(error) => return refused(error),
+        };
+        settled(fs::rename(from, to))
+    }
+
+    /// Lists a directory's immediate children as `kind` byte, name, NUL. The kind
+    /// comes from the directory entry rather than a second call per name, and
+    /// describes the entry itself, so a symbolic link reads as `l`.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesList(data: *const u8, length: usize) -> *mut NuppBytes {
+        let path = match unsafe { at(data, length) } {
+            Ok(value) => value,
+            Err(error) => return missing(error),
+        };
+        let entries = match fs::read_dir(path) {
+            Ok(value) => value,
+            Err(error) => return missing(error),
+        };
+        let mut out: Vec<u8> = Vec::new();
+        for entry in entries {
+            let entry = match entry {
+                Ok(value) => value,
+                Err(error) => return missing(error),
+            };
+            let name = match entry.file_name().into_string() {
+                Ok(value) => value,
+                Err(_) => return missing("directory entry name is not valid UTF-8"),
+            };
+            if name.as_bytes().contains(&0) {
+                return missing("directory entry name contains a NUL byte");
+            }
+            let kind = match entry.file_type() {
+                Ok(value) if value.is_symlink() => b'l',
+                Ok(value) if value.is_dir() => b'd',
+                Ok(value) if value.is_file() => b'f',
+                Ok(_) => b'o',
+                Err(error) => return missing(error),
+            };
+            out.push(kind);
+            out.extend_from_slice(name.as_bytes());
+            out.push(0);
+        }
+        output_bytes(out)
+    }
+
+    /// Creates a uniquely named file or directory and answers its path. The name
+    /// is created rather than merely proposed, so no second caller can win the
+    /// same name between the two steps.
+    #[no_mangle]
+    pub unsafe extern "C" fn nuppFilesCreateTemporary(
+        directory: *const u8,
+        directory_length: usize,
+        prefix: *const u8,
+        prefix_length: usize,
+        suffix: *const u8,
+        suffix_length: usize,
+        as_directory: bool,
+    ) -> *mut NuppBytes {
+        let root = if directory_length == 0 {
+            std::env::temp_dir()
+        } else {
+            match unsafe { at(directory, directory_length) } {
+                Ok(value) => value.to_path_buf(),
+                Err(error) => return missing(error),
+            }
+        };
+        let prefix = match unsafe { text(prefix, prefix_length, "temporary prefix") } {
+            Ok(value) => value,
+            Err(error) => return missing(error),
+        };
+        let suffix = match unsafe { text(suffix, suffix_length, "temporary suffix") } {
+            Ok(value) => value,
+            Err(error) => return missing(error),
+        };
+        for _ in 0..ATTEMPTS {
+            let stamp = RandomState::new().build_hasher().finish();
+            let candidate = root.join(format!("{prefix}{stamp:016x}{suffix}"));
+            let made = if as_directory {
+                fs::create_dir(&candidate)
+            } else {
+                fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&candidate)
+                    .map(drop)
+            };
+            match made {
+                Ok(()) => return named(candidate),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return missing(error),
+            }
+        }
+        missing("no unused temporary name was found")
+    }
+
+    /// Answers the process's current working directory.
+    #[no_mangle]
+    pub extern "C" fn nuppFilesCurrentDirectory() -> *mut NuppBytes {
+        match std::env::current_dir() {
+            Ok(path) => named(path),
+            Err(error) => missing(error),
+        }
+    }
+
+    /// Answers a well-known user folder. Resolved from the environment — the XDG
+    /// variables where they are set, and the platform's conventional names under
+    /// the home directory otherwise. A desktop that records its folders somewhere
+    /// else is not consulted, and a folder that does not exist is a failure.
+    #[no_mangle]
+    pub extern "C" fn nuppFilesUserFolder(which: u32) -> *mut NuppBytes {
+        let home = match std::env::var_os(if cfg!(windows) {
+            "USERPROFILE"
+        } else {
+            "HOME"
+        }) {
+            Some(value) if !value.is_empty() => PathBuf::from(value),
+            _ => return missing("the home directory is not set in the environment"),
+        };
+        if which == 0 {
+            return named(home);
+        }
+        let (variable, macos, other) = match which {
+            1 => ("XDG_DOCUMENTS_DIR", "Documents", "Documents"),
+            2 => ("XDG_DOWNLOAD_DIR", "Downloads", "Downloads"),
+            3 => ("XDG_DESKTOP_DIR", "Desktop", "Desktop"),
+            4 => ("XDG_PICTURES_DIR", "Pictures", "Pictures"),
+            5 => ("XDG_MUSIC_DIR", "Music", "Music"),
+            6 => ("XDG_VIDEOS_DIR", "Movies", "Videos"),
+            _ => return missing("unknown user folder"),
+        };
+        let resolved = if cfg!(any(windows, target_os = "macos")) {
+            None
+        } else {
+            std::env::var_os(variable).filter(|value| !value.is_empty())
+        };
+        let folder = match resolved {
+            Some(value) => PathBuf::from(value),
+            None => home.join(if cfg!(target_os = "macos") { macos } else { other }),
+        };
+        if !folder.is_dir() {
+            return missing("the platform has no such folder");
+        }
+        named(folder)
+    }
 }
 
 #[cfg(test)]

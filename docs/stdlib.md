@@ -12,6 +12,7 @@ Its namespaces are deliberately small:
 
 - [`nupp.data`](data.md) owns JSON, UTF-8, identifiers, hashes and checksums.
 - [`nupp.io`](io.md) owns byte buffers, readers and writers.
+- [`nupp.io.files`](files.md) owns filesystem metadata and directories.
 - [`nupp.io.Path` and `nupp.io.URI`](path-uri.md) model paths and resource names.
 - [`nupp.math`](math.md) owns scalar and two-dimensional vector helpers.
 - [`nupp.regex`](regex.md) provides compiled Rust regular expressions.

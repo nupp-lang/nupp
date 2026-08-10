@@ -449,6 +449,11 @@ nupp lsp            # start the language server]],
                   source = "docs/io.md",
                },
                {
+                  path = "standard-library/files",
+                  title = "Filesystem metadata",
+                  source = "docs/files.md",
+               },
+               {
                   path = "standard-library/path-uri",
                   title = "Paths and URIs",
                   source = "docs/path-uri.md",

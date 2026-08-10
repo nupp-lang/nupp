@@ -325,25 +325,42 @@ than beneath it.
 
 ## Milestones
 
-### F0: the immediate tier
+### F0: the immediate tier — done
 
 - A `files` feature in `runtime/native` with the metadata, listing, directory,
-  link, rename and temporary exports over `std::fs`, plus `directories` for
-  `userFolder`.
+  link, rename and temporary exports over `std::fs`.
 - The installer chunk in `stdlib.nupp` and the lazy member registrations.
-- `fs.nupp` uses it for listing, keeping its shell-out as a fallback.
 
-Exit test: a listing, a metadata query and a rename answer on macOS, Linux and
-Windows; a target that does not resolve a `files` member links no new native
-artifact and generates no new adapter; `nupp check` on an unchanged project
-answers in its usual time.
+Three things landed differently than this section proposed.
+
+**`userFolder` earns no dependency.** It reads the `XDG_*` variables where they
+are set and joins the platform's conventional name under the home directory
+otherwise, which is what the `directories` crate does minus the desktop
+configuration file it also reads. The limit is stated on the page rather than
+hidden: a desktop that records its folders somewhere else is not consulted. That
+closes the open question below.
+
+**A path goes in; a string comes out.** Answering a `Path` would make every
+program that lists a directory link the `path` provider too, and the two
+features are independent everywhere else. The cost is that tecs's
+`readLink`/`userFolder` call sites wrap the answer in `Path.new`, which is the
+one place goal 3 does not hold and is recorded here rather than discovered
+during F4.
+
+**`fs.nupp` did not adopt it.** The compiler uses no native facility today, so
+switching its directory listing would make the compiler the first program that
+cannot build without a Rust artifact — the bootstrap risk this document already
+lists. It moves to F4, where the bootstrap question gets decided on purpose.
+
+Exit test met: `tests/filestest.lua` builds the provider with Cargo and drives
+every operation against a real filesystem, including the symbolic-link and
+listing cases; a target that resolves no `files` member carries none of the
+declarations.
 
 ### F1: the surface
 
 - `File`, `DirectoryStream`, `TemporaryPath` as owners, over the existing
   `Reader`/`Writer` contracts.
-- `docs/files.md`, and `nupp.io.files` listed in `stdlib.md`.
-
 `Buffer` is already backed by an FFI byte array, so a transfer through it is
 linear and a native read has somewhere to write bytes into. Handing the lane a
 pointer into that array, rather than copying through a Lua string, is F2's to
@@ -420,9 +437,9 @@ process to read a directory.
   surface. tecs puts it in the lane, which makes a large file an error rather
   than a chunked transfer. Chunking belongs somewhere and the lane is the wrong
   place for the policy.
-- Whether `userFolder` earns a dependency. It is one function, the `directories`
-  crate is small, and the alternative is three platform implementations for a
-  facility a compiler never calls.
+- Whether `nupp.io.files` should answer `Path` values once a program that uses
+  both is in front of us. Doing it needs one feature to select another, which
+  the effect table cannot express today.
 
 ## Diagnostics
 

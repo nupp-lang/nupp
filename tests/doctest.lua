@@ -381,6 +381,7 @@ function M.standardLibraryBackingRecordsStayInternal()
 
    local expected = {
       ["nupp.data.utf8"] = "length",
+      ["nupp.io.files"] = "info",
       ["nupp.io.Path"] = "new",
       ["nupp.io.URI"] = "new",
       ["nupp.math.vec2"] = "add",
@@ -433,7 +434,7 @@ function M.standardLibraryBackingRecordsStayInternal()
       end
    end
    assert(topLevelLibraries == 3, "private docs lost top-level backing records")
-   assert(nestedLibraries == 5, "private docs lost nested backing records")
+   assert(nestedLibraries == 6, "private docs lost nested backing records")
 end
 
 function M.standardMathApiHasCompleteDocumentation()

@@ -132,6 +132,15 @@ local FEATURES: {
     library = "nupp_native",
     binary = true,
 }, [
+    "native.files"
+] = {
+    name = "files",
+    globals = {"nupp.io.files"},
+    cargo = "runtime/native/Cargo.toml",
+    cargoFeature = "files",
+    library = "nupp_native",
+    binary = true,
+}, [
     "native.sha256"
 ] = {
     name = "sha256",

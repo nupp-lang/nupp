@@ -213,9 +213,26 @@ work makes sense in.
       process control and proves the same seam. tecs deletes `io/files`,
       `internal/fileasync`, `platform/storagebackend` and its atomic-write
       worker; the compiler stops spawning a process to read a directory.
-  - [ ] F0: the immediate tier — metadata, listing, directories, links,
-        renames and temporaries over `std::fs`. No suspension, and it deletes
-        the shell-out in `fs.nupp` on its own.
+  - [x] F0: the immediate tier — metadata, listing, directories, links,
+        renames and temporaries over `std::fs`.
+
+        Done. One `nuppFilesInfo` with a follow flag answers `info`, `exists`,
+        `isFile`, `isDirectory` and `isSymlink`, so five queries cost one
+        export; a listing carries each child's kind from the directory entry
+        rather than a second call per name; and a temporary is created rather
+        than proposed, so no second caller can take the name in between.
+        `tests/filestest.lua` builds the provider with Cargo and drives it
+        against a real filesystem.
+
+        `userFolder` reads the `XDG_*` variables and the platform's
+        conventional names instead of taking the `directories` crate, which
+        settles that open question against a dependency.
+
+        Two deliberate departures. A path goes in and a string comes out,
+        because answering a `Path` would make listing a directory link the
+        `path` provider too. And `fs.nupp` did not adopt it: the compiler uses
+        no native facility today, and making it the first program that cannot
+        build without a Rust artifact is F4's decision to take, not F0's.
   - [ ] F1: `File`, `DirectoryStream` and `TemporaryPath` as owners over the
         existing contracts. The storage this needed has landed: `nupp.io`'s
         buffer holds an FFI byte array rather than rebuilding a Lua string per

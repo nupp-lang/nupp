@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
+files = []
 path = ["dep:camino", "dep:path-clean", "dep:pathdiff"]
 uri = ["dep:url"]
 uuid = ["dep:uuid"]

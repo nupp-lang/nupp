@@ -344,6 +344,11 @@ local nupp: {
         --- @return the new reader
         newStringReader: function(text: string): nupp.Reader,
 
+        --- Filesystem metadata, directory contents, and the operations that move
+        --- names rather than bytes.
+        --- @namespace
+        files: nupp.Files.Library,
+
         --- Constructors and platform operations for immutable filesystem paths.
         --- @namespace
         Path: nupp.Path.Library,
@@ -839,6 +844,202 @@ interface nupp.Buffer
     --- @return whether the release succeeded
     --- @return a failure reason, when unsuccessful
     close: function(self: nupp.Buffer): (boolean, string?)
+end
+
+--- Filesystem metadata and directory contents.
+---
+--- Every operation here answers before a transfer could have started: it reads a
+--- name, a listing, or an attribute. Reading and writing a file's bytes is a
+--- separate layer.
+record nupp.Files
+    --- What a resolved path refers to. A `symlink` answer only ever comes from
+    --- `isSymlink`, since every other operation follows the link first.
+    type Kind = "file" | "directory" | "symlink" | "other"
+
+    --- A well-known user folder. Resolved from the environment, so a desktop that
+    --- records its folders elsewhere is not consulted.
+    type UserFolder =
+        "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
+
+    --- One resolved path's attributes.
+    record Info
+        --- What the path refers to, after following symbolic links.
+        kind: nupp.Files.Kind
+
+        --- The byte length of a file's contents.
+        size: integer
+
+        --- Seconds since the Unix epoch, with a fractional part where the
+        --- platform records one.
+        modified: number
+
+        --- Whether the platform refuses writes to this path.
+        readOnly: boolean
+    end
+
+    --- One directory child, as the directory itself describes it.
+    record Entry
+        --- The child's name, without any directory part.
+        name: string
+
+        --- What the entry itself is, without following a symbolic link.
+        kind: nupp.Files.Kind
+    end
+
+    --- The generated part of a temporary name.
+    record TemporaryOptions
+        --- Where to create it, or the platform's temporary directory when
+        --- omitted.
+        directory: (string | nupp.Path)?
+
+        --- Text before the generated part.
+        prefix: string?
+
+        --- Text after the generated part, such as an extension.
+        suffix: string?
+    end
+
+    --- Filesystem metadata, directory contents, and the operations that move
+    --- names rather than bytes.
+    --- @internal
+    record Library
+        --- Describes one path, following symbolic links.
+        ---
+        --- #### Examples
+        ---
+        --- Read a file's size:
+        ---
+        --- ```nupp
+        --- local info = assert(nupp.io.files.info("nupp.lua"))
+        --- assert(info.kind == "file" and info.size > 0)
+        --- ```
+        --- @param path the path to describe
+        --- @return the attributes, or nil when the path cannot be read
+        --- @return a failure reason, when unsuccessful
+        info: function(path: string | nupp.Path): (nupp.Files.Info?, string?)
+
+        --- Whether a path resolves to anything at all.
+        --- @param path the path to test
+        --- @return whether it resolves
+        exists: function(path: string | nupp.Path): boolean
+
+        --- Whether a path resolves to a regular file.
+        --- @param path the path to test
+        --- @return whether it is a file
+        isFile: function(path: string | nupp.Path): boolean
+
+        --- Whether a path resolves to a directory.
+        --- @param path the path to test
+        --- @return whether it is a directory
+        isDirectory: function(path: string | nupp.Path): boolean
+
+        --- Whether a path is itself a symbolic link, without following it.
+        --- @param path the path to test
+        --- @return whether it is a symbolic link
+        isSymlink: function(path: string | nupp.Path): boolean
+
+        --- Reads a symbolic link's target without resolving it.
+        --- @param path the link to read
+        --- @return the target text, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        readLink: function(path: string | nupp.Path): (string?, string?)
+
+        --- Creates a symbolic link.
+        ---
+        --- `kind` selects Windows's directory link and is ignored elsewhere,
+        --- because only Windows distinguishes the two.
+        --- @param target what the link points at
+        --- @param link where to create the link
+        --- @param kind the link kind, defaulting to a file link
+        --- @return whether the link was created
+        --- @return a failure reason, when unsuccessful
+        createSymlink: function(
+            target: string | nupp.Path,
+            link: string | nupp.Path,
+            kind: ("file" | "directory")?
+        ): (boolean, string?)
+
+        --- Sets or clears a path's read-only attribute.
+        --- @param path the path to change
+        --- @param readOnly whether to refuse writes
+        --- @return whether the attribute was set
+        --- @return a failure reason, when unsuccessful
+        setReadOnly: function(
+            path: string | nupp.Path, readOnly: boolean
+        ): (boolean, string?)
+
+        --- Creates a directory and every missing parent. An existing directory
+        --- succeeds.
+        --- @param path the directory to create
+        --- @return whether the directory exists afterwards
+        --- @return a failure reason, when unsuccessful
+        createDirectory: function(path: string | nupp.Path): (boolean, string?)
+
+        --- Removes a file, a symbolic link, or a directory.
+        --- @param path the path to remove
+        --- @param recursive whether to remove a directory's contents with it
+        --- @return whether the path was removed
+        --- @return a failure reason, when unsuccessful
+        remove: function(
+            path: string | nupp.Path, recursive: boolean?
+        ): (boolean, string?)
+
+        --- Renames a path, replacing an existing destination.
+        --- @param from the path to rename
+        --- @param to the new path
+        --- @return whether the rename happened
+        --- @return a failure reason, when unsuccessful
+        rename: function(
+            from: string | nupp.Path, to: string | nupp.Path
+        ): (boolean, string?)
+
+        --- Lists a directory's immediate children.
+        ---
+        --- #### Examples
+        ---
+        --- Count the modules beside a file:
+        ---
+        --- ```nupp
+        --- local entries = assert(nupp.io.files.list("src"))
+        --- for _, entry in ipairs(entries) do
+        ---     print(entry.kind, entry.name)
+        --- end
+        --- ```
+        --- @param path the directory to list
+        --- @return the children in the platform's order, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        list: function(path: string | nupp.Path): ({nupp.Files.Entry}?, string?)
+
+        --- Creates a uniquely named empty file and answers its path.
+        ---
+        --- The file is created rather than merely proposed, so no second caller
+        --- can take the name in between.
+        --- @param options where to create it and how to name it
+        --- @return the created path, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        createTemporaryFile: function(
+            options: nupp.Files.TemporaryOptions?
+        ): (string?, string?)
+
+        --- Creates a uniquely named empty directory and answers its path.
+        --- @param options where to create it and how to name it
+        --- @return the created path, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        createTemporaryDirectory: function(
+            options: nupp.Files.TemporaryOptions?
+        ): (string?, string?)
+
+        --- Reads the process's current working directory.
+        --- @return the current directory, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        currentDirectory: function(): (string?, string?)
+
+        --- Answers a well-known user folder.
+        --- @param which the folder to locate
+        --- @return the folder, or nil when the platform has no such folder
+        --- @return a failure reason, when unsuccessful
+        userFolder: function(which: nupp.Files.UserFolder): (string?, string?)
+    end
 end
 
 --- An immutable platform-native UTF-8 filesystem path.
