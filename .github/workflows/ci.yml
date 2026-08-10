@@ -76,9 +76,16 @@ jobs:
           cd /d "%RUNNER_TEMP%\luajit-src\src"
           call msvcbuild.bat || exit /b 1
           mkdir "%RUNNER_TEMP%\luajit\bin" 2>nul
+          mkdir "%RUNNER_TEMP%\luajit\include\luajit-2.1" 2>nul
+          mkdir "%RUNNER_TEMP%\luajit\lib" 2>nul
           copy /y luajit.exe "%RUNNER_TEMP%\luajit\bin\" || exit /b 1
           copy /y lua51.dll "%RUNNER_TEMP%\luajit\bin\" || exit /b 1
-          copy /y lua51.lib "%RUNNER_TEMP%\luajit\bin\" || exit /b 1
+          copy /y lua51.lib "%RUNNER_TEMP%\luajit\lib\" || exit /b 1
+          copy /y lua.h "%RUNNER_TEMP%\luajit\include\luajit-2.1\" || exit /b 1
+          copy /y luaconf.h "%RUNNER_TEMP%\luajit\include\luajit-2.1\" || exit /b 1
+          copy /y lauxlib.h "%RUNNER_TEMP%\luajit\include\luajit-2.1\" || exit /b 1
+          copy /y lualib.h "%RUNNER_TEMP%\luajit\include\luajit-2.1\" || exit /b 1
+          copy /y lua.hpp "%RUNNER_TEMP%\luajit\include\luajit-2.1\" || exit /b 1
           echo %RUNNER_TEMP%\luajit\bin>>%GITHUB_PATH%
 
       # The unix install places LuaJIT's own Lua modules. Windows has no install
@@ -125,12 +132,28 @@ jobs:
       # Into the project's own tree, which is what `bin/nupp` and `tests/run` put
       # on the interpreter's path. The documentation target installs its own rocks
       # from the manifest, so only what the compiler and suite need first is here.
-      - name: Install the project's rocks
+      - name: Install the project's rocks (unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           luarocks --version
-          luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lua-cjson 2.1.0-1
+          luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lua-cjson 2.1.0.10-1
           luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lpeg
+
+      # A step gets a fresh process, so the MSVC environment used to build
+      # LuaJIT is not present here unless it is installed again.
+      - name: Install the project's rocks (windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          call "%GITHUB_WORKSPACE%\.github\workflows\msvc.cmd" || exit /b 1
+          luarocks --version || exit /b 1
+          luarocks --lua-dir "%RUNNER_TEMP%\luajit" --tree "%GITHUB_WORKSPACE%\.rocks" --lua-version 5.1 install lua-cjson 2.1.0.10-1 || exit /b 1
+          luarocks --lua-dir "%RUNNER_TEMP%\luajit" --tree "%GITHUB_WORKSPACE%\.rocks" --lua-version 5.1 install lpeg || exit /b 1
+
+      - name: Check the project's rocks
+        shell: bash
+        run: |
           LUA_PATH=".rocks/share/lua/5.1/?.lua;.rocks/share/lua/5.1/?/init.lua;;" \
           LUA_CPATH=".rocks/lib/lua/5.1/?.so;.rocks/lib/lua/5.1/?.dll;;" \
             luajit -e 'require("cjson") require("lpeg") print("cjson and lpeg load")'
