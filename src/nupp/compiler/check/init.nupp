@@ -427,6 +427,10 @@ function checkMod.check(
         parent = nil
     }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
+    -- What this file has declared to the FFI. Per file, because a cdef binding is
+    -- file-local, and because the alternative is process state deciding what a
+    -- program means.
+    c.cDeclared = {}
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
     end
@@ -923,10 +927,20 @@ function checkMod.check(
     -- Narrowing: facts extracted from conditions
     ---------------------------------------------------------------------
 
-    -- The C namespace: a shape of everything the program has declared to the FFI, so
-    -- ffi.C and ffi.load both carry real signatures.
+    -- The C namespace: a shape of what *this file* declared to the FFI, so ffi.C
+    -- and ffi.load both carry real signatures and neither carries anybody else's.
 
-    --- The type of `ffi.C`: every symbol the program has cdef'd.
+    --- The type of `ffi.C`: every symbol this file cdef'd, and nothing more.
+    ---
+    --- Membership comes from `c.cDeclared`, which the cdef and cheader sites fill
+    --- as they check. The global ctype registry is still read, but only to model a
+    --- signature and its layout for a name that is already known to belong here.
+    --- Reading it for membership instead is what let one program see another's
+    --- declarations, and what displaced a file's own when a standard facility
+    --- initialized its bindings first.
+    ---
+    --- A file that declared nothing gets an empty shape rather than `any`, so
+    --- reaching a symbol it never declared is NUPP2004 instead of silence.
     c.cNamespaceType = function(): Type
         local decls = require("nupp.compiler.cheader").declaredFunctions(function(tag)
             local found = c.lookupType(tag)
@@ -935,16 +949,20 @@ function checkMod.check(
             end
 
             return nil
-        end)
+        end, c.cDeclared)
         local fields = {}
         for name, t in pairs(decls) do
             fields[#fields + 1] = {name = name, type = t}
         end
-        if #fields == 0 then
-            return T.any
-        end
 
         return T.shape(fields)
+    end
+
+    --- Records the names a `cdef` block or a `cheader` call declared in this file.
+    c.recordCDeclarations = function(names: {[string]: any}?): nil
+        for name in pairs(names or {}) do
+            c.cDeclared[name] = true
+        end
     end
 
     -- Types an expression list against `count` targets, expanding the last expression's

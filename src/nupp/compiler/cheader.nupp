@@ -188,17 +188,25 @@ local cache = {}
 -- Keyed by content: declaring the same block twice is an error in the FFI rather than a
 -- no-op.
 local declaredBlocks = {}
-function cheader.declare(text: string): boolean, string?
+local declaredNames: {[string]: {[string]: boolean}} = {}
+--- Declares a block once per process and answers what it named.
+---
+--- The names are cached with the verdict because a repeated block introduces
+--- nothing the second time: LuaJIT already holds it, so the id diff underneath
+--- would be empty and a second checker run over the same source would see an
+--- `ffi.C` missing everything that source declared.
+function cheader.declare(text: string): boolean, string?, {[string]: boolean}?
     if declaredBlocks[text] ~= nil then
-        return declaredBlocks[text]
+        return declaredBlocks[text], nil, declaredNames[text]
     end
-    local ok, err = cdecl.declare(text)
+    local ok, err, names = cdecl.declare(text)
     declaredBlocks[text] = ok
+    declaredNames[text] = names or {}
     if not ok then
         return false, err
     end
 
-    return true
+    return true, nil, declaredNames[text]
 end
 
 -- The nupp type a literal C type string stands for, e.g. "struct Point" or "uint8_t *".
@@ -258,13 +266,16 @@ function cheader.typeFromString(spec: string, resolver: cheader.Resolver?): T.Ty
     return nuppType(model, nil, adoptingResolver(resolver))
 end
 
--- Every function the program has declared to the FFI, by name. This is what ffi.C and
--- ffi.load hold, so both can be typed from what has actually been declared rather than
--- handed back as any.
-function cheader.declaredFunctions(resolver: cheader.Resolver?): {[string]: T.Type}
+-- The functions named by `only`, modelled as nupp types. This is what ffi.C and
+-- ffi.load hold. `only` is the set the checked program declared; without it the
+-- answer would be the whole process, which is every other program the compiler
+-- happened to check and the compiler's own bindings besides.
+function cheader.declaredFunctions(
+    resolver: cheader.Resolver?, only: {[string]: boolean}?
+): {[string]: T.Type}
     local out = {}
     local r = adoptingResolver(resolver)
-    for name, fn in pairs(cdecl.declaredFunctions()) do
+    for name, fn in pairs(cdecl.declaredFunctions(only)) do
         out[name] = modelFunction(fn, nil, r)
     end
 

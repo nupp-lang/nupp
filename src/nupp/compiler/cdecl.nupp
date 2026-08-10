@@ -287,7 +287,11 @@ local INT32_MAX, UINT32 = 2147483647, 4294967296
 -- signed range is one that already wrapped.
 local function enumeratorValue(name, entry)
     local ok, value = pcall(function()
-        return ffi.C[name]
+        -- Reflective by nature: the name is an enumerator this module just read out
+        -- of the registry, so no declaration in this file could name it. `ffi.C` is
+        -- typed from what a file declared, which is the right rule and the reason
+        -- this one lookup has to say it is stepping outside it.
+        return (ffi.C as any)[name]
     end)
     if not ok or type(value) ~= "number" then
         value = entry.size
@@ -425,13 +429,36 @@ function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): 
     return result
 end
 
-function cdecl.declare(text: string): boolean, string?
+--- Declares a block to the FFI and answers which functions *this block* named.
+---
+--- The registry LuaJIT keeps is process-wide, so it cannot say who declared what.
+--- Diffing the ctype ids across the call can: whatever appeared is what this text
+--- introduced. That is the difference between typing `ffi.C` from the program in
+--- front of the checker and typing it from everything the compiler's own process
+--- happens to have loaded.
+---
+--- A block LuaJIT has already seen introduces nothing and answers an empty set,
+--- which is why the caller caches the first answer per text.
+function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
+    local before = {}
+    for id = 1, MAX_CTYPE_ID do
+        if info(id) then
+            before[id] = true
+        end
+    end
     local ok, err = pcall(ffi.cdef, text)
     if not ok then
         return false, tostring(err)
     end
+    local names: {[string]: boolean} = {}
+    for id = 1, MAX_CTYPE_ID do
+        local entry = info(id)
+        if entry and not before[id] and entry.name and kindOf(entry.info) == CT_FUNC then
+            names[entry.name] = true
+        end
+    end
 
-    return true
+    return true, nil, names
 end
 
 function cdecl.typeFromString(spec: string): cdecl.CType?, string?
@@ -456,11 +483,17 @@ function cdecl.structById(id: integer?): cdecl.Struct?
     return decodeStruct(rid, entry)
 end
 
-function cdecl.declaredFunctions(): {[string]: cdecl.Function}
+--- Models the declared functions, restricted to `only` when it is given.
+---
+--- The walk reads the global registry because that is where the parsed signature
+--- and its ABI live. `only` is what decides membership, and it comes from the
+--- program rather than from the process.
+function cdecl.declaredFunctions(only: {[string]: boolean}?): {[string]: cdecl.Function}
     local out = {}
     for id = 1, MAX_CTYPE_ID do
         local entry = info(id)
-        if entry and entry.name and kindOf(entry.info) == CT_FUNC then
+        if entry and entry.name and kindOf(entry.info) == CT_FUNC
+            and (only == nil or only[entry.name]) then
             out[entry.name] = decodeFunction(entry)
         end
     end

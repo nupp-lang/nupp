@@ -366,6 +366,8 @@ record state.Checker
 
     --- The `ffi.C` namespace as the program has declared it.
     cNamespaceType: function(): Type
+    recordCDeclarations: function({[string]: any}?)
+    cDeclared: {[string]: boolean}
 
     --- `t` without nil, which is what a truthiness test leaves.
     minusNil: function(t: Type): Type

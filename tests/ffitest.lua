@@ -169,4 +169,101 @@ function M.castToACArrayIsAPointerCast()
    assertEq(run("return ffi.sizeof<uint64[4]>()"), 32)
 end
 
+-- `ffi.C` is typed from what the checked file declared, not from what the
+-- compiler's process happens to hold. The registry LuaJIT keeps is global and
+-- has no idea who declared what, so reading it for membership let one program
+-- see another's symbols and let a standard facility's own bindings displace a
+-- file's.
+
+function M.theCNamespaceHoldsWhatThisFileDeclared()
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      'ffi.cdef[[int nuppProbeDeclared(int);]]',
+      "local n: integer = ffi.C.nuppProbeDeclared(1)",
+   }, "\n")), "", "a declared symbol is a member")
+
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      "local n: integer = ffi.C.nuppProbeNeverDeclared(1)",
+   }, "\n")), "NUPP2004", "a symbol this file never declared is not")
+end
+
+function M.anotherProgramsDeclarationsAreNotVisible()
+   -- The first check declares it to the process for good; the second must still
+   -- refuse it, because the second program did not.
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      'ffi.cdef[[int nuppLeakProbe(int);]]',
+      "local n: integer = ffi.C.nuppLeakProbe(1)",
+   }, "\n")), "", "the declaring program sees it")
+
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      "local n: integer = ffi.C.nuppLeakProbe(1)",
+   }, "\n")), "NUPP2004", "a program that declared nothing does not")
+end
+
+function M.checkingTheSameSourceTwiceKeepsItsDeclarations()
+   -- LuaJIT holds the block after the first check, so a second run declares
+   -- nothing new. The names have to come back anyway.
+   local source = table.concat({
+      'local ffi = require("ffi")',
+      'ffi.cdef[[int nuppRepeatProbe(int);]]',
+      "local n: integer = ffi.C.nuppRepeatProbe(1)",
+   }, "\n")
+   assertEq(diagsOf(source), "", "first check")
+   assertEq(diagsOf(source), "", "second check over the same source")
+end
+
+function M.aGuardedCdefStillDeclares()
+   -- `pcall(ffi.cdef, ...)` is how a program tolerates redeclaring a name the
+   -- process already holds, and it is what the compiler's own ansi module does.
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      'pcall(ffi.cdef, "int nuppGuardedProbe(int);")',
+      "local n: integer = ffi.C.nuppGuardedProbe(1)",
+   }, "\n")), "", "a guarded declaration is still a declaration")
+end
+
+function M.ffiLoadCarriesTheSameNamespace()
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      'ffi.cdef[[int nuppLoadProbe(int);]]',
+      'local lib = ffi.load("probe")',
+      "local n: integer = lib.nuppLoadProbe(1)",
+   }, "\n")), "", "a declared symbol is reachable through ffi.load")
+
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      'local lib = ffi.load("probe")',
+      "local n: integer = lib.nuppUndeclaredThroughLoad(1)",
+   }, "\n")), "NUPP2004", "and an undeclared one is not")
+end
+
+function M.aStandardFacilityDoesNotDisplaceAFilesOwnDeclarations()
+   -- Initializing an FFI-backed facility runs a large `ffi.cdef` in this
+   -- process. Nothing about that may change what a file's own `ffi.C` holds.
+   local native = require("nupp.compiler.native")
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local ok = pcall(function()
+      assert(loadstring(native.bootstrap({["stdlib.io"] = true})))()
+      local buffer = _G.nupp.io.newBuffer("probe")
+      return buffer:length()
+   end)
+   _G.nupp = previous
+   assert(ok, "the facility initialized")
+
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      'pcall(ffi.cdef, "int nuppIsattyProbe(int);")',
+      "local n: integer = ffi.C.nuppIsattyProbe(1)",
+   }, "\n")), "", "the file still sees what it declared")
+
+   assertEq(diagsOf(table.concat({
+      'local ffi = require("ffi")',
+      "local n: integer = ffi.C.nuppBytesLength(1)",
+   }, "\n")), "NUPP2004", "and does not see the facility's bindings")
+end
+
 return M

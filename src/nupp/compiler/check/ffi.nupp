@@ -49,6 +49,12 @@ type ffi.Intrinsic = function(
 ---
 --- @param c the run's state
 --- @return the intrinsic dispatch the call path asks first
+--- The text inside a string literal, whichever way it was quoted.
+local function cdefBody(text: string): string?
+    return text:match("^%[%[(.*)%]%]$") or text:match('^"(.*)"$')
+        or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+end
+
 function ffi.install(c: state.Checker): ffi.Intrinsic
 
     --- The type an intrinsic call has, or nil when this call is not one and the
@@ -344,12 +350,37 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 c.diag("NUPP2302", node, err or ("cannot read " .. headerPath))
                 return T.any
             end
+            -- A header the program named is the program's own declaration, so its
+            -- exports join `ffi.C` the way a literal block's do.
+            c.recordCDeclarations(loaded.exports)
             local fields = {}
             for name, t in pairs(loaded.exports) do
                 fields[#fields + 1] = {name = name, type = t}
             end
             return T.shape(fields)
         end
+        -- `pcall(ffi.cdef, "...")` is the same declaration wearing a guard, and the
+        -- guard is there because redeclaring a name LuaJIT already holds raises. The
+        -- block still declares, so the checker still has to see it; without this the
+        -- idiom types `ffi.C` as if the file had declared nothing.
+        if calleeName == "pcall" or calleeName == "xpcall" then
+            local callee = argExprs[1]
+            local subject = argExprs[calleeName == "pcall" and 2 or 3]
+            if callee and callee.kind == "dotIndex" and callee.name
+                and callee.name.text == "cdef" and callee.obj
+                and callee.obj.kind == "name" and callee.obj.token
+                and callee.obj.token.text == "ffi"
+                and subject and subject.kind == "string" and subject.token then
+                local body = cdefBody(subject.token.text)
+                if body then
+                    local ok, _, names = require("nupp.compiler.cheader").declare(body)
+                    if ok then
+                        c.recordCDeclarations(names)
+                    end
+                end
+            end
+        end
+
         -- A literal ffi.cdef block declares to the compiler as well as to the runtime,
         -- which is what lets the type strings that follow mean something at check time.
         if baseName == "ffi" and memberName == "cdef" then
@@ -360,12 +391,10 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 strTok = firstArg.token
             end
             if strTok then
-                local text = strTok.text
-                local body = text:match(
-                    "^%[%[(.*)%]%]$"
-                ) or text:match('^"(.*)"$') or text:match("^'(.*)'$") or text:match("^%[=+%[(.*)%]=+%]$")
+                local body = cdefBody(strTok.text)
                 if body then
-                    local ok, err = require("nupp.compiler.cheader").declare(body)
+                    local ok, err, names = require("nupp.compiler.cheader").declare(body)
+                    c.recordCDeclarations(names)
                     if not ok then
                         c.diag(
                             "NUPP2303",
