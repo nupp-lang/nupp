@@ -135,6 +135,41 @@ function M.staticStringPegExampleChecks()
    clean(source)
 end
 
+function M.staticFormatExampleChecksArgumentsAndErrors()
+   local file = assert(io.open(HERE .. "/../examples/static-format.nupp", "rb"))
+   local source = assert(file:read("*a"))
+   file:close()
+   clean(source)
+
+   local cases = {
+      {
+         "local wrongType: FormatArguments<'%s has %d messages'> = "
+            .. "args2('Ada', 'three')\nprint(wrongType)",
+         'cannot initialize wrongType: {"Ada", "three"} is not a {string, number}',
+      },
+      {
+         "local missing: FormatArguments<'%s has %d messages'> = "
+            .. "args1('Ada')\nprint(missing)",
+         'cannot initialize missing: {"Ada"} is not a {string, number}',
+      },
+      {
+         "local extra: FormatArguments<'hello %s'> = args2('Ada', 3)\nprint(extra)",
+         'cannot initialize extra: {"Ada", 3} is not a {string}',
+      },
+      {
+         "local invalid: FormatArguments<'bad: %z'> = args1('value')\nprint(invalid)",
+         'cannot initialize invalid: {"value"} is not a '
+            .. '{readonly formatError: "unsupported format directive %z"}',
+      },
+   }
+   for _, case in ipairs(cases) do
+      local found = diagnostics(source .. "\n" .. case[1])
+      assertEq(#found, 1, "one static format diagnostic")
+      assertEq(found[1].code, "NUPP2001")
+      assertEq(found[1].msg, case[2])
+   end
+end
+
 function M.recursiveAliasCyclesAndMutualRecursionReportDedicatedErrors()
    local cycleSource = table.concat({
       "local type Loop<T> = match T when infer X then Loop<X> end",

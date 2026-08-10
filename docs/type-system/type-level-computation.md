@@ -133,3 +133,52 @@ tuple machine so all transitions happen through one guarded recursive alias.
 For clarity, input tokenization is only a split on single spaces. This is an
 example of what the type reducer can express, not a runtime parser library or a
 promise of LPeg-compatible syntax, diagnostics, or performance.
+
+### Static `string.format` prototype
+
+[`examples/static-format.nupp`](../../examples/static-format.nupp) uses the same
+machinery to scan a literal format string into a heterogeneous argument tuple.
+The checked tuple is expanded into the ordinary runtime function:
+
+```nupp
+local countArgs: FormatArguments<'%s has %d messages'> = args2('Ada', 3)
+local count: string =
+    string.format('%s has %d messages', unpack(countArgs))
+```
+
+A second reducer demonstrates literal result simplification for `%s` and `%%`:
+
+```nupp
+local exactPercent: Render0<'100%% ready'> = '100% ready'
+local exactGreeting: Render1<'hello %s', 'Ada'> = 'hello Ada'
+```
+
+Those are exact static types. They do not replace the runtime call; conversions
+that cannot be represented precisely widen to `string`.
+
+Changing the second argument to a string reports the computed contract:
+
+```text
+NUPP2001: cannot initialize wrongType: {"Ada", "three"} is not a
+{string, number}
+```
+
+Missing and surplus arguments likewise compare the supplied tuple with the
+derived one. An unsupported directive remains visible in the result:
+
+```text
+NUPP2001: cannot initialize invalid: {"value"} is not a
+{readonly formatError: "unsupported format directive %z"}
+```
+
+This prototype understands `%%`, `%s`, `%q`, and the ordinary numeric
+conversion letters. It intentionally omits flags, width, precision, and more
+than four arguments. The `args1` through `args4` helpers preserve heterogeneous
+tuple slots because ordinary table literals infer homogeneous arrays.
+
+The extra tuple binding is also a current implementation boundary: call
+resolution does not yet normalize a recursive computed alias into a callable
+signature. A production `string.format` contract could remove that ceremony by
+normalizing before overload selection or by using a checker intrinsic backed by
+the same format grammar. Type-level evaluation still would not replace the
+runtime call or manufacture its result value.

@@ -433,6 +433,7 @@ function M.formatterOutputStillChecks()
       "/../examples/todo.nupp",
       "/../examples/cinterop.nupp",
       "/../examples/static-string-peg.nupp",
+      "/../examples/static-format.nupp",
    }) do
       local f = assert(io.open(HERE .. rel))
       local src = f:read("*a")

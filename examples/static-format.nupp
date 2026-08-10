@@ -1,0 +1,134 @@
+-- A prototype string.format checker implemented by the type system.
+--
+-- FormatArguments<F> scans a literal format string and reduces to the exact
+-- heterogeneous tuple expected by string.format. The runtime call remains the
+-- ordinary Lua function; unpack preserves the tuple as its argument pack.
+
+local type FormatError<Message> = {readonly formatError: Message}
+
+-- Build is a small type-level state machine. It accumulates at most four
+-- argument types, handles %% without consuming an argument, and rejects an
+-- unsupported directive with a descriptive type.
+local type Build<State> = match State
+    when {'scan', infer Format, infer Args} then
+        match Format
+            when `${infer Prefix}%${infer Rest}` then
+                Build<{'directive', Rest, Args}>
+            else Build<{'finish', Args}>
+        end
+    when {'directive', infer Rest, infer Args} then
+        match Rest
+            when `%${infer Tail}` then Build<{'scan', Tail, Args}>
+            when `s${infer Tail}` then Build<{'push', Tail, string, Args}>
+            when `q${infer Tail}` then Build<{'push', Tail, string, Args}>
+            when `c${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `d${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `i${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `o${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `u${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `x${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `X${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `e${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `E${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `f${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `g${infer Tail}` then Build<{'push', Tail, number, Args}>
+            when `G${infer Tail}` then Build<{'push', Tail, number, Args}>
+            else FormatError<`unsupported format directive %${Rest}`>
+        end
+    when {'push', infer Tail, infer Expected, infer Args} then
+        match Args
+            when {'zero'} then Build<{'scan', Tail, {'one', Expected}}>
+            when {'one', infer A} then
+                Build<{'scan', Tail, {'two', A, Expected}}>
+            when {'two', infer A, infer B} then
+                Build<{'scan', Tail, {'three', A, B, Expected}}>
+            when {'three', infer A, infer B, infer C} then
+                Build<{'scan', Tail, {'four', A, B, C, Expected}}>
+            else FormatError<'prototype supports at most four arguments'>
+        end
+    when {'finish', infer Args} then
+        match Args
+            -- {never} is the only inhabited-by-no-values array type: its only
+            -- useful value is {}, and unpack({}) contributes no arguments.
+            when {'zero'} then {never}
+            when {'one', infer A} then {A}
+            when {'two', infer A, infer B} then {A, B}
+            when {'three', infer A, infer B, infer C} then {A, B, C}
+            when {'four', infer A, infer B, infer C, infer D} then {A, B, C, D}
+            else FormatError<'invalid argument accumulator'>
+        end
+    else FormatError<'invalid parser state'>
+end
+
+local type FormatArguments<Format> = Build<{'scan', Format, {'zero'}}>
+
+-- A smaller renderer shows type-level simplification. It substitutes literal
+-- %s values and %% escapes, but deliberately widens every other case to string.
+local type Render<State> = match State
+    when {'scan', infer Format, infer Values, infer Output} then
+        match Format
+            when `${infer Prefix}%${infer Rest}` then
+                Render<{'render-directive', Rest, Values, `${Output}${Prefix}`}>
+            else
+                match Values
+                    when {'end'} then `${Output}${Format}`
+                    else string
+                end
+        end
+    when {'render-directive', infer Rest, infer Values, infer Output} then
+        match Rest
+            when `%${infer Tail}` then
+                Render<{'scan', Tail, Values, `${Output}%`}>
+            when `s${infer Tail}` then
+                match Values
+                    when {'value', infer Value, infer More} then
+                        match Value
+                            when string then
+                                Render<{'scan', Tail, More, `${Output}${Value}`}>
+                            else string
+                        end
+                    else string
+                end
+            else string
+        end
+    else string
+end
+
+local type Render0<Format> = Render<{'scan', Format, {'end'}, ''}>
+local type Render1<Format, A> =
+    Render<{'scan', Format, {'value', A, {'end'}}, ''}>
+
+-- Nupp table literals infer homogeneous arrays. These tiny constructors retain
+-- heterogeneous tuple slots so the computed annotation can check each one.
+local function args1<A>(a: A): {A}
+    return {a} as any
+end
+
+local function args2<A, B>(a: A, b: B): {A, B}
+    return {a, b} as any
+end
+
+local function args3<A, B, C>(a: A, b: B, c: C): {A, B, C}
+    return {a, b, c} as any
+end
+
+local function args4<A, B, C, D>(a: A, b: B, c: C, d: D): {A, B, C, D}
+    return {a, b, c, d} as any
+end
+
+local noArgs: FormatArguments<'100%% ready'> = {}
+local greetingArgs: FormatArguments<'hello %s'> = args1('Ada')
+local countArgs: FormatArguments<'%s has %d messages'> = args2('Ada', 3)
+local pointArgs: FormatArguments<'%s=(%f, %f)'> = args3('point', 1.5, 2.5)
+local rowArgs: FormatArguments<'%s %d %q %x'> = args4('row', 7, 'quoted', 255)
+
+local percent: string = string.format('100%% ready', unpack(noArgs))
+local greeting: string = string.format('hello %s', unpack(greetingArgs))
+local count: string = string.format('%s has %d messages', unpack(countArgs))
+local point: string = string.format('%s=(%f, %f)', unpack(pointArgs))
+local row: string = string.format('%s %d %q %x', unpack(rowArgs))
+
+local exactPercent: Render0<'100%% ready'> = '100% ready'
+local exactGreeting: Render1<'hello %s', 'Ada'> = 'hello Ada'
+
+print(percent, greeting, count, point, row, exactPercent, exactGreeting)
