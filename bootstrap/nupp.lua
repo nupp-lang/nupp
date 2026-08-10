@@ -1879,6 +1879,314 @@ end
 return ansi
 
 end
+package.preload["nupp.compiler.associated"] = function(...)
+local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local T = require ( "nupp.compiler.types" )
+local relations = require ( "nupp.compiler.relations" )
+local generics = require ( "nupp.compiler.generics" )
+
+local associated = { }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+local function resolvedType ( answer , head )
+if not answer . selfBinder then
+return answer . type
+end
+
+return generics . rebind ( answer . type , { [ answer . selfBinder ] = head } )
+end
+
+
+
+
+
+local function reachRequirements ( head , name , into , seen )
+if head . tag ~= "nominal" or seen [ head ] then
+return
+end
+seen [ head ] = true
+for _ , requirement in ipairs ( ( head ) . associatedRequirements or { } ) do
+if requirement . name == name and not seen [ requirement ] then
+seen [ requirement ] = true
+into [ # into + 1 ] = { requirement = requirement , from = head }
+end
+end
+for _ , super in ipairs ( ( head ) . supertypes or { } ) do
+reachRequirements ( super , name , into , seen )
+end
+end
+
+
+local function reachAnswers (
+head ,
+name ,
+explicit ,
+defaults ,
+seen
+)
+if head . tag ~= "nominal" or seen [ head ] then
+return
+end
+seen [ head ] = true
+local answers = ( head ) . associatedAnswers
+local entry = answers and answers [ name ] or nil
+if entry and not seen [ entry ] then
+seen [ entry ] = true
+if entry . isDefault then
+defaults [ # defaults + 1 ] = entry
+else
+explicit [ # explicit + 1 ] = entry
+end
+end
+for _ , super in ipairs ( ( head ) . supertypes or { } ) do
+reachAnswers ( super , name , explicit , defaults , seen )
+end
+end
+
+
+
+local function intersectBounds ( reached , head )
+local bounds = { }
+for _ , one in ipairs ( reached ) do
+local bound = one . requirement . bound
+if bound then
+if one . requirement . selfBinder then
+bound = generics . rebind ( bound , { [ one . requirement . selfBinder ] = head } )
+end
+bounds [ # bounds + 1 ] = bound
+end
+end
+if # bounds == 0 then
+return nil
+end
+if # bounds == 1 then
+return bounds [ 1 ]
+end
+
+return T . intersection ( bounds )
+end
+
+local lookupInto
+
+
+local function settle ( result , head )
+if # result . requirements == 0 then
+result . reason = "unknown"
+
+return result
+end
+local answer = result . answer
+if not answer then
+if # result . defaults == 0 then
+result . reason = "missing"
+
+return result
+end
+
+
+
+local first = resolvedType ( result . defaults [ 1 ] , head )
+for j = 2 , # result . defaults do
+if resolvedType ( result . defaults [ j ] , head ) ~= first then
+result . reason = "conflict"
+
+return result
+end
+end
+answer = result . defaults [ 1 ]
+result . answer = answer
+end
+local resolved = resolvedType ( answer , head )
+result . resolved = resolved
+if result . bound and not relations . isA ( resolved , result . bound ) then
+result . reason = "unfit"
+end
+
+return result
+end
+
+
+
+
+
+function associated . lookup ( head , name )
+return lookupInto ( head , name )
+end
+
+lookupInto = function ( head , name )
+local result = { requirements = { } , defaults = { } }
+if head == T . any then
+
+
+result . gradual = true
+
+return result
+end
+if head . tag == "typevar" then
+local bound = ( head ) . bound
+if not bound then
+
+
+result . reason = "unprojectable"
+
+return result
+end
+
+return lookupInto ( bound , name )
+end
+if head . tag == "projection" then
+
+
+local inner = lookupInto ( ( head ) . of , ( head ) . name )
+if inner . resolved then
+return lookupInto ( inner . resolved , name )
+end
+if inner . bound then
+return lookupInto ( inner . bound , name )
+end
+result . reason = inner . reason or "unprojectable"
+
+return result
+end
+if head . tag == "intersection" then
+
+
+local seen = { }
+local explicit = { }
+for _ , member in ipairs ( ( head ) . members ) do
+reachRequirements ( member , name , result . requirements , seen )
+end
+local answerSeen = { }
+for _ , member in ipairs ( ( head ) . members ) do
+reachAnswers ( member , name , explicit , result . defaults , answerSeen )
+end
+result . answer = explicit [ 1 ]
+result . bound = intersectBounds ( result . requirements , head )
+
+return settle ( result , head )
+end
+if head . tag == "union" then
+
+
+
+local bounds = { }
+for _ , member in ipairs ( ( head ) . members ) do
+local arm = lookupInto ( member , name )
+if # arm . requirements == 0 then
+result . reason = "incomplete"
+
+return result
+end
+for _ , one in ipairs ( arm . requirements ) do
+result . requirements [ # result . requirements + 1 ] = one
+end
+if arm . bound then
+bounds [ # bounds + 1 ] = arm . bound
+end
+end
+if # bounds > 0 then
+result . bound = T . union ( bounds )
+end
+
+
+result . reason = "missing"
+
+return result
+end
+if head . tag ~= "nominal" then
+result . reason = "unprojectable"
+
+return result
+end
+local seen = { }
+reachRequirements ( head , name , result . requirements , seen )
+local explicit = { }
+reachAnswers ( head , name , explicit , result . defaults , { } )
+result . answer = explicit [ 1 ]
+result . bound = intersectBounds ( result . requirements , head )
+
+return settle ( result , head )
+end
+
+
+
+
+
+
+
+
+function associated . projectable ( head , name )
+local result = lookupInto ( head , name )
+
+return result . gradual == true or # result . requirements > 0
+end
+
+return associated
+
+end
 package.preload["nupp.compiler.build.cache"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath);local function __nuppLazy(target,name,loader)local meta=getmetatable(target)or{};local loaders=meta.__nuppLoaders;if not loaders then loaders={};local prior=meta.__index;meta.__nuppLoaders=loaders;meta.__index=function(t,k)local load=loaders[k];if load then local value=load(k);loaders[k]=nil;if value==nil then value=rawget(t,k)else rawset(t,k,value)end;return value end;if type(prior)=="function"then return prior(t,k)elseif prior then return prior[k]end end;setmetatable(target,meta)end;if name~=nil and rawget(target,name)==nil and loaders[name]==nil then loaders[name]=loader end end;local function __nuppLoadJSON()local source=require("cjson");local aliases={emptyArray="empty_array",arrayMt="array_mt",emptyArrayMt="empty_array_mt",encodeEmptyTableAsObject="encode_empty_table_as_object",decodeArrayWithArrayMt="decode_array_with_array_mt",decodeAllowComment="decode_allow_comment",encodeSparseArray="encode_sparse_array",encodeMaxDepth="encode_max_depth",decodeMaxDepth="decode_max_depth",encodeNumberPrecision="encode_number_precision",encodeKeepBuffer="encode_keep_buffer",encodeInvalidNumbers="encode_invalid_numbers",decodeInvalidNumbers="decode_invalid_numbers",encodeEscapeForwardSlash="encode_escape_forward_slash",encodeSkipUnsupportedValueTypes="encode_skip_unsupported_value_types",encodeIndent="encode_indent"};local function adopt(target,json)target.encodeJSON=json.encode;target.decodeJSON=json.decode;target.null=json.null;for public,name in pairs(aliases)do target[public]=json[name]end;return target end;adopt(__nuppData,source);__nuppData.newJSON=function()return adopt({},source.new())end;return __nuppData end for _,__name in ipairs({"encodeJSON","decodeJSON","newJSON","null","emptyArray","arrayMt","emptyArrayMt","encodeEmptyTableAsObject","decodeArrayWithArrayMt","decodeAllowComment","encodeSparseArray","encodeMaxDepth","decodeMaxDepth","encodeNumberPrecision","encodeKeepBuffer","encodeInvalidNumbers","decodeInvalidNumbers","encodeEscapeForwardSlash","encodeSkipUnsupportedValueTypes","encodeIndent"})do __nuppLazy(__nuppData,__name,function(name)__nuppLoadJSON();return rawget(__nuppData,name)end)end
 
@@ -9359,6 +9667,7 @@ end
 
 
 
+
 local bound = ann or init or T . any
 
 
@@ -9367,7 +9676,7 @@ bound = init
 end
 if not ann then
 local initNode = initializers [ j ]
-if bound . tag == "literal" then
+if bound . tag == "literal" and not stat . isConst then
 
 
 bound = bound . base or T . string
@@ -28808,7 +29117,11 @@ end
 local count = arrayLength ( value )
 local elements , named = { } , { }
 for index = 1 , count do
-elements [ # elements + 1 ] = typeOf ( value [ index ] )
+local element = typeOf ( value [ index ] )
+
+
+
+elements [ # elements + 1 ] = element . tag == "literal" and ( element . base or T . string ) or element
 end
 for _ , key in ipairs ( sortedKeys ( value ) ) do
 local inArray = type ( key ) == "number" and key == math . floor ( key ) and key >= 1 and key <= count
@@ -44078,16 +44391,20 @@ if complete [ binder ] == nil then
 complete [ binder ] = T . any
 end
 end
-if n . associatedOrder then
-inst . associatedOrder = { }
-for j , name in ipairs ( n . associatedOrder ) do
-inst . associatedOrder [ j ] = name
-end
-end
-if n . associatedBounds then
-inst . associatedBounds = { }
-for name , bound in pairs ( n . associatedBounds ) do
-inst . associatedBounds [ name ] = generics . rebind ( bound , complete )
+if n . associatedRequirements then
+inst . associatedRequirements = { }
+for j , requirement in ipairs ( n . associatedRequirements ) do
+
+
+
+inst . associatedRequirements [
+j
+] = setmetatable( {
+name = requirement . name ,
+bound = requirement . bound and generics . rebind ( requirement . bound , complete ) or nil ,
+selfBinder = requirement . selfBinder ,
+definition = requirement . definition ,
+} , T.AssociatedRequirement)
 end
 end
 if n . associatedAnswers then
@@ -58735,6 +59052,26 @@ types.Projection = {} types.Projection.__index = types.Projection
 
 
 
+types.AssociatedRequirement = {} types.AssociatedRequirement.__index = types.AssociatedRequirement
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 types.AssociatedAnswer = {} types.AssociatedAnswer.__index = types.AssociatedAnswer
 
@@ -58754,8 +59091,6 @@ types.AssociatedAnswer = {} types.AssociatedAnswer.__index = types.AssociatedAns
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
-
-
 
 
 

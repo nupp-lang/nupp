@@ -912,10 +912,10 @@ execBlock = function(state, block)
 end
 
 --- The type a finished value has, built the way the checker builds a table literal's:
---- a scalar is its own literal type, an array is `{union of its elements}`, and a table
---- with names is a fresh shape. Typing the value rather than parsing its quoted text is
---- what keeps the checker from having to reach the parser, which would close a module
---- cycle; the answer is the same one the literal would have been given.
+--- a scalar is its own literal type, an array is `{union of its widened elements}`, and
+--- a table with names is a fresh shape. Typing the value rather than parsing its quoted
+--- text is what keeps the checker from having to reach the parser, which would close a
+--- module cycle; the answer is the same one the literal would have been given.
 local function typeOf(value)
     local kind = type(value)
     if value == nil then
@@ -933,7 +933,11 @@ local function typeOf(value)
     local count = arrayLength(value)
     local elements, named = {}, {}
     for index = 1, count do
-        elements[#elements + 1] = typeOf(value[index])
+        local element = typeOf(value[index])
+        -- Positional entries in an ordinary table literal widen for the same reason
+        -- inferred mutable locals do: a sequence of numbers is `{integer}`, not a
+        -- union carrying every value it happened to contain at this instant.
+        elements[#elements + 1] = element.tag == "literal" and (element.base or T.string) or element
     end
     for _, key in ipairs(sortedKeys(value)) do
         local inArray = type(key) == "number" and key == math.floor(key) and key >= 1 and key <= count

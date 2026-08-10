@@ -9,6 +9,7 @@ local parser = require("nupp.compiler.parser")
 local gen = require("nupp.compiler.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.env")
+local T = require("nupp.compiler.types")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -64,6 +65,10 @@ local function run(src, ...)
    return chunk(...)
 end
 
+local function firstLocalBinding(result)
+   return result.root.blocks[1].stats[1].names[1].definition.type
+end
+
 local M = {}
 
 function M.evaluatesAnArithmeticBlock()
@@ -73,6 +78,17 @@ function M.evaluatesAnArithmeticBlock()
       "the block is replaced by its value: " .. code)
    assertEq(code:find("2 + 3", 1, true), nil,
       "none of the body reaches the output: " .. code)
+end
+
+function M.keepsAScalarComptimeLiteralOnAConstBinding()
+   local result = parser.parse([[const banner = comptime do
+    return "NUPP COMPILES THIS ONCE ========"
+end]], "test.g.nupp")
+   assertEq(#result.errors, 0, "const comptime source parses")
+   assertEq(#check.check(result, "test.g.nupp", env), 0, "const comptime source checks")
+   local binding = firstLocalBinding(result)
+   assertEq(binding.tag, "literal", "const comptime binding keeps its literal type")
+   assertEq(binding.constant, "NUPP COMPILES THIS ONCE ========", "const comptime literal value")
 end
 
 function M.buildsATableWithALoop()
@@ -94,6 +110,16 @@ return SQUARES[4], #SQUARES
    local code = compile(src)
    assertTrue(code:find("{1, 4, 9, 16, 25}", 1, true) ~= nil,
       "the table is emitted as one literal: " .. code)
+end
+
+function M.widensComptimeArrayElements()
+   local result = parser.parse([[const values = comptime do
+    return {1, 2, 3}
+end]], "test.g.nupp")
+   assertEq(#result.errors, 0, "comptime array source parses")
+   assertEq(#check.check(result, "test.g.nupp", env), 0, "comptime array source checks")
+   local binding = firstLocalBinding(result)
+   assertEq(T.tostring(binding), "{integer}", "comptime array elements widen")
 end
 
 function M.matchesAnIndependentComputationOfTheSameTable()

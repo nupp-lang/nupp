@@ -78,12 +78,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     )
                 end
             end
-            -- Inferred types are hints, not shackles — unannotated bindings widen so
-            -- common Lua idioms keep checking: literal shapes stay OPEN ("local M =
+            -- Inferred types are hints, not shackles — mutable unannotated bindings
+            -- widen so common Lua idioms keep checking: literal shapes stay OPEN ("local M =
             -- {a=1}; M.b = 2") —
             --     but shapes RETURNED by calls (modules!) keep their type,
             -- integer widens ("local i = 1; i = i / 2"), nil init means "declared,
-            -- assigned later". Annotated bindings keep their exact declared type.
+            -- assigned later". A const cannot be reassigned, so it keeps an inferred
+            -- literal just as an annotated binding keeps its exact declared type.
             local bound = ann or init or T.any
             -- Keep the cleanup list discovered at the initializer even when the source
             -- spells only `owned<T>`.
@@ -92,9 +93,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
             end
             if not ann then
                 local initNode = initializers[j]
-                if bound.tag == "literal" then
-                    -- an inferred binding holds a value of the type, not that one
-                    -- value; annotate to keep the literal type
+                if bound.tag == "literal" and not stat.isConst then
+                    -- a mutable inferred binding holds a value of the type, not that
+                    -- one value
                     bound = bound.base or T.string
                     if bound == T.integer then
                         bound = T.number

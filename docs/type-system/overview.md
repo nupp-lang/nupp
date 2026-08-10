@@ -12,7 +12,7 @@ That sentence is the design. Everything below follows from it.
 ```
  Position                     Inferred?
  ───────────────────────────  ────────────────────────────────────
- Local from its initializer   Yes, but widened — see below
+ Local from its initializer   Yes; mutable bindings widen — see below
  Function parameters          No; an unannotated parameter is any
  Function return types        No; the body's returns go unchecked
  Short-function body          Yes, one inferred result
@@ -22,10 +22,10 @@ That sentence is the design. Everything below follows from it.
 A function with no return annotation is not checked against its `return`
 statements at all. Annotating the return is what starts checking them.
 
-## Unannotated locals widen
+## Mutable locals widen
 
-This is the rule people trip over. A binding with no annotation deliberately
-loosens, so that ordinary Lua keeps working:
+This is the rule people trip over. A mutable binding with no annotation
+deliberately loosens, so that ordinary Lua keeps working:
 
 ```nupp
 local i = 1
@@ -39,7 +39,14 @@ n = {}
 print(n.field)       -- fine: nil widened to any
 ```
 
-A binding with an annotation keeps exactly what you wrote:
+A `const` binding keeps an inferred literal type, and an annotation keeps
+exactly the type you wrote:
+
+```nupp
+const tag = "ready"       -- the literal type "ready"
+```
+
+An annotation can also keep a narrower type on a mutable binding:
 
 ```nupp
 local j: integer = 1
@@ -49,10 +56,10 @@ local shaped: {a: number} = {a = 1}
 shaped.b = 2         -- NUPP2004: no field "b" in {a: number}
 ```
 
-The four widenings are: a literal type collapses to its base, `integer` widens
-further to `number`, a shape built from a table literal collapses to `table`,
-and `nil` becomes `any`. A shape *returned by a call* keeps its type — only
-literals widen.
+The four widening cases are: a literal type on a mutable binding collapses to
+its base, `integer` widens further to `number`, a shape built from a table
+literal collapses to `table`, and `nil` becomes `any`. A shape *returned by a
+call* keeps its type — only mutable literal initializers widen.
 
 The practical reading: annotate when you want the constraint, leave it off when
 you want the Lua behaviour. Both are supported positions.
