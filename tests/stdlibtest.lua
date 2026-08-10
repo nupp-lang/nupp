@@ -188,6 +188,7 @@ function M.nativeFeaturesAreResolvedEffects()
    end
 
    assertClean(table.concat({
+      "local paths: nupp.Path.Library = nupp.io.Path",
       "local library: nupp.URI.Library = nupp.io.URI",
       "local components: nupp.URI.Components = nil as any",
       "local uri: nupp.URI? = library.new(components)",

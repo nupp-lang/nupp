@@ -344,7 +344,7 @@ local nupp: {
         newStringReader: function(text: string): nupp.Reader,
 
         --- Constructors and platform operations for immutable filesystem paths.
-        Path: nupp.PathLibrary,
+        Path: nupp.Path.Library,
 
         --- Parsing and inspection operations for immutable absolute URIs.
         URI: nupp.URI.Library
@@ -663,6 +663,24 @@ end
 
 --- An immutable platform-native UTF-8 filesystem path.
 record nupp.Path
+    --- Constructors and platform operations for immutable filesystem paths.
+    record Library
+        --- Creates a path by joining one or more components.
+        --- @param first the first path component
+        --- @param ... the remaining path components
+        --- @return the new path
+        new: function(first: string, ...: string): Path
+
+        --- Reads the process's current working directory.
+        --- @return the current directory, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        currentDirectory: function(): (Path?, string?)
+
+        --- Returns the current platform's primary path separator.
+        --- @return the path separator
+        separator: function(): string
+    end
+
     --- Returns the native UTF-8 path text.
     --- @param self this path
     --- @return the path text
@@ -746,24 +764,6 @@ record nupp.Path
     --- @param self this path
     --- @return whether the path is relative
     isRelative: function(self: nupp.Path): boolean
-end
-
---- Constructors and platform operations for immutable filesystem paths.
-record nupp.PathLibrary
-    --- Creates a path by joining one or more components.
-    --- @param first the first path component
-    --- @param ... the remaining path components
-    --- @return the new path
-    new: function(first: string, ...: string): nupp.Path
-
-    --- Reads the process's current working directory.
-    --- @return the current directory, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    currentDirectory: function(): (nupp.Path?, string?)
-
-    --- Returns the current platform's primary path separator.
-    --- @return the path separator
-    separator: function(): string
 end
 
 --- An immutable normalized absolute URI.

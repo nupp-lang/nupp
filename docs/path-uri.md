@@ -20,6 +20,8 @@ assert(stem == "main")
 assert(extension == "nupp")
 ```
 
+The constructor table exposed as `nupp.io.Path` has type `nupp.Path.Library`.
+
 `join` appends components. `normalize` removes lexical `.` and `..` components without
 touching the filesystem. `absolute` resolves against the current working directory;
 `resolve(parts...)` makes absolute, appends parts and normalizes. `canonicalize` asks the
