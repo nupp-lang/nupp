@@ -140,9 +140,17 @@ jobs:
       # so this asks whether the 624 belong to the wrapper or to what follows it.
       - name: Check before build
         if: runner.os == 'Windows'
-        continue-on-error: true
         shell: bash
-        run: ./bin/nupp check
+        run: |
+          mkdir -p diag
+          # Its own verdict, recorded. `continue-on-error` reports a step that
+          # failed as a success in the API, which has now hidden two readings.
+          if ./bin/nupp check > diag/check-before-build.txt 2>&1; then
+            echo "VERDICT pass" >> diag/check-before-build.txt
+          else
+            echo "VERDICT fail" >> diag/check-before-build.txt
+          fi
+          tail -3 diag/check-before-build.txt
 
       # Separated from `check` so a build that does not finish is attributable
       # to itself rather than read backwards from whatever the checker then said
@@ -150,6 +158,36 @@ jobs:
       - name: Build
         shell: bash
         run: ./bin/nupp build
+
+      # Stage 0 in check-only mode, with the real provider and without the
+      # launcher. The incremental path is clean on Windows at every stage, so
+      # what is left between it and a failing build is the driver around it and
+      # the provider-backed filesystem underneath. Only the cache is removed, so
+      # the provider beside it survives and this is still a cold check.
+      - name: Stage zero check, no launcher
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p diag
+          test -f build/lib/nupp_native || {
+            echo "no provider staged; nothing to read" | tee diag/stage0-check.txt
+            exit 0
+          }
+          rm -rf build/cache
+          LUA_ROOT="$PWD"
+          if ( pwd -W ) >/dev/null 2>&1; then LUA_ROOT="$(pwd -W)"; fi
+          ROCKS="$LUA_ROOT/.rocks"
+          if LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;;" \
+             LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;$ROCKS/lib/lua/5.1/?.dll;;" \
+             NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native" \
+             NUPP_COMPILER_ROOT="$LUA_ROOT" \
+               luajit bootstrap/nupp.lua check > diag/stage0-check.txt 2>&1; then
+            echo "VERDICT pass" >> diag/stage0-check.txt
+          else
+            echo "VERDICT fail" >> diag/stage0-check.txt
+          fi
+          head -6 diag/stage0-check.txt
+          tail -2 diag/stage0-check.txt
 
       - name: Check
         shell: bash
@@ -186,6 +224,7 @@ jobs:
             diag/
             build/nupp/compiler/types.lua
             build/nupp/compiler/cli/spec.lua
+            build/lib/
 
       - name: Test
         shell: bash
