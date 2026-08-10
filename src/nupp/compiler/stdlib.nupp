@@ -152,6 +152,14 @@ __nuppPeg.specialized=__nuppPegSpecialized;
 ]=]
 )
 
+local FIELDCODEC = compact(
+    [=[
+local __nuppFieldCodec=rawget(__nupp,"fieldcodec")or{};rawset(__nupp,"fieldcodec",__nuppFieldCodec)
+local function __nuppKeyedCodec(fields,fingerprint)local Codec={};Codec.__index=Codec;function Codec:encode(value)if type(value)~="table"then error("nupp: keyed codec value must be a table",2)end;local out={};for _,name in ipairs(fields)do local field=rawget(value,name);if field~=nil then out[name]=field end end;return out end;return setmetatable({fingerprint=fingerprint},Codec)end
+__nuppFieldCodec.keyed=__nuppKeyedCodec;
+]=]
+)
+
 local NATIVE = compact(
     [=[
 local __nuppNativeValue;local function __nuppNative()if __nuppNativeValue then return __nuppNativeValue end;local ffi=require("ffi");ffi.cdef[[typedef struct NuppBytes NuppBytes;typedef struct NuppUri NuppUri;typedef struct{const uint8_t*data;size_t length;}NuppStringView;const char*nuppNativeError(void);const uint8_t*nuppBytesData(const NuppBytes*);size_t nuppBytesLength(const NuppBytes*);void nuppBytesDestroy(NuppBytes*);NuppBytes*nuppPathJoin(const NuppStringView*,size_t);NuppBytes*nuppPathNormalize(const uint8_t*,size_t);NuppBytes*nuppPathAbsolute(const uint8_t*,size_t);NuppBytes*nuppPathCanonicalize(const uint8_t*,size_t);NuppBytes*nuppPathRelative(const uint8_t*,size_t,const uint8_t*,size_t);NuppBytes*nuppPathPart(const uint8_t*,size_t,uint32_t);NuppBytes*nuppPathWith(const uint8_t*,size_t,const uint8_t*,size_t,bool);bool nuppPathIsAbsolute(const uint8_t*,size_t);NuppUri*nuppUriParse(const uint8_t*,size_t);const uint8_t*nuppUriPart(const NuppUri*,uint32_t,size_t*);bool nuppUriPort(const NuppUri*,uint16_t*);NuppUri*nuppUriWithText(const NuppUri*,uint32_t,const uint8_t*,size_t,bool);NuppUri*nuppUriWithPort(const NuppUri*,int32_t);NuppUri*nuppUriConcatPath(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriResolve(const NuppUri*,const uint8_t*,size_t);NuppUri*nuppUriWithEndpoint(const NuppUri*,const NuppUri*);void nuppUriDestroy(NuppUri*);bool nuppUuid4(char*);bool nuppUuid7(char*);bool nuppSha256(const uint8_t*,size_t,char*);]];local source=debug.getinfo(1,"S").source;local root=source:match("^@(.+)/[^/]+%.lua$")or".";local wanted=os.getenv("NUPP_NATIVE_LIBRARY");local C;if wanted then C=ffi.load(wanted)else local ok,lib=pcall(ffi.load,root.."/lib/nupp_native");if ok then C=lib else C=ffi.load(root.."/../lib/nupp_native")end end;local function errorText()return ffi.string(C.nuppNativeError())end;local function bytes(value,optional)if value==nil then if optional then return nil end;error("nupp: native operation failed: "..errorText(),3)end;local out=ffi.string(C.nuppBytesData(value),tonumber(C.nuppBytesLength(value)));C.nuppBytesDestroy(value);return out end;__nuppNativeValue={ffi=ffi,C=C,error=errorText,bytes=bytes};return __nuppNativeValue end
@@ -246,6 +254,9 @@ function stdlib.bootstrap(effects: {[string]: any}?): string
     end
     if effects["stdlib.peg"] then
         out[#out + 1] = PEG
+    end
+    if effects["stdlib.fieldcodec"] then
+        out[#out + 1] = FIELDCODEC
     end
     local hasNative = effects[
         "native.path"

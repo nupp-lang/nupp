@@ -504,6 +504,9 @@ record state.Checker
     --- Whether a node returns a value anywhere inside it.
     returnsSomewhere: function(x: Node): boolean
 
+    --- Nonzero while checking the body of a `comptime` expression.
+    comptimeDepth: integer
+
     --- The ownership modes a body's parameters are used with, when it declared none.
     inferredParameterModes: function(body: any): any
 end

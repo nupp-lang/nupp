@@ -433,7 +433,7 @@ function M.standardLibraryBackingRecordsStayInternal()
       end
    end
    assert(topLevelLibraries == 3, "private docs lost top-level backing records")
-   assert(nestedLibraries == 4, "private docs lost nested backing records")
+   assert(nestedLibraries == 5, "private docs lost nested backing records")
 end
 
 function M.standardMathApiHasCompleteDocumentation()

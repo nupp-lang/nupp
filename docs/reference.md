@@ -1201,6 +1201,45 @@ return m
 
 Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2417`. `nupp explain <code>` says more.
 
+### Semantic reflection and field codecs
+
+`reflect(T)` resolves `T` in a type position and creates an immutable,
+target-independent semantic descriptor for comptime. A descriptor is
+compiler-owned: it can be passed to a sealed comptime service, but it cannot
+escape as a runtime table. Reflection reads declared meaning, not FFI layout;
+`sizeof`, alignment, and offsets remain separate target-dependent questions.
+
+`nupp.fieldcodec.compile(reflect(R))` is the first non-PEG materializer. For a
+record `R`, it produces a `nupp.FieldCodec.KeyedCodec<R>` whose `encode` method
+copies exactly the record's present declared fields with `rawget`. Its stable
+compatibility fingerprint is `t:` followed by those field names in declaration
+order. The declared codec type must name the same nominal record.
+
+Reflection of a runtime value, an unresolved type, or a non-record codec input
+is **NUPP2418**. The ordinary materialization boundary, envelope, and size
+diagnostics remain **NUPP2414** through **NUPP2416**.
+
+```nupp
+local m = {}
+
+local record Position
+    x: number
+    y: number
+end
+
+const PositionCodec: nupp.FieldCodec.KeyedCodec<Position> = comptime do
+    return nupp.fieldcodec.compile(reflect(Position))
+end
+
+function m.encode(position: Position): {[string]: any}
+    return PositionCodec:encode(position)
+end
+
+return m
+```
+
+Reports: `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418`. `nupp explain <code>` says more.
+
 ### Built-in lints
 
 | Lint | Code | Category | Default |

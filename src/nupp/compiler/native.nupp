@@ -80,6 +80,11 @@ local FEATURES: {
     name = "peg",
     globals = {"nupp.peg"},
 }, [
+    "stdlib.fieldcodec"
+] = {
+    name = "fieldcodec",
+    globals = {"nupp.fieldcodec"},
+}, [
     "stdlib.io"
 ] = {
     name = "io",

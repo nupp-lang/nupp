@@ -21,7 +21,7 @@ local index = require("nupp.compiler.check.index")
 local callexpr = require("nupp.compiler.check.callexpr")
 local state = require("nupp.compiler.check.state")
 local comptime = require("nupp.compiler.comptime") as {
-    evaluate: function(any, any): (string?, any, any, any)
+    evaluate: function(any, any, any): (string?, any, any, any)
 }
 local materializeProviders = require("nupp.compiler.materialize.providers") as {
     lower: function(any, any, any): (any, any)
@@ -169,14 +169,33 @@ function expr.install(c: state.Checker): nil
         c.pushScope()
         c.retStack[#c.retStack + 1] = false
         c.retPackStack[#c.retPackStack + 1] = false
+        c.comptimeDepth = (c.comptimeDepth or 0) + 1
         if node.body then
             c.checkBlock(node.body as cst.Node, true)
         end
+        c.comptimeDepth = c.comptimeDepth - 1
         c.retPackStack[#c.retPackStack] = nil
         c.retStack[#c.retStack] = nil
         c.popScope()
 
-        local quoted, resultType, failure, envelope = comptime.evaluate(untypedNode, node.body)
+        local reflections = {}
+        local function collectReflections(value)
+            if type(value) ~= "table" then
+                return
+            end
+            if value.reflectedTypeKey and value.reflectedType then
+                reflections[value.reflectedTypeKey] = value.reflectedType
+            end
+            for _, child in ipairs(value) do
+                collectReflections(child)
+            end
+        end
+        collectReflections(node.body)
+        local quoted, resultType, failure, envelope = comptime.evaluate(
+            untypedNode,
+            node.body,
+            reflections
+        )
         if failure then
             c.diag(
                 failure.code,

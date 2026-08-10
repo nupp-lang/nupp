@@ -16,6 +16,11 @@ local peg = require("nupp.compiler.materialize.peg") as {
     finalize: function(any, any): (any, any),
     lower: function(any, any, any): (any, any)
 }
+local fieldcodec = require("nupp.compiler.materialize.fieldcodec") as {
+    installEvaluator: function(any, any, any, any),
+    finalize: function(any, any): (any, any),
+    lower: function(any, any, any): (any, any)
+}
 
 type providers.Failure = {
     readonly code: string,
@@ -25,6 +30,7 @@ type providers.Failure = {
 
 local record providers
     installEvaluator: function(any, any)
+    reflect: function(any, any, any): any
     isOpaque: function(any, any): boolean
     method: function(any, any, string, any, any): (any, providers.Failure?)
     operator: function(any, string, any, any, any): (any, providers.Failure?)
@@ -90,6 +96,18 @@ function providers.installEvaluator(state: any, env: any)
         end,
         provenance
     )
+    fieldcodec.installEvaluator(
+        state,
+        env,
+        function(provider, family, payload, at)
+            return opaque(state, provider, family, payload, at)
+        end,
+        provenance
+    )
+end
+
+function providers.reflect(state: any, descriptor: any, at: any): any
+    return opaque(state, "reflection", "TypeInfo", descriptor, provenance(at, "reflect"))
 end
 
 function providers.isOpaque(state: any, value: any): boolean
@@ -199,6 +217,8 @@ function providers.finalize(state: any, value: any): any, providers.Failure?
         return finalizeTest(state, value)
     elseif entry.provider == "peg" then
         return peg.finalize(state, value)
+    elseif entry.provider == "fieldcodec" then
+        return fieldcodec.finalize(state, value)
     end
 
     return nil, {code = "NUPP2415", message = "no finalizer owns this opaque value"}
@@ -258,6 +278,8 @@ function providers.lower(envelope: any, expected: any, env: any): any, providers
     if envelope.provider ~= "compiler-test" then
         if envelope.provider == "peg" then
             return peg.lower(envelope, expected, env)
+        elseif envelope.provider == "fieldcodec" then
+            return fieldcodec.lower(envelope, expected, env)
         end
         return nil, {code = "NUPP2415", message = "no materializer owns provider " .. envelope.provider}
     end

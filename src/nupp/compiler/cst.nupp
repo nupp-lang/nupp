@@ -109,6 +109,11 @@ interface cst.Hints
     --- The finalized provider envelope retained for hover and build observations.
     materializationEnvelope: any
 
+    --- The immutable semantic descriptor attached to a checked `reflect(T)` call.
+    reflectedType: any
+
+    reflectedTypeKey: string?
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 

@@ -362,6 +362,9 @@ local nupp: {
     --- Static byte-oriented parsing-expression grammars.
     peg: nupp.Peg.Library,
 
+    --- Type-directed keyed codecs materialized from semantic reflection.
+    fieldcodec: nupp.FieldCodec.Library,
+
     --- Compiler-internal materialization conformance surface.
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
@@ -453,6 +456,28 @@ record nupp.Peg
         define: function(name: string, pattern: Pattern): Definition
         grammar: function(start: string, ...: Definition): Pattern
         compile: function(pattern: Pattern): Blueprint
+    end
+end
+
+--- An immutable compile-time description of one resolved semantic type.
+record TypeInfo
+end
+
+--- Reflects a concrete type for use inside a `comptime` block.
+local reflect: function(typeName: any): TypeInfo
+
+--- Types for materialized keyed field codecs.
+record nupp.FieldCodec
+    record Blueprint
+    end
+
+    record KeyedCodec<T>
+        encode: function(self, value: T): {[string]: any}
+        fingerprint: string
+    end
+
+    record Library
+        compile: function(info: TypeInfo): Blueprint
     end
 end
 

@@ -24,8 +24,8 @@ local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.materialize.providers")
 
 local record comptime
-    evaluateDirect: function(cst.Node, cst.Node?): (string?, T.Type?, any, any)
-    evaluate: function(cst.Node, cst.Node?): (string?, T.Type?, any, any)
+    evaluateDirect: function(cst.Node, cst.Node?, any): (string?, T.Type?, any, any)
+    evaluate: function(cst.Node, cst.Node?, any): (string?, T.Type?, any, any)
 end
 
 local isToken = cst.isToken
@@ -336,7 +336,7 @@ local RETURN = {}
 
 --- One evaluation in progress: the scopes, the budget, and the answer.
 local function newState()
-    return {env = {}, libraries = {}, result = nil, steps = 0, opaque = {}, intrinsics = {}}
+    return {env = {}, libraries = {}, result = nil, steps = 0, opaque = {}, intrinsics = {}, reflections = {}}
 end
 
 local function step(state, node)
@@ -719,7 +719,30 @@ end
 evalMulti = function(state, node)
     local kind = node.kind
     local values
-    if kind == "methodCall" then
+    if kind == "call" and node.obj and node.obj.kind == "name"
+        and node.obj.token and node.obj.token.text == "reflect" then
+        local args = node.args and node.args.exprs or {}
+        local argument = args[1]
+        local function typePath(value)
+            if not value then
+                return nil
+            elseif value.kind == "name" then
+                return value.token and value.token.text or nil
+            elseif value.kind == "dotIndex" then
+                local base = typePath(value.obj)
+                local field = value.name and value.name.text or nil
+                return base and field and (base .. "." .. field) or nil
+            end
+
+            return nil
+        end
+        local key = #args == 1 and typePath(argument) or nil
+        local descriptor = key and state.reflections[key] or nil
+        if not descriptor then
+            fail("NUPP2418", node, "reflect type information is unavailable in this comptime worker")
+        end
+        values = {n = 1, materializeProviders.reflect(state, descriptor, node)}
+    elseif kind == "methodCall" then
         local object = evalExpr(state, node.obj)
         if object == nil and node.safeObj then
             values = {n = 0}
@@ -1093,8 +1116,9 @@ type comptime.Failure = {
 --- @param block its body
 --- @return the result as canonical Lua source, its type, then the failure if there was
 ---   one
-function comptime.evaluateDirect(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?, any
+function comptime.evaluateDirect(node: cst.Node, block: cst.Node?, reflections: any): string?, T.Type?, comptime.Failure?, any
     local state = newState()
+    state.reflections = reflections or {}
     local env, libraries = buildEnvironment(state)
     state.env, state.libraries = env, libraries
     state.scope = scope(nil)
@@ -1144,13 +1168,13 @@ end
 --- checkout. Unit embedders without a compiler root retain the same bounded direct
 --- evaluator; the private worker command itself sets the child marker to prevent a
 --- recursive spawn.
-function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?, any
+function comptime.evaluate(node: cst.Node, block: cst.Node?, reflections: any): string?, T.Type?, comptime.Failure?, any
     local root = os.getenv("NUPP_COMPILER_ROOT")
     if root and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require("nupp.compiler.comptime_worker") as {
-            evaluate: function(string, string): (string?, any, any)
+            evaluate: function(string, string, any): (string?, any, any)
         }
-        local quoted, failure, envelope = worker.evaluate(cst.textOf(node), root)
+        local quoted, failure, envelope = worker.evaluate(cst.textOf(node), root, reflections)
         if failure then
             return nil, nil, {
                 code = failure.code,
@@ -1182,7 +1206,7 @@ function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, 
         return quoted, typeOf(value), nil
     end
 
-    return comptime.evaluateDirect(node, block)
+    return comptime.evaluateDirect(node, block, reflections)
 end
 
 return comptime

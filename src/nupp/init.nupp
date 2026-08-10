@@ -10,8 +10,9 @@ Its public namespaces are [](nupp.data) (JSON, UTF-8, UUIDs, hashes and
 checksums), [](nupp.io) (buffers, byte views, readers and writers),
 `nupp.io.Path` and `nupp.io.URI` (filesystem paths and resource identifiers),
 [](nupp.math) (scalar helpers and two-dimensional vectors), [](nupp.regex)
-(compiled Rust regular expressions), and `nupp.peg` (compile-time
-parsing-expression grammars).
+(compiled Rust regular expressions), `nupp.peg` (compile-time
+parsing-expression grammars), and `nupp.fieldcodec` (reflection-driven keyed
+codecs).
 
 The compiler-provided ownership operations also live under this global:
 `nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,

@@ -19,6 +19,7 @@ local cst = require("nupp.compiler.cst")
 local ffiMod = require("nupp.compiler.check.ffi")
 local methodslots = require("nupp.compiler.methodslots")
 local native = require("nupp.compiler.native")
+local hash = require("nupp.compiler.build.hash")
 local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
@@ -111,6 +112,51 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argExprs = argsNode.exprs or {}
             argStr = argsNode.str
             argTable = argsNode.table
+        end
+        if calleeName == "reflect" and #argExprs == 1 and not argStr and not argTable then
+            if (c.comptimeDepth or 0) == 0 then
+                c.diag("NUPP2418", node, "reflect is available only inside a comptime block")
+                return T.any
+            end
+            local globals = c.env and c.env.globals
+            local stable = globals and c.lookupEntry("reflect") == globals["reflect"]
+            local key = c.pathKey(argExprs[1])
+            local reflected = key and c.lookupType(key) or nil
+            if not stable or not reflected then
+                c.diag(
+                    "NUPP2418",
+                    argExprs[1] or node,
+                    "reflect expects one concrete type name",
+                    nil,
+                    {help = "pass a declared or qualified type, not a runtime value"}
+                )
+                return T.any
+            end
+            local reflectedNamed = reflected as {name: string?}
+            local descriptor = {
+                kind = reflected.tag == "nominal" and reflected.declKind or reflected.tag,
+                name = reflectedNamed.name or key,
+                qualifiedName = key,
+                fields = {},
+            }
+            local fingerprintParts = {descriptor.kind, descriptor.name}
+            if reflected.tag == "nominal" then
+                for _, name in ipairs(reflected.fieldOrder or {}) do
+                    local fieldType = reflected.byname[name]
+                    local fieldNamed = fieldType as {name: string?}
+                    descriptor.fields[#descriptor.fields + 1] = {
+                        name = name,
+                        kind = fieldType and fieldType.tag or "any",
+                        typeName = fieldType and fieldNamed.name or nil,
+                    }
+                    fingerprintParts[#fingerprintParts + 1] = name .. ":" .. (fieldType and fieldType.id or "any")
+                end
+            end
+            descriptor.fingerprint = hash.sha256(table.concat(fingerprintParts, "\0"))
+            node.reflectedType, node.reflectedTypeKey = descriptor, key
+            local typeInfo = c.lookupType("TypeInfo")
+
+            return typeInfo or T.any
         end
         local intrinsic = ownershipIntrinsic(c, callee)
         if intrinsic then

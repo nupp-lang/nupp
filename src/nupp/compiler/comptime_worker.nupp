@@ -18,7 +18,7 @@ type worker.Failure = {
 
 local record worker
     main: function({string}): integer
-    evaluate: function(string, string): (string?, worker.Failure?, any)
+    evaluate: function(string, string, any): (string?, worker.Failure?, any)
 end
 
 cjson.encode_empty_table_as_object(false)
@@ -70,12 +70,17 @@ function worker.main(argv: {string}): integer
         io.write(cjson.encode({ok = false, code = "NUPP2412", message = "missing worker request"}), "\n")
         return 0
     end
-    local source, readErr = read(requestPath)
-    if not source then
+    local requestText, readErr = read(requestPath)
+    if not requestText then
         io.write(cjson.encode({ok = false, code = "NUPP2412", message = tostring(readErr)}), "\n")
         return 0
     end
-    local parsed = require("nupp.compiler.parser").parse("return " .. source, "=comptime-worker")
+    local decoded, request = pcall(cjson.decode, requestText)
+    if not decoded or type(request) ~= "table" or type(request.source) ~= "string" then
+        io.write(cjson.encode({ok = false, code = "NUPP2412", message = "invalid worker request"}), "\n")
+        return 0
+    end
+    local parsed = require("nupp.compiler.parser").parse("return " .. request.source, "=comptime-worker")
     if #(parsed.errors or {}) > 0 then
         io.write(cjson.encode({
             ok = false,
@@ -91,9 +96,9 @@ function worker.main(argv: {string}): integer
     end
 
     local comptime = require("nupp.compiler.comptime") as {
-        evaluateDirect: function(any, any): (string?, any, any, any)
+        evaluateDirect: function(any, any, any): (string?, any, any, any)
     }
-    local quoted, _, failure, envelope = comptime.evaluateDirect(node, node.body)
+    local quoted, _, failure, envelope = comptime.evaluateDirect(node, node.body, request.reflections)
     if failure then
         io.write(cjson.encode({
             ok = false,
@@ -112,9 +117,9 @@ end
 
 --- Parent entry point. A valid response is the only successful completion; truncated
 --- output, a non-JSON crash message and a killed worker are all local failures.
-function worker.evaluate(source: string, root: string): string?, worker.Failure?, any
+function worker.evaluate(source: string, root: string, reflections: any): string?, worker.Failure?, any
     local requestPath = os.tmpname()
-    local wrote, writeErr = write(requestPath, source)
+    local wrote, writeErr = write(requestPath, cjson.encode({source = source, reflections = reflections or {}}))
     if not wrote then
         return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
     end
