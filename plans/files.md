@@ -1,10 +1,10 @@
-# Files — design record
+# Files: a design record
 
 Status: proposed. The waiting half is built: S0 through S4 of
 [suspension](suspension.md) have landed, so a library may perform `suspend`,
 a host may install a handler, a `nosuspend` region is checked, and a handled
-suspension may cross a live resource obligation. S5 — `nupp.io.Process` —
-has not, and is not a prerequisite. This is its easier twin and should land
+suspension may cross a live resource obligation. S5, `nupp.io.Process`, has
+not, and is not a prerequisite. This is its easier twin and should land
 first.
 
 ## Decision
@@ -47,8 +47,8 @@ outright. From [io.md](../docs/io.md#writers):
 
 So there is no abstraction to design. `files.open` answers a `File` whose
 `newReader()` and `newWriter()` satisfy the interfaces a buffer already
-satisfies, and every function written against `Reader` — a parser, a decoder,
-a hash — works over a file without knowing one is there. tecs reached the same
+satisfies, and every function written against `Reader` works over a file
+without knowing one is there: a parser, a decoder, a hash. tecs reached the same
 arrangement independently: its `Reader`/`Writer` vocabulary is shared between
 buffers, files and process pipes, and that is the part of its design worth
 copying wholesale.
@@ -106,7 +106,7 @@ waiting work, because listing a directory never needed to wait.
    tecs and an ordinary program each need from a filesystem, without a
    lowest-common-denominator API that satisfies none of them.
 2. A call site that blocks under a CLI, parks under a frame, and reports
-   NUPP2701 inside a barrier — written once.
+   NUPP2701 inside a barrier, written once.
 3. tecs's `tecs.io.files` call sites compile against `nupp.io.files` with only
    the import changed.
 4. Nothing linked, generated, or initialized for a target that does not use it,
@@ -206,9 +206,9 @@ the same feature.
 
 This is `tecs`'s `tecsAsyncFile*` ABI with SDL removed. Port
 `native/rust/runtime/src/fileasync.rs` onto `std::thread` and `mpsc`, keep its
-bounded-lane accounting — a request cap, a total-bytes cap, a per-request byte
-cap, and a fixed worker count — and drop `sdl3_sys`. That accounting is the
-hard-won part and reinventing it is the predictable way to ship a queue that
+bounded-lane accounting, and drop `sdl3_sys`. That accounting is a request cap,
+a total-bytes cap, a per-request byte cap, and a fixed worker count. It is the
+hard-won part, and reinventing it is the predictable way to ship a queue that
 grows without bound.
 
 Two constraints on the workers, both load-bearing:
@@ -266,8 +266,8 @@ What that call does then depends on nothing the library knows:
 ```
 
 The early return is not an optimization.
-[suspension.md](suspension.md#cost-model) measures the ready path — an await
-that resumes during its own subscription — at about 414ns and 560 bytes, and
+[suspension.md](suspension.md#cost-model) measures the ready path, an await
+that resumes during its own subscription, at about 414ns and 560 bytes, and
 records that a real park costs only about 100ns and 45 bytes beyond it. The
 apparatus, not the waiting, is most of the cost of a wait. A read whose worker
 has already settled must not build a subscription, and a `Reader:read` served
@@ -300,16 +300,16 @@ the value, so the type disappears from this boundary. It stays wherever tecs
 genuinely wants a handle to something outstanding.
 
 What tecs keeps: the scheduler, the gates behind it, `tecs.assets`, and the
-storage seam if a console port ever needs one — above `nupp.io.files` rather
-than beneath it.
+storage seam if a console port ever needs one, which would sit above
+`nupp.io.files` rather than beneath it.
 
 ## Risks
 
 - **Cancellation of a partial write.** A cancelled read discards bytes nobody
   saw. A cancelled write may have already written some. The lane must report
   the distinction rather than answering a bare "canceled", and `writeAtomic`
-  is the operation that makes it tolerable — a cancelled atomic write leaves
-  the destination untouched.
+  is the operation that makes it tolerable, since a cancelled atomic write
+  leaves the destination untouched.
 - **Windows.** Symbolic links carry a file/directory distinction at creation
   (tecs's `SymlinkKind` already encodes it, copy it), paths are UTF-16 and the
   namespace is byte-oriented, and `remove` on an open file behaves differently.
@@ -325,7 +325,7 @@ than beneath it.
 
 ## Milestones
 
-### F0: the immediate tier — done
+### F0: the immediate tier (done)
 
 - A `files` feature in `runtime/native` with the metadata, listing, directory,
   link, rename and temporary exports over `std::fs`.
@@ -349,15 +349,16 @@ during F4.
 
 **`fs.nupp` did not adopt it.** The compiler uses no native facility today, so
 switching its directory listing would make the compiler the first program that
-cannot build without a Rust artifact — the bootstrap risk this document already
-lists. It moves to F4, where the bootstrap question gets decided on purpose.
+cannot build without a Rust artifact, which is the bootstrap risk this document
+already lists. It moves to F4, where the bootstrap question gets decided on
+purpose.
 
 Exit test met: `tests/filestest.lua` builds the provider with Cargo and drives
 every operation against a real filesystem, including the symbolic-link and
 listing cases; a target that resolves no `files` member carries none of the
 declarations.
 
-### F1: the surface — done
+### F1: the surface (done)
 
 - `File` and `TemporaryPath` as owners, over the existing `Reader`/`Writer`
   contracts.
@@ -386,7 +387,7 @@ Exit test met: a file round-trips through `Reader:transferTo(writer)`; a 300 KiB
 payload streams through a fixed window; the generated Lua for an unbound `File`
 carries its `close`; the existing `nupp.io` tests are untouched.
 
-### F2: the request lane — done
+### F2: the request lane (done)
 
 - The submit/poll exports and the worker pool in Rust, with the bounded-lane
   accounting ported from tecs.
@@ -408,7 +409,7 @@ worker was still reading had not yet given its bytes back. That is a nicer
 sentence and an unobservable rule: a worker publishes `READY` from inside the
 state both sides share, so a caller releasing the instant it sees the result is
 still counted until the worker gets around to dropping its own reference. It
-shipped, and the suite caught it one run later — intermittently, because
+shipped, and the suite caught it one run later. Intermittently, because
 whether the worker had let go by then was a race. What the cap is for is
 bounding what a program can keep accumulating, and the caller's handle is
 exactly what measures that.
@@ -425,7 +426,7 @@ Exit test met: 24 concurrent transfers settle and return their slots; the
 request cap refuses rather than queueing; a cancelled transfer reaches
 `STATUS_CANCELED` and is refunded on destroy; no worker touches a `lua_State`.
 
-### F3: suspension — done
+### F3: suspension (done)
 
 - The readiness source, the `suspend` call sites, and the immediate-completion
   early return.
@@ -435,9 +436,9 @@ request cap refuses rather than queueing; a cancelled transfer reaches
 
 **A target has to carry the suspension runtime, and nothing shipped it.** The
 generated installer calls `require("nupp.suspension")`, and that module resolved
-only inside this repository — an outside project got `unknown` for it. That was
-already true of `handle suspension`, so a library performing `suspend` could not
-ship at all; F3 is only where it stopped being avoidable.
+only inside this repository. An outside project got `unknown` for it. The same
+was already true of `handle suspension`, so a library performing `suspend` could
+not ship at all; F3 is only where it stopped being avoidable.
 
 The fix is one edge in the feature table. `native.files` declares
 `requires = {"runtime.suspension"}`, `native.resolve` closes over `requires`
@@ -463,7 +464,7 @@ runs.
 Not covered: the language-server claim in the original exit test, which is F4's
 rather than this milestone's.
 
-### F4: adoption — blocked, and on more than it looked
+### F4: adoption (blocked, and on more than it looked)
 
 Both halves were attempted and neither is a swap. Recorded here because
 "adoption" as one milestone hid two separate projects.
@@ -478,7 +479,7 @@ src/nupp/compiler/fs.nupp:125: error: NUPP2004: no field "files" in
 
 `bootstrap/nupp.lua` is a pre-generated compiler carrying the prelude it was
 generated from, and that prelude predates `nupp.io.files`. So the bootstrap has
-to be regenerated first — and then a fresh clone's bootstrap reaches
+to be regenerated first, and then a fresh clone's bootstrap reaches
 `nupp.io.files` while listing the sources it is about to compile, which means
 `nupp_native` has to be built and loadable *before* the compiler runs at all.
 Building it needs Cargo:
@@ -513,7 +514,7 @@ src/nupp/compiler/ansi.nupp:131: error: NUPP2004: no field "_isatty" in
 `cheader.declaredFunctions`, which walks **the running process's ctype table**
 rather than the declarations the checked program made. The set therefore depends
 on what has been `cdef`'d in the compiler's own process, and when. Loading the
-file provider while listing sources moves it — and here the compiler's own
+file provider while listing sources moves it. Here the compiler's own
 `_isatty`, which `ansi.nupp` declares and calls, was not in what came back.
 
 The window is not the cause: `MAX_CTYPE_ID` is 8192 and the provider adds about
@@ -523,8 +524,8 @@ did. That is the part to understand before changing anything.
 
 The fix is to type `ffi.C` from what the program declared, which is what the
 comment above `cNamespaceType` already claims it does. Until then a program that
-declares its own C functions cannot also use an FFI-backed standard facility —
-a limit worth knowing independently of this milestone.
+declares its own C functions cannot also use an FFI-backed standard facility.
+That is a limit worth knowing independently of this milestone.
 
 So the first half is blocked on three things, and only the first was a decision:
 the Cargo prerequisite (taken), the bootstrap regeneration (mechanical), and
@@ -573,9 +574,9 @@ process to read a directory.
 
 - Whether `lines` should answer an iterator that may suspend, or require the
   caller to hold the file open and read explicitly. An iterator that parks
-  inside a generic `for` is allowed on this baseline — the C `ipairs` iterator
-  returns before the body runs — but a suspending iterator is a surprising
-  thing to hand someone.
+  inside a generic `for` is allowed on this baseline, since the C `ipairs`
+  iterator returns before the body runs. A suspending iterator is still a
+  surprising thing to hand someone.
 - Whether `DirectoryStream` should read eagerly into a list or stream through
   the request lane. tecs streams, and a directory with a million entries is the
   case that justifies it; a directory with twelve is every other case.
@@ -591,19 +592,19 @@ process to read a directory.
 
 No range is reserved. The rules this namespace needs are already enforced:
 
-- **NUPP2602** — a `File`, `DirectoryStream` or `TemporaryPath` whose drop
+- **NUPP2602**: a `File`, `DirectoryStream` or `TemporaryPath` whose drop
   is not recorded.
-- **NUPP2603** — a raw coroutine yield while one of them is live. A handled
+- **NUPP2603**: a raw coroutine yield while one of them is live. A handled
   suspension in the same position is allowed, which is the S4 rule.
-- **NUPP2701** — a file operation inside a `nosuspend` region or a tecs
+- **NUPP2701**: a file operation inside a `nosuspend` region or a tecs
   barrier.
-- **NUPP2702** — a file operation across a C-call boundary.
+- **NUPP2702**: a file operation across a C-call boundary.
 
 ## Next
 
-- [plans/suspension.md](suspension.md) — the effect, the handler, and the S5
+- [plans/suspension.md](suspension.md): the effect, the handler, and the S5
   process library this shares a platform layer's worth of lessons with.
-- [docs/io.md](../docs/io.md) — the buffer, reader and writer contracts this
+- [docs/io.md](../docs/io.md): the buffer, reader and writer contracts this
   namespace implements.
-- [docs/ownership.md](../docs/ownership.md) — `@owned`, lexical cleanup, and
+- [docs/ownership.md](../docs/ownership.md): `@owned`, lexical cleanup, and
   what a suspension may cross.

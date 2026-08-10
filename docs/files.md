@@ -34,7 +34,7 @@ epoch with whatever fractional part the platform records, and `readOnly` is the
 platform's write refusal rather than a permission model.
 
 `exists`, `isFile` and `isDirectory` answer the same question without the record
-and without a reason — a missing path is `false`, not an error:
+and without a reason. A missing path is `false` rather than an error:
 
 ```nupp
 if files.isDirectory(candidate) then
@@ -78,9 +78,9 @@ assert(files.remove("out/stale", true))
 ```
 
 `createDirectory` creates every missing parent, and an existing directory
-succeeds — a caller building a tree wants that rather than a race with its own
-earlier call. `rename` replaces an existing destination. `remove` takes a file,
-a symbolic link, or an empty directory; the second argument removes a
+succeeds, which is what a caller building a tree wants rather than a race with
+its own earlier call. `rename` replaces an existing destination. `remove` takes
+a file, a symbolic link, or an empty directory; the second argument removes a
 directory's contents with it, and without it a populated directory answers a
 reason.
 
@@ -112,8 +112,8 @@ end
 
 `persist` moves it somewhere permanent and discharges the obligation, so the
 close that follows does nothing. That pair is the reason to make one: write to a
-name nobody else can take, then put it where it belongs — a reader never sees a
-half-written file under the final name.
+name nobody else can take, then put it where it belongs, so a reader never sees
+a half-written file under the final name.
 
 ## Reading and writing a whole file
 
@@ -126,7 +126,7 @@ assert(files.write("out/report.json", encoded))
 `append` adds to the end and creates a missing file. `copy` duplicates one path
 over another. `writeAtomic` writes through a temporary beside the destination
 and renames over it, so an interrupted write leaves the destination as it was
-rather than half replaced — and a failed one removes the temporary rather than
+rather than half replaced. A failed write removes the temporary rather than
 leaving it behind.
 
 A NUL byte is content, not a terminator, in every direction.
@@ -239,9 +239,9 @@ Scheduling a transfer costs more than those cost to run.
 
 ## Next
 
-- [docs/io.md](io.md) — the buffer, reader and writer contracts a file
+- [docs/io.md](io.md): the buffer, reader and writer contracts a file
   implements.
-- [docs/ownership.md](ownership.md) — what an owner is, and when its cleanup
+- [docs/ownership.md](ownership.md): what an owner is, and when its cleanup
   runs.
-- [docs/path-uri.md](path-uri.md) — building and normalizing the names this
+- [docs/path-uri.md](path-uri.md): building and normalizing the names this
   namespace takes.
