@@ -2,7 +2,15 @@
 # The project's rock tree, the same one bin/nupp puts on the path, so a test
 # runs against what a build runs against.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ROCKS="$ROOT/.rocks"
+
+# The POSIX spelling tests files here; the native one is what the interpreter
+# reads. Under Git Bash those differ, and MSYS rewrites neither an environment
+# value nor a path inside a Lua string. See bin/nupp, which does the same.
+LUA_ROOT="$ROOT"
+if ( cd "$ROOT" && pwd -W ) >/dev/null 2>&1; then
+    LUA_ROOT="$(cd "$ROOT" && pwd -W)"
+fi
+ROCKS="$LUA_ROOT/.rocks"
 LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
 # Both suffixes, because the tree is the project's own and its extension is
 # the host's: a rock built here is .so on unix and .dll on Windows, and
@@ -14,9 +22,9 @@ export LUA_PATH LUA_CPATH
 # also an entry point in its own right rather than only the child `nupp test`
 # starts. Naming the library here is what makes the two agree; building it stays
 # `bin/nupp`'s job, so a tree that was never built fails saying so.
-export NUPP_NATIVE_LIBRARY="$ROOT/build/lib/nupp_native"
-if [ ! -f "$NUPP_NATIVE_LIBRARY" ]; then
-    echo "tests/run: $NUPP_NATIVE_LIBRARY is missing; run ./bin/nupp build" >&2
+export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native"
+if [ ! -f "$ROOT/build/lib/nupp_native" ]; then
+    echo "tests/run: $ROOT/build/lib/nupp_native is missing; run ./bin/nupp build" >&2
     exit 1
 fi
 

@@ -13,28 +13,42 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILT="$ROOT/build/nupp/compiler/main.lua"
 STAMP="$ROOT/build/.nupp-complete"
 BOOTSTRAP="$ROOT/bootstrap/nupp.lua"
-LUAPATH="package.path=\"$ROOT/build/?.lua;\" .. package.path"
+
+# Two spellings of the same directory, because under Git Bash they are not the
+# same string. `ROOT` is the POSIX one this script tests files with; `LUA_ROOT`
+# is what the interpreter and the toolchain read, and on Windows that has to be
+# a native path. MSYS rewrites a path it sees as a command argument, and does
+# not rewrite one it hands over as an environment value or one buried in a Lua
+# string, which is every use below. `pwd -W` is how MSYS spells "natively", and
+# fails everywhere else, which is the test.
+LUA_ROOT="$ROOT"
+if ( cd "$ROOT" && pwd -W ) >/dev/null 2>&1; then
+    LUA_ROOT="$(cd "$ROOT" && pwd -W)"
+fi
+LUAPATH="package.path=\"$LUA_ROOT/build/?.lua;\" .. package.path"
 
 # The project's own rock tree, from `scripts/rocks`. Exported rather than passed
 # with -e, because the toolchain starts other interpreters — `nupp run`, the
 # configured test command — and a library the compiler can see should be one
 # they can see too. A trailing empty entry is where Lua substitutes the default
 # path, so nothing already installed is hidden.
-ROCKS="$ROOT/.rocks"
+ROCKS="$LUA_ROOT/.rocks"
 LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;${LUA_PATH:-;}"
 # Both suffixes, because the tree is the project's own and its extension is
 # the host's: a rock built here is .so on unix and .dll on Windows, and
 # naming only one leaves the other invisible.
 LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;$ROCKS/lib/lua/5.1/?.dll;${LUA_CPATH:-;}"
 export LUA_PATH LUA_CPATH
-export NUPP_COMPILER_ROOT="$ROOT"
+export NUPP_COMPILER_ROOT="$LUA_ROOT"
 
 # The compiler lists directories through `nupp.io.files`, so it needs that
 # facility's native provider the way any other program using one does. A built
 # program finds its library beside itself; the compiler's own output tree puts
 # `build/lib` one level further out than the generated loader looks, so name it
 # outright. Every interpreter this launcher starts inherits it.
-export NUPP_NATIVE_LIBRARY="$ROOT/build/lib/nupp_native"
+export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native"
+# The same file, spelled for this shell rather than for the interpreter.
+NATIVE_LIBRARY="$ROOT/build/lib/nupp_native"
 
 # Which makes Cargo a prerequisite for building Nupp at all, rather than only for
 # a target that asked for a native facility. Stage 0 reaches the provider while
@@ -54,7 +68,7 @@ build_native() {
     mkdir -p "$ROOT/build/lib"
     for name in libnupp_native.dylib libnupp_native.so nupp_native.dll; do
         if [ -f "$NATIVE_TARGET/release/$name" ]; then
-            cp "$NATIVE_TARGET/release/$name" "$NUPP_NATIVE_LIBRARY" && return 0
+            cp "$NATIVE_TARGET/release/$name" "$NATIVE_LIBRARY" && return 0
         fi
     done
     echo "nupp: cargo built no shared library for the file provider" >&2
@@ -143,7 +157,7 @@ for argument in "$@"; do
     esac
 done
 
-if [ "$needs_native" = yes ] && [ ! -f "$NUPP_NATIVE_LIBRARY" ]; then
+if [ "$needs_native" = yes ] && [ ! -f "$NATIVE_LIBRARY" ]; then
     build_native || exit 1
 fi
 
