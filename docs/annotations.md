@@ -158,7 +158,7 @@ annotated directly.
 | `@allow` | Implemented | Zero or more lint names or codes | `statement` |
 | `@owned` | Implemented | Cleanup/default/opaque/output contract | `function`, `c-function` |
 | `@borrowed` | Implemented | Foreign output and source contract | `c-function` |
-| `@dispose` | Implemented | None | `function`, `c-function`, `field` |
+| `@drop` | Implemented | None | `function`, `c-function`, `field` |
 | `@override` | Implemented | None | `function` |
 | `@effects` | Implemented | Named effect members | `function`, `c-function`, `local-binding` |
 | `@relax` | Implemented | Observable guarantee names | `function` |
@@ -178,9 +178,9 @@ may disagree with. It does not reach a type error, which is not a judgement:
 naming one is `NUPP2108` and the error stands.
 
 `@owned(cleanup, ...)` marks the first return as an affine owner. The checker
-requires it to be transferred or explicitly discharged, and `nupp.dispose(value)`
+requires it to be transferred or explicitly discharged, and `nupp.drop(value)`
 invokes the named cleanup functions in source order. Bare `@owned` resolves
-the result type's unique inherited `@dispose` operation;
+the result type's unique inherited `@drop` operation;
 `@owned(opaque = true)` is the explicit transfer-only form.
 It may also decorate a function-valued record or interface field to describe a
 bodyless owning producer directly.
@@ -195,8 +195,8 @@ A declaration that never comes back — it raises, exits, or loops forever —
 says so with `never` as its return type, not an annotation; see
 [primitives](type-system/primitives.md#never-the-bottom-type).
 
-`@dispose` marks a consuming function, method, or interface field as a type's
-default disposal operation. A disposal contract must take its resource, and a
+`@drop` marks a consuming function, method, or interface field as a type's
+default drop operation. A drop contract must take its resource, and a
 bare `@owned` result is rejected unless exactly one default applies. See
 [Ownership and FFI safety](ownership.md) for the complete model and examples.
 

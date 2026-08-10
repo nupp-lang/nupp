@@ -232,7 +232,7 @@ lookup — which Java cannot do, because it resolves through the itable.
   once in its defining module.
 - **The diamond**: two supertypes providing the same default is refused, and the
   record must define it. Same shape as NUPP2602 refusing a bare `@owned` with
-  multiple inherited `@dispose` operations.
+  multiple inherited `@drop` operations.
 - **`@override` is required, in both directions.** A member shadowing an
   inherited default without it is an error, and an `@override` shadowing nothing
   is also an error. That catches the two failures Java cannot: the misspelling

@@ -6,7 +6,7 @@
 > is not a language reference.
 
 Status: removed language design. Result provenance, affine owned fields,
-default `@dispose` contracts, and suspension checks now share the same resource
+default `@drop` contracts, and suspension checks now share the same resource
 model. Named lifetimes, stored borrowed fields, and the other items under
 [Open questions](#open-questions) remain deferred.
 
@@ -19,18 +19,18 @@ Nupp will keep resource ownership explicit:
   types; the value does not need to inherit from or structurally implement a
   `Closeable` type.
 - An ordinary owned local is never silently closed merely because its lexical
-  scope ends. The checker continues to require an explicit disposition on
+  scope ends. The checker continues to require an explicit drop on
   every reachable path.
 - `with` is the only language construct that automatically closes owners. It
   takes each owner at entry, exposes a non-escaping borrow in its body, and
   discharges the cleanup obligation on every exit.
-- `dispose`, a `takes` call, an owning return, and `intoRaw` remain the
+- `drop`, a `takes` call, an owning return, and `intoRaw` remain the
   manual lifetime controls.
 
 This is deliberately closer to Python context managers and Java
 try-with-resources than to unconditional C++ or Rust scope destruction. NUPP
 adds the part those languages do not: forgetting both `with` and an explicit
-disposition is a compile error.
+drop is a compile error.
 
 ## Current boundary
 
@@ -161,10 +161,10 @@ Until then an annotated named wrapper carries the contract. That keeps the
 initial `with` implementation independent of a prelude refactor, at the cost
 of one wrapper per owning standard-library producer.
 
-Bare `@owned` resolves the result type's unique inherited `@dispose` operation.
+Bare `@owned` resolves the result type's unique inherited `@drop` operation.
 Use `@owned(opaque = true)` for a transfer-only contract; with no known cleanup
 it may be moved or passed to `takes`, but cannot be used by `with` or
-`dispose`.
+`drop`.
 
 ## Syntax
 
@@ -235,7 +235,7 @@ end
 ```
 
 `assert` is not a substitute. It does not preserve ownership metadata today —
-`dispose(assert(maybe_owned()))` reports NUPP2602 — and making generic
+`drop(assert(maybe_owned()))` reports NUPP2602 — and making generic
 pass-throughs ownership-aware is deferred; see [Open
 questions](#open-questions). The `open_file` wrapper above is unaffected
 because its `assert` runs before the wrapper's own `@owned` boundary, which is
@@ -261,7 +261,7 @@ acquiring call only; see [Layered resources](#layered-resources). The body may
 call methods and pass the visible values to borrowing parameters, but it may
 not:
 
-- dispose or consume them;
+- drop or consume them;
 - return them;
 - store them in a table or longer-lived object;
 - capture them in any closure or coroutine; or
@@ -291,7 +291,7 @@ local channel = open_channel()
 manager:add(channel)       -- `add` takes it
 
 local other = open_channel()
-dispose(other)             -- close at this exact point
+drop(other)             -- close at this exact point
 
 local returned = open_channel()
 return returned            -- enclosing function has @owned(...)
@@ -299,7 +299,7 @@ return returned            -- enclosing function has @owned(...)
 
 The existing live-owner diagnostic remains central. Outside `with`, a live
 owner leaving scope is an error rather than an implicit close. A diagnostic may
-offer `with` or `dispose` as fixes when the appropriate transformation is
+offer `with` or `drop` as fixes when the appropriate transformation is
 unambiguous.
 
 No explicit lifetime parameters are required. `with` introduces an internal
@@ -324,9 +324,9 @@ it. Releasing the session frees the socket at that point:
 ```nupp
 local socket = open_socket()
 local tls = open_tls(socket)
-dispose(socket)                -- rejected: the session still holds it
-dispose(tls)                   -- releases the borrow
-dispose(socket)                -- now allowed
+drop(socket)                -- rejected: the session still holds it
+drop(tls)                   -- releases the borrow
+drop(socket)                -- now allowed
 ```
 
 Which is what lets the two layers be held as separate bindings in one scope:
@@ -502,7 +502,7 @@ lowering stays correct and measurably unchanged for the bodies that need it.
 `bench/ownership.lua` measures the surrounding trade-offs, including `ffi.gc`.
 
 The protected boundary is intentionally visible in source as `with`. Ordinary
-owner tracking, manual `dispose`, `takes`, and non-owning functions do not
+owner tracking, manual `drop`, `takes`, and non-owning functions do not
 gain an `xpcall`. This avoids the closure allocation and trace disruption of
 silently wrapping every function that happens to acquire a resource. Resource
 operations are usually coarse, but benchmarks must still cover hot repeated
@@ -539,7 +539,7 @@ cannot unwind an arbitrarily abandoned raw coroutine.
 
 No behavior is inferred from the name `scope:own` or from a method named
 `close`. A TECS `Closeable` interface may opt in explicitly by marking its
-consuming close operation `@dispose`; otherwise producers use
+consuming close operation `@drop`; otherwise producers use
 `@owned(tecs_cleanup)` adapters that translate failure results into errors.
 
 ## Tooling and incremental behavior
@@ -568,14 +568,14 @@ initial diagnostics are:
 | `NUPP2611` | An acquired owner has no known cleanup functions. |
 | `NUPP2612` | A `with` borrow escapes by return, storage, or capture. |
 | `NUPP2613` | A `with` binding is reassigned. |
-| `NUPP2614` | A visible `with` borrow is disposed or passed to `takes`. |
+| `NUPP2614` | A visible `with` borrow is dropped or passed to `takes`. |
 | `NUPP2615` | A cleanup signature is invalid or a non-final step takes. |
 | `NUPP2616` | A returned owner retains a borrow of an input. |
 | `NUPP2617` | A `goto` enters a `with` scope and bypasses acquisition. |
 
 When possible, diagnostics point to both the acquisition and invalid use. A
 live-owner diagnostic outside `with` may offer either an enclosing `with` or
-an explicit `dispose` fix, but only when the transformation preserves scope
+an explicit `drop` fix, but only when the transformation preserves scope
 and control flow without guessing user intent.
 
 ## Editor rewrites
@@ -583,12 +583,12 @@ and control flow without guessing user intent.
 The LSP server offers both directions of the transformation, and refuses
 rather than guesses where they are not equivalent.
 
-**Wrap in a `with` scope** turns an acquisition and its disposal into a scope.
+**Wrap in a `with` scope** turns an acquisition and its drop into a scope.
 It is a `refactor.rewrite` on any owned local, and the quick fix for the
-live-owner diagnostic (NUPP2603) on one that has no disposal at all. The header
+live-owner diagnostic (NUPP2603) on one that has no drop at all. The header
 is rewritten in place — `local` becomes `with`, ` do` is appended — so a type
 annotation and the acquisition expression survive exactly as written. The scope
-closes at the `dispose` when there is one, and otherwise at the end of the
+closes at the `drop` when there is one, and otherwise at the end of the
 enclosing block, which is where the obligation already came due. It is not
 offered for an owner the block returns: `with` would close it on the way out
 and hand back a dead value. An opaque owner (`@owned()` naming no cleanup) is
@@ -596,10 +596,10 @@ transfer-only and gets no offer either, since the scope would have nothing to
 call.
 
 **Unwrap a `with` scope** restores the manual controls. Acquisitions come back
-in the order they were written and disposals in the reverse of it, matching the
+in the order they were written and drops in the reverse of it, matching the
 scope's own cleanup order. It is not offered for a body that leaves the scope
 by `return`, `break`, `continue` or `goto`: `with` closes its owners on those
-paths and a trailing `dispose` would not, so the rewrite would silently change
+paths and a trailing `drop` would not, so the rewrite would silently change
 what the program does. A `return` inside a nested function body is not such a
 path and does not block the rewrite.
 
@@ -613,7 +613,7 @@ path and does not block the rewrite.
   transfer-only owners, optional owners before and after branch narrowing,
   ownership lost through `assert`, ignored extra results, and partial
   acquisition failure.
-- **Borrow checking:** calls and methods, reassignment, dispose/consume,
+- **Borrow checking:** calls and methods, reassignment, drop/consume,
   return, table storage, closure capture, coroutine capture, use of the moved
   source local, a returned owner retaining an input borrow, and the composite
   consuming producer that replaces it.
@@ -649,7 +649,7 @@ single-region design:
   a function boundary. Today the tie rides on the value, which is enough
   within a function and is why storing a borrow in a field stays rejected.
 - Moving resources into declared `owned<T>` fields after construction. Record
-  construction and whole-record disposal are checked today, but arbitrary
+  construction and whole-record drop are checked today, but arbitrary
   partial mutation would require more initialization-state tracking.
 - Ownership-preserving generic pass-throughs, so that `assert` and functions
   like it can narrow an `owned<T?>` without losing its cleanup list.
@@ -744,7 +744,7 @@ occupied was only 48 MB and generated no collection pressure. Everything was
 released immediately once a collection was forced. For memory obtained from C
 rather than from `ffi.new`, the size information the collector would need to
 pace itself does not exist, so this is not a tuning problem. Static ownership
-has neither cost: `dispose` lowers to the cleanup call itself.
+has neither cost: `drop` lowers to the cleanup call itself.
 
 Mike Pall's own position is consistent with treating finalization as a
 last resort rather than a default. Discussing Lua 5.2's `__gc` for tables he

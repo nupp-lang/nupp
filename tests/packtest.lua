@@ -323,7 +323,7 @@ function M.protectedCallOwnersAutoDestroyOnlyInTheSuccessArm()
    clean(declaration .. "\n" .. table.concat({
       "local ok, resource = pcall(acquire)",
       "if ok then",
-      "   dispose(resource)",
+      "   drop(resource)",
       "end",
    }, "\n"))
    assertEq(codes(declaration .. "\n" .. table.concat({

@@ -725,7 +725,7 @@ Reports: `NUPP2001`. `nupp explain <code>` says more.
 
 `@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local
 with known cleanup is destroyed automatically at its lexical scope boundary.
-Disposing it, passing it to a `takes` parameter, returning it as an owner, or
+Dropping it, passing it to a `takes` parameter, returning it as an owner, or
 converting it with `intoRaw` ends or transfers that responsibility exactly once.
 An opaque or otherwise unresolved owner still requires an explicit terminal;
 forgetting that choice is a compile error, not a leak.
@@ -754,7 +754,7 @@ when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
 The ownership intrinsics live under the always-available `nupp` global:
-`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
 `nupp.borrowFrom`, and `nupp.pin`. The old bare spellings remain aliases and
 lower identically. Either spelling is shadowed by a binding of that name,
 `nupp` included.

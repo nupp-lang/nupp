@@ -295,7 +295,7 @@ work makes sense in.
 - [ ] **Bounds-carrying spans, driven by the tecs buffer port.** Do not add a
       second byte-buffer runtime to Nupp: tecs already has the owned growable
       `Buffer`, retained immutable `ByteView`, and exclusive `WriteRange`.
-      First express those APIs with Nupp ownership: owned/disposable buffers
+      First express those APIs with Nupp ownership: owned/droppable buffers
       and views, consuming `commit`/`close`, a write range that prevents its
       source buffer from moving, closing, resizing, or detaching while live,
       and FFI pointers whose provenance is tied to the buffer/view/range. Then
@@ -353,15 +353,15 @@ work makes sense in.
       the producer runs. This removes NUPP2620 and lets `nupp.resources` owners,
       C pointers, and other foreign values cross modules without publishing
       their cleanup functions.
-- [x] **`@dispose` registration is idempotent across module rechecks.** Every
-      inline, declared, external, or inherited default disposer now reaches one
+- [x] **`@drop` registration is idempotent across module rechecks.** Every
+      inline, declared, external, or inherited default drop operation now reaches one
       deduplicating operation. A cross-module regression runs `check`, `build`,
       and the program, proving that revisiting the exported nominal does not
-      turn its one disposer into an ambiguous pair.
+      turn its one drop operation into an ambiguous pair.
 - [x] **Cleanup context is explicit owner state.** Ownership annotations erase,
       so a raw pointer has nowhere to retain a dynamic allocator, arena, or
       parent handle. Model `{context, value}` as a nominal record or struct and
-      give it an `@dispose` method that calls `ctx_free(self.context,
+      give it an `@drop` method that calls `ctx_free(self.context,
       self.value)`. This uses the existing affine nominal path, preserves raw
       pointer identity, and introduces neither a hidden side table nor a closure
       per owner. The ownership reference documents the FFI pattern.

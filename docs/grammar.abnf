@@ -270,7 +270,7 @@ annotation     = "@" Name [annotationargs]
 annotationargs = "(" [annotationarg *("," annotationarg)] ")"
 annotationarg  = [Name "="] exp
 ; @owned(cleanup, ...) decorates a function with an ordered, erased cleanup
-; contract for its first return. Bare @owned resolves one inherited @dispose
+; contract for its first return. Bare @owned resolves one inherited @drop
 ; operation; @owned(opaque = true) is explicitly transfer-only. On cdef
 ; functions, @owned(out = p, cleanup = f, success = zero) and
 ; @borrowed(out = p, from = source, success = zero) describe logical outputs.

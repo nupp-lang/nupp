@@ -292,7 +292,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    assertEq((diagsOf("nupp.io.files.createTemporaryFile()")), "NUPP2605:1")
 
    -- The prelude marks `open` and the temporaries `@owned`, so a binding the
-   -- program drops is disposed where it goes out of scope rather than leaking.
+   -- program drops is dropped where it goes out of scope rather than leaking.
    local source = table.concat({
       "local file = nupp.io.files.open('input.txt') as nupp.Files.File",
       "print(file)",
@@ -303,7 +303,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
    check.check(parsed, "owned.g.nupp", sharedEnv)
    local code = gen.generate(parsed, "owned")
    assert(code:find(":close()", 1, true),
-      "an open file is disposed at the end of its scope")
+      "an open file is dropped at the end of its scope")
 end
 
 function M.bufferAppendsInAmortizedConstantTime()

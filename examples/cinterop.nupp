@@ -60,4 +60,4 @@ print(`strlen agrees with #: ${tonumber(strlen(text)) == #text}`)
 -- @owned voidptr: explicit deterministic cleanup, checked on every path
 local scratch = malloc(4096)
 print(`scratch allocated: ${scratch ~= nil ? 'yes' : 'no'}`)
-nupp.dispose(scratch)
+nupp.drop(scratch)

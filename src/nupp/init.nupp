@@ -15,7 +15,7 @@ parsing-expression grammars), and `nupp.fieldcodec` (reflection-driven keyed
 codecs).
 
 The compiler-provided ownership operations also live under this global:
-`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
 `nupp.borrowFrom`, and `nupp.pin`. The compiler implements them, so they type
 nothing like ordinary functions and are not values you can pass around. The
 old bare spellings remain aliases, but new code should use `nupp.*`.

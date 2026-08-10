@@ -170,8 +170,8 @@ record state.Checker
     resumePackStack: {any}
     protocolStack: {any}
 
-    --- The owned fields a `@dispose` body still has to discharge.
-    disposerFieldStack: {any}
+    --- The owned fields a `@drop` body still has to discharge.
+    dropOperationFieldStack: {any}
 
     --- Cleanup contracts already validated, so one is not re-reported.
     validatedCleanupContracts: any

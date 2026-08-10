@@ -189,7 +189,7 @@ A producer declares the obligation, and any type can carry one:
 local record Session
     closed: boolean
 
-    @dispose
+    @drop
     function close(self)
         self.closed = true
     end
@@ -201,7 +201,7 @@ local function openSession(): Session
 end
 ```
 
-`@dispose` marks the operation that consumes the resource; `@owned` marks the
+`@drop` marks the operation that consumes the resource; `@owned` marks the
 function that produces one. An ordinary local is destroyed automatically:
 
 ```nupp
@@ -213,7 +213,7 @@ end
 
 Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving
 the block, and an error raised anywhere inside. Moving, returning, or explicitly
-disposing the owner deactivates its automatic cleanup exactly once.
+dropping the owner deactivates its automatic cleanup exactly once.
 
 [Ownership](ownership.md) starts from here; the
 [ownership reference](../ownership.md) has the whole model.

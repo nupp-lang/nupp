@@ -340,7 +340,7 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
-        elseif written == "dispose" then
+        elseif written == "drop" then
             local ownerKey = nil
             if target and target.kind == "funcStmt" then
                 local fname = target.name
@@ -349,17 +349,17 @@ function pragma.install(c: state.Checker): state.StatHandlers
                 end
             end
             if valid and targetKind == "funcStmt" and targetBody then
-                targetBody.disposeContract = true
-                targetBody.disposeMethod = ownerKey ~= nil
-                targetBody.disposeTok = annotationName
+                targetBody.dropContract = true
+                targetBody.dropMethod = ownerKey ~= nil
+                targetBody.dropTok = annotationName
                 targetBody.cleanupRegistrationNode = stat
             elseif valid and targetKind == "localFuncStmt" and targetBody then
-                targetBody.disposeContract = true
-                targetBody.disposeTok = annotationName
+                targetBody.dropContract = true
+                targetBody.dropTok = annotationName
                 targetBody.cleanupRegistrationNode = stat
             elseif valid and target and targetKind == "cdefFunc" then
-                target.disposeContract = true
-                target.disposeTok = stat.name
+                target.dropContract = true
+                target.dropTok = stat.name
                 target.cleanupRegistrationNode = stat
             end
             if stat.stat then

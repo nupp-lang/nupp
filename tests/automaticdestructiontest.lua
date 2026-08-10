@@ -121,11 +121,11 @@ function M.ownersDestroyInReverseActivationOrder()
    assertEq(chunk(), "abba")
 end
 
-function M.explicitDisposeSuppressesAutomaticCleanup()
+function M.explicitDropSuppressesAutomaticCleanup()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local value = open_resource('d')",
-      "dispose(value)",
+      "drop(value)",
       "return calls",
    }, "\n"))
    assertEq(chunk(), "d")
@@ -136,7 +136,7 @@ function M.aMovedBindingCanBeReinitializedForAutomaticCleanup()
       "",
       "local function run()",
       "   local value = open_resource('a')",
-      "   dispose(value)",
+      "   drop(value)",
       "   value = open_resource('b')",
       "end",
       "run()",
@@ -179,7 +179,7 @@ function M.anOwningReturnTransfersResponsibility()
       "   return value",
       "end",
       "local value = make()",
-      "dispose(value)",
+      "drop(value)",
       "return calls",
    }, "\n"))
    assertEq(chunk(), "r")
@@ -193,7 +193,7 @@ function M.capabilityPreservingGenericsTransferAutomaticResponsibility()
       "end",
       "local value = open_resource('f')",
       "local moved = forward(value)",
-      "dispose(moved)",
+      "drop(moved)",
       "return calls",
    }, "\n"))
    assertEq(chunk(), "f")
@@ -297,7 +297,7 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
       "      second = open_resource('b'),",
       "   }",
       "   local first = bundle.first",
-      "   dispose(first)",
+      "   drop(first)",
       "   bundle.first = open_resource('c')",
       "end",
       "run()",

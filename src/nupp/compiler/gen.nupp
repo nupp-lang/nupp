@@ -1992,7 +1992,7 @@ function gen.generate(
             e(" end")
             return
 
-        elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic == "dispose" then
+        elseif kind == "callStmt" and x.expr and x.expr.ownershipIntrinsic == "drop" then
             e("do", sourceLine(x))
             emit(x.expr)
             e("end")
@@ -2066,7 +2066,7 @@ function gen.generate(
             local line = sourceLine(x)
             local move = args[1] and args[1].automaticOwnerMove or nil
             local movedActive = move and activeWith(move) or nil
-            if movedActive and (x.ownershipIntrinsic == "dispose" or x.ownershipIntrinsic == "intoRaw") then
+            if movedActive and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw") then
                 e(("(function() %s=false; return "):format(movedActive), line)
             end
             if x.ownershipIntrinsic == "borrow" then
@@ -2123,7 +2123,7 @@ function gen.generate(
                 else
                     e("nil")
                 end
-            else -- dispose
+            else -- drop
                 e("(function(__p) if __p == nil then return end ", line)
                 for _, cleanup in ipairs(x.ownerCleanups or {}) do
                     local call = cleanupCall(cleanup, "__p")
@@ -2139,7 +2139,7 @@ function gen.generate(
                 end
                 e(")")
             end
-            if movedActive and (x.ownershipIntrinsic == "dispose" or x.ownershipIntrinsic == "intoRaw") then
+            if movedActive and (x.ownershipIntrinsic == "drop" or x.ownershipIntrinsic == "intoRaw") then
                 e(" end)()")
             end
             return

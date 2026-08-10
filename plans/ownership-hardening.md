@@ -203,7 +203,7 @@ The following are implemented and are not redesigned here:
 
 - producer-specific ordered `@owned` cleanup, including private cross-module
   cleanup references;
-- unique inherited `@dispose` and explicit transfer-only owners;
+- unique inherited `@drop` and explicit transfer-only owners;
 - `takes`, inferred/declared `borrows`, and call-duration `exclusive`;
 - lexical borrows, multi-root result provenance, and owners that also borrow;
 - `with` cleanup on all structured exits and cleanup-failure aggregation;
@@ -349,7 +349,7 @@ unknown capability once, borrows it temporarily, or returns it through a
 matching `preserves` result, the function is capability-polymorphic. If it
 duplicates, discards, or stores the value, infer that the corresponding actual
 must be unrestricted; keep the generic declaration valid and reject only an
-affine instantiation. It may never dispose an unknown producer-specific cleanup
+affine instantiation. It may never drop an unknown producer-specific cleanup
 contract without a reified witness.
 
 A bodyless generic parameter is conservatively unrestricted for an affine
@@ -363,7 +363,7 @@ Examples that must work:
 
 ```nupp
 local file = require(maybeOpen())
-nupp.dispose(file)
+nupp.drop(file)
 ```
 
 ```nupp
@@ -546,7 +546,7 @@ uninitialized -> live -> moved/discharged -> reinitialized
 
 A partially moved record may access independent live fields but cannot use a
 method requiring the whole record. Every exit must account for every live
-field, and synthesized disposal skips fields already moved only when the flow
+field, and synthesized drop skips fields already moved only when the flow
 state proves that fact.
 
 Exit criteria:
@@ -575,7 +575,7 @@ end
 
 `adopt` moves the owner into the set, reifies its resolved ordered cleanup
 references in the set's runtime registration, and returns a borrow tied to the
-set. Disposing the set runs every registration in reverse order, attempts all
+set. Dropping the set runs every registration in reverse order, attempts all
 cleanup steps, and uses the same primary/suppressed failure contract as
 `with`.
 
@@ -610,7 +610,7 @@ the owner in explicit flow or move it into a nominal transfer queue whose own
 terminal `takes` contract is checked.
 
 Generic code may forward an unknown capability after S2. It still may not call
-`dispose` on one unless it receives a reified discharge witness or moves it
+`drop` on one unless it receives a reified discharge witness or moves it
 into this owning container. This keeps ordinary generic calls erased.
 
 Exit criteria:
@@ -656,7 +656,7 @@ closure that captures an owner by move would itself have to become affine,
 carry cleanup for an invocation that never happens, and expose a consuming
 one-shot call when invocation discharges the capture. Do not permit owning
 captures as ordinary copyable Lua functions. If no acceptance-corpus case
-justifies the runtime wrapper needed to dispose their upvalues, keep them an
+justifies the runtime wrapper needed to drop their upvalues, keep them an
 explicit documented rejection rather than weakening closure types.
 
 Exit criteria:
@@ -701,7 +701,7 @@ Required rules:
 10. `return`, loop control, and errors leaving the handler region reuse the
     proven `with` control protocol so handler release and resource cleanup both
     run.
-11. Every cleanup step and `@dispose` operation is checked as non-suspending.
+11. Every cleanup step and `@drop` operation is checked as non-suspending.
     Cleanup runs while another obligation is being discharged and, during
     cancellation, while its handler may be shutting down; allowing it to park
     again makes completion circular. A bodyless cleanup contract is trusted to

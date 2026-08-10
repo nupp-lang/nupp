@@ -13,14 +13,14 @@ the complete model.
 
 ## Declaring a resource
 
-Two annotations. `@dispose` marks the operation that consumes the resource, and
+Two annotations. `@drop` marks the operation that consumes the resource, and
 `@owned` marks the function that produces one:
 
 ```nupp
 local record File
     closed: boolean
 
-    @dispose
+    @drop
     function close(self)
         self.closed = true
     end
@@ -32,11 +32,11 @@ local function openFile(): File
 end
 ```
 
-The annotation, rather than the name, is what makes `close` the disposer. Bare
+The annotation, rather than the name, is what makes `close` the drop operation. Bare
 `@owned` is accepted only when the result type has exactly one, so the compiler
 never has to guess between close, free, flush, and stop.
 
-For a type you do not own, the disposer can be a free function, and the
+For a type you do not own, the drop operation can be a free function, and the
 producer names it:
 
 ```nupp
@@ -44,7 +44,7 @@ local record Session
     id: integer
 end
 
-@dispose
+@drop
 local function closeSession(takes session: Session)
     print("closing", session.id)
 end
@@ -55,7 +55,7 @@ local function openSession(id: integer): Session
 end
 ```
 
-A disposer must `takes` its resource. That is what makes it consuming.
+A drop operation must `takes` its resource. That is what makes it consuming.
 
 ## Discharging the obligation
 
@@ -70,11 +70,11 @@ print(f.closed)
 
 There are three ways to end or transfer the obligation before that boundary.
 
-**Dispose it** at the point you choose:
+**Drop it** at the point you choose:
 
 ```nupp
 local f = openFile()
-nupp.dispose(f)
+nupp.drop(f)
 ```
 
 **Hand it on** to a parameter that takes it:
@@ -91,9 +91,9 @@ enqueue(s)
 **Return it** from a function that is itself `@owned`.
 
 Inside a function, a `takes` parameter is discharged by passing it to another
-`takes` parameter — the disposer, or something that adopts it. `nupp.dispose()`
+`takes` parameter — the drop operation, or something that adopts it. `nupp.drop()`
 needs a value whose *static type* carries a cleanup list, and a bare `takes`
-binding does not have one, so `nupp.dispose(session)` there reports NUPP2602 and
+binding does not have one, so `nupp.drop(session)` there reports NUPP2602 and
 names the fix.
 
 ## Borrowing
@@ -140,7 +140,7 @@ end
 ```
 
 The bindings remain owners: they may be moved, returned under an owning
-contract, or explicitly disposed early. Each successful transfer deactivates
+contract, or explicitly dropped early. Each successful transfer deactivates
 automatic cleanup exactly once.
 
 ## Records that hold resources
@@ -155,18 +155,18 @@ local record Bundle
 end
 
 local bundle = new Bundle {input = openSession(1), output = openSession(2)}
-nupp.dispose(bundle)
+nupp.drop(bundle)
 ```
 
-A custom `@dispose` method has to discharge every affine field, and it does
-that by calling their disposer directly:
+A custom `@drop` method has to discharge every affine field, and it does
+that by calling their drop operation directly:
 
 ```nupp
 local record Pair
     first: owned<Session>
     second: owned<Session>
 
-    @dispose
+    @drop
     function close(self)
         closeSession(self.second)
         closeSession(self.first)

@@ -172,14 +172,14 @@ function M.cdefStructRuntime()
    }, "\n")), 12)
 end
 
-function M.ownIsStaticAndDisposeIsExplicit()
+function M.ownIsStaticAndDropIsExplicit()
    assertEq(run(table.concat({
       "cdef function free(takes p: voidptr)",
       "@owned(free)",
       "cdef function malloc(n: uint64): voidptr",
       "local p = malloc(64)",
       "local ok = p ~= nil",
-      "dispose(p)",
+      "drop(p)",
       "return ok",
    }, "\n")), true)
 end

@@ -1014,7 +1014,7 @@ function M.siteMatchesTheNuppdocPageModel()
          "",
          "```lua [Generated Lua]",
          "local resource = openResource()",
-         "dispose(resource)",
+         "drop(resource)",
          "```",
          ":::",
          "",

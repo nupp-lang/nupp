@@ -52,7 +52,7 @@ function M.scalarGenericPreservationTransfersAnOwner()
       "end",
       "local value = resource_new()",
       "local forwarded = id(value)",
-      "dispose(forwarded)",
+      "drop(forwarded)",
    }, "\n"))
 end
 
@@ -65,7 +65,7 @@ function M.scalarGenericPreservationMovesItsInputExactlyOnce()
       "local value = resource_new()",
       "local forwarded = id(value)",
       "print(value)",
-      "dispose(forwarded)",
+      "drop(forwarded)",
    }, "\n")), "NUPP2601")
 end
 
@@ -77,7 +77,7 @@ function M.fixedPackPreservationCarriesTheExactResultSlot()
       "end",
       "local name, forwarded = label(resource_new())",
       "print(name)",
-      "dispose(forwarded)",
+      "drop(forwarded)",
    }, "\n"))
 end
 
@@ -90,7 +90,7 @@ function M.assertPreservesAndNarrowsAnOptionalOwner()
       "@owned(cleanup)",
       "cdef function maybe_resource(): resource*?",
       "local value = assert(maybe_resource())",
-      "dispose(value)",
+      "drop(value)",
    }, "\n"))
 end
 
@@ -125,7 +125,7 @@ function M.ffiGcCannotAttachASecondCleanupToAnOwner()
       RESOURCE,
       "local value = resource_new()",
       "ffi.gc(value, resource_free)",
-      "dispose(value)",
+      "drop(value)",
    }, "\n")), "NUPP2603")
 end
 
@@ -160,7 +160,7 @@ function M.nominalRecordsCanRetainDeclaredBorrowedFields()
       "   local cursor = new Cursor {source = source, bytes = view(source)}",
       "   print(cursor.bytes.value)",
       "end",
-      "dispose(source)",
+      "drop(source)",
    }, "\n"))
 end
 
@@ -192,7 +192,7 @@ function M.aRecordCanOwnTheRootOfItsBorrowedField()
       "local source = resource_new()",
       "local parsed = new Parsed {source = source, view = borrow(source)}",
       "print(parsed.view.value)",
-      "dispose(parsed)",
+      "drop(parsed)",
    }, "\n"))
 end
 
@@ -206,8 +206,8 @@ function M.anInternallyBorrowedRootFieldCannotMoveAlone()
       "local source = resource_new()",
       "local parsed = new Parsed {source = source, view = borrow(source)}",
       "local detached = parsed.source",
-      "dispose(detached)",
-      "dispose(parsed)",
+      "drop(detached)",
+      "drop(parsed)",
    }, "\n")), "NUPP2602")
 end
 
@@ -219,7 +219,7 @@ function M.scopedCallbacksMayCaptureABorrow()
       "   local view = borrow(value)",
       "   pcall(function() print(view.value) end)",
       "end",
-      "dispose(value)",
+      "drop(value)",
    }, "\n"))
 end
 
@@ -228,7 +228,7 @@ function M.scopedCallbacksStillCannotCaptureOwners()
       RESOURCE,
       "local value = resource_new()",
       "pcall(function() print(value.value) end)",
-      "dispose(value)",
+      "drop(value)",
    }, "\n")), "NUPP2603")
 end
 
@@ -242,7 +242,7 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
       "   local child = suspension.create(function() print(view.value) end)",
       "   coroutine.resume(child)",
       "end",
-      "dispose(value)",
+      "drop(value)",
    }, "\n")), "NUPP2603")
 end
 
@@ -257,7 +257,7 @@ function M.cleanupContractsCannotSuspend()
       "   return new Resource {value = 1}",
       "end",
       "local value = open()",
-      "dispose(value)",
+      "drop(value)",
    }, "\n")), "NUPP2603 NUPP2603 NUPP2701")
 end
 
@@ -302,7 +302,7 @@ function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
       "   local resources = sets.new('requests')",
       "   local borrowed = resources:adopt(resource_new())",
       "   local returned = resources:remove(borrowed)",
-      "   dispose(returned)",
+      "   drop(returned)",
       "end",
    }, "\n"))
 end
@@ -407,7 +407,7 @@ function M.aBorrowedResultBlocksReleasingItsSource()
       "",
       "local pool = open_pool()",
       "local held = peek(pool)",
-      "dispose(pool)",
+      "drop(pool)",
       "print(held.items)",
    }, "\n")), "NUPP2602")
 end
@@ -417,7 +417,7 @@ function M.aMethodResultCanBorrowTheReceiver()
       "",
       "local pool = open_pool()",
       "local item = pool:get(1)",
-      "dispose(pool)",
+      "drop(pool)",
       "print(item.name)",
    }, "\n")), "NUPP2602")
 end
@@ -430,7 +430,7 @@ function M.aBorrowedResultIsReleasedWithItsScope()
       "   local item = pool:get(1)",
       "   print(item.name)",
       "end",
-      "dispose(pool)",
+      "drop(pool)",
    }, "\n"))
 end
 
@@ -524,8 +524,8 @@ function M.anOwningResultCanRetainAnInputBorrow()
       "",
       "local sock = open_socket()",
       "local tls = open_tls(sock)",
-      "dispose(tls)",
-      "dispose(sock)",
+      "drop(tls)",
+      "drop(sock)",
    }, "\n"))
 end
 
@@ -534,8 +534,8 @@ function M.theHeldSourceCannotBeReleasedFirst()
       "",
       "local sock = open_socket()",
       "local tls = open_tls(sock)",
-      "dispose(sock)",
-      "dispose(tls)",
+      "drop(sock)",
+      "drop(tls)",
    }, "\n")), "NUPP2602")
 end
 
@@ -559,7 +559,7 @@ function M.anOwningResultThatBorrowsIsStillOwned()
       "",
       "local sock = open_socket()",
       "local tls = open_tls(sock)",
-      "dispose(sock)",
+      "drop(sock)",
    }, "\n")), "NUPP2602")
 end
 
@@ -571,7 +571,7 @@ function M.aMethodBorrowedReturnElidesToTheReceiver()
       "end",
       "local pool = open_pool()",
       "local item = pool:first()",
-      "dispose(pool)",
+      "drop(pool)",
       "print(item.name)",
    }, "\n")), "NUPP2602")
 end
@@ -584,7 +584,7 @@ function M.aMethodReturningAPlainValueDoesNotBorrow()
       "end",
       "local pool = open_pool()",
       "local n = pool:count()",
-      "dispose(pool)",
+      "drop(pool)",
       "print(n)",
    }, "\n"))
 end
@@ -604,7 +604,7 @@ function M.aChainOfBorrowsStillHoldsTheRoot()
       "local pool = open_pool()",
       "local first = peek(pool)",
       "local second = peek(first)",
-      "dispose(pool)",
+      "drop(pool)",
       "print(second.items)",
    }, "\n")), "NUPP2602")
 end
@@ -618,7 +618,7 @@ function M.aDerivedBorrowCannotOutliveItsIntermediate()
       "   local inner = peek(pool)",
       "   held = peek(inner)",
       "end",
-      "dispose(pool)",
+      "drop(pool)",
    }, "\n")), "NUPP2603 NUPP2602")
 end
 
@@ -629,7 +629,7 @@ function M.aDerivedBorrowCannotBeStored()
       "local sink: {Pool} = {}",
       "local first = peek(pool)",
       "sink[1] = peek(first)",
-      "dispose(pool)",
+      "drop(pool)",
    }, "\n")), "NUPP2603 NUPP2602")
 end
 
@@ -646,7 +646,7 @@ function M.aBorrowMayBeDerivedThroughAnIntermediate()
    }, "\n"))
 end
 
-function M.liveDisposableOwnersAreDestroyedAutomatically()
+function M.liveDroppableOwnersAreDestroyedAutomatically()
    assertEq(codes(RESOURCE .. "\nlocal value = resource_new()"), "")
    assertEq(codes(RESOURCE .. "\nresource_new()"), "NUPP2605")
 end
@@ -658,16 +658,16 @@ function M.opaqueOwnersAreTransferOnly()
       "cdef function resource_take(takes value: voidptr)",
    }, "\n")
    assertClean(opaque .. "\nlocal value = resource_new()\nresource_take(value)")
-   assertEq(codes(opaque .. "\nlocal value = resource_new()\ndispose(value)"),
+   assertEq(codes(opaque .. "\nlocal value = resource_new()\ndrop(value)"),
       "NUPP2602")
 end
 
-function M.bareOwnedUsesTheDeclaredDefaultDisposer()
+function M.bareOwnedUsesTheDeclaredDefaultDropOperation()
    local source = table.concat({
       "local calls = ''",
       "local record File",
       "   closed: boolean",
-      "   @dispose",
+      "   @drop",
       "   function close(self)",
       "      calls = calls .. 'close'",
       "      self.closed = true",
@@ -678,22 +678,22 @@ function M.bareOwnedUsesTheDeclaredDefaultDisposer()
       "   return new File {closed = false}",
       "end",
       "local file = openFile()",
-      "dispose(file)",
+      "drop(file)",
       "return calls",
    }, "\n")
    local result, diags = checked(source)
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
    local code, genDiags = gen.generate(result, "ownership-test")
    assertEq(#genDiags, 0)
-   local chunk, loadErr = loadstring(code, "@ownership-default-dispose")
+   local chunk, loadErr = loadstring(code, "@ownership-default-drop")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
-   assertEq(chunk(), "close", "default disposer runs")
+   assertEq(chunk(), "close", "default drop operation runs")
 end
 
-function M.defaultDisposersAreInheritedFromInterfaces()
+function M.defaultDropOperationsAreInheritedFromInterfaces()
    assertClean(table.concat({
       "local interface Closeable",
-      "   @dispose",
+      "   @drop",
       "   close: function(takes value: self): nil",
       "end",
       "local record File is Closeable",
@@ -719,11 +719,11 @@ function M.bareOwnedRejectsMissingAndAmbiguousDefaults()
 
    assertEq(codes(table.concat({
       "local interface Stops",
-      "   @dispose",
+      "   @drop",
       "   stop: function(takes value: self): nil",
       "end",
       "local interface Closes",
-      "   @dispose",
+      "   @drop",
       "   close: function(takes value: self): nil",
       "end",
       "local record File is Stops, Closes",
@@ -734,10 +734,10 @@ function M.bareOwnedRejectsMissingAndAmbiguousDefaults()
    }, "\n")), "NUPP2602")
 end
 
-function M.disposeContractsMustTakeTheirResource()
+function M.dropContractsMustTakeTheirResource()
    assertEq(codes(table.concat({
       "local record File end",
-      "@dispose",
+      "@drop",
       "local function closeFile(borrows file: File) end",
    }, "\n")), "NUPP2602")
 end
@@ -895,7 +895,7 @@ function M.nullableOwnersNarrowWithoutLosingOwnership()
       "local value = maybe_new()",
       "if value then",
       "   print(value.value)",
-      "   dispose(value)",
+      "   drop(value)",
       "end",
    }, "\n"))
 end
@@ -998,7 +998,7 @@ function M.rawReconstructionRequiresUnsafe()
       "local raw: resource*",
       "unsafe do",
       "   local value = fromRaw(raw, resource_free)",
-      "   dispose(value)",
+      "   drop(value)",
       "end",
    }, "\n"))
    assertEq(codes(table.concat({
@@ -1085,7 +1085,7 @@ function M.borrowedResultsCanNameMultipleSources()
       "local left = resource_new()",
       "local right = resource_new()",
       "local joined = pair(left, right)",
-      "dispose(joined)",
+      "drop(joined)",
       "resource_free(right)",
       "resource_free(left)",
    }, "\n"))
@@ -1095,12 +1095,12 @@ function M.borrowedResultsCanNameMultipleSources()
       "local right = resource_new()",
       "local joined = pair(left, right)",
       "resource_free(left)",
-      "dispose(joined)",
+      "drop(joined)",
       "resource_free(right)",
    }, "\n")), "NUPP2602")
 end
 
-function M.affineRecordsDisposeOwnedFieldsInReverseOrder()
+function M.affineRecordsDropOwnedFieldsInReverseOrder()
    local source = table.concat({
       "local calls = ''",
       "local record Res",
@@ -1118,7 +1118,7 @@ function M.affineRecordsDisposeOwnedFieldsInReverseOrder()
       "   second: owned<Res>",
       "end",
       "local bundle = new Bundle {first = openRes('a'), second = openRes('b')}",
-      "dispose(bundle)",
+      "drop(bundle)",
       "return calls",
    }, "\n")
    local result, diags = checked(source)
@@ -1141,8 +1141,8 @@ function M.affineRecordsTrackPartialFieldMoves()
       "end",
       "local bundle = new Bundle {value = openRes()}",
       "local value = bundle.value",
-      "dispose(value)",
-      "dispose(bundle)",
+      "drop(value)",
+      "drop(bundle)",
    }, "\n"))
    assertEq(codes(table.concat({
       "local record Res end",
@@ -1155,15 +1155,15 @@ function M.affineRecordsTrackPartialFieldMoves()
       "local bundle = new Bundle {value = openRes()}",
       "local value = bundle.value",
       "print(bundle.value)",
-      "dispose(value)",
-      "dispose(bundle)",
+      "drop(value)",
+      "drop(bundle)",
    }, "\n")), "NUPP2601")
 end
 
-function M.customDisposersMustDischargeEveryOwnedField()
+function M.customDropOperationsMustDischargeEveryOwnedField()
    local prefix = table.concat({
       "local record Res end",
-      "@dispose",
+      "@drop",
       "local function closeRes(takes value: Res) end",
       "@owned(closeRes)",
       "local function openRes(): Res return new Res {} end",
@@ -1172,20 +1172,20 @@ function M.customDisposersMustDischargeEveryOwnedField()
       "local record Bundle",
       "   first: owned<Res>",
       "   second: owned<Res>",
-      "   @dispose",
+      "   @drop",
       "   function close(self)",
       "      closeRes(self.second)",
       "      closeRes(self.first)",
       "   end",
       "end",
       "local bundle = new Bundle {first = openRes(), second = openRes()}",
-      "dispose(bundle)",
+      "drop(bundle)",
    }, "\n"))
    assertEq(codes(prefix .. "\n" .. table.concat({
       "local record Bundle",
       "   first: owned<Res>",
       "   second: owned<Res>",
-      "   @dispose",
+      "   @drop",
       "   function close(self)",
       "      closeRes(self.second)",
       "   end",
@@ -1202,7 +1202,7 @@ function M.contextualCleanupUsesExplicitOwnerFields()
       "local record Allocation",
       "   arena: Arena",
       "   value: string",
-      "   @dispose",
+      "   @drop",
       "   function close(self)",
       "      released = self.arena.name .. ':' .. self.value",
       "   end",
@@ -1213,7 +1213,7 @@ function M.contextualCleanupUsesExplicitOwnerFields()
       "end",
       "local arena = new Arena {name = 'frame'}",
       "local allocation = allocate(arena, 'buffer')",
-      "dispose(allocation)",
+      "drop(allocation)",
       "return released",
    }, "\n")
    local result, diags = checked(source)
@@ -1224,7 +1224,7 @@ function M.contextualCleanupUsesExplicitOwnerFields()
       "a method cleanup needs no hidden context registry")
    local chunk, loadErr = loadstring(code, "@ownership-context")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
-   assertEq(chunk(), "frame:buffer", "the disposer reads its explicit context")
+   assertEq(chunk(), "frame:buffer", "the drop operation reads its explicit context")
 end
 
 function M.rawCoroutinesCannotSuspendTemporalObligations()
@@ -1350,7 +1350,7 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
       "@owned(out = result, cleanup = free, success = zero)",
       "cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32",
       "local status, pointer = posix_memalign(16, 64)",
-      "if pointer then dispose(pointer) end",
+      "if pointer then drop(pointer) end",
       "return status == 0",
    }, "\n")
    local result, diags = checked(source)
@@ -1366,7 +1366,7 @@ function M.cdefOwnedOutputsBecomeLuaReturns()
       "out holders and status are const: " .. code)
    local chunk, loadErr = loadstring(code, "@ownership-cdef-out")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
-   assertEq(chunk(), true, "owned out pointer is returned and disposed")
+   assertEq(chunk(), true, "owned out pointer is returned and dropped")
 end
 
 function M.failedOwnedOutputsAreNil()
@@ -1376,7 +1376,7 @@ function M.failedOwnedOutputsAreNil()
       "cdef function posix_memalign(out result: voidptr*, alignment: uint64, size: uint64): int32",
       "local status, pointer = posix_memalign(3, 64)",
       "local failed = pointer == nil",
-      "if pointer then dispose(pointer) end",
+      "if pointer then drop(pointer) end",
       "return status ~= 0 and failed",
    }, "\n")
    local result, diags = checked(source)
@@ -1403,8 +1403,8 @@ function M.multipleOwnedOutputsPreserveCAndLuaOrder()
       "@owned(out = second, cleanup = free, success = 7)",
       "cdef function make_pair(out first: voidptr*, seed: int32, out second: voidptr*): int32",
       "local status, first, second = make_pair(1)",
-      "if second then dispose(second) end",
-      "if first then dispose(first) end",
+      "if second then drop(second) end",
+      "if first then drop(first) end",
    }, "\n")
    local result, diags = checked(source)
    assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
@@ -1428,14 +1428,14 @@ function M.cdefBorrowedOutputsTrackTheirInputOwner()
    assertEq(codes(declarations .. "\n" .. table.concat({
       "local owner = make_owner()",
       "local status, view = get_view(owner)",
-      "dispose(owner)",
+      "drop(owner)",
    }, "\n")), "NUPP2602")
    assertClean(declarations .. "\n" .. table.concat({
       "local owner = make_owner()",
       "do",
       "   local status, view = get_view(owner)",
       "end",
-      "dispose(owner)",
+      "drop(owner)",
    }, "\n"))
 end
 
@@ -1597,7 +1597,7 @@ function M.pinnedArgumentsLowerToTheirCPointers()
       "releases passes the C pointer")
 end
 
-function M.rawTransferAndDisposalAreStaticAndDeterministic()
+function M.rawTransferAndDropAreStaticAndDeterministic()
    local source = table.concat({
       "cdef function free(takes value: voidptr)",
       "@owned(free)",
@@ -1607,7 +1607,7 @@ function M.rawTransferAndDisposalAreStaticAndDeterministic()
       "unsafe do",
       "   raw = intoRaw(value)",
       "   local restored = fromRaw(raw, free)",
-      "   dispose(restored)",
+      "   drop(restored)",
       "end",
       "return true",
    }, "\n")
@@ -1617,7 +1617,7 @@ function M.rawTransferAndDisposalAreStaticAndDeterministic()
    assertEq(#genDiags, 0)
    assert(not code:find(".gc(", 1, true), "ownership emits no ffi.gc calls")
    assert(code:find("return cleanup(value)", 1, true),
-      "dispose calls the resolved cleanup")
+      "drop calls the resolved cleanup")
    local chunk, loadErr = loadstring(code, "@ownership-runtime")
    assert(chunk, tostring(loadErr) .. "\n" .. code)
    assertEq(chunk(), true, "raw transfer runs without a double free")
@@ -1634,7 +1634,7 @@ function M.multipleCleanupsRunInAnnotationOrder()
       "   unsafe do return fromRaw(raw, stop, release) end",
       "end",
       "local value = make()",
-      "dispose(value)",
+      "drop(value)",
       "return calls",
    }, "\n")
    local result, diags = checked(source)
@@ -1656,14 +1656,14 @@ function M.sameSpelledCleanupBindingsKeepDistinctReferences()
       "   @owned(close)",
       "   local function open(): Resource return new Resource {} end",
       "   local value = open()",
-      "   dispose(value)",
+      "   drop(value)",
       "end",
       "do",
       "   local function close(value: Resource) calls = calls .. 'b' end",
       "   @owned(close)",
       "   local function open(): Resource return new Resource {} end",
       "   local value = open()",
-      "   dispose(value)",
+      "   drop(value)",
       "end",
       "return calls",
    }, "\n")
@@ -1706,7 +1706,7 @@ function M.ownershipLoweringPreservesLineCount()
       "unsafe do",
       "   raw = intoRaw(value)",
       "   local restored = fromRaw(raw, free)",
-      "   dispose(restored)",
+      "   drop(restored)",
       "end",
    }, "\n")
    local result, diags = checked(source)
@@ -1749,7 +1749,7 @@ function M.aFunctionValuedFieldCanDeclareAnOwningProducer()
       "end",
       "local api: Api = nil as any",
       "local value = api.open()",
-      "dispose(value)",
+      "drop(value)",
    }, "\n"))
 end
 
@@ -1791,14 +1791,14 @@ end
 -- the same thing: same diagnostics, same lowering.
 
 function M.everyIntrinsicAnswersToItsQualifiedSpelling()
-   assertClean(RESOURCE .. "\nlocal value = resource_new()\nnupp.dispose(value)")
+   assertClean(RESOURCE .. "\nlocal value = resource_new()\nnupp.drop(value)")
    assertClean(table.concat({
       RESOURCE,
       "local value = resource_new()",
       "do",
       "   local view = nupp.borrow(value)",
       "end",
-      "dispose(value)",
+      "drop(value)",
    }, "\n"))
    assertClean(table.concat({
       "cdef function free(takes value: voidptr)",
@@ -1811,7 +1811,7 @@ function M.everyIntrinsicAnswersToItsQualifiedSpelling()
       "   do",
       "      local view = nupp.borrowFrom(raw, owner)",
       "   end",
-      "   nupp.dispose(owner)",
+      "   nupp.drop(owner)",
       "end",
    }, "\n"))
    assertClean(table.concat({
@@ -1833,13 +1833,31 @@ function M.everyIntrinsicAnswersToItsQualifiedSpelling()
    }, "\n")), "NUPP2604")
 end
 
-function M.bothSpellingsOfDisposeLowerTheSameWay()
+function M.disposeIsNotAnAnnotationAliasForDrop()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "@dispose",
+      "local function close(takes value: resource*)",
+      "   resource_free(value)",
+      "end",
+   }, "\n")), "NUPP2111")
+end
+
+function M.qualifiedDisposeIsNotAnIntrinsicAliasForDrop()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local value = resource_new()",
+      "nupp.dispose(value)",
+   }, "\n")), "NUPP2004 NUPP2603")
+end
+
+function M.bothSpellingsOfDropLowerTheSameWay()
    local function lowered(call)
       local source = table.concat({
          "local calls = ''",
          "local record File",
          "   closed: boolean",
-         "   @dispose",
+         "   @drop",
          "   function close(self: File)",
          "      calls = calls .. 'close'",
          "   end",
@@ -1856,13 +1874,13 @@ function M.bothSpellingsOfDisposeLowerTheSameWay()
       assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
       local code, genDiags = gen.generate(result, "ownership-test")
       assertEq(#genDiags, 0)
-      local chunk, loadErr = loadstring(code, "@ownership-qualified-dispose")
+      local chunk, loadErr = loadstring(code, "@ownership-qualified-drop")
       assert(chunk, tostring(loadErr) .. "\n" .. code)
-      assertEq(chunk(), "close", "the disposer runs")
+      assertEq(chunk(), "close", "the drop operation runs")
       return code
    end
 
-   assertEq(lowered("nupp.dispose(file)"), lowered("dispose(file)"),
+   assertEq(lowered("nupp.drop(file)"), lowered("drop(file)"),
       "the qualified spelling generated different code")
 end
 
@@ -1871,14 +1889,14 @@ function M.aBindingNamedNuppShadowsTheQualifiedSpelling()
    -- that name means what the program says it means, as any other name would.
    assertClean(table.concat({
       "local nupp = {",
-      "   dispose = function(value: integer): integer return value end",
+      "   drop = function(value: integer): integer return value end",
       "}",
-      "local answer = nupp.dispose(3)",
+      "local answer = nupp.drop(3)",
    }, "\n"))
    -- and a local named after a bare intrinsic shadows it the same way
    assertClean(table.concat({
-      "local function dispose(value: integer): integer return value end",
-      "local answer = dispose(3)",
+      "local function drop(value: integer): integer return value end",
+      "local answer = drop(3)",
    }, "\n"))
 end
 
@@ -1890,7 +1908,7 @@ function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
    assertEq(codes(table.concat({
       RESOURCE,
       "local function release(value: resource*)",
-      "   nupp.dispose(value)",
+      "   nupp.drop(value)",
       "end",
       "local value = resource_new()",
       "release(value)",
@@ -1898,7 +1916,7 @@ function M.aQualifiedIntrinsicGivesItsParameterTheSameMode()
    }, "\n")), codes(table.concat({
       RESOURCE,
       "local function release(value: resource*)",
-      "   dispose(value)",
+      "   drop(value)",
       "end",
       "local value = resource_new()",
       "release(value)",

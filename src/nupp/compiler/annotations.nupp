@@ -180,7 +180,7 @@ local BUILTINS = {
     {name = "allow", arguments = "warnings", targets = {"statement"},},
     {name = "owned", arguments = "owned", targets = {"function", "c-function", "field"},},
     {name = "borrowed", arguments = "owned", targets = {"c-function"},},
-    {name = "dispose", arguments = "none", targets = {"function", "c-function", "field"},},
+    {name = "drop", arguments = "none", targets = {"function", "c-function", "field"},},
     {name = "override", arguments = "none", targets = {"function"},},
     {name = "effects", arguments = "effects", targets = {"function", "c-function", "local-binding"},},
     {name = "relax", arguments = "names", targets = {"function"},},

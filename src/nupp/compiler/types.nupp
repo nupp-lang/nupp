@@ -368,7 +368,7 @@ record types.Func
     typeBounds: {types.Type}?
 
     --- The 1-based parameter its result borrows from. The result stays valid only while
-    --- that argument does, so the argument cannot move, be disposed, or be consumed
+    --- that argument does, so the argument cannot move, be dropped, or be consumed
     --- while the borrow is live.
     borrowsParam: integer?
 
@@ -627,8 +627,8 @@ record types.Nominal
     --- table to reference it out of.
     inheritedDefaults: {[string]: types.Type}?
 
-    --- Default terminal operations inherited from `@dispose` contracts.
-    defaultDisposers: {types.Cleanup}?
+    --- Default terminal operations inherited from `@drop` contracts.
+    defaultDropOperations: {types.Cleanup}?
 
     --- Whether this nominal has appeared behind an `owned<T>` contract.
     affineResource: boolean?
@@ -1168,7 +1168,7 @@ function types.functionCleanup(key: string, name: string, functionType: types.Ty
     }
 end
 
---- A default disposer reached through the owned value.
+--- A default drop operation reached through the owned value.
 function types.methodCleanup(name: string): types.Cleanup
     return new types.Cleanup {id = "method:" .. name, kind = "method", name = name}
 end
@@ -2112,7 +2112,7 @@ local nominalCounter: integer = 0
 function types.nominal(name: string, declKind: string): types.Nominal
     nominalCounter = nominalCounter + 1
     local t = new types.Nominal {tag = "nominal", declKind = declKind, name = name, byname = {}, -- populated while the declaration is checked
-        writeByname = {}, staticByname = {}, staticWriteByname = {}, metamethods = {}, nestedTypes = {}, defaultDisposers = {},}
+        writeByname = {}, staticByname = {}, staticWriteByname = {}, metamethods = {}, nestedTypes = {}, defaultDropOperations = {},}
     t.id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
     return t

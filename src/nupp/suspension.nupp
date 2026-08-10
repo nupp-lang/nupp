@@ -467,7 +467,7 @@ record suspension.Installed
 
     --- Restores the previous handler, unwinds what it left parked, and shuts it down.
     --- Idempotent, because a scope that ended twice is a scope that ended.
-    @dispose
+    @drop
 
     function release(self: suspension.Installed): nil
         if self.released then

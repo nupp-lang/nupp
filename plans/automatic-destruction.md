@@ -1,14 +1,14 @@
 # Automatic destruction for ordinary owners
 
-> **Status: implemented.** Locally disposable ordinary owners auto-destroy at
+> **Status: implemented.** Locally droppable ordinary owners auto-destroy at
 > lexical scope exit. The standalone resource `with` syntax discussed in the
 > historical stages below was subsequently removed because `do` plus an
 > ordinary owner provides the same cleanup boundary with one ownership model.
 
 ## Decision
 
-An ordinary binding that still holds a locally disposable ownership obligation
-at lexical scope exit is destroyed automatically. Moving, explicitly disposing,
+An ordinary binding that still holds a locally droppable ownership obligation
+at lexical scope exit is destroyed automatically. Moving, explicitly dropping,
 returning, or otherwise transferring the value removes that scope's cleanup
 responsibility exactly as it does today.
 
@@ -33,8 +33,8 @@ end
 
 It moves the owner into an inaccessible cleanup slot and exposes only a borrow
 for one exact region. The visible binding cannot move, escape, be returned, or
-be disposed early. An ordinary automatic owner remains movable, returnable,
-and explicitly disposable. `with` therefore means *bounded borrowed extent*,
+be dropped early. An ordinary automatic owner remains movable, returnable,
+and explicitly droppable. `with` therefore means *bounded borrowed extent*,
 not merely *please remember cleanup*.
 
 The implementation will not add a second cleanup runtime. Automatic locals and
@@ -80,9 +80,9 @@ protocol transitions rather than for the ordinary case.
 
 ## Goals
 
-1. Make a locally disposable owner safe on fallthrough, structured control
+1. Make a locally droppable owner safe on fallthrough, structured control
    flow, raised errors, and handled cancellation without an explicit
-   `dispose` or `with`.
+   `drop` or `with`.
 2. Preserve the existing ownership theorem: each obligation is discharged or
    transferred exactly once, use after move remains impossible, and no borrow
    root is destroyed while a dependent capability is live.
@@ -108,7 +108,7 @@ protocol transitions rather than for the ordinary case.
   join and moved on the other. The first version preserves the current
   compatible-obligation join rule and therefore needs no general drop flags.
 - Automatically destroying an old owner when an assignment overwrites it.
-  Replacing a live owner remains an error; dispose or transfer it first.
+  Replacing a live owner remains an error; drop or transfer it first.
 - Silently destroying an ignored owning result as a temporary. Ignoring a
   fresh obligation remains an error.
 - Guaranteeing cleanup after process abort, power loss, an uncatchable VM or
@@ -163,16 +163,16 @@ do
 end -- unlock here, not after readSharedState
 ```
 
-Use a nested block or explicit disposal for earlier release:
+Use a nested block or explicit drop for earlier release:
 
 ```nupp
 local file = openFile(path)
 readHeader(file)
-nupp.dispose(file)
+nupp.drop(file)
 doUnrelatedWork()
 ```
 
-An explicit disposal consumes the obligation, so no automatic cleanup remains
+An explicit drop consumes the obligation, so no automatic cleanup remains
 at the block exit.
 
 ### Moves and owning returns
@@ -203,7 +203,7 @@ view of `file` remains rejected.
 A `takes` parameter is an owner activated at function entry, but its erased
 payload does not carry the producer-specific cleanup witness needed for an
 automatic fallback. A visible Nupp body must therefore consume, transfer,
-return under an owning contract, or explicitly dispose it through a cleanup
+return under an owning contract, or explicitly drop it through a cleanup
 known to that body. A bodyless `takes` declaration continues to state that the
 foreign implementation consumes the argument during the call. Automatically
 destroying untouched `takes` parameters would require a future hidden witness
@@ -240,7 +240,7 @@ matching terminal consumer.
 
 ### Destruction is not successful finalization
 
-`@dispose` or an `@owned(cleanup...)` list describes the safe fallback that may
+`@drop` or an `@owned(cleanup...)` list describes the safe fallback that may
 run automatically. An operation whose successful result matters stays an
 explicit consuming transition:
 
@@ -303,7 +303,7 @@ local file = openFile("first")
 file = openFile("second") -- error: would abandon the first owner
 ```
 
-The programmer disposes the old value or uses a new binding. Automatic
+The programmer drops the old value or uses a new binding. Automatic
 destruction at assignment can be evaluated separately after the scope model is
 stable.
 
@@ -325,14 +325,14 @@ an explicit `with` acquisition.
 
 - the owner itself is inaccessible inside the body;
 - the visible name is a borrow with the exact block as its maximum extent;
-- early disposal and transfer are impossible;
+- early drop and transfer are impossible;
 - several acquisitions form one explicit failure and ordering group; and
 - the protected extent and its likely cost remain visible in source.
 
 Existing `with` programs keep their semantics and, after the common lowering
 is extracted, their generated Lua. The “wrap in `with`” refactor remains useful
 to shorten or freeze an extent, but it is no longer the fix for merely reaching
-ordinary scope exit with a disposable owner.
+ordinary scope exit with a droppable owner.
 
 ### Control flow and errors
 
@@ -383,7 +383,7 @@ CleanupRegion
   ordered cleanup entries
   activation point for each entry
   lexical cleanup boundary for each entry
-  transfer/disposal points
+  transfer/drop points
   structured and exceptional exits
 
 CleanupEntry
@@ -409,7 +409,7 @@ valid transfers or let a scoped borrow escape.
 ### Protection interval
 
 For each automatic owner, the exceptional protection interval begins after a
-successful acquisition and ends at its transfer, explicit disposal, or lexical
+successful acquisition and ends at its transfer, explicit drop, or lexical
 cleanup boundary. A potentially raising operation inside that interval needs a
 path that destroys the still-live owner.
 
@@ -450,7 +450,7 @@ not a license to change error semantics.
 No protected call is required when the compiler proves that no error can cross
 the live interval. Structured exits receive direct cleanup blocks. A visible
 Nupp body with a non-raising effect summary can therefore compile to the same
-straight-line cleanup as manual `dispose`.
+straight-line cleanup as manual `drop`.
 
 Unknown, indirect, untyped, or foreign calls are conservatively may-raise
 unless their declaration supplies the existing checked effect contract. The
@@ -478,9 +478,9 @@ wrong layer.
 ## Checker changes
 
 1. At every lexical boundary, classify each live obligation as:
-   transferable only, locally disposable, retained/pinned with a required
+   transferable only, locally droppable, retained/pinned with a required
    release, or invalidly borrowed.
-2. Convert a locally disposable live owner into an automatic cleanup fact
+2. Convert a locally droppable live owner into an automatic cleanup fact
    instead of reporting the current live-owner diagnostic.
 3. Keep the diagnostic for opaque owners, owners whose cleanup cannot be
    resolved, retained pins that have not reached release, and obligations on a
@@ -491,7 +491,7 @@ wrong layer.
    may-raise.
 6. Preserve capability identity through the cleanup fact; do not reconstruct a
    cleanup list from the payload type at the exit.
-7. Treat a successful move, `takes` call, owning return, `dispose`, or
+7. Treat a successful move, `takes` call, owning return, `drop`, or
    `intoRaw` as deactivation of that exact cleanup entry.
 8. Preserve the existing rule that incompatible live/moved obligations do not
    join. General conditional drop state is deferred.
@@ -513,7 +513,7 @@ may not weaken one after an `@owned` boundary created it.
 3. Emit direct reverse cleanup on structured exits.
 4. Emit one protected body for each fused may-raise region.
 5. Activate an entry only after its acquisition succeeded.
-6. Deactivate it at explicit disposal or transfer, and at an inner lexical
+6. Deactivate it at explicit drop or transfer, and at an inner lexical
    cleanup boundary shared by a larger region.
 7. Reuse the existing primary/suppressed failure construction.
 8. Preserve the line-count invariant and stack-trace positions.
@@ -524,7 +524,7 @@ may not weaken one after an `@owned` boundary created it.
 ## Diagnostics and tooling
 
 The current end-of-scope live-owner error changes meaning. Reaching scope exit
-with a disposable owner is no longer an error. The same code remains useful
+with a droppable owner is no longer an error. The same code remains useful
 for an obligation automatic cleanup cannot discharge, with related information
 that distinguishes:
 
@@ -543,7 +543,7 @@ Tooling must make the implicit behavior inspectable:
 - go-to-definition on cleanup metadata still reaches private or public cleanup
   declarations;
 - a refactor turns an automatic owner into an exact `with` extent;
-- a quick fix inserts explicit `nupp.dispose` at an earlier valid point when
+- a quick fix inserts explicit `nupp.drop` at an earlier valid point when
   requested, but never guesses a protocol terminal;
 - `ownership-audit --json --regions` opt-in output adds automatic cleanup
   sites and reports their region identity and lowering class (`direct`,
@@ -557,12 +557,12 @@ separate presentation data and may naturally change after an edit.
 
 ## Compatibility
 
-Previously valid programs that explicitly dispose, transfer, return, or use
+Previously valid programs that explicitly drop, transfer, return, or use
 `with` keep their source meaning. A manual program may gain cleanup on an error
-that formerly escaped before its trailing `dispose`; that is the intended
+that formerly escaped before its trailing `drop`; that is the intended
 safety improvement and must be called out as a behavior change.
 
-Previously invalid programs that merely left a disposable owner live become
+Previously invalid programs that merely left a droppable owner live become
 valid. Programs leaving opaque, retained, or otherwise non-dischargeable
 obligations remain invalid.
 
@@ -604,7 +604,7 @@ This stage changes architecture, not language behavior.
 
 ### AD-S2: Compute automatic cleanup facts
 
-- Mark disposable owners at lexical boundaries instead of reporting them.
+- Mark droppable owners at lexical boundaries instead of reporting them.
 - Cover fallthrough, return, loop control, and outward `goto`. Keep function
   parameters received with `takes` explicit until their producer-specific
   cleanup witness has a representable ABI.
@@ -640,7 +640,7 @@ At the end of `AD-S3`, ordinary automatic destruction may become the default.
   leaving two authoritative answers.
 - Document the distinction between destruction and successful finalization.
 - Update examples so ordinary ownership uses `local`, `with` demonstrates an
-  exact borrowed extent, and explicit `dispose` demonstrates early release.
+  exact borrowed extent, and explicit `drop` demonstrates early release.
 - Run the ownership laundering matrix with automatic exits added as both
   source and destination transports.
 
@@ -663,7 +663,7 @@ obligations. Keep the explicit rule until that protocol has its own decision.
 - fallthrough, return, break, continue, outward `goto`, and raised error;
 - acquisition failure after zero, one, and several successful acquisitions;
 - reverse owner order and forward per-owner cleanup order;
-- explicit disposal, `takes`, owning return, `ResourceSet.adopt`, and
+- explicit drop, `takes`, owning return, `ResourceSet.adopt`, and
   `intoRaw` suppress exactly one automatic cleanup;
 - optional owner nil/present paths;
 - partially moved affine records;
@@ -708,7 +708,7 @@ Extend `bench/ownership.lua` with reproducible rows for:
 For an equivalent explicit `with`, automatic destruction should be byte-
 identical in the canonical cases and otherwise within measurement noise for
 time and allocation. Owner-free code must be byte-identical. A proven
-non-raising automatic owner should match straight-line manual disposal. Any
+non-raising automatic owner should match straight-line manual drop. Any
 regression beyond two percent against the equivalent `with` row needs an
 explained generated-code difference rather than a threshold waiver.
 
@@ -733,9 +733,9 @@ hot loop that stopped compiling because automatic cleanup introduced `FNEW`.
 
 Automatic destruction is complete only when all of these are true:
 
-- the shortest ordinary locally disposable owner is error-safe without
+- the shortest ordinary locally droppable owner is error-safe without
   explicit cleanup syntax;
-- moving, returning, disposing, or transferring it suppresses automatic
+- moving, returning, dropping, or transferring it suppresses automatic
   cleanup exactly once;
 - opaque and multi-terminal protocols still demand an explicit choice;
 - cleanup order and failure behavior match `with`;
@@ -745,7 +745,7 @@ Automatic destruction is complete only when all of these are true:
 - all implicit regions are visible through tooling and deterministic audit
   output;
 - existing valid explicit-lifetime code retains its intended timing; and
-- documentation has one unambiguous default model: ordinary disposable owners
+- documentation has one unambiguous default model: ordinary droppable owners
   auto-destroy, `with` fixes an exact borrowed extent, and explicit terminal
   operations express early release or meaningful completion.
 

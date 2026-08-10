@@ -44,17 +44,17 @@ type ownership.Ops = {
     --- Checks that a value's declared cleanups exist and take it.
     validateCleanups: function(valueT: Type?, cleanups: any, at: any, code: string?),
 
-    --- The cleanups an `@owned` carries once an inherited `@dispose` has been read.
+    --- The cleanups an `@owned` carries once an inherited `@drop` has been read.
     resolvedOwnedCleanups: function(valueT: Type?, cleanups: any, opaque: any, at: any, registrationNode: any?): {T.Cleanup},
 
     --- Resolves free cleanup names once, where their contract is declared.
     resolveCleanups: function(cleanups: any, at: any, registrationNode: any?): {T.Cleanup},
 
-    --- Records a `@dispose` operation as the default cleanup of what it takes.
-    registerDefaultDisposer: function(ft: Type?, path: string, at: any, registrationNode: any?),
+    --- Records a `@drop` operation as the default cleanup of what it takes.
+    registerDefaultDropOperation: function(ft: Type?, path: string, at: any, registrationNode: any?),
 
     --- Adds a resolved default cleanup to a nominal, idempotently across rechecks.
-    addDefaultDisposer: function(resourceT: Type?, cleanup: T.Cleanup),
+    addDefaultDropOperation: function(resourceT: Type?, cleanup: T.Cleanup),
 
     --- The binding an expression's ownership is recorded on, and the name it was
     --- reached through.
@@ -250,12 +250,12 @@ function ownership.install(c: state.Checker): ownership.Ops
             return {}
         end
         local base = resource
-        local defaults = base.tag == "nominal" and base.defaultDisposers or nil
+        local defaults = base.tag == "nominal" and base.defaultDropOperations or nil
         if not defaults or #defaults == 0 then
             c.diag(
                 "NUPP2602",
                 at,
-                "bare @owned needs exactly one inherited @dispose operation; "
+                "bare @owned needs exactly one inherited @drop operation; "
                 .. "use @owned(cleanup) or @owned(opaque = true)"
             )
             return {}
@@ -263,7 +263,7 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag(
                 "NUPP2602",
                 at,
-                "bare @owned has multiple inherited @dispose operations; " .. "choose one with @owned(cleanup)"
+                "bare @owned has multiple inherited @drop operations; " .. "choose one with @owned(cleanup)"
             )
             return {}
         end
@@ -271,7 +271,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         return {defaults[1]}
     end
 
-    function own.addDefaultDisposer(resourceT, cleanup)
+    function own.addDefaultDropOperation(resourceT, cleanup)
         if not resourceT then
             return
         end
@@ -279,8 +279,8 @@ function ownership.install(c: state.Checker): ownership.Ops
         if base.tag ~= "nominal" then
             return
         end
-        local defaults = base.defaultDisposers or {}
-        base.defaultDisposers = defaults
+        local defaults = base.defaultDropOperations or {}
+        base.defaultDropOperations = defaults
         for _, current in ipairs(defaults) do
             if current.id == cleanup.id then
                 return
@@ -289,12 +289,12 @@ function ownership.install(c: state.Checker): ownership.Ops
         defaults[#defaults + 1] = cleanup
     end
 
-    function own.registerDefaultDisposer(ft, path, at, registrationNode)
+    function own.registerDefaultDropOperation(ft, path, at, registrationNode)
         if not ft or ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
-            c.diag("NUPP2602", at, "@dispose requires a function whose first parameter takes " .. "the resource")
+            c.diag("NUPP2602", at, "@drop requires a function whose first parameter takes " .. "the resource")
             return
         end
-        own.addDefaultDisposer(
+        own.addDefaultDropOperation(
             ft.params[1],
             resolvedFunctionCleanup(path, at, registrationNode, true, ft)
         )
@@ -435,22 +435,22 @@ function ownership.install(c: state.Checker): ownership.Ops
 
     function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
         expectedKind = expectedKind or "owned"
-        local disposer = c.disposerFieldStack[#c.disposerFieldStack]
-        if disposer
+        local dropOperation = c.dropOperationFieldStack[#c.dropOperationFieldStack]
+        if dropOperation
             and expectedKind == "owned"
             and expr
             and expr.kind == "dotIndex"
             and expr.obj
             and expr.obj.kind == "name"
-            and expr.obj.token.text == disposer.root
+            and expr.obj.token.text == dropOperation.root
         then
             local field = expr.name.text
-            if disposer.allowed[field] then
-                if disposer.done[field] then
-                    c.diag("NUPP2602", expr, ("owned field %q is disposed more than once"):format(field))
+            if dropOperation.allowed[field] then
+                if dropOperation.done[field] then
+                    c.diag("NUPP2602", expr, ("owned field %q is dropped more than once"):format(field))
                     return false
                 end
-                disposer.done[field] = true
+                dropOperation.done[field] = true
                 return true
             end
         end

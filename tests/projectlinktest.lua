@@ -422,9 +422,9 @@ end
 
 -- A module may be checked while resolving the consumer and then checked again while
 -- building the dependency closure. The nominal survives both passes, so recording
--- the same disposer twice must be idempotent or one declaration becomes an ambiguous
+-- the same drop operation twice must be idempotent or one declaration becomes an ambiguous
 -- pair merely because the command did more work.
-function M.defaultDisposerSurvivesRepeatedModuleChecks()
+function M.defaultDropOperationSurvivesRepeatedModuleChecks()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",
       ["main.nupp"] = [[
@@ -441,7 +441,7 @@ local res = {}
 record res.File
     closed: boolean
 
-    @dispose
+    @drop
     function close(self)
         self.closed = true
     end
@@ -472,7 +472,7 @@ return res
       local runCommand = ("cd '%s' && '%s/bin/nupp' run main.nupp "
          .. "> '%s' 2> '%s'"):format(dir, ROOT, output, runErrors)
       assertEq(os.execute(runCommand), 0,
-         "the cross-module disposer run: " .. readFile(runErrors))
+         "the cross-module drop operation run: " .. readFile(runErrors))
       assertEq(readFile(output), "false\n", "the resource is usable")
    end)
 end
@@ -494,7 +494,7 @@ print(use.slurp("input.txt"), res.closed)
 local res = {}
 res.closed = 0
 
-@dispose
+@drop
 local function closeFile(takes file: LuaFile)
     res.closed = res.closed + 1
     file:close()
@@ -534,7 +534,7 @@ return use
    end)
 end
 
-function M.aPrivateCleanupCrossesIntoAnExplicitDispose()
+function M.aPrivateCleanupCrossesIntoAnExplicitDrop()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",
       ["input.txt"] = "hello\n",
@@ -570,7 +570,7 @@ local use = {}
 
 function use.touch(path: string)
     local file = res.open(path)
-    dispose(file)
+    drop(file)
 end
 
 return use

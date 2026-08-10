@@ -34,7 +34,7 @@ const nuppMode = {
     if (state.cur !== normalTokenizer || stream.match(/^--/, false)) {
       return baseToken(stream, state);
     }
-    // Annotations: @allow(...), @dispose, etc. Lua's mode has no notion of
+    // Annotations: @allow(...), @drop, etc. Lua's mode has no notion of
     // these, so catch the sigil before falling through to it.
     if (stream.match(/^@!?[A-Za-z_][A-Za-z0-9_]*/)) return "meta";
     if (stream.match(NUPP_OPERATOR)) return "operator";

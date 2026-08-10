@@ -173,7 +173,7 @@ local function run(parsed: any): integer
             }
             inUnsafe = true
         elseif inUnsafe and node.ownershipIntrinsic and node.ownershipIntrinsic ~= "borrow"
-            and node.ownershipIntrinsic ~= "dispose" then
+            and node.ownershipIntrinsic ~= "drop" then
             local token = firstToken(node)
             unsafeSites[#unsafeSites + 1] = {
                 file = file,

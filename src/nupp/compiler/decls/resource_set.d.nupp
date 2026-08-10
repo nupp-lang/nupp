@@ -1,7 +1,7 @@
 local record ResourceSet
     label: string
 
-    @dispose
+    @drop
     close: nosuspend function(takes self: ResourceSet)
 
     adopt: function<T>(self: ResourceSet, takes value: T, terminal: function(takes value: T)?): T borrows self

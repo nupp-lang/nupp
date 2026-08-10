@@ -26,31 +26,31 @@ local ROWS = {
    {"local move", true, [[
 local value = flow_open()
 local forwarded = value
-dispose(forwarded)
+drop(forwarded)
 ]]},
    {"local duplication", false, [[
 local value = flow_open()
 local forwarded = value
 print(value)
-dispose(forwarded)
+drop(forwarded)
 ]]},
    {"optional narrowing", true, [[
 local value = assert(flow_open() as flow_resource*?)
-dispose(value)
+drop(value)
 ]]},
    {"scalar generic", true, [[
 local function id<T>(value: T): T preserves value return value end
 local value = id(flow_open())
-dispose(value)
+drop(value)
 ]]},
    {"inferred scalar generic", true, [[
 local function id<T>(value: T): T return value end
 local value = id(flow_open())
-dispose(value)
+drop(value)
 ]]},
    {"parenthesized projection", true, [[
 local value = (flow_open())
-dispose(value)
+drop(value)
 ]]},
    {"anonymous table storage", false, [[
 local value = flow_open()
@@ -64,7 +64,7 @@ stored.value = value
    {"closure capture", false, [[
 local value = flow_open()
 local function escaped() print(value.value) end
-dispose(value)
+drop(value)
 ]]},
    {"unknown call", false, [[
 local value = flow_open()
@@ -74,7 +74,7 @@ sink(value)
    {"raw coroutine", false, [[
 local value = flow_open()
 coroutine.yield()
-dispose(value)
+drop(value)
 ]]},
    {"unsafe does not erase", false, [[
 local value = flow_open()
@@ -83,14 +83,14 @@ unsafe do local raw: any = value end
    {"nominal affine field", true, [[
 local record Box item: owned<flow_resource*> end
 local box = new Box {item = flow_open()}
-dispose(box)
+drop(box)
 ]]},
    {"partial move and residual cleanup", true, [[
 local record Box item: owned<flow_resource*> end
 local box = new Box {item = flow_open()}
 local item = box.item
-dispose(item)
-dispose(box)
+drop(item)
+drop(box)
 ]]},
 }
 

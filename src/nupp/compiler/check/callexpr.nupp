@@ -32,7 +32,7 @@ local callexpr = {}
 
 -- Which ownership intrinsic a callee is, once the names in it have been resolved.
 --
--- A bare name is one only while nothing has bound it, so a local called `dispose`
+-- A bare name is one only while nothing has bound it, so a local called `drop`
 -- shadows the intrinsic the way it shadows anything else. A qualified one is one only
 -- while `nupp` still means the compiler's own table: resolving it to the entry the
 -- globals hold is what says no local has taken that name either.
@@ -225,28 +225,28 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 node.ownershipIntrinsic = "fromRaw"
                 node.ownerCleanups = cleanups
                 return T.owned(rawType(valueT), cleanups)
-            elseif intrinsic == "dispose" then
+            elseif intrinsic == "drop" then
                 local valueT = args[1] and c.infer(args[1]) or T.any
-                -- Disposing something that is not an owner is reported below rather
+                -- Dropping something that is not an owner is reported below rather
                 -- than refused here, so the cleanup list is read off whatever was
                 -- passed and comes back empty when there is none.
-                local disposed = valueT as T.Owned
+                local dropped = valueT as T.Owned
                 if #args ~= 1 then
-                    c.diag("NUPP2602", node, "dispose expects one owned value")
+                    c.diag("NUPP2602", node, "drop expects one owned value")
                 end
-                c.moveExpression(args[1] or node, valueT, "dispose", nil, true)
-                if c.ownershipKind(valueT) == "owned" and #(disposed.cleanups or {}) == 0 then
+                c.moveExpression(args[1] or node, valueT, "drop", nil, true)
+                if c.ownershipKind(valueT) == "owned" and #(dropped.cleanups or {}) == 0 then
                     c.diag(
                         "NUPP2602",
                         args[1] or node,
-                        "dispose needs @owned cleanup functions; transfer this owner "
+                        "drop needs @owned cleanup functions; transfer this owner "
                         .. "to a declared takes parameter"
                     )
                 end
-                node.ownershipIntrinsic = "dispose"
+                node.ownershipIntrinsic = "drop"
                 node.ownerCleanups = {}
                 local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil
-                for _, cleanup in ipairs(disposed.cleanups or {}) do
+                for _, cleanup in ipairs(dropped.cleanups or {}) do
                     if not (cleanup.kind == "field" and state and state.movedFields and state.movedFields[cleanup.field]) then
                         node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
                     end

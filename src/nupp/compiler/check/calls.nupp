@@ -901,8 +901,8 @@ function calls.install(c: state.Checker): calls.Ops
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, opaque = {}, false
-                if calleeT.defaultDisposers and #calleeT.defaultDisposers == 1 then
-                    cleanups[1] = calleeT.defaultDisposers[1]
+                if calleeT.defaultDropOperations and #calleeT.defaultDropOperations == 1 then
+                    cleanups[1] = calleeT.defaultDropOperations[1]
                 else
                     for j = #calleeT.affineFields, 1, -1 do
                         local name = calleeT.affineFields[j]

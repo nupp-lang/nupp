@@ -433,7 +433,7 @@ These mechanisms answer different questions:
 | `@effects` | What may happen while this value is called? |
 | `const` | Will this bodyless binding keep the same value? |
 | `@relax` / `--relax` | Which observable guarantee may an optimization change? |
-| `@owned`, `@borrowed`, `@dispose` | Who must release a resource, and when? |
+| `@owned`, `@borrowed`, `@drop` | Who must release a resource, and when? |
 
 An effect summary does not imply stability, purity does not imply ownership,
 and ownership does not imply a call cannot raise or yield. State each boundary

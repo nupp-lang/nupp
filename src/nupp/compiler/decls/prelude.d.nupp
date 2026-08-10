@@ -940,7 +940,7 @@ record nupp.Files
         --- Closes the file. Repeated calls are safe.
         --- @param self this file
         --- @return whether the close succeeded
-        @dispose
+        @drop
         close: nosuspend function(takes self: nupp.Files.File): boolean
     end
 
@@ -973,7 +973,7 @@ record nupp.Files
         --- safe and do nothing.
         --- @param self this temporary path
         --- @return whether the removal succeeded
-        @dispose
+        @drop
         close: nosuspend function(takes self: nupp.Files.TemporaryPath): boolean
     end
 

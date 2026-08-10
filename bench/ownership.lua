@@ -5,7 +5,7 @@
 -- takes. Nothing here needs an unimplemented feature:
 --
 --   ffi.gc          what a LuaJIT programmer writes today
---   dispose         what @owned + dispose lowers to (a direct free call)
+--   drop         what @owned + drop lowers to (a direct free call)
 --   region (upvalue) naive lowering: fresh closure, owner in an upvalue
 --   region (args)    cleanup lowering using xpcall's extra arguments and a
 --                   per-execution slot table instead of a closure
@@ -58,7 +58,7 @@ local function armGc(n, work)
    return sum
 end
 
-local function armDispose(n, work)
+local function armDrop(n, work)
    local sum = 0
    for i = 1, n do
       local p = C.malloc(SIZE)
@@ -169,7 +169,7 @@ end
 
 local ARMS = {
    {name = "ffi.gc", fn = armGc},
-   {name = "dispose (direct free)", fn = armDispose},
+   {name = "drop (direct free)", fn = armDrop},
    {name = "region (upvalue closure)", fn = armCleanupUpvalue},
    {name = "region (xpcall args)", fn = armCleanupArgs},
    {name = "probe: closure, no xpcall", fn = armClosureOnly},
@@ -206,7 +206,7 @@ end
 for _, arm in ipairs(ARMS) do
    local row = (" %-28s"):format(arm.name)
    for _, work in ipairs(GRAINS) do
-      local base = grid[work]["dispose (direct free)"]
+      local base = grid[work]["drop (direct free)"]
       row = row .. ("%11.2fx"):format(grid[work][arm.name] / base)
    end
    print(row)
@@ -217,7 +217,7 @@ for _, work in ipairs(GRAINS) do
 end
 print((" %s"):format(("-"):rep(28 + 12 * #GRAINS)))
 print(counts)
-print(" (ratios vs dispose, the direct-free path @owned+dispose emits)")
+print(" (ratios vs drop, the direct-free path @owned+drop emits)")
 
 ---------------------------------------------------------------------------
 -- Backpressure: does the collector know how much C memory is outstanding?

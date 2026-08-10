@@ -425,7 +425,7 @@ function checkMod.check(
         automaticOwners = {},
         depth = 0,
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, dropOperationFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, activeAlias = nil, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
@@ -577,7 +577,7 @@ function checkMod.check(
                     entry.definition and entry.definition.token,
                     (
                         "owned value %q leaves scope without being consumed, "
-                        .. "disposed, returned, or converted with intoRaw"
+                        .. "dropped, returned, or converted with intoRaw"
                     ):format(name)
                 )
             elseif not entry.ownershipOrigin and state.retained and not state.moved then

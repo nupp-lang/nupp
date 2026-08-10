@@ -196,7 +196,7 @@ interface nupp.workers.Self
 end
 ```
 
-`workers.spawn(entry)` is an owned producer whose default disposal is
+`workers.spawn(entry)` is an owned producer whose default drop is
 `Worker:stop`. `stop` is `close` followed by `join`, and a second stop returns
 the recorded exit. `close` is nonblocking and idempotent. It closes the inbox,
 wakes a worker blocked in `Self:receive`, and asks a conventional receive loop
@@ -239,10 +239,10 @@ Cancellation of a suspended `receive`, `call`, or `join` removes only that
 waiter. It cannot cancel Lua code already running on the worker. A canceled call
 forgets its request identifier, so a late reply is discarded rather than
 delivered to a later call. If cancellation unwinds a `with` that owns the
-worker, its disposer closes and joins in the same way as an explicit stop.
+worker, its drop operation closes and joins in the same way as an explicit stop.
 
 This interaction depends on suspension S4's ownership contract. Until a
-disposer may wait through a handled suspension and cancellation reliably
+drop operation may wait through a handled suspension and cancellation reliably
 unwinds it, the public owned producer does not land.
 
 ## Message boundary

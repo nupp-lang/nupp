@@ -26,7 +26,7 @@ local functions = {}
 --- @param c the run's state
 --- @return the statement kinds this family answers
 function functions.install(c: state.Checker): state.StatHandlers
-    local registerDefaultDisposer = c.own.registerDefaultDisposer
+    local registerDefaultDropOperation = c.own.registerDefaultDropOperation
 
     local resolvedOwnedCleanups = c.own.resolvedOwnedCleanups
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
@@ -98,16 +98,16 @@ function functions.install(c: state.Checker): state.StatHandlers
                 local calleeT = calleeName and c.lookupVar(calleeName) or nil
                 -- By spelling, because this reads modes out of a body before anything
                 -- has resolved the names in it. Both spellings of an intrinsic have to
-                -- answer here, or a body written with `nupp.dispose` gives its
+                -- answer here, or a body written with `nupp.drop` gives its
                 -- parameter
-                -- a weaker mode than the one beside it written with `dispose`.
+                -- a weaker mode than the one beside it written with `drop`.
                 local intrinsic = cst.ownershipIntrinsicSpelling(node.obj)
                 local args = node.args and node.args.exprs or {}
                 for j, arg in ipairs(args) do
                     local name = directName(arg)
                     if name then
                         local effect
-                        if intrinsic == "dispose" or intrinsic == "intoRaw" then
+                        if intrinsic == "drop" or intrinsic == "intoRaw" then
                             effect = "takes"
                         elseif intrinsic == "borrow" or intrinsic == "pin" then
                             effect = "borrows"
@@ -509,8 +509,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         c.borrowReturnStack[
             #c.borrowReturnStack + 1
         ] = (body.rets and body.rets[1] and body.rets[1].kind == "tborrows" and body.rets[1]) or false
-        local disposerContext, disposeRoot
-        if body.disposeContract then
+        local dropOperationContext, dropRoot
+        if body.dropContract then
             local resource, root = selfType, selfType and "self" or nil
             if not resource then
                 for j, p in ipairs(body.params or {}) do
@@ -521,17 +521,17 @@ function functions.install(c: state.Checker): state.StatHandlers
                 end
             end
             resource = resource and rawType(resource) or nil
-            disposeRoot = root
+            dropRoot = root
             local affineFields = resource and resource.tag == "nominal" and resource.affineFields or nil
             if affineFields and #affineFields > 0 then
                 local owned = {}
                 for _, field in ipairs(affineFields) do
                     owned[field] = true
                 end
-                disposerContext = {root = root, allowed = owned, done = {}}
+                dropOperationContext = {root = root, allowed = owned, done = {}}
             end
         end
-        c.disposerFieldStack[#c.disposerFieldStack + 1] = disposerContext or false
+        c.dropOperationFieldStack[#c.dropOperationFieldStack + 1] = dropOperationContext or false
         -- Started here rather than with the scope: the parameters are bound by now, so
         -- the body reading one of them resolves inside the watch and is not a capture.
         local loopClosure = c.loops.begin(c.functionDepth - 1)
@@ -598,17 +598,17 @@ function functions.install(c: state.Checker): state.StatHandlers
                 )
             end
         end
-        if body.disposeContract and disposeRoot and disposeRoot ~= "self" then
-            local terminal = ownershipState(c.lookupEntry(disposeRoot))
+        if body.dropContract and dropRoot and dropRoot ~= "self" then
+            local terminal = ownershipState(c.lookupEntry(dropRoot))
             if terminal then
                 terminal.moved = true
             end
         end
-        c.disposerFieldStack[#c.disposerFieldStack] = nil
-        if disposerContext then
-            for field in pairs(disposerContext.allowed) do
-                if not disposerContext.done[field] then
-                    c.diag("NUPP2603", body.disposeTok or body, ("@dispose leaves owned field %q live"):format(field))
+        c.dropOperationFieldStack[#c.dropOperationFieldStack] = nil
+        if dropOperationContext then
+            for field in pairs(dropOperationContext.allowed) do
+                if not dropOperationContext.done[field] then
+                    c.diag("NUPP2603", body.dropTok or body, ("@drop leaves owned field %q live"):format(field))
                 end
             end
         end
@@ -867,8 +867,8 @@ function functions.install(c: state.Checker): state.StatHandlers
         -- recorded that read and is not mistaken for one nothing uses.
         c.unused.declared(nameTok, c.scope.vars[nameTok.text], "function")
         c.raises.check(stat, body)
-        if body.disposeContract then
-            registerDefaultDisposer(ft, nameTok.text, body.disposeTok or stat, body.cleanupRegistrationNode)
+        if body.dropContract then
+            registerDefaultDropOperation(ft, nameTok.text, body.dropTok or stat, body.cleanupRegistrationNode)
         end
     end
 
@@ -916,11 +916,11 @@ function functions.install(c: state.Checker): state.StatHandlers
         if not fname.method and not owner and ownerKey and memberTok then
             c.applyFacts({[ownerKey .. "." .. memberTok.text] = ft})
         end
-        if body.disposeContract and not owner then
-            registerDefaultDisposer(
+        if body.dropContract and not owner then
+            registerDefaultDropOperation(
                 ft,
-                fname.base and fname.base.text or "<dispose>",
-                body.disposeTok or stat,
+                fname.base and fname.base.text or "<drop>",
+                body.dropTok or stat,
                 body.cleanupRegistrationNode
             )
         end
@@ -937,7 +937,7 @@ function functions.install(c: state.Checker): state.StatHandlers
                 for _, p in ipairs(ft.params) do
                     params[#params + 1] = p
                 end
-                local modes = {body.disposeMethod and "takes" or "plain"}
+                local modes = {body.dropMethod and "takes" or "plain"}
                 local names = {"self"}
                 for _, mode in ipairs(ft.paramModes or {}) do
                     modes[#modes + 1] = mode
@@ -988,14 +988,14 @@ function functions.install(c: state.Checker): state.StatHandlers
                 owner.byname[member] = ft
                 owner.writeByname[member] = ft
             end
-            if body.disposeMethod then
+            if body.dropMethod then
                 if fname.method then
-                    c.own.addDefaultDisposer(owner, T.methodCleanup(member))
+                    c.own.addDefaultDropOperation(owner, T.methodCleanup(member))
                 else
-                    registerDefaultDisposer(
+                    registerDefaultDropOperation(
                         ft,
                         (owner.runtimePath or ownerKey) .. "." .. member,
-                        body.disposeTok or stat,
+                        body.dropTok or stat,
                         body.cleanupRegistrationNode
                     )
                 end

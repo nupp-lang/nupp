@@ -423,8 +423,8 @@ process to read a directory.
 
 - immediate operations: each one, on each platform, plus the failure each has
   (missing path, permission, not a directory, cross-device rename)
-- ownership: an undisposed `File`, `DirectoryStream` and `TemporaryPath`; each
-  discharged at scope exit, by transfer, and by explicit disposal
+- ownership: an undropped `File`, `DirectoryStream` and `TemporaryPath`; each
+  discharged at scope exit, by transfer, and by explicit drop
 - transfers: empty file, embedded NUL bytes, a file larger than the per-request
   cap, a partial read at EOF, and a write that fills the lane
 - suspension: blocked, parked, cancelled, refused in a region, refused across a
@@ -461,7 +461,7 @@ process to read a directory.
 
 No range is reserved. The rules this namespace needs are already enforced:
 
-- **NUPP2602** — a `File`, `DirectoryStream` or `TemporaryPath` whose disposal
+- **NUPP2602** — a `File`, `DirectoryStream` or `TemporaryPath` whose drop
   is not recorded.
 - **NUPP2603** — a raw coroutine yield while one of them is live. A handled
   suspension in the same position is allowed, which is the S4 rule.

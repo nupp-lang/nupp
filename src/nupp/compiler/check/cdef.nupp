@@ -35,7 +35,7 @@ function cdef.install(
     reifiableField: function(t: Type, isCdef: boolean?): boolean
 ): state.StatHandlers
     local own = c.own
-    local registerDefaultDisposer = own.registerDefaultDisposer
+    local registerDefaultDropOperation = own.registerDefaultDropOperation
     local resolvedOwnedCleanups = own.resolvedOwnedCleanups
     local pointerShaped, validateCleanups = c.pointerShaped, c.validateCleanups
 
@@ -235,11 +235,11 @@ function cdef.install(
             return
         end
         c.bindVar(cdefName.text, cdefType, true, cdefName, "function")
-        if stat.disposeContract then
-            registerDefaultDisposer(
+        if stat.dropContract then
+            registerDefaultDropOperation(
                 cdefType,
                 cdefName.text,
-                stat.disposeTok or stat,
+                stat.dropTok or stat,
                 stat.cleanupRegistrationNode
             )
         end

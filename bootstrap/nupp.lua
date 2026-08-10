@@ -1612,7 +1612,7 @@ local BUILTINS = {
 { name = "allow" , arguments = "warnings" , targets = { "statement" } , } ,
 { name = "owned" , arguments = "owned" , targets = { "function" , "c-function" , "field" } , } ,
 { name = "borrowed" , arguments = "owned" , targets = { "c-function" } , } ,
-{ name = "dispose" , arguments = "none" , targets = { "function" , "c-function" , "field" } , } ,
+{ name = "drop" , arguments = "none" , targets = { "function" , "c-function" , "field" } , } ,
 { name = "override" , arguments = "none" , targets = { "function" } , } ,
 { name = "effects" , arguments = "effects" , targets = { "function" , "c-function" , "local-binding" } , } ,
 { name = "relax" , arguments = "names" , targets = { "function" } , } ,
@@ -8465,7 +8465,7 @@ pending = { } ,
 automaticOwners = { } ,
 depth = 0 ,
 parent = nil
-} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , noSuspendDepth = 0 , handledDepth = 0 , functionDepth = 0 , scopedCaptureDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , moduleFieldValues = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
+} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , dropOperationFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , noSuspendDepth = 0 , handledDepth = 0 , functionDepth = 0 , scopedCaptureDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , moduleFieldValues = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
 c . rootScope = c . scope
 c . recordEffect = function ( effect )
 result . effects [ effect ] = true
@@ -8617,7 +8617,7 @@ c . diag (
 entry . definition and entry . definition . token ,
 (
 "owned value %q leaves scope without being consumed, "
-.. "disposed, returned, or converted with intoRaw"
+.. "dropped, returned, or converted with intoRaw"
 ) : format ( name )
 )
 elseif not entry . ownershipOrigin and state . retained and not state . moved then
@@ -10896,28 +10896,28 @@ cleanups = c . own . resolveCleanups ( cleanups , node )
 node . ownershipIntrinsic = "fromRaw"
 node . ownerCleanups = cleanups
 return T . owned ( rawType ( valueT ) , cleanups )
-elseif intrinsic == "dispose" then
+elseif intrinsic == "drop" then
 local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
 
 
 
-local disposed = valueT
+local dropped = valueT
 if # args ~= 1 then
-c . diag ( "NUPP2602" , node , "dispose expects one owned value" )
+c . diag ( "NUPP2602" , node , "drop expects one owned value" )
 end
-c . moveExpression ( args [ 1 ] or node , valueT , "dispose" , nil , true )
-if c . ownershipKind ( valueT ) == "owned" and # ( disposed . cleanups or { } ) == 0 then
+c . moveExpression ( args [ 1 ] or node , valueT , "drop" , nil , true )
+if c . ownershipKind ( valueT ) == "owned" and # ( dropped . cleanups or { } ) == 0 then
 c . diag (
 "NUPP2602" ,
 args [ 1 ] or node ,
-"dispose needs @owned cleanup functions; transfer this owner "
+"drop needs @owned cleanup functions; transfer this owner "
 .. "to a declared takes parameter"
 )
 end
-node . ownershipIntrinsic = "dispose"
+node . ownershipIntrinsic = "drop"
 node . ownerCleanups = { }
 local state = args [ 1 ] and c . ownershipState ( ( c . ownershipEntry ( args [ 1 ] ) ) ) or nil
-for _ , cleanup in ipairs ( disposed . cleanups or { } ) do
+for _ , cleanup in ipairs ( dropped . cleanups or { } ) do
 if not ( cleanup . kind == "field" and state and state . movedFields and state . movedFields [ cleanup . field ] ) then
 node . ownerCleanups [ # node . ownerCleanups + 1 ] = cleanup
 end
@@ -12562,8 +12562,8 @@ end
 end
 if calleeT . affineFields and # calleeT . affineFields > 0 then
 local cleanups , opaque = { } , false
-if calleeT . defaultDisposers and # calleeT . defaultDisposers == 1 then
-cleanups [ 1 ] = calleeT . defaultDisposers [ 1 ]
+if calleeT . defaultDropOperations and # calleeT . defaultDropOperations == 1 then
+cleanups [ 1 ] = calleeT . defaultDropOperations [ 1 ]
 else
 for j = # calleeT . affineFields , 1 , - 1 do
 local name = calleeT . affineFields [ j ]
@@ -13497,7 +13497,7 @@ c ,
 reifiableField
 )
 local own = c . own
-local registerDefaultDisposer = own . registerDefaultDisposer
+local registerDefaultDropOperation = own . registerDefaultDropOperation
 local resolvedOwnedCleanups = own . resolvedOwnedCleanups
 local pointerShaped , validateCleanups = c . pointerShaped , c . validateCleanups
 
@@ -13697,11 +13697,11 @@ if not cdefName then
 return
 end
 c . bindVar ( cdefName . text , cdefType , true , cdefName , "function" )
-if stat . disposeContract then
-registerDefaultDisposer (
+if stat . dropContract then
+registerDefaultDropOperation (
 cdefType ,
 cdefName . text ,
-stat . disposeTok or stat ,
+stat . dropTok or stat ,
 stat . cleanupRegistrationNode
 )
 end
@@ -15177,8 +15177,8 @@ n . supertypes [ # n . supertypes + 1 ] = super
 
 
 superNode . resolvedSupertype = super
-for _ , disposer in ipairs ( super . defaultDisposers or { } ) do
-c . own . addDefaultDisposer ( n , disposer )
+for _ , dropOperation in ipairs ( super . defaultDropOperations or { } ) do
+c . own . addDefaultDropOperation ( n , dropOperation )
 end
 local selfMap = super . selfType and { [ super . selfType ] = n . selfType } or { }
 for name , inherited in pairs ( super . byname or { } ) do
@@ -15335,12 +15335,12 @@ end
 local localMembers , localMetamethods = { } , { }
 for _ , e in ipairs ( stat . entries ) do
 if e . kind == "fieldDecl" then
-local isDisposer = false
+local isDropOperation = false
 local ownedApplication = nil
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application , e , stat )
-if definition2 and valid and application . name . text == "dispose" then
-isDisposer = true
+if definition2 and valid and application . name . text == "drop" then
+isDropOperation = true
 elseif definition2 and valid and application . name . text == "owned" then
 ownedApplication = application
 end
@@ -15451,15 +15451,15 @@ n . affineFields = n . affineFields or { }
 n . affineFields [ # n . affineFields + 1 ] = e . name . text
 n . affineResource = true
 end
-if isDisposer then
+if isDropOperation then
 if ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
 c . diag (
 "NUPP2602" ,
 e ,
-"@dispose member must be a function whose first " .. "parameter takes the resource"
+"@drop member must be a function whose first " .. "parameter takes the resource"
 )
 else
-c . own . addDefaultDisposer ( n , T . methodCleanup ( e . name . text ) )
+c . own . addDefaultDropOperation ( n , T . methodCleanup ( e . name . text ) )
 end
 end
 local name = e . name . text
@@ -15623,12 +15623,12 @@ end
 elseif e . kind == "constructorDecl" then
 checkConstructor ( e , n , stat )
 elseif e . kind == "inlineMethod" then
-local isDisposer , isOverride = false , false
+local isDropOperation , isOverride = false , false
 for _ , application in ipairs ( e . annotations or { } ) do
 local definition2 , valid = validateAnnotation ( application , e , stat )
 if definition2 and valid then
-if application . name . text == "dispose" then
-isDisposer = true
+if application . name . text == "drop" then
+isDropOperation = true
 elseif application . name . text == "override" then
 isOverride = true
 end
@@ -15645,22 +15645,22 @@ localMembers [ name ] = state
 end
 local receiver = hasReceiver ( e . body , stat . declKind )
 local declaredGroup = ( receiver and inlineSignatures or staticSignatures ) [ name ] or { }
-if isDisposer and # declaredGroup > 1 then
+if isDropOperation and # declaredGroup > 1 then
 c . diag (
 "NUPP2602" ,
 e . name ,
-"a disposal method has one resource contract and cannot " .. "be overloaded"
+"a drop method has one resource contract and cannot " .. "be overloaded"
 )
 end
-if isDisposer and not receiver then
-c . diag ( "NUPP2602" , e . name , "a disposal method must declare `self` as its first parameter" )
-isDisposer = false
-elseif isDisposer then
-e . body . disposeContract = true
-e . body . disposeMethod = true
+if isDropOperation and not receiver then
+c . diag ( "NUPP2602" , e . name , "a drop method must declare `self` as its first parameter" )
+isDropOperation = false
+elseif isDropOperation then
+e . body . dropContract = true
+e . body . dropMethod = true
 end
 local checked = c . checkFuncbody ( e . body , receiver and n or nil )
-local ft = receiver and addSelf ( checked , n , isDisposer and "takes" or nil ) or checked
+local ft = receiver and addSelf ( checked , n , isDropOperation and "takes" or nil ) or checked
 c . raises . check ( e , e . body )
 local callable = ( receiver and dropSelf ( ft ) or ft )
 local parameterKey = methodslots . parameters ( callable )
@@ -15749,8 +15749,8 @@ help = "remove @override, or declare the interface "
 }
 )
 end
-if isDisposer then
-c . own . addDefaultDisposer ( n , T . methodCleanup ( name ) )
+if isDropOperation then
+c . own . addDefaultDropOperation ( n , T . methodCleanup ( name ) )
 end
 if receiver then
 n . fieldDefs [ name ] = n . fieldDefs [ name ] or definition
@@ -17890,7 +17890,7 @@ local functions = { }
 
 
 function functions . install ( c )
-local registerDefaultDisposer = c . own . registerDefaultDisposer
+local registerDefaultDropOperation = c . own . registerDefaultDropOperation
 
 local resolvedOwnedCleanups = c . own . resolvedOwnedCleanups
 local ownershipState , pointerShaped = c . ownershipState , c . pointerShaped
@@ -17971,7 +17971,7 @@ for j , arg in ipairs ( args ) do
 local name = directName ( arg )
 if name then
 local effect
-if intrinsic == "dispose" or intrinsic == "intoRaw" then
+if intrinsic == "drop" or intrinsic == "intoRaw" then
 effect = "takes"
 elseif intrinsic == "borrow" or intrinsic == "pin" then
 effect = "borrows"
@@ -18373,8 +18373,8 @@ c . ownReturnStack [
 c . borrowReturnStack [
 # c . borrowReturnStack + 1
 ] = ( body . rets and body . rets [ 1 ] and body . rets [ 1 ] . kind == "tborrows" and body . rets [ 1 ] ) or false
-local disposerContext , disposeRoot
-if body . disposeContract then
+local dropOperationContext , dropRoot
+if body . dropContract then
 local resource , root = selfType , selfType and "self" or nil
 if not resource then
 for j , p in ipairs ( body . params or { } ) do
@@ -18385,17 +18385,17 @@ end
 end
 end
 resource = resource and rawType ( resource ) or nil
-disposeRoot = root
+dropRoot = root
 local affineFields = resource and resource . tag == "nominal" and resource . affineFields or nil
 if affineFields and # affineFields > 0 then
 local owned = { }
 for _ , field in ipairs ( affineFields ) do
 owned [ field ] = true
 end
-disposerContext = { root = root , allowed = owned , done = { } }
+dropOperationContext = { root = root , allowed = owned , done = { } }
 end
 end
-c . disposerFieldStack [ # c . disposerFieldStack + 1 ] = disposerContext or false
+c . dropOperationFieldStack [ # c . dropOperationFieldStack + 1 ] = dropOperationContext or false
 
 
 local loopClosure = c . loops . begin ( c . functionDepth - 1 )
@@ -18462,17 +18462,17 @@ body ,
 )
 end
 end
-if body . disposeContract and disposeRoot and disposeRoot ~= "self" then
-local terminal = ownershipState ( c . lookupEntry ( disposeRoot ) )
+if body . dropContract and dropRoot and dropRoot ~= "self" then
+local terminal = ownershipState ( c . lookupEntry ( dropRoot ) )
 if terminal then
 terminal . moved = true
 end
 end
-c . disposerFieldStack [ # c . disposerFieldStack ] = nil
-if disposerContext then
-for field in pairs ( disposerContext . allowed ) do
-if not disposerContext . done [ field ] then
-c . diag ( "NUPP2603" , body . disposeTok or body , ( "@dispose leaves owned field %q live" ) : format ( field ) )
+c . dropOperationFieldStack [ # c . dropOperationFieldStack ] = nil
+if dropOperationContext then
+for field in pairs ( dropOperationContext . allowed ) do
+if not dropOperationContext . done [ field ] then
+c . diag ( "NUPP2603" , body . dropTok or body , ( "@drop leaves owned field %q live" ) : format ( field ) )
 end
 end
 end
@@ -18731,8 +18731,8 @@ c . bindVar ( nameTok . text , ft )
 
 c . unused . declared ( nameTok , c . scope . vars [ nameTok . text ] , "function" )
 c . raises . check ( stat , body )
-if body . disposeContract then
-registerDefaultDisposer ( ft , nameTok . text , body . disposeTok or stat , body . cleanupRegistrationNode )
+if body . dropContract then
+registerDefaultDropOperation ( ft , nameTok . text , body . dropTok or stat , body . cleanupRegistrationNode )
 end
 end
 
@@ -18780,11 +18780,11 @@ end
 if not fname . method and not owner and ownerKey and memberTok then
 c . applyFacts ( { [ ownerKey .. "." .. memberTok . text ] = ft } )
 end
-if body . disposeContract and not owner then
-registerDefaultDisposer (
+if body . dropContract and not owner then
+registerDefaultDropOperation (
 ft ,
-fname . base and fname . base . text or "<dispose>" ,
-body . disposeTok or stat ,
+fname . base and fname . base . text or "<drop>" ,
+body . dropTok or stat ,
 body . cleanupRegistrationNode
 )
 end
@@ -18801,7 +18801,7 @@ local params = { selfType }
 for _ , p in ipairs ( ft . params ) do
 params [ # params + 1 ] = p
 end
-local modes = { body . disposeMethod and "takes" or "plain" }
+local modes = { body . dropMethod and "takes" or "plain" }
 local names = { "self" }
 for _ , mode in ipairs ( ft . paramModes or { } ) do
 modes [ # modes + 1 ] = mode
@@ -18852,14 +18852,14 @@ else
 owner . byname [ member ] = ft
 owner . writeByname [ member ] = ft
 end
-if body . disposeMethod then
+if body . dropMethod then
 if fname . method then
-c . own . addDefaultDisposer ( owner , T . methodCleanup ( member ) )
+c . own . addDefaultDropOperation ( owner , T . methodCleanup ( member ) )
 else
-registerDefaultDisposer (
+registerDefaultDropOperation (
 ft ,
 ( owner . runtimePath or ownerKey ) .. "." .. member ,
-body . disposeTok or stat ,
+body . dropTok or stat ,
 body . cleanupRegistrationNode
 )
 end
@@ -21437,12 +21437,12 @@ elseif opaque then
 return { }
 end
 local base = resource
-local defaults = base . tag == "nominal" and base . defaultDisposers or nil
+local defaults = base . tag == "nominal" and base . defaultDropOperations or nil
 if not defaults or # defaults == 0 then
 c . diag (
 "NUPP2602" ,
 at ,
-"bare @owned needs exactly one inherited @dispose operation; "
+"bare @owned needs exactly one inherited @drop operation; "
 .. "use @owned(cleanup) or @owned(opaque = true)"
 )
 return { }
@@ -21450,7 +21450,7 @@ elseif # defaults > 1 then
 c . diag (
 "NUPP2602" ,
 at ,
-"bare @owned has multiple inherited @dispose operations; " .. "choose one with @owned(cleanup)"
+"bare @owned has multiple inherited @drop operations; " .. "choose one with @owned(cleanup)"
 )
 return { }
 end
@@ -21458,7 +21458,7 @@ end
 return { defaults [ 1 ] }
 end
 
-function own . addDefaultDisposer ( resourceT , cleanup )
+function own . addDefaultDropOperation ( resourceT , cleanup )
 if not resourceT then
 return
 end
@@ -21466,8 +21466,8 @@ local base = rawType ( resourceT )
 if base . tag ~= "nominal" then
 return
 end
-local defaults = base . defaultDisposers or { }
-base . defaultDisposers = defaults
+local defaults = base . defaultDropOperations or { }
+base . defaultDropOperations = defaults
 for _ , current in ipairs ( defaults ) do
 if current . id == cleanup . id then
 return
@@ -21476,12 +21476,12 @@ end
 defaults [ # defaults + 1 ] = cleanup
 end
 
-function own . registerDefaultDisposer ( ft , path , at , registrationNode )
+function own . registerDefaultDropOperation ( ft , path , at , registrationNode )
 if not ft or ft . tag ~= "func" or not ft . params [ 1 ] or ft . paramModes [ 1 ] ~= "takes" then
-c . diag ( "NUPP2602" , at , "@dispose requires a function whose first parameter takes " .. "the resource" )
+c . diag ( "NUPP2602" , at , "@drop requires a function whose first parameter takes " .. "the resource" )
 return
 end
-own . addDefaultDisposer (
+own . addDefaultDropOperation (
 ft . params [ 1 ] ,
 resolvedFunctionCleanup ( path , at , registrationNode , true , ft )
 )
@@ -21622,22 +21622,22 @@ end
 
 function own . moveExpression ( expr , t , reason , expectedKind , allowPartial )
 expectedKind = expectedKind or "owned"
-local disposer = c . disposerFieldStack [ # c . disposerFieldStack ]
-if disposer
+local dropOperation = c . dropOperationFieldStack [ # c . dropOperationFieldStack ]
+if dropOperation
 and expectedKind == "owned"
 and expr
 and expr . kind == "dotIndex"
 and expr . obj
 and expr . obj . kind == "name"
-and expr . obj . token . text == disposer . root
+and expr . obj . token . text == dropOperation . root
 then
 local field = expr . name . text
-if disposer . allowed [ field ] then
-if disposer . done [ field ] then
-c . diag ( "NUPP2602" , expr , ( "owned field %q is disposed more than once" ) : format ( field ) )
+if dropOperation . allowed [ field ] then
+if dropOperation . done [ field ] then
+c . diag ( "NUPP2602" , expr , ( "owned field %q is dropped more than once" ) : format ( field ) )
 return false
 end
-disposer . done [ field ] = true
+dropOperation . done [ field ] = true
 return true
 end
 end
@@ -22110,7 +22110,7 @@ c . checkStat ( stat . stat )
 end
 return
 
-elseif written == "dispose" then
+elseif written == "drop" then
 local ownerKey = nil
 if target and target . kind == "funcStmt" then
 local fname = target . name
@@ -22119,17 +22119,17 @@ ownerKey = c . funcOwner ( fname )
 end
 end
 if valid and targetKind == "funcStmt" and targetBody then
-targetBody . disposeContract = true
-targetBody . disposeMethod = ownerKey ~= nil
-targetBody . disposeTok = annotationName
+targetBody . dropContract = true
+targetBody . dropMethod = ownerKey ~= nil
+targetBody . dropTok = annotationName
 targetBody . cleanupRegistrationNode = stat
 elseif valid and targetKind == "localFuncStmt" and targetBody then
-targetBody . disposeContract = true
-targetBody . disposeTok = annotationName
+targetBody . dropContract = true
+targetBody . dropTok = annotationName
 targetBody . cleanupRegistrationNode = stat
 elseif valid and target and targetKind == "cdefFunc" then
-target . disposeContract = true
-target . disposeTok = stat . name
+target . dropContract = true
+target . dropTok = stat . name
 target . cleanupRegistrationNode = stat
 end
 if stat . stat then
@@ -27553,7 +27553,7 @@ kind = "unsafe assertion region" ,
 }
 inUnsafe = true
 elseif inUnsafe and node . ownershipIntrinsic and node . ownershipIntrinsic ~= "borrow"
-and node . ownershipIntrinsic ~= "dispose" then
+and node . ownershipIntrinsic ~= "drop" then
 local token = firstToken ( node )
 unsafeSites [ # unsafeSites + 1 ] = {
 file = file ,
@@ -33943,7 +33943,7 @@ cst . isToken = isToken
 
 local OWNERSHIP_INTRINSICS
 
-= { borrow = true , borrowFrom = true , dispose = true , fromRaw = true , intoRaw = true , pin = true , }
+= { borrow = true , borrowFrom = true , drop = true , fromRaw = true , intoRaw = true , pin = true , }
 
 
 
@@ -45031,7 +45031,7 @@ end
 e ( " end" )
 return
 
-elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic == "dispose" then
+elseif kind == "callStmt" and x . expr and x . expr . ownershipIntrinsic == "drop" then
 e ( "do" , sourceLine ( x ) )
 emit ( x . expr )
 e ( "end" )
@@ -45105,7 +45105,7 @@ local args = x . args and x . args . exprs or { }
 local line = sourceLine ( x )
 local move = args [ 1 ] and args [ 1 ] . automaticOwnerMove or nil
 local movedActive = move and activeWith ( move ) or nil
-if movedActive and ( x . ownershipIntrinsic == "dispose" or x . ownershipIntrinsic == "intoRaw" ) then
+if movedActive and ( x . ownershipIntrinsic == "drop" or x . ownershipIntrinsic == "intoRaw" ) then
 e ( ( "(function() %s=false; return " ) : format ( movedActive ) , line )
 end
 if x . ownershipIntrinsic == "borrow" then
@@ -45178,7 +45178,7 @@ e ( "nil" )
 end
 e ( ")" )
 end
-if movedActive and ( x . ownershipIntrinsic == "dispose" or x . ownershipIntrinsic == "intoRaw" ) then
+if movedActive and ( x . ownershipIntrinsic == "drop" or x . ownershipIntrinsic == "intoRaw" ) then
 e ( " end)()" )
 end
 return
@@ -62048,7 +62048,7 @@ codes = { "NUPP2603" , "NUPP2615" } ,
 body = [=[
 `@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local
 with known cleanup is destroyed automatically at its lexical scope boundary.
-Disposing it, passing it to a `takes` parameter, returning it as an owner, or
+Dropping it, passing it to a `takes` parameter, returning it as an owner, or
 converting it with `intoRaw` ends or transfers that responsibility exactly once.
 An opaque or otherwise unresolved owner still requires an explicit terminal;
 forgetting that choice is a compile error, not a leak.
@@ -62077,7 +62077,7 @@ when a runtime count is available. A fixed C array rejects a statically
 out-of-range literal and inserts a runtime guard for a non-literal index.
 
 The ownership intrinsics live under the always-available `nupp` global:
-`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
 `nupp.borrowFrom`, and `nupp.pin`. The old bare spellings remain aliases and
 lower identically. Either spelling is shadowed by a binding of that name,
 `nupp` included.
@@ -67099,7 +67099,7 @@ local nominalCounter = 0
 function types . nominal ( name , declKind )
 nominalCounter = nominalCounter + 1
 local t = setmetatable( { tag = "nominal" , declKind = declKind , name = name , byname = { } ,
-writeByname = { } , staticByname = { } , staticWriteByname = { } , metamethods = { } , nestedTypes = { } , defaultDisposers = { } , } , types.Nominal)
+writeByname = { } , staticByname = { } , staticWriteByname = { } , metamethods = { } , nestedTypes = { } , defaultDropOperations = { } , } , types.Nominal)
 t . id = "nominal#" .. nominalCounter .. "(" .. name .. ")"
 
 return t
@@ -72140,7 +72140,7 @@ local arg: {string}
 local record ResourceSet
     label: string
 
-    @dispose
+    @drop
     close: nosuspend function(takes self: ResourceSet)
 
     adopt: function<T>(self: ResourceSet, takes value: T, terminal: function(takes value: T)?): T borrows self
@@ -73522,7 +73522,7 @@ local record ByteWriteSpan
     readonly offset: integer
     readonly count: integer
 
-    @dispose
+    @drop
     function commit(takes self: ByteWriteSpan): nil
     end
 

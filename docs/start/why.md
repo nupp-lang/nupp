@@ -88,7 +88,7 @@ print(file:read("*a"))
 -- file is destroyed automatically here, including when read raises
 ```
 
-Dispose early, transfer it to a `takes` parameter, or return it from an
+Drop early, transfer it to a `takes` parameter, or return it from an
 `@owned` function when automatic lexical destruction is not the desired end:
 
 ```nupp

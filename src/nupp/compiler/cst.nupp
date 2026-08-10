@@ -355,14 +355,14 @@ interface cst.Hints
     --- Whether the generator must pass the pinned pointer rather than the handle.
     passPinnedPointer: boolean?
 
-    --- Whether `@dispose` was written on this declaration.
-    disposeContract: boolean?
+    --- Whether `@drop` was written on this declaration.
+    dropContract: boolean?
 
-    --- Whether that disposer is a method.
-    disposeMethod: boolean?
+    --- Whether that drop operation is a method.
+    dropMethod: boolean?
 
     --- Where it was written.
-    disposeTok: lexer.Token?
+    dropTok: lexer.Token?
 
     --- Whether this declaration defines an annotation.
     isAnnotationDefinition: boolean?
@@ -2171,7 +2171,7 @@ cst.isToken = isToken
 --- thing and lower to the same code.
 local OWNERSHIP_INTRINSICS: {
     [string]: boolean
-} = {borrow = true, borrowFrom = true, dispose = true, fromRaw = true, intoRaw = true, pin = true,}
+} = {borrow = true, borrowFrom = true, drop = true, fromRaw = true, intoRaw = true, pin = true,}
 
 --- The ownership intrinsic a callee is written as, before anything asks what the names
 --- in it resolve to. Answers nil for a callee of any other shape.

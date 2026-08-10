@@ -347,7 +347,7 @@ function declare.install(
     --- Two interfaces providing the same name are two implementations and no reason to
     --- prefer either, so the declaration has to say which behaviour it means by writing
     --- the member itself. The same shape as a bare `@owned` with several inherited
-    --- `@dispose` operations.
+    --- `@drop` operations.
     local function checkInheritedDefaults(stat: any, n: any)
         n.inheritedDefaults = {}
         local providers: {[string]: {any}} = {}
@@ -786,8 +786,8 @@ function declare.install(
                     -- Which node named it, so the runtime spelling the resolver worked
                     -- out can be found again from the nominal.
                     superNode.resolvedSupertype = super
-                    for _, disposer in ipairs(super.defaultDisposers or {}) do
-                        c.own.addDefaultDisposer(n, disposer)
+                    for _, dropOperation in ipairs(super.defaultDropOperations or {}) do
+                        c.own.addDefaultDropOperation(n, dropOperation)
                     end
                     local selfMap = super.selfType and {[super.selfType] = n.selfType} or {}
                     for name, inherited in pairs(super.byname or {}) do
@@ -944,12 +944,12 @@ function declare.install(
             local localMembers, localMetamethods = {}, {}
             for _, e in ipairs(stat.entries) do
                 if e.kind == "fieldDecl" then
-                    local isDisposer = false
+                    local isDropOperation = false
                     local ownedApplication = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
-                        if definition2 and valid and application.name.text == "dispose" then
-                            isDisposer = true
+                        if definition2 and valid and application.name.text == "drop" then
+                            isDropOperation = true
                         elseif definition2 and valid and application.name.text == "owned" then
                             ownedApplication = application
                         end
@@ -1060,15 +1060,15 @@ function declare.install(
                         n.affineFields[#n.affineFields + 1] = e.name.text
                         n.affineResource = true
                     end
-                    if isDisposer then
+                    if isDropOperation then
                         if ft.tag ~= "func" or not ft.params[1] or ft.paramModes[1] ~= "takes" then
                             c.diag(
                                 "NUPP2602",
                                 e,
-                                "@dispose member must be a function whose first " .. "parameter takes the resource"
+                                "@drop member must be a function whose first " .. "parameter takes the resource"
                             )
                         else
-                            c.own.addDefaultDisposer(n, T.methodCleanup(e.name.text))
+                            c.own.addDefaultDropOperation(n, T.methodCleanup(e.name.text))
                         end
                     end
                     local name = e.name.text
@@ -1232,12 +1232,12 @@ function declare.install(
                 elseif e.kind == "constructorDecl" then
                     checkConstructor(e, n, stat)
                 elseif e.kind == "inlineMethod" then
-                    local isDisposer, isOverride = false, false
+                    local isDropOperation, isOverride = false, false
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid then
-                            if application.name.text == "dispose" then
-                                isDisposer = true
+                            if application.name.text == "drop" then
+                                isDropOperation = true
                             elseif application.name.text == "override" then
                                 isOverride = true
                             end
@@ -1254,22 +1254,22 @@ function declare.install(
                     end
                     local receiver = hasReceiver(e.body, stat.declKind)
                     local declaredGroup = (receiver and inlineSignatures or staticSignatures)[name] or {}
-                    if isDisposer and #declaredGroup > 1 then
+                    if isDropOperation and #declaredGroup > 1 then
                         c.diag(
                             "NUPP2602",
                             e.name,
-                            "a disposal method has one resource contract and cannot " .. "be overloaded"
+                            "a drop method has one resource contract and cannot " .. "be overloaded"
                         )
                     end
-                    if isDisposer and not receiver then
-                        c.diag("NUPP2602", e.name, "a disposal method must declare `self` as its first parameter")
-                        isDisposer = false
-                    elseif isDisposer then
-                        e.body.disposeContract = true
-                        e.body.disposeMethod = true
+                    if isDropOperation and not receiver then
+                        c.diag("NUPP2602", e.name, "a drop method must declare `self` as its first parameter")
+                        isDropOperation = false
+                    elseif isDropOperation then
+                        e.body.dropContract = true
+                        e.body.dropMethod = true
                     end
                     local checked = c.checkFuncbody(e.body, receiver and n or nil)
-                    local ft = receiver and addSelf(checked, n, isDisposer and "takes" or nil) or checked
+                    local ft = receiver and addSelf(checked, n, isDropOperation and "takes" or nil) or checked
                     c.raises.check(e, e.body)
                     local callable = (receiver and dropSelf(ft) or ft) as T.Func
                     local parameterKey = methodslots.parameters(callable)
@@ -1358,8 +1358,8 @@ function declare.install(
                             }
                         )
                     end
-                    if isDisposer then
-                        c.own.addDefaultDisposer(n, T.methodCleanup(name))
+                    if isDropOperation then
+                        c.own.addDefaultDropOperation(n, T.methodCleanup(name))
                     end
                     if receiver then
                         n.fieldDefs[name] = n.fieldDefs[name] or definition

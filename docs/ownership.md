@@ -24,7 +24,7 @@ shared pointer, a pointer retained by C, and an already-freed pointer. Cleanup
 conventions live in comments and tests. Nupp turns those conventions into
 checked interfaces:
 
-- a locally disposable owner is destroyed at lexical scope exit unless moved;
+- a locally droppable owner is destroyed at lexical scope exit unless moved;
 - a `takes` call moves its argument and later use is rejected;
 - a derived borrow cannot outlive or be stored away from its source;
 - C cannot retain Lua-managed memory without a pinned anchor and a declared
@@ -44,9 +44,9 @@ occasional use-after-free.
 | Surface | Meaning |
 | --- | --- |
 | `@owned(cleanup...)` | The first result is a new affine owner with this ordered cleanup list. |
-| `@owned` | Use the result type's one inherited `@dispose` operation. |
+| `@owned` | Use the result type's one inherited `@drop` operation. |
 | `@owned(opaque = true)` | The result is transfer-only; it has no local cleanup operation. |
-| `@dispose` | Marks the default operation that consumes a resource. |
+| `@drop` | Marks the default operation that consumes a resource. |
 | `takes p: T` | The callee accepts and consumes the ownership obligation. |
 | `borrows p: T` | Shared, call-duration access; mutation is allowed but escape is not. |
 | `exclusive p: T` | Exclusive call-duration access; no other live borrow may overlap it. |
@@ -60,7 +60,7 @@ occasional use-after-free.
 | `owned<T>` | A value carrying one affine discharge obligation. |
 | `borrowed<T>` | A non-escaping value tied to another live binding. |
 | `pinned<T>` | An affine pointer plus a strong Lua anchor for C retention. |
-| `nupp.dispose(x)` | Consume `x` and invoke its recorded cleanup list. |
+| `nupp.drop(x)` | Consume `x` and invoke its recorded cleanup list. |
 | `nupp.borrow(x)` | Create an explicit lexical borrow of `x`. |
 | `nupp.intoRaw(x)` | In `unsafe`, abandon tracking and return the underlying value. |
 | `nupp.fromRaw(x, cleanup...)` | In `unsafe`, assert fresh ownership of a raw value. |
@@ -75,20 +75,20 @@ does not change the C ABI and does not install `ffi.gc` finalizers.
 
 ### Intrinsics live under `nupp`
 
-`nupp.dispose`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
+`nupp.drop`, `nupp.borrow`, `nupp.intoRaw`, `nupp.fromRaw`,
 `nupp.borrowFrom`, and `nupp.pin` are compiler-provided operations on the
 always-available `nupp` global:
 
 ```nupp
 local handle = openFile(path)
-nupp.dispose(handle)
+nupp.drop(handle)
 ```
 
 The old bare spellings remain aliases. They report the same diagnostics and
 lower to the same code, but new code and these examples use `nupp.*` so the
 operation's origin is explicit. Either spelling can be shadowed: a local
-`nupp` makes `nupp.dispose` an ordinary field call, just as a local `dispose`
-makes `dispose(x)` an ordinary call.
+`nupp` makes `nupp.drop` an ordinary field call, just as a local `drop`
+makes `drop(x)` an ordinary call.
 
 ## Owned results and deterministic cleanup
 
@@ -107,11 +107,11 @@ cdef function widget_new(): widget*
 
 local value = widget_new()
 print(value.value)
-nupp.dispose(value)              -- stop, then free
+nupp.drop(value)              -- stop, then free
 print(value.value)          -- NUPP2601: use after move
 ```
 
-Cleanup functions run from left to right. `dispose` takes the owner, so it
+Cleanup functions run from left to right. `drop` takes the owner, so it
 cannot run twice. Passing the value to any `takes` parameter discharges the
 same obligation without also running the recorded cleanup:
 
@@ -120,12 +120,12 @@ cdef function widget_adopt(takes value: widget*)
 
 local value = widget_new()
 widget_adopt(value)
-nupp.dispose(value)              -- NUPP2601: value was moved
+nupp.drop(value)              -- NUPP2601: value was moved
 ```
 
 Every live owner must be discharged along every checked path. A locally
-disposable ordinary binding is discharged automatically at its lexical scope
-boundary, including raised and structured exits. A successful `dispose`,
+droppable ordinary binding is discharged automatically at its lexical scope
+boundary, including raised and structured exits. A successful `drop`,
 `takes` call, ownership-preserving move, `@owned` return, or `intoRaw` inside
 `unsafe` transfers or ends that responsibility and suppresses automatic
 cleanup. Ignoring an owned call result is still an error. Transfer-only owners
@@ -175,7 +175,7 @@ an owner necessarily ran the producer first.
 A raw pointer cannot secretly carry an allocator, arena, or parent handle:
 ownership annotations erase, and cleanup later needs a runtime place from which
 to read that context. Make the pair an explicit nominal owner and put the
-context in its fields. A custom `@dispose` method can then pass every required
+context in its fields. A custom `@drop` method can then pass every required
 argument without allocating a closure per owner:
 
 ```nupp
@@ -187,7 +187,7 @@ local record Allocation
    ctx: allocator*
    value: block*
 
-   @dispose
+   @drop
    function close(self)
       unsafe do
          ctx_free(self.ctx, self.value)
@@ -218,21 +218,21 @@ cdef function submit_request(takes request: voidptr)
 
 local request = begin_request()
 submit_request(request)     -- valid
--- nupp.dispose(request)         -- no cleanup exists
+-- nupp.drop(request)         -- no cleanup exists
 ```
 
 Bare `@owned` does not mean opaque. Opaque ownership must be conspicuous.
 
-## Default disposal and Closeable-style interfaces
+## Default drop and Closeable-style interfaces
 
-`@dispose` marks a consuming operation as the default disposer. A bare
+`@drop` marks a consuming operation as the default drop operation. A bare
 `@owned` producer uses it when the result type has exactly one default:
 
 ```nupp
 local record File
    closed: boolean
 
-   @dispose
+   @drop
    function close(self)
       self.closed = true
    end
@@ -244,7 +244,7 @@ local function openFile(): File
 end
 
 local file = openFile()
-nupp.dispose(file)               -- calls File:close()
+nupp.drop(file)               -- calls File:close()
 ```
 
 A free function can be the default as well, but its resource parameter must be
@@ -253,7 +253,7 @@ A free function can be the default as well, but its resource parameter must be
 ```nupp
 local record Socket end
 
-@dispose
+@drop
 local function closeSocket(takes socket: Socket) end
 
 @owned
@@ -264,7 +264,7 @@ An interface can declare the contract once and subtypes inherit it:
 
 ```nupp
 local interface Closeable
-   @dispose
+   @drop
    close: function(takes value: self): nil
 end
 
@@ -326,7 +326,7 @@ do
    local view = nupp.borrow(value)
    reset(value)              -- error: view overlaps exclusive access
 end
-nupp.dispose(value)
+nupp.drop(value)
 ```
 
 Use `exclusive` only for operations that may invalidate derived views, replace
@@ -346,7 +346,7 @@ end
 
 local value = widget_new()
 inspect(value)               -- inferred borrows
-nupp.dispose(value)
+nupp.drop(value)
 ```
 
 If a parameter is returned without a borrowing-return contract, stored,
@@ -365,7 +365,7 @@ do
    local view = nupp.borrow(value)
    stash(view)               -- NUPP2603: destination may retain it
 end
-nupp.dispose(value)
+nupp.drop(value)
 ```
 
 Explicit `borrows` remains useful because it pins intent and improves error
@@ -399,9 +399,9 @@ local value = widget_new()
 do
    local view = nupp.borrow(value)
    inspect(view)
-   nupp.dispose(value)            -- error: view is still live
+   nupp.drop(value)            -- error: view is still live
 end
-nupp.dispose(value)               -- valid after the borrow's scope
+nupp.drop(value)               -- valid after the borrow's scope
 ```
 
 Most calls do not need `nupp.borrow(...)`: passing an owner to a `borrows`
@@ -437,7 +437,7 @@ local function openTls(borrows socket: Socket): TLS borrows socket
 end
 ```
 
-The TLS session must be disposed, and the socket cannot be disposed until that
+The TLS session must be dropped, and the socket cannot be dropped until that
 happens. A result may name several roots:
 
 ```nupp
@@ -474,7 +474,7 @@ retention state, and affine identity move to the result:
 local id: function<T>(value: T): T preserves value
 
 local file = id(openFile("input"))
-nupp.dispose(file)
+nupp.drop(file)
 ```
 
 Visible identity and narrowing bodies infer this relation. Bodyless interfaces
@@ -532,7 +532,7 @@ local raw: widget*
 unsafe do
    raw = nupp.intoRaw(value)                -- obligation deliberately abandoned
    local restored = nupp.fromRaw(raw, widget_free)
-   nupp.dispose(restored)
+   nupp.drop(restored)
 end
 ```
 
@@ -561,7 +561,7 @@ cdef function posix_memalign(
 
 local status, pointer = posix_memalign(16, 4096)
 if pointer then
-   nupp.dispose(pointer)
+   nupp.drop(pointer)
 end
 ```
 
@@ -586,7 +586,7 @@ cdef function store_lookup(
 ): int32
 
 local status, item = store_lookup(store, "key")
--- store cannot move or be disposed while item is live
+-- store cannot move or be dropped while item is live
 ```
 
 The `from` parameter must itself be a `borrows` input. This prevents an output
@@ -640,13 +640,13 @@ end
 
 Acquisitions occur left to right and cleanup occurs right to left. Cleanup also
 runs for early return, loop control, and errors. The local remains movable;
-moving, returning, or explicitly disposing it deactivates automatic cleanup
-exactly once. Use `dispose` for early release and an explicit terminal operation
+moving, returning, or explicitly dropping it deactivates automatic cleanup
+exactly once. Use `drop` for early release and an explicit terminal operation
 when successful completion has protocol meaning. If the body and cleanup both
 fail, Nupp preserves the body failure as the primary error and reports the
 cleanup failure with it.
 
-Every cleanup function and `@dispose` body must be non-suspending. A foreign or
+Every cleanup function and `@drop` body must be non-suspending. A foreign or
 bodyless cleanup makes this trusted promise; a visible body is checked from its
 transitive effect summary.
 
@@ -665,28 +665,28 @@ local bundle = new Bundle {
    output = openFile(),
 }
 
-nupp.dispose(bundle) -- output, then input
+nupp.drop(bundle) -- output, then input
 ```
 
 When no custom default exists, cleanup is synthesized in reverse field
 declaration order. Individual affine fields may move out. Their path-sensitive
 state becomes moved, independent fields remain accessible, whole-record methods
-are refused, and synthesized disposal skips only fields proven moved. Assigning
+are refused, and synthesized drop skips only fields proven moved. Assigning
 the same exact affine contract back reinitializes the field.
 
-A record may define a custom `@dispose` method. The checker requires that its
+A record may define a custom `@drop` method. The checker requires that its
 body discharge every affine field, and it does that by handing each one to a
-`takes` parameter — the field's own disposer:
+`takes` parameter — the field's own drop operation:
 
 ```nupp
-@dispose
+@drop
 local function closeFile(takes file: File) end
 
 local record Bundle
    first: owned<File>
    second: owned<File>
 
-   @dispose
+   @drop
    function close(self)
       closeFile(self.second)
       closeFile(self.first)
@@ -694,7 +694,7 @@ local record Bundle
 end
 ```
 
-`nupp.dispose(self.second)` does not work here. `dispose` needs a value whose static
+`nupp.drop(self.second)` does not work here. `drop` needs a value whose static
 type carries a cleanup list, and a field spelled `owned<File>` records the
 obligation without recording how to discharge it; that reports `NUPP2602` and
 names the fix. The same applies inside a function to a `takes` parameter: its
@@ -758,7 +758,7 @@ retained handle is therefore rejected:
 local function task()
    local file = openFile()
    coroutine.yield()         -- NUPP2603: cleanup could be abandoned
-   nupp.dispose(file)
+   nupp.drop(file)
 end
 ```
 
