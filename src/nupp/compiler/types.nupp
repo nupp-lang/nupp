@@ -337,6 +337,26 @@ record types.Metatable
     of: types.Type
 end
 
+--- A type reached through another: `T.Item` is the associated type `Item` as whatever
+--- `T` answers it with.
+---
+--- This constructor only builds and interns. Reducing it is `generics.normalize`, which
+--- runs to a fixed point and reports a cycle rather than looping -- a constructor that
+--- reduced one hop would look like normalization and quietly not be it.
+---
+--- Its identity embeds the head's, so two spellings of one projection are one type and
+--- two binders that share a name are not.
+record types.Projection
+    id: string
+    tag: 'projection'
+
+    --- What it is reached through.
+    of: types.Type
+
+    --- The associated member's name.
+    name: string
+end
+
 --- A declared type: record, interface or struct. One identity per declaration, never
 --- shared with another declaration of the same shape.
 record types.Nominal
@@ -366,8 +386,15 @@ record types.Nominal
     --- Metamethod protocol contracts, deliberately separate from value members.
     metamethods: {[string]: types.Type}
 
-    --- Nested declarations addressable through this nominal namespace.
+    --- Nested declarations addressable through this nominal namespace. A plain nested
+    --- alias lives here and answers no contract, so a projection never reduces through
+    --- it: the two are separate storage precisely so a private alias sharing a name
+    --- with somebody's associated type cannot be mistaken for an answer.
     nestedTypes: {[string]: types.Type}
+
+    --- What this declaration answers each associated type with. Populated by
+    --- declaration checking once that lands; until then only tests write it.
+    associatedAnswers: {[string]: types.Type}?
 
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?
@@ -462,7 +489,7 @@ record types.Nominal
 end
 
 --- Any type.
-type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Metatable | types.Nominal | types.ProtocolThread | types.GenericAlias
+type types.Type = types.Prim | types.Array | types.Map | types.Tuple | types.Shape | types.Union | types.Intersection | types.Ptr | types.CArray | types.Owned | types.Borrowed | types.Pinned | types.Const | types.CType | types.Func | types.Literal | types.TypeVar | types.Metatable | types.Projection | types.Nominal | types.ProtocolThread | types.GenericAlias
 
 --- One field of a structural shape. `type` is accepted as the legacy spelling passed by
 --- compiler internals and means an ordinary read-write property.
@@ -1368,6 +1395,19 @@ function types.metatable(t: types.Type): types.Type
     end)
 end
 
+--- `of.name`, built and interned. It reduces nowhere: see `generics.normalize`.
+function types.projection(of: types.Type, name: string): types.Type
+    return intern("proj(" .. of.id .. "," .. name .. ")", function()
+        return new types.Projection {tag = "projection", of = of, name = name}
+    end)
+end
+
+--- Whether `t` has a projection anywhere inside it. Read off the interning key, as
+--- `hasTypevar` is, so normalization can decline to walk what cannot contain one.
+function types.hasProjection(t: types.Type): boolean
+    return t.id:find("proj(", 1, true) ~= nil
+end
+
 -- Cheap containment test used to decide whether instantiation is needed.
 function types.hasTypevar(t: types.Type): boolean
     return t.id:find("tv(", 1, true) ~= nil or t.id:find("pv(", 1, true) ~= nil
@@ -1505,6 +1545,8 @@ function types.tostring(t: types.Type): string
         return t.name
     elseif tag == "metatable" then
         return "metatable<" .. types.tostring(t.of) .. ">"
+    elseif tag == "projection" then
+        return types.tostring(t.of) .. "." .. t.name
     elseif tag == "literal" then
         if t.base == types.string then
             return ("%q"):format(t.constant)

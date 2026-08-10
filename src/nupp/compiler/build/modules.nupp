@@ -162,6 +162,12 @@ local function typeFingerprint(
         table.sort(items)
         ;
         value = tag .. "(" .. table.concat(items, tag == "union" and "|" or "&") .. ")"
+    elseif tag == "projection" then
+        -- Through the canonical head, so two projections off binders that share a name
+        -- are two boundaries. Without a case here a projection renders as its bare tag
+        -- and every one of them compares equal, which is the collision the binder
+        -- numbering above exists to prevent.
+        value = "proj(" .. typeFingerprint(t.of, active, binders) .. "," .. t.name .. ")"
     elseif tag == "literal" then
         value = "literal(" .. stable(t.constant) .. ":" .. typeFingerprint(t.base, active, binders) .. ")"
     elseif tag == "typevar" then

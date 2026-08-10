@@ -46,4 +46,17 @@ function M.bindersNumberByFirstEncounter()
    assert(two:find("typevar#2", 1, true), "second binder unnumbered: " .. two)
 end
 
+-- A projection is a boundary too, and it inherits the head's identity. Two of them
+-- off binders that share a name have to compare unequal for the same reason the
+-- binders do.
+function M.projectionsOffDistinctBindersDoNotCollide()
+   local first = types.typevar("T", "m.nupp:10:generic")
+   local second = types.typevar("T", "m.nupp:40:generic")
+   local a = types.func({first, second}, {types.projection(first, "Item")})
+   local b = types.func({first, second}, {types.projection(second, "Item")})
+   assert(a ~= b, "the two signatures should be two types")
+   assert(modules.typeFingerprint(a) ~= modules.typeFingerprint(b),
+      "two projections fingerprinted alike: " .. modules.typeFingerprint(a))
+end
+
 return M

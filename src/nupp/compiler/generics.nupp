@@ -28,30 +28,62 @@ local type Bindings = {[any]: any}
 ---
 --- These are never written at a call site: `rebind` and `materialize` below name the
 --- choice, so no caller passes a flag and none of them can pick by accident.
+local EMPTY: Bindings = {}
+
 local PRESERVE = "preserve"
 local MATERIALIZE = "materialize"
 
-local substWith: function(t: Type, map: Bindings, unmapped: string): Type
+--- Normalization state, carried through the walk when one is running. Absent means
+--- the walk is an ordinary substitution and a projection is rebuilt, not reduced.
+---
+--- Findings are collected as data. The type layer does not diagnose: a cycle is a fact
+--- about the types, and which code is at fault is the checker's to say.
+local type Normalizing = {
+    --- Projection answers currently being reduced, so a cycle is met once rather than
+    --- followed forever.
+    active: {[string]: boolean},
+
+    --- Their labels, innermost last, so the cycle can be reported as the loop it is.
+    path: {string},
+
+    --- Projections whose head reduced to `any`, in the order met. The result is `any`
+    --- there, and this is what later tells a lint the `any` came from a projection
+    --- rather than from somebody writing one.
+    gradual: {string},
+
+    --- The labels on a cycle, once one is found.
+    cycle: {string}?
+}
+
+local reduceProjection: function(
+    head: Type,
+    name: string,
+    map: Bindings,
+    unmapped: string,
+    norm: Normalizing
+): Type
+
+local substWith: function(t: Type, map: Bindings, unmapped: string, norm: Normalizing?): Type
 
 --- A pack with its binders replaced per `map`, unmapped ones per `unmapped`.
-local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
+local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string, norm: Normalizing?): T.Pack
 
-substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
+substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string, norm: Normalizing?): T.Pack
     if pack.alternatives then
         local alternatives = {}
         for j, arm in ipairs(pack.alternatives) do
-            alternatives[j] = substPackWith(arm, map, unmapped)
+            alternatives[j] = substPackWith(arm, map, unmapped, norm)
         end
         return T.packUnion(alternatives)
     end
     local head, modes = {}, {}
     for j, value in ipairs(pack.head) do
-        head[j] = substWith(value, map, unmapped)
+        head[j] = substWith(value, map, unmapped, norm)
         modes[j] = pack.modes[j] or "plain"
     end
     local tail = pack.tail
     if tail and tail.kind == "homogeneous" then
-        tail = {kind = "homogeneous", type = substWith(tail.type, map, unmapped), mode = tail.mode}
+        tail = {kind = "homogeneous", type = substWith(tail.type, map, unmapped, norm), mode = tail.mode}
     elseif tail and tail.kind == "generic" then
         local replacement = map[tail.var]
         if replacement and replacement.tag == "pack" then
@@ -72,11 +104,21 @@ substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
     return T.pack(head, tail, modes)
 end
 
-substWith = function(t: Type, map: Bindings, unmapped: string): Type
-    if not T.hasTypevar(t) then
+substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing?): Type
+    if not T.hasTypevar(t) and not (norm ~= nil and T.hasProjection(t)) then
         return t
     end
     local tag = t.tag
+    if tag == "projection" then
+        local head = substWith(t.of, map, unmapped, norm)
+        if not norm then
+            -- Substituted, not reduced. Making the head concrete is what makes a
+            -- projection reducible; running that to a fixed point is `normalize`.
+            return T.projection(head, t.name)
+        end
+
+        return reduceProjection(head, t.name, map, unmapped, norm)
+    end
     if tag == "typevar" then
         local bound = map[t]
         if bound then
@@ -85,18 +127,18 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
 
         return unmapped == PRESERVE and t or T.any
     elseif tag == "array" then
-        return T.array(substWith(t.elem, map, unmapped))
+        return T.array(substWith(t.elem, map, unmapped, norm))
     elseif tag == "map" then
         return T.indexer(
-            t.readable and substWith(t.key, map, unmapped) or nil,
-            t.readable and substWith(t.value, map, unmapped) or nil,
-            t.writeKey and substWith(t.writeKey, map, unmapped) or nil,
-            t.writeValue and substWith(t.writeValue, map, unmapped) or nil
+            t.readable and substWith(t.key, map, unmapped, norm) or nil,
+            t.readable and substWith(t.value, map, unmapped, norm) or nil,
+            t.writeKey and substWith(t.writeKey, map, unmapped, norm) or nil,
+            t.writeValue and substWith(t.writeValue, map, unmapped, norm) or nil
         )
     elseif tag == "tuple" then
         local elems: {Type} = {}
         for j, e in ipairs(t.elems) do
-            elems[j] = substWith(e, map, unmapped)
+            elems[j] = substWith(e, map, unmapped, norm)
         end
         return T.tuple(elems)
     elseif tag == "shape" then
@@ -106,65 +148,65 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
                 j
             ] = {
                 name = f.name,
-                read = f.read and substWith(f.read, map, unmapped) or nil,
-                write = f.write and substWith(f.write, map, unmapped) or nil
+                read = f.read and substWith(f.read, map, unmapped, norm) or nil,
+                write = f.write and substWith(f.write, map, unmapped, norm) or nil
             }
         end
         return T.shape(
             fields,
             {
-                readKey = t.indexReadKey and substWith(t.indexReadKey, map, unmapped) or nil,
-                readValue = t.indexReadValue and substWith(t.indexReadValue, map, unmapped) or nil,
-                writeKey = t.indexWriteKey and substWith(t.indexWriteKey, map, unmapped) or nil,
-                writeValue = t.indexWriteValue and substWith(t.indexWriteValue, map, unmapped) or nil,
+                readKey = t.indexReadKey and substWith(t.indexReadKey, map, unmapped, norm) or nil,
+                readValue = t.indexReadValue and substWith(t.indexReadValue, map, unmapped, norm) or nil,
+                writeKey = t.indexWriteKey and substWith(t.indexWriteKey, map, unmapped, norm) or nil,
+                writeValue = t.indexWriteValue and substWith(t.indexWriteValue, map, unmapped, norm) or nil,
             },
             t.fresh
         )
     elseif tag == "union" then
         local members: {Type} = {}
         for j, m in ipairs(t.members) do
-            members[j] = substWith(m, map, unmapped)
+            members[j] = substWith(m, map, unmapped, norm)
         end
         return T.union(members)
     elseif tag == "intersection" then
         local members: {Type} = {}
         for j, m in ipairs(t.members) do
-            members[j] = substWith(m, map, unmapped)
+            members[j] = substWith(m, map, unmapped, norm)
         end
         return T.intersection(members)
     elseif tag == "ptr" then
-        return T.ptr(substWith(t.elem, map, unmapped))
+        return T.ptr(substWith(t.elem, map, unmapped, norm))
     elseif tag == "owned" then
-        return T.owned(substWith(t.inner, map, unmapped), t.cleanups)
+        return T.owned(substWith(t.inner, map, unmapped, norm), t.cleanups)
     elseif tag == "borrowed" then
-        return T.borrowed(substWith(t.inner, map, unmapped))
+        return T.borrowed(substWith(t.inner, map, unmapped, norm))
     elseif tag == "pinned" then
-        return T.pinned(substWith(t.inner, map, unmapped))
+        return T.pinned(substWith(t.inner, map, unmapped, norm))
     elseif tag == "metatable" then
-        return T.metatable(substWith(t.of, map, unmapped))
+        return T.metatable(substWith(t.of, map, unmapped, norm))
     elseif tag == "protocolThread" then
         return T.protocolThread(
-            substPackWith(t.startPack, map, unmapped),
-            substPackWith(t.resumePack, map, unmapped),
-            substPackWith(t.yieldPack, map, unmapped),
-            substPackWith(t.returnPack, map, unmapped)
+            substPackWith(t.startPack, map, unmapped, norm),
+            substPackWith(t.resumePack, map, unmapped, norm),
+            substPackWith(t.yieldPack, map, unmapped, norm),
+            substPackWith(t.returnPack, map, unmapped, norm)
         )
     elseif tag == "genericAlias" then
-        return substWith(t.body, map, unmapped)
+        return substWith(t.body, map, unmapped, norm)
     elseif tag == "func" then
-        local paramPack = substPackWith(t.paramPack, map, unmapped)
-        local retPack = substPackWith(t.retPack, map, unmapped)
+        local paramPack = substPackWith(t.paramPack, map, unmapped, norm)
+        local retPack = substPackWith(t.retPack, map, unmapped, norm)
         local params, rets = paramPack.head, retPack.head
         local bounds: {Type}? = nil
         if t.typeBounds then
             bounds = {}
             for j, b in ipairs(t.typeBounds) do
-                bounds[j] = substWith(b, map, unmapped)
+                bounds[j] = substWith(b, map, unmapped, norm)
             end
         end
         return T.func(params, rets, t.vararg, t.paramModes, t.predicate, t.typeParams, bounds, t.borrowsParam, t.borrowsSelf, t.borrowsParams, t.ffiOut, t.varargType and substWith(
-            t.varargType, map, unmapped) or nil, t.noreturn, paramPack, retPack, t.packParams, t.yieldPack and substPackWith(
-            t.yieldPack, map, unmapped) or nil, t.resumePack and substPackWith(t.resumePack, map, unmapped) or nil,
+            t.varargType, map, unmapped, norm) or nil, t.noreturn, paramPack, retPack, t.packParams, t.yieldPack and substPackWith(
+            t.yieldPack, map, unmapped, norm) or nil, t.resumePack and substPackWith(t.resumePack, map, unmapped, norm) or nil,
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
@@ -172,6 +214,107 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
     end
 
     return t
+end
+
+--- One projection, reduced as far as it goes.
+---
+--- Three answers rather than one. A gradual head makes the projection `any`, and says
+--- so, because that `any` is the feature declining to say anything rather than somebody
+--- writing `any`. A head that is still a binder, or a declaration that answers nothing
+--- of this name, leaves the projection standing -- that is what "opaque" means, and it
+--- is a normal form, not a failure. Only an answer reduces, and reducing it recurses,
+--- which is what makes this a fixed point rather than one hop.
+reduceProjection = function(head: Type, name: string, map: Bindings, unmapped: string, norm: Normalizing): Type
+    if head == T.any then
+        norm.gradual[#norm.gradual + 1] = name
+
+        return T.any
+    end
+    if head.tag ~= "nominal" then
+        return T.projection(head, name)
+    end
+    -- Deliberately not `nestedTypes`: a plain nested alias answers no contract, so a
+    -- private alias that happens to share a name with somebody's associated type is
+    -- not an answer and must not reduce one.
+    local answers = (head as T.Nominal).associatedAnswers
+    local answer = answers and answers[name] or nil
+    if not answer then
+        return T.projection(head, name)
+    end
+    local key = head.id .. "." .. name
+    local label = T.tostring(head) .. "." .. name
+    if norm.active[key] then
+        -- Met twice on one chain. Record the loop from where it was entered and stop,
+        -- leaving the projection standing: `any` here would turn a program that cannot
+        -- be typed into one that silently checks.
+        if not norm.cycle then
+            local loop: {string} = {}
+            local from = nil
+            for j, seen in ipairs(norm.path) do
+                if seen == label then
+                    from = j
+                    break
+                end
+            end
+            for j = from or #norm.path, #norm.path do
+                loop[#loop + 1] = norm.path[j]
+            end
+            loop[#loop + 1] = label
+            norm.cycle = loop
+        end
+
+        return T.projection(head, name)
+    end
+    norm.active[key] = true
+    norm.path[#norm.path + 1] = label
+    -- Recursing with the state is what makes this a fixed point: an answer that is
+    -- itself a projection reduces here rather than being handed back half done.
+    local reduced = substWith(answer, map, unmapped, norm)
+    norm.path[#norm.path] = nil
+    norm.active[key] = nil
+
+    return reduced
+end
+
+--- What normalizing produced.
+type generics.Normalized = {
+    --- The reduced type. A projection nothing could reduce is still that projection,
+    --- and one on a cycle is where the walk stopped -- never `any`.
+    type: Type,
+
+    --- Projections whose head was gradual, in the order met. Empty when none were.
+    gradual: {string},
+
+    --- The labels on a cycle, when the walk met one.
+    cycle: {string}?
+}
+
+--- Reduces every projection in `t` to a fixed point.
+---
+--- Separate from substitution on purpose. Substituting a head is what makes a
+--- projection reducible, and a constructor that reduced one hop would look like this
+--- and quietly not be it. Normalizing an already normalized type returns it unchanged.
+---
+--- @param t the type to reduce
+function generics.normalize(t: Type): generics.Normalized
+    if not T.hasProjection(t) then
+        return {type = t, gradual = {}}
+    end
+    local norm: Normalizing = {active = {}, path = {}, gradual = {}}
+    local reduced = substWith(t, EMPTY, PRESERVE, norm)
+
+    return {type = reduced, gradual = norm.gradual, cycle = norm.cycle}
+end
+
+--- What normalizing a value sequence produced.
+type generics.NormalizedPack = {pack: T.Pack, gradual: {string}, cycle: {string}?}
+
+--- `generics.normalize` for a value sequence.
+function generics.normalizePack(pack: T.Pack): generics.NormalizedPack
+    local norm: Normalizing = {active = {}, path = {}, gradual = {}}
+    local reduced = substPackWith(pack, EMPTY, PRESERVE, norm)
+
+    return {pack = reduced, gradual = norm.gradual, cycle = norm.cycle}
 end
 
 --- Rebuilds `t` with the binders `map` names replaced, and every other binder left
@@ -183,7 +326,7 @@ end
 --- @param t the type to substitute into
 --- @param map what each binder stands for
 function generics.rebind(t: Type, map: Bindings): Type
-    return substWith(t, map, PRESERVE)
+    return substWith(t, map, PRESERVE, nil)
 end
 
 --- Rebuilds `t` with the binders `map` names replaced, and every binder it does not
@@ -194,24 +337,24 @@ end
 --- @param t the type to substitute into
 --- @param map what inference worked out
 function generics.materialize(t: Type, map: Bindings): Type
-    return substWith(t, map, MATERIALIZE)
+    return substWith(t, map, MATERIALIZE, nil)
 end
 
 --- `generics.rebind` for a value sequence.
 function generics.rebindPack(pack: T.Pack, map: Bindings): T.Pack
-    return substPackWith(pack, map, PRESERVE)
+    return substPackWith(pack, map, PRESERVE, nil)
 end
 
 --- `generics.materialize` for a value sequence.
 function generics.materializePack(pack: T.Pack, map: Bindings): T.Pack
-    return substPackWith(pack, map, MATERIALIZE)
+    return substPackWith(pack, map, MATERIALIZE, nil)
 end
 
 --- Instantiates a generic function as one monomorphic callable. This is used when a
 --- universally generic function value is assigned to a concrete function type; the
 --- target signature supplies the arguments that an ordinary call would have supplied.
 function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
-    local concrete = substWith(t, map, MATERIALIZE)
+    local concrete = substWith(t, map, MATERIALIZE, nil)
     if concrete.tag ~= "func" then
         return t
     end
@@ -308,7 +451,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     end
     inst.fieldOrder = n.fieldOrder
     inst.expansions = n.expansions
-    inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE) or nil
+    inst.arrayOf = n.arrayOf and substWith(n.arrayOf, map, PRESERVE, nil) or nil
     inst.fieldDefs = n.fieldDefs
     inst.writeFieldDefs = n.writeFieldDefs
     inst.staticFieldDefs = n.staticFieldDefs
@@ -316,22 +459,22 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
     inst.selfType = n.selfType
     inst.supertypes = {}
     for j, parent in ipairs(n.supertypes or {}) do
-        inst.supertypes[j] = substWith(parent, map, PRESERVE)
+        inst.supertypes[j] = substWith(parent, map, PRESERVE, nil)
     end
     -- cached before the members are filled in, so a declaration that names itself finds
     -- the instantiation under way rather than recurring
     instantiations[key] = inst
     for name, ft in pairs(n.byname) do
-        inst.byname[name] = substWith(ft, map, PRESERVE)
+        inst.byname[name] = substWith(ft, map, PRESERVE, nil)
     end
     for name, ft in pairs(n.writeByname or {}) do
-        inst.writeByname[name] = substWith(ft, map, PRESERVE)
+        inst.writeByname[name] = substWith(ft, map, PRESERVE, nil)
     end
     for name, ft in pairs(n.staticByname or {}) do
-        inst.staticByname[name] = substWith(ft, map, PRESERVE)
+        inst.staticByname[name] = substWith(ft, map, PRESERVE, nil)
     end
     for name, ft in pairs(n.staticWriteByname or {}) do
-        inst.staticWriteByname[name] = substWith(ft, map, PRESERVE)
+        inst.staticWriteByname[name] = substWith(ft, map, PRESERVE, nil)
     end
     inst.overloadedMethods = {}
     inst.overloadedStatics = {}
@@ -350,7 +493,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             specialized[
                 j
             ] = {
-                signature = substWith(entry.signature, map, PRESERVE),
+                signature = substWith(entry.signature, map, PRESERVE, nil),
                 declaration = entry.declaration,
                 member = entry.member,
                 parameterKey = entry.parameterKey,
@@ -365,7 +508,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             specialized[
                 j
             ] = {
-                signature = substWith(entry.signature, map, PRESERVE),
+                signature = substWith(entry.signature, map, PRESERVE, nil),
                 declaration = entry.declaration,
                 member = entry.member,
                 parameterKey = entry.parameterKey,
@@ -380,7 +523,7 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             specialized[
                 j
             ] = {
-                signature = substWith(entry.signature, map, PRESERVE),
+                signature = substWith(entry.signature, map, PRESERVE, nil),
                 declaration = entry.declaration,
                 member = entry.member,
                 parameterKey = entry.parameterKey,
@@ -389,17 +532,17 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
         end
         inst.staticEntries[name] = specialized
     end
-    inst.indexReadKey = n.indexReadKey and substWith(n.indexReadKey, map, PRESERVE) or nil
-    inst.indexReadValue = n.indexReadValue and substWith(n.indexReadValue, map, PRESERVE) or nil
-    inst.indexWriteKey = n.indexWriteKey and substWith(n.indexWriteKey, map, PRESERVE) or nil
-    inst.indexWriteValue = n.indexWriteValue and substWith(n.indexWriteValue, map, PRESERVE) or nil
+    inst.indexReadKey = n.indexReadKey and substWith(n.indexReadKey, map, PRESERVE, nil) or nil
+    inst.indexReadValue = n.indexReadValue and substWith(n.indexReadValue, map, PRESERVE, nil) or nil
+    inst.indexWriteKey = n.indexWriteKey and substWith(n.indexWriteKey, map, PRESERVE, nil) or nil
+    inst.indexWriteValue = n.indexWriteValue and substWith(n.indexWriteValue, map, PRESERVE, nil) or nil
     for name, ft in pairs(n.metamethods or {}) do
-        inst.metamethods[name] = substWith(ft, map, PRESERVE)
+        inst.metamethods[name] = substWith(ft, map, PRESERVE, nil)
     end
     inst.constructors = {}
     inst.constructorEntries = {}
     for j, signature in ipairs(n.constructors or {}) do
-        local specialized = substWith(signature, map, PRESERVE)
+        local specialized = substWith(signature, map, PRESERVE, nil)
         inst.constructors[j] = specialized
         local entry = n.constructorEntries and n.constructorEntries[j] or nil
         inst.constructorEntries[
