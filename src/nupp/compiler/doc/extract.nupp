@@ -59,6 +59,7 @@ type extract.Item = {
     signature: string,
     doc: docblock.Doc,
     path: string,
+    module: string?,
     line: integer,
     members: {extract.Member},
     params: {extract.Param},
@@ -408,8 +409,13 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
         return nil
     end
     local itemPath = moduleName .. "." .. name
+    local itemModule = nil
+    if stat.kind == "typeAlias" or stat.kind == "recordDecl" then
+        local qualified = declaredName(stat)
+        itemModule = qualified:match("^(.*)%.[^.]+$")
+    end
     local moduleTail = moduleName:match("([^.]+)$") or moduleName
-    if name:sub(1, #moduleTail + 1) == moduleTail .. "." then
+    if not itemModule and name:sub(1, #moduleTail + 1) == moduleTail .. "." then
         itemPath = moduleName .. name:sub(#moduleTail + 1)
     end
     local item = {
@@ -418,6 +424,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
         signature = signature,
         doc = info,
         path = itemPath,
+        module = itemModule,
         line = firstToken(stat) and firstToken(stat).line or 1,
         members = {},
         params = {},

@@ -15,14 +15,14 @@ local decoded = nupp.data.decodeJSON(encoded)
 assert(decoded.name == "Nupp")
 ```
 
-`null`, `empty_array`, `array_mt`, and `empty_array_mt` preserve distinctions Lua tables
+`null`, `emptyArray`, `arrayMt`, and `emptyArrayMt` preserve distinctions Lua tables
 cannot express by themselves. The configuration methods match cjson's established
 semantics, but live on `nupp.data`. `newJSON()` returns an independent `nupp.JSON`
 encoder/decoder with its own settings:
 
 ```nupp
 local compact = nupp.data.newJSON()
-compact.encode_keep_buffer(false)
+compact.encodeKeepBuffer(false)
 local text = compact.encodeJSON({1, 2, 3})
 ```
 
@@ -33,16 +33,16 @@ JSON selects the `cjson` native feature. No `require("cjson")` is needed or reco
 | `encodeJSON(value)` | `string` | Encode one Lua value. |
 | `decodeJSON(text)` | `any` | Decode one JSON document. |
 | `newJSON()` | `nupp.JSON` | Create an independently configured codec. |
-| `null`, `empty_array` | sentinel values | Represent JSON values that plain Lua tables cannot distinguish. |
-| `array_mt`, `empty_array_mt` | metatables | Mark array-shaped tables explicitly. |
+| `null`, `emptyArray` | sentinel values | Represent JSON values that plain Lua tables cannot distinguish. |
+| `arrayMt`, `emptyArrayMt` | metatables | Mark array-shaped tables explicitly. |
 
 Both `nupp.data` and an object returned by `newJSON` provide the configuration
-methods `encode_empty_table_as_object`, `decode_array_with_array_mt`,
-`decode_allow_comment`, `encode_sparse_array`, `encode_max_depth`,
-`decode_max_depth`, `encode_number_precision`, `encode_keep_buffer`,
-`encode_invalid_numbers`, `decode_invalid_numbers`,
-`encode_escape_forward_slash`, `encode_skip_unsupported_value_types`, and
-`encode_indent`. Omitting a method's setting reads the current value where the
+methods `encodeEmptyTableAsObject`, `decodeArrayWithArrayMt`,
+`decodeAllowComment`, `encodeSparseArray`, `encodeMaxDepth`,
+`decodeMaxDepth`, `encodeNumberPrecision`, `encodeKeepBuffer`,
+`encodeInvalidNumbers`, `decodeInvalidNumbers`,
+`encodeEscapeForwardSlash`, `encodeSkipUnsupportedValueTypes`, and
+`encodeIndent`. Omitting a method's setting reads the current value where the
 provider supports that form; passing a setting changes only that codec.
 
 ## UTF-8

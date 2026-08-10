@@ -152,6 +152,13 @@ local function sourceFiles(root, config, settings, requested)
     return paths
 end
 
+local function byKindThenName(left, right)
+    if left.kind == right.kind then
+        return left.name < right.name
+    end
+    return left.kind < right.kind
+end
+
 local function loadModules(root, config, settings, requested)
     local modules, errors = {}, {}
     for _, path in ipairs(sourceFiles(root, config, settings, requested)) do
@@ -177,6 +184,35 @@ local function loadModules(root, config, settings, requested)
                 end
             end
         end
+    end
+    -- A qualified type declaration belongs to the module its name spells, even when
+    -- the declaration lives in a different file. The prelude is the important case:
+    -- `interface nupp.JSON` is written in the compiler's hidden declaration tree, but
+    -- readers should find it on `nupp`, not lose it with that implementation module.
+    -- Move these after every source has been read so an ordinary module file can supply
+    -- the destination's prose and source path.
+    local byName = {}
+    for _, module in ipairs(modules) do
+        byName[module.name] = byName[module.name] or module
+    end
+    for _, module in ipairs(modules) do
+        local kept = {}
+        for _, item in ipairs(module.items) do
+            local target = item.module and byName[item.module] or nil
+            if target and target ~= module then
+                item.path = item.module .. "." .. item.name
+                for _, member in ipairs(item.members) do
+                    member.path = item.path .. "." .. member.name
+                end
+                target.items[#target.items + 1] = item
+            else
+                kept[#kept + 1] = item
+            end
+        end
+        module.items = kept
+    end
+    for _, module in ipairs(modules) do
+        table.sort(module.items, byKindThenName)
     end
     if not settings.includePrivate then
         local internalTrees = {}

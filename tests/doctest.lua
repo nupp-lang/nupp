@@ -415,6 +415,37 @@ function M.internalInitHidesItsDocumentationTree()
    os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.hoistsQualifiedTypesOutOfHiddenDeclarationModules()
+   local dir = tempProject({
+      ["src/nupp/init.nupp"] = table.concat({
+         "--[[",
+         "The public namespace.",
+         "]]",
+         "",
+         "--- Makes a codec.",
+         "function newJSON(): nupp.JSON end",
+      }, "\n") .. "\n",
+      ["src/nupp/compiler/init.nupp"] = "@!internal\nreturn {}\n",
+      ["src/nupp/compiler/prelude.d.nupp"] = table.concat({
+         "--- One JSON codec.",
+         "interface nupp.JSON",
+         "   encodeJSON: function(value: any): string",
+         "end",
+      }, "\n") .. "\n",
+   })
+   local config = {include = {"src"}}
+   assert(doc.build(dir, config, {sources = {"src"}},
+      {format = "site", output = "site"}) == 0)
+   local public = readFile(dir .. "/site/modules/nupp/index.html")
+   assert(public:find('<section class="nuppdoc-api-item" id="nupp.JSON">',
+      1, true), public)
+   assert(public:find('href="../../modules/nupp/index.html#nupp.JSON"',
+      1, true), "qualified return type did not link to its declaration")
+   assert(not io.open(dir .. "/site/modules/nupp/compiler/prelude/index.html", "rb"),
+      "the hidden declaration module was documented")
+   os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.constructorPatternDecidesTheConstructorsGroup()
    local files = {
       ["src/engine.nupp"] = table.concat({

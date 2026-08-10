@@ -191,22 +191,22 @@ local nupp: {
         decodeJSON: function(text: string): any,
         newJSON: function(): nupp.JSON,
         null: any,
-        empty_array: any,
-        array_mt: metatable<{any}>,
-        empty_array_mt: metatable<{any}>,
-        encode_empty_table_as_object: function(setting: boolean | string?): boolean,
-        decode_array_with_array_mt: function(setting: boolean | string?): boolean,
-        decode_allow_comment: function(setting: boolean | string?): boolean,
-        encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
-        encode_max_depth: function(depth: integer?): integer,
-        decode_max_depth: function(depth: integer?): integer,
-        encode_number_precision: function(precision: integer?): integer,
-        encode_keep_buffer: function(keep: boolean | string?): boolean,
-        encode_invalid_numbers: function(setting: boolean | string?): boolean | string,
-        decode_invalid_numbers: function(setting: boolean | string?): boolean,
-        encode_escape_forward_slash: function(setting: boolean | string?): boolean,
-        encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean,
-        encode_indent: function(indent: string?): string,
+        emptyArray: any,
+        arrayMt: metatable<{any}>,
+        emptyArrayMt: metatable<{any}>,
+        encodeEmptyTableAsObject: function(setting: boolean | string?): boolean,
+        decodeArrayWithArrayMt: function(setting: boolean | string?): boolean,
+        decodeAllowComment: function(setting: boolean | string?): boolean,
+        encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer),
+        encodeMaxDepth: function(depth: integer?): integer,
+        decodeMaxDepth: function(depth: integer?): integer,
+        encodeNumberPrecision: function(precision: integer?): integer,
+        encodeKeepBuffer: function(keep: boolean | string?): boolean,
+        encodeInvalidNumbers: function(setting: boolean | string?): boolean | string,
+        decodeInvalidNumbers: function(setting: boolean | string?): boolean,
+        encodeEscapeForwardSlash: function(setting: boolean | string?): boolean,
+        encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean,
+        encodeIndent: function(indent: string?): string,
         utf8: nupp.UTF8Library,
         uuid4: function(): string,
         uuid7: function(): string,
@@ -236,22 +236,22 @@ interface nupp.JSON
     encodeJSON: function(value: any): string
     decodeJSON: function(text: string): any
     null: any
-    empty_array: any
-    array_mt: metatable<{any}>
-    empty_array_mt: metatable<{any}>
-    encode_empty_table_as_object: function(setting: boolean | string?): boolean
-    decode_array_with_array_mt: function(setting: boolean | string?): boolean
-    decode_allow_comment: function(setting: boolean | string?): boolean
-    encode_sparse_array: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
-    encode_max_depth: function(depth: integer?): integer
-    decode_max_depth: function(depth: integer?): integer
-    encode_number_precision: function(precision: integer?): integer
-    encode_keep_buffer: function(keep: boolean | string?): boolean
-    encode_invalid_numbers: function(setting: boolean | string?): boolean | string
-    decode_invalid_numbers: function(setting: boolean | string?): boolean
-    encode_escape_forward_slash: function(setting: boolean | string?): boolean
-    encode_skip_unsupported_value_types: function(setting: boolean | string?): boolean
-    encode_indent: function(indent: string?): string
+    emptyArray: any
+    arrayMt: metatable<{any}>
+    emptyArrayMt: metatable<{any}>
+    encodeEmptyTableAsObject: function(setting: boolean | string?): boolean
+    decodeArrayWithArrayMt: function(setting: boolean | string?): boolean
+    decodeAllowComment: function(setting: boolean | string?): boolean
+    encodeSparseArray: function(convert: boolean?, ratio: integer?, safe: integer?): (boolean, integer, integer)
+    encodeMaxDepth: function(depth: integer?): integer
+    decodeMaxDepth: function(depth: integer?): integer
+    encodeNumberPrecision: function(precision: integer?): integer
+    encodeKeepBuffer: function(keep: boolean | string?): boolean
+    encodeInvalidNumbers: function(setting: boolean | string?): boolean | string
+    decodeInvalidNumbers: function(setting: boolean | string?): boolean
+    encodeEscapeForwardSlash: function(setting: boolean | string?): boolean
+    encodeSkipUnsupportedValueTypes: function(setting: boolean | string?): boolean
+    encodeIndent: function(indent: string?): string
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.

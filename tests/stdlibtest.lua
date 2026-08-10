@@ -167,6 +167,7 @@ function M.nativeFeaturesAreResolvedEffects()
 
    local expected = {
       ["nupp.data.encodeJSON({answer = 42})"] = "native.cjson",
+      ["nupp.data.encodeKeepBuffer(false)"] = "native.cjson",
       ["nupp.data.utf8.length('hello')"] = "native.lua_utf8",
       ["nupp.io.newBuffer('hello')"] = "stdlib.io",
       ["nupp.math.vec2.length(3, 4)"] = "stdlib.math",
@@ -255,13 +256,40 @@ function M.hiddenDataDependenciesLoadLazily()
       ["native.cjson"] = true,
       ["native.lua_utf8"] = true,
    })
-   local chunk = assert(loadstring(bootstrap .. [[
+   local chunk = assert(loadstring(bootstrap .. [=[
       assert(package.loaded.cjson == nil)
       assert(package.loaded["lua-utf8"] == nil)
       assert(nupp.data.encodeJSON({answer = 42}):find('"answer":42', 1, true))
+      local codec = nupp.data.newJSON()
+      local cjson = require("cjson")
+      local cjsonCodec = cjson.new()
+      local renamed = {
+         {"emptyArray", "empty_array"},
+         {"arrayMt", "array_mt"},
+         {"emptyArrayMt", "empty_array_mt"},
+         {"encodeEmptyTableAsObject", "encode_empty_table_as_object"},
+         {"decodeArrayWithArrayMt", "decode_array_with_array_mt"},
+         {"decodeAllowComment", "decode_allow_comment"},
+         {"encodeSparseArray", "encode_sparse_array"},
+         {"encodeMaxDepth", "encode_max_depth"},
+         {"decodeMaxDepth", "decode_max_depth"},
+         {"encodeNumberPrecision", "encode_number_precision"},
+         {"encodeKeepBuffer", "encode_keep_buffer"},
+         {"encodeInvalidNumbers", "encode_invalid_numbers"},
+         {"decodeInvalidNumbers", "decode_invalid_numbers"},
+         {"encodeEscapeForwardSlash", "encode_escape_forward_slash"},
+         {"encodeSkipUnsupportedValueTypes", "encode_skip_unsupported_value_types"},
+         {"encodeIndent", "encode_indent"},
+      }
+      for _, names in ipairs(renamed) do
+         assert(nupp.data[names[1]] == cjson[names[2]], names[1])
+         assert(nupp.data[names[2]] == nil, names[2])
+         assert((codec[names[1]] ~= nil) == (cjsonCodec[names[2]] ~= nil), names[1])
+         assert(codec[names[2]] == nil, names[2])
+      end
       assert(nupp.data.utf8.length("A€") == 2)
       return package.loaded.cjson ~= nil, package.loaded["lua-utf8"] ~= nil
-   ]]))
+   ]=]))
    package.loaded.cjson = nil
    package.loaded["lua-utf8"] = nil
    local ok, jsonLoaded, utf8Loaded = pcall(chunk)
