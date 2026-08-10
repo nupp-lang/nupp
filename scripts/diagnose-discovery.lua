@@ -99,10 +99,12 @@ fsMod.listFiles = function(under)
     return out
 end
 
+-- Deliberately not substituted. The production enumeration does not go through
+-- `fs`: it shells to `dir /s /b` on Windows and `find` on Unix, which is the
+-- most platform-specific step in the whole path, and answering it from git was
+-- masking exactly the part worth exercising. Only the fingerprint's walk above
+-- is stood in for, and that one does need the provider.
 local envMod = require("nupp.compiler.env")
-envMod.listProjectFiles = function()
-    return tracked
-end
 
 local incremental = require("nupp.compiler.incremental")
 local ok, inc = pcall(incremental.new, root)
@@ -112,7 +114,19 @@ if not ok then
     return
 end
 
-say("projectFiles", tostring(#inc.projectFiles()))
+-- Counted against what git says, and sampled, because "zero" and "malformed"
+-- are different answers and both are possible here.
+local enumerated = inc.projectFiles()
+say("projectFiles", tostring(#enumerated), "git-says=" .. #tracked)
+for index = 1, math.min(#enumerated, 4) do
+    say("projectFile", enumerated[index])
+end
+local wanted = root .. "/src/nupp/compiler/types.nupp"
+local hit = false
+for _, path in ipairs(enumerated) do
+    if path == wanted then hit = true end
+end
+say("projectFiles-contains", wanted, tostring(hit))
 
 local targets = {
     ["src/nupp/compiler/cst.nupp"] = "Tname",
