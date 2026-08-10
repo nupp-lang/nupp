@@ -343,6 +343,23 @@ function M.nativeGlobalMembersLoadOnFirstAccess()
    _G.nupp = previous
 end
 
+function M.pureAndNativeRuntimeFeaturesComposeAsLua()
+   local bootstrap = native.bootstrap({
+      ["stdlib.peg"] = true,
+      ["native.regex"] = true,
+   })
+   assert(not bootstrap:find(";;", 1, true),
+      "adjacent runtime installers do not emit an empty Lua statement")
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local chunk = assert(loadstring(bootstrap
+      .. " return type(nupp.peg.machine), rawget(nupp, 'regex')"))
+   local machine, regex = chunk()
+   _G.nupp = previous
+   assertEq(machine, "function", "the pure PEG runtime is installed")
+   assertEq(regex, nil, "the native regex runtime stays lazy")
+end
+
 function M.nativeFeatureOverridesAreTriState()
    local automatic = { ["native.regex"] = true, ["native.cjson"] = true }
    local resolved = native.resolve(automatic, {regex = false, lua_utf8 = true})
