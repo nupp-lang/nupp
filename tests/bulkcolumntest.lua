@@ -100,7 +100,9 @@ const out = sb.new()
 writeColumn(cells, 8, out)
 
 const back = carray(Particle, 8)
-const count = readColumn(sb.new():set(out:tostring()), back)
+const input = sb.new()
+input:set(out:tostring())
+const count = readColumn(input, back)
 
 local sum = 0
 for i = 0, count - 1 do

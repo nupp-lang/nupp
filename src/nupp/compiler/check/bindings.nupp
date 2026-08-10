@@ -44,21 +44,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
     handlers.localStmt = function(stat: cst.LocalStmt)
         local initializers = stat.exprs or {}
         local inferred = inferList(stat.exprs, #stat.names)
-        -- A Lua string converts to a C pointer for the duration of a call and no
-        -- longer; keeping the pointer is a dangling read.
-        for _, e in ipairs(initializers) do
-            if e.kind == "call" and e.ffiIntrinsic == "cast" then
-                local castArgs = e.args
-                local source = castArgs and castArgs.kind == "args" and (castArgs.exprs or {})[1] or nil
-                if source and source.kind == "string" then
-                    c.diag(
-                        "NUPP2501",
-                        e,
-                        "a pointer taken from a Lua string is only valid " .. "for the call it is passed to"
-                    )
-                end
-            end
-        end
         for j, nameTok in ipairs(stat.names) do
             local ann = stat.types[j] and c.resolveType(stat.types[j]) or nil
             if c.opts and c.opts.strict and ann and inferred[j] then
@@ -196,10 +181,14 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 boundEntry.coroutineStatusName = initNode.coroutineStatusName
             end
             local returnBorrowOwners = nil
+            local returnOwnershipState = nil
             local exprCount = #initializers
             local expandedCall = exprCount > 0 and initializers[exprCount] or nil
             if expandedCall and expandedCall.returnBorrowOwners and j >= exprCount then
                 returnBorrowOwners = expandedCall.returnBorrowOwners[j - exprCount + 1]
+            end
+            if expandedCall and expandedCall.returnOwnershipStates and j >= exprCount then
+                returnOwnershipState = expandedCall.returnOwnershipStates[j - exprCount + 1]
             end
             -- `local v: Vec2` used to construct one, which was a construction the
             -- source did not say. It no longer does, so the binding holds nil until
@@ -247,6 +236,13 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 boundEntry.moved = true -- declared storage, no live affine value
             end
             local boundKind = ownershipKind(bound)
+            if boundEntry and returnOwnershipState then
+                boundEntry.retained = returnOwnershipState.retained
+                boundEntry.retentionIdentity = returnOwnershipState.ownershipOrigin
+            end
+            if boundEntry and expandedCall and expandedCall.resourceCapability and j == exprCount then
+                boundEntry.resourceCapability = expandedCall.resourceCapability
+            end
             if boundEntry and (
                 boundKind == "borrowed" or boundKind == "owned"
             ) and returnBorrowOwners and #returnBorrowOwners == 1 then
@@ -421,7 +417,26 @@ function bindings.install(c: state.Checker): state.StatHandlers
                         contractWrite = true
                     end
                 end
-                if et and ownershipKind(et) then
+                local partialReinit = false
+                if target.kind == "dotIndex" and target.obj and target.obj.kind == "name" and target.name then
+                    local container = ownershipState((c.ownershipEntry(target.obj)))
+                    local field = target.name.text
+                    if et and ownershipKind(et) == "owned" and tt and ownershipKind(tt) == "owned" and container then
+                        if not (container.movedFields and container.movedFields[field]) then
+                            c.diag("NUPP2602", target, ("assignment overwrites live affine field %q"):format(field))
+                        else
+                            local prior = container.movedFieldTypes and container.movedFieldTypes[field]
+                            if prior and prior.id ~= et.id then
+                                c.diag("NUPP2602", written or stat, "reinitialized field must keep its exact cleanup contract")
+                            end
+                            moveExpression(written, et, "affine field reinitialization", "owned")
+                            container.movedFields[field] = nil
+                            container.movedFieldTypes[field] = et
+                            partialReinit = true
+                        end
+                    end
+                end
+                if et and ownershipKind(et) and not partialReinit then
                     c.diag(
                         "NUPP2603",
                         written or stat,

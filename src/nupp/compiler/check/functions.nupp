@@ -192,6 +192,154 @@ function functions.install(c: state.Checker): state.StatHandlers
         return modes, declared
     end
 
+    --- Result-slot capability transfers stated by `preserves`, plus the conservative
+    --- identity inference for visible generic bodies. Inference deliberately accepts
+    --- only a direct parameter on every explicit return path; conditionals and raising
+    --- paths work because their successful returns are still visited, while calls,
+    --- storage and selection do not accidentally become transparent.
+    local function preservationResults(body, paramNames, inferVisible, report)
+        local byname, results, explicit = {}, {}, {}
+        for j, name in ipairs(paramNames or {}) do
+            byname[name] = j
+        end
+        for result, ret in ipairs(body and body.rets or {}) do
+            if ret.kind == "tpreserves" and ret.param then
+                local source = byname[ret.param.text]
+                if not source then
+                    if report then
+                        c.diag("NUPP2109", ret.param, ("%s names no parameter of this function"):format(ret.param.text))
+                    end
+                else
+                    results[result], explicit[result] = source, true
+                end
+            end
+        end
+
+        local returns = {}
+        local function walk(node)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "funcbody" or node.kind == "shortfn" or node.kind == "funcExpr" then
+                return
+            end
+            if node.kind == "returnStmt" then
+                returns[#returns + 1] = node
+                return
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child)
+                end
+            end
+        end
+        walk(body and body.body)
+
+        local function directParameter(expr)
+            while expr and (expr.kind == "paren" or expr.kind == "castExpr") do
+                expr = expr.expr
+            end
+            return expr and expr.kind == "name" and expr.token and byname[expr.token.text] or nil
+        end
+
+        local maxResults = #(body and body.rets or {})
+        if inferVisible and #returns > 0 then
+            for result = 1, maxResults do
+                if not results[result] then
+                    local source
+                    for _, ret in ipairs(returns) do
+                        local found = directParameter(ret.exprs and ret.exprs[result])
+                        if not found or source and source ~= found then
+                            source = nil
+                            break
+                        end
+                        source = found
+                    end
+                    results[result] = source
+                end
+            end
+        end
+
+        -- One capability cannot be materialized in two result slots. Explicitly stated
+        -- invalid relations are diagnosed; inferred duplicates are simply not inferred.
+        local used = {}
+        for result = 1, maxResults do
+            local source = results[result]
+            if source and used[source] then
+                if explicit[result] and report then
+                    c.diag("NUPP2602", body.rets[result], "one parameter capability cannot be preserved into two results")
+                end
+                results[result] = nil
+                results[used[source]] = nil
+            elseif source then
+                used[source] = result
+            end
+        end
+
+        if report then
+            for result = 1, maxResults do
+                local source = results[result]
+                if explicit[result] then
+                    for _, ret in ipairs(returns) do
+                        if directParameter(ret.exprs and ret.exprs[result]) ~= source then
+                            c.diag(
+                                "NUPP2602",
+                                ret,
+                                "a preserves result must return its named parameter on every successful path"
+                            )
+                        end
+                    end
+                end
+            end
+        end
+
+        return next(results) and results or nil
+    end
+
+    --- Parameters whose every value use is an immediate direct invocation. Such a
+    --- callback cannot be stored, returned, captured by a nested closure, or forwarded
+    --- to an unknown target, so a visible body can infer the same `scoped` promise a
+    --- bodyless declaration must spell.
+    local function scopedCallbackParameters(body, report)
+        local candidates, tokenByName = {}, {}
+        for _, p in ipairs(body and body.params or {}) do
+            if p.name and not p.namedVararg then
+                candidates[p.name.text] = true
+                tokenByName[p.name.text] = p.name
+            end
+        end
+        local function walk(node, parent)
+            if not node or cst.isToken(node) then
+                return
+            end
+            if node.kind == "name" and node.token and candidates[node.token.text] ~= nil then
+                local invoked = parent and parent.kind == "call" and parent.obj == node
+                if not invoked then
+                    candidates[node.token.text] = false
+                end
+                return
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child, node)
+                end
+            end
+        end
+        walk(body and body.body, nil)
+        if report then
+            for _, p in ipairs(body and body.params or {}) do
+                if p.modeTok and p.modeTok.text == "scoped" and candidates[p.name.text] == false then
+                    c.diag(
+                        "NUPP2602",
+                        tokenByName[p.name.text] or p,
+                        "a scoped callback may only be invoked directly during the call"
+                    )
+                end
+            end
+        end
+        return candidates
+    end
+
     -- Builds the function type from a funcbody, binds params, checks the body, and
     -- returns the resulting type.
     c.checkFuncbody = function(body, selfType)
@@ -205,6 +353,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             explicitSelf = nil
         end
         local inferredModes, declaredModes = inferredParameterModes(body)
+        local scopedCandidates = scopedCallbackParameters(body, true)
         local vararg = false
         local varargType = nil
         local typeParams, typeBounds, packParams
@@ -252,6 +401,12 @@ function functions.install(c: state.Checker): state.StatHandlers
                 params[#params + 1] = pt
                 paramNames[#params] = p.name.text
                 local mode = inferredModes[#params] or "borrows"
+                if not declaredModes[#params]
+                    and scopedCandidates[p.name.text]
+                    and rawType(pt).tag == "func"
+                then
+                    mode = "scoped"
+                end
                 if not declaredModes[
                     #params
                 ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
@@ -550,6 +705,7 @@ function functions.install(c: state.Checker): state.StatHandlers
             retPack = T.pack(rets, retPack.tail, retPack.modes)
         end
 
+        local preservesResults = preservationResults(body, paramNames, typeParams ~= nil, true)
         return T.func(
             params,
             rets,
@@ -570,7 +726,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             yieldPack,
             resumePack,
             nil,
-            paramNames
+            paramNames,
+            preservesResults,
+            nil
         )
     end
 
@@ -580,6 +738,7 @@ function functions.install(c: state.Checker): state.StatHandlers
     c.signatureOf = function(body, selfType)
         local params, modes, paramNames = {}, {}, {}
         local inferredModes, declaredModes = inferredParameterModes(body or {})
+        local scopedCandidates = scopedCallbackParameters(body or {}, false)
         local explicitSelf = selfType and body and body.params and body.params[1]
         if not (explicitSelf and explicitSelf.name and explicitSelf.name.text == "self") then
             explicitSelf = nil
@@ -603,6 +762,12 @@ function functions.install(c: state.Checker): state.StatHandlers
             elseif p.name and not p.namedVararg then
                 local pt = p.type and c.resolveType(p.type) or T.any
                 local mode = inferredModes[sourceIndex] or "borrows"
+                if not declaredModes[sourceIndex]
+                    and scopedCandidates[p.name.text]
+                    and rawType(pt).tag == "func"
+                then
+                    mode = "scoped"
+                end
                 if not declaredModes[
                     sourceIndex
                 ] and mode ~= "takes" and not pointerShaped(pt) and not (pt.tag == "nominal" and pt.affineResource) then
@@ -639,6 +804,7 @@ function functions.install(c: state.Checker): state.StatHandlers
         local resumePack = body and body.resumePack and c.resolvePack(body.resumePack) or nil
         c.popScope()
 
+        local preservesResults = preservationResults(body, paramNames, typeParams ~= nil, false)
         return T.func(
             params,
             rets,
@@ -659,7 +825,9 @@ function functions.install(c: state.Checker): state.StatHandlers
             yieldPack,
             resumePack,
             nil,
-            paramNames
+            paramNames,
+            preservesResults,
+            nil
         )
     end
 
@@ -767,6 +935,13 @@ function functions.install(c: state.Checker): state.StatHandlers
                 for _, name in ipairs(ft.paramNames or {}) do
                     names[#names + 1] = name
                 end
+                local preserves = {}
+                for result = 1, #ft.rets do
+                    local source = ft.preservesResults and ft.preservesResults[result]
+                    if source then
+                        preserves[result] = source + 1
+                    end
+                end
                 owner.byname[
                     member
                 ] = T.func(
@@ -789,7 +964,9 @@ function functions.install(c: state.Checker): state.StatHandlers
                     ft.yieldPack,
                     ft.resumePack,
                     ft.noYield,
-                    names
+                    names,
+                    next(preserves) and preserves or nil,
+                    ft.foreign
                 )
                 owner.writeByname[member] = owner.byname[member]
             elseif owner.declKind == "record" or owner.declKind == "interface" then

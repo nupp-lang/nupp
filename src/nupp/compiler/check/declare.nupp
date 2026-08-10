@@ -737,6 +737,9 @@ function declare.install(
             n.staticFieldDefs = {}
             n.staticWriteFieldDefs = {}
             stat.resolvedType = n
+            if c.result.moduleName == "nupp.resource_set" and n.name == "ResourceSet" then
+                n.resourceSet = true
+            end
 
             -- Hoist nested declarations within the nominal namespace so sibling fields
             -- and declarations may name them in any order.
@@ -935,13 +938,102 @@ function declare.install(
             for _, e in ipairs(stat.entries) do
                 if e.kind == "fieldDecl" then
                     local isDisposer = false
+                    local ownedApplication = nil
                     for _, application in ipairs(e.annotations or {}) do
                         local definition2, valid = validateAnnotation(application, e, stat)
                         if definition2 and valid and application.name.text == "dispose" then
                             isDisposer = true
+                        elseif definition2 and valid and application.name.text == "owned" then
+                            ownedApplication = application
                         end
                     end
                     local ft = c.resolveType(e.type)
+                    if ownedApplication then
+                        if ft.tag ~= "func" or not ft.rets[1] or ft.retPack.alternatives then
+                            c.diag("NUPP2602", ownedApplication, "@owned field requires a callable with a fixed result")
+                        else
+                            local cleanupNames, opaque = {}, false
+                            for _, arg in ipairs(ownedApplication.annotationArgs or {}) do
+                                local expr = arg.expr
+                                local argName = arg.name and arg.name.text or nil
+                                if argName == "opaque" and expr and expr.kind == "trueExpr" then
+                                    opaque = true
+                                elseif argName == "cleanup" then
+                                    local cleanupExprs = {}
+                                    if expr and expr.kind == "name" then
+                                        cleanupExprs[1] = expr
+                                    elseif expr and expr.kind == "tableExpr" then
+                                        for _, item in ipairs(expr.fields or {}) do
+                                            cleanupExprs[#cleanupExprs + 1] = item.value
+                                        end
+                                    end
+                                    if #cleanupExprs == 0 then
+                                        c.diag("NUPP2602", arg, "@owned cleanup must name one or more functions")
+                                    end
+                                    for _, cleanupExpr in ipairs(cleanupExprs) do
+                                        if cleanupExpr and cleanupExpr.kind == "name" then
+                                            cleanupNames[#cleanupNames + 1] = cleanupExpr.token.text
+                                            local entry = c.lookupEntry(cleanupExpr.token.text)
+                                            if entry then
+                                                c.markToken(
+                                                    cleanupExpr.token,
+                                                    entry.definition,
+                                                    entry.t,
+                                                    entry.definition and entry.definition.kind or "function"
+                                                )
+                                            end
+                                        else
+                                            c.diag("NUPP2602", arg, "@owned cleanup entries must be function names")
+                                        end
+                                    end
+                                elseif not argName and expr and expr.kind == "name" then
+                                    cleanupNames[#cleanupNames + 1] = expr.token.text
+                                    local entry = c.lookupEntry(expr.token.text)
+                                    if entry then
+                                        c.markToken(
+                                            expr.token,
+                                            entry.definition,
+                                            entry.t,
+                                            entry.definition and entry.definition.kind or "function"
+                                        )
+                                    end
+                                else
+                                    c.diag("NUPP2602", arg, "invalid @owned field argument")
+                                end
+                            end
+                            if opaque and #cleanupNames > 0 then
+                                c.diag(
+                                    "NUPP2602",
+                                    ownedApplication,
+                                    "@owned(opaque = true) cannot also declare cleanup functions"
+                                )
+                            end
+                            local cleanups = c.own.resolvedOwnedCleanups(
+                                ft.rets[1],
+                                cleanupNames,
+                                opaque,
+                                ownedApplication,
+                                ownedApplication
+                            )
+                            c.own.validateCleanups(ft.rets[1], cleanups, ownedApplication)
+                            ft = T.withFirstResult(ft, T.owned(ft.rets[1], cleanups))
+                        end
+                    end
+                    if e.type and e.type.kind == "tborrows" then
+                        if stat.declKind ~= "record" then
+                            c.diag("NUPP2602", e, "borrowed field relations are available only on nominal records")
+                        elseif not e.type.param then
+                            c.diag("NUPP2602", e, "a borrowed field must name its sibling root field")
+                        else
+                            n.fieldBorrowSources = n.fieldBorrowSources or {}
+                            n.borrowedRootFields = n.borrowedRootFields or {}
+                            n.fieldBorrowSources[e.name.text] = e.type.param.text
+                            n.borrowedRootFields[e.type.param.text] = true
+                            ft = T.borrowed(ft)
+                        end
+                    elseif e.type and e.type.kind == "tpreserves" then
+                        c.diag("NUPP2602", e, "preserves is a callable result relation, not a field relation")
+                    end
                     local capability = e.capability and e.capability.propertyCapability or nil
                     if capability and (stat.declKind == "struct" or stat.isAnnotationDefinition) then
                         c.diag(
@@ -1292,6 +1384,21 @@ function declare.install(
                         end
                     end
                 end
+            end
+            for field, source in pairs(n.fieldBorrowSources or {}) do
+                if field == source then
+                    c.diag("NUPP2602", stat, ("field %q cannot borrow from itself"):format(field))
+                elseif not n.byname[source] then
+                    c.diag("NUPP2109", stat, ("borrowed field %q names no sibling field %q"):format(field, source))
+                elseif n.fieldBorrowSources[source] then
+                    c.diag("NUPP2602", stat, "borrowed field relations cannot form chains or cycles")
+                end
+                -- Replacing either half would invalidate the relation. Construction is
+                -- still writable; an initialized composite exposes both as read-only.
+                n.writeByname[field] = nil
+                n.writeByname[source] = nil
+                n.writeFieldDefs[field] = nil
+                n.writeFieldDefs[source] = nil
             end
             -- Expansion declarations are read after fields regardless of where they
             -- appeared in the body. They are compile-time projections and emit no

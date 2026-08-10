@@ -192,6 +192,9 @@ record state.Checker
     --- How deep inside function bodies it is, which is how a capture is recognized.
     functionDepth: integer
 
+    --- Nonzero while checking an inline closure passed to a scoped callback slot.
+    scopedCaptureDepth: integer
+
     --- Whether a `with` body has reached out of its own scope, per open scope.
     captureWatches: {any}
 
@@ -329,7 +332,7 @@ record state.Checker
     pointerShaped: function(t: Type): boolean
 
     --- Records that an expression's owner has been handed over.
-    moveExpression: function(node: any, t: Type?, why: string, kind: string?): boolean
+    moveExpression: function(node: any, t: Type?, why: string, kind: string?, allowPartial: boolean?): boolean
 
     --- The binding an expression's ownership is recorded on, and the owner a borrow
     --- ultimately came from.
@@ -485,7 +488,7 @@ record state.Checker
     --- The types of an expression list, expanding a trailing call's extra results.
     inferList: function(exprs: any, count: integer): {Type}
 
-    inferListPack: function(exprs: any): any
+    inferListPack: function(exprs: any, paramModes: {string}?): any
     checkPackDiscard: function(pack: any, first: integer, at: any): boolean
 
     --- Records a `function m.f` or `m.x = v` as a member of the returned module.

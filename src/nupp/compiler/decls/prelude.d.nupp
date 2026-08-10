@@ -118,7 +118,7 @@ local rawlen: nosuspend function(v: any): integer
 --- @param t the table to change
 --- @param mt the new metatable, or nil to remove the current one
 --- @return `t`
-local setmetatable: function<T>(t: T, mt: metatable<T>?): T
+local setmetatable: function<T>(t: T, mt: metatable<T>?): T preserves t
 
 --- Returns the metatable of `v`, or the value of its `__metatable` field when it has
 --- one, or nil when there is no metatable.
@@ -133,7 +133,7 @@ local getmetatable: function<T>(v: T): metatable<T>?
 --- @param v the value to test
 --- @param msg the error to raise, "assertion failed!" by default
 --- @return `v`, now known not to be nil or false
-local assert: function<T>(v: T?, msg: any?): T
+local assert: function<T>(v: T?, msg: any?): T preserves v
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller
@@ -149,7 +149,7 @@ local error: nosuspend function(msg: any, level: number?): never
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the error value
-local pcall: function<A..., R...>(f: function(A...): R..., A...): ((true, R...) | (false, any))
+local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
 
 --- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
 --- still collect a traceback.
@@ -163,7 +163,7 @@ local xpcall: function<
     E,
     A...,
     R...
-    >(f: function(A...): R..., handler: function(any): E, A...): ((true, R...) | (false, E))
+    >(scoped f: function(A...): R..., scoped handler: function(any): E, A...): ((true, R...) | (false, E))
 
 --- Returns the elements of `t` from index `i` through `j` as separate values.
 ---
@@ -1441,7 +1441,7 @@ const table: {
     --- @param t the array to sort
     --- @param cmp returns true when its first argument must come first; `<`
     ---     is used when it is omitted
-    sort: function<V>(t: {V}, cmp: function(V, V): boolean?),
+    sort: function<V>(t: {V}, scoped cmp: function(V, V): boolean?),
 
     --- Returns the largest positive numeric key of `t`, or 0 when it has none.
     --- Deprecated, and unlike `#t` it also sees keys past a hole.
@@ -1802,7 +1802,7 @@ end
 --- A Lua file handle. Ownership is attached by producers rather than this interface, so
 --- standard streams and borrowed handles use the same type.
 local interface LuaFile
-    close: function(self: LuaFile): (boolean?, string?)
+    close: nosuspend function(self: LuaFile): (boolean?, string?)
     flush: function(self: LuaFile): (boolean?, string?)
     lines: function(self: LuaFile, ...: any): function(): any
     read: function(self: LuaFile, ...: any): any

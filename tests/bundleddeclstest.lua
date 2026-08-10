@@ -32,7 +32,8 @@ end
 local BUNDLED = {
    "ffi", "string.buffer", "cjson", "cjson.safe",
    "jit.util", "jit.profile", "jit.zone", "jit.vmdef",
-   "nupp.bytes", "nupp.resources", "nupp.zone", "nupp.profile",
+   "nupp.bytes", "nupp.resources", "nupp.resource_set", "nupp.span",
+   "nupp.zone", "nupp.profile",
 }
 
 local M = {}

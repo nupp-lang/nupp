@@ -403,6 +403,9 @@ function resolve.install(c: state.Checker): nil
             -- is tied to are applied to the function type, the same way @owned wraps an
             -- annotated return
             return c.resolveType(node.type)
+        elseif kind == "tpreserves" then
+            -- The callable records the relation; this node contributes its payload.
+            return c.resolveType(node.type)
         elseif kind == "topt" then
             return T.optional(c.resolveType(node.inner))
         elseif kind == "tptr" then
@@ -577,16 +580,60 @@ function resolve.install(c: state.Checker): nil
                 paramModes
             )
             local retPack = node.returnPack and c.resolvePack(node.returnPack) or T.pack({})
-            rets = retPack.head
+            -- Packs are interned. A result relation adjusts the callable's view of a
+            -- slot, so never write through the canonical pack's `head` array: doing
+            -- that would change every unrelated signature that shares the same pack.
+            rets = {}
+            for j, result in ipairs(retPack.head) do
+                rets[j] = result
+            end
             local yieldPack = node.yieldPack and c.resolvePack(node.yieldPack) or nil
             local resumePack = node.resumePack and c.resolvePack(node.resumePack) or nil
+            local preservesResults = {}
+            local byname = {}
+            for j, name in ipairs(paramNames) do
+                if name ~= "" then
+                    byname[name] = j
+                end
+            end
+            for result, ret in ipairs(node.rets or {}) do
+                if ret.kind == "tpreserves" and ret.param then
+                    local source = byname[ret.param.text]
+                    if source then
+                        preservesResults[result] = source
+                    else
+                        c.diag("NUPP2109", ret.param, ("%s names no parameter of this function"):format(ret.param.text))
+                    end
+                end
+            end
+            local borrowsParam, borrowsSelf, borrowsParams
+            local firstResult = node.rets and node.rets[1]
+            if firstResult and firstResult.kind == "tborrows" then
+                borrowsParams = {}
+                for _, source in ipairs(firstResult.params or {firstResult.param}) do
+                    if source and source.text == "self" and byname.self then
+                        borrowsSelf = true
+                    elseif source and byname[source.text] then
+                        borrowsParams[#borrowsParams + 1] = byname[source.text]
+                    elseif source then
+                        c.diag("NUPP2109", source, ("%s names no function-type parameter"):format(source.text))
+                    end
+                end
+                if #borrowsParams == 1 then
+                    borrowsParam, borrowsParams = borrowsParams[1], nil
+                end
+                if rets[1] then
+                    rets[1] = T.borrowed(T.unwrapOwnership(rets[1]))
+                    retPack = T.pack(rets, retPack.tail, retPack.modes)
+                end
+            end
             if node.generics then
                 c.popScope()
             end
-            return T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, nil, nil, nil, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
+            return T.func(params, rets, vararg, paramModes, nil, typeParams, typeBounds, borrowsParam, borrowsSelf, borrowsParams, nil, varargType, nil, paramPack, retPack, packParams, yieldPack, resumePack,
                 -- `nosuspend function(...)`: the one way to state the guarantee about
                 -- something whose body is never seen here.
-                node.noSuspend, paramNames)
+                node.noSuspend, paramNames, next(preservesResults) and preservesResults or nil)
         elseif kind == "tparen" then
             return c.resolveType(node.inner)
         end

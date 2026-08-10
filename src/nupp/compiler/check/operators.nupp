@@ -257,6 +257,27 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 -- proves there was one.
                 return c.applyContract(mm, {lt, rt}, {lhs, rhs}, node, mmName as string)
             end
+            local leftPayload = T.unwrapOwnership(lt)
+            if (op == "+" or op == "-") and leftPayload.tag == "ptr" and isA(rt, T.integer) then
+                if c.ownershipKind(lt) ~= "borrowed" then
+                    c.diag("NUPP2604", node, "pointer arithmetic requires a rooted borrowed pointer")
+                    return leftPayload
+                end
+                local roots = c.own.provenanceOwners(lhs)
+                if #roots == 1 then
+                    node.borrowOwner = roots[1]
+                elseif #roots > 1 then
+                    node.borrowOwners = roots
+                end
+                if c.unsafeDepth == 0 then
+                    c.diag("NUPP2604", node, "unchecked pointer arithmetic requires unsafe do; use a span for bounds")
+                    return T.borrowed(leftPayload)
+                end
+                -- Unsafe made the bounds assertion; borrowFrom can immediately attach
+                -- the resulting raw address to the span/root chosen by the caller.
+                node.unsafeOwnershipOperation = "unchecked pointer arithmetic"
+                return leftPayload
+            end
             c.numericOperand(lt, lhs, op)
             c.numericOperand(rt, rhs, op)
             if op == "/" or op == "^" then

@@ -24,6 +24,13 @@ local cst = {}
 --- These belong to no one kind, so they are declared once and included by every node
 --- rather than repeated on each.
 interface cst.Hints
+    --- A raw memory operation admitted only because it is inside `unsafe do`.
+    --- The ownership audit consumes this after checking.
+    unsafeOwnershipOperation: string?
+
+    --- Fixed C-array bound whose dynamic index code generation checks.
+    carrayBound: integer?
+
     --- The complete Lua value sequence produced when this expression is in the final
     --- expanding position of a list. Parenthesized expressions deliberately omit it.
     valuePack: any
@@ -293,8 +300,20 @@ interface cst.Hints
     --- The owners each returned borrow came from.
     returnBorrowOwners: any
 
+    --- Capability state transported by a `preserves` result, per result slot.
+    returnOwnershipStates: any
+
+    --- Ordered discharge functions injected into ResourceSet.adopt.
+    resourceAdoptCleanups: any
+
+    --- Exact capability dynamically registered by ResourceSet.adopt/remove.
+    resourceCapability: any
+
     --- Whether a use-after-move was already reported here.
     ownershipUseReported: boolean?
+
+    --- Whether a repeated contextual pass already reported this capture.
+    ownershipCaptureReported: boolean?
 
     --- Whether the generator must pass the pinned pointer rather than the handle.
     passPinnedPointer: boolean?
@@ -2017,10 +2036,25 @@ record cst.Tborrows is
     param: lexer.Token?
 end
 
+--- `T preserves p`: the result is the same capability-bearing value passed as `p`,
+--- with only its payload type changed by generic substitution or narrowing.
+record cst.Tpreserves is
+    cst.Hints
+    {cst.Node | lexer.Token}
+
+    kind: 'tpreserves'
+
+    --- The result payload type.
+    type: cst.Node?
+
+    --- The parameter whose complete capability is transferred to this result slot.
+    param: lexer.Token?
+end
+
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows
+type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token

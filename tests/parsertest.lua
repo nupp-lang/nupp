@@ -100,6 +100,19 @@ function M.borrowedReturnsAcceptMultipleSources()
    assertEq(ret.params[2].text, "b")
 end
 
+function M.resultRelationsAttachToTheirFixedPackSlots()
+   local result = parser.parse(table.concat({
+      "local forward: function<T>(value: T): (string, T preserves value)",
+      "local view: function(borrows source: any): (integer, any borrows source)",
+   }, "\n"), "test")
+   assertEq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "")
+   local stats = result.root.blocks[1].stats
+   assertEq(stats[1].types[1].returnPack.types[2].kind, "tpreserves")
+   assertEq(stats[1].types[1].returnPack.types[2].param.text, "value")
+   assertEq(stats[2].types[1].returnPack.types[2].kind, "tborrows")
+   assertEq(stats[2].types[1].returnPack.types[2].param.text, "source")
+end
+
 function M.ownIsADeclarationAnnotationWithMultipleCleanups()
    local r = parser.parse(
       "@owned(stop, release) cdef function make(): voidptr", "test")

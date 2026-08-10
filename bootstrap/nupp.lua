@@ -35,318 +35,6 @@ const nupp = { }
 return nupp
 
 end
-package.preload["nupp.bytes"] = function(...)
-const __nuppFfi = require("ffi"); const __nuppBuffer = require("string.buffer"); local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-local bytes = { }
-
-local function needBytes ( avail , need )
-if avail < ( need ) then
-error ( ( "bytes.Reader: need %d bytes, have %d" ) : format ( need , avail ) )
-end
-end
-
-
-
-bytes.Reader = {} bytes.Reader.__index = bytes.Reader
-
-
-
-
-
-
-
-
-
-
-
-function bytes . newReader ( data )
-local buf
-if type ( data ) == "string" then
-buf = __nuppBuffer . new ( ) : set ( data )
-else
-buf = data
-end
-
-return setmetatable( { buf = buf } , bytes.Reader)
-end
-
-
-function bytes . Reader : remaining ( )
-return # self . buf
-end
-
-
-function bytes . Reader : skip ( n )
-local _ , avail = self . buf : ref ( )
-needBytes ( avail , n )
-self . buf : skip ( n )
-
-return self
-end
-
-
-function bytes . Reader : readBytes ( n )
-local _ , avail = self . buf : ref ( )
-needBytes ( avail , n )
-
-return self . buf : get ( n )
-end
-
-
-function bytes . Reader : readUint8 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 1 )
-local view = __nuppFfi.cast("uint8_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 1 )
-
-return v
-end
-
-
-function bytes . Reader : readInt8 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 1 )
-local view = __nuppFfi.cast("int8_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 1 )
-
-return v
-end
-
-
-function bytes . Reader : readUint16 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 2 )
-local view = __nuppFfi.cast("uint16_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 2 )
-
-return v
-end
-
-
-function bytes . Reader : readInt16 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 2 )
-local view = __nuppFfi.cast("int16_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 2 )
-
-return v
-end
-
-
-function bytes . Reader : readUint32 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 4 )
-local view = __nuppFfi.cast("uint32_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 4 )
-
-return v
-end
-
-
-function bytes . Reader : readInt32 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 4 )
-local view = __nuppFfi.cast("int32_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 4 )
-
-return v
-end
-
-
-function bytes . Reader : readUint64 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 8 )
-local view = __nuppFfi.cast("uint64_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 8 )
-
-return v
-end
-
-
-function bytes . Reader : readInt64 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 8 )
-local view = __nuppFfi.cast("int64_t *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 8 )
-
-return v
-end
-
-
-function bytes . Reader : readFloat32 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 4 )
-local view = __nuppFfi.cast("float *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 4 )
-
-return v
-end
-
-
-function bytes . Reader : readFloat64 ( )
-local ptr , avail = self . buf : ref ( )
-needBytes ( avail , 8 )
-local view = __nuppFfi.cast("double *" , ptr )
-local v = view [ 0 ]
-self . buf : skip ( 8 )
-
-return v
-end
-
-
-bytes.Writer = {} bytes.Writer.__index = bytes.Writer
-
-
-
-
-
-
-
-
-function bytes . newWriter ( buf )
-return setmetatable( { buf = buf or __nuppBuffer . new ( ) } , bytes.Writer)
-end
-
-
-function bytes . Writer : writeBytes ( s )
-self . buf : put ( s )
-
-return self
-end
-
-
-function bytes . Writer : writeUint8 ( v )
-local ptr = self . buf : reserve ( 1 )
-local view = __nuppFfi.cast("uint8_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 1 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt8 ( v )
-local ptr = self . buf : reserve ( 1 )
-local view = __nuppFfi.cast("int8_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 1 )
-
-return self
-end
-
-
-function bytes . Writer : writeUint16 ( v )
-local ptr = self . buf : reserve ( 2 )
-local view = __nuppFfi.cast("uint16_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 2 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt16 ( v )
-local ptr = self . buf : reserve ( 2 )
-local view = __nuppFfi.cast("int16_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 2 )
-
-return self
-end
-
-
-function bytes . Writer : writeUint32 ( v )
-local ptr = self . buf : reserve ( 4 )
-local view = __nuppFfi.cast("uint32_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 4 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt32 ( v )
-local ptr = self . buf : reserve ( 4 )
-local view = __nuppFfi.cast("int32_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 4 )
-
-return self
-end
-
-
-function bytes . Writer : writeUint64 ( v )
-local ptr = self . buf : reserve ( 8 )
-local view = __nuppFfi.cast("uint64_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 8 )
-
-return self
-end
-
-
-function bytes . Writer : writeInt64 ( v )
-local ptr = self . buf : reserve ( 8 )
-local view = __nuppFfi.cast("int64_t *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 8 )
-
-return self
-end
-
-
-function bytes . Writer : writeFloat32 ( v )
-local ptr = self . buf : reserve ( 4 )
-local view = __nuppFfi.cast("float *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 4 )
-
-return self
-end
-
-
-function bytes . Writer : writeFloat64 ( v )
-local ptr = self . buf : reserve ( 8 )
-local view = __nuppFfi.cast("double *" , ptr )
-view [ 0 ] = v
-self . buf : commit ( 8 )
-
-return self
-end
-
-
-
-function bytes . Writer : buffer ( )
-return self . buf
-end
-
-return bytes
-
-end
 package.preload["nupp.compiler"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
 
@@ -4141,22 +3829,11 @@ local modules = { }
 
 
 
-
-
-
-
-
-
-local function typeFingerprint (
-t ,
-active ,
-binders
-)
+local function typeFingerprint ( t , active )
 if not t then
 return "nil"
 end
 active = active or { }
-binders = binders or { order = { } , count = 0 }
 if active [ t ] then
 
 
@@ -4187,11 +3864,20 @@ local fields = { }
 for _ , field in ipairs ( t . fields or { } ) do
 fields [
 # fields + 1
-] = field . name .. ":r=" .. typeFingerprint ( field . read , active , binders ) .. ":w=" .. typeFingerprint ( field . write , active , binders )
+] = field . name .. ":r=" .. typeFingerprint (
+field . read ,
+active
+) .. ":w=" .. typeFingerprint ( field . write , active )
 end
 fields [
 # fields + 1
-] = "index:r=" .. typeFingerprint ( t . indexReadKey , active , binders ) .. ":" .. typeFingerprint ( t . indexReadValue , active , binders ) .. ":w=" .. typeFingerprint ( t . indexWriteKey , active , binders ) .. ":" .. typeFingerprint ( t . indexWriteValue , active , binders )
+] = "index:r=" .. typeFingerprint (
+t . indexReadKey ,
+active
+) .. ":" .. typeFingerprint (
+t . indexReadValue ,
+active
+) .. ":w=" .. typeFingerprint ( t . indexWriteKey , active ) .. ":" .. typeFingerprint ( t . indexWriteValue , active )
 value = "shape(" .. table . concat ( fields , "," ) .. ")"
 elseif tag == "func" then
 local params , returns = { } , { }
@@ -4202,10 +3888,10 @@ params [
 t . paramNames and t . paramNames [ index ] or ""
 ) .. "=" .. tostring (
 t . paramModes and t . paramModes [ index ] or "plain"
-) .. ":" .. typeFingerprint ( item , active , binders )
+) .. ":" .. typeFingerprint ( item , active )
 end
 for _ , item in ipairs ( t . rets or { } ) do
-returns [ # returns + 1 ] = typeFingerprint ( item , active , binders )
+returns [ # returns + 1 ] = typeFingerprint ( item , active )
 end
 
 
@@ -4218,51 +3904,39 @@ params ,
 t . vararg and ",..." or ""
 ) .. ")->(" .. table . concat ( returns , "," ) .. ")" .. ( t . noYield and "!noyield" or "" )
 elseif tag == "array" or tag == "ptr" then
-value = tag .. "(" .. typeFingerprint ( t . elem , active , binders ) .. ")"
+value = tag .. "(" .. typeFingerprint ( t . elem , active ) .. ")"
 elseif tag == "owned" then
 local cleanupIds = { }
 for j , cleanup in ipairs ( t . cleanups or { } ) do
 cleanupIds [ j ] = cleanup . id
 end
-value = tag .. "(" .. table . concat ( cleanupIds , "," ) .. "," .. typeFingerprint ( t . inner , active , binders ) .. ")"
+value = tag .. "(" .. table . concat ( cleanupIds , "," ) .. "," .. typeFingerprint ( t . inner , active ) .. ")"
 elseif tag == "borrowed" or tag == "pinned" then
-value = tag .. "(" .. typeFingerprint ( t . inner , active , binders ) .. ")"
+value = tag .. "(" .. typeFingerprint ( t . inner , active ) .. ")"
 elseif tag == "map" then
 value = "map(r=" .. (
-t . readable and typeFingerprint ( t . key , active , binders ) or "nil"
+t . readable and typeFingerprint ( t . key , active ) or "nil"
 ) .. ":" .. (
-t . readable and typeFingerprint ( t . value , active , binders ) or "nil"
-) .. ",w=" .. typeFingerprint ( t . writeKey , active , binders ) .. ":" .. typeFingerprint ( t . writeValue , active , binders ) .. ")"
+t . readable and typeFingerprint ( t . value , active ) or "nil"
+) .. ",w=" .. typeFingerprint ( t . writeKey , active ) .. ":" .. typeFingerprint ( t . writeValue , active ) .. ")"
 elseif tag == "tuple" then
 local items = { }
 for _ , item in ipairs ( t . elems or { } ) do
-items [ # items + 1 ] = typeFingerprint ( item , active , binders )
+items [ # items + 1 ] = typeFingerprint ( item , active )
 end
 value = "tuple(" .. table . concat ( items , "," ) .. ")"
 elseif tag == "union" or tag == "intersection" then
 local items = { }
 for _ , item in ipairs ( t . members or { } ) do
-items [ # items + 1 ] = typeFingerprint ( item , active , binders )
+items [ # items + 1 ] = typeFingerprint ( item , active )
 end
 table . sort ( items )
 ;
 value = tag .. "(" .. table . concat ( items , tag == "union" and "|" or "&" ) .. ")"
 elseif tag == "literal" then
-value = "literal(" .. stable ( t . constant ) .. ":" .. typeFingerprint ( t . base , active , binders ) .. ")"
+value = "literal(" .. stable ( t . constant ) .. ":" .. typeFingerprint ( t . base , active ) .. ")"
 elseif tag == "typevar" then
-
-
-
-
-
-
-local at = binders . order [ t ]
-if not at then
-at = binders . count + 1
-binders . count = at
-binders . order [ t ] = at
-end
-value = "typevar#" .. at
+value = "typevar(" .. t . name .. ")"
 else
 value = tag or tostring ( t )
 end
@@ -7209,7 +6883,7 @@ if ret then
 rets [ 1 ] = ret
 end
 
-return T . func ( params , rets , fn . vararg )
+return T . func ( params , rets , fn . vararg , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , nil , true )
 end
 
 
@@ -7614,6 +7288,7 @@ tcarray = "a type annotation" ,
 tconst = "a type annotation" ,
 tliteral = "a type annotation" ,
 tborrows = "a type annotation" ,
+tpreserves = "a type annotation" ,
 tpredicate = "a type annotation" ,
 ternary = "a type annotation" ,
 }
@@ -7845,7 +7520,7 @@ packTypes = { } ,
 typeDefs = { } ,
 pending = { } ,
 parent = nil
-} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , noSuspendDepth = 0 , handledDepth = 0 , functionDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , moduleFieldValues = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
+} , retStack = { } , retPackStack = { } , ownReturnStack = { } , borrowReturnStack = { } , varargPackStack = { } , yieldPackStack = { } , resumePackStack = { } , protocolStack = { } , disposerFieldStack = { } , validatedCleanupContracts = { } , unsafeDepth = 0 , noSuspendDepth = 0 , handledDepth = 0 , functionDepth = 0 , scopedCaptureDepth = 0 , captureWatches = { } , allowed = { } , nextStat = nil , hoisting = false , resolvingAlias = { } , lastCallRets = nil , moduleFields = { } , moduleFieldTokens = { } , moduleFieldConst = { } , moduleFieldValues = { } , constModulePaths = { } , moduleLocalAnnotated = false , } , state.Checker)
 c . rootScope = c . scope
 c . recordEffect = function ( effect )
 result . effects [ effect ] = true
@@ -8699,26 +8374,6 @@ c . checkStat = checkStat
 
 
 
-local function hoistNestedNominals ( owner , entries )
-owner . nestedTypes = owner . nestedTypes or { }
-for _ , entry in ipairs ( entries or { } ) do
-if entry . kind == "recordDecl" then
-local nested = entry . hoistedType or T . nominal ( entry . name . text , entry . declKind )
-entry . hoistedType = nested
-nested . byname = nested . byname or { }
-nested . writeByname = nested . writeByname or { }
-nested . staticByname = nested . staticByname or { }
-nested . staticWriteByname = nested . staticWriteByname or { }
-nested . runtimePath = ( owner . runtimePath or owner . name ) .. "." .. entry . name . text
-owner . nestedTypes [ entry . name . text ] = nested
-hoistNestedNominals ( nested , entry . entries )
-end
-end
-end
-
-
-
-
 
 local function hoistDeclarations ( block )
 for _ , stat in ipairs ( block . stats or { } ) do
@@ -8738,7 +8393,6 @@ local key = c . declKey ( decl )
 if c . qualifierOf ( decl ) then
 n . runtimePath = key
 end
-hoistNestedNominals ( n , decl . entries )
 c . bindType ( key , n , nil )
 elseif k == "typeAlias" and decl . name and decl . value then
 local waiting = { node = decl . value , tok = decl . name , decl = decl }
@@ -9353,21 +9007,6 @@ local handlers = { }
 handlers . localStmt = function ( stat )
 local initializers = stat . exprs or { }
 local inferred = inferList ( stat . exprs , # stat . names )
-
-
-for _ , e in ipairs ( initializers ) do
-if e . kind == "call" and e . ffiIntrinsic == "cast" then
-local castArgs = e . args
-local source = castArgs and castArgs . kind == "args" and ( castArgs . exprs or { } ) [ 1 ] or nil
-if source and source . kind == "string" then
-c . diag (
-"NUPP2501" ,
-e ,
-"a pointer taken from a Lua string is only valid " .. "for the call it is passed to"
-)
-end
-end
-end
 for j , nameTok in ipairs ( stat . names ) do
 local ann = stat . types [ j ] and c . resolveType ( stat . types [ j ] ) or nil
 if c . opts and c . opts . strict and ann and inferred [ j ] then
@@ -9463,40 +9102,6 @@ else
 boundEntry . threadPhase = "unknown"
 end
 end
-
-
-
-
-
-
-
-
-
-
-
-
-if boundEntry and initNode and initNode . kind == "name" and initNode . token then
-local globals = c . env and c . env . globals or { }
-local coroutineGlobal = globals . coroutine
-local source = c . lookupEntry ( initNode . token . text )
-local isLibrary = coroutineGlobal ~= nil and source == coroutineGlobal
-if not isLibrary and source ~= nil then
-isLibrary = source . coroutineLibrary == true
-end
-
-
-
-
-
-if not isLibrary
-and coroutineGlobal ~= nil
-and initNode . token . definition ~= nil
-and initNode . token . definition == coroutineGlobal . definition
-then
-isLibrary = true
-end
-boundEntry . coroutineLibrary = isLibrary
-end
 if boundEntry and initNode and initNode . wrappedProtocol then
 boundEntry . wrappedProtocol = initNode . wrappedProtocol
 boundEntry . wrappedPhase = "new"
@@ -9505,10 +9110,14 @@ if boundEntry and initNode and initNode . coroutineStatusName then
 boundEntry . coroutineStatusName = initNode . coroutineStatusName
 end
 local returnBorrowOwners = nil
+local returnOwnershipState = nil
 local exprCount = # initializers
 local expandedCall = exprCount > 0 and initializers [ exprCount ] or nil
 if expandedCall and expandedCall . returnBorrowOwners and j >= exprCount then
 returnBorrowOwners = expandedCall . returnBorrowOwners [ j - exprCount + 1 ]
+end
+if expandedCall and expandedCall . returnOwnershipStates and j >= exprCount then
+returnOwnershipState = expandedCall . returnOwnershipStates [ j - exprCount + 1 ]
 end
 
 
@@ -9556,6 +9165,13 @@ if boundEntry and ( ownershipKind ( bound ) == "owned" or ownershipKind ( bound 
 boundEntry . moved = true
 end
 local boundKind = ownershipKind ( bound )
+if boundEntry and returnOwnershipState then
+boundEntry . retained = returnOwnershipState . retained
+boundEntry . retentionIdentity = returnOwnershipState . ownershipOrigin
+end
+if boundEntry and expandedCall and expandedCall . resourceCapability and j == exprCount then
+boundEntry . resourceCapability = expandedCall . resourceCapability
+end
 if boundEntry and (
 boundKind == "borrowed" or boundKind == "owned"
 ) and returnBorrowOwners and # returnBorrowOwners == 1 then
@@ -9730,7 +9346,26 @@ target ,
 contractWrite = true
 end
 end
-if et and ownershipKind ( et ) then
+local partialReinit = false
+if target . kind == "dotIndex" and target . obj and target . obj . kind == "name" and target . name then
+local container = ownershipState ( ( c . ownershipEntry ( target . obj ) ) )
+local field = target . name . text
+if et and ownershipKind ( et ) == "owned" and tt and ownershipKind ( tt ) == "owned" and container then
+if not ( container . movedFields and container . movedFields [ field ] ) then
+c . diag ( "NUPP2602" , target , ( "assignment overwrites live affine field %q" ) : format ( field ) )
+else
+local prior = container . movedFieldTypes and container . movedFieldTypes [ field ]
+if prior and prior . id ~= et . id then
+c . diag ( "NUPP2602" , written or stat , "reinitialized field must keep its exact cleanup contract" )
+end
+moveExpression ( written , et , "affine field reinitialization" , "owned" )
+container . movedFields [ field ] = nil
+container . movedFieldTypes [ field ] = et
+partialReinit = true
+end
+end
+end
+if et and ownershipKind ( et ) and not partialReinit then
 c . diag (
 "NUPP2603" ,
 written or stat ,
@@ -9996,6 +9631,50 @@ argExprs = argsNode . exprs or { }
 argStr = argsNode . str
 argTable = argsNode . table
 end
+
+
+
+
+
+
+
+
+
+
+if memberName == "yield" and callee and callee . kind == "dotIndex" then
+local base = callee . obj
+local baseTok = base and base . kind == "name" and base . token or nil
+local coroutineGlobal = c . env and c . env . globals and c . env . globals . coroutine or nil
+local resolved = baseTok and c . lookupEntry ( baseTok . text ) or nil
+
+
+
+local isCoroutine = false
+if baseTok and coroutineGlobal then
+if resolved ~= nil then
+isCoroutine = resolved == coroutineGlobal or (
+resolved . definition ~= nil and resolved . definition == coroutineGlobal . definition
+)
+else
+isCoroutine = baseTok . text == "coroutine"
+end
+end
+if isCoroutine then
+local obligation = c . liveSuspensionObligation ( )
+if obligation then
+c . diag (
+"NUPP2603" ,
+node ,
+( "cannot suspend while temporal obligation %q is live" ) : format ( obligation ) ,
+nil ,
+{
+help = "suspend inside a `handle suspension` region, where a "
+.. "handler is responsible for resuming or cancelling it" ,
+}
+)
+end
+end
+end
 local intrinsic = ownershipIntrinsic ( c , callee )
 if intrinsic then
 local args = argExprs
@@ -10108,7 +9787,13 @@ args [ 1 ] or node ,
 )
 end
 node . ownershipIntrinsic = "dispose"
-node . ownerCleanups = disposed . cleanups or { }
+node . ownerCleanups = { }
+local state = args [ 1 ] and c . ownershipState ( ( c . ownershipEntry ( args [ 1 ] ) ) ) or nil
+for _ , cleanup in ipairs ( disposed . cleanups or { } ) do
+if not ( cleanup . kind == "field" and state and state . movedFields and state . movedFields [ cleanup . field ] ) then
+node . ownerCleanups [ # node . ownerCleanups + 1 ] = cleanup
+end
+end
 return T . nil_
 end
 end
@@ -10163,59 +9848,14 @@ if callee and callee . kind == "dotIndex" then
 callee . callCallee = true
 end
 local calleeT = callee and c . infer ( callee ) or T . any
+if calleeT . tag == "func" and calleeT . foreign then
+node . cdefCall = true
+end
 if node . kind == "safeCall" then
 calleeT = withoutNil ( calleeT )
 end
 node . calleeType = rawType ( calleeT )
 c . nosuspend . call ( node )
-
-
-
-
-
-
-
-
-
-
-if memberName == "yield" and callee and callee . kind == "dotIndex" then
-local base = callee . obj
-local baseTok = base and base . kind == "name" and base . token or nil
-local coroutineGlobal = c . env and c . env . globals and c . env . globals . coroutine or nil
-local resolved = baseTok and c . lookupEntry ( baseTok . text ) or nil
-
-
-
-local isCoroutine = false
-if resolved ~= nil and resolved . coroutineLibrary == true then
-
-isCoroutine = true
-elseif baseTok and coroutineGlobal then
-if resolved ~= nil then
-isCoroutine = resolved == coroutineGlobal or (
-resolved . definition ~= nil and resolved . definition == coroutineGlobal . definition
-)
-else
-isCoroutine = baseTok . text == "coroutine"
-end
-end
-if isCoroutine then
-local obligation = c . liveSuspensionObligation ( )
-if obligation then
-c . diag (
-"NUPP2603" ,
-node ,
-( "cannot suspend while temporal obligation %q is live" ) : format ( obligation ) ,
-nil ,
-{
-help = "suspend inside a `handle suspension` region, where a "
-.. "handler is responsible for resuming or cancelling it" ,
-}
-)
-end
-end
-end
-
 
 
 
@@ -10704,6 +10344,46 @@ member . additionalDefinitions = fieldDefs
 
 local first , rets , pack = c . inferCall ( node , callable and dropSelf ( mt ) or mt , node . args )
 local owner = rawType ( ot )
+if owner . tag == "nominal" and owner . resourceSet and member . text == "adopt" then
+local adopted = node . argumentPack and T . packAt ( node . argumentPack , 1 ) or nil
+local cleanups = adopted and adopted . tag == "owned" and adopted . cleanups or nil
+local actualArgs = node . args and node . args . kind == "args" and node . args . exprs or { }
+if cleanups and # cleanups > 0 then
+if actualArgs [ 2 ] then
+c . diag ( "NUPP2602" , actualArgs [ 2 ] , "a cleanup owner already carries its discharge contract" )
+end
+node . resourceAdoptCleanups = cleanups
+node . resourceCapability = adopted
+elseif cleanups and # cleanups == 0 then
+if not actualArgs [ 2 ] then
+c . diag ( "NUPP2602" , node , "an opaque owner needs an explicit terminal consumer when adopted" )
+end
+node . resourceCapability = adopted
+else
+c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "ResourceSet.adopt requires an owned value" )
+end
+elseif owner . tag == "nominal" and owner . resourceSet and member . text == "remove" then
+local actualArgs = node . args and node . args . kind == "args" and node . args . exprs or { }
+local entry , nameNode = actualArgs [ 1 ] and c . ownershipEntry ( actualArgs [ 1 ] ) or nil
+entry = c . ownershipState ( entry )
+if not entry or not entry . resourceCapability or entry . moved then
+c . diag ( "NUPP2602" , actualArgs [ 1 ] or node , "ResourceSet.remove needs a live value returned by adopt" )
+else
+local capability = entry . resourceCapability
+entry . moved = true
+entry . movedAt = nameNode or actualArgs [ 1 ]
+if entry . borrowOwner then
+entry . borrowOwner . activeBorrows = math . max ( 0 , ( entry . borrowOwner . activeBorrows or 1 ) - 1 )
+entry . borrowOwner = nil
+end
+for _ , root in ipairs ( entry . borrowOwners or { } ) do
+root . activeBorrows = math . max ( 0 , ( root . activeBorrows or 1 ) - 1 )
+end
+entry . borrowOwners = nil
+first , rets , pack = capability , { capability } , T . pack ( { capability } )
+node . resourceCapability = capability
+end
+end
 if owner . tag == "nominal" and owner . overloadedMethods and owner . overloadedMethods [
 member . text
 ] and node . overloadWinner then
@@ -10789,10 +10469,8 @@ local calls = { }
 
 local isA = relations . isA
 local rawType = T . unwrapOwnership
-
-
-local substType = generics . materialize
-local substPack = generics . materializePack
+local substType = generics . subst
+local substPack = generics . substPack
 local unify = generics . unify
 local unifyPack = generics . unifyPack
 local instantiateNominal = generics . instantiate
@@ -11598,7 +11276,9 @@ nil ,
 selectedSignature . yieldPack ,
 selectedSignature . resumePack ,
 selectedSignature . noYield ,
-selectedSignature . paramNames
+selectedSignature . paramNames ,
+selectedSignature . preservesResults ,
+selectedSignature . foreign
 )
 end
 node . valuePack = pack
@@ -11607,6 +11287,7 @@ end
 return first , rets , pack
 end
 local genericMap = calleeT . typeParams and { } or nil
+local constructionFields = { }
 if tbl and calleeT . declKind == "record" then
 
 node . recordConstruct = c . pathKey ( node . obj ) or calleeT . name
@@ -11629,14 +11310,16 @@ if not ft then
 c . diag ( "NUPP2202" , f , ( "no field %q in struct %s" ) : format ( f . name . text , calleeT . name ) )
 else
 local vt = c . infer ( f . value )
-if c . ownershipKind ( vt ) == "owned" or c . ownershipKind ( vt ) == "pinned" then
+constructionFields [ f . name . text ] = { node = f . value , type = vt }
+local borrowedRoot = calleeT . borrowedRootFields and calleeT . borrowedRootFields [ f . name . text ]
+if not borrowedRoot and ( c . ownershipKind ( vt ) == "owned" or c . ownershipKind ( vt ) == "pinned" ) then
 affineValues [ f . name . text ] = vt
 c . moveExpression ( f . value , vt , "affine record construction" , c . ownershipKind ( vt ) )
 end
 if genericMap then
 unify ( ft , vt , genericMap )
 end
-local ok , why = isA ( vt , ft )
+local ok , why = isA ( borrowedRoot and rawType ( vt ) or vt , ft )
 if not ok then
 c . diag ( "NUPP2202" , f , ( "field %q: %s" ) : format ( f . name . text , why ) )
 end
@@ -11658,13 +11341,17 @@ for j , arg in ipairs ( args ) do
 if not cst . isToken ( arg ) then
 local at = c . infer ( arg )
 local fname = order [ j ]
+if fname then
+constructionFields [ fname ] = { node = arg , type = at }
+end
 local ft = fname and ( calleeT . writeByname [ fname ] or calleeT . byname [ fname ] )
-if fname and ( c . ownershipKind ( at ) == "owned" or c . ownershipKind ( at ) == "pinned" ) then
+local borrowedRoot = fname and calleeT . borrowedRootFields and calleeT . borrowedRootFields [ fname ]
+if fname and not borrowedRoot and ( c . ownershipKind ( at ) == "owned" or c . ownershipKind ( at ) == "pinned" ) then
 affineValues [ fname ] = at
 c . moveExpression ( arg , at , "affine record construction" , c . ownershipKind ( at ) )
 end
 if ft then
-local ok , why = isA ( at , ft )
+local ok , why = isA ( borrowedRoot and rawType ( at ) or at , ft )
 if not ok then
 c . diag ( "NUPP2202" , arg , ( "value %d (field %q): %s" ) : format ( j , fname , why ) )
 end
@@ -11677,6 +11364,48 @@ if genericMap then
 ops . validateTypeBounds ( calleeT . typeParams , calleeT . typeBounds , genericMap , node )
 local inst = instantiateNominal ( calleeT , genericMap )
 return inst , { inst }
+end
+local aggregateRoots = { }
+local rootSeen = { }
+for field , source in pairs ( calleeT . fieldBorrowSources or { } ) do
+local borrowedValue = constructionFields [ field ]
+local rootValue = constructionFields [ source ]
+if borrowedValue and rootValue then
+local actual = c . own . provenanceOwners ( borrowedValue . node )
+local expected = c . own . provenanceOwners ( rootValue . node )
+local matches = # actual > 0 and # expected > 0
+for _ , root in ipairs ( actual ) do
+local found = false
+for _ , candidate in ipairs ( expected ) do
+if root == candidate then
+found = true
+end
+end
+if not found then
+matches = false
+end
+end
+if not matches then
+c . diag (
+"NUPP2619" ,
+borrowedValue . node ,
+( "field %q must derive from sibling root field %q" ) : format ( field , source )
+)
+end
+for _ , root in ipairs ( actual ) do
+if not rootSeen [ root ] then
+rootSeen [ root ] , aggregateRoots [ # aggregateRoots + 1 ] = true , root
+end
+end
+end
+end
+if # aggregateRoots > 0 then
+node . returnBorrowOwners = { [ 1 ] = aggregateRoots }
+if # aggregateRoots == 1 then
+node . borrowOwner = aggregateRoots [ 1 ]
+else
+node . borrowOwners = aggregateRoots
+end
 end
 if calleeT . affineFields and # calleeT . affineFields > 0 then
 local cleanups , opaque = { } , false
@@ -11704,6 +11433,10 @@ cleanups = { }
 end
 local owned = T . owned ( calleeT , cleanups )
 return owned , { owned }
+end
+if calleeT . fieldBorrowSources and next ( calleeT . fieldBorrowSources ) then
+local borrowed = T . borrowed ( calleeT )
+return borrowed , { borrowed }
 end
 return calleeT , { calleeT }
 end
@@ -12137,6 +11870,14 @@ local params , rets = calleeT . params , calleeT . rets
 local paramPack , retPack = calleeT . paramPack , calleeT . retPack
 local declaredParamPack , declaredRetPack = paramPack , retPack
 local paramModes = calleeT . paramModes or { }
+local preservesResults = calleeT . preservesResults or { }
+local preservedByParam = { }
+for result = 1 , # calleeT . rets do
+local source = preservesResults [ result ]
+if source then
+preservedByParam [ source ] = result
+end
+end
 local varargType = calleeT . varargType
 
 
@@ -12188,12 +11929,31 @@ end
 
 
 
+if next ( preservesResults ) and not retPack . alternatives then
+local adjusted = { }
+for j , result in ipairs ( retPack . head ) do
+local source = preservesResults [ j ]
+adjusted [ j ] = source and ats [ source ] and T . withOwnershipPayload ( ats [ source ] , rawType ( result ) ) or result
+end
+retPack = T . pack ( adjusted , retPack . tail , retPack . modes )
+rets = retPack . head
+end
+
+
+
+
+
 local contextualArgs = false
 for j , arg in ipairs ( args ) do
 local expected = params [ j ]
 local isFunction = not cst . isToken ( arg ) and ( arg . kind == "shortfn" or arg . kind == "funcExpr" )
 if isFunction and expected and rawType ( expected ) . tag == "func" then
+local priorScoped = c . scopedCaptureDepth
+if paramModes [ j ] == "scoped" then
+c . scopedCaptureDepth = priorScoped + 1
+end
 ats [ j ] = c . apply . inferExpected ( arg , expected )
+c . scopedCaptureDepth = priorScoped
 contextualArgs = true
 end
 end
@@ -12233,6 +11993,10 @@ end
 for j = 1 , math . min ( actualCount , nparams ) do
 local mode = paramModes [ j ] or "plain"
 local actualForCheck = ats [ j ]
+local preservationResult = preservedByParam [ j ]
+if preservationResult then
+actualForCheck = rawType ( actualForCheck )
+end
 if node . cdefCall and c . ownershipKind ( actualForCheck ) == "pinned" then
 actualForCheck = rawType ( actualForCheck )
 if not cst . isToken ( argNodes [ j ] ) then
@@ -12268,6 +12032,21 @@ cst . isToken ( argNodes [ j ] ) and node or argNodes [ j ] ,
 ats [ j ] ,
 ( "argument %d" ) : format ( j )
 )
+end
+elseif preservationResult then
+local kind = c . ownershipKind ( ats [ j ] )
+if kind == "owned" or kind == "pinned" then
+c . moveExpression (
+cst . isToken ( argNodes [ j ] ) and node or argNodes [ j ] ,
+ats [ j ] ,
+( "argument %d preserved as result %d" ) : format ( j , preservationResult ) ,
+kind
+)
+end
+elseif mode == "scoped" then
+local callback = rawType ( ats [ j ] )
+if callback ~= T . any and callback ~= T . unknown and callback . tag ~= "func" and callback . tag ~= "intersection" then
+c . diag ( "NUPP2602" , argNodes [ j ] or node , "a scoped parameter requires a callback value" )
 end
 elseif mode == "exclusive" then
 local entry , nameNode = c . ownershipEntry ( argNodes [ j ] )
@@ -12319,6 +12098,40 @@ elseif not entry . retained then
 c . diag ( "NUPP2602" , nameNode or argNodes [ j ] , "releases argument is not currently retained by C" )
 else
 entry . retained = false
+end
+end
+end
+for result = 1 , # calleeT . rets do
+local source = preservesResults [ result ]
+if source then
+local owners = argumentBorrowOwners [ source ]
+if not owners then
+local sourceNode = argNodes [ source ]
+local entry = sourceNode and c . ownershipEntry ( sourceNode )
+if entry then
+owners = { c . borrowRoot ( entry ) }
+end
+end
+if owners then
+node . returnBorrowOwners = node . returnBorrowOwners or { }
+node . returnBorrowOwners [ result ] = owners
+if result == 1 then
+if # owners == 1 then
+node . borrowOwner = owners [ 1 ]
+else
+node . borrowOwners = owners
+end
+end
+end
+local sourceNode = argNodes [ source ]
+local entry = sourceNode and c . ownershipEntry ( sourceNode )
+entry = c . ownershipState ( entry )
+if entry then
+node . returnOwnershipStates = node . returnOwnershipStates or { }
+node . returnOwnershipStates [ result ] = {
+retained = entry . retained or nil ,
+ownershipOrigin = entry ,
+}
 end
 end
 end
@@ -12411,7 +12224,9 @@ calleeT . packParams ,
 calleeT . yieldPack ,
 calleeT . resumePack ,
 calleeT . noYield ,
-calleeT . paramNames
+calleeT . paramNames ,
+calleeT . preservesResults ,
+calleeT . foreign
 )
 
 return T . packAt ( retPack , 1 ) or T . nil_ , retPack . head , retPack
@@ -12656,7 +12471,9 @@ nil ,
 nil ,
 nil ,
 nil ,
-paramNames
+paramNames ,
+nil ,
+true
 )
 local cdefName = stat . name
 if not cdefName then
@@ -13442,9 +13259,7 @@ local state = require ( "nupp.compiler.check.state" )
 local declare = { }
 
 local isA = relations . isA
-
-
-local substType = generics . rebind
+local substType = generics . subst
 local addSelf = generics . addSelf
 local dropSelf = generics . dropSelf
 
@@ -13759,7 +13574,6 @@ end
 
 return nil
 end
-
 
 
 
@@ -14156,13 +13970,16 @@ n . writeFieldDefs = { }
 n . staticFieldDefs = { }
 n . staticWriteFieldDefs = { }
 stat . resolvedType = n
+if c . result . moduleName == "nupp.resource_set" and n . name == "ResourceSet" then
+n . resourceSet = true
+end
 
 
 
 for _ , e in ipairs ( stat . entries ) do
 if e . kind == "recordDecl" then
 local nestedKind = e . declKind
-local nested = e . hoistedType or T . nominal ( e . name . text , nestedKind )
+local nested = T . nominal ( e . name . text , nestedKind )
 e . hoistedType = nested
 
 
@@ -14361,6 +14178,21 @@ isDisposer = true
 end
 end
 local ft = c . resolveType ( e . type )
+if e . type and e . type . kind == "tborrows" then
+if stat . declKind ~= "record" then
+c . diag ( "NUPP2602" , e , "borrowed field relations are available only on nominal records" )
+elseif not e . type . param then
+c . diag ( "NUPP2602" , e , "a borrowed field must name its sibling root field" )
+else
+n . fieldBorrowSources = n . fieldBorrowSources or { }
+n . borrowedRootFields = n . borrowedRootFields or { }
+n . fieldBorrowSources [ e . name . text ] = e . type . param . text
+n . borrowedRootFields [ e . type . param . text ] = true
+ft = T . borrowed ( ft )
+end
+elseif e . type and e . type . kind == "tpreserves" then
+c . diag ( "NUPP2602" , e , "preserves is a callable result relation, not a field relation" )
+end
 local capability = e . capability and e . capability . propertyCapability or nil
 if capability and ( stat . declKind == "struct" or stat . isAnnotationDefinition ) then
 c . diag (
@@ -14711,6 +14543,21 @@ end
 end
 end
 end
+end
+for field , source in pairs ( n . fieldBorrowSources or { } ) do
+if field == source then
+c . diag ( "NUPP2602" , stat , ( "field %q cannot borrow from itself" ) : format ( field ) )
+elseif not n . byname [ source ] then
+c . diag ( "NUPP2109" , stat , ( "borrowed field %q names no sibling field %q" ) : format ( field , source ) )
+elseif n . fieldBorrowSources [ source ] then
+c . diag ( "NUPP2602" , stat , "borrowed field relations cannot form chains or cycles" )
+end
+
+
+n . writeByname [ field ] = nil
+n . writeByname [ source ] = nil
+n . writeFieldDefs [ field ] = nil
+n . writeFieldDefs [ source ] = nil
 end
 
 
@@ -15491,7 +15338,10 @@ help = "use the owner before this transfer, or borrow it " .. "instead of moving
 }
 )
 node . ownershipUseReported = true
-elseif c . ownershipKind ( entry . t ) and ( entry . functionDepth or 0 ) < c . functionDepth then
+elseif c . ownershipKind ( entry . t )
+and ( entry . functionDepth or 0 ) < c . functionDepth
+and not ( c . ownershipKind ( entry . t ) == "borrowed" and c . scopedCaptureDepth > 0 )
+then
 
 local capturedKind = c . ownershipKind ( entry . t )
 c . diag (
@@ -15547,6 +15397,26 @@ help = "make all but one declaration local or attach " .. "them to their module 
 }
 )
 return T . any
+end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+if not entry and nameText == "buffer" and c . env and c . env . resolveModule then
+local moduleType = c . env . resolveModule ( c . env , "string.buffer" )
+if moduleType then
+node . bufferIntrinsic = true
+c . markToken ( nameTok , nil , moduleType , "variable" )
+return moduleType
 end
 end
 c . markToken (
@@ -16064,8 +15934,19 @@ for j , e in ipairs ( argExprs ) do
 ffiArgs [ j ] = c . infer ( e )
 end
 if name == "new" or name == "cast" then
-if name == "cast" and argT == T . cstring and ffiArgs [ 1 ] and isA ( ffiArgs [ 1 ] , T . string ) then
-node . borrowOwner = c . ownershipEntry ( argExprs [ 1 ] )
+if name == "cast" and c . pointerShaped ( argT ) and ffiArgs [ 1 ] and isA ( ffiArgs [ 1 ] , T . string ) then
+local roots = c . own . provenanceOwners ( argExprs [ 1 ] )
+if # roots == 0 then
+c . diag (
+"NUPP2501" ,
+node ,
+"a pointer into managed storage needs a named or preserved lifetime root"
+)
+elseif # roots == 1 then
+node . borrowOwner = roots [ 1 ]
+else
+node . borrowOwners = roots
+end
 return T . borrowed ( argT )
 end
 if name == "cast" and c . pointerShaped ( argT ) and ffiArgs [ 1 ] and rawType ( ffiArgs [ 1 ] ) . tag == "func" then
@@ -16303,6 +16184,16 @@ local args = argExprs
 local valueT = args [ 1 ] and c . infer ( args [ 1 ] ) or T . any
 for j = 2 , # args do
 c . infer ( args [ j ] )
+end
+local entry = args [ 1 ] and c . ownershipEntry ( args [ 1 ] ) or nil
+entry = c . ownershipState ( entry )
+if c . ownershipKind ( valueT ) or entry and entry . retained then
+c . diag (
+"NUPP2603" ,
+args [ 1 ] or node ,
+"ffi.gc would add an untracked second cleanup path to a capability-bearing value"
+)
+return rawType ( valueT )
 end
 return valueT
 end
@@ -16852,6 +16743,154 @@ end
 
 
 
+
+
+
+local function preservationResults ( body , paramNames , inferVisible , report )
+local byname , results , explicit = { } , { } , { }
+for j , name in ipairs ( paramNames or { } ) do
+byname [ name ] = j
+end
+for result , ret in ipairs ( body and body . rets or { } ) do
+if ret . kind == "tpreserves" and ret . param then
+local source = byname [ ret . param . text ]
+if not source then
+if report then
+c . diag ( "NUPP2109" , ret . param , ( "%s names no parameter of this function" ) : format ( ret . param . text ) )
+end
+else
+results [ result ] , explicit [ result ] = source , true
+end
+end
+end
+
+local returns = { }
+local function walk ( node )
+if not node or cst . isToken ( node ) then
+return
+end
+if node . kind == "funcbody" or node . kind == "shortfn" or node . kind == "funcExpr" then
+return
+end
+if node . kind == "returnStmt" then
+returns [ # returns + 1 ] = node
+return
+end
+for _ , child in ipairs ( node ) do
+if not cst . isToken ( child ) then
+walk ( child )
+end
+end
+end
+walk ( body and body . body )
+
+local function directParameter ( expr )
+while expr and ( expr . kind == "paren" or expr . kind == "castExpr" ) do
+expr = expr . expr
+end
+return expr and expr . kind == "name" and expr . token and byname [ expr . token . text ] or nil
+end
+
+local maxResults = # ( body and body . rets or { } )
+if inferVisible and # returns > 0 then
+for result = 1 , maxResults do
+if not results [ result ] then
+local source
+for _ , ret in ipairs ( returns ) do
+local found = directParameter ( ret . exprs and ret . exprs [ result ] )
+if not found or source and source ~= found then
+source = nil
+break
+end
+source = found
+end
+results [ result ] = source
+end
+end
+end
+
+
+
+local used = { }
+for result = 1 , maxResults do
+local source = results [ result ]
+if source and used [ source ] then
+if explicit [ result ] and report then
+c . diag ( "NUPP2602" , body . rets [ result ] , "one parameter capability cannot be preserved into two results" )
+end
+results [ result ] = nil
+results [ used [ source ] ] = nil
+elseif source then
+used [ source ] = result
+end
+end
+
+if report then
+for result = 1 , maxResults do
+local source = results [ result ]
+if explicit [ result ] then
+for _ , ret in ipairs ( returns ) do
+if directParameter ( ret . exprs and ret . exprs [ result ] ) ~= source then
+c . diag (
+"NUPP2602" ,
+ret ,
+"a preserves result must return its named parameter on every successful path"
+)
+end
+end
+end
+end
+end
+
+return next ( results ) and results or nil
+end
+
+
+
+
+
+local function scopedCallbackParameters ( body , report )
+local candidates , tokenByName = { } , { }
+for _ , p in ipairs ( body and body . params or { } ) do
+if p . name and not p . namedVararg then
+candidates [ p . name . text ] = true
+tokenByName [ p . name . text ] = p . name
+end
+end
+local function walk ( node , parent )
+if not node or cst . isToken ( node ) then
+return
+end
+if node . kind == "name" and node . token and candidates [ node . token . text ] ~= nil then
+local invoked = parent and parent . kind == "call" and parent . obj == node
+if not invoked then
+candidates [ node . token . text ] = false
+end
+return
+end
+for _ , child in ipairs ( node ) do
+if not cst . isToken ( child ) then
+walk ( child , node )
+end
+end
+end
+walk ( body and body . body , nil )
+if report then
+for _ , p in ipairs ( body and body . params or { } ) do
+if p . modeTok and p . modeTok . text == "scoped" and candidates [ p . name . text ] == false then
+c . diag (
+"NUPP2602" ,
+tokenByName [ p . name . text ] or p ,
+"a scoped callback may only be invoked directly during the call"
+)
+end
+end
+end
+return candidates
+end
+
+
+
 c . checkFuncbody = function ( body , selfType )
 local params , rets , paramModes , paramNames = { } , { } , { } , { }
 
@@ -16863,6 +16902,7 @@ if not ( explicitSelf and explicitSelf . name and explicitSelf . name . text == 
 explicitSelf = nil
 end
 local inferredModes , declaredModes = inferredParameterModes ( body )
+local scopedCandidates = scopedCallbackParameters ( body , true )
 local vararg = false
 local varargType = nil
 local typeParams , typeBounds , packParams
@@ -16910,6 +16950,12 @@ local pt = p . type and c . resolveType ( p . type ) or ( expectedParams and exp
 params [ # params + 1 ] = pt
 paramNames [ # params ] = p . name . text
 local mode = inferredModes [ # params ] or "borrows"
+if not declaredModes [ # params ]
+and scopedCandidates [ p . name . text ]
+and rawType ( pt ) . tag == "func"
+then
+mode = "scoped"
+end
 if not declaredModes [
 # params
 ] and mode ~= "takes" and not pointerShaped ( pt ) and not ( pt . tag == "nominal" and pt . affineResource ) then
@@ -17208,6 +17254,7 @@ if body . returnPack and not retPack . alternatives then
 retPack = T . pack ( rets , retPack . tail , retPack . modes )
 end
 
+local preservesResults = preservationResults ( body , paramNames , typeParams ~= nil , true )
 return T . func (
 params ,
 rets ,
@@ -17228,7 +17275,9 @@ packParams ,
 yieldPack ,
 resumePack ,
 nil ,
-paramNames
+paramNames ,
+preservesResults ,
+nil
 )
 end
 
@@ -17238,6 +17287,7 @@ end
 c . signatureOf = function ( body , selfType )
 local params , modes , paramNames = { } , { } , { }
 local inferredModes , declaredModes = inferredParameterModes ( body or { } )
+local scopedCandidates = scopedCallbackParameters ( body or { } , false )
 local explicitSelf = selfType and body and body . params and body . params [ 1 ]
 if not ( explicitSelf and explicitSelf . name and explicitSelf . name . text == "self" ) then
 explicitSelf = nil
@@ -17261,6 +17311,12 @@ if p == explicitSelf then
 elseif p . name and not p . namedVararg then
 local pt = p . type and c . resolveType ( p . type ) or T . any
 local mode = inferredModes [ sourceIndex ] or "borrows"
+if not declaredModes [ sourceIndex ]
+and scopedCandidates [ p . name . text ]
+and rawType ( pt ) . tag == "func"
+then
+mode = "scoped"
+end
 if not declaredModes [
 sourceIndex
 ] and mode ~= "takes" and not pointerShaped ( pt ) and not ( pt . tag == "nominal" and pt . affineResource ) then
@@ -17297,6 +17353,7 @@ local yieldPack = body and body . yieldPack and c . resolvePack ( body . yieldPa
 local resumePack = body and body . resumePack and c . resolvePack ( body . resumePack ) or nil
 c . popScope ( )
 
+local preservesResults = preservationResults ( body , paramNames , typeParams ~= nil , false )
 return T . func (
 params ,
 rets ,
@@ -17317,7 +17374,9 @@ packParams ,
 yieldPack ,
 resumePack ,
 nil ,
-paramNames
+paramNames ,
+preservesResults ,
+nil
 )
 end
 
@@ -17425,6 +17484,13 @@ end
 for _ , name in ipairs ( ft . paramNames or { } ) do
 names [ # names + 1 ] = name
 end
+local preserves = { }
+for result = 1 , # ft . rets do
+local source = ft . preservesResults and ft . preservesResults [ result ]
+if source then
+preserves [ result ] = source + 1
+end
+end
 owner . byname [
 member
 ] = T . func (
@@ -17447,7 +17513,9 @@ ft . packParams ,
 ft . yieldPack ,
 ft . resumePack ,
 ft . noYield ,
-names
+names ,
+next ( preserves ) and preserves or nil ,
+ft . foreign
 )
 owner . writeByname [ member ] = owner . byname [ member ]
 elseif owner . declKind == "record" or owner . declKind == "interface" then
@@ -17511,12 +17579,6 @@ local index = { }
 
 
 
-local COMPILER_MODULES = { [ "string.buffer" ] = "string.buffer" }
-
-
-
-
-
 
 
 
@@ -17539,23 +17601,6 @@ local holderName = ""
 if target . kind == "name" then
 local holderTok = target . token
 holderName = holderTok and holderTok . text or ""
-end
-if kind == "dotIndex" and not node . writeContext then
-local sourcePath = holderName ~= "" and holderName .. "." .. memberName or ""
-local moduleName = COMPILER_MODULES [ sourcePath ]
-local holder = moduleName and c . lookupEntry ( holderName ) or nil
-local builtin = moduleName and c . env and c . env . globals and c . env . globals [ holderName ] or nil
-if holder and builtin and holder . definition == builtin . definition and c . env and c . env . resolveModule then
-local moduleType = c . env . resolveModule ( c . env , moduleName )
-if moduleType then
-c . infer ( target )
-node . compilerModule = moduleName
-node . immutablePath = true
-node . resolvedType = moduleType
-c . markToken ( member , nil , moduleType , "property" )
-return moduleType
-end
-end
 end
 if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
 return c . cNamespaceType ( )
@@ -17762,6 +17807,19 @@ local effect = featureFields and featureFields [ memberName ] or nil
 if effect and c . recordEffect then
 ( node ) . compilerFeatureEffect = effect
 c . recordEffect ( effect )
+end
+local ownerState = target . kind == "name" and c . ownershipState ( ( c . ownershipEntry ( target ) ) ) or nil
+if ownerState and ownerState . movedFields and ownerState . movedFields [ memberName ] and not node . writeContext then
+c . diag ( "NUPP2601" , node , ( "owned field %q was moved and has not been reinitialized" ) : format ( memberName ) )
+end
+if ownerState and c . ownershipKind ( ft ) == "owned" and c . ownershipKind ( ownerState . t ) == "owned" then
+local exact = { }
+for _ , cleanup in ipairs ( ownerState . t . cleanups or { } ) do
+if cleanup . kind == "field" and cleanup . field == memberName and cleanup . cleanup then
+exact [ # exact + 1 ] = cleanup . cleanup
+end
+end
+ft = T . owned ( rawType ( ft ) , exact )
 end
 c . markToken ( member , fieldDef , ft , "property" )
 member . additionalDefinitions = fieldDefs
@@ -19132,6 +19190,7 @@ local MAX_CHAIN = 8
 
 
 
+
 function nosuspend . install ( c )
 local ops = { }
 
@@ -19150,6 +19209,14 @@ end
 
 
 local callbackRegions = { }
+local cleanupContracts = { }
+
+
+
+
+function ops . cleanup ( cleanup , at )
+cleanupContracts [ # cleanupContracts + 1 ] = { cleanup = cleanup , at = at }
+end
 
 
 
@@ -19252,6 +19319,40 @@ end
 
 
 function ops . sweep ( queries )
+for _ , candidate in ipairs ( cleanupContracts ) do
+local cleanup = candidate . cleanup
+local token = cleanup and cleanup . token
+local info = token and queries and queries . known and queries . known ( token ) or nil
+local mayYield = false
+if info and info . summary then
+mayYield = info . summary . top == true or info . summary . external == true or info . summary . yields == true
+if mayYield and info . body then
+local calls = { }
+callsWithin ( info . body , calls )
+local allTypedNonYielding = # calls > 0
+for _ , call in ipairs ( calls ) do
+local target = call . calleeType or call . signatureType
+if not target or target . tag ~= "func" or not target . noYield then
+allTypedNonYielding = false
+end
+end
+if allTypedNonYielding then
+mayYield = false
+end
+end
+elseif cleanup and cleanup . functionType and cleanup . functionType . tag == "func" then
+mayYield = cleanup . functionType . noYield ~= true and cleanup . visibleBody == true
+end
+if mayYield then
+c . diag (
+"NUPP2701" ,
+candidate . at ,
+( "cleanup %q may suspend while an obligation is being discharged" ) : format ( cleanup . name ) ,
+nil ,
+{ help = "make every cleanup call non-suspending, or move the suspension before cleanup begins" }
+)
+end
+end
 for _ , region in ipairs ( callbackRegions ) do
 local found = { }
 callsWithin ( region . body , found )
@@ -19581,6 +19682,26 @@ if mm then
 
 return c . applyContract ( mm , { lt , rt } , { lhs , rhs } , node , mmName )
 end
+local leftPayload = T . unwrapOwnership ( lt )
+if ( op == "+" or op == "-" ) and leftPayload . tag == "ptr" and isA ( rt , T . integer ) then
+if c . ownershipKind ( lt ) ~= "borrowed" then
+c . diag ( "NUPP2604" , node , "pointer arithmetic requires a rooted borrowed pointer" )
+return leftPayload
+end
+local roots = c . own . provenanceOwners ( lhs )
+if # roots == 1 then
+node . borrowOwner = roots [ 1 ]
+elseif # roots > 1 then
+node . borrowOwners = roots
+end
+if c . unsafeDepth == 0 then
+c . diag ( "NUPP2604" , node , "unchecked pointer arithmetic requires unsafe do; use a span for bounds" )
+return T . borrowed ( leftPayload )
+end
+
+
+return leftPayload
+end
 c . numericOperand ( lt , lhs , op )
 c . numericOperand ( rt , rhs , op )
 if op == "/" or op == "^" then
@@ -19784,7 +19905,7 @@ end
 
 function own . pointerShaped ( t )
 t = rawType ( t )
-if t . tag == "ptr" or t == T . cstring or t == T . voidptr then
+if t . tag == "ptr" or t . tag == "carray" or t == T . cstring or t == T . voidptr then
 return true
 end
 if t . tag == "union" and t . hasNil then
@@ -19867,6 +19988,12 @@ goto continue
 end
 local cleanupT = cleanup . functionType or c . lookupVar ( cleanup . name )
 local cleanupFunc = cleanupT and cleanupT . tag == "func" and cleanupT or nil
+if cleanup . kind == "function" and c . nosuspend and c . nosuspend . cleanup then
+local entry = c . lookupEntry ( cleanup . name )
+cleanup . token = entry and entry . definition and entry . definition . token or nil
+cleanup . visibleBody = entry and entry . definition and not c . declarationFile or nil
+c . nosuspend . cleanup ( cleanup , at )
+end
 local firstParam = cleanupFunc and cleanupFunc . params [ 1 ] or nil
 if not cleanupT then
 c . diag (
@@ -19989,6 +20116,9 @@ end
 if expr . borrowOwner then
 return own . borrowRoot ( expr . borrowOwner )
 end
+if expr . returnBorrowOwners and expr . returnBorrowOwners [ 1 ] and # expr . returnBorrowOwners [ 1 ] > 0 then
+return own . borrowRoot ( expr . returnBorrowOwners [ 1 ] [ 1 ] )
+end
 if expr . kind == "name" then
 local entry = own . ownershipState ( c . lookupEntry ( expr . token . text ) )
 return own . borrowRoot ( entry and ( entry . borrowOwner or entry ) )
@@ -20005,6 +20135,12 @@ if owner then
 return owner
 end
 end
+elseif expr . kind == "binop" then
+local owner = own . provenanceOwner ( expr . lhs )
+if owner then
+return owner
+end
+return own . provenanceOwner ( expr . rhs )
 elseif expr . kind == "call" and expr . recordConstruct then
 local arguments = expr . args and expr . args . exprs or { }
 if expr . args and expr . args . table then
@@ -20038,6 +20174,15 @@ end
 end
 return out
 end
+if expr . returnBorrowOwners and expr . returnBorrowOwners [ 1 ] then
+for _ , owner in ipairs ( expr . returnBorrowOwners [ 1 ] ) do
+owner = own . borrowRoot ( owner )
+if owner and not seen [ owner ] then
+seen [ owner ] , out [ # out + 1 ] = true , owner
+end
+end
+return out
+end
 local one = own . provenanceOwner ( expr )
 if one and not seen [ one ] then
 seen [ one ] , out [ # out + 1 ] = true , one
@@ -20054,6 +20199,9 @@ end
 for _ , argument in ipairs ( arguments ) do
 own . provenanceOwners ( argument , out , seen )
 end
+elseif expr . kind == "binop" then
+own . provenanceOwners ( expr . lhs , out , seen )
+own . provenanceOwners ( expr . rhs , out , seen )
 end
 
 return out
@@ -20104,12 +20252,34 @@ if own . ownershipKind ( t ) ~= expectedKind then
 c . diag ( "NUPP2602" , expr , ( reason or "ownership transfer" ) .. " requires a " .. expectedKind .. " value" )
 return false
 end
-if expr and ( expr . kind == "dotIndex" or expr . kind == "bracketIndex" ) and expectedKind == "owned" then
-c . diag (
-"NUPP2602" ,
-expr ,
-"partial moves from affine records are not supported; " .. "move or dispose the whole record"
-)
+if expr and expr . kind == "dotIndex" and expectedKind == "owned" then
+local container = expr . obj and own . ownershipState ( ( own . ownershipEntry ( expr . obj ) ) ) or nil
+local field = expr . name and expr . name . text
+local aggregate = container and rawType ( container . t ) or nil
+local declared = aggregate and aggregate . tag == "nominal" and aggregate . byname [ field ] or nil
+if not container or own . ownershipKind ( container . t ) ~= "owned" or own . ownershipKind ( declared ) ~= "owned" then
+c . diag ( "NUPP2602" , expr , "only a declared affine field of a named owning record can move" )
+return false
+end
+container . movedFields = container . movedFields or { }
+if container . movedFields [ field ] then
+c . diag ( "NUPP2601" , expr , ( "owned field %q was already moved" ) : format ( field ) )
+return false
+end
+if ( container . activeBorrows or 0 ) > 0 then
+c . diag ( "NUPP2602" , expr , ( "owned field %q cannot move while the record is borrowed" ) : format ( field ) )
+return false
+end
+container . movedFields [ field ] = true
+container . movedFieldTypes = container . movedFieldTypes or { }
+container . movedFieldTypes [ field ] = t
+return true
+elseif expr and expr . kind == "bracketIndex" and expectedKind == "owned" then
+c . diag ( "NUPP2602" , expr , "computed partial moves cannot prove which affine field moved" )
+return false
+end
+if entry and entry . movedFields and next ( entry . movedFields ) then
+c . diag ( "NUPP2602" , nameNode or expr , "a partially moved record cannot be moved or consumed as a whole" )
 return false
 end
 if entry then
@@ -20699,7 +20869,7 @@ end
 end
 end
 c . validateTypeBounds ( t . typeParams , t . typeBounds , map , node )
-return generics . materialize ( t . body , map )
+return generics . subst ( t . body , map )
 end
 if not ( t and t . tag == "nominal" and t . typeParams and node . typeArgs ) then
 return t
@@ -20805,6 +20975,13 @@ if # names == 1 then
 local holder = c . lookupEntry ( names [ 1 ] )
 if holder and holder . requiredModule then
 moduleName = holder . requiredModule
+elseif not holder and names [ 1 ] == "buffer" then
+
+
+
+
+
+moduleName = "string.buffer"
 end
 end
 local t , def , resolvedModule = nil , nil , nil
@@ -20974,6 +21151,9 @@ return T . boolean
 elseif kind == "tborrows" then
 
 
+
+return c . resolveType ( node . type )
+elseif kind == "tpreserves" then
 
 return c . resolveType ( node . type )
 elseif kind == "topt" then
@@ -21150,16 +21330,57 @@ vararg and { kind = varargType and "homogeneous" or "unknown" , type = varargTyp
 paramModes
 )
 local retPack = node . returnPack and c . resolvePack ( node . returnPack ) or T . pack ( { } )
-rets = retPack . head
+rets = { }
+for j , result in ipairs ( retPack . head ) do
+rets [ j ] = result
+end
 local yieldPack = node . yieldPack and c . resolvePack ( node . yieldPack ) or nil
 local resumePack = node . resumePack and c . resolvePack ( node . resumePack ) or nil
+local preservesResults = { }
+local byname = { }
+for j , name in ipairs ( paramNames ) do
+if name ~= "" then
+byname [ name ] = j
+end
+end
+for result , ret in ipairs ( node . rets or { } ) do
+if ret . kind == "tpreserves" and ret . param then
+local source = byname [ ret . param . text ]
+if source then
+preservesResults [ result ] = source
+else
+c . diag ( "NUPP2109" , ret . param , ( "%s names no parameter of this function" ) : format ( ret . param . text ) )
+end
+end
+end
+local borrowsParam , borrowsSelf , borrowsParams
+local firstResult = node . rets and node . rets [ 1 ]
+if firstResult and firstResult . kind == "tborrows" then
+borrowsParams = { }
+for _ , source in ipairs ( firstResult . params or { firstResult . param } ) do
+if source and source . text == "self" and byname . self then
+borrowsSelf = true
+elseif source and byname [ source . text ] then
+borrowsParams [ # borrowsParams + 1 ] = byname [ source . text ]
+elseif source then
+c . diag ( "NUPP2109" , source , ( "%s names no function-type parameter" ) : format ( source . text ) )
+end
+end
+if # borrowsParams == 1 then
+borrowsParam , borrowsParams = borrowsParams [ 1 ] , nil
+end
+if rets [ 1 ] then
+rets [ 1 ] = T . borrowed ( T . unwrapOwnership ( rets [ 1 ] ) )
+retPack = T . pack ( rets , retPack . tail , retPack . modes )
+end
+end
 if node . generics then
 c . popScope ( )
 end
-return T . func ( params , rets , vararg , paramModes , nil , typeParams , typeBounds , nil , nil , nil , nil , varargType , nil , paramPack , retPack , packParams , yieldPack , resumePack ,
+return T . func ( params , rets , vararg , paramModes , nil , typeParams , typeBounds , borrowsParam , borrowsSelf , borrowsParams , nil , varargType , nil , paramPack , retPack , packParams , yieldPack , resumePack ,
 
 
-node . noSuspend , paramNames )
+node . noSuspend , paramNames , next ( preservesResults ) and preservesResults or nil )
 elseif kind == "tparen" then
 return c . resolveType ( node . inner )
 end
@@ -21346,6 +21567,9 @@ local state = { }
 
 
 state.Checker = {} state.Checker.__index = state.Checker
+
+
+
 
 
 
@@ -23655,7 +23879,7 @@ local spec = require ( "nupp.compiler.cli.spec" )
 local command = spec . command {
 name = "fmt" ,
 summary = "Format Nupp source" ,
-usage = { "nupp fmt [-w|--write] [--check] [--no-method-parens] " .. "[--width N] [--format text|json] [file...]" } ,
+usage = { "nupp fmt [-w|--write] [--check] [--no-method-parens] " .. "[--format text|json] [file...]" } ,
 intro = [[With files named, each is formatted to stdout, or rewritten with --write.
 
 With none, the project is the subject: every .nupp and .d.nupp under the
@@ -23675,7 +23899,6 @@ options = require (
 name = "--no-method-parens" ,
 help = "Leave obj:m{...} and obj:m\"...\" written without " .. "parentheses, instead of adding them"
 } ,
-{ name = "--width" , value = "N" , help = "Code column past which a line breaks, at least 20 " .. "(default 120)" } ,
 require ( "nupp.compiler.cli.options" ) . format ( )
 ) ,
 schema = {
@@ -23699,10 +23922,7 @@ description = "Files that could not be formatted at all, which "
 .. "is a different answer from being unformatted." ,
 items = {
 type = "object" ,
-properties = {
-file = { type = "string" } ,
-diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS
-} ,
+properties = { file = { type = "string" } , diagnostics = require ( "nupp.compiler.cli.report" ) . DIAGNOSTICS } ,
 required = { "file" , "diagnostics" } ,
 } ,
 } ,
@@ -23716,11 +23936,7 @@ file that could not be formatted from one that merely is not.
 A method call left in its sugar form, obj:m{...} or obj:m"...", is given its
 parentheses back, obj:m({...}) and obj:m("..."). --no-method-parens leaves it
 as written, and so does a manifest with fmt = { methodParens = false }; the
-flag wins if both are given.
-
---width sets the code column past which a line breaks; the default is 120,
-unchanged from before this was a flag. Docblock text keeps wrapping at 88
-columns regardless.]] ,
+flag wins if both are given.]] ,
 }
 
 local function run ( parsed )
@@ -23730,14 +23946,6 @@ if write and asking then
 return command : usageError (
 "--write and --check ask for opposite things: one fixes the " .. "formatting, the other reports it"
 )
-end
-local width = 120
-if values . width then
-local given = tonumber ( values . width )
-if not given or given < 20 or given ~= math . floor ( given ) then
-return command : usageError ( "--width takes a whole number of columns, at least 20, not " .. values . width )
-end
-width = math . floor ( given )
 end
 local fs = require ( "nupp.compiler.fs" )
 local fmt = require ( "nupp.compiler.fmt" )
@@ -23750,13 +23958,6 @@ local env = envMod . new ( "." )
 
 
 local methodParens = not values . noMethodParens and envMod . fmtMethodParensDefault ( env )
-
-
-
-local currentPath = ""
-local formatter = fmt . new ( { annotations = env . annotations , resolveAnnotation = function ( name )
-return env . resolveProjectAnnotation ( env , currentPath , name )
-end , methodParens = methodParens , width = width , } )
 local paths = parsed . positional
 local wholeProject = # paths == 0
 
@@ -23804,11 +24005,8 @@ local hashMod = require ( "nupp.compiler.build.hash" )
 local optionsKey = nil
 local function verdictKey ( path , source )
 if not optionsKey then
-optionsKey = hashMod . digest (
-tostring ( methodParens ) .. "\0" .. tostring ( width ) .. "\0" .. envMod . annotationKey ( env )
-)
+optionsKey = hashMod . digest ( tostring ( methodParens ) .. "\0" .. envMod . annotationKey ( env ) )
 end
-
 return hashMod . digest ( optionsKey .. "\0" .. path .. "\0" .. source )
 end
 
@@ -23846,8 +24044,11 @@ elseif settled and settled . get ( verdictKey ( path , source ) ) == "same" then
 elseif not textNeeded and settled and settled . get ( verdictKey ( path , source ) ) == "differs" then
 unformatted [ # unformatted + 1 ] = path
 else
-currentPath = path
-local formatted , errors = formatter : format ( source , path )
+local formatted , errors = fmt . format ( source , path , { annotations = env . annotations , resolveAnnotation = function (
+name
+)
+return env . resolveProjectAnnotation ( env , path , name )
+end , methodParens = methodParens , } )
 
 
 
@@ -28866,6 +29067,15 @@ local cst = { }
 
 
 
+
+
+
+
+
+
+
+
+
 cst.Chunk = {} cst.Chunk.__index = cst.Chunk
 
 
@@ -30545,6 +30755,21 @@ cst.Tborrows = {} cst.Tborrows.__index = cst.Tborrows
 
 
 
+cst.Tpreserves = {} cst.Tpreserves.__index = cst.Tpreserves
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -31993,24 +32218,6 @@ end
 return "<" .. heading .. ">Raises</" .. heading .. "><ul>" .. table . concat ( entries ) .. "</ul>"
 end
 
-
-
-
-local function structureMemberLinks ( item , links )
-if not links or # item . members == 0 then
-return nil
-end
-local members = { }
-for _ , member in ipairs ( item . members ) do
-local url = links [ item . name .. "." .. member . name ] or links [ member . path ]
-if url then
-members [ member . name ] = url
-end
-end
-
-return next ( members ) and members or nil
-end
-
 local function renderHtmlItem ( out , item , links )
 out [
 # out + 1
@@ -32030,8 +32237,7 @@ out [
 # out + 1
 ] = '<div class="nuppdoc-code-block" data-lang="nupp"><pre>' .. '<code class="language-nupp">' .. highlightNupp (
 item . signature ,
-links ,
-structureMemberLinks ( item , links )
+links
 ) .. "</code></pre></div>"
 if # item . typeargs > 0 then
 local rows = { }
@@ -32150,7 +32356,7 @@ local THEME = [[
  * than with scroll-padding on the scrollport is what makes a link land in the same
  * place in browsers that skip scroll-padding on a load-time fragment; the two would
  * otherwise add up to twice the gap where both are honored. */
-.nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
+.nuppdoc-api-item,.nuppdoc-api-member,.nuppdoc-content :is(h1,h2,h3,h4,h5,h6)[id]{scroll-margin-top:calc(var(--nuppdoc-header-height) + 2rem)}body{margin:0;color:var(--nuppdoc-text);background:var(--nuppdoc-background);font-family:var(--nuppdoc-font);line-height:1.6}a{color:var(--nuppdoc-accent);text-decoration-color:currentColor}a:hover{color:var(--nuppdoc-accent-hover)}button,input{font:inherit}.nuppdoc-header{position:sticky;z-index:30;top:0;height:var(--nuppdoc-header-height);border-bottom:1px solid var(--nuppdoc-border);background:color-mix(in srgb,var(--nuppdoc-background) 92%,transparent);backdrop-filter:blur(12px)}.nuppdoc-nav{display:flex;width:100%;max-width:var(--nuppdoc-layout-max-width);height:100%;align-items:center;gap:1rem;margin:auto;padding:0 1rem}.nuppdoc-brand{display:flex;align-items:center;gap:.55rem;color:var(--nuppdoc-text);font-weight:700;text-decoration:none}.nuppdoc-mark{display:grid;width:29px;height:29px;place-items:center;color:#fff;border-radius:7px;background:var(--nuppdoc-accent);font-family:var(--nuppdoc-font-mono);font-size:.7rem}.nuppdoc-top-nav{display:flex;flex:1;gap:.2rem}.nuppdoc-top-nav a{padding:.45rem .65rem;color:var(--nuppdoc-text-muted);border-radius:7px;font-size:.76rem;text-decoration:none}.nuppdoc-top-nav a:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}.nuppdoc-top-nav a[aria-current="page"]{color:var(--nuppdoc-accent)}.nuppdoc-actions{display:flex;align-items:center;gap:.25rem}.nuppdoc-search{width:min(190px,18vw);height:32px;padding:.25rem .6rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:6px;background:var(--nuppdoc-background-alt);font-size:.75rem}.nuppdoc-theme{display:grid;width:34px;height:34px;place-items:center;padding:0;color:var(--nuppdoc-text-muted);border:0;border-radius:7px;background:transparent;cursor:pointer}.nuppdoc-theme:hover{color:var(--nuppdoc-text);background:var(--nuppdoc-background-alt)}
 .nuppdoc-shell{display:grid;width:100%;max-width:var(--nuppdoc-layout-max-width);min-height:calc(100vh - var(--nuppdoc-header-height));grid-template-columns:var(--nuppdoc-sidebar-width) minmax(0,1fr) var(--nuppdoc-outline-width);margin:auto}.nuppdoc-sidebar,.nuppdoc-outline{position:sticky;top:var(--nuppdoc-header-height);overflow:auto;max-height:calc(100vh - var(--nuppdoc-header-height));padding:1.25rem 1rem 2rem}.nuppdoc-sidebar{border-right:1px solid var(--nuppdoc-border);background:var(--nuppdoc-background-alt);box-shadow:-100vw 0 0 100vw var(--nuppdoc-background-alt)}.nuppdoc-sidebar h2,.nuppdoc-outline h2{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}.nuppdoc-sidebar ul,.nuppdoc-outline ol{margin:0;padding:0;list-style:none}.nuppdoc-sidebar a,.nuppdoc-outline a{display:block;overflow:hidden;padding:.24rem .55rem;color:var(--nuppdoc-text-muted);border-radius:6px;font-size:.7rem;font-weight:500;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.nuppdoc-sidebar a:hover{color:var(--nuppdoc-text);background:color-mix(in srgb,var(--nuppdoc-accent-soft) 55%,transparent)}.nuppdoc-sidebar a[aria-current="page"],.nuppdoc-outline a:hover{color:var(--nuppdoc-accent);font-weight:650}.nuppdoc-outline{padding-left:1.25rem}.nuppdoc-outline ol{padding-left:1rem;border-left:1px solid var(--nuppdoc-border)}.nuppdoc-outline a{padding:.16rem 0;font-size:.66rem}
 .nuppdoc-content{width:min(100% - 10rem,var(--nuppdoc-content-width));margin:0 auto;padding:1.25rem 0 6rem;font-size:.88rem}.nuppdoc-content h1,.nuppdoc-content h2,.nuppdoc-content h3{font-weight:700;line-height:1.25;letter-spacing:-.02em}.nuppdoc-content h1{margin-top:0;font-size:1.8rem}.nuppdoc-content h2{margin-top:2.5rem;padding-top:2.5rem;border-top:1px solid var(--nuppdoc-border);font-size:1.575rem}.nuppdoc-content h3{margin-top:2.25rem;font-size:1.35rem}.nuppdoc-content h4{margin-top:1.5rem;font-size:1rem}.nuppdoc-breadcrumbs{margin:0 0 .75rem;color:var(--nuppdoc-text-muted);font-size:.75rem}.nuppdoc-breadcrumbs a{color:var(--nuppdoc-text-muted)}.nuppdoc-kind-badge{display:inline-flex;margin-left:.45rem;padding:.12rem .42rem;color:var(--nuppdoc-text-muted);border:1px solid var(--nuppdoc-border);border-radius:999px;background:var(--nuppdoc-background-alt);font-size:.62rem;font-weight:650;letter-spacing:.035em;text-transform:uppercase;vertical-align:middle}.nuppdoc-kind-function,.nuppdoc-kind-method{color:var(--nuppdoc-accent);border-color:color-mix(in srgb,var(--nuppdoc-accent) 35%,var(--nuppdoc-border));background:var(--nuppdoc-accent-soft)}.nuppdoc-header-anchor{margin-left:.4rem;opacity:0;text-decoration:none}.nuppdoc-content h2:hover .nuppdoc-header-anchor,.nuppdoc-content h3:hover .nuppdoc-header-anchor{opacity:1}.nuppdoc-code-block{position:relative}.nuppdoc-code-block[data-lang]::before{position:absolute;z-index:1;top:8px;right:10px;color:var(--nuppdoc-text-muted);content:attr(data-lang);font-family:var(--nuppdoc-font-mono);font-size:.66rem}.nuppdoc-content pre{overflow:auto;padding:.8rem .9rem;border:1px solid var(--nuppdoc-border);border-radius:8px;background:var(--nuppdoc-code-background);line-height:1.55}.nuppdoc-content pre code{padding:0;background:transparent;font-family:var(--nuppdoc-font-mono);font-size:14px}.nuppdoc-content :not(pre)>code{padding:.1em .35em;border-radius:4px;background:var(--nuppdoc-code-background);font-family:var(--nuppdoc-font-mono);font-size:.91em}.nuppdoc-content table{width:100%;margin:1rem 0;border-collapse:collapse;font-size:.76rem}.nuppdoc-content th,.nuppdoc-content td{padding:.55rem .65rem;border-bottom:1px solid var(--nuppdoc-border);text-align:left;vertical-align:top}.nuppdoc-content th{color:var(--nuppdoc-text-muted);font-size:.68rem;text-transform:uppercase}.nuppdoc-empty{padding:2rem;color:var(--nuppdoc-text-muted);border:1px dashed var(--nuppdoc-border);border-radius:8px;text-align:center}.nuppdoc-module-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;margin-top:1.5rem}.nuppdoc-module-card{display:block;padding:1rem;color:var(--nuppdoc-text);border:1px solid var(--nuppdoc-border);border-radius:10px;background:var(--nuppdoc-background-alt);text-decoration:none}.nuppdoc-module-card:hover{color:var(--nuppdoc-text);border-color:var(--nuppdoc-accent);transform:translateY(-1px)}.nuppdoc-module-card code{display:block;margin-bottom:.35rem;color:var(--nuppdoc-accent);font-size:.85rem}.nuppdoc-module-card span{color:var(--nuppdoc-text-muted);font-size:.72rem}.nuppdoc-footer{padding:1.25rem;color:var(--nuppdoc-text-muted);border-top:1px solid var(--nuppdoc-border);font-size:.68rem;text-align:center}
 .nuppdoc-token-comment{color:var(--nuppdoc-syntax-comment);font-style:italic}.nuppdoc-token-boolean{color:var(--nuppdoc-syntax-boolean)}.nuppdoc-token-keyword{color:var(--nuppdoc-syntax-keyword)}.nuppdoc-token-meta{color:var(--nuppdoc-syntax-meta)}.nuppdoc-token-number{color:var(--nuppdoc-syntax-number)}.nuppdoc-token-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-token-operator{color:var(--nuppdoc-syntax-operator)}.nuppdoc-token-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-token-punctuation{color:var(--nuppdoc-syntax-punctuation)}.nuppdoc-token-string{color:var(--nuppdoc-syntax-string)}.nuppdoc-token-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-token-variable{color:var(--nuppdoc-syntax-variable)}.nuppdoc-code-link,.nuppdoc-code-link:visited,.nuppdoc-code-link:hover{border-bottom:1px dotted currentColor;text-decoration:none}.nuppdoc-code-link:hover{border-bottom-style:solid}.nuppdoc-code-link-type{color:var(--nuppdoc-syntax-type)}.nuppdoc-code-link-function{color:var(--nuppdoc-syntax-function)}.nuppdoc-code-link-property{color:var(--nuppdoc-syntax-property)}.nuppdoc-code-link-variable{color:var(--nuppdoc-syntax-variable)}
@@ -32577,7 +32783,7 @@ end
 
 
 
-local function structureSignature ( node , includePrivate )
+local function structureSignature ( node )
 local parts = { }
 local function walk ( child )
 if cst . isToken ( child ) then
@@ -32604,18 +32810,11 @@ end
 parts [ # parts + 1 ] = triviaText
 parts [ # parts + 1 ] = child . text
 else
-if child ~= node and child . kind == "recordDecl" and not includePrivate then
-local info = docblock . parse ( docblock . linesOf ( child ) )
-if info . tags . internal then
-return
-end
-end
 for _ , nested in ipairs ( child ) do
 walk ( nested )
 end
 end
 end
-
 walk ( node )
 local source = trim ( table . concat ( parts ) )
 local formatted , errors = formatter . format ( source , "documentation-signature.nupp" )
@@ -32625,7 +32824,6 @@ end
 
 return trim ( formatted )
 end
-
 
 
 
@@ -32769,13 +32967,12 @@ end
 
 
 
-
 local function fieldItem ( field , childModuleName , includePrivate )
 local name = field . name . text
-local info = parseDoc ( docLines ( field ) )
-if not ( includePrivate or ( not privateName ( name ) and not info . tags . internal ) ) then
+if not ( includePrivate or not privateName ( name ) ) then
 return nil
 end
+local info = parseDoc ( docLines ( field ) )
 local item = {
 name = name ,
 kind = "variable" ,
@@ -32806,40 +33003,17 @@ end
 
 
 
-
 local function recordNamed ( blocks , targetName )
-local function find ( stat , prefix )
-if stat . kind ~= "recordDecl" then
-return nil
-end
-local name = prefix and prefix .. "." .. stat . name . text or declaredName ( stat )
-if name == targetName then
-return stat
-end
-if targetName : sub ( 1 , # name + 1 ) == name .. "." then
-for _ , entry in ipairs ( stat . entries or { } ) do
-local found = find ( entry , name )
-if found then
-return found
-end
-end
-end
-
-return nil
-end
-
 for _ , block in ipairs ( blocks or { } ) do
 for _ , stat in ipairs ( block . stats or { } ) do
-local found = find ( stat , nil )
-if found then
-return found
+if stat . kind == "recordDecl" and declaredName ( stat ) == targetName then
+return stat
 end
 end
 end
 
 return nil
 end
-
 
 
 
@@ -32855,47 +33029,34 @@ end
 
 local function namespaceChildren ( shape , prefix , path , blocks , includePrivate )
 local modules = { }
-local expanding = { }
-local function entriesOf ( field )
+for _ , field in ipairs ( shape . fields or { } ) do
+if field . kind == "tshapeField" then
+local childName = prefix .. "." .. field . name . text
+local entries = nil
 if field . type and field . type . kind == "tshape" then
-return field . type . fields
+entries = field . type . fields
 elseif field . type and field . type . kind == "tname" then
 local record = recordNamed ( blocks , syntax ( field . type ) )
-return record and record . entries
+entries = record and record . entries
 end
-
-return nil
-end
-
-local function addModule ( field , parentName )
-local entries = entriesOf ( field )
-if not entries or expanding [ entries ] then
-return
-end
-expanding [ entries ] = true
-local childName = parentName .. "." .. field . name . text
+if entries then
 local items = { }
 for _ , entry in ipairs ( entries ) do
 if entry . kind == "fieldDecl" or entry . kind == "tshapeField" then
-local info = parseDoc ( docLines ( entry ) )
-if info . tags . namespace and entriesOf ( entry ) then
-addModule ( entry , childName )
-else
 local item = fieldItem ( entry , childName , includePrivate )
 if item then
 items [ # items + 1 ] = item
 end
 end
 end
-end
 table . sort ( items , byKindThenName )
-modules [ # modules + 1 ] = { name = childName , path = path , text = parseDoc ( docLines ( field ) ) . text , items = items , }
-expanding [ entries ] = nil
+modules [ # modules + 1 ] = {
+name = childName ,
+path = path ,
+text = parseDoc ( docLines ( field ) ) . text ,
+items = items ,
+}
 end
-
-for _ , field in ipairs ( shape . fields or { } ) do
-if field . kind == "tshapeField" then
-addModule ( field , prefix )
 end
 end
 
@@ -32932,7 +33093,7 @@ stat . visibility == "global" and "global " or stat . visibility == "local" and 
 elseif stat . kind == "recordDecl" then
 name , kind = stat . name . text , stat . declKind
 public = public or stat . visibility == "module" or stat . visibility == "global"
-signature = structureSignature ( stat , includePrivate )
+signature = structureSignature ( stat )
 elseif stat . kind == "cdefStruct" then
 name , kind , public = stat . name . text , "struct" , true
 signature = "cdef struct " .. name
@@ -32953,9 +33114,6 @@ return nil
 end
 if info . tags [ "local" ] then
 public = includeAll
-end
-if info . tags . internal and not includePrivate then
-public = false
 end
 if kind == "method" and privateName ( name ) and not includePrivate then
 public = false
@@ -33002,11 +33160,10 @@ local details = typeFunctionDetails ( declaredFunction , info )
 item . params , item . returns = details . params , details . returns
 elseif stat . kind == "recordDecl" or stat . kind == "cdefStruct" then
 for _ , entry in ipairs ( stat . entries or { } ) do
-local entryInfo = parseDoc ( docLines ( entry ) )
-local entryName = entry . name and entry . name . text or ""
-local entryVisible = includePrivate or ( not privateName ( entryName ) and not entryInfo . tags . internal )
-if ( entry . kind == "fieldDecl" or entry . kind == "metamethodDecl" ) and entryVisible then
-local fieldInfo = entryInfo
+if (
+entry . kind == "fieldDecl" or entry . kind == "metamethodDecl"
+) and ( includePrivate or not privateName ( entry . name . text ) ) then
+local fieldInfo = parseDoc ( docLines ( entry ) )
 local member = {
 name = entry . name . text ,
 type = syntax ( entry . type ) ,
@@ -33026,8 +33183,8 @@ if entry . kind == "metamethodDecl" then
 member . isMetamethod = true
 end
 item . members [ # item . members + 1 ] = member
-elseif entry . kind == "inlineMethod" and entryVisible then
-local methodInfo = entryInfo
+elseif entry . kind == "inlineMethod" and ( includePrivate or not privateName ( entry . name . text ) ) then
+local methodInfo = parseDoc ( docLines ( entry ) )
 local details = functionDetails ( entry , methodInfo )
 item . members [
 # item . members + 1
@@ -33041,13 +33198,13 @@ returns = details . returns ,
 raises = methodInfo . raises ,
 isFunction = true ,
 }
-elseif entry . name and entryVisible then
+elseif entry . name and ( includePrivate or not privateName ( entry . name . text ) ) then
 item . members [
 # item . members + 1
 ] = {
 name = entry . name . text ,
 type = entry . kind ,
-text = entryInfo . text ,
+text = parseDoc ( docLines ( entry ) ) . text ,
 path = item . path .. "." .. entry . name . text ,
 params = { } ,
 returns = { } ,
@@ -33134,16 +33291,11 @@ end
 
 
 
-
-local shape = stat . kind == "localStmt" and # (
-stat . names or { }
-) == 1 and stat . types [ 1 ] and stat . types [ 1 ] . kind == "tshape" and stat . types [ 1 ] or nil
+local shape = stat . kind == "localStmt" and # ( stat . names or { } ) == 1
+and stat . types [ 1 ] and stat . types [ 1 ] . kind == "tshape" and stat . types [ 1 ] or nil
 local shapePublic = opts . includeAll or declarationFile or info . tags . export or info . tags . public
 if info . tags [ "local" ] then
 shapePublic = opts . includeAll
-end
-if info . tags . internal and not opts . includePrivate then
-shapePublic = false
 end
 if shape and info . tags . namespace and shapePublic then
 local prefix = info . tags . namespace == true and name or info . tags . namespace
@@ -33177,7 +33329,6 @@ end
 
 return fields , methods
 end
-
 
 
 
@@ -33628,41 +33779,11 @@ end
 return { lines = lines , append = append }
 end
 
-
-
-
-local function containerMemberUrls ( parsed , memberLinks )
-local urls = { }
-if not memberLinks then
-return urls
-end
-for _ , block in ipairs ( parsed . root . blocks or { } ) do
-for _ , outer in ipairs ( block . stats or { } ) do
-local declaration = outer
-while declaration . kind == "pragmaStmt" and declaration . stat do
-declaration = declaration . stat
-end
-if declaration . kind == "recordDecl" then
-for _ , entry in ipairs ( declaration . entries or { } ) do
-local name = entry . name
-local url = name and memberLinks [ name . text ]
-if url then
-urls [ name ] = url
-end
-end
-end
-end
-end
-
-return urls
-end
-
-local function highlightNuppLines ( source , links , memberLinks )
+local function highlightNuppLines ( source , links )
 local out = lineWriter ( source )
 local parsed = parser . parse ( source , "documentation-code-block.nupp" )
 local tokens = parsed . tokens
 local syntaxKinds = semantic . syntaxKinds ( parsed )
-local memberUrls = containerMemberUrls ( parsed , memberLinks )
 for index , token in ipairs ( tokens ) do
 for _ , trivia in ipairs ( token . trivia ) do
 if trivia . kind == "comment" or trivia . kind == "hashbang" then
@@ -33673,8 +33794,8 @@ end
 end
 if token . kind ~= "eof" then
 local style = tokenStyle ( tokens , index , syntaxKinds )
-local url = memberUrls [ token ]
-if not url and links and token . kind == "name" and not declarationName ( tokens , index ) then
+local url = nil
+if links and token . kind == "name" and not declarationName ( tokens , index ) then
 url = links [ qualifiedName ( tokens , index ) ] or links [ token . text ]
 end
 out . append ( token . text , tokenClasses ( style , token . text ) , url and { url = url , style = style } or nil )
@@ -33687,12 +33808,8 @@ end
 return out . lines
 end
 
-local function highlightNupp (
-source ,
-links ,
-memberLinks
-)
-return table . concat ( highlightNuppLines ( source , links , memberLinks ) , "\n" )
+local function highlightNupp ( source , links )
+return table . concat ( highlightNuppLines ( source , links ) , "\n" )
 end
 
 local SCINTILLUA_ALIASES = {
@@ -35426,9 +35543,8 @@ addSymbolLink ( links , ambiguous , item . name , url )
 local tail = item . name : match ( "([^.]+)$" )
 addSymbolLink ( links , ambiguous , tail , url )
 for _ , member in ipairs ( item . members ) do
-local memberUrl = target ( module . name , member . path )
-addSymbolLink ( links , ambiguous , member . path , memberUrl )
-addSymbolLink ( links , ambiguous , item . name .. "." .. member . name , memberUrl )
+addSymbolLink ( links , ambiguous , member . path , url )
+addSymbolLink ( links , ambiguous , item . name .. "." .. member . name , url )
 end
 end
 end
@@ -35510,9 +35626,7 @@ local url = prefix .. moduleFile ( module . name ) .. "#" .. item . path
 links [ item . name ] = url
 links [ item . name : match ( "([^.]+)$" ) or item . name ] = url
 for _ , member in ipairs ( item . members ) do
-local memberUrl = prefix .. moduleFile ( module . name ) .. "#" .. member . path
-links [ member . path ] = memberUrl
-links [ item . name .. "." .. member . name ] = memberUrl
+links [ item . name .. "." .. member . name ] = url
 end
 end
 end
@@ -37069,10 +37183,11 @@ local BUNDLED = { [
 
 
 local BUNDLED_SOURCE = {
-[ "nupp.bytes" ] = "/nupp/bytes.nupp" ,
 [ "nupp.resources" ] = "/nupp/resources.nupp" ,
 [ "nupp.zone" ] = "/nupp/zone.nupp" ,
 [ "nupp.profile" ] = "/nupp/profile.nupp" ,
+[ "nupp.resource_set" ] = "/decls/resource_set.d.nupp" ,
+[ "nupp.span" ] = "/nupp/span.nupp" ,
 }
 
 
@@ -37086,7 +37201,6 @@ local result = parser . parse ( bundledSrc , name )
 if # result . errors > 0 then
 return false
 end
-
 
 
 
@@ -37696,14 +37810,6 @@ return explain
 end
 package.preload["nupp.compiler.fmt"] = function(...)
 local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")or{};rawset(__nupp,"data",__nuppData);local __nuppIO=rawget(__nupp,"io")or{};rawset(__nupp,"io",__nuppIO);local __nuppMath=rawget(__nupp,"math")or{};rawset(__nupp,"math",__nuppMath)
-
-
-
-
-
-
-
-
 
 
 
@@ -38618,7 +38724,7 @@ end
 return changed and out or nil
 end
 
-local function breakLines ( lines , width )
+local function breakLines ( lines )
 for _ = 1 , MAX_PASSES do
 computeIndents ( lines )
 local changed = false
@@ -38630,7 +38736,7 @@ else
 local next_ = { }
 for _ , line in ipairs ( lines ) do
 local pieces = nil
-if lineWidth ( line ) > width and not line . noBreak then
+if lineWidth ( line ) > WIDTH and not line . noBreak then
 pieces = splitLine ( line )
 end
 if pieces then
@@ -38640,7 +38746,7 @@ piece . blankBefore = j == 1 and line . blankBefore or false
 next_ [ # next_ + 1 ] = piece
 end
 else
-line . noBreak = lineWidth ( line ) > width
+line . noBreak = lineWidth ( line ) > WIDTH
 next_ [ # next_ + 1 ] = line
 end
 end
@@ -38736,16 +38842,7 @@ local function fingerprintTokens ( tokens , omitMarked )
 local parts = { }
 for _ , tok in ipairs ( tokens ) do
 if tok . kind ~= "eof" and not ( omitMarked and tok . formatOmit ) then
-if tok . kind == ">>" then
-
-
-
-
-parts [ # parts + 1 ] = ">\1>"
-parts [ # parts + 1 ] = ">\1>"
-else
 parts [ # parts + 1 ] = tok . kind .. "\1" .. tok . text
-end
 end
 end
 
@@ -38922,31 +39019,7 @@ end
 
 
 
-
-
-
-
-fmt.Formatter = {} fmt.Formatter.__index = fmt.Formatter
-
-
-
-
-
-
-
-
-function fmt . new ( opts )
-return setmetatable( {
-width = ( opts and opts . width ) or WIDTH ,
-methodParens = opts and opts . methodParens ,
-annotations = opts and opts . annotations ,
-resolveAnnotation = opts and opts . resolveAnnotation ,
-} , fmt.Formatter)
-end
-
-
-
-function fmt . Formatter : format ( source , filename )
+function fmt . format ( source , filename , opts )
 local result = parser . parse ( source , filename )
 if # result . errors > 0 then
 return source , result . errors
@@ -38954,12 +39027,12 @@ end
 if result . root . formatDisabled then
 return source , { }
 end
-canonicalizeSingleValueAnnotations ( result , self )
-parenthesizeMethodCalls ( result , self )
+canonicalizeSingleValueAnnotations ( result , opts )
+parenthesizeMethodCalls ( result , opts )
 annotate ( result . root )
 local items = collectItems ( result . tokens )
 markDocumented ( items )
-local lines = breakLines ( buildLines ( items ) , self . width )
+local lines = breakLines ( buildLines ( items ) )
 local text = render ( lines )
 
 
@@ -38982,13 +39055,6 @@ length = 1 ,
 end
 
 return text , { }
-end
-
-
-
-
-function fmt . format ( source , filename , opts )
-return fmt . new ( opts ) : format ( source , filename )
 end
 
 return fmt
@@ -39737,6 +39803,7 @@ tparen = true ,
 errorType = true ,
 tpredicate = true ,
 tborrows = true ,
+tpreserves = true ,
 tliteral = true ,
 tconst = true ,
 tcarray = true ,
@@ -40072,8 +40139,8 @@ local needsLibs = false
 local needsNewTab = false
 local needsClearTab = false
 local needsCloneTab = false
-local compilerModules = { }
-local compilerModuleOrder = { }
+local needsBuffer = false
+local bufferName
 local needsLayout = false
 local layoutName
 local needsSuspension = false
@@ -40118,18 +40185,6 @@ end
 
 
 
-local function compilerModuleName ( moduleName )
-local name = compilerModules [ moduleName ]
-if not name then
-local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
-name = reservedName ( preferred )
-compilerModules [ moduleName ] = name
-compilerModuleOrder [ # compilerModuleOrder + 1 ] = moduleName
-end
-
-return name
-end
-
 local function metatypeHelper ( )
 needsMetatypeOnce = true
 metatypeOnceName = metatypeOnceName or reservedName ( "__nuppMetatype" )
@@ -40137,7 +40192,9 @@ return metatypeOnceName
 end
 
 local function concatBufferName ( )
-return compilerModuleName ( "string.buffer" )
+needsBuffer = true
+bufferName = bufferName or reservedName ( "__nuppBuffer" )
+return bufferName
 end
 
 
@@ -41644,6 +41701,26 @@ emit ( x . call )
 end
 return
 
+elseif kind == "methodCall" and x . resourceAdoptCleanups then
+local line = sourceLine ( x )
+emit ( x . obj )
+e ( ":adopt(" , line )
+local args = x . args and x . args . exprs or { }
+if args [ 1 ] then
+emit ( args [ 1 ] )
+else
+e ( "nil" )
+end
+e ( ",function(__p) " )
+for _ , cleanup in ipairs ( x . resourceAdoptCleanups ) do
+local call = cleanupCall ( cleanup , "__p" )
+if call then
+e ( call .. "; " )
+end
+end
+e ( "end)" )
+return
+
 elseif kind == "methodCall" and x . overloadMember then
 
 
@@ -42211,10 +42288,11 @@ end
 e ( ")" )
 return
 
-elseif kind == "dotIndex" and x . compilerModule then
+elseif kind == "name" and x . bufferIntrinsic then
 
 
-e ( compilerModuleName ( x . compilerModule ) , sourceLine ( x ) )
+
+e ( concatBufferName ( ) , sourceLine ( x ) )
 
 elseif kind == "localStmt" and x . concatBuffer then
 
@@ -42442,8 +42520,8 @@ end
 if needsSuspension then
 code = ( "const %s = require(\"nupp.suspension\"); " ) : format ( suspensionName ) .. code
 end
-for _ , moduleName in ipairs ( compilerModuleOrder ) do
-code = ( "const %s = require(%q); " ) : format ( compilerModules [ moduleName ] , moduleName ) .. code
+if needsBuffer then
+code = ( "const %s = require(\"string.buffer\"); " ) : format ( bufferName ) .. code
 end
 if needsFfi then
 
@@ -42508,35 +42586,22 @@ local generics = { }
 
 
 
-
-
-
-
-
-local PRESERVE = "preserve"
-local MATERIALIZE = "materialize"
-
-local substWith
-
-
-local substPackWith
-
-substPackWith = function ( pack , map , unmapped )
+function generics . substPack ( pack , map )
 if pack . alternatives then
 local alternatives = { }
 for j , arm in ipairs ( pack . alternatives ) do
-alternatives [ j ] = substPackWith ( arm , map , unmapped )
+alternatives [ j ] = generics . substPack ( arm , map )
 end
 return T . packUnion ( alternatives )
 end
 local head , modes = { } , { }
 for j , value in ipairs ( pack . head ) do
-head [ j ] = substWith ( value , map , unmapped )
+head [ j ] = generics . subst ( value , map )
 modes [ j ] = pack . modes [ j ] or "plain"
 end
 local tail = pack . tail
 if tail and tail . kind == "homogeneous" then
-tail = { kind = "homogeneous" , type = substWith ( tail . type , map , unmapped ) , mode = tail . mode }
+tail = { kind = "homogeneous" , type = generics . subst ( tail . type , map ) , mode = tail . mode }
 elseif tail and tail . kind == "generic" then
 local replacement = map [ tail . var ]
 if replacement and replacement . tag == "pack" then
@@ -42545,10 +42610,6 @@ head [ # head + 1 ] = value
 modes [ # modes + 1 ] = replacement . modes [ j ] or "plain"
 end
 tail = replacement . tail
-elseif unmapped == PRESERVE then
-
-
-tail = tail
 else
 tail = { kind = "unknown" , type = T . any }
 end
@@ -42557,31 +42618,32 @@ end
 return T . pack ( head , tail , modes )
 end
 
-substWith = function ( t , map , unmapped )
+
+
+
+
+
+
+function generics . subst ( t , map )
 if not T . hasTypevar ( t ) then
 return t
 end
 local tag = t . tag
 if tag == "typevar" then
-local bound = map [ t ]
-if bound then
-return bound
-end
-
-return unmapped == PRESERVE and t or T . any
+return map [ t ] or T . any
 elseif tag == "array" then
-return T . array ( substWith ( t . elem , map , unmapped ) )
+return T . array ( generics . subst ( t . elem , map ) )
 elseif tag == "map" then
 return T . indexer (
-t . readable and substWith ( t . key , map , unmapped ) or nil ,
-t . readable and substWith ( t . value , map , unmapped ) or nil ,
-t . writeKey and substWith ( t . writeKey , map , unmapped ) or nil ,
-t . writeValue and substWith ( t . writeValue , map , unmapped ) or nil
+t . readable and generics . subst ( t . key , map ) or nil ,
+t . readable and generics . subst ( t . value , map ) or nil ,
+t . writeKey and generics . subst ( t . writeKey , map ) or nil ,
+t . writeValue and generics . subst ( t . writeValue , map ) or nil
 )
 elseif tag == "tuple" then
 local elems = { }
 for j , e in ipairs ( t . elems ) do
-elems [ j ] = substWith ( e , map , unmapped )
+elems [ j ] = generics . subst ( e , map )
 end
 return T . tuple ( elems )
 elseif tag == "shape" then
@@ -42591,69 +42653,73 @@ fields [
 j
 ] = {
 name = f . name ,
-read = f . read and substWith ( f . read , map , unmapped ) or nil ,
-write = f . write and substWith ( f . write , map , unmapped ) or nil
+read = f . read and generics . subst ( f . read , map ) or nil ,
+write = f . write and generics . subst ( f . write , map ) or nil
 }
 end
 return T . shape (
 fields ,
 {
-readKey = t . indexReadKey and substWith ( t . indexReadKey , map , unmapped ) or nil ,
-readValue = t . indexReadValue and substWith ( t . indexReadValue , map , unmapped ) or nil ,
-writeKey = t . indexWriteKey and substWith ( t . indexWriteKey , map , unmapped ) or nil ,
-writeValue = t . indexWriteValue and substWith ( t . indexWriteValue , map , unmapped ) or nil ,
+readKey = t . indexReadKey and generics . subst ( t . indexReadKey , map ) or nil ,
+readValue = t . indexReadValue and generics . subst ( t . indexReadValue , map ) or nil ,
+writeKey = t . indexWriteKey and generics . subst ( t . indexWriteKey , map ) or nil ,
+writeValue = t . indexWriteValue and generics . subst ( t . indexWriteValue , map ) or nil ,
 } ,
 t . fresh
 )
 elseif tag == "union" then
 local members = { }
 for j , m in ipairs ( t . members ) do
-members [ j ] = substWith ( m , map , unmapped )
+members [ j ] = generics . subst ( m , map )
 end
 return T . union ( members )
 elseif tag == "intersection" then
 local members = { }
 for j , m in ipairs ( t . members ) do
-members [ j ] = substWith ( m , map , unmapped )
+members [ j ] = generics . subst ( m , map )
 end
 return T . intersection ( members )
 elseif tag == "ptr" then
-return T . ptr ( substWith ( t . elem , map , unmapped ) )
+return T . ptr ( generics . subst ( t . elem , map ) )
 elseif tag == "owned" then
-return T . owned ( substWith ( t . inner , map , unmapped ) , t . cleanups )
+return T . owned ( generics . subst ( t . inner , map ) , t . cleanups )
 elseif tag == "borrowed" then
-return T . borrowed ( substWith ( t . inner , map , unmapped ) )
+return T . borrowed ( generics . subst ( t . inner , map ) )
 elseif tag == "pinned" then
-return T . pinned ( substWith ( t . inner , map , unmapped ) )
+return T . pinned ( generics . subst ( t . inner , map ) )
 elseif tag == "metatable" then
-return T . metatable ( substWith ( t . of , map , unmapped ) )
+return T . metatable ( generics . subst ( t . of , map ) )
 elseif tag == "protocolThread" then
 return T . protocolThread (
-substPackWith ( t . startPack , map , unmapped ) ,
-substPackWith ( t . resumePack , map , unmapped ) ,
-substPackWith ( t . yieldPack , map , unmapped ) ,
-substPackWith ( t . returnPack , map , unmapped )
+generics . substPack ( t . startPack , map ) ,
+generics . substPack ( t . resumePack , map ) ,
+generics . substPack ( t . yieldPack , map ) ,
+generics . substPack ( t . returnPack , map )
 )
 elseif tag == "genericAlias" then
-return substWith ( t . body , map , unmapped )
+return generics . subst ( t . body , map )
 elseif tag == "func" then
-local paramPack = substPackWith ( t . paramPack , map , unmapped )
-local retPack = substPackWith ( t . retPack , map , unmapped )
+local paramPack = generics . substPack ( t . paramPack , map )
+local retPack = generics . substPack ( t . retPack , map )
 local params , rets = paramPack . head , retPack . head
 local bounds = nil
 if t . typeBounds then
 bounds = { }
 for j , b in ipairs ( t . typeBounds ) do
-bounds [ j ] = substWith ( b , map , unmapped )
+bounds [ j ] = generics . subst ( b , map )
 end
 end
-return T . func ( params , rets , t . vararg , t . paramModes , t . predicate , t . typeParams , bounds , t . borrowsParam , t . borrowsSelf , t . borrowsParams , t . ffiOut , t . varargType and substWith (
-t . varargType , map , unmapped ) or nil , t . noreturn , paramPack , retPack , t . packParams , t . yieldPack and substPackWith (
-t . yieldPack , map , unmapped ) or nil , t . resumePack and substPackWith ( t . resumePack , map , unmapped ) or nil ,
+return T . func ( params , rets , t . vararg , t . paramModes , t . predicate , t . typeParams , bounds , t . borrowsParam , t . borrowsSelf , t . borrowsParams , t . ffiOut , t . varargType and generics . subst (
+t . varargType ,
+map
+) or nil , t . noreturn , paramPack , retPack , t . packParams , t . yieldPack and generics . substPack (
+t . yieldPack ,
+map
+) or nil , t . resumePack and generics . substPack ( t . resumePack , map ) or nil ,
 
 
 
-t . noYield , t . paramNames )
+t . noYield , t . paramNames , t . preservesResults , t . foreign )
 end
 
 return t
@@ -42662,41 +42728,8 @@ end
 
 
 
-
-
-
-
-
-function generics . rebind ( t , map )
-return substWith ( t , map , PRESERVE )
-end
-
-
-
-
-
-
-
-
-function generics . materialize ( t , map )
-return substWith ( t , map , MATERIALIZE )
-end
-
-
-function generics . rebindPack ( pack , map )
-return substPackWith ( pack , map , PRESERVE )
-end
-
-
-function generics . materializePack ( pack , map )
-return substPackWith ( pack , map , MATERIALIZE )
-end
-
-
-
-
 function generics . instantiateFunction ( t , map )
-local concrete = substWith ( t , map , MATERIALIZE )
+local concrete = generics . subst ( t , map )
 if concrete . tag ~= "func" then
 return t
 end
@@ -42721,7 +42754,9 @@ nil ,
 concrete . yieldPack ,
 concrete . resumePack ,
 concrete . noYield ,
-concrete . paramNames
+concrete . paramNames ,
+concrete . preservesResults ,
+concrete . foreign
 )
 end
 
@@ -42793,7 +42828,7 @@ inst . typeArgs [ j ] = map [ tv ] or T . any
 end
 inst . fieldOrder = n . fieldOrder
 inst . expansions = n . expansions
-inst . arrayOf = n . arrayOf and substWith ( n . arrayOf , map , PRESERVE ) or nil
+inst . arrayOf = n . arrayOf and generics . subst ( n . arrayOf , map ) or nil
 inst . fieldDefs = n . fieldDefs
 inst . writeFieldDefs = n . writeFieldDefs
 inst . staticFieldDefs = n . staticFieldDefs
@@ -42801,22 +42836,22 @@ inst . staticWriteFieldDefs = n . staticWriteFieldDefs
 inst . selfType = n . selfType
 inst . supertypes = { }
 for j , parent in ipairs ( n . supertypes or { } ) do
-inst . supertypes [ j ] = substWith ( parent , map , PRESERVE )
+inst . supertypes [ j ] = generics . subst ( parent , map )
 end
 
 
 instantiations [ key ] = inst
 for name , ft in pairs ( n . byname ) do
-inst . byname [ name ] = substWith ( ft , map , PRESERVE )
+inst . byname [ name ] = generics . subst ( ft , map )
 end
 for name , ft in pairs ( n . writeByname or { } ) do
-inst . writeByname [ name ] = substWith ( ft , map , PRESERVE )
+inst . writeByname [ name ] = generics . subst ( ft , map )
 end
 for name , ft in pairs ( n . staticByname or { } ) do
-inst . staticByname [ name ] = substWith ( ft , map , PRESERVE )
+inst . staticByname [ name ] = generics . subst ( ft , map )
 end
 for name , ft in pairs ( n . staticWriteByname or { } ) do
-inst . staticWriteByname [ name ] = substWith ( ft , map , PRESERVE )
+inst . staticWriteByname [ name ] = generics . subst ( ft , map )
 end
 inst . overloadedMethods = { }
 inst . overloadedStatics = { }
@@ -42835,7 +42870,7 @@ for j , entry in ipairs ( entries ) do
 specialized [
 j
 ] = {
-signature = substWith ( entry . signature , map , PRESERVE ) ,
+signature = generics . subst ( entry . signature , map ) ,
 declaration = entry . declaration ,
 member = entry . member ,
 parameterKey = entry . parameterKey ,
@@ -42850,7 +42885,7 @@ for j , entry in ipairs ( entries ) do
 specialized [
 j
 ] = {
-signature = substWith ( entry . signature , map , PRESERVE ) ,
+signature = generics . subst ( entry . signature , map ) ,
 declaration = entry . declaration ,
 member = entry . member ,
 parameterKey = entry . parameterKey ,
@@ -42865,7 +42900,7 @@ for j , entry in ipairs ( entries ) do
 specialized [
 j
 ] = {
-signature = substWith ( entry . signature , map , PRESERVE ) ,
+signature = generics . subst ( entry . signature , map ) ,
 declaration = entry . declaration ,
 member = entry . member ,
 parameterKey = entry . parameterKey ,
@@ -42874,17 +42909,17 @@ definition = entry . definition ,
 end
 inst . staticEntries [ name ] = specialized
 end
-inst . indexReadKey = n . indexReadKey and substWith ( n . indexReadKey , map , PRESERVE ) or nil
-inst . indexReadValue = n . indexReadValue and substWith ( n . indexReadValue , map , PRESERVE ) or nil
-inst . indexWriteKey = n . indexWriteKey and substWith ( n . indexWriteKey , map , PRESERVE ) or nil
-inst . indexWriteValue = n . indexWriteValue and substWith ( n . indexWriteValue , map , PRESERVE ) or nil
+inst . indexReadKey = n . indexReadKey and generics . subst ( n . indexReadKey , map ) or nil
+inst . indexReadValue = n . indexReadValue and generics . subst ( n . indexReadValue , map ) or nil
+inst . indexWriteKey = n . indexWriteKey and generics . subst ( n . indexWriteKey , map ) or nil
+inst . indexWriteValue = n . indexWriteValue and generics . subst ( n . indexWriteValue , map ) or nil
 for name , ft in pairs ( n . metamethods or { } ) do
-inst . metamethods [ name ] = substWith ( ft , map , PRESERVE )
+inst . metamethods [ name ] = generics . subst ( ft , map )
 end
 inst . constructors = { }
 inst . constructorEntries = { }
 for j , signature in ipairs ( n . constructors or { } ) do
-local specialized = substWith ( signature , map , PRESERVE )
+local specialized = generics . subst ( signature , map )
 inst . constructors [ j ] = specialized
 local entry = n . constructorEntries and n . constructorEntries [ j ] or nil
 inst . constructorEntries [
@@ -43031,11 +43066,7 @@ end
 return T . intersection ( members )
 end
 if owner and owner . tag == "nominal" and owner . selfType then
-
-
-
-
-return generics . rebind ( ft , { [ owner . selfType ] = receiver or owner } )
+return generics . subst ( ft , { [ owner . selfType ] = receiver or owner } )
 end
 
 return ft
@@ -43066,9 +43097,16 @@ modes [ # modes + 1 ] = ft . paramModes and ft . paramModes [ j ] or "plain"
 names [ # names + 1 ] = ft . paramNames and ft . paramNames [ j ] or ""
 end
 local paramPack = T . pack ( params , ft . paramPack . tail , modes )
+local preserves = { }
+for result = 1 , # ft . rets do
+local source = ft . preservesResults and ft . preservesResults [ result ]
+if source and source > 1 then
+preserves [ result ] = source - 1
+end
+end
 return T . func ( params , ft . rets , ft . vararg , modes , nil , ft . typeParams , ft . typeBounds , ft . borrowsParam , ft . borrowsSelf , ft . borrowsParams , ft . ffiOut , ft . varargType , ft . noreturn , paramPack , ft . retPack , ft . packParams , ft . yieldPack , ft . resumePack ,
 
-ft . noYield , names )
+ft . noYield , names , next ( preserves ) and preserves or nil , ft . foreign )
 end
 
 return ft
@@ -43125,7 +43163,18 @@ ft . packParams ,
 ft . yieldPack ,
 ft . resumePack ,
 ft . noYield ,
-names
+names ,
+( function ( )
+local shifted = { }
+for result = 1 , # ft . rets do
+local source = ft . preservesResults and ft . preservesResults [ result ]
+if source then
+shifted [ result ] = source + 1
+end
+end
+return next ( shifted ) and shifted or nil
+end ) ( ) ,
+ft . foreign
 )
 end
 
@@ -43990,8 +44039,6 @@ end )
 q : define ( "moduleExports" , function ( self , name )
 local path = modulePath ( self , name )
 if not path then
-
-
 
 local bundled = env . bundled and env . bundled [ name ]
 return bundled and bundled . exports or nil
@@ -47555,6 +47602,12 @@ if cst . isToken ( child ) and child . text == "borrows" then
 mark ( child , "keyword" )
 end
 end
+elseif kind == "tpreserves" then
+for _ , child in ipairs ( node ) do
+if cst . isToken ( child ) and child . text == "preserves" then
+mark ( child , "keyword" )
+end
+end
 elseif kind == "tconst" then
 mark ( node [ 1 ] , "keyword" )
 elseif kind == "funcbody" or kind == "tfunc" then
@@ -50892,32 +50945,6 @@ end
 
 
 
-
-
-local genericCloseHalfAt = nil
-
-
-local function expectGenericClose ( what )
-if genericCloseHalfAt == i then
-genericCloseHalfAt = nil
-local at = cur ( )
-
-return { kind = ">" , text = "" , trivia = { } , offset = at . offset , line = at . line , col = at . col }
-end
-if cur ( ) . kind == ">>" then
-local tok = advance ( )
-genericCloseHalfAt = i
-
-return tok
-end
-
-return expect ( ">" , what )
-end
-
-
-
-
-
 local function resetNoMethod ( fn , ... )
 local saved = noMethod
 noMethod = 0
@@ -51094,7 +51121,7 @@ break
 end
 add ( g , advance ( ) )
 until false
-add ( g , expectGenericClose ( "to close generic parameter list" ) ) . generic = true
+add ( g , expect ( ">" , "to close generic parameter list" ) ) . generic = true
 n . generics = add ( n , g )
 
 return g
@@ -51164,7 +51191,7 @@ while cur ( ) . kind == "," do
 add ( n , advance ( ) )
 n . typeArgs [ # n . typeArgs + 1 ] = add ( n , packArgs and parseTypePack ( false ) or parseType ( ) )
 end
-add ( n , expectGenericClose ( "to close type arguments" ) ) . generic = true
+add ( n , expect ( ">" , "to close type arguments" ) ) . generic = true
 end
 return n
 elseif kind == "(" then
@@ -51314,6 +51341,7 @@ break
 elseif cur ( ) . kind == "name" and (
 cur ( ) . text == "takes"
 or cur ( ) . text == "borrows"
+or cur ( ) . text == "scoped"
 or cur ( ) . text == "exclusive"
 or cur ( ) . text == "retains"
 or cur ( ) . text == "releases"
@@ -51469,7 +51497,7 @@ local n = setmetatable( { kind = "tpack" , types = { } } , cst.Tpack)
 n . types [ 1 ] = add ( n , parseReturnType ( stopAtFunctionMember ) )
 while allowBareList and cur ( ) . kind == "," and tokens [ i + 1 ] and TYPE_START [ tokens [ i + 1 ] . kind ] do
 add ( n , advance ( ) ) . typeSeparator = true
-n . types [ # n . types + 1 ] = add ( n , parseType ( nil , stopAtFunctionMember ) )
+n . types [ # n . types + 1 ] = add ( n , parseReturnType ( stopAtFunctionMember ) )
 end
 return n
 end
@@ -51504,7 +51532,7 @@ n . tailKind = "homogeneous"
 n . tail = add ( n , parseType ( nil , stopAtFunctionMember ) )
 break
 end
-local item = add ( n , parseType ( nil , stopAtFunctionMember ) )
+local item = add ( n , parseReturnType ( stopAtFunctionMember ) )
 if cur ( ) . kind == "..." then
 if item . kind ~= "tname" then
 errAt ( cur ( ) , "only a generic pack name may precede '...'" )
@@ -51658,7 +51686,7 @@ member . text
 ] and baseTok . text == "ffi" then
 add ( n , advance ( ) ) . generic = true
 n . ffiTypeArg = add ( n , parseType ( ) )
-add ( n , expectGenericClose ( "to close a type argument" ) ) . generic = true
+add ( n , expect ( ">" , "to close a type argument" ) ) . generic = true
 end
 elseif kind == "[" then
 local n = setmetatable( { kind = "bracketIndex" } , cst.BracketIndex)
@@ -52096,6 +52124,7 @@ end
 if cur ( ) . kind == "name" and (
 cur ( ) . text == "takes"
 or cur ( ) . text == "borrows"
+or cur ( ) . text == "scoped"
 or cur ( ) . text == "exclusive"
 or cur ( ) . text == "retains"
 or cur ( ) . text == "releases"
@@ -52165,6 +52194,16 @@ n . type = add ( n , parseType ( nil , stopAtFunctionMember ) )
 return n
 end
 local result = parseType ( nil , stopAtFunctionMember )
+
+if cur ( ) . kind == "name" and cur ( ) . text == "preserves" and tokens [
+i + 1
+] and tokens [ i + 1 ] . kind == "name" then
+local n = setmetatable( { kind = "tpreserves" } , cst.Tpreserves)
+n . type = add ( n , result )
+add ( n , advance ( ) )
+n . param = add ( n , advance ( ) )
+return n
+end
 
 
 
@@ -52327,7 +52366,7 @@ cur ( ) ,
 )
 end
 annotationColon ( e , "in field declaration" )
-e . type = add ( e , parseType ( ) )
+e . type = add ( e , parseReturnType ( ) )
 else
 errAt ( cur ( ) , "field or nested declaration expected" )
 e = setmetatable( { kind = "errorStmt" } , cst.ErrorStmt)
@@ -52433,6 +52472,7 @@ end
 if cur ( ) . kind == "name" and (
 cur ( ) . text == "takes"
 or cur ( ) . text == "borrows"
+or cur ( ) . text == "scoped"
 or cur ( ) . text == "exclusive"
 or cur ( ) . text == "retains"
 or cur ( ) . text == "releases"
@@ -54699,9 +54739,8 @@ documentation. On `init.nupp`, it also hides every descendant module; private
 documentation builds include the complete tree.
 
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
-`@field`, `@typearg`, `@local`, `@internal` and `@export` are understood. An
-`@internal` declaration stays out of public output but remains in private documentation
-builds. `nupp doc` renders them.
+`@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
+renders them.
 
 `@raises` says what makes a function raise, one line per condition. It is the one
 docblock tag the checker reads as well as renders: a documented function that
@@ -56171,7 +56210,7 @@ generic . unifyPack ( a . paramPack , b . paramPack , map )
 for j , tv in ipairs ( a . typeParams or { } ) do
 local bound = a . typeBounds and a . typeBounds [ j ]
 local actual = map [ tv ]
-if bound and actual and not isA ( actual , generic . materialize ( bound , map ) ) then
+if bound and actual and not isA ( actual , generic . subst ( bound , map ) ) then
 return false , ( "type argument %s does not satisfy %s" ) : format ( T . tostring ( actual ) , T . tostring ( bound ) )
 end
 end
@@ -56803,7 +56842,6 @@ function u.length(value)local s=bytes(value);local n,at=0,1;while at<=#s do loca
 local MATH = compact (
 [=[
 local m=__nuppMath;local pi,tau=math.pi,2*math.pi
-function m.lerp(from,to,t)if t==0 then return from elseif t==1 then return to end;return from+(to-from)*t end
 function m.wrapAngle(radians)return(radians+pi)%tau-pi end
 function m.deltaAngle(from,to)return m.wrapAngle(to-from)end
 local v={};m.vec2=v
@@ -57102,6 +57140,8 @@ types.Cleanup = {} types.Cleanup.__index = types.Cleanup
 
 
 
+
+
 types.Owned = {} types.Owned.__index = types.Owned
 
 
@@ -57267,6 +57307,14 @@ types.Func = {} types.Func.__index = types.Func
 
 
 
+
+
+
+
+
+
+
+
 types.Literal = {} types.Literal.__index = types.Literal
 
 
@@ -57301,6 +57349,16 @@ types.Metatable = {} types.Metatable.__index = types.Metatable
 
 
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -57712,7 +57770,10 @@ prior . retPack ,
 prior . packParams ,
 prior . yieldPack ,
 prior . resumePack ,
-prior . noYield
+prior . noYield ,
+nil ,
+prior . preservesResults ,
+prior . foreign
 )
 seen [ prior ] = nil
 seen [ merged ] = true
@@ -57905,6 +57966,19 @@ if t . tag == "owned" or t . tag == "borrowed" or t . tag == "pinned" then
 return t . inner
 end
 return t
+end
+
+
+
+function types . withOwnershipPayload ( source , payload )
+if source . tag == "owned" then
+return types . owned ( payload , source . cleanups )
+elseif source . tag == "borrowed" then
+return types . borrowed ( payload )
+elseif source . tag == "pinned" then
+return types . pinned ( payload )
+end
+return payload
 end
 
 local function packTailId ( tail )
@@ -58112,7 +58186,9 @@ packParams ,
 yieldPack ,
 resumePack ,
 noYield ,
-paramNames
+paramNames ,
+preservesResults ,
+foreign
 )
 
 
@@ -58191,11 +58267,22 @@ end
 if borrowsSelf then
 key = key .. "|borrowsself"
 end
+if preservesResults then
+for result = 1 , # rets do
+local source = preservesResults [ result ]
+if source then
+key = key .. "|preserves" .. tostring ( result ) .. ":" .. tostring ( source )
+end
+end
+end
 if noreturn then
 key = key .. "|noreturn"
 end
 if noYield then
 key = key .. "|noyield"
+end
+if foreign then
+key = key .. "|foreign"
 end
 local unlabeledId = key
 if paramNames then
@@ -58218,6 +58305,8 @@ typeBounds = typeBounds ,
 borrowsParam = borrowsParam ,
 borrowsSelf = borrowsSelf ,
 borrowsParams = borrowsParams ,
+preservesResults = preservesResults ,
+foreign = foreign or nil ,
 ffiOut = ffiOut ,
 noreturn = noreturn or nil ,
 noYield = noYield or nil ,
@@ -58271,7 +58360,9 @@ fn . packParams ,
 fn . yieldPack ,
 fn . resumePack ,
 want ,
-fn . paramNames
+fn . paramNames ,
+fn . preservesResults ,
+fn . foreign
 )
 end
 
@@ -58492,13 +58583,23 @@ else
 ps [ # ps + 1 ] = "..."
 end
 end
+local renderedResults = { }
+for j , result in ipairs ( t . retPack . head ) do
+local rendered = types . tostring ( result )
+local source = t . preservesResults and t . preservesResults [ j ]
+if source then
+local name = t . paramNames and t . paramNames [ source ]
+rendered = rendered .. " preserves " .. ( name and name ~= "" and name or ( "#" .. tostring ( source ) ) )
+end
+renderedResults [ j ] = rendered
+end
 local hasRet = # t . retPack . head > 0 or t . retPack . tail ~= nil or t . retPack . alternatives ~= nil
 local ret = ""
 if hasRet then
 ret = ": " .. (
-# t . retPack . head == 1 and not t . retPack . tail and not t . retPack . alternatives and types . tostring (
-t . retPack . head [ 1 ]
-) or types . tostringPack ( t . retPack )
+# t . retPack . head == 1 and not t . retPack . tail and not t . retPack . alternatives and renderedResults [ 1 ]
+or t . retPack . alternatives and types . tostringPack ( t . retPack )
+or "(" .. table . concat ( renderedResults , ", " ) .. ")"
 )
 end
 local protocol = t . yieldPack and (
@@ -59481,7 +59582,7 @@ end
 
 
 __nuppCleanups["nupp.resources#close_file@441"]=close_file;
-function resources . openFile ( path , mode )
+function resources . open_file ( path , mode )
 local file , reason = io . open ( path , mode )
 if not file then
 error ( reason or "file open failed" )
@@ -59500,7 +59601,7 @@ end
 
 
 __nuppCleanups["nupp.resources#close_file@441"]=close_file;
-function resources . openProcess ( command , mode )
+function resources . open_process ( command , mode )
 local file , reason = io . popen ( command , mode )
 if not file then
 error ( reason or "process open failed" )
@@ -59517,7 +59618,7 @@ end
 
 
 __nuppCleanups["nupp.resources#close_file@441"]=close_file;
-function resources . temporaryFile ( )
+function resources . temporary_file ( )
 local file = io . tmpfile ( )
 if not file then
 error ( "temporary file creation failed" )
@@ -59569,11 +59670,6 @@ local __nupp=_G.nupp or {};_G.nupp=__nupp local __nuppData=rawget(__nupp,"data")
 
 
 local suspension = { }
-
-
-
-
-local MAX_DRAIN_PASSES = 64
 
 
 
@@ -59658,21 +59754,11 @@ local running = coroutine . running
 
 local function effectiveInstallation ( )
 local co = running ( )
-local current = co == nil and mainInstalled or installed [ co ]
-
-
-
-
-
-
-
-
-
-while current ~= nil and current . restored do
-current = current . previous
+if co == nil then
+return mainInstalled
 end
 
-return current
+return installed [ co ]
 end
 
 local function effective ( )
@@ -59858,13 +59944,7 @@ end
 end
 
 local context = setmetatable ( { handler = handler , owned = nil } , ContextMT )
-
-
-local subscribed , cancel = pcall ( subscribe , resume , context )
-if not subscribed then
-releaseOwned ( context )
-error ( cancel , 0 )
-end
+local cancel = subscribe ( resume , context )
 if state . resumed then
 
 
@@ -59891,44 +59971,21 @@ end
 
 local ticket = nil
 if current ~= nil then
-ticket = { operation = operation , unsubscribeAttempted = false }
+ticket = { operation = operation }
 function ticket . abandon ( reason )
 
 
 
 
-local unsubscribeError = nil
-if not ticket . unsubscribeAttempted then
-ticket . unsubscribeAttempted = true
-
-
-
-
-local ok , err = pcall ( cancel )
-if not ok then
-unsubscribeError = err
-end
-end
+pcall ( cancel )
 state . cancelled , state . reason = true , reason
-local wakeError = nil
 local wake = state . waker
 if wake then
-
-
-
-local ok , err = pcall ( wake )
-if ok then
 state . waker = nil
-else
-wakeError = err
-end
-end
 
-if unsubscribeError ~= nil then
-error ( unsubscribeError , 0 )
-end
-if wakeError ~= nil then
-error ( wakeError , 0 )
+
+
+pcall ( wake )
 end
 end
 
@@ -59951,9 +60008,6 @@ ok , err = pcall ( handler . park , handler , waiting , cancel )
 else
 ok , err = pcall ( blockingPark , waiting )
 end
-
-
-
 if ticket and current then
 current . parks [ ticket ] = nil
 end
@@ -59962,11 +60016,9 @@ if state . cancelled then
 error ( ( "nupp: %s was cancelled: %s" ) : format ( operation , state . reason or "the extent ended" ) , 0 )
 end
 if not ok then
-
-
-pcall ( cancel )
 local text = tostring ( err )
 if text : find ( "C%-call boundary" ) or text : find ( "attempt to yield across" ) then
+pcall ( cancel )
 error ( ( "nupp: %s cannot suspend: non-yieldable C code is on the stack" ) : format ( operation ) , 0 )
 end
 error ( err , 0 )
@@ -59995,93 +60047,34 @@ suspension.Installed = {} suspension.Installed.__index = suspension.Installed
 
 
 
-
-
-
-
-
-
 function suspension.Installed:release()
 if self . released then
 return
 end
-
-
-
-
-
-if not self . restored then
-self . restored = true
+self . released = true
 if self . co == nil then
 mainInstalled = self . previous
 else
 installed [ self . co ] = self . previous
 end
+
+
+
+
+
+
+
+
+local held = self . parks
+self . parks = { }
+for ticket in pairs ( held or { } ) do
+pcall ( ticket . abandon , "the handled extent ended" )
 end
-
-
-
-
-
-local firstError = nil
-local function attempt ( fn , argument )
-local ok , err = pcall ( fn , argument )
-if not ok and firstError == nil then
-firstError = err
-end
-end
-
-
-
-
-
-
-
-for ticket in pairs ( self . parks or { } ) do
-attempt ( ticket . abandon , "the handled extent ended" )
-end
-
-
-
 if self . handler . shutdown then
-attempt ( self . handler . shutdown , self . handler )
+
+
+pcall ( self . handler . shutdown , self . handler )
 end
-
-local remaining = next ( self . parks or { } )
-local passes = 0
-while remaining ~= nil and passes < MAX_DRAIN_PASSES do
-passes = passes + 1
-attempt ( suspension . poll , nil )
-remaining = next ( self . parks or { } )
-end
-
-
-
-
-if firstError ~= nil then
-
-
-error ( firstError , 0 )
-end
-
-
-
-
-
-if remaining ~= nil then
-local names = { }
-for ticket in pairs ( self . parks or { } ) do
-names [ # names + 1 ] = ticket . operation
-end
-table . sort ( names )
-error (
-(
-"nupp: the handled extent ended with %d park(s) unfinished: %s"
-) : format ( # names , table . concat ( names , ", " ) ) ,
-0
-)
-end
-self . released = true
 end
 
 
@@ -60117,7 +60110,6 @@ local installation = setmetatable( {
 co = co ,
 previous = previous ,
 handler = handler ,
-restored = false ,
 released = false ,
 parks = { } ,
 } , suspension.Installed)
@@ -60952,7 +60944,7 @@ local rawlen: nosuspend function(v: any): integer
 --- @param t the table to change
 --- @param mt the new metatable, or nil to remove the current one
 --- @return `t`
-local setmetatable: function<T>(t: T, mt: metatable<T>?): T
+local setmetatable: function<T>(t: T, mt: metatable<T>?): T preserves t
 
 --- Returns the metatable of `v`, or the value of its `__metatable` field when it has
 --- one, or nil when there is no metatable.
@@ -60967,7 +60959,7 @@ local getmetatable: function<T>(v: T): metatable<T>?
 --- @param v the value to test
 --- @param msg the error to raise, "assertion failed!" by default
 --- @return `v`, now known not to be nil or false
-local assert: function<T>(v: T?, msg: any?): T
+local assert: function<T>(v: T?, msg: any?): T preserves v
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller
@@ -60983,7 +60975,7 @@ local error: nosuspend function(msg: any, level: number?): never
 --- @param ... the arguments to pass to `f`
 --- @return true when the call finished, false when it raised
 --- @return the call's results, or the error value
-local pcall: function<A..., R...>(f: function(A...): R..., A...): ((true, R...) | (false, any))
+local pcall: function<A..., R...>(scoped f: function(A...): R..., A...): ((true, R...) | (false, any))
 
 --- Like `pcall`, but runs `handler` on the error before the stack unwinds, so it can
 --- still collect a traceback.
@@ -60997,7 +60989,7 @@ local xpcall: function<
     E,
     A...,
     R...
-    >(f: function(A...): R..., handler: function(any): E, A...): ((true, R...) | (false, E))
+    >(scoped f: function(A...): R..., scoped handler: function(any): E, A...): ((true, R...) | (false, E))
 
 --- Returns the elements of `t` from index `i` through `j` as separate values.
 ---
@@ -61131,7 +61123,6 @@ local nupp: {
         encodeIndent: function(indent: string?): string,
 
         --- UTF-8 codepoint operations over strings and byte views.
-        --- @namespace
         utf8: nupp.UTF8Library,
 
         --- Generates a random version 4 UUID.
@@ -61179,19 +61170,17 @@ local nupp: {
         newStringReader: function(text: string): nupp.Reader,
 
         --- Constructors and platform operations for immutable filesystem paths.
-        --- @namespace
-        Path: nupp.Path.Library,
+        Path: nupp.PathLibrary,
 
         --- Parsing and inspection operations for immutable absolute URIs.
-        --- @namespace
-        URI: nupp.URI.Library
+        URI: nupp.URILibrary
     },
 
     --- Scalar helpers and two-dimensional vectors.
     math: nupp.MathLibrary,
 
     --- Compiled Rust regular expressions.
-    regex: nupp.Regex.Library
+    regex: nupp.RegexLibrary
 }
 
 --- One independently configured JSON encoder and decoder.
@@ -61302,7 +61291,6 @@ interface nupp.JSON
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
---- @internal
 record nupp.UTF8Library
     length: function(value: string | nupp.ByteView): integer
     decodeAt: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
@@ -61501,25 +61489,6 @@ end
 
 --- An immutable platform-native UTF-8 filesystem path.
 record nupp.Path
-    --- Constructors and platform operations for immutable filesystem paths.
-    --- @internal
-    record Library
-        --- Creates a path by joining one or more components.
-        --- @param first the first path component
-        --- @param ... the remaining path components
-        --- @return the new path
-        new: function(first: string, ...: string): Path
-
-        --- Reads the process's current working directory.
-        --- @return the current directory, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        currentDirectory: function(): (Path?, string?)
-
-        --- Returns the current platform's primary path separator.
-        --- @return the path separator
-        separator: function(): string
-    end
-
     --- Returns the native UTF-8 path text.
     --- @param self this path
     --- @return the path text
@@ -61605,53 +61574,26 @@ record nupp.Path
     isRelative: function(self: nupp.Path): boolean
 end
 
+--- Constructors and platform operations for immutable filesystem paths.
+record nupp.PathLibrary
+    --- Creates a path by joining one or more components.
+    --- @param first the first path component
+    --- @param ... the remaining path components
+    --- @return the new path
+    new: function(first: string, ...: string): nupp.Path
+
+    --- Reads the process's current working directory.
+    --- @return the current directory, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    currentDirectory: function(): (nupp.Path?, string?)
+
+    --- Returns the current platform's primary path separator.
+    --- @return the path separator
+    separator: function(): string
+end
+
 --- An immutable normalized absolute URI.
 record nupp.URI
-    --- Components accepted when constructing an absolute URI.
-    record Components
-        --- The required URI scheme.
-        scheme: string
-
-        --- Optional user information, including a password when needed.
-        userInfo: string?
-
-        --- The optional host name or address.
-        host: string?
-
-        --- The optional port from 0 through 65535.
-        port: integer?
-
-        --- The path, or an empty path when omitted.
-        path: string?
-
-        --- The optional query without its leading `?`.
-        query: string?
-
-        --- The optional fragment without its leading `#`.
-        fragment: string?
-    end
-
-    --- Parsing and inspection operations for immutable absolute URIs.
-    --- @internal
-    record Library
-        --- Parses and normalizes an absolute URI.
-        --- @param value URI text or its individual components
-        --- @return the parsed URI, or nil on failure
-        --- @return a failure reason, when unsuccessful
-        new: function(value: string | Components): (URI?, string?)
-
-        --- Checks whether text is a valid absolute URI without retaining an object.
-        --- @param text the URI text to validate
-        --- @return whether the text is valid
-        --- @return a failure reason, when invalid
-        validate: function(text: string): (boolean, string?)
-
-        --- Reports whether a value is a URI object.
-        --- @param value the value to inspect
-        --- @return whether the value is a URI
-        isURI: function(value: any): boolean
-    end
-
     --- Returns the complete normalized URI text.
     --- @param self this URI
     --- @return the URI text
@@ -61769,8 +61711,51 @@ record nupp.URI
     resolve: function(self: nupp.URI, reference: string): (nupp.URI?, string?)
 end
 
+--- Components accepted when constructing an absolute URI.
+record nupp.URIComponents
+    --- The required URI scheme.
+    scheme: string
+
+    --- Optional user information, including a password when needed.
+    userInfo: string?
+
+    --- The optional host name or address.
+    host: string?
+
+    --- The optional port from 0 through 65535.
+    port: integer?
+
+    --- The path, or an empty path when omitted.
+    path: string?
+
+    --- The optional query without its leading `?`.
+    query: string?
+
+    --- The optional fragment without its leading `#`.
+    fragment: string?
+end
+
+--- Parsing and inspection operations for immutable absolute URIs.
+record nupp.URILibrary
+    --- Parses and normalizes an absolute URI.
+    --- @param value URI text or its individual components
+    --- @return the parsed URI, or nil on failure
+    --- @return a failure reason, when unsuccessful
+    new: function(value: string | nupp.URIComponents): (nupp.URI?, string?)
+
+    --- Checks whether text is a valid absolute URI without retaining an object.
+    --- @param text the URI text to validate
+    --- @return whether the text is valid
+    --- @return a failure reason, when invalid
+    validate: function(text: string): (boolean, string?)
+
+    --- Reports whether a value is a URI object.
+    --- @param value the value to inspect
+    --- @return whether the value is a URI
+    isURI: function(value: any): boolean
+end
+
 --- Two-dimensional vector operations on number pairs.
---- @internal
 record nupp.Vec2Library
     --- Adds two vectors.
     --- @param ax the first vector's x component
@@ -61919,18 +61904,9 @@ record nupp.Vec2Library
 end
 
 --- Scalar angle helpers and two-dimensional vector operations.
---- @internal
 record nupp.MathLibrary
     --- Two-dimensional vector operations over `(x, y)` number pairs.
-    --- @namespace
     vec2: nupp.Vec2Library
-
-    --- Linearly interpolates between two numbers without clamping the factor.
-    --- @param from the value returned when `t` is zero
-    --- @param to the value returned when `t` is one
-    --- @param t the interpolation factor
-    --- @return `from + (to - from) * t`
-    lerp: function(from: number, to: number, t: number): number
 
     --- Wraps an angle to the equivalent value in `[-pi, pi)`.
     --- @param radians the angle in radians
@@ -61944,57 +61920,43 @@ record nupp.MathLibrary
     deltaAngle: function(from: number, to: number): number
 end
 
+--- One byte-range match from a compiler-provided regular expression.
+record nupp.RegexMatch
+    --- Bytes copied from the matched range.
+    value: string
+
+    --- The first matched byte using a 1-based index.
+    first: integer
+
+    --- The inclusive last matched byte, or `first - 1` for an empty match.
+    last: integer
+
+    --- The capture-group index, with zero for the whole match.
+    index: integer
+
+    --- The capture name, or nil for an unnamed group.
+    name: string?
+end
+
+--- The whole match, numbered captures, and named aliases from one search.
+record nupp.RegexCaptures
+    --- Group zero, which covers the whole match.
+    whole: nupp.RegexMatch
+
+    --- Explicit groups by 1-based index. An unmatched group leaves a hole.
+    groups: {nupp.RegexMatch}
+
+    --- The number of explicit groups, including groups that did not match.
+    groupCount: integer
+
+    -- Capture names are pattern-defined, so dot access cannot be enumerated statically.
+    -- It remains gradual while numbered groups stay precise.
+    named: any
+end
+
 --- A compiled Rust regular expression. Positions are 1-based inclusive byte indexes,
 --- matching Lua's string functions.
 record nupp.Regex
-    --- One byte-range match from a compiler-provided regular expression.
-    record Match
-        --- Bytes copied from the matched range.
-        value: string
-
-        --- The first matched byte using a 1-based index.
-        first: integer
-
-        --- The inclusive last matched byte, or `first - 1` for an empty match.
-        last: integer
-
-        --- The capture-group index, with zero for the whole match.
-        index: integer
-
-        --- The capture name, or nil for an unnamed group.
-        name: string?
-    end
-
-    --- The whole match, numbered captures, and named aliases from one search.
-    record Captures
-        --- Group zero, which covers the whole match.
-        whole: Match
-
-        --- Explicit groups by 1-based index. An unmatched group leaves a hole.
-        groups: {Match}
-
-        --- The number of explicit groups, including groups that did not match.
-        groupCount: integer
-
-        -- Capture names are pattern-defined, so dot access cannot be enumerated
-        -- statically.
-        -- It remains gradual while numbered groups stay precise.
-        named: any
-    end
-
-    --- The compiler-provided regular-expression library.
-    --- @internal
-    record Library
-        --- Compiles a UTF-8 pattern using Rust regex syntax.
-        ---
-        --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
-        --- result; the Lua collector releases its native allocation.
-        ---
-        --- @param pattern Rust regex syntax
-        --- @return a reusable compiled expression
-        compile: function(pattern: string): Regex
-    end
-
     --- The source pattern unchanged.
     pattern: string
 
@@ -62009,14 +61971,14 @@ record nupp.Regex
     --- @param subject arbitrary bytes
     --- @param init the first byte considered under `string.find`'s rules
     --- @return the matched bytes and their range, or nil
-    find: function(self: nupp.Regex, subject: string, init: integer?): Match?
+    find: function(self: nupp.Regex, subject: string, init: integer?): nupp.RegexMatch?
 
     --- Finds the first match and every capture group it populated.
     ---
     --- @param subject arbitrary bytes
     --- @param init the first byte considered under the same rules as `find`
     --- @return the whole match, numbered groups, and named aliases, or nil
-    captures: function(self: nupp.Regex, subject: string, init: integer?): Captures?
+    captures: function(self: nupp.Regex, subject: string, init: integer?): nupp.RegexCaptures?
 
     --- Replaces the first match, expanding `$0`, `$1`, `$name`, `${name}`, and `$$`
     --- capture references in the replacement.
@@ -62024,6 +61986,18 @@ record nupp.Regex
 
     --- Replaces every non-overlapping match using `replace`'s capture syntax.
     replaceAll: function(self: nupp.Regex, subject: string, replacement: string): string
+end
+
+--- The compiler-provided regular-expression library.
+record nupp.RegexLibrary
+    --- Compiles a UTF-8 pattern using Rust regex syntax.
+    ---
+    --- Compilation raises on malformed syntax or invalid UTF-8. Keep and reuse the
+    --- result; the Lua collector releases its native allocation.
+    ---
+    --- @param pattern Rust regex syntax
+    --- @return a reusable compiled expression
+    compile: function(pattern: string): nupp.Regex
 end
 
 --- Controls the garbage collector. `opt` is "collect" for a full cycle, the default, or
@@ -62258,7 +62232,7 @@ const table: {
     --- @param t the array to sort
     --- @param cmp returns true when its first argument must come first; `<`
     ---     is used when it is omitted
-    sort: function<V>(t: {V}, cmp: function(V, V): boolean?),
+    sort: function<V>(t: {V}, scoped cmp: function(V, V): boolean?),
 
     --- Returns the largest positive numeric key of `t`, or 0 when it has none.
     --- Deprecated, and unlike `#t` it also sees keys past a hole.
@@ -62619,7 +62593,7 @@ end
 --- A Lua file handle. Ownership is attached by producers rather than this interface, so
 --- standard streams and borrowed handles use the same type.
 local interface LuaFile
-    close: function(self: LuaFile): (boolean?, string?)
+    close: nosuspend function(self: LuaFile): (boolean?, string?)
     flush: function(self: LuaFile): (boolean?, string?)
     lines: function(self: LuaFile, ...: any): function(): any
     read: function(self: LuaFile, ...: any): any
@@ -63023,6 +62997,23 @@ local debug: {
 --- options it was given.
 local arg: {string}
 ]=],
+["/decls/resource_set.d.nupp"] = [[
+local record ResourceSet
+    label: string
+
+    @dispose
+    close: nosuspend function(takes self: ResourceSet)
+
+    adopt: function<T>(self: ResourceSet, takes value: T, terminal: function(takes value: T)?): T borrows self
+    remove: function<T>(self: ResourceSet, borrows value: T): T
+end
+
+@owned
+local function new(label: string?): ResourceSet
+end
+
+return {new = new, ResourceSet = ResourceSet}
+]],
 ["/decls/stringbuffer.d.nupp"] = [=[
 --[[
 Declarations for LuaJIT's string.buffer module, loaded for
@@ -63040,7 +63031,7 @@ they are not members of the record below; use `buf:tostring()`.
 --- hand back the buffer itself, so calls chain.
 ---
 --- Exported, so code that passes buffers around can name the type: `function
---- render(out: string.buffer.Buffer): string.buffer.Buffer`.
+--- render(out: buffer.Buffer): buffer.Buffer`.
 record Buffer
     metamethod __len: function(self): integer
     metamethod __concat: function(self, other: any): string
@@ -63190,317 +63181,6 @@ local encode: function(v: any): string
 local decode: function(s: string): any
 
 return {new = new, encode = encode, decode = decode}
-]=],
-["/nupp/bytes.nupp"] = [=[
---[[
-Typed binary reads and writes over a string.buffer.Buffer.
-
-A Buffer already moves raw bytes with put/get and reserve/commit/ref; Reader and
-Writer add the missing piece, a sized integer or float landing on those bytes
-without hand-rolling the ffi.cast each time.
-
-Both read and write host-endian, the same as every other cast in this codebase
-(nupp.compiler.build.hash): LuaJIT itself only ships little-endian, so that is
-the honest default. A format that has to be byte-order-fixed casts and swaps
-explicitly; this module carries no LE/BE variants until something needs one.
-
-A short read raises, matching Buffer:get. Buffer:skip is the one method that
-clamps instead of raising, and Reader does not inherit that.
-]]
-
-local bytes = {}
-
-local function needBytes(avail: uint64, need: integer): nil
-    if avail < (need as uint64) then
-        error(("bytes.Reader: need %d bytes, have %d"):format(need, avail))
-    end
-end
-
---- A cursor for typed reads over a buffer's unconsumed data. Consumes as it reads, the
---- same direction as Buffer:get.
-record bytes.Reader
-    buf: string.buffer.Buffer
-end
-
---- Wraps `data` for typed reads.
----
---- A string is copied into a fresh buffer. Passing an existing buffer instead lets a
---- caller mix `buf:get(...)` and `reader:readInt32()` over the same bytes.
----
---- @export
---- @param data the bytes to read, or the buffer to read from
---- @return the reader
-function bytes.newReader(data: string | string.buffer.Buffer): bytes.Reader
-    local buf: string.buffer.Buffer
-    if type(data) == "string" then
-        buf = string.buffer.new():set(data as string)
-    else
-        buf = data as string.buffer.Buffer
-    end
-
-    return new bytes.Reader {buf = buf}
-end
-
---- How many unread bytes remain.
-function bytes.Reader:remaining(): integer
-    return #self.buf as integer
-end
-
---- Discards `n` unread bytes. Raises if fewer remain.
-function bytes.Reader:skip(n: integer): bytes.Reader
-    local _, avail = self.buf:ref()
-    needBytes(avail, n)
-    self.buf:skip(n)
-
-    return self
-end
-
---- Reads `n` raw bytes. Raises if fewer remain.
-function bytes.Reader:readBytes(n: integer): string
-    local _, avail = self.buf:ref()
-    needBytes(avail, n)
-
-    return self.buf:get(n)
-end
-
---- Reads one unsigned byte.
-function bytes.Reader:readUint8(): uint8
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 1)
-    local view = ffi.cast<uint8[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(1)
-
-    return v
-end
-
---- Reads one signed byte.
-function bytes.Reader:readInt8(): int8
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 1)
-    local view = ffi.cast<int8[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(1)
-
-    return v
-end
-
---- Reads a host-endian unsigned 16-bit integer.
-function bytes.Reader:readUint16(): uint16
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 2)
-    local view = ffi.cast<uint16[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(2)
-
-    return v
-end
-
---- Reads a host-endian signed 16-bit integer.
-function bytes.Reader:readInt16(): int16
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 2)
-    local view = ffi.cast<int16[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(2)
-
-    return v
-end
-
---- Reads a host-endian unsigned 32-bit integer.
-function bytes.Reader:readUint32(): uint32
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 4)
-    local view = ffi.cast<uint32[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(4)
-
-    return v
-end
-
---- Reads a host-endian signed 32-bit integer.
-function bytes.Reader:readInt32(): int32
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 4)
-    local view = ffi.cast<int32[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(4)
-
-    return v
-end
-
---- Reads a host-endian unsigned 64-bit integer.
-function bytes.Reader:readUint64(): uint64
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 8)
-    local view = ffi.cast<uint64[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(8)
-
-    return v
-end
-
---- Reads a host-endian signed 64-bit integer.
-function bytes.Reader:readInt64(): int64
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 8)
-    local view = ffi.cast<int64[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(8)
-
-    return v
-end
-
---- Reads a host-endian 32-bit float.
-function bytes.Reader:readFloat32(): float
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 4)
-    local view = ffi.cast<float[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(4)
-
-    return v
-end
-
---- Reads a host-endian 64-bit float.
-function bytes.Reader:readFloat64(): number
-    local ptr, avail = self.buf:ref()
-    needBytes(avail, 8)
-    local view = ffi.cast<number[?]>(ptr)
-    local v = view[0]
-    self.buf:skip(8)
-
-    return v
-end
-
---- A cursor for typed writes, appending to a buffer.
-record bytes.Writer
-    buf: string.buffer.Buffer
-end
-
---- Wraps `buf` for typed writes, or starts a fresh buffer when omitted.
----
---- @export
---- @param buf the buffer to append to
---- @return the writer
-function bytes.newWriter(buf: string.buffer.Buffer?): bytes.Writer
-    return new bytes.Writer {buf = buf or string.buffer.new()}
-end
-
---- Appends `s` unchanged.
-function bytes.Writer:writeBytes(s: string): bytes.Writer
-    self.buf:put(s)
-
-    return self
-end
-
---- Writes one unsigned byte.
-function bytes.Writer:writeUint8(v: uint8): bytes.Writer
-    local ptr = self.buf:reserve(1)
-    local view = ffi.cast<uint8[?]>(ptr)
-    view[0] = v
-    self.buf:commit(1)
-
-    return self
-end
-
---- Writes one signed byte.
-function bytes.Writer:writeInt8(v: int8): bytes.Writer
-    local ptr = self.buf:reserve(1)
-    local view = ffi.cast<int8[?]>(ptr)
-    view[0] = v
-    self.buf:commit(1)
-
-    return self
-end
-
---- Writes a host-endian unsigned 16-bit integer.
-function bytes.Writer:writeUint16(v: uint16): bytes.Writer
-    local ptr = self.buf:reserve(2)
-    local view = ffi.cast<uint16[?]>(ptr)
-    view[0] = v
-    self.buf:commit(2)
-
-    return self
-end
-
---- Writes a host-endian signed 16-bit integer.
-function bytes.Writer:writeInt16(v: int16): bytes.Writer
-    local ptr = self.buf:reserve(2)
-    local view = ffi.cast<int16[?]>(ptr)
-    view[0] = v
-    self.buf:commit(2)
-
-    return self
-end
-
---- Writes a host-endian unsigned 32-bit integer.
-function bytes.Writer:writeUint32(v: uint32): bytes.Writer
-    local ptr = self.buf:reserve(4)
-    local view = ffi.cast<uint32[?]>(ptr)
-    view[0] = v
-    self.buf:commit(4)
-
-    return self
-end
-
---- Writes a host-endian signed 32-bit integer.
-function bytes.Writer:writeInt32(v: int32): bytes.Writer
-    local ptr = self.buf:reserve(4)
-    local view = ffi.cast<int32[?]>(ptr)
-    view[0] = v
-    self.buf:commit(4)
-
-    return self
-end
-
---- Writes a host-endian unsigned 64-bit integer.
-function bytes.Writer:writeUint64(v: uint64): bytes.Writer
-    local ptr = self.buf:reserve(8)
-    local view = ffi.cast<uint64[?]>(ptr)
-    view[0] = v
-    self.buf:commit(8)
-
-    return self
-end
-
---- Writes a host-endian signed 64-bit integer.
-function bytes.Writer:writeInt64(v: int64): bytes.Writer
-    local ptr = self.buf:reserve(8)
-    local view = ffi.cast<int64[?]>(ptr)
-    view[0] = v
-    self.buf:commit(8)
-
-    return self
-end
-
---- Writes a host-endian 32-bit float.
-function bytes.Writer:writeFloat32(v: float): bytes.Writer
-    local ptr = self.buf:reserve(4)
-    local view = ffi.cast<float[?]>(ptr)
-    view[0] = v
-    self.buf:commit(4)
-
-    return self
-end
-
---- Writes a host-endian 64-bit float.
-function bytes.Writer:writeFloat64(v: number): bytes.Writer
-    local ptr = self.buf:reserve(8)
-    local view = ffi.cast<number[?]>(ptr)
-    view[0] = v
-    self.buf:commit(8)
-
-    return self
-end
-
---- The buffer being written to, for `:tostring()`, passing to a C call, or handing off
---- to `bytes.newReader`.
-function bytes.Writer:buffer(): string.buffer.Buffer
-    return self.buf
-end
-
-return bytes
 ]=],
 ["/nupp/profile.nupp"] = [=[
 --[[
@@ -64382,7 +64062,7 @@ end
 --- @return the open file handle, owned by the caller
 --- @raises when the file cannot be opened
 @owned(close_file)
-function resources.openFile(path: string, mode: string?): LuaFile
+function resources.open_file(path: string, mode: string?): LuaFile
     local file, reason = io.open(path, mode)
     if not file then
         error(reason or "file open failed")
@@ -64401,7 +64081,7 @@ end
 --- @return the process pipe, owned by the caller
 --- @raises when the process pipe cannot be opened
 @owned(close_file)
-function resources.openProcess(command: string, mode: string?): LuaFile
+function resources.open_process(command: string, mode: string?): LuaFile
     local file, reason = io.popen(command, mode)
     if not file then
         error(reason or "process open failed")
@@ -64418,7 +64098,7 @@ end
 --- @return the open temporary file handle, owned by the caller
 --- @raises when the temporary file cannot be created
 @owned(close_file)
-function resources.temporaryFile(): LuaFile
+function resources.temporary_file(): LuaFile
     local file = io.tmpfile()
     if not file then
         error("temporary file creation failed")

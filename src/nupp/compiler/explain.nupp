@@ -362,6 +362,19 @@ local ENTRIES: {
     related = {"NUPP2602", "NUPP2603", "NUPP2010"},
     docs = "docs/type-system/packs.md#ownership-and-provenance",
 }, {
+    code = "NUPP2701",
+    summary = "A non-suspending region can reach suspension",
+    rule = "A `nosuspend` region and every cleanup contract must finish without "
+    .. "parking the current coroutine. Remove the yielding call, move it before "
+    .. "the protected region, or call an operation whose type or visible body "
+    .. "proves that it cannot suspend.",
+    wrong = "local function wait(): nil\n    coroutine.yield()\nend\n\n"
+    .. "nosuspend do\n    wait()\nend\n",
+    right = "local function finish(): nil\nend\n\n"
+    .. "nosuspend do\n    finish()\nend\n",
+    related = {"NUPP2602", "NUPP2603"},
+    docs = "docs/reference.md#suspension-regions",
+}, {
     code = "NUPP2206",
     summary = "Only a record or a struct can be constructed",
     rule = "`new` names a type and builds a value of it, so the operand "

@@ -454,10 +454,11 @@ end
 function M.stringBufferTypeIsNameable()
    assertClean(table.concat({
       "local buffer = require('string.buffer')",
-      "local function render(out: buffer.Buffer): buffer.Buffer",
+      "local function render(out: buffer.Buffer): buffer.Buffer borrows out",
       "   return out:putf('%d', 1)",
       "end",
-      "local s: string = render(buffer.new(64)):tostring()",
+      "local b = buffer.new(64)",
+      "local s: string = render(b):tostring()",
    }, "\n"))
    assertEq((diagsOf(table.concat({
       "local buffer = require('string.buffer')",
@@ -476,12 +477,16 @@ function M.stringBufferCoversTheWholeApi()
       "b:set('abc')",
       "b:encode({1})",
       "local decoded = b:decode()",
-      "local ptr, len = b:reserve(8)",
+      "do",
+      "   local ptr, len = b:reserve(8)",
+      "end",
       "b:commit(0)",
-      "local base, size = b:ref()",
-      "local n: integer = #b",
+      "do",
+      "   local base, size = b:ref()",
+      "   local n: integer = #b",
+      "   local all: string = b:tostring()",
+      "end",
       "local text: string = b:get(1)",
-      "local all: string = b:tostring()",
       "b:free()",
       "local encoded: string = buffer.encode(decoded)",
       "local back = buffer.decode(encoded)",
@@ -490,18 +495,39 @@ function M.stringBufferCoversTheWholeApi()
    }, "\n"))
 end
 
--- reserve/ref hand out the byte view the zero-copy loops in LuaJIT's manual
--- are written against, so it has to be indexable rather than an opaque
--- pointer: `ptr[i] = 0x40` is the whole point of reserving space.
-function M.stringBufferPointersAreIndexable()
-   assertClean(table.concat({
+function M.stringBufferBorrowBlocksInvalidation()
+   assertEq((diagsOf(table.concat({
       "local buffer = require('string.buffer')",
       "local b = buffer.new()",
-      "local ptr, available = b:reserve(64)",
-      "ptr[0] = 65",
+      "local base, size = b:ref()",
+      "b:reset()",
+      "print(base, size)",
+   }, "\n"))), "NUPP2602:4")
+end
+
+-- Pointer/length pairs are rooted by the buffer, then made bounds-carrying before
+-- indexing. Ending the pointer scope before commit/skip proves invalidation is safe.
+function M.stringBufferPointersBecomeCheckedSpans()
+   assertClean(table.concat({
+      "local buffer = require('string.buffer')",
+      "local spans = require('nupp.span')",
+      "local b = buffer.new()",
+      "local available: uint64 = 0",
+      "do",
+      "   local ptr, reserved = b:reserve(64)",
+      "   available = reserved",
+      "   with writable = spans.write_carray(ptr, reserved as integer) do",
+      "      writable:set(1, 65)",
+      "   end",
+      "end",
       "b:commit(1)",
-      "local base, len = b:ref()",
-      "local first: integer = base[0]",
+      "local len: uint64 = 0",
+      "do",
+      "   local base, readable = b:ref()",
+      "   len = readable",
+      "   local view = spans.from_carray(base, readable as integer)",
+      "   local first: integer = view:get(1)",
+      "end",
       "b:skip(len)",
       "local total: uint64 = available + len",
    }, "\n"))

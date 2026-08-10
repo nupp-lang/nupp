@@ -121,7 +121,7 @@ modelFunction = function(fn, structs, resolver)
         rets[1] = ret
     end
 
-    return T.func(params, rets, fn.vararg)
+    return T.func(params, rets, fn.vararg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, true)
 end
 
 -- Strips directives and comments; enough for a header that does not need a

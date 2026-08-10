@@ -98,8 +98,10 @@ function M.elementsAreReferencesIntoTheArray()
 end
 
 function M.fixedAndVariableLengthAreDistinct()
-   assertEq(diagsOf(P .. "\nlocal ps: P[4] = carray(P, 4)"), "NUPP2001",
-      "an allocation is variable-length, so it is not a P[4]")
+   assertEq(diagsOf(P .. "\nlocal ps: P[4] = carray(P, 4)"), "",
+      "a literal allocation count carries its fixed bound")
+   assertEq(diagsOf(P .. "\nlocal n = 4\nlocal ps: P[4] = carray(P, n)"),
+      "NUPP2001", "a dynamic allocation remains variable-length")
    assertEq(diagsOf(P .. "\nlocal a: P[4]\nlocal b: P[?] = a"), "",
       "a fixed array fits where any length is accepted")
    assertEq(diagsOf(P .. "\nlocal a: P[?]\nlocal b: P[4] = a"), "NUPP2001")

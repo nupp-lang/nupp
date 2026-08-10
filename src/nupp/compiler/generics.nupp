@@ -210,7 +210,7 @@ substWith = function(t: Type, map: Bindings, unmapped: string, norm: Normalizing
             -- Substitution changes what a function takes and answers, never whether
             -- calling it may suspend. Dropping the qualifier here would silently
             -- downgrade every generic call site to may-yield.
-            t.noYield, t.paramNames)
+            t.noYield, t.paramNames, t.preservesResults, t.foreign)
     end
 
     return t
@@ -379,7 +379,9 @@ function generics.instantiateFunction(t: T.Func, map: Bindings): T.Func
         concrete.yieldPack,
         concrete.resumePack,
         concrete.noYield,
-        concrete.paramNames
+        concrete.paramNames,
+        concrete.preservesResults,
+        concrete.foreign
     ) as T.Func
 end
 
@@ -724,9 +726,26 @@ function generics.dropSelf(ft: Type): Type
             names[#names + 1] = ft.paramNames and ft.paramNames[j] or ""
         end
         local paramPack = T.pack(params, ft.paramPack.tail, modes)
-        return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, ft.borrowsParam, ft.borrowsSelf, ft.borrowsParams, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
+        local preserves = {}
+        for result = 1, #ft.rets do
+            local source = ft.preservesResults and ft.preservesResults[result]
+            if source and source > 1 then
+                preserves[result] = source - 1
+            end
+        end
+        local borrowsSelf = ft.borrowsSelf or ft.borrowsParam == 1
+        local borrowsParam = ft.borrowsParam and ft.borrowsParam > 1 and ft.borrowsParam - 1 or nil
+        local borrowsParams = {}
+        for _, source in ipairs(ft.borrowsParams or {}) do
+            if source == 1 then
+                borrowsSelf = true
+            elseif source > 1 then
+                borrowsParams[#borrowsParams + 1] = source - 1
+            end
+        end
+        return T.func(params, ft.rets, ft.vararg, modes, nil, ft.typeParams, ft.typeBounds, borrowsParam, borrowsSelf, next(borrowsParams) and borrowsParams or nil, ft.ffiOut, ft.varargType, ft.noreturn, paramPack, ft.retPack, ft.packParams, ft.yieldPack, ft.resumePack,
             -- Adjusting the receiver rewrites a parameter list, not an effect.
-            ft.noYield, names)
+            ft.noYield, names, next(preserves) and preserves or nil, ft.foreign)
     end
 
     return ft
@@ -783,7 +802,18 @@ function generics.addSelf(ft: Type, selfType: Type, selfMode: string?): Type
         ft.yieldPack,
         ft.resumePack,
         ft.noYield,
-        names
+        names,
+        (function()
+            local shifted = {}
+            for result = 1, #ft.rets do
+                local source = ft.preservesResults and ft.preservesResults[result]
+                if source then
+                    shifted[result] = source + 1
+                end
+            end
+            return next(shifted) and shifted or nil
+        end)(),
+        ft.foreign
     )
 end
 

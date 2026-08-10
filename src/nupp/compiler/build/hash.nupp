@@ -185,6 +185,26 @@ local function mergeRound(acc, value)
     return acc * P1 + P4
 end
 
+-- These three reads are the only unchecked memory operations in XXH64. Their callers
+-- prove the byte offsets against `#input`; the cast views themselves carry no bound.
+local function wordAt(borrows words: const uint64[?], index: number): const uint64
+    unsafe do
+        return words[index]
+    end
+end
+
+local function halfAt(borrows halves: const uint32[?], index: number): const uint32
+    unsafe do
+        return halves[index]
+    end
+end
+
+local function byteAt(borrows bytes: const uint8[?], index: number): const uint8
+    unsafe do
+        return bytes[index]
+    end
+end
+
 --- XXH64 of `input` under `seed`, as a `uint64`.
 ---
 --- The published algorithm, so `tests/projecttest.lua` can hold its published answers
@@ -205,10 +225,10 @@ local function xxh64(input: string, seed: uint64): uint64
         local stripes = (size // 32) * 4
         local w = 0
         repeat
-            v1 = round(v1, words[w])
-            v2 = round(v2, words[w + 1])
-            v3 = round(v3, words[w + 2])
-            v4 = round(v4, words[w + 3])
+            v1 = round(v1, wordAt(words, w))
+            v2 = round(v2, wordAt(words, w + 1))
+            v3 = round(v3, wordAt(words, w + 2))
+            v4 = round(v4, wordAt(words, w + 3))
             w = w + 4
         until w >= stripes
         at = w * 8
@@ -222,20 +242,20 @@ local function xxh64(input: string, seed: uint64): uint64
     end
     h = h + size
     while size - at >= 8 do
-        h = bxor(h, round(0ULL, words[at // 8]))
+        h = bxor(h, round(0ULL, wordAt(words, at // 8)))
         h = rol(h, 27) * P1 + P4
         at = at + 8
     end
     if size - at >= 4 then
         local halves = ffi.cast<const uint32[?]>(input)
-        h = bxor(h, ffi.cast<uint64>(halves[at // 4]) * P1)
+        h = bxor(h, ffi.cast<uint64>(halfAt(halves, at // 4)) * P1)
         h = rol(h, 23) * P2 + P3
         at = at + 4
     end
     if at < size then
         local bytes = ffi.cast<const uint8[?]>(input)
         while at < size do
-            h = bxor(h, ffi.cast<uint64>(bytes[at]) * P5)
+            h = bxor(h, ffi.cast<uint64>(byteAt(bytes, at)) * P5)
             h = rol(h, 11) * P1
             at = at + 1
         end

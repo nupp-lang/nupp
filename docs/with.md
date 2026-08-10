@@ -87,8 +87,8 @@ if maybe then
 end
 ```
 
-`assert` will not do that for you — it does not carry ownership metadata
-through, so `nupp.dispose(assert(maybeOwned()))` reports NUPP2602.
+`assert` preserves the complete capability while narrowing, so the concise form
+is valid: `with value = assert(maybeOwned()) do ... end`.
 
 An acquisition can also be an owner you already hold, which moves it:
 
@@ -355,9 +355,7 @@ path and does not block it.
 
 ## What is deferred
 
-`with` covers lexical resource lifetimes and nothing wider. Named lifetimes,
-borrows stored in fields, ownership-preserving generic pass-throughs such as
-an ownership-aware `assert`, destructuring acquisition, and structured child
-coroutines borrowing from a parent scope are not part of it. The reasoning and
-the current state of each are recorded in `plans/with.md` in the repository,
-under "open questions".
+`with` covers lexical resource lifetimes and nothing wider. Borrowed nominal
+fields, capability-preserving generics, checked resource sets, and handled
+suspension compose with it, but named lifetimes and arbitrary affine table
+storage are deliberately not part of the construct.

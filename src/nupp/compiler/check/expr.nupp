@@ -270,14 +270,20 @@ function expr.install(c: state.Checker): nil
                         }
                     )
                     node.ownershipUseReported = true
-                elseif c.ownershipKind(entry.t) and (entry.functionDepth or 0) < c.functionDepth then
+                elseif c.ownershipKind(entry.t)
+                    and (entry.functionDepth or 0) < c.functionDepth
+                    and not (c.ownershipKind(entry.t) == "borrowed" and c.scopedCaptureDepth > 0)
+                then
                     -- The branch above is what proves it has one.
                     local capturedKind = c.ownershipKind(entry.t) as string
-                    c.diag(
-                        entry.withBinding and "NUPP2612" or "NUPP2603",
-                        node,
-                        ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
-                    )
+                    if not node.ownershipCaptureReported then
+                        c.diag(
+                            entry.withBinding and "NUPP2612" or "NUPP2603",
+                            node,
+                            ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
+                        )
+                        node.ownershipCaptureReported = true
+                    end
                 end
             end
             if entry and entry.globalModule and entry.globalModule ~= c.result.moduleName then

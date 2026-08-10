@@ -41,6 +41,7 @@ local MAX_CHAIN = 8
 type nosuspend.Ops = {
     readonly call: function(any),
     readonly callback: function(any, string),
+    readonly cleanup: function(any, any),
     readonly sweep: function(any)
 }
 
@@ -66,6 +67,14 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
 
     -- Callback bodies invoked from C, registered as implicit regions.
     local callbackRegions: {any} = {}
+    local cleanupContracts: {any} = {}
+
+    --- Registers a cleanup contract. Visible bodies are checked after effect inference;
+    --- bodyless declarations are part of the trusted boundary and their promise is
+    --- accepted, exactly as foreign ownership annotations are.
+    function ops.cleanup(cleanup: any, at: any)
+        cleanupContracts[#cleanupContracts + 1] = {cleanup = cleanup, at = at}
+    end
 
     --- Registers a function body that C will call, and which therefore cannot suspend.
     ---
@@ -168,6 +177,42 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     ---
     --- @param queries the analysis query surface, or nil when nothing was analyzed
     function ops.sweep(queries: any)
+        for _, candidate in ipairs(cleanupContracts) do
+            local cleanup = candidate.cleanup
+            local token = cleanup and cleanup.token
+            local info = token and queries and queries.known and queries.known(token) or nil
+            local mayYield = false
+            if cleanup and cleanup.functionType and cleanup.functionType.foreign then
+                mayYield = false
+            elseif info and info.summary then
+                mayYield = info.summary.top == true or info.summary.external == true or info.summary.yields == true
+                if mayYield and info.body then
+                    local calls = {}
+                    callsWithin(info.body, calls)
+                    local allTypedNonYielding = #calls > 0
+                    for _, call in ipairs(calls) do
+                        local target = call.calleeType or call.signatureType
+                        if not target or target.tag ~= "func" or not target.noYield then
+                            allTypedNonYielding = false
+                        end
+                    end
+                    if allTypedNonYielding then
+                        mayYield = false
+                    end
+                end
+            elseif cleanup and cleanup.functionType and cleanup.functionType.tag == "func" then
+                mayYield = cleanup.functionType.noYield ~= true and cleanup.visibleBody == true
+            end
+            if mayYield then
+                c.diag(
+                    "NUPP2701",
+                    candidate.at,
+                    ("cleanup %q may suspend while an obligation is being discharged"):format(cleanup.name),
+                    nil,
+                    {help = "make every cleanup call non-suspending, or move the suspension before cleanup begins"}
+                )
+            end
+        end
         for _, region in ipairs(callbackRegions) do
             local found: {any} = {}
             callsWithin(region.body, found)

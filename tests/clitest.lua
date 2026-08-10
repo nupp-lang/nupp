@@ -7,6 +7,7 @@ local spec = require("nupp.compiler.cli.spec")
 local sharedOptions = require("nupp.compiler.cli.options")
 local ansi = require("nupp.compiler.ansi")
 local cli = require("nupp.compiler.cli")
+local json = require("cjson").new()
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -292,6 +293,43 @@ function M.binaryPrintsCompletionScripts()
    local fish = capture("completions fish")
    assert(fish:find("complete -c nupp", 1, true),
       "the Fish script is available through the CLI")
+end
+
+function M.ownershipAuditEnumeratesForeignContractsAndUnsafeSites()
+   local dir = os.tmpname()
+   os.remove(dir)
+   assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+   local source = assert(io.open(dir .. "/surface.g.nupp", "wb"))
+   source:write(table.concat({
+      "cdef function lookup(borrows key: const char*): void* @borrowed(key)",
+      "unsafe do",
+      "   local raw = lookup('key')",
+      "   print(raw)",
+      "   local text = 'key'",
+      "   local bytes = ffi.cast<const uint8[?]>(text)",
+      "   print(bytes[0])",
+      "end",
+      "",
+   }, "\n"))
+   source:close()
+
+   local report = json.decode(capture(("ownership-audit --json '%s/surface.g.nupp'")
+      :format(dir)))
+   assert(#report.foreign == 1, "one foreign declaration is reported")
+   assert(report.foreign[1].name == "lookup", "the trusted function is named")
+   assert(report.foreign[1].parameters[1].contract == "borrows",
+      "the pointer parameter contract survives checking")
+   assert(#report.foreign[1].results == 1,
+      "the derived pointer result is included")
+   assert(#report.unsafe == 2 and report.unsafe[1].line == 2,
+      "the explicit unsafe boundary and operation are enumerable")
+   assert(report.unsafe[2].kind == "unchecked C memory indexing",
+      "the report names the trusted raw operation")
+
+   local schema = json.decode(capture("ownership-audit --schema"))
+   assert(schema.properties.foreign and schema.properties.unsafe,
+      "the machine report has a discoverable schema")
+   os.execute("rm -rf '" .. dir .. "'")
 end
 
 return M

@@ -44,6 +44,334 @@ local RESOURCE = table.concat({
 
 local M = {}
 
+function M.scalarGenericPreservationTransfersAnOwner()
+   assertClean(table.concat({
+      RESOURCE,
+      "local function id<T>(value: T): T preserves value",
+      "   return value",
+      "end",
+      "local value = resource_new()",
+      "local forwarded = id(value)",
+      "dispose(forwarded)",
+   }, "\n"))
+end
+
+function M.scalarGenericPreservationMovesItsInputExactlyOnce()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local function id<T>(value: T): T preserves value",
+      "   return value",
+      "end",
+      "local value = resource_new()",
+      "local forwarded = id(value)",
+      "print(value)",
+      "dispose(forwarded)",
+   }, "\n")), "NUPP2601")
+end
+
+function M.fixedPackPreservationCarriesTheExactResultSlot()
+   assertClean(table.concat({
+      RESOURCE,
+      "local function label<T>(value: T): (string, T preserves value)",
+      "   return 'resource', value",
+      "end",
+      "local name, forwarded = label(resource_new())",
+      "print(name)",
+      "dispose(forwarded)",
+   }, "\n"))
+end
+
+function M.assertPreservesAndNarrowsAnOptionalOwner()
+   assertClean(table.concat({
+      RESOURCE,
+      "local function cleanup(takes value: resource*?)",
+      "   if value then resource_free(value) end",
+      "end",
+      "@owned(cleanup)",
+      "cdef function maybe_resource(): resource*?",
+      "local value = assert(maybe_resource())",
+      "dispose(value)",
+   }, "\n"))
+end
+
+function M.aPreservesBodyMustReturnTheNamedParameter()
+   assertEq(codes(table.concat({
+      "local function wrong<T>(value: T, other: T): T preserves value",
+      "   return other",
+      "end",
+   }, "\n")), "NUPP2602")
+end
+
+function M.stringPointerProvenanceRejectsAnUnanchoredExpression()
+   assertEq(codes(table.concat({
+      "local pointer = ffi.cast<cstring>('a' .. 'b')",
+   }, "\n")), "NUPP2501")
+end
+
+function M.stringPointerProvenanceFollowsBindingsAndPreservation()
+   assertClean(table.concat({
+      "local function id<T>(value: T): T preserves value",
+      "   return value",
+      "end",
+      "local text = 'a' .. 'b'",
+      "local direct = ffi.cast<cstring>(text)",
+      "local forwarded = ffi.cast<cstring>(id(text))",
+      "print(direct, forwarded)",
+   }, "\n"))
+end
+
+function M.ffiGcCannotAttachASecondCleanupToAnOwner()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local value = resource_new()",
+      "ffi.gc(value, resource_free)",
+      "dispose(value)",
+   }, "\n")), "NUPP2603")
+end
+
+function M.anAliasedCFunctionKeepsItsForeignBoundary()
+   assertEq(codes(table.concat({
+      "cdef function inspect(value: voidptr)",
+      "local indirect = inspect",
+      "local raw = ffi.cast<voidptr>(8)",
+      "indirect(raw)",
+   }, "\n")), "NUPP2604")
+end
+
+function M.nominalRecordsCanRetainDeclaredBorrowedFields()
+   assertClean(table.concat({
+      "local record Buffer",
+      "   value: string",
+      "end",
+      "local function closeBuffer(value: Buffer) end",
+      "@owned(closeBuffer)",
+      "local function openBuffer(): Buffer",
+      "   return new Buffer {value = 'bytes'}",
+      "end",
+      "local function view(borrows source: Buffer): Buffer borrows source",
+      "   return source",
+      "end",
+      "local record Cursor",
+      "   source: Buffer",
+      "   bytes: Buffer borrows source",
+      "end",
+      "local source = openBuffer()",
+      "do",
+      "   local cursor = new Cursor {source = source, bytes = view(source)}",
+      "   print(cursor.bytes.value)",
+      "end",
+      "dispose(source)",
+   }, "\n"))
+end
+
+function M.aBorrowedFieldMustMatchItsDeclaredSiblingRoot()
+   assertEq(codes(table.concat({
+      "local record Buffer",
+      "   value: string",
+      "end",
+      "local function view(borrows source: Buffer): Buffer borrows source",
+      "   return source",
+      "end",
+      "local record Cursor",
+      "   source: Buffer",
+      "   bytes: Buffer borrows source",
+      "end",
+      "local left = new Buffer {value = 'left'}",
+      "local right = new Buffer {value = 'right'}",
+      "local cursor = new Cursor {source = left, bytes = view(right)}",
+   }, "\n")), "NUPP2619")
+end
+
+function M.aRecordCanOwnTheRootOfItsBorrowedField()
+   assertClean(table.concat({
+      RESOURCE,
+      "local record Parsed",
+      "   source: owned<resource*>",
+      "   view: resource* borrows source",
+      "end",
+      "local source = resource_new()",
+      "local parsed = new Parsed {source = source, view = borrow(source)}",
+      "print(parsed.view.value)",
+      "dispose(parsed)",
+   }, "\n"))
+end
+
+function M.anInternallyBorrowedRootFieldCannotMoveAlone()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local record Parsed",
+      "   source: owned<resource*>",
+      "   view: resource* borrows source",
+      "end",
+      "local source = resource_new()",
+      "local parsed = new Parsed {source = source, view = borrow(source)}",
+      "local detached = parsed.source",
+      "dispose(detached)",
+      "dispose(parsed)",
+   }, "\n")), "NUPP2602")
+end
+
+function M.scopedCallbacksMayCaptureABorrow()
+   assertClean(table.concat({
+      RESOURCE,
+      "local value = resource_new()",
+      "do",
+      "   local view = borrow(value)",
+      "   pcall(function() print(view.value) end)",
+      "end",
+      "dispose(value)",
+   }, "\n"))
+end
+
+function M.scopedCallbacksStillCannotCaptureOwners()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local value = resource_new()",
+      "pcall(function() print(value.value) end)",
+      "dispose(value)",
+   }, "\n")), "NUPP2603")
+end
+
+function M.coroutineChildrenCannotCaptureAParentBorrow()
+   assertEq(codes(table.concat({
+      RESOURCE,
+      "local suspension = require('nupp.suspension')",
+      "local value = resource_new()",
+      "do",
+      "   local view = borrow(value)",
+      "   local child = suspension.create(function() print(view.value) end)",
+      "   coroutine.resume(child)",
+      "end",
+      "dispose(value)",
+   }, "\n")), "NUPP2603")
+end
+
+function M.cleanupContractsCannotSuspend()
+   assertEq(codes(table.concat({
+      "local record Resource value: integer end",
+      "local function close(takes value: Resource)",
+      "   coroutine.yield()",
+      "end",
+      "@owned(close)",
+      "local function open(): Resource",
+      "   return new Resource {value = 1}",
+      "end",
+      "local value = open()",
+      "dispose(value)",
+   }, "\n")), "NUPP2603 NUPP2603 NUPP2701")
+end
+
+function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
+   local source = table.concat({
+      RESOURCE,
+      "local sets = require('nupp.resource_set')",
+      "with resources = sets.new('requests') do",
+      "   local value = resources:adopt(resource_new())",
+      "   print(value.value)",
+      "end",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   assert(code:find(":adopt%([^,]+,function%(__p%)"),
+      "adoption must receive the resolved discharge witness:\n" .. code)
+end
+
+function M.resourceSetsRequireAWitnessForOpaqueOwners()
+   assertEq(codes(table.concat({
+      "local sets = require('nupp.resource_set')",
+      "local record Request",
+      "   value: integer",
+      "end",
+      "@owned(opaque = true)",
+      "local function beginRequest(): Request return new Request {value = 1} end",
+      "with resources = sets.new('requests') do",
+      "   local request = resources:adopt(beginRequest())",
+      "end",
+   }, "\n")), "NUPP2602")
+end
+
+function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
+   assertClean(table.concat({
+      RESOURCE,
+      "local sets = require('nupp.resource_set')",
+      "with resources = sets.new('requests') do",
+      "   local borrowed = resources:adopt(resource_new())",
+      "   local returned = resources:remove(borrowed)",
+      "   dispose(returned)",
+      "end",
+   }, "\n"))
+end
+
+function M.aReifiedWitnessAttemptsEveryCleanupStep()
+   local source = table.concat({
+      "local sets = require('nupp.resource_set')",
+      "local calls = ''",
+      "local record Resource end",
+      "local function first(value: Resource)",
+      "   calls = calls .. 'a'",
+      "   error('first')",
+      "end",
+      "local function second(value: Resource)",
+      "   calls = calls .. 'b'",
+      "   error('second')",
+      "end",
+      "@owned(first, second)",
+      "local function open(): Resource return new Resource {} end",
+      "local ok = pcall(function()",
+      "   with resources = sets.new('test') do",
+      "      local value = resources:adopt(open())",
+      "      print(value)",
+      "   end",
+      "end)",
+      "return calls, ok",
+   }, "\n")
+   local result, diags = checked(source)
+   assertEq(#diags, 0, diags[1] and diags[1].msg or "check")
+   local code, genDiags = gen.generate(result, "ownership-test")
+   assertEq(#genDiags, 0)
+   local chunk, loadErr = loadstring(code, "@ownership-resource-set")
+   assert(chunk, tostring(loadErr) .. "\n" .. code)
+   local calls, ok = chunk()
+   assertEq(calls, "ab", "the witness attempts every cleanup in contract order")
+   assertEq(ok, false, "the aggregate still reports the primary failure")
+end
+
+function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
+   assertClean(table.concat({
+      "local spans = require('nupp.span')",
+      "local text = 'bytes'",
+      "local whole = spans.from_string(text)",
+      "local part = whole:slice(2, 4)",
+      "local byte: uint8 = part:get(1)",
+      "print(byte)",
+      "local storage: uint8[?] = ffi.new('uint8_t[4]') as any",
+      "with writable = spans.write_carray(storage, 4) do",
+      "   writable:set(1, 65)",
+      "end",
+   }, "\n"))
+end
+
+function M.borrowedCArrayIndexingStillNeedsABound()
+   assertEq(codes(table.concat({
+      "local text = 'bytes'",
+      "local pointer = ffi.cast<const uint8[?]>(text)",
+      "local byte = pointer[0]",
+   }, "\n")), "NUPP2604")
+end
+
+function M.aFixedCArrayAdmitsOnlyAStaticallyInBoundsIndex()
+   assertClean(table.concat({
+      "local bytes = ffi.new<uint8[4]>()",
+      "bytes[3] = 1",
+   }, "\n"))
+   assertEq(codes(table.concat({
+      "local bytes = ffi.new<uint8[4]>()",
+      "bytes[4] = 1",
+   }, "\n")), "NUPP2604")
+end
+
 -- A result declared `borrows p` is tied to the argument passed for p: that
 -- argument cannot be released while the result is live, and the result cannot
 -- outlive it. `borrows self` says the same about a method's receiver, which is
@@ -485,7 +813,7 @@ function M.exclusiveRequiresCallDurationExclusivity()
       "resource_free(value)",
    }, "\n")), "NUPP2602")
 
-   assertEq(codes(RESOURCE .. table.concat({
+   assertClean(RESOURCE .. table.concat({
       "",
       "local function reset(exclusive value: resource*)",
       "   value.value = 0",
@@ -494,6 +822,21 @@ function M.exclusiveRequiresCallDurationExclusivity()
       "do",
       "   local view = borrow(value)",
       "   reset(view)",
+      "end",
+      "resource_free(value)",
+   }, "\n"))
+
+   assertEq(codes(RESOURCE .. table.concat({
+      "",
+      "local function reset(exclusive value: resource*)",
+      "   value.value = 0",
+      "end",
+      "local value = resource_new()",
+      "do",
+      "   local first = borrow(value)",
+      "   local second = borrow(value)",
+      "   reset(first)",
+      "   print(second.value)",
       "end",
       "resource_free(value)",
    }, "\n")), "NUPP2602")
@@ -781,8 +1124,8 @@ function M.affineRecordsDisposeOwnedFieldsInReverseOrder()
    assertEq(chunk(), "ba", "fields close in reverse declaration order")
 end
 
-function M.affineRecordsRejectPartialFieldMoves()
-   local got = codes(table.concat({
+function M.affineRecordsTrackPartialFieldMoves()
+   assertClean(table.concat({
       "local record Res end",
       "local function closeRes(value: Res) end",
       "@owned(closeRes)",
@@ -792,9 +1135,23 @@ function M.affineRecordsRejectPartialFieldMoves()
       "end",
       "local bundle = new Bundle {value = openRes()}",
       "local value = bundle.value",
+      "dispose(value)",
+      "dispose(bundle)",
    }, "\n"))
-   assert(got:find("NUPP2602", 1, true),
-      "partial field move is rejected: " .. got)
+   assertEq(codes(table.concat({
+      "local record Res end",
+      "local function closeRes(value: Res) end",
+      "@owned(closeRes)",
+      "local function openRes(): Res return new Res {} end",
+      "local record Bundle",
+      "   value: owned<Res>",
+      "end",
+      "local bundle = new Bundle {value = openRes()}",
+      "local value = bundle.value",
+      "print(bundle.value)",
+      "dispose(value)",
+      "dispose(bundle)",
+   }, "\n")), "NUPP2601")
 end
 
 function M.customDisposersMustDischargeEveryOwnedField()
@@ -1375,6 +1732,19 @@ function M.aQualifiedFunctionCarriesItsOwnedContract()
       "local handle = m.open('x')",
    }, "\n")), "NUPP2603",
       "the owner from m.open still has to be discharged")
+end
+
+function M.aFunctionValuedFieldCanDeclareAnOwningProducer()
+   assertClean(table.concat({
+      RESOURCE,
+      "local record Api",
+      "   @owned(resource_free)",
+      "   open: function(): resource*",
+      "end",
+      "local api: Api = nil as any",
+      "local value = api.open()",
+      "dispose(value)",
+   }, "\n"))
 end
 
 -- The same fix without the ownership: a qualified function is a typed function,

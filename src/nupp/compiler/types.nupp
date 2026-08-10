@@ -136,6 +136,8 @@ record types.Cleanup
     key: string?
     name: string?
     functionType: types.Type?
+    token: any
+    visibleBody: boolean?
     field: string?
     cleanup: types.Cleanup?
 end
@@ -160,6 +162,23 @@ record types.Pinned
     id: string
     tag: 'pinned'
     inner: types.Type
+end
+
+--- The non-forgettable facts carried beside one payload. This record is the semantic
+--- scalar/pack carrier; wrapper types remain its allocation-free physical encoding.
+record types.Capability
+    id: string
+    obligation: 'none' | 'cleanup' | 'opaque' | 'pin'
+    cleanups: {types.Cleanup}
+    roots: {any}
+    retention: any
+    access: 'ordinary' | 'shared-borrow' | 'exclusive-borrow'
+end
+
+--- One value slot, independent of whether it came from a scalar expression or pack.
+record types.ValueSlot
+    payload: types.Type
+    capability: types.Capability
 end
 
 --- A read-only view.
@@ -287,6 +306,14 @@ record types.Func
 
     --- Every 1-based parameter a multi-source borrowed result depends on.
     borrowsParams: {integer}?
+
+    --- For each fixed result slot, the 1-based parameter whose complete capability
+    --- that result transports. A nil entry is a fresh or unrestricted result.
+    preservesResults: {integer}?
+
+    --- Whether this callable crosses the C boundary, including indirect pointers and
+    --- aliases whose declaration token is no longer available at the call site.
+    foreign: boolean?
 
     --- Logical C output parameters appended to the Lua return list.
     ffiOut: any
@@ -422,6 +449,16 @@ record types.Nominal
     --- Declared fields that carry affine values, in declaration order.
     affineFields: {string}?
 
+    --- Borrowed field to the sibling field that roots it. These are declaration
+    --- relations, not structural members, and therefore do not participate in
+    --- ordinary subtype elimination.
+    fieldBorrowSources: {[string]: string}?
+
+    borrowedRootFields: {[string]: boolean}?
+
+    --- The audited dynamic discharge container shipped by the standard library.
+    resourceSet: boolean?
+
     --- Ordered readable-field projections, keyed by their result arity.
     expansions: {[integer]: {string}}?
 
@@ -520,6 +557,22 @@ local arena: {[string]: types.Type} = {}
 
 local packArena: {[string]: types.Pack} = {}
 local packVarArena: {[string]: types.PackVar} = {}
+local capabilityArena: {[string]: types.Capability} = {}
+local capabilityIdentity = setmetatable({}, {__mode = "k"})
+local nextCapabilityIdentity: integer = 0
+
+local function flowIdentity(value: any): integer
+    if value == nil then
+        return 0
+    end
+    local found = capabilityIdentity[value]
+    if found then
+        return found
+    end
+    nextCapabilityIdentity = nextCapabilityIdentity + 1
+    capabilityIdentity[value] = nextCapabilityIdentity
+    return nextCapabilityIdentity
+end
 
 --- Returns the type interned under `key`, building it on first use.
 ---
@@ -778,7 +831,10 @@ function types.union(members: {types.Type}): types.Type
                     prior.packParams,
                     prior.yieldPack,
                     prior.resumePack,
-                    prior.noYield
+                    prior.noYield,
+                    nil,
+                    prior.preservesResults,
+                    prior.foreign
                 )
                 seen[prior] = nil
                 seen[merged] = true
@@ -971,6 +1027,78 @@ function types.unwrapOwnership(t: types.Type): types.Type
         return t.inner
     end
     return t
+end
+
+--- Exposes one canonical capability view over the existing erased wrapper encoding.
+--- Roots and retention are flow identities and are supplied by the checker rather than
+--- interned into structural payload types.
+local function capability(t: types.Type, roots: {any}?, retention: any?): types.Capability
+    local obligation: 'none' | 'cleanup' | 'opaque' | 'pin' = "none"
+    local access: 'ordinary' | 'shared-borrow' | 'exclusive-borrow' = "ordinary"
+    local cleanups: {types.Cleanup} = {}
+    if t.tag == "owned" then
+        cleanups = t.cleanups
+        obligation = #cleanups > 0 and "cleanup" or "opaque"
+    elseif t.tag == "borrowed" then
+        access = "shared-borrow"
+    elseif t.tag == "pinned" then
+        obligation = "pin"
+    end
+    local rootList, seenRoots = {}, {}
+    for _, root in ipairs(roots or {}) do
+        if root ~= nil and not seenRoots[root] then
+            seenRoots[root] = true
+            rootList[#rootList + 1] = root
+        end
+    end
+    table.sort(rootList, function(left: any, right: any): boolean
+        return flowIdentity(left) < flowIdentity(right)
+    end)
+    local ids = {}
+    for j, cleanup in ipairs(cleanups) do
+        ids[j] = cleanup.id
+    end
+    local rootIds = {}
+    for j, root in ipairs(rootList) do
+        rootIds[j] = tostring(flowIdentity(root))
+    end
+    local id = obligation .. ":" .. access .. ":" .. table.concat(ids, ",")
+        .. ":roots=" .. table.concat(rootIds, ",") .. ":retention=" .. tostring(flowIdentity(retention))
+    local found = capabilityArena[id]
+    if found then
+        return found
+    end
+    local made = new types.Capability {
+        id = id,
+        obligation = obligation,
+        cleanups = cleanups,
+        roots = rootList,
+        retention = retention,
+        access = access,
+    }
+    capabilityArena[id] = made
+    return made
+end
+
+local function valueSlot(t: types.Type, roots: {any}?, retention: any?): types.ValueSlot
+    return new types.ValueSlot {
+        payload = types.unwrapOwnership(t),
+        capability = capability(t, roots, retention),
+    }
+end
+
+--- Replaces only the payload of `source`, retaining its complete static capability.
+--- This is the scalar counterpart of substituting a value inside a pack slot.
+function types.withOwnershipPayload(source: types.Type, payload: types.Type): types.Type
+    local slot = valueSlot(source)
+    if slot.capability.obligation == "cleanup" or slot.capability.obligation == "opaque" then
+        return types.owned(payload, slot.capability.cleanups)
+    elseif slot.capability.access == "shared-borrow" then
+        return types.borrowed(payload)
+    elseif slot.capability.obligation == "pin" then
+        return types.pinned(payload)
+    end
+    return payload
 end
 
 local function packTailId(tail: any): string
@@ -1178,7 +1306,9 @@ function types.func(
     yieldPack: types.Pack?,
     resumePack: types.Pack?,
     noYield: boolean?,
-    paramNames: {string}?
+    paramNames: {string}?,
+    preservesResults: {integer}?,
+    foreign: boolean?
 ): types.Type
     -- A single declared result of `never` is a promise the call never comes back, the
     -- same promise `noreturn` records; deriving it here means a signature only has to
@@ -1257,11 +1387,22 @@ function types.func(
     if borrowsSelf then
         key = key .. "|borrowsself"
     end
+    if preservesResults then
+        for result = 1, #rets do
+            local source = preservesResults[result]
+            if source then
+                key = key .. "|preserves" .. tostring(result) .. ":" .. tostring(source)
+            end
+        end
+    end
     if noreturn then
         key = key .. "|noreturn"
     end
     if noYield then
         key = key .. "|noyield"
+    end
+    if foreign then
+        key = key .. "|foreign"
     end
     local unlabeledId = key
     if paramNames then
@@ -1284,6 +1425,8 @@ function types.func(
             borrowsParam = borrowsParam,
             borrowsSelf = borrowsSelf,
             borrowsParams = borrowsParams,
+            preservesResults = preservesResults,
+            foreign = foreign or nil,
             ffiOut = ffiOut,
             noreturn = noreturn or nil,
             noYield = noYield or nil,
@@ -1337,7 +1480,47 @@ function types.withYields(ft: types.Type, mayYield: boolean): types.Type
         fn.yieldPack,
         fn.resumePack,
         want,
-        fn.paramNames
+        fn.paramNames,
+        fn.preservesResults,
+        fn.foreign
+    )
+end
+
+--- Replaces a callable's first fixed result without dropping any other contract fact.
+function types.withFirstResult(ft: types.Type, first: types.Type): types.Type
+    if ft.tag ~= "func" or not ft.rets[1] or ft.retPack.alternatives then
+        return ft
+    end
+    local fn = ft as types.Func
+    local rets = {}
+    for j, result in ipairs(fn.rets) do
+        rets[j] = j == 1 and first or result
+    end
+    local retPack = types.pack(rets, fn.retPack.tail, fn.retPack.modes)
+
+    return types.func(
+        fn.params,
+        rets,
+        fn.vararg,
+        fn.paramModes,
+        fn.predicate,
+        fn.typeParams,
+        fn.typeBounds,
+        fn.borrowsParam,
+        fn.borrowsSelf,
+        fn.borrowsParams,
+        fn.ffiOut,
+        fn.varargType,
+        fn.noreturn,
+        fn.paramPack,
+        retPack,
+        fn.packParams,
+        fn.yieldPack,
+        fn.resumePack,
+        fn.noYield,
+        fn.paramNames,
+        fn.preservesResults,
+        fn.foreign
     )
 end
 
@@ -1573,13 +1756,23 @@ function types.tostring(t: types.Type): string
                 ps[#ps + 1] = "..."
             end
         end
+        local renderedResults = {}
+        for j, result in ipairs(t.retPack.head) do
+            local rendered = types.tostring(result)
+            local source = t.preservesResults and t.preservesResults[j]
+            if source then
+                local name = t.paramNames and t.paramNames[source]
+                rendered = rendered .. " preserves " .. (name and name ~= "" and name or ("#" .. tostring(source)))
+            end
+            renderedResults[j] = rendered
+        end
         local hasRet = #t.retPack.head > 0 or t.retPack.tail ~= nil or t.retPack.alternatives ~= nil
         local ret = ""
         if hasRet then
             ret = ": " .. (
-                #t.retPack.head == 1 and not t.retPack.tail and not t.retPack.alternatives and types.tostring(
-                    t.retPack.head[1]
-                ) or types.tostringPack(t.retPack)
+                #t.retPack.head == 1 and not t.retPack.tail and not t.retPack.alternatives and renderedResults[1]
+                or (t.retPack.alternatives or t.retPack.tail) and types.tostringPack(t.retPack)
+                or "(" .. table.concat(renderedResults, ", ") .. ")"
             )
         end
         local protocol = t.yieldPack and (

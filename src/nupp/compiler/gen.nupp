@@ -81,6 +81,7 @@ local TYPE_KINDS = {
     errorType = true,
     tpredicate = true,
     tborrows = true,
+    tpreserves = true,
     tliteral = true,
     tconst = true,
     tcarray = true,
@@ -412,6 +413,8 @@ function gen.generate(
 
     local needsFfi = false
     local needsArrayCache = false
+    local needsCArrayIndex = false
+    local carrayIndexName
     local needsLibs = false
     local needsNewTab = false
     local needsClearTab = false
@@ -1191,6 +1194,16 @@ function gen.generate(
             if x.args then
                 emit(x.args)
             end
+            return
+        end
+        if kind == "bracketIndex" and x.carrayBound then
+            needsCArrayIndex = true
+            carrayIndexName = carrayIndexName or reservedName("__nuppCArrayIndex")
+            emit(x.obj)
+            e("[")
+            e(carrayIndexName .. "(")
+            emit(x.expr)
+            e("," .. tostring(x.carrayBound) .. ")]")
             return
         end
         if kind == "call" and x.tableIntrinsic then
@@ -1988,6 +2001,34 @@ function gen.generate(
             end
             return
 
+        elseif kind == "methodCall" and x.resourceAdoptCleanups then
+            local line = sourceLine(x)
+            emit(x.obj)
+            e(":adopt(", line)
+            local args = x.args and x.args.exprs or {}
+            if args[1] then
+                emit(args[1])
+            else
+                e("nil")
+            end
+            e(",function(__p) local __first,__suppressed=nil,0; ")
+            for _, cleanup in ipairs(x.resourceAdoptCleanups) do
+                local call = protectedCleanupCall(cleanup, "__p", "pcall")
+                if call then
+                    e(
+                        "do local __ok,__reason=" .. call
+                        .. "; if not __ok then if __first==nil then __first=__reason "
+                        .. "else __suppressed=__suppressed+1 end end end; "
+                    )
+                end
+            end
+            e(
+                "if __first~=nil then if __suppressed>0 then "
+                .. "error(tostring(__first)..\" (suppressed \"..tostring(__suppressed)"
+                .. "..\" cleanup failure(s))\",0) else error(__first,0) end end end)"
+            )
+            return
+
         elseif kind == "methodCall" and x.overloadMember then
             -- The checker selected one overload statically. Its hidden member is a real
             -- Lua method, so colon syntax evaluates the receiver once and calls that
@@ -2700,6 +2741,12 @@ function gen.generate(
             .. "local a = __nuppArrayCache[ct] if not a then "
             .. 'a = __nuppFfi.typeof("$[?]", ct) __nuppArrayCache[ct] = a end '
             .. "return a end; "
+            .. code
+    end
+    if needsCArrayIndex then
+        code = ("local function %s(i,n) if i%%1~=0 or i<0 or i>=n then ")
+            :format(carrayIndexName)
+            .. "error('C array index out of bounds',2) end return i end; "
             .. code
     end
     if needsLibs then

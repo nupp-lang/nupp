@@ -69,7 +69,7 @@ type ownership.Ops = {
     liveSuspensionObligation: function(): string?,
 
     --- Records that an expression's owner has been handed over.
-    moveExpression: function(expr: any, t: Type?, reason: string, expectedKind: string?): boolean
+    moveExpression: function(expr: any, t: Type?, reason: string, expectedKind: string?, allowPartial: boolean?): boolean
 }
 
 --- Installs the ownership bookkeeping on one run.
@@ -103,7 +103,7 @@ function ownership.install(c: state.Checker): ownership.Ops
     --- Whether values of this type are pointers at run time.
     function own.pointerShaped(t: Type): boolean
         t = rawType(t)
-        if t.tag == "ptr" or t == T.cstring or t == T.voidptr then
+        if t.tag == "ptr" or t.tag == "carray" or t == T.cstring or t == T.voidptr then
             return true
         end
         if t.tag == "union" and t.hasNil then
@@ -186,6 +186,12 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             local cleanupT = cleanup.functionType or c.lookupVar(cleanup.name)
             local cleanupFunc = cleanupT and cleanupT.tag == "func" and cleanupT or nil
+            if cleanup.kind == "function" and c.nosuspend and c.nosuspend.cleanup then
+                local entry = c.lookupEntry(cleanup.name)
+                cleanup.token = entry and entry.definition and entry.definition.token or nil
+                cleanup.visibleBody = entry and entry.definition and not c.declarationFile or nil
+                c.nosuspend.cleanup(cleanup, at)
+            end
             local firstParam = cleanupFunc and cleanupFunc.params[1] or nil
             if not cleanupT then
                 c.diag(
@@ -308,6 +314,9 @@ function ownership.install(c: state.Checker): ownership.Ops
         if expr.borrowOwner then
             return own.borrowRoot(expr.borrowOwner)
         end
+        if expr.returnBorrowOwners and expr.returnBorrowOwners[1] and #expr.returnBorrowOwners[1] > 0 then
+            return own.borrowRoot(expr.returnBorrowOwners[1][1])
+        end
         if expr.kind == "name" then
             local entry = own.ownershipState(c.lookupEntry(expr.token.text))
             return own.borrowRoot(entry and (entry.borrowOwner or entry))
@@ -324,6 +333,12 @@ function ownership.install(c: state.Checker): ownership.Ops
                     return owner
                 end
             end
+        elseif expr.kind == "binop" then
+            local owner = own.provenanceOwner(expr.lhs)
+            if owner then
+                return owner
+            end
+            return own.provenanceOwner(expr.rhs)
         elseif expr.kind == "call" and expr.recordConstruct then
             local arguments = expr.args and expr.args.exprs or {}
             if expr.args and expr.args.table then
@@ -357,6 +372,15 @@ function ownership.install(c: state.Checker): ownership.Ops
             end
             return out
         end
+        if expr.returnBorrowOwners and expr.returnBorrowOwners[1] then
+            for _, owner in ipairs(expr.returnBorrowOwners[1]) do
+                owner = own.borrowRoot(owner)
+                if owner and not seen[owner] then
+                    seen[owner], out[#out + 1] = true, owner
+                end
+            end
+            return out
+        end
         local one = own.provenanceOwner(expr)
         if one and not seen[one] then
             seen[one], out[#out + 1] = true, one
@@ -373,6 +397,9 @@ function ownership.install(c: state.Checker): ownership.Ops
             for _, argument in ipairs(arguments) do
                 own.provenanceOwners(argument, out, seen)
             end
+        elseif expr.kind == "binop" then
+            own.provenanceOwners(expr.lhs, out, seen)
+            own.provenanceOwners(expr.rhs, out, seen)
         end
 
         return out
@@ -396,7 +423,7 @@ function ownership.install(c: state.Checker): ownership.Ops
         return nil
     end
 
-    function own.moveExpression(expr, t, reason, expectedKind)
+    function own.moveExpression(expr, t, reason, expectedKind, allowPartial)
         expectedKind = expectedKind or "owned"
         local disposer = c.disposerFieldStack[#c.disposerFieldStack]
         if disposer
@@ -423,12 +450,46 @@ function ownership.install(c: state.Checker): ownership.Ops
             c.diag("NUPP2602", expr, (reason or "ownership transfer") .. " requires a " .. expectedKind .. " value")
             return false
         end
-        if expr and (expr.kind == "dotIndex" or expr.kind == "bracketIndex") and expectedKind == "owned" then
-            c.diag(
-                "NUPP2602",
-                expr,
-                "partial moves from affine records are not supported; " .. "move or dispose the whole record"
-            )
+        if expr and expr.kind == "dotIndex" and expectedKind == "owned" then
+            local container = expr.obj and own.ownershipState((own.ownershipEntry(expr.obj))) or nil
+            local field = expr.name and expr.name.text
+            local aggregate = container and rawType(container.t) or nil
+            local declared = aggregate and aggregate.tag == "nominal" and aggregate.byname[field] or nil
+            if not container or own.ownershipKind(container.t) ~= "owned" or own.ownershipKind(declared) ~= "owned" then
+                c.diag("NUPP2602", expr, "only a declared affine field of a named owning record can move")
+                return false
+            end
+            container.movedFields = container.movedFields or {}
+            if container.movedFields[field] then
+                c.diag("NUPP2601", expr, ("owned field %q was already moved"):format(field))
+                return false
+            end
+            if aggregate
+                and aggregate.tag == "nominal"
+                and aggregate.borrowedRootFields
+                and aggregate.borrowedRootFields[field]
+            then
+                c.diag(
+                    "NUPP2602",
+                    expr,
+                    ("owned field %q cannot move while a sibling field borrows it"):format(field)
+                )
+                return false
+            end
+            if (container.activeBorrows or 0) > 0 then
+                c.diag("NUPP2602", expr, ("owned field %q cannot move while the record is borrowed"):format(field))
+                return false
+            end
+            container.movedFields[field] = true
+            container.movedFieldTypes = container.movedFieldTypes or {}
+            container.movedFieldTypes[field] = t
+            return true
+        elseif expr and expr.kind == "bracketIndex" and expectedKind == "owned" then
+            c.diag("NUPP2602", expr, "computed partial moves cannot prove which affine field moved")
+            return false
+        end
+        if entry and entry.movedFields and next(entry.movedFields) and not allowPartial then
+            c.diag("NUPP2602", nameNode or expr, "a partially moved record cannot be moved or consumed as a whole")
             return false
         end
         if entry then

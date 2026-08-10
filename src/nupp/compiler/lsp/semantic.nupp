@@ -209,6 +209,12 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
                     mark(child, "keyword")
                 end
             end
+        elseif kind == "tpreserves" then
+            for _, child in ipairs(node) do
+                if cst.isToken(child) and child.text == "preserves" then
+                    mark(child, "keyword")
+                end
+            end
         elseif kind == "tconst" then
             mark(node[1], "keyword")
         elseif kind == "funcbody" or kind == "tfunc" then

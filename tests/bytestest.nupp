@@ -40,7 +40,8 @@ function M.movesRawBytesAndTracksTheCursor(): nil
 end
 
 function M.wrapsExistingBuffers(): nil
-    local buf = buffer.new():put("head")
+    local buf = buffer.new()
+    buf:put("head")
     local writer = bytes.newWriter(buf)
     assert(writer:buffer() == buf)
     assert(writer:writeBytes(":"):writeUint8(33 as uint8) == writer)

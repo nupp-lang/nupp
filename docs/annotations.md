@@ -182,6 +182,8 @@ requires it to be transferred or explicitly discharged, and `nupp.dispose(value)
 invokes the named cleanup functions in source order. Bare `@owned` resolves
 the result type's unique inherited `@dispose` operation;
 `@owned(opaque = true)` is the explicit transfer-only form.
+It may also decorate a function-valued record or interface field to describe a
+bodyless owning producer directly.
 
 On a C function, `@owned(out = result, cleanup = free, success = zero)`
 describes a logical owned output parameter. `@borrowed(out = view,

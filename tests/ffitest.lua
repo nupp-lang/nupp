@@ -161,8 +161,11 @@ function M.castToACArrayIsAPointerCast()
    local allocated = codeFor("local w = ffi.sizeof<uint64[4]>()")
    assert(allocated:find('__nuppFfi.sizeof("uint64_t[4]"', 1, true),
       "an array spells as an array everywhere else:\n" .. allocated)
-   assertEq(run('local s = "ABC"\nlocal w = ffi.cast<const uint8[?]>(s)\nreturn w[1]'),
-      66)
+   assertEq(run(table.concat({
+      'local s = "ABC"',
+      'local w = ffi.cast<const uint8[?]>(s)',
+      'unsafe do return w[1] end',
+   }, "\n")), 66)
    assertEq(run("return ffi.sizeof<uint64[4]>()"), 32)
 end
 

@@ -186,6 +186,7 @@ local TYPED_LAYER: {
     tconst = "a type annotation",
     tliteral = "a type annotation",
     tborrows = "a type annotation",
+    tpreserves = "a type annotation",
     tpredicate = "a type annotation",
     ternary = "a type annotation",
 }
@@ -417,7 +418,7 @@ function checkMod.check(
         typeDefs = {},
         pending = {},
         parent = nil
-    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
+    }, retStack = {}, retPackStack = {}, ownReturnStack = {}, borrowReturnStack = {}, varargPackStack = {}, yieldPackStack = {}, resumePackStack = {}, protocolStack = {}, disposerFieldStack = {}, validatedCleanupContracts = {}, unsafeDepth = 0, noSuspendDepth = 0, handledDepth = 0, functionDepth = 0, scopedCaptureDepth = 0, captureWatches = {}, allowed = {}, nextStat = nil, hoisting = false, resolvingAlias = {}, lastCallRets = nil, moduleFields = {}, moduleFieldTokens = {}, moduleFieldConst = {}, moduleFieldValues = {}, constModulePaths = {}, moduleLocalAnnotated = false,}
     c.rootScope = c.scope
     c.recordEffect = function(effect: string)
         result.effects[effect] = true
@@ -958,12 +959,17 @@ function checkMod.check(
         return discarded
     end
 
-    local function inferListPack(exprs)
+    local function inferListPack(exprs, paramModes)
         local head, modes, tail = {}, {}, nil
         exprs = exprs or {}
         for j, e in ipairs(exprs) do
             c.lastCallRets = nil
+            local priorScoped = c.scopedCaptureDepth
+            if paramModes and paramModes[j] == "scoped" then
+                c.scopedCaptureDepth = priorScoped + 1
+            end
             local valueT = c.infer(e)
+            c.scopedCaptureDepth = priorScoped
             local produced = e.valuePack
             local pack = j == #exprs and EXPANDS[e.kind] and produced or nil
             if pack then

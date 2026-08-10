@@ -213,7 +213,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag("NUPP2614", args[1], "a visible 'with' borrow cannot be disposed")
                 end
                 if not withBorrow then
-                    c.moveExpression(args[1] or node, valueT, "dispose")
+                    c.moveExpression(args[1] or node, valueT, "dispose", nil, true)
                 end
                 if c.ownershipKind(valueT) == "owned" and #(disposed.cleanups or {}) == 0 then
                     c.diag(
@@ -224,7 +224,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     )
                 end
                 node.ownershipIntrinsic = "dispose"
-                node.ownerCleanups = disposed.cleanups or {}
+                node.ownerCleanups = {}
+                local state = args[1] and c.ownershipState((c.ownershipEntry(args[1]))) or nil
+                for _, cleanup in ipairs(disposed.cleanups or {}) do
+                    if not (cleanup.kind == "field" and state and state.movedFields and state.movedFields[cleanup.field]) then
+                        node.ownerCleanups[#node.ownerCleanups + 1] = cleanup
+                    end
+                end
                 return T.nil_
             end
         end
@@ -279,6 +285,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             callee.callCallee = true
         end
         local calleeT = callee and c.infer(callee) or T.any
+        if calleeT.tag == "func" and calleeT.foreign then
+            node.cdefCall = true
+        end
         if node.kind == "safeCall" then
             calleeT = withoutNil(calleeT)
         end
@@ -806,6 +815,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         if mt then
             local callable = mt.tag == "func"
+            local receiverMode = mt.tag == "func" and mt.paramModes[1] or "plain"
             if mt.tag == "intersection" then
                 callable = true
                 for _, signature in ipairs(mt.members) do
@@ -820,6 +830,46 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- o:m(...) desugars to m(o, ...): drop the self parameter
             local first, rets, pack = c.inferCall(node, callable and dropSelf(mt) or mt, node.args)
             local owner = rawType(ot)
+            if owner.tag == "nominal" and owner.resourceSet and member.text == "adopt" then
+                local adopted = node.argumentPack and T.packAt(node.argumentPack, 1) or nil
+                local cleanups = adopted and adopted.tag == "owned" and adopted.cleanups or nil
+                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
+                if cleanups and #cleanups > 0 then
+                    if actualArgs[2] then
+                        c.diag("NUPP2602", actualArgs[2], "a cleanup owner already carries its discharge contract")
+                    end
+                    node.resourceAdoptCleanups = cleanups
+                    node.resourceCapability = adopted
+                elseif cleanups and #cleanups == 0 then
+                    if not actualArgs[2] then
+                        c.diag("NUPP2602", node, "an opaque owner needs an explicit terminal consumer when adopted")
+                    end
+                    node.resourceCapability = adopted
+                else
+                    c.diag("NUPP2602", actualArgs[1] or node, "ResourceSet.adopt requires an owned value")
+                end
+            elseif owner.tag == "nominal" and owner.resourceSet and member.text == "remove" then
+                local actualArgs = node.args and node.args.kind == "args" and node.args.exprs or {}
+                local entry, nameNode = actualArgs[1] and c.ownershipEntry(actualArgs[1]) or nil
+                entry = c.ownershipState(entry)
+                if not entry or not entry.resourceCapability or entry.moved then
+                    c.diag("NUPP2602", actualArgs[1] or node, "ResourceSet.remove needs a live value returned by adopt")
+                else
+                    local capability = entry.resourceCapability
+                    entry.moved = true
+                    entry.movedAt = nameNode or actualArgs[1]
+                    if entry.borrowOwner then
+                        entry.borrowOwner.activeBorrows = math.max(0, (entry.borrowOwner.activeBorrows or 1) - 1)
+                        entry.borrowOwner = nil
+                    end
+                    for _, root in ipairs(entry.borrowOwners or {}) do
+                        root.activeBorrows = math.max(0, (root.activeBorrows or 1) - 1)
+                    end
+                    entry.borrowOwners = nil
+                    first, rets, pack = capability, {capability}, T.pack({capability})
+                    node.resourceCapability = capability
+                end
+            end
             if owner.tag == "nominal" and owner.overloadedMethods and owner.overloadedMethods[
                 member.text
             ] and node.overloadWinner then
@@ -830,6 +880,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 for _, entry in ipairs(dispatch) do
                     local candidate = dropSelf(specializeSelf(owner, entry.signature, owner))
                     if candidate.id == node.overloadWinner.id or entry.member == selectedMember then
+                        receiverMode = entry.signature.paramModes[1] or "plain"
                         node.overloadMember = entry.member
                         node.methodEntry = entry
                         c.markToken(member, entry.definition, specializeSelf(owner, entry.signature, owner), "method")
@@ -838,6 +889,27 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     end
                 end
                 node.overloadMember = node.overloadMember or selectedMember
+            end
+            if receiverMode == "takes" then
+                c.moveExpression(receiver, ot, "method receiver")
+            elseif receiverMode == "exclusive" then
+                local entry, nameNode = c.ownershipEntry(receiver)
+                entry = c.ownershipState(entry)
+                local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                if #roots == 0 then
+                    c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
+                else
+                    for _, root in ipairs(roots) do
+                        if (root.activeBorrows or 0) > 0 then
+                            c.diag(
+                                "NUPP2602",
+                                nameNode or receiver,
+                                "an exclusive receiver cannot invalidate a value while a derived borrow is live"
+                            )
+                            break
+                        end
+                    end
+                end
             end
             if optional then
                 local calledPack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))

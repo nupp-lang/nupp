@@ -76,6 +76,8 @@ return {
                {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
                {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
                {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
+               {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
+               {source = "src/nupp/resource_set.lua", output = "nupp/resource_set.lua"},
             },
          },
          -- Nupp stamped into a feature-matched host as one self-contained
@@ -97,6 +99,8 @@ return {
                {source = "src/nupp/resources.nupp", output = "nupp/compiler/nupp/resources.nupp"},
                {source = "src/nupp/zone.nupp", output = "nupp/compiler/nupp/zone.nupp"},
                {source = "src/nupp/profile.nupp", output = "nupp/compiler/nupp/profile.nupp"},
+               {source = "src/nupp/span.nupp", output = "nupp/compiler/nupp/span.nupp"},
+               {source = "src/nupp/resource_set.lua", output = "nupp/resource_set.lua"},
             },
             stub = "nupp",
             output = "build/dist/nupp",

@@ -718,6 +718,7 @@ function calls.install(c: state.Checker): calls.Ops
         end
         if constructible then
             local affineValues = {}
+            local deferredAffineRoots = {}
             local tbl = nil
             if argsNode and argsNode.table then
                 tbl = argsNode.table
@@ -828,7 +829,9 @@ function calls.install(c: state.Checker): calls.Ops
                             selectedSignature.yieldPack,
                             selectedSignature.resumePack,
                             selectedSignature.noYield,
-                            selectedSignature.paramNames
+                            selectedSignature.paramNames,
+                            selectedSignature.preservesResults,
+                            selectedSignature.foreign
                         )
                     end
                     node.valuePack = pack
@@ -837,6 +840,7 @@ function calls.install(c: state.Checker): calls.Ops
                 return first, rets, pack
             end
             local genericMap = calleeT.typeParams and {} or nil
+            local constructionFields = {}
             if tbl and calleeT.declKind == "record" then
                 -- tell the generator to stamp the metatable
                 node.recordConstruct = c.pathKey(node.obj) or calleeT.name
@@ -859,14 +863,21 @@ function calls.install(c: state.Checker): calls.Ops
                             c.diag("NUPP2202", f, ("no field %q in struct %s"):format(f.name.text, calleeT.name))
                         else
                             local vt = c.infer(f.value)
-                            if c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned" then
+                            constructionFields[f.name.text] = {node = f.value, type = vt}
+                            local borrowedRoot = calleeT.borrowedRootFields and calleeT.borrowedRootFields[f.name.text]
+                            local storesCapability = c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned"
+                            if storesCapability and (c.ownershipKind(vt) == "owned" or c.ownershipKind(vt) == "pinned") then
                                 affineValues[f.name.text] = vt
-                                c.moveExpression(f.value, vt, "affine record construction", c.ownershipKind(vt))
+                                if borrowedRoot then
+                                    deferredAffineRoots[f.name.text] = {node = f.value, type = vt}
+                                else
+                                    c.moveExpression(f.value, vt, "affine record construction", c.ownershipKind(vt))
+                                end
                             end
                             if genericMap then
                                 unify(ft, vt, genericMap)
                             end
-                            local ok, why = isA(vt, ft)
+                            local ok, why = isA(borrowedRoot and not storesCapability and rawType(vt) or vt, ft)
                             if not ok then
                                 c.diag("NUPP2202", f, ("field %q: %s"):format(f.name.text, why))
                             end
@@ -888,13 +899,22 @@ function calls.install(c: state.Checker): calls.Ops
                     if not cst.isToken(arg) then
                         local at = c.infer(arg)
                         local fname = order[j]
+                        if fname then
+                            constructionFields[fname] = {node = arg, type = at}
+                        end
                         local ft = fname and (calleeT.writeByname[fname] or calleeT.byname[fname])
-                        if fname and (c.ownershipKind(at) == "owned" or c.ownershipKind(at) == "pinned") then
+                        local borrowedRoot = fname and calleeT.borrowedRootFields and calleeT.borrowedRootFields[fname]
+                        local storesCapability = ft and (c.ownershipKind(ft) == "owned" or c.ownershipKind(ft) == "pinned")
+                        if fname and storesCapability and (c.ownershipKind(at) == "owned" or c.ownershipKind(at) == "pinned") then
                             affineValues[fname] = at
-                            c.moveExpression(arg, at, "affine record construction", c.ownershipKind(at))
+                            if borrowedRoot then
+                                deferredAffineRoots[fname] = {node = arg, type = at}
+                            else
+                                c.moveExpression(arg, at, "affine record construction", c.ownershipKind(at))
+                            end
                         end
                         if ft then
-                            local ok, why = isA(at, ft)
+                            local ok, why = isA(borrowedRoot and not storesCapability and rawType(at) or at, ft)
                             if not ok then
                                 c.diag("NUPP2202", arg, ("value %d (field %q): %s"):format(j, fname, why))
                             end
@@ -907,6 +927,59 @@ function calls.install(c: state.Checker): calls.Ops
                 ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, genericMap, node)
                 local inst = instantiateNominal(calleeT, genericMap)
                 return inst, {inst}
+            end
+            local aggregateRoots = {}
+            local rootSeen = {}
+            for field, source in pairs(calleeT.fieldBorrowSources or {}) do
+                local borrowedValue = constructionFields[field]
+                local rootValue = constructionFields[source]
+                if borrowedValue and rootValue then
+                    local actual = c.own.provenanceOwners(borrowedValue.node)
+                    local expected = c.own.provenanceOwners(rootValue.node)
+                    local matches = #actual > 0 and #expected > 0
+                    for _, root in ipairs(actual) do
+                        local found = false
+                        for _, candidate in ipairs(expected) do
+                            if root == candidate then
+                                found = true
+                            end
+                        end
+                        if not found then
+                            matches = false
+                        end
+                    end
+                    if not matches then
+                        c.diag(
+                            "NUPP2619",
+                            borrowedValue.node,
+                            ("field %q must derive from sibling root field %q"):format(field, source)
+                        )
+                    end
+                    local sourceType = calleeT.byname[source]
+                    local internalRoot = c.ownershipKind(sourceType) == "owned"
+                        or c.ownershipKind(sourceType) == "pinned"
+                    if not internalRoot then
+                        for _, root in ipairs(actual) do
+                            if not rootSeen[root] then
+                                rootSeen[root], aggregateRoots[#aggregateRoots + 1] = true, root
+                            end
+                        end
+                    end
+                end
+            end
+            -- A dependent field and its owned sibling transfer atomically into the
+            -- record. Validate their provenance first, then consume the root once; the
+            -- resulting aggregate owns the root and needs no external borrow edge.
+            for _, root in pairs(deferredAffineRoots) do
+                c.moveExpression(root.node, root.type, "affine record construction", c.ownershipKind(root.type))
+            end
+            if #aggregateRoots > 0 then
+                node.returnBorrowOwners = {[1] = aggregateRoots}
+                if #aggregateRoots == 1 then
+                    node.borrowOwner = aggregateRoots[1]
+                else
+                    node.borrowOwners = aggregateRoots
+                end
             end
             if calleeT.affineFields and #calleeT.affineFields > 0 then
                 local cleanups, opaque = {}, false
@@ -934,6 +1007,10 @@ function calls.install(c: state.Checker): calls.Ops
                 end
                 local owned = T.owned(calleeT, cleanups)
                 return owned, {owned}
+            end
+            if calleeT.fieldBorrowSources and next(calleeT.fieldBorrowSources) then
+                local borrowed = T.borrowed(calleeT)
+                return borrowed, {borrowed}
             end
             return calleeT, {calleeT}
         end
@@ -1280,7 +1357,7 @@ function calls.install(c: state.Checker): calls.Ops
             ats[1] = args[1].kind == "string" and T.string or T.any
             argPack = T.pack(ats)
         else
-            argPack = c.inferListPack(args)
+            argPack = c.inferListPack(args, calleeT.paramModes)
             ats = argPack.head
         end
         node.argumentPack = argPack
@@ -1367,6 +1444,14 @@ function calls.install(c: state.Checker): calls.Ops
         local paramPack, retPack = calleeT.paramPack, calleeT.retPack
         local declaredParamPack, declaredRetPack = paramPack, retPack
         local paramModes = calleeT.paramModes or {}
+        local preservesResults = calleeT.preservesResults or {}
+        local preservedByParam = {}
+        for result = 1, #calleeT.rets do
+            local source = preservesResults[result]
+            if source then
+                preservedByParam[source] = result
+            end
+        end
         local varargType = calleeT.varargType
         -- Only bind generics introduced by the callable itself. A callback type such as
         -- `function(A...): R...` inside an outer generic function mentions the outer
@@ -1414,6 +1499,20 @@ function calls.install(c: state.Checker): calls.Ops
             end
         end
 
+        -- Substitution determines only the payload. A preservation relation then
+        -- copies the argument slot's non-forgettable capability around that payload.
+        -- Rebuild the result pack before any caller observes either its scalar view or
+        -- its expansion.
+        if next(preservesResults) and not retPack.alternatives then
+            local adjusted = {}
+            for j, result in ipairs(retPack.head) do
+                local source = preservesResults[j]
+                adjusted[j] = source and ats[source] and T.withOwnershipPayload(ats[source], rawType(result)) or result
+            end
+            retPack = T.pack(adjusted, retPack.tail, retPack.modes)
+            rets = retPack.head
+        end
+
         -- The non-callback arguments have now bound this call's generics, so an
         -- unannotated short function can see the concrete callback signature. Its
         -- first pass used `any` only to select and specialize the call; replace that
@@ -1423,7 +1522,12 @@ function calls.install(c: state.Checker): calls.Ops
             local expected = params[j]
             local isFunction = not cst.isToken(arg) and (arg.kind == "shortfn" or arg.kind == "funcExpr")
             if isFunction and expected and rawType(expected).tag == "func" then
+                local priorScoped = c.scopedCaptureDepth
+                if paramModes[j] == "scoped" then
+                    c.scopedCaptureDepth = priorScoped + 1
+                end
                 ats[j] = c.apply.inferExpected(arg, expected)
+                c.scopedCaptureDepth = priorScoped
                 contextualArgs = true
             end
         end
@@ -1463,6 +1567,10 @@ function calls.install(c: state.Checker): calls.Ops
         for j = 1, math.min(actualCount, nparams) do
             local mode = paramModes[j] or "plain"
             local actualForCheck = ats[j]
+            local preservationResult = preservedByParam[j]
+            if preservationResult then
+                actualForCheck = rawType(actualForCheck)
+            end
             if node.cdefCall and c.ownershipKind(actualForCheck) == "pinned" then
                 actualForCheck = rawType(actualForCheck)
                 if not cst.isToken(argNodes[j]) then
@@ -1499,15 +1607,46 @@ function calls.install(c: state.Checker): calls.Ops
                         ("argument %d"):format(j)
                     )
                 end
+            elseif preservationResult then
+                local kind = c.ownershipKind(ats[j])
+                if kind == "owned" or kind == "pinned" then
+                    c.moveExpression(
+                        cst.isToken(argNodes[j]) and node or argNodes[j],
+                        ats[j],
+                        ("argument %d preserved as result %d"):format(j, preservationResult),
+                        kind
+                    )
+                end
+            elseif mode == "scoped" then
+                local callback = rawType(ats[j])
+                if callback ~= T.any and callback ~= T.unknown and callback.tag ~= "func" and callback.tag ~= "intersection" then
+                    c.diag("NUPP2602", argNodes[j] or node, "a scoped parameter requires a callback value")
+                end
             elseif mode == "exclusive" then
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
                 if c.ownershipKind(ats[j]) == "borrowed" then
-                    c.diag(
-                        "NUPP2602",
-                        argNodes[j] or node,
-                        "an exclusive parameter needs sole access, not a shared borrow"
-                    )
+                    local roots = {}
+                    if entry and entry.borrowOwner then
+                        roots[1] = entry.borrowOwner
+                    elseif entry and entry.borrowOwners then
+                        roots = entry.borrowOwners
+                    end
+                    local sole = #roots > 0
+                    for _, root in ipairs(roots) do
+                        -- One live borrow is this named argument itself. Any more means
+                        -- another view exists and the borrow cannot be upgraded.
+                        if (root.activeBorrows or 0) > 1 then
+                            sole = false
+                        end
+                    end
+                    if not sole then
+                        c.diag(
+                            "NUPP2602",
+                            argNodes[j] or node,
+                            "an exclusive parameter needs the sole live borrowed view"
+                        )
+                    end
                 elseif entry and (entry.activeBorrows or 0) > 0 then
                     c.diag(
                         "NUPP2602",
@@ -1523,13 +1662,17 @@ function calls.install(c: state.Checker): calls.Ops
                     argNodes[j] or node,
                     "an owner or borrow needs a borrows, exclusive, or takes contract"
                 )
-            elseif mode == "plain" and node.cdefCall and c.pointerShaped(ats[j]) and c.unsafeDepth == 0 then
-                c.diag(
-                    "NUPP2604",
-                    argNodes[j] or node,
-                    "passing a raw pointer to C requires unsafe do or a "
-                    .. "borrows, exclusive, takes, retains, or releases contract"
-                )
+            elseif mode == "plain" and node.cdefCall and c.pointerShaped(ats[j]) then
+                if c.unsafeDepth == 0 then
+                    c.diag(
+                        "NUPP2604",
+                        argNodes[j] or node,
+                        "passing a raw pointer to C requires unsafe do or a "
+                        .. "borrows, exclusive, takes, retains, or releases contract"
+                    )
+                else
+                    node.unsafeOwnershipOperation = "uncontracted foreign pointer argument"
+                end
             elseif mode == "retains" or mode == "releases" then
                 local entry, nameNode = c.ownershipEntry(argNodes[j])
                 entry = c.ownershipState(entry)
@@ -1552,6 +1695,40 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
         end
+        for result = 1, #calleeT.rets do
+            local source = preservesResults[result]
+            if source then
+            local owners = argumentBorrowOwners[source]
+            if not owners then
+                local sourceNode = argNodes[source]
+                local entry = sourceNode and c.ownershipEntry(sourceNode)
+                if entry then
+                    owners = {c.borrowRoot(entry)}
+                end
+            end
+            if owners then
+                node.returnBorrowOwners = node.returnBorrowOwners or {}
+                node.returnBorrowOwners[result] = owners
+                if result == 1 then
+                    if #owners == 1 then
+                        node.borrowOwner = owners[1]
+                    else
+                        node.borrowOwners = owners
+                    end
+                end
+            end
+            local sourceNode = argNodes[source]
+            local entry = sourceNode and c.ownershipEntry(sourceNode)
+            entry = c.ownershipState(entry)
+            if entry then
+                node.returnOwnershipStates = node.returnOwnershipStates or {}
+                node.returnOwnershipStates[result] = {
+                    retained = entry.retained or nil,
+                    ownershipOrigin = entry,
+                }
+            end
+            end
+        end
         -- A result declared `borrows p` is tied to whatever was passed for that
         -- parameter, so the call node carries the same borrow link a `borrow(owner)`
         -- expression would. Everything downstream — binding it, blocking a move of the
@@ -1572,11 +1749,13 @@ function calls.install(c: state.Checker): calls.Ops
             end
             local owners = {}
             for _, source in ipairs(sources) do
-                local entry = source and c.ownershipEntry(source)
-                if entry then
-                    owners[#owners + 1] = c.borrowRoot(entry)
+                local found = source and c.own.provenanceOwners(source) or {}
+                if #found > 0 then
+                    for _, root in ipairs(found) do
+                        owners[#owners + 1] = root
+                    end
                 elseif source then
-                    c.diag("NUPP2619", source, "a borrowed result needs named arguments to borrow from")
+                    c.diag("NUPP2619", source, "a borrowed result needs a rooted argument to borrow from")
                 end
             end
             if #owners == 1 then
@@ -1641,7 +1820,9 @@ function calls.install(c: state.Checker): calls.Ops
             calleeT.yieldPack,
             calleeT.resumePack,
             calleeT.noYield,
-            calleeT.paramNames
+            calleeT.paramNames,
+            calleeT.preservesResults,
+            calleeT.foreign
         )
 
         return T.packAt(retPack, 1) or T.nil_, retPack.head, retPack

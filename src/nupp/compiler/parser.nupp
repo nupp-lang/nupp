@@ -665,6 +665,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     elseif cur().kind == "name" and (
                         cur().text == "takes"
                         or cur().text == "borrows"
+                        or cur().text == "scoped"
                         or cur().text == "exclusive"
                         or cur().text == "retains"
                         or cur().text == "releases"
@@ -820,7 +821,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.types[1] = add(n, parseReturnType(stopAtFunctionMember))
             while allowBareList and cur().kind == "," and tokens[i + 1] and TYPE_START[tokens[i + 1].kind] do
                 add(n, advance()).typeSeparator = true
-                n.types[#n.types + 1] = add(n, parseType(nil, stopAtFunctionMember))
+                n.types[#n.types + 1] = add(n, parseReturnType(stopAtFunctionMember))
             end
             return n
         end
@@ -855,7 +856,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     n.tail = add(n, parseType(nil, stopAtFunctionMember))
                     break
                 end
-                local item = add(n, parseType(nil, stopAtFunctionMember))
+                local item = add(n, parseReturnType(stopAtFunctionMember))
                 if cur().kind == "..." then
                     if item.kind ~= "tname" then
                         errAt(cur(), "only a generic pack name may precede '...'")
@@ -1447,6 +1448,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                 if cur().kind == "name" and (
                     cur().text == "takes"
                     or cur().text == "borrows"
+                    or cur().text == "scoped"
                     or cur().text == "exclusive"
                     or cur().text == "retains"
                     or cur().text == "releases"
@@ -1516,6 +1518,16 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             return n
         end
         local result = parseType(nil, stopAtFunctionMember)
+        -- `T preserves p`: the result transports the complete capability of `p`.
+        if cur().kind == "name" and cur().text == "preserves" and tokens[
+            i + 1
+        ] and tokens[i + 1].kind == "name" then
+            local n = new cst.Tpreserves {kind = "tpreserves"}
+            n.type = add(n, result)
+            add(n, advance()) -- 'preserves'
+            n.param = add(n, advance())
+            return n
+        end
         -- `T borrows p`: the result is a borrow of parameter `p` and cannot outlive it.
         -- `borrows` stays contextual — it opens this form only directly after a return
         -- type and directly before a name, and no statement can begin that way. [CS-18]
@@ -1678,7 +1690,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     )
                 end
                 annotationColon(e, "in field declaration")
-                e.type = add(e, parseType())
+                e.type = add(e, parseReturnType())
             else
                 errAt(cur(), "field or nested declaration expected")
                 e = new cst.ErrorStmt {kind = "errorStmt"}
@@ -1784,6 +1796,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     if cur().kind == "name" and (
                         cur().text == "takes"
                         or cur().text == "borrows"
+                        or cur().text == "scoped"
                         or cur().text == "exclusive"
                         or cur().text == "retains"
                         or cur().text == "releases"

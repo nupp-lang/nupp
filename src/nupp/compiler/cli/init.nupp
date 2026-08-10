@@ -45,6 +45,8 @@ end}, {name = "tasks", load = function(): specMod.Handler
     return require("nupp.compiler.cli.tasks")
 end}, {name = "lints", load = function(): specMod.Handler
     return require("nupp.compiler.cli.lints")
+end}, {name = "ownership-audit", load = function(): specMod.Handler
+    return require("nupp.compiler.cli.ownership_audit")
 end}, {name = "explain", load = function(): specMod.Handler
     return require("nupp.compiler.cli.explain")
 end}, {name = "reference", load = function(): specMod.Handler

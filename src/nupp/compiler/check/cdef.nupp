@@ -225,9 +225,12 @@ function cdef.install(
             nil,
             nil,
             nil,
-            paramNames
+            paramNames,
+            nil,
+            true
         )
         local cdefName = stat.name
+        stat.signatureType = cdefType
         if not cdefName then
             return
         end

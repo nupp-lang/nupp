@@ -98,12 +98,16 @@ function index.install(c: state.Checker): state.ExprHandlers
         local ot = trackedObject
         local base = kind == "safeIndex" and ot.tag == "union" and T.union(ot.members) or ot
         base = rawType(base)
-        if base.tag == "ptr" and not c.ownershipKind(trackedObject) and c.unsafeDepth == 0 then
-            c.diag(
-                "NUPP2604",
-                node,
-                "dereferencing a raw pointer requires unsafe do; use an " .. "owned or borrowed value in checked code"
-            )
+        if base.tag == "ptr" and not c.ownershipKind(trackedObject) then
+            if c.unsafeDepth == 0 then
+                c.diag(
+                    "NUPP2604",
+                    node,
+                    "dereferencing a raw pointer requires unsafe do; use an " .. "owned or borrowed value in checked code"
+                )
+            else
+                node.unsafeOwnershipOperation = "raw pointer dereference"
+            end
         end
         -- A required module's exported records and structs are values as well as types:
         -- `geom.Point` both names the type and stamps instances. A declaration is not a
@@ -276,6 +280,19 @@ function index.install(c: state.Checker): state.ExprHandlers
             (node as any).compilerFeatureEffect = effect
             c.recordEffect(effect)
         end
+        local ownerState = target.kind == "name" and c.ownershipState((c.ownershipEntry(target))) or nil
+        if ownerState and ownerState.movedFields and ownerState.movedFields[memberName] and not node.writeContext then
+            c.diag("NUPP2601", node, ("owned field %q was moved and has not been reinitialized"):format(memberName))
+        end
+        if ownerState and c.ownershipKind(ft) == "owned" and c.ownershipKind(ownerState.t) == "owned" then
+            local exact = {}
+            for _, cleanup in ipairs(ownerState.t.cleanups or {}) do
+                if cleanup.kind == "field" and cleanup.field == memberName and cleanup.cleanup then
+                    exact[#exact + 1] = cleanup.cleanup
+                end
+            end
+            ft = T.owned(rawType(ft), exact)
+        end
         c.markToken(member, fieldDef, ft, "property")
         member.additionalDefinitions = fieldDefs
         local out = kind == "safeIndex" and T.optional(ft) or ft
@@ -298,14 +315,40 @@ function index.install(c: state.Checker): state.ExprHandlers
         local trackedObject = c.infer(target)
         local ot = rawType(trackedObject)
         local writing = node.writeContext == true
-        if ot.tag == "ptr" and not c.ownershipKind(trackedObject) and c.unsafeDepth == 0 then
-            c.diag(
-                "NUPP2604",
-                node,
-                "indexing a raw pointer requires unsafe do; use an owned " .. "or borrowed value in checked code"
-            )
-        end
         local it = c.infer(key)
+        local staticallyBounded = ot.tag == "carray"
+            and ot.count ~= nil
+            and it.tag == "literal"
+            and type(it.constant) == "number"
+            and it.constant % 1 == 0
+            and it.constant >= 0
+            and it.constant < ot.count
+        local literalIndex = it.tag == "literal"
+            and type(it.constant) == "number"
+            and it.constant % 1 == 0
+        local boundsReported = false
+        if ot.tag == "carray" and ot.count ~= nil and literalIndex and not staticallyBounded then
+            c.diag("NUPP2604", node, "fixed C array index is outside its declared bound")
+            boundsReported = true
+        elseif ot.tag == "carray" and ot.count ~= nil and not staticallyBounded then
+            node.carrayBound = ot.count
+        end
+        if (ot.tag == "ptr" or ot.tag == "carray") and not staticallyBounded then
+            if boundsReported then
+                -- The precise static bounds diagnostic above already explains it.
+            elseif node.carrayBound and c.unsafeDepth == 0 then
+                -- Code generation checks the dynamic index against this fixed bound.
+            elseif c.unsafeDepth == 0 then
+                c.diag(
+                    "NUPP2604",
+                    node,
+                    "indexing C memory requires unsafe do; use a checked span "
+                    .. "when a runtime bound is available"
+                )
+            else
+                node.unsafeOwnershipOperation = "unchecked C memory indexing"
+            end
+        end
         if ot == T.any or ot == T.table_ then
             return T.any
         end

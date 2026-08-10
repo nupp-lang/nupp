@@ -32,7 +32,7 @@ checked interfaces:
 - a raw pointer cannot be dereferenced, indexed, or passed through an
   uncontracted C parameter in checked code;
 - a record containing resources is itself an affine resource;
-- a coroutine cannot suspend while a resource or borrow obligation is live;
+- a raw or unknown coroutine suspension cannot strand a live obligation;
 - cleanup remains deterministic and does not depend on a GC finalizer.
 
 This is useful even in small programs because failures are reported at the
@@ -54,6 +54,9 @@ occasional use-after-free.
 | `releases p: T` | Imported C code stops keeping that pinned pointer before return. |
 | `T borrows p` | The result remains tied to parameter `p`. |
 | `T borrows(a, b)` | The result remains tied to every named source. |
+| `T preserves p` | The result transports the exact capability arriving through `p`. |
+| `scoped callback: function(...)` | The callback may capture borrows because the callee proves it cannot escape. |
+| `field: View borrows source` | A nominal field is tied to its declared sibling root. |
 | `owned<T>` | A value carrying one affine discharge obligation. |
 | `borrowed<T>` | A non-escaping value tied to another live binding. |
 | `pinned<T>` | An affine pointer plus a strong Lua anchor for C retention. |
@@ -64,6 +67,7 @@ occasional use-after-free.
 | `nupp.borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
 | `nupp.pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
 | `with x = acquire() do ... end` | Deterministically clean an owner on every exit. |
+| `sets.new(): ResourceSet` | A checked dynamic collection that reifies per-owner discharge. |
 | `unsafe do ... end` | Permit operations whose lifetime proof is deliberately abandoned. |
 
 All ownership syntax is erased or lowered to direct Lua/FFI operations. It
@@ -124,6 +128,16 @@ are `dispose`, a `takes` call, an ownership-preserving move, an `@owned` return,
 or `intoRaw` inside `unsafe`. Ignoring an owned call result is an error.
 
 `@owned` works on Nupp functions and managed Lua values too:
+
+A bodyless API may attach the same producer contract directly to a
+function-valued record or interface field:
+
+```nupp
+local interface Files
+   @owned(closeFile)
+   open: function(path: string): File
+end
+```
 
 ```nupp
 local record Channel
@@ -446,6 +460,25 @@ end
 Bodyless foreign declarations remain trusted contracts because there is no
 implementation to inspect.
 
+### Capability-preserving generics
+
+Payload type parameters do not erase the capability beside a value. A result
+relation names the input slot whose exact cleanup order, opacity, roots, pin,
+retention state, and affine identity move to the result:
+
+```nupp
+local id: function<T>(value: T): T preserves value
+
+local file = id(openFile("input"))
+nupp.dispose(file)
+```
+
+Visible identity and narrowing bodies infer this relation. Bodyless interfaces
+state it explicitly. `assert` and `setmetatable` use it, so narrowing an
+optional owner does not lose its producer-specific cleanup. A generic body
+that duplicates, stores, or abandons its argument remains callable for plain
+values but rejects an affine instantiation.
+
 ## Raw pointers and `unsafe`
 
 Raw pointers are allowed, but validity-dependent use requires `unsafe` unless
@@ -608,6 +641,10 @@ manual `dispose` or transfer when the exact lifetime matters. If the body and
 cleanup both fail, Nupp preserves the body failure as the primary error and
 reports the cleanup failure with it.
 
+Every cleanup function and `@dispose` body must be non-suspending. A foreign or
+bodyless cleanup makes this trusted promise; a visible body is checked from its
+transitive effect summary.
+
 ## Affine records and resource composition
 
 A record with `owned<T>` or `pinned<T>` fields is itself affine:
@@ -627,8 +664,10 @@ nupp.dispose(bundle) -- output, then input
 ```
 
 When no custom default exists, cleanup is synthesized in reverse field
-declaration order. Moving an individual affine field out of a live record is
-rejected because it would leave a partially initialized owner.
+declaration order. Individual affine fields may move out. Their path-sensitive
+state becomes moved, independent fields remain accessible, whole-record methods
+are refused, and synthesized disposal skips only fields proven moved. Assigning
+the same exact affine contract back reinitializes the field.
 
 A record may define a custom `@dispose` method. The checker requires that its
 body discharge every affine field, and it does that by handing each one to a
@@ -655,10 +694,50 @@ type carries a cleanup list, and a field spelled `owned<File>` records the
 obligation without recording how to discharge it; that reports `NUPP2602` and
 names the fix. The same applies inside a function to a `takes` parameter.
 
-Dynamic collections are different: the checker cannot statically count
-aliased table elements. Put the unsafe storage logic behind an owning
-container whose checked disposer closes every element. This keeps one audited
-unsafe core rather than spreading unchecked ownership through every caller.
+Nominal records may also retain declared borrows:
+
+```nupp
+local record Cursor
+   source: Buffer
+   bytes: Bytes borrows source
+end
+```
+
+Construction proves `bytes` derives from the sibling `source`; the source field
+cannot be replaced while the dependent field is live. Anonymous and dynamic
+table storage remains rejected.
+
+### Dynamic resource sets
+
+`nupp.resource_set` is the audited container for a runtime number of owners:
+
+```nupp
+local sets = require("nupp.resource_set")
+
+with resources = sets.new("request") do
+   local input = resources:adopt(openFile("in"))
+   local output = resources:adopt(openFile("out"))
+   copy(input, output)
+end
+```
+
+`adopt` moves the owner and returns a borrow tied to the set. The compiler
+reifies that producer's exact cleanup references only at this call. Set cleanup
+runs registrations in reverse order, attempts every cleanup step, and reports
+primary and suppressed failures. `remove` deletes one registration and returns
+the original capability exactly once. An opaque owner needs an explicit
+matching terminal consumer as the second argument.
+
+### Checked spans
+
+`nupp.span` provides `ByteSpan` and affine `ByteWriteSpan` views. They retain a
+root, carry a runtime element count, bounds-check every index and slice, and
+keep an invalidation barrier live for a write span until `commit` or scope exit.
+Direct pointer or variable-length C-array indexing has no runtime bound and is
+rejected even when its lifetime is rooted. A fixed C array rejects a literal
+index that is statically out of range and inserts a runtime check for every
+non-literal index. Conversion, unchecked indexing, and unknown pointer
+arithmetic remain inside the smallest possible `unsafe` block.
 
 ## Coroutines
 
@@ -674,8 +753,17 @@ local function task()
 end
 ```
 
-Yielding with no temporal obligation is valid. Suspending while an obligation
-is live is rejected.
+Yielding with no temporal obligation is valid. A checked suspension operation
+may cross obligations because it either blocks to completion or transfers a
+park to an installed handler whose cancellation must resume and unwind it.
+Lexically placing raw `coroutine.yield` inside a handled region does not bless
+it. Handler shutdown cancels every park before succeeding, and cleanup still
+cannot suspend while cancellation is discharging another obligation.
+
+Scoped callback parameters are the synchronous analogue: an inline closure may
+capture a borrow only when the visible callee proves it invokes the callback
+without storing, returning, retaining, or forwarding it to an unknown target.
+Owners are never captured by ordinary copyable closures.
 
 ## What is proved and what is trusted
 
@@ -691,6 +779,7 @@ is live is rejected.
 | C consumes, retains, or releases a pointer | Trusted | A header has no body or lifetime metadata. |
 | C borrowed output derives from the named input | Trusted | The foreign implementation is unavailable. |
 | Unsafe pointer manipulation is valid | Trusted locally | `unsafe` explicitly abandons the proof. |
+| A handled park eventually resumes or cancels | Trusted handler contract | Scheduler behavior is not derivable from a Lua value. |
 
 Indirect or untyped calls are conservative. If the checker cannot see a
 callee contract, an owner or borrow may not cross it. Convert through
@@ -706,11 +795,11 @@ callee contract, an owner or borrow may not cross it. Convert through
 - No automatic cleanup for ordinary locals. Determinism is explicit through
   `dispose`, `takes`, or `with`.
 - No inference of ownership from names such as `new`, `close`, or `free`.
-- No static accounting for a dynamic number of affine table elements.
+- No arbitrary affine table storage; dynamic ownership is confined to `ResourceSet`.
 - No proof of C implementation behavior, allocator pairing, cleanup body
   correctness, or unsafe code.
-- No implicit `ffi.gc`. Applications may still use it outside this ownership
-  model, but Nupp neither inserts nor depends on it.
+- No implicit `ffi.gc`; safe code also rejects attaching it to owned, borrowed,
+  pinned, or retained values because that would create a second cleanup path.
 
 The guarantee is consequently precise: safe Nupp code follows its visible
 resource contracts. Incorrect foreign contracts and unsafe blocks are the
@@ -732,3 +821,8 @@ Use this order when binding an API:
 
 This surface makes the common path short while preserving annotations exactly
 where inference cannot originate or where a stable public contract is useful.
+
+Run `nupp ownership-audit --json [file...]` to enumerate foreign pointer
+parameters/results, every explicit unsafe assertion region, and each recognized
+raw memory operation inside one. The report is an inventory of the trusted
+surface, not a claim that the foreign implementation was verified.

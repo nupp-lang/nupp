@@ -1,10 +1,9 @@
 # Ownership hardening
 
-Status: proposed umbrella plan. The existing ownership model, resource scopes,
-result packs, cleanup references, and the first handled-suspension pieces are
-implemented. This file defines the remaining work needed to make the ownership
-guarantee as strong as Nupp can make it without pretending to verify foreign
-code or an explicit `unsafe` assertion.
+Status: implemented. The proof-closure kernels, safe boundary abstractions,
+diagnostics, audit surface, and regression gates below landed together. The
+remaining refusals listed under Deliberate limits are part of the theorem, not
+unfinished implicit weakening.
 
 The detailed records for existing features remain authoritative for their
 feature-specific shape; this plan adds the stronger cross-cutting completion
@@ -20,6 +19,28 @@ criteria they must all satisfy:
 
 This plan owns the cross-cutting invariants, closes the gaps between those
 features, and supplies one ordered completion gate.
+
+## Implementation outcome
+
+The implementation keeps the erased wrapper representation but exposes one
+semantic `Capability` / `ValueSlot` API for payload-preserving transport. It
+adds exact `preserves` result relations, stable expression provenance, borrowed
+nominal fields, path-sensitive affine field moves, scoped callback effects,
+non-suspending cleanup checks, bounds-checked C arrays and byte spans, reified
+`ResourceSet` discharge witnesses, foreign-boundary hardening, function-field
+owning producers, and the `ownership-audit` command.
+
+The safety-first limits are explicit:
+
+- arbitrary table storage and ordinary owner-capturing closures remain
+  rejected;
+- raw or variable-length pointer indexing requires a checked span or `unsafe`;
+- structured children may not borrow a parent until a future structured task
+  API supplies a statically unavoidable join/cancel obligation; and
+- ownership tokens model token-shaped protocol state, not arbitrary typestate.
+
+Those rejections preserve the guarantee without adding runtime cost to normal
+owners. Only `ResourceSet` and checked span objects reify dynamic metadata.
 
 ## Decision
 

@@ -140,8 +140,19 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 ffiArgs[j] = c.infer(e)
             end
             if name == "new" or name == "cast" then
-                if name == "cast" and argT == T.cstring and ffiArgs[1] and isA(ffiArgs[1], T.string) then
-                    node.borrowOwner = c.ownershipEntry(argExprs[1])
+                if name == "cast" and c.pointerShaped(argT) and ffiArgs[1] and isA(ffiArgs[1], T.string) then
+                    local roots = c.own.provenanceOwners(argExprs[1])
+                    if #roots == 0 then
+                        c.diag(
+                            "NUPP2501",
+                            node,
+                            "a pointer into managed storage needs a named or preserved lifetime root"
+                        )
+                    elseif #roots == 1 then
+                        node.borrowOwner = roots[1]
+                    else
+                        node.borrowOwners = roots
+                    end
                     return T.borrowed(argT)
                 end
                 if name == "cast" and c.pointerShaped(argT) and ffiArgs[1] and rawType(ffiArgs[1]).tag == "func" then
@@ -163,6 +174,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                             nil,
                             {help = "keep the callback off hot paths, " .. "or call C with a plain pointer instead"}
                         )
+                        node.unsafeOwnershipOperation = "FFI callback creation"
                     end
                 end
                 if name == "cast" and ffiArgs[1] and c.ownershipKind(ffiArgs[1]) then
@@ -193,7 +205,13 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 return T.any
             end
             node.carrayElem = elemT.name
-            return T.carray(elemT, nil)
+            local count = countT.tag == "literal"
+                and type(countT.constant) == "number"
+                and countT.constant >= 0
+                and countT.constant % 1 == 0
+                and countT.constant
+                or nil
+            return T.carray(elemT, count as integer?)
 
         -- layoutof(Struct) answers how one is laid out in C memory: the fields in
         -- declaration order with their offsets, sizes and padding, the whole size, and
@@ -379,6 +397,16 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
             local valueT = args[1] and c.infer(args[1]) or T.any
             for j = 2, #args do
                 c.infer(args[j])
+            end
+            local entry = args[1] and c.ownershipEntry(args[1]) or nil
+            entry = c.ownershipState(entry)
+            if c.ownershipKind(valueT) or entry and entry.retained then
+                c.diag(
+                    "NUPP2603",
+                    args[1] or node,
+                    "ffi.gc would add an untracked second cleanup path to a capability-bearing value"
+                )
+                return rawType(valueT)
             end
             return valueT
         end
