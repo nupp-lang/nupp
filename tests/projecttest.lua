@@ -1292,4 +1292,54 @@ return {include = {"src"}, tasks = {greet = {argv = {"echo", "hi"}}}}
    remove(dir)
 end
 
+-- Enumeration used to shell out, and the two commands disagreed about what a
+-- relative root meant: `find` echoed the root it was given, `dir /s /b` always
+-- printed full paths. A project checked as "." therefore enumerated absolute
+-- paths on Windows, `moduleNameForPath` could not relate them to the root, and
+-- every module-qualified declaration left the project index at once.
+
+function M.aRelativeRootEnumeratesPathsItCanName()
+   -- The suite runs from the checkout, so "." is a real project and the same
+   -- spelling `nupp check` passes. What broke was not the count but the
+   -- relationship: an absolute path cannot be related to a relative root, so
+   -- `moduleNameForPath` answered nothing and `buildProjectIndex` skipped the
+   -- header entirely.
+   local env = compilerEnv.new(".")
+   local files = compilerEnv.listProjectFiles(env)
+   assert(#files > 0, "the checkout enumerates its own sources")
+   local unnamed = {}
+   for _, path in ipairs(files) do
+      if not compilerEnv.moduleNameForPath(env, path) then
+         unnamed[#unnamed + 1] = path
+      end
+   end
+   assertEq(#unnamed, 0,
+      "every path a relative root enumerates resolves to a module name; first: "
+      .. tostring(unnamed[1]))
+   assert(not files[1]:match("^/") and not files[1]:match("^%a:"),
+      "a relative root answers relative children: " .. files[1])
+end
+
+function M.sourceListingExcludesDeclarationFiles()
+   local dir = tempProject({
+      ["nupp.lua"] = "return {include = {\"src\"}}\n",
+      ["src/alpha.nupp"] = "return {}\n",
+      ["src/shapes.d.nupp"] = "local record shapes\n    x: integer\nend\nreturn shapes\n",
+   })
+   local env = compilerEnv.new(dir)
+   local withDeclarations = compilerEnv.listSourceFiles(env, true)
+   local without = compilerEnv.listSourceFiles(env, false)
+   local function declarations(files)
+      local n = 0
+      for _, path in ipairs(files) do
+         if path:sub(-7) == ".d.nupp" then n = n + 1 end
+      end
+      return n
+   end
+   assertEq(declarations(withDeclarations), 1, "asking for declarations answers them")
+   assertEq(declarations(without), 0,
+      "and a source listing excludes them on every platform")
+   remove(dir)
+end
+
 return M

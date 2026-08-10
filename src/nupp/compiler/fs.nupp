@@ -124,28 +124,38 @@ end
 
 --- Every regular file at or under `path`, normalized and sorted.
 ---
---- A symbolic link is resolved rather than reported as one, so a source tree
---- assembled out of links reads the same as one that was copied. That is what
---- `find` did and what the callers were written against.
+--- A relative root answers relative children and an absolute root answers
+--- absolute ones, on every platform. That is the property the callers depend on
+--- and the one a shell-out could not keep: `find` echoes the root it was handed
+--- while `dir /s /b` always prints full paths, so the same relative root read
+--- two different ways.
+---
+--- A symbolic link is neither followed nor reported, which is what `find -type
+--- f` answered and what this replaced. Two reasons, and the first is decisive:
+--- descending a link makes `src/loop -> ..` an enumeration that never ends,
+--- and nothing here holds a visited set to notice. The second is that including
+--- a link to a regular file would add entries no previous listing returned, and
+--- a build that copies or digests what this answers would start copying them.
 ---
 --- A directory that cannot be read contributes nothing rather than failing: a
---- project may name an include root it has not created yet, and the shell-out
---- this replaced answered the same way.
-local function listFiles(path: string): {string}
+--- project may name an include root it has not created yet.
+---
+--- `prune` is asked about each directory before it is descended into, by name
+--- and by path, and skips it when it answers true.
+local function listFiles(
+    path: string, prune: function(string, string): boolean | nil
+): {string}
     local files: {string} = {}
     local pending = {path}
     while #pending > 0 do
         local directory = table.remove(pending) as string
         for _, entry in ipairs(nupp.io.files.list(directory) or {}) do
             local child = join(directory, entry.name)
-            local kind = entry.kind
-            if kind == "symlink" then
-                local resolved = nupp.io.files.info(child)
-                kind = resolved and resolved.kind or "other"
-            end
-            if kind == "directory" then
-                pending[#pending + 1] = child
-            elseif kind == "file" then
+            if entry.kind == "directory" then
+                if not (prune and prune(entry.name, child)) then
+                    pending[#pending + 1] = child
+                end
+            elseif entry.kind == "file" then
                 files[#files + 1] = normalize(child)
             end
         end
