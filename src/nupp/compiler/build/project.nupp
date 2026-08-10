@@ -463,11 +463,20 @@ function project.runTask(root: string?, name: string, args: {string}?): integer
     return process.run(argv, {cwd = root, env = env})
 end
 
+-- What the compiler produced, which is what a fixpoint is a claim about.
+--
+-- A native provider is excluded because it is not the compiler's output: Cargo
+-- built it, into a target directory named after the stage, and a shared library
+-- records the path it was built in. Two stages therefore hold two different
+-- files that say the same thing, and comparing them would test Cargo's
+-- reproducibility rather than the compiler's. The generated Lua beside them is
+-- still compared byte for byte.
 local function treeDigest(path)
     local files, parts = listFiles(path), {}
     for _, file in ipairs(files) do
         local relative = file:sub(#normalize(path) + 2)
-        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" then
+        local native = relative:match("^native/") or relative:match("^lib/")
+        if relative ~= ".nupp-state.json" and relative ~= ".nupp-complete" and not native then
             parts[#parts + 1] = relative .. "\0" .. (hashFile(file) or "")
         end
     end

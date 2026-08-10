@@ -464,77 +464,50 @@ runs.
 Not covered: the language-server claim in the original exit test, which is F4's
 rather than this milestone's.
 
-### F4: adoption (blocked, and on more than it looked)
+### F4a: compiler adoption (done)
 
-Both halves were attempted and neither is a swap. Recorded here because
-"adoption" as one milestone hid two separate projects.
+`fs.listFiles` walks `nupp.io.files.list` and `fs.mkdir` calls
+`createDirectory`. The `find`/`dir` shell-out is gone, and with it the last
+place the compiler needed a shell to answer a question about its own sources.
+Reading and writing stay on `io.open`: a whole-file transfer settles on a worker
+thread, and a build reads thousands of small files, so the handoff would cost
+more than the read.
 
-**The compiler cannot adopt this without a Rust toolchain.** Rewriting
-`fs.listFiles` over `files.list` is ten lines, and it does not build:
+Three things had to be true first, and only the first was a decision.
 
-```
-src/nupp/compiler/fs.nupp:125: error: NUPP2004: no field "files" in
-  {Path: Library, URI: Library, newBuffer: ..., newStringReader: ...}
-```
+**Cargo is now a prerequisite for building Nupp at all.** Stage 0 reaches the
+provider while listing the sources it is about to compile, so there is no
+ordering in which the compiler builds it for itself. `bin/nupp` builds
+`runtime/native` with the `files` feature before it needs it, and exports
+`NUPP_NATIVE_LIBRARY`, because the compiler's own output tree puts `build/lib`
+one level further out than the generated loader looks. Help is exempt: it reads
+no source file and has to keep working in a tree holding the tracked bootstrap
+and nothing else.
 
-`bootstrap/nupp.lua` is a pre-generated compiler carrying the prelude it was
-generated from, and that prelude predates `nupp.io.files`. So the bootstrap has
-to be regenerated first, and then a fresh clone's bootstrap reaches
-`nupp.io.files` while listing the sources it is about to compile, which means
-`nupp_native` has to be built and loadable *before* the compiler runs at all.
-Building it needs Cargo:
+**`bootstrap/nupp.lua` was regenerated**, so a fresh clone's stage 0 knows the
+member.
 
-```
- Step                              Needs
- ────────────────────────────────  ──────────────────────────────────
- regenerate bootstrap/nupp.lua     a compiler that knows the member
- fresh clone runs ./bin/nupp       nupp_native, with the files feature
- build nupp_native                 Cargo
-```
+**`ffi.C` had to stop being typed from the process.** Loading the provider while
+listing sources changed what the checker believed `ffi.C` held, and displaced
+the compiler's own `_isatty`. That was an independent defect, fixed on its own
+branch first.
 
-Today Cargo is needed only by a target that selects a native facility. Adopting
-here makes it a prerequisite for building Nupp at all, and `bin/nupp` grows a
-Cargo invocation and a `NUPP_NATIVE_LIBRARY` export, since the staged
-`build/lib/nupp_native` is on neither path the generated loader tries. That is a
-decision about what the project depends on rather than a cleanup, and it is what
-F0 declined to take on its own authority.
+The fixpoint digest now excludes `lib/` and `native/`. A shared library records
+the path it was built in, and each stage builds into a target directory named
+after itself, so comparing them would test Cargo's reproducibility rather than
+the compiler's. The generated Lua beside them is still compared byte for byte.
 
-The shell-out is still worth deleting and the reason has not changed.
+Exit test met: a clean checkout with no `build/` bootstraps end to end, Cargo
+builds the provider, stage 0 lists its own sources through it, and `nupp check`,
+`nupp fixpoint` and the full suite pass in that clone. Not met: the same on
+Linux and Windows. This repository has no CI configuration, and only macOS was
+available here.
 
-**And under that sits a defect in how `ffi.C` is typed.** With the Cargo
-prerequisite accepted, the launcher wired to build and name the provider, and
-the bootstrap primed, the compiler still does not check itself:
+### F4b: tecs adoption (deferred, its own integration project)
 
-```
-src/nupp/compiler/ansi.nupp:131: error: NUPP2004: no field "_isatty" in
-  {nuppBytesData: ..., nuppFilesList: ..., nuppFsSubmitRead: ..., ...}
-```
-
-`ffi.C`'s type comes from `cNamespaceType`, which calls
-`cheader.declaredFunctions`, which walks **the running process's ctype table**
-rather than the declarations the checked program made. The set therefore depends
-on what has been `cdef`'d in the compiler's own process, and when. Loading the
-file provider while listing sources moves it. Here the compiler's own
-`_isatty`, which `ansi.nupp` declares and calls, was not in what came back.
-
-The window is not the cause: `MAX_CTYPE_ID` is 8192 and the provider adds about
-fifty symbols. What was *not* established is why the program's own declarations
-dropped out, only that the set the checker believes in moved when the load order
-did. That is the part to understand before changing anything.
-
-The fix is to type `ffi.C` from what the program declared, which is what the
-comment above `cNamespaceType` already claims it does. Until then a program that
-declares its own C functions cannot also use an FFI-backed standard facility.
-That is a limit worth knowing independently of this milestone.
-
-So the first half is blocked on three things, and only the first was a decision:
-the Cargo prerequisite (taken), the bootstrap regeneration (mechanical), and
-this (a defect, and not one this milestone should fix on the way past).
-
-**tecs is Teal, which this milestone did not account for.** "Swaps its imports"
-assumed a Nupp consumer. `tecs.io.files` is `.tl`, and `nupp.io.files` is an
-ambient global installed by a generated chunk rather than a module anything can
-`require`. Reaching it from Teal needs at least:
+Not a swap, and not this milestone's shape. `tecs.io.files` is Teal, and
+`nupp.io.files` is an ambient global installed by a generated chunk rather than
+a module a `.tl` file can require. Reaching it needs at least:
 
 - the `nupp` bootstrap chunk installed in tecs's runtime, so the global exists;
 - a `.d.tl` describing the surface, since Teal cannot read a `.d.nupp`;
@@ -542,13 +515,12 @@ ambient global installed by a generated chunk rather than a module anything can
 - `nupp/suspension.lua` staged, which for a Teal consumer nothing does; and
 - tecs's `taskruntime` adapted to the `Suspension` handler interface.
 
-The last is the interesting one and the rest is plumbing. None of it is an
-import swap, and the `readLink`/`userFolder` string-versus-`Path` divergence
-recorded under F0 sits on top of it.
+The last is the interesting one and the rest is plumbing. The
+`readLink`/`userFolder` string-versus-`Path` divergence recorded under F0 sits
+on top of it.
 
-Exit test, unchanged and unmet: tecs's own `files` tests pass against
-`nupp.io.files`; tecs links no SDL asynchronous I/O; the compiler spawns no
-process to read a directory.
+Exit test, unmet and deferred: tecs's own `files` tests pass against
+`nupp.io.files`, and tecs links no SDL asynchronous I/O.
 
 ## Test matrix
 

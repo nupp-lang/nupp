@@ -7,11 +7,15 @@ so the same file compares equal however it was named, and a write is atomic:
 content goes to a temporary beside the destination and is renamed over it, which
 is the only way a build interrupted halfway leaves no half-written module behind.
 
-Directory listing shells out, because Lua has no directory API and LuaJIT's FFI
-would need one implementation per platform to get one back.
-]]
+Listing a directory goes through [`nupp.io.files`](../../../docs/files.md), which
+is why the compiler is the first program that cannot be built without its native
+provider. It used to spawn `find` or `dir` per source tree, which was a process
+per listing and no answer at all on a platform without a shell.
 
-local process = require("nupp.compiler.build.process")
+Reading and writing stay on `io.open`. A whole-file transfer settles on a worker
+thread, and a build reads thousands of small files, so the handoff would cost
+more than the read.
+]]
 
 local fs = {}
 
@@ -68,7 +72,8 @@ local function mkdir(path: string): boolean
     if path == "" or path == "." then
         return true
     end
-    return process.run(process.mkdirCommand(path)) == 0
+
+    return (nupp.io.files.createDirectory(path))
 end
 
 local function writeFile(path: string, text: string): boolean?, string?
@@ -117,19 +122,33 @@ local function copyFile(source: string, destination: string): boolean?, string?
     return writeFile(destination, text)
 end
 
+--- Every regular file at or under `path`, normalized and sorted.
+---
+--- A symbolic link is resolved rather than reported as one, so a source tree
+--- assembled out of links reads the same as one that was copied. That is what
+--- `find` did and what the callers were written against.
+---
+--- A directory that cannot be read contributes nothing rather than failing: a
+--- project may name an include root it has not created yet, and the shell-out
+--- this replaced answered the same way.
 local function listFiles(path: string): {string}
-    local code, output
-    if package.config:sub(1, 1) == "\\" then
-        code, output = process.capture({"cmd", "/c", "dir", "/s", "/b", path})
-    else
-        code, output = process.capture({"find", path, "-type", "f"})
-    end
-    if code ~= 0 then
-        return {}
-    end
-    local files = {}
-    for file in output:gmatch("[^\r\n]+") do
-        files[#files + 1] = normalize(file)
+    local files: {string} = {}
+    local pending = {path}
+    while #pending > 0 do
+        local directory = table.remove(pending) as string
+        for _, entry in ipairs(nupp.io.files.list(directory) or {}) do
+            local child = join(directory, entry.name)
+            local kind = entry.kind
+            if kind == "symlink" then
+                local resolved = nupp.io.files.info(child)
+                kind = resolved and resolved.kind or "other"
+            end
+            if kind == "directory" then
+                pending[#pending + 1] = child
+            elseif kind == "file" then
+                files[#files + 1] = normalize(child)
+            end
+        end
     end
     table.sort(files)
 

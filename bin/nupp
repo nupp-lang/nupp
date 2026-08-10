@@ -26,6 +26,38 @@ LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;${LUA_CPATH:-;}"
 export LUA_PATH LUA_CPATH
 export NUPP_COMPILER_ROOT="$ROOT"
 
+# The compiler lists directories through `nupp.io.files`, so it needs that
+# facility's native provider the way any other program using one does. A built
+# program finds its library beside itself; the compiler's own output tree puts
+# `build/lib` one level further out than the generated loader looks, so name it
+# outright. Every interpreter this launcher starts inherits it.
+export NUPP_NATIVE_LIBRARY="$ROOT/build/lib/nupp_native"
+
+# Which makes Cargo a prerequisite for building Nupp at all, rather than only for
+# a target that asked for a native facility. Stage 0 reaches the provider while
+# listing the sources it is about to compile, so there is no ordering in which
+# the compiler builds it for itself first.
+NATIVE_MANIFEST="$ROOT/runtime/native/Cargo.toml"
+NATIVE_TARGET="$ROOT/build/native/nupp_native"
+build_native() {
+    command -v cargo >/dev/null 2>&1 || {
+        echo "nupp: cargo is not on PATH, and the compiler needs the native" \
+            "file provider to list its own sources" >&2
+        return 1
+    }
+    cargo build --release --manifest-path "$NATIVE_MANIFEST" \
+        --target-dir "$NATIVE_TARGET" --no-default-features --features files \
+        >/dev/null || return 1
+    mkdir -p "$ROOT/build/lib"
+    for name in libnupp_native.dylib libnupp_native.so nupp_native.dll; do
+        if [ -f "$NATIVE_TARGET/release/$name" ]; then
+            cp "$NATIVE_TARGET/release/$name" "$NUPP_NATIVE_LIBRARY" && return 0
+        fi
+    done
+    echo "nupp: cargo built no shared library for the file provider" >&2
+    return 1
+}
+
 # Generated Nupp is written in the LuaJIT 3.0 syntax that 2.1 backported, and
 # every command here either produces generated code or runs it, so an older
 # interpreter cannot do the job whatever it manages to load. Saying which build
@@ -90,9 +122,27 @@ build_now() {
 # their job twice or undoing it. `help` and a bare invocation answer without
 # reading a single source file.
 case "${1:-}" in
-    ""|-h|--help|help|build|clean) rebuild=no ;;
-    *) rebuild=yes ;;
+    ""|-h|--help|help) rebuild=no ;;
+    build|clean)       rebuild=no ;;
+    *)                 rebuild=yes ;;
 esac
+
+# Help never reads a source file, so it must keep working in a tree that has the
+# tracked bootstrap and nothing else. Everything else reaches the provider the
+# moment it lists a directory, and saying so beats an ffi.load traceback.
+needs_native=yes
+case "${1:-}" in
+    ""|-h|--help|help) needs_native=no ;;
+esac
+for argument in "$@"; do
+    case "$argument" in
+        -h|--help) needs_native=no ;;
+    esac
+done
+
+if [ "$needs_native" = yes ] && [ ! -f "$NUPP_NATIVE_LIBRARY" ]; then
+    build_native || exit 1
+fi
 
 if [ "$rebuild" = yes ] && ! built_is_current; then
     echo "nupp: sources changed, building the compiler" >&2
