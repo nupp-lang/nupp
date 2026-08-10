@@ -22685,6 +22685,9 @@ return compilePattern ( node . inner , binders )
 elseif kind == "tarray" then
 return T . matchPattern ( "array" , nil , nil , { compilePattern ( node . element , binders ) } )
 elseif kind == "ttuple" then
+if node . tail then
+c . diag ( "NUPP2132" , node . tail , "unpackof is not valid in a tuple pattern" )
+end
 local children = { }
 for j , child in ipairs ( node . types ) do
 children [ j ] = compilePattern ( child , binders )
@@ -23117,6 +23120,8 @@ if reductionError then
 c . diag ( "NUPP2130" , node , reductionError )
 end
 return reduced
+elseif kind == "ttypeerror" then
+return T . neutral ( "typeError" , c . resolveType ( node . message ) )
 elseif kind == "tmember" then
 local subject , key = c . resolveType ( node . object ) , c . resolveType ( node . key )
 local term = T . neutral ( "member" , subject , key , "read" )
@@ -23283,7 +23288,19 @@ local elems = { }
 for j , e in ipairs ( node . types ) do
 elems [ j ] = c . resolveType ( e )
 end
-return T . tuple ( elems )
+local prefix = T . tuple ( elems )
+if not node . tail then
+return prefix
+end
+local term = T . neutral ( "tupleConcat" , prefix , c . resolveType ( node . tail ) )
+if T . hasTypevar ( term ) then
+return term
+end
+local reduced , reductionError = generics . reduce ( term , { } , c . reducerMemo )
+if reductionError then
+c . diag ( "NUPP2132" , node . tail , reductionError )
+end
+return reduced
 elseif kind == "tpack" or kind == "tpackUnion" then
 c . diag ( "NUPP2121" , node , "a type pack may only appear in a value-sequence position" )
 return T . any
@@ -33815,6 +33832,16 @@ cst.Tkeyof = {} cst.Tkeyof.__index = cst.Tkeyof
 
 
 
+cst.Ttypeerror = {} cst.Ttypeerror.__index = cst.Ttypeerror
+
+
+
+
+
+
+
+
+
 cst.Twriteof = {} cst.Twriteof.__index = cst.Twriteof
 
 
@@ -33953,6 +33980,9 @@ cst.TshapeField = {} cst.TshapeField.__index = cst.TshapeField
 
 
 cst.Ttuple = {} cst.Ttuple.__index = cst.Ttuple
+
+
+
 
 
 
@@ -39503,6 +39533,7 @@ local cst = require ( "nupp.compiler.cst" )
 local T = require ( "nupp.compiler.types" )
 local annotationMod = require ( "nupp.compiler.annotations" )
 local native = require ( "nupp.compiler.native" )
+local fs = require ( "nupp.compiler.fs" )
 
 local envMod = { }
 
@@ -39817,9 +39848,18 @@ path = path : gsub ( "^%./" , "" ) : gsub ( "/%./" , "/" )
 return ( path : gsub ( "/$" , "" ) )
 end
 
-local function shellQuote ( text )
-return "'" .. text : gsub ( "'" , "'\\''" ) .. "'"
-end
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -39831,25 +39871,17 @@ end
 
 
 local function listLjppFiles ( root , withDeclarations )
-local command
-if package . config : sub ( 1 , 1 ) == "\\" then
-command = ( 'dir /s /b "%s\\*.nupp" 2>nul' ) : format ( root : gsub ( '"' , '""' ) )
-else
-command = "find " .. shellQuote (
-root
-) .. " -type d -name '.?*' -prune -o -type f -name '*.nupp'" .. (
-withDeclarations and "" or " ! -name '*.d.nupp'"
-) .. " -print 2>/dev/null"
-end
-local pipe = io . popen ( command )
-if not pipe then
-return { }
-end
 local files = { }
-for path in pipe : lines ( ) do
+
+local hidden = function ( name )
+return name : sub ( 1 , 1 ) == "."
+end
+for _ , path in ipairs ( fs . listFiles ( root , hidden ) ) do
+if path : sub ( - 5 ) == ".nupp"
+and ( withDeclarations or path : sub ( - 7 ) ~= ".d.nupp" ) then
 files [ # files + 1 ] = normalizePath ( path )
 end
-pipe : close ( )
+end
 
 return files
 end
@@ -43326,21 +43358,31 @@ end
 
 
 
-local function listFiles ( path )
+
+
+
+
+
+
+
+
+
+
+
+local function listFiles (
+path , prune
+)
 local files = { }
 local pending = { path }
 while # pending > 0 do
 local directory = table . remove ( pending )
 for _ , entry in ipairs ( nupp . io . files . list ( directory ) or { } ) do
 local child = join ( directory , entry . name )
-local kind = entry . kind
-if kind == "symlink" then
-local resolved = nupp . io . files . info ( child )
-kind = resolved and resolved . kind or "other"
-end
-if kind == "directory" then
+if entry . kind == "directory" then
+if not ( prune and prune ( entry . name , child ) ) then
 pending [ # pending + 1 ] = child
-elseif kind == "file" then
+end
+elseif entry . kind == "file" then
 files [ # files + 1 ] = normalize ( child )
 end
 end
@@ -47615,6 +47657,55 @@ end
 return T . union ( out )
 end
 
+
+
+local function reduceTypeError ( t , memo , budget )
+local message , err = normalize ( t . subject , memo , budget )
+if err then
+return T . any , err
+end
+return T . neutral ( "typeError" , message )
+end
+
+
+
+local function reduceTupleConcat ( t , memo , budget )
+local prefix , prefixError = normalize ( t . subject , memo , budget )
+if prefixError then
+return T . any , prefixError
+end
+local tail , tailError = normalize ( t . key , memo , budget )
+if tailError then
+return T . any , tailError
+end
+if prefix . tag == "neutral" and prefix . op == "typeError" then
+return prefix
+end
+if tail . tag == "neutral" and tail . op == "typeError" then
+return tail
+end
+if prefix . tag ~= "tuple" then
+return T . any , "tuple unpack prefix did not reduce to a tuple"
+end
+if tail . tag == "tuple" then
+local elems = { }
+for _ , elem in ipairs ( prefix . elems ) do
+elems [ # elems + 1 ] = elem
+end
+for _ , elem in ipairs ( tail . elems ) do
+elems [ # elems + 1 ] = elem
+end
+return T . tuple ( elems )
+end
+if tail . tag == "array" and tail . elem == T . never then
+return prefix
+end
+if T . hasTypevar ( tail ) or tail . tag == "neutral" then
+return T . neutral ( "tupleConcat" , prefix , tail )
+end
+return T . any , ( "tuple unpack must reduce to a tuple, got %s" ) : format ( T . tostring ( tail ) )
+end
+
 local function bindPattern ( binder , actual , captures )
 if not binder then
 return true
@@ -48036,6 +48127,8 @@ if out . tag == "union" or out . tag == "intersection" then
 memberCount = # out . members
 elseif out . tag == "shape" then
 memberCount = # out . fields
+elseif out . tag == "tuple" then
+memberCount = # out . elems
 end
 if memberCount > MAX_RECURSIVE_RESULT_MEMBERS then
 err = (
@@ -48074,6 +48167,10 @@ elseif t . op == "mapped" then
 out , err = reduceMapped ( t , memo , budget )
 elseif t . op == "template" then
 out , err = reduceTemplate ( t , memo , budget )
+elseif t . op == "typeError" then
+out , err = reduceTypeError ( t , memo , budget )
+elseif t . op == "tupleConcat" then
+out , err = reduceTupleConcat ( t , memo , budget )
 elseif t . op == "match" then
 out , err = reduceMatch ( t , memo , budget )
 elseif t . op == "alias" then
@@ -48283,7 +48380,20 @@ end
 return T . pack ( head , nil , modes )
 end
 if computed . tag == "array" then
+if computed . elem == T . never then
+return T . pack ( pack . head , nil , pack . modes )
+end
 return T . pack ( pack . head , { kind = "homogeneous" , type = computed . elem } , pack . modes )
+end
+if computed . tag == "neutral" and computed . op == "typeError" then
+local message , messageError = generics . reduce ( computed . subject )
+if messageError then
+return pack , messageError
+end
+if message . tag == "literal" and message . base == T . string then
+return pack , message . constant
+end
+return pack , "type-level error: " .. T . tostring ( message )
 end
 if computed == T . any or computed == T . unknown or computed . tag == "neutral" or computed . tag == "typevar" then
 return T . pack ( pack . head , { kind = "unknown" , type = T . any } , pack . modes )
@@ -56077,14 +56187,14 @@ end
 
 function peg . lower ( envelope , expected , env )
 if not expected then
-return nil , failure ( "NUPP2414" , "a PEG blueprint needs a directly declared nupp.peg.Matcher result type" )
+return nil , failure ( "NUPP2414" , "a PEG blueprint needs a directly declared nupp.peg.Peg result type" )
 end
 local validated , why = validateEnvelope ( envelope )
 if not validated then
 return nil , failure ( "NUPP2415" , why )
 end
-local pegTypes = env and env . globalTypes and env . globalTypes [ "nupp.Peg" ]
-local matcher = pegTypes and pegTypes . nestedTypes and pegTypes . nestedTypes . Matcher
+local pegTypes = env and env . globalTypes and env . globalTypes [ "nupp.peg" ]
+local matcher = pegTypes and pegTypes . nestedTypes and pegTypes . nestedTypes . Peg
 local resultType , actionReturns
 if # validated . slots == 0 then
 resultType = matcherResult ( expected , matcher )
@@ -57981,6 +58091,12 @@ end
 
 function native . decorateGlobals ( globals )
 local effects = { }
+local function decorate ( owner , member , effect )
+if owner then
+effects [ owner ] = effects [ owner ] or { }
+effects [ owner ] [ member ] = effect
+end
+end
 for path , effect in pairs ( byGlobal ) do
 local parts = { }
 for part in path : gmatch ( "[^.]+" ) do
@@ -57990,8 +58106,14 @@ local entry = globals [ parts [ 1 ] ]
 local t = entry and entry . t
 for index = 2 , # parts do
 if index == # parts and t then
-effects [ t ] = effects [ t ] or { }
-effects [ t ] [ parts [ index ] ] = effect
+decorate ( t , parts [ index ] , effect )
+
+
+
+
+
+local qualified = globals [ table . concat ( parts , "." , 1 , index - 1 ) ]
+decorate ( qualified and qualified . t , parts [ index ] , effect )
 end
 t = t and t . byname and t . byname [ parts [ index ] ] or nil
 end
@@ -60027,6 +60149,14 @@ add ( n , advance ( ) ) . contextualOp = true
 n . inner = add ( n , parseTypePrimary ( ) )
 return n
 end
+if kind == "name" and cur ( ) . text == "typeerror" and tokens [ i + 1 ] and tokens [ i + 1 ] . kind == "<" then
+local n = setmetatable( { kind = "ttypeerror" } , cst.Ttypeerror)
+add ( n , advance ( ) ) . contextualOp = true
+add ( n , advance ( ) ) . generic = true
+n . message = add ( n , parseType ( ) )
+add ( n , expect ( ">" , "to close typeerror message" ) ) . generic = true
+return n
+end
 if kind == "name" and cur ( ) . text == "writeof" and startsType (
 tokens [ i + 1 ]
 ) and tokens [ i + 1 ] . line == cur ( ) . line then
@@ -60216,6 +60346,13 @@ n . types = { add ( n , first ) }
 while cur ( ) . kind == "," do
 add ( n , advance ( ) )
 if cur ( ) . kind == "}" then
+break
+end
+if cur ( ) . kind == "name" and cur ( ) . text == "unpackof" and startsType (
+tokens [ i + 1 ]
+) and tokens [ i + 1 ] . line == cur ( ) . line then
+add ( n , advance ( ) ) . contextualOp = true
+n . tail = add ( n , parseType ( ) )
 break
 end
 n . types [ # n . types + 1 ] = add ( n , parseType ( ) )
@@ -63103,6 +63240,11 @@ expands in an argument, assignment, or return list; parentheses project one
 value. The explicit `...value` field projection described above is resolved
 before that adjustment.
 
+Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple produced by
+`Tail`; an array of `never` contributes no slots. `typeerror<Message>` carries a
+deliberate failure out of a reducer. When `unpackof` needs that result, it reports
+the authored message directly.
+
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's
 results or the failure value together. Discarding an affine slot while adjusting
@@ -64031,20 +64173,74 @@ body = [=[
 accepts LPeg-re-style byte grammar text at either phase and emits a pure-Lua
 matcher with no LPeg dependency. A call inside `comptime` returns an opaque
 blueprint, so its declaration writes the runtime type explicitly as
-`nupp.Peg.Matcher<R>`. An ordinary runtime call returns `Matcher<any>`.
+`nupp.peg.Peg<R>`. An ordinary runtime call returns `nupp.peg.Peg<any>` because
+the checker cannot derive a result type from a string that does not exist yet.
+`Backend`, `Action`, `Actions`, and `CompileOptions` are also direct types on
+the `nupp.peg` module.
+
+Calling a recognizer returns the 1-based byte position after its match; failure
+returns nil. `peg(subject, init)` and `peg:match(subject, init)` are equivalent.
+The default `init` is 1 and negative positions count from the end. Matching is
+not implicitly anchored, so append `!.` when the pattern must consume the whole
+subject.
+
+### Writing expressions
+
+The notation is byte-oriented. Whitespace is ignored between expressions and
+`--` comments run to the end of their line. Its precedence from tightest to
+loosest is primary expressions, suffixes, predicates, sequence, then ordered
+choice.
+
+| Form | Meaning |
+| --- | --- |
+| `'text'`, `"text"` | exact literal bytes |
+| `.` | any one byte |
+| `[a-z_]`, `[^0-9]` | one byte inside or outside a class |
+| `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hexadecimal byte |
+| `p q` | sequence |
+| `p / q` | ordered choice, trying `p` before `q` |
+| `p?`, `p*`, `p+` | optional, zero or more, or one or more |
+| `p^n`, `p^+n`, `p^-n` | exactly, at least, or at most `n` repetitions |
+| `&p`, `!p` | positive or negative predicate without consumption |
+| `{ p }` | substring capture |
+| `{}` | current byte-position capture |
+| `{| p |}` | collect the captures made by `p` into an array |
+| `p => name`, `p -> name` | transform the matched substring with action `name` |
+| `name <- p` | rule definition; the first rule is the start rule |
+| `name`, `<name>` | rule reference inside a grammar |
+| `!.` | end-of-input assertion |
+
+Quoted strings contain literal bytes and do not process backslash escapes. A
+class may contain ranges and predefined classes. The long predefined names are
+`%alpha`, `%cntrl`, `%digit`, `%graph`, `%lower`, `%nl`, `%punct`, `%space`,
+`%upper`, `%alnum`, and `%xdigit`; an uppercase one-letter form such as `%D`
+means the complement of its lowercase class.
+
+PEG choice is ordered rather than symmetric. Put a longer literal before its
+prefix: `'integer' / 'in'`, not `'in' / 'integer'`. Repetition is possessive
+and its body must consume input whenever it succeeds, so nullable expressions
+such as `('')*` are rejected. Parentheses group an expression before a suffix
+or make precedence explicit.
+
+### Captures and actions
 
 A capture `{ p }` returns its matched substring, `{}` returns the current byte
 position, and `{| p |}` makes several captures one explicit array result. The
 static matcher result type must agree: recognition and positions use `integer`,
-a substring uses `string`, and a homogeneous collection uses `{T}`.
+a substring uses `string`, an action uses the callback return type, and a
+homogeneous collection uses `{T}`. A matcher produces one top-level result;
+wrap multiple or repeated captures in a collection. Every ordered-choice arm
+must have the same capture shape.
 
 `p => name` or `p -> name` leaves a named callback open until runtime. For a
 static grammar the materialization boundary is a factory type,
-`function(Actions): nupp.Peg.Matcher<R>`. `Actions` must be a closed record or
+`function(Actions): nupp.peg.Peg<R>`. `Actions` must be a closed record or
 shape containing exactly the named slots, each with type `function(string): T`.
 The compiler binds those callbacks once when the factory is called. It invokes
 them only after the complete match succeeds, so PEG backtracking cannot cause
 user-code side effects.
+
+### Rules and validation
 
 Recursive grammars use `name <- p` definitions and `name` or `<name>`
 references. Every reference must resolve, repetitions may not contain a
@@ -64052,6 +64248,8 @@ nullable expression, ordered-choice capture shapes must agree, and left
 recursion is rejected. Those invalid grammars are **NUPP2417** while the common
 materialization boundary and size diagnostics remain **NUPP2414** through
 **NUPP2416**.
+
+### Compilation and backends
 
 Both phases lower to the same optimized plan and instantiate the same matcher
 factories. `auto`, the default backend, selects measured straight-line matchers
@@ -64068,21 +64266,24 @@ hosts that prefer predictable setup. Runtime action callbacks go in
 `{actions = callbacks}`. Static action callbacks remain factory inputs because
 comptime cannot capture runtime values.
 
-The notation supports quoted byte strings, `.`, byte classes and ranges,
-predefined ASCII classes such as `%a`, `%d`, `%s`, and `%w`, sequence, ordered
-choice `/`, predicates `&` and `!`, suffixes `+`, `*`, `?`, `^n`, `^+n`, and
-`^-n`, substring captures `{ p }`, position captures `{}`, collections
-`{| p |}`, and recursive `name <- p` rules. `!.` is end of input. The Nupp
-suffixes `=> name` and `-> name` bind a named runtime action slot. This is the
-byte-oriented LPeg-re floor, not full compatibility with every capture and
-definition facility in LPeg's `re` module.
+Runtime compilation parses data and builds a plan; it does not call
+`loadstring` or allocate native executable memory. This is the byte-oriented
+LPeg-re floor, not full compatibility with every capture, match-time operation,
+locale definition, or external-definition facility in LPeg's `re` module. See
+`docs/peg.md` and `examples/peg.nupp` for the full syntax guide and recipes.
 ]=] ,
 example = [=[
 local m = {}
 
-const Identifier: nupp.Peg.Matcher<integer> = comptime do
+const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]])
+end
+
+const Fields: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile([[
+        {| { [a-z]+ } (',' { [a-z]+ })* |} !.
     ]])
 end
 
@@ -64090,8 +64291,12 @@ function m.identifier(text: string): integer?
     return Identifier(text)
 end
 
-function m.matcher(grammar: string): nupp.Peg.Matcher<any>
+function m.matcher(grammar: string): nupp.peg.Peg<any>
     return nupp.peg.compile(grammar)
+end
+
+function m.fields(text: string): {string}?
+    return Fields(text)
 end
 
 return m
@@ -69099,6 +69304,16 @@ for j , part in ipairs ( t . templateParts or { } ) do
 parts [ j ] = type ( part ) == "string" and part or "${" .. types . tostring ( part ) .. "}"
 end
 return "`" .. table . concat ( parts ) .. "`"
+elseif t . op == "typeError" then
+return "typeerror<" .. types . tostring ( t . subject ) .. ">"
+elseif t . op == "tupleConcat" then
+local prefix = t . subject
+local parts = { }
+for j , elem in ipairs ( prefix . elems ) do
+parts [ j ] = types . tostring ( elem )
+end
+parts [ # parts + 1 ] = "unpackof " .. types . tostring ( t . key )
+return "{" .. table . concat ( parts , ", " ) .. "}"
 elseif t . op == "match" then
 local arms = { }
 for _ , arm in ipairs ( t . matchArms or { } ) do
@@ -71968,8 +72183,9 @@ local nupp: {
     --- Compiled Rust regular expressions.
     regex: nupp.Regex.Library,
 
-    --- Static byte-oriented parsing-expression grammars.
-    peg: nupp.Peg.Library,
+    --- Compile and run byte-oriented parsing-expression grammars.
+    --- @namespace
+    peg: nupp.peg,
 
     --- Type-directed keyed codecs materialized from semantic reflection.
     fieldcodec: nupp.FieldCodec.Library,
@@ -72013,32 +72229,173 @@ record nupp.__MaterializationTestAPI
     factory: function(): nupp.__MaterializationFactoryBlueprint
 end
 
---- Types for byte-oriented parsing-expression grammars.
-record nupp.Peg
-    --- Runtime controls for grammar compilation.
-    type CompileOptions = {
-        --- Runtime callbacks named by `=>` or `->` action slots.
-        actions: {[string]: function(string): any}?,
+--- Compiles textual parsing-expression grammars into reusable matchers.
+---
+--- `nupp.peg` has one construction operation, `compile`. It accepts the same
+--- expression language during compilation and at runtime. A constant call inside a
+--- `comptime` block is validated and materialized into the program; a call with a
+--- runtime string parses and caches the grammar when the program runs. Neither form
+--- requires LPeg to be installed.
+---
+--- PEGs use ordered choice. `first / second` tries `second` only when `first` fails,
+--- and a later failure may backtrack into an earlier choice. Sequence is written by
+--- placing expressions beside one another. The usual precedence, from tightest to
+--- loosest, is primary expressions, repetition and actions, predicates, sequence,
+--- then `/`.
+---
+--- #### Expression quick reference
+---
+--- | Expression | Meaning |
+--- | --- | --- |
+--- | `'text'` or `"text"` | the exact bytes in `text` |
+--- | `.` | any one byte |
+--- | `[a-z_]` | one byte from a class or range |
+--- | `[^0-9]` | one byte outside a class |
+--- | `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hex byte |
+--- | `p q` | `p` followed by `q` |
+--- | `p / q` | ordered choice: try `p`, then `q` |
+--- | `p*`, `p+`, `p?` | zero or more, one or more, or optional `p` |
+--- | `p^4`, `p^+4`, `p^-4` | exactly, at least, or at most four repetitions |
+--- | `&p`, `!p` | require `p`, or require that `p` fails, without consuming input |
+--- | `{ p }` | capture the substring consumed by `p` |
+--- | `{}` | capture the current 1-based byte position |
+--- | `{| p |}` | collect all captures produced by `p` into an array |
+--- | `p => name` | pass the matched substring to runtime action `name` |
+--- | `name <- p` | define a grammar rule; the first rule is the start rule |
+--- | `name` or `<name>` | refer to a rule inside a grammar |
+--- | `!.` | require end of input |
+---
+--- Whitespace separates expressions and is otherwise ignored. `--` starts a comment
+--- extending to the end of the line. Quoted strings contain their bytes literally;
+--- this grammar notation does not process backslash escapes. Use the other quote
+--- character when a literal needs one kind of quote.
+---
+--- #### Recognize a complete identifier
+---
+--- ```nupp
+--- const Identifier: nupp.peg.Peg<integer> = comptime do
+---     return nupp.peg.compile([[
+---         [a-zA-Z_] [a-zA-Z_0-9]* !.
+---     ]])
+--- end
+---
+--- assert(Identifier("name_2") == 7)
+--- assert(Identifier("2wrong") == nil)
+--- ```
+---
+--- A successful recognizer returns the byte position immediately after the match.
+--- Add `!.` when the pattern must consume the complete subject. Without it, a prefix
+--- match is successful.
+---
+--- #### Capture and convert a value
+---
+--- ```nupp
+--- local record NumberActions
+---     number: function(string): integer
+--- end
+---
+--- const NumberFactory:
+---     function(NumberActions): nupp.peg.Peg<integer> = comptime do
+---     return nupp.peg.compile("[0-9]+ => number !.")
+--- end
+---
+--- local Number = NumberFactory(new NumberActions {
+---     number = function(text: string): integer
+---         return assert(tonumber(text)) as integer
+---     end,
+--- })
+--- assert(Number("42") == 42)
+--- ```
+---
+--- Static action grammars materialize as factories because runtime callbacks cannot
+--- be captured during `comptime`. Runtime grammars instead receive callbacks through
+--- `CompileOptions.actions`.
+record nupp.peg
+    --- The implementation selected after the grammar has been parsed.
+    ---
+    --- `auto` is the default. It selects a shared specialized matcher for recognized
+    --- grammar shapes and otherwise falls back to the bytecode VM. `vm` always uses
+    --- the general bytecode implementation. Both backends have identical matching and
+    --- capture semantics.
+    type Backend = 'auto' | 'vm'
 
-        --- `auto` selects shared specializations; `vm` always uses bytecode.
-        backend: ('auto' | 'vm')?,
+    --- One runtime transformation named by an `=> name` or `-> name` expression.
+    --- The argument is the substring consumed by the expression. Its return value is
+    --- the action capture contributed to the match result.
+    type Action = function(string): any
+
+    --- Runtime action callbacks indexed by the names used in the grammar.
+    --- Every grammar slot must have a callback, and unknown callback names are
+    --- rejected. Static action grammars use a precisely typed factory record instead.
+    type Actions = {[string]: Action}
+
+    --- Controls grammar compilation.
+    ---
+    --- These options are deliberately small. At runtime, grammar source plus
+    --- `backend` identifies the cached parse and plan; callbacks are bound to the
+    --- returned matcher and are not part of the cache key. Static grammars may also
+    --- select a backend, while their actions remain typed factory inputs.
+    type CompileOptions = {
+        --- Runtime callbacks named by `=>` or `->` action slots. Omit this when the
+        --- grammar has no actions.
+        actions: Actions?,
+
+        --- Matcher implementation, `auto` when omitted.
+        backend: Backend?,
     }
 
-    --- A reusable materialized PEG matcher with one declared result.
-    record Matcher<R>
-        --- Matches from `init`, returning a capture or the next byte position.
+    --- A compiled and reusable parsing-expression grammar.
+    ---
+    --- `R` is the grammar's single result. A recognizer or `{}` position capture uses
+    --- `integer`, `{ p }` uses `string`, an action uses its callback return type, and
+    --- `{| p |}` uses an array such as `{string}`. A grammar may produce at most one
+    --- top-level result; wrap several captures in a collection.
+    ---
+    --- Matchers are immutable and callable. `peg(subject, init)` is exactly
+    --- `peg:match(subject, init)`.
+    record Peg<R>
+        --- Matches `subject` beginning at a 1-based byte position.
+        ---
+        --- The default `init` is 1. A negative position counts from the end in the
+        --- same way as Lua string operations; positions before the beginning clamp to
+        --- 1, and positions after `#subject + 1` fail. Success returns the grammar's
+        --- capture or, for a recognizer, the next byte position. Failure returns nil.
+        ---
+        --- ```nupp
+        --- local Word = nupp.peg.compile("{ [a-z]+ }")
+        --- assert(Word:match("one two", 5) == "two")
+        --- assert(Word("123") == nil)
+        --- ```
+        --- @param self the compiled grammar
+        --- @param subject bytes to match
+        --- @param init 1-based starting byte position, 1 when omitted
+        --- @return the grammar result, or nil when the match fails
         match: function(self, subject: string, init: integer?): R?
 
         metamethod __call: function(self, subject: string, init: integer?): R?
     end
 
-    --- Compiles LPeg-re-style grammar text at compile time or run time.
-    record Library
-        compile: function(
-            source: string,
-            options: CompileOptions?
-        ): Matcher<any>
-    end
+    --- Compiles an LPeg-re-style byte grammar at compile time or runtime.
+    ---
+    --- A runtime call returns `Peg<any>` because the grammar string is not generally
+    --- known to the checker. Give a `comptime` call an explicit `Peg<R>` declaration
+    --- so the materializer can verify its capture shape. A static grammar containing
+    --- actions produces a typed factory instead of a matcher.
+    ---
+    --- ```nupp
+    --- local Words = nupp.peg.compile(
+    ---     "{| { [a-z]+ } (',' { [a-z]+ })* |} !."
+    --- )
+    --- local values = assert(Words("red,green,blue")) as {string}
+    --- assert(values[2] == "green")
+    ---
+    --- local Portable = nupp.peg.compile("[0-9]+ !.", {backend = "vm"})
+    --- assert(Portable("123") ~= nil)
+    --- ```
+    --- @param source grammar expression or rule definitions
+    --- @param options runtime actions and backend selection
+    --- @return the compiled reusable matcher
+    compile: function(source: string, options: CompileOptions?): Peg<any>
 end
 
 --- An immutable compile-time description of one resolved semantic type.
@@ -73447,87 +73804,144 @@ local _VERSION: string
 -- `string.format` derives its trailing parameter pack from a literal first argument.
 -- These aliases are deliberately private implementation vocabulary: the public
 -- surface is the ordinary function below, and a nonliteral format reduces to `any`.
-local type __NuppFormatError<Message> = {readonly formatError: Message}
+local type __NuppFormatError<Seen, Rest> =
+    typeerror<`invalid string.format directive starting at "%${Seen}${Rest}"`>
 
 local type __NuppFormatBuild<State> = match State
-    when {'scan', infer Format, infer Args} then
+    when {'scan', infer Format} then
         match Format
             when `${infer _}%${infer Rest}` then
-                __NuppFormatBuild<{'directive', Rest, Args}>
-            else __NuppFormatBuild<{'finish', Args}>
+                __NuppFormatBuild<{'flags', Rest, ''}>
+            else {never}
         end
-    when {'directive', infer Rest, infer Args} then
+    when {'flags', infer Rest, infer Seen} then
         match Rest
-            when `%${infer Tail}` then __NuppFormatBuild<{'scan', Tail, Args}>
-            when `s${infer Tail}` then __NuppFormatBuild<{'push', Tail, any, Args}>
-            when `q${infer Tail}` then __NuppFormatBuild<{'push', Tail, any, Args}>
-            when `c${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `d${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `i${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `o${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `u${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `x${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `X${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `e${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `E${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `f${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `g${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `G${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `-${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `+${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when ` ${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `#${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `0${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `1${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `2${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `3${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `4${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `5${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `6${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `7${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `8${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `9${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `.${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            else __NuppFormatError<`unsupported format directive %${Rest}`>
+            when `%${infer Tail}` then
+                match Seen
+                    when '' then __NuppFormatBuild<{'scan', Tail}>
+                    else __NuppFormatError<Seen, Rest>
+                end
+            when `-${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}-`}>
+            when `+${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}+`}>
+            when ` ${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen} `}>
+            when `#${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}#`}>
+            when `0${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}0`}>
+            else __NuppFormatBuild<{'width', Rest, Seen}>
         end
-    when {'push', infer Tail, infer Expected, infer Args} then
-        match Args
-            when {'zero'} then __NuppFormatBuild<{'scan', Tail, {'one', Expected}}>
-            when {'one', infer A} then
-                __NuppFormatBuild<{'scan', Tail, {'two', A, Expected}}>
-            when {'two', infer A, infer B} then
-                __NuppFormatBuild<{'scan', Tail, {'three', A, B, Expected}}>
-            when {'three', infer A, infer B, infer C} then
-                __NuppFormatBuild<{'scan', Tail, {'four', A, B, C, Expected}}>
-            when {'four', infer A, infer B, infer C, infer D} then
-                __NuppFormatBuild<{'scan', Tail, {'five', A, B, C, D, Expected}}>
-            when {'five', infer A, infer B, infer C, infer D, infer E} then
-                __NuppFormatBuild<{'scan', Tail, {'six', A, B, C, D, E, Expected}}>
-            when {'six', infer A, infer B, infer C, infer D, infer E, infer F} then
-                __NuppFormatBuild<{'scan', Tail, {'seven', A, B, C, D, E, F, Expected}}>
-            when {'seven', infer A, infer B, infer C, infer D, infer E, infer F, infer G} then
-                __NuppFormatBuild<{'scan', Tail, {'eight', A, B, C, D, E, F, G, Expected}}>
-            else __NuppFormatError<'format checker supports at most eight arguments'>
+    when {'width', infer Rest, infer Seen} then
+        match Rest
+            when `1${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'precision', Rest, Seen}>
         end
-    when {'finish', infer Args} then
-        match Args
-            when {'zero'} then {never}
-            when {'one', infer A} then {A,}
-            when {'two', infer A, infer B} then {A, B}
-            when {'three', infer A, infer B, infer C} then {A, B, C}
-            when {'four', infer A, infer B, infer C, infer D} then {A, B, C, D}
-            when {'five', infer A, infer B, infer C, infer D, infer E} then {A, B, C, D, E}
-            when {'six', infer A, infer B, infer C, infer D, infer E, infer F} then {A, B, C, D, E, F}
-            when {'seven', infer A, infer B, infer C, infer D, infer E, infer F, infer G} then {A, B, C, D, E, F, G}
-            when {'eight', infer A, infer B, infer C, infer D, infer E, infer F, infer G, infer H} then
-                {A, B, C, D, E, F, G, H}
-            else __NuppFormatError<'invalid format argument accumulator'>
+    when {'width-one', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}0`}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'precision', Rest, Seen}>
         end
-    else __NuppFormatError<'invalid format parser state'>
+    when {'width-two', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer _}` then __NuppFormatError<`${Seen}0`, ''>
+            when `1${infer _}` then __NuppFormatError<`${Seen}1`, ''>
+            when `2${infer _}` then __NuppFormatError<`${Seen}2`, ''>
+            when `3${infer _}` then __NuppFormatError<`${Seen}3`, ''>
+            when `4${infer _}` then __NuppFormatError<`${Seen}4`, ''>
+            when `5${infer _}` then __NuppFormatError<`${Seen}5`, ''>
+            when `6${infer _}` then __NuppFormatError<`${Seen}6`, ''>
+            when `7${infer _}` then __NuppFormatError<`${Seen}7`, ''>
+            when `8${infer _}` then __NuppFormatError<`${Seen}8`, ''>
+            when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''>
+            else __NuppFormatBuild<{'precision', Rest, Seen}>
+        end
+    when {'precision', infer Rest, infer Seen} then
+        match Rest
+            when `.${infer Tail}` then __NuppFormatBuild<{'precision-zero', Tail, `${Seen}.`}>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'precision-zero', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}0`}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'precision-one', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}0`}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'precision-two', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer _}` then __NuppFormatError<`${Seen}0`, ''>
+            when `1${infer _}` then __NuppFormatError<`${Seen}1`, ''>
+            when `2${infer _}` then __NuppFormatError<`${Seen}2`, ''>
+            when `3${infer _}` then __NuppFormatError<`${Seen}3`, ''>
+            when `4${infer _}` then __NuppFormatError<`${Seen}4`, ''>
+            when `5${infer _}` then __NuppFormatError<`${Seen}5`, ''>
+            when `6${infer _}` then __NuppFormatError<`${Seen}6`, ''>
+            when `7${infer _}` then __NuppFormatError<`${Seen}7`, ''>
+            when `8${infer _}` then __NuppFormatError<`${Seen}8`, ''>
+            when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'conversion', infer Rest, infer Seen} then
+        match Rest
+            when `a${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `A${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `c${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `d${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `i${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `o${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `u${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `x${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `X${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `e${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `E${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `f${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `g${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `G${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `p${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `q${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `s${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            else __NuppFormatError<Seen, Rest>
+        end
+    else typeerror<'invalid string.format parser state'>
 end
 
 local type __NuppFormatArguments<Format> = match Format
-    when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal, {'zero'}}>
+    when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal}>
     else any
 end
 
@@ -73567,8 +73981,8 @@ local string: {
     --- @return the index where the match ends
     find: nosuspend function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
 
-    --- Formats the arguments into `fmt`, which takes the C `printf` directives plus
-    --- `%q` for a string quoted so Lua can read it back.
+    --- Formats the arguments into `fmt` using LuaJIT's bounded-width `printf` subset,
+    --- plus `%q` quoting, `%p` object identity, and hexadecimal floats with `%a`/`%A`.
     ---
     --- @param fmt the format string
     --- @param ... the values that the directives consume

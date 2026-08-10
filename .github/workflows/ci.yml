@@ -3,11 +3,17 @@ name: CI
 # What a checkout has to be able to do, on the platforms it claims to support:
 # check itself, pass its suite, and rebuild itself byte for byte.
 #
-# LuaJIT is built from source on every platform rather than installed, because
-# the floor is a rolling 2.1 build (2.1.1784535649) and distribution packages
-# are routinely older. lua-cjson comes the same way: the compiler requires it at
-# startup, and building the three C files it is made of is more predictable than
-# arranging LuaRocks on three operating systems.
+# LuaJIT is built from source rather than taken from a package, because the floor
+# is a rolling 2.1 build (2.1.1784535649) and distributions are routinely older.
+# On unix it is installed to a prefix, which is what puts its own Lua modules
+# where an interpreter looks for them and gives LuaRocks something to configure
+# against; Windows has no install target, so those modules are staged into the
+# project's rock tree instead.
+#
+# LuaRocks supplies what the suite needs beyond the interpreter: lua-cjson for
+# the compiler itself, LPeg for the materialization tests, and the rocks the
+# documentation target installs from the manifest. They go into the project's own
+# `.rocks` tree, which is where `bin/nupp` and `tests/run` look.
 #
 # Cargo is a build prerequisite since the compiler lists its own sources through
 # a native provider. The runners ship a Rust toolchain; the job proves it is
@@ -24,6 +30,7 @@ permissions:
 
 env:
   LUAJIT_REF: v2.1
+  LUAROCKS_VERSION: "3.11.1"
 
 jobs:
   verify:
@@ -43,214 +50,107 @@ jobs:
           cargo --version
           rustc --version
 
-      - name: Build LuaJIT (unix)
+      - name: Build and install LuaJIT (unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           git clone --depth 1 --branch "$LUAJIT_REF" \
-            https://github.com/LuaJIT/LuaJIT.git "$RUNNER_TEMP/luajit"
+            https://github.com/LuaJIT/LuaJIT.git "$RUNNER_TEMP/luajit-src"
           # LuaJIT's makefile refuses to guess this, and says so rather than
           # building something that will not load.
           if [ "$RUNNER_OS" = "macOS" ]; then
             export MACOSX_DEPLOYMENT_TARGET="$(sw_vers -productVersion | cut -d. -f1).0"
           fi
-          make -C "$RUNNER_TEMP/luajit" -j"$(getconf _NPROCESSORS_ONLN)"
-          echo "$RUNNER_TEMP/luajit/src" >> "$GITHUB_PATH"
+          make -C "$RUNNER_TEMP/luajit-src" -j"$(getconf _NPROCESSORS_ONLN)" \
+            PREFIX="$RUNNER_TEMP/luajit"
+          make -C "$RUNNER_TEMP/luajit-src" install PREFIX="$RUNNER_TEMP/luajit"
+          ln -sf "$RUNNER_TEMP"/luajit/bin/luajit-* "$RUNNER_TEMP/luajit/bin/luajit"
+          echo "$RUNNER_TEMP/luajit/bin" >> "$GITHUB_PATH"
 
       - name: Build LuaJIT (windows)
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          git clone --depth 1 --branch %LUAJIT_REF% https://github.com/LuaJIT/LuaJIT.git "%RUNNER_TEMP%\luajit"
+          git clone --depth 1 --branch %LUAJIT_REF% https://github.com/LuaJIT/LuaJIT.git "%RUNNER_TEMP%\luajit-src"
           call "%GITHUB_WORKSPACE%\.github\workflows\msvc.cmd" || exit /b 1
-          cd /d "%RUNNER_TEMP%\luajit\src"
+          cd /d "%RUNNER_TEMP%\luajit-src\src"
           call msvcbuild.bat || exit /b 1
-          echo %RUNNER_TEMP%\luajit\src>>%GITHUB_PATH%
+          mkdir "%RUNNER_TEMP%\luajit\bin" 2>nul
+          copy /y luajit.exe "%RUNNER_TEMP%\luajit\bin\" || exit /b 1
+          copy /y lua51.dll "%RUNNER_TEMP%\luajit\bin\" || exit /b 1
+          copy /y lua51.lib "%RUNNER_TEMP%\luajit\bin\" || exit /b 1
+          echo %RUNNER_TEMP%\luajit\bin>>%GITHUB_PATH%
 
-      # Building in place leaves LuaJIT's own Lua modules where they were built.
-      # `make install` would place them; nothing here runs it, and the first
-      # thing to notice is the suite failing to load `jit.zone`. The project rock
-      # tree is already on the interpreter's path, so staging them there is
-      # enough and needs no install prefix.
-      - name: Stage LuaJIT's support modules
+      # The unix install places LuaJIT's own Lua modules. Windows has no install
+      # target, so the project rock tree stands in; it is already on the
+      # interpreter's path.
+      - name: Stage LuaJIT's support modules (windows)
+        if: runner.os == 'Windows'
         shell: bash
         run: |
           mkdir -p .rocks/share/lua/5.1
-          cp -R "$RUNNER_TEMP/luajit/src/jit" .rocks/share/lua/5.1/jit
+          cp -R "$RUNNER_TEMP/luajit-src/src/jit" .rocks/share/lua/5.1/jit
           test -f .rocks/share/lua/5.1/jit/zone.lua
 
       - name: Check the interpreter meets the floor
         shell: bash
         run: |
           luajit -v
-          # With the rock tree on the path, the way the launchers put it there.
-          # A bare interpreter looks in its install prefix, which an in-place
-          # build never had.
           LUA_PATH=".rocks/share/lua/5.1/?.lua;.rocks/share/lua/5.1/?/init.lua;;" \
             luajit -e 'require("jit.zone") print("jit.zone loads")'
 
-      - name: Build lua-cjson (unix)
+      - name: Install LuaRocks (unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          git clone --depth 1 https://github.com/openresty/lua-cjson.git \
-            "$RUNNER_TEMP/lua-cjson"
-          cd "$RUNNER_TEMP/lua-cjson"
-          shared="-shared"
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            shared="-bundle -undefined dynamic_lookup"
-          fi
-          mkdir -p "$GITHUB_WORKSPACE/.rocks/lib/lua/5.1"
-          cc -O2 -fPIC $shared -I"$RUNNER_TEMP/luajit/src" \
-            lua_cjson.c strbuf.c fpconv.c \
-            -o "$GITHUB_WORKSPACE/.rocks/lib/lua/5.1/cjson.so"
+          curl -fsSL "https://luarocks.org/releases/luarocks-$LUAROCKS_VERSION.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/luarocks-$LUAROCKS_VERSION"
+          ./configure --prefix="$RUNNER_TEMP/luarocks" \
+            --with-lua="$RUNNER_TEMP/luajit" --lua-version=5.1
+          make
+          make install
+          echo "$RUNNER_TEMP/luarocks/bin" >> "$GITHUB_PATH"
 
-      - name: Build lua-cjson (windows)
+      - name: Install LuaRocks (windows)
         if: runner.os == 'Windows'
-        shell: cmd
+        shell: bash
         run: |
-          git clone --depth 1 https://github.com/openresty/lua-cjson.git "%RUNNER_TEMP%\lua-cjson"
-          call "%GITHUB_WORKSPACE%\.github\workflows\msvc.cmd" || exit /b 1
-          cd /d "%RUNNER_TEMP%\lua-cjson"
-          mkdir "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1" 2>nul
-          cl /nologo /O2 /LD /Fe:cjson.dll /I "%RUNNER_TEMP%\luajit\src" ^
-            lua_cjson.c strbuf.c fpconv.c ^
-            /link "%RUNNER_TEMP%\luajit\src\lua51.lib" || exit /b 1
-          if not exist cjson.dll (
-            echo lua-cjson built no cjson.dll 1>&2
-            exit /b 1
-          )
-          copy /Y cjson.dll "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1\cjson.dll" >nul || exit /b 1
-          if not exist "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1\cjson.dll" (
-            echo cjson.dll was not staged in the project rock tree 1>&2
-            exit /b 1
-          )
+          curl -fsSLo "$RUNNER_TEMP/luarocks.zip" \
+            "https://luarocks.github.io/luarocks/releases/luarocks-$LUAROCKS_VERSION-windows-64.zip"
+          unzip -q "$RUNNER_TEMP/luarocks.zip" -d "$RUNNER_TEMP"
+          mv "$RUNNER_TEMP/luarocks-$LUAROCKS_VERSION-windows-64" "$RUNNER_TEMP/luarocks"
+          echo "$RUNNER_TEMP/luarocks" >> "$GITHUB_PATH"
 
-      # `bin/nupp` puts .rocks on the interpreter's path itself, so the tree
-      # above is all the placement this needs.
+      # Into the project's own tree, which is what `bin/nupp` and `tests/run` put
+      # on the interpreter's path. The documentation target installs its own rocks
+      # from the manifest, so only what the compiler and suite need first is here.
+      - name: Install the project's rocks
+        shell: bash
+        run: |
+          luarocks --version
+          luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lua-cjson 2.1.0-1
+          luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lpeg
+          LUA_PATH=".rocks/share/lua/5.1/?.lua;.rocks/share/lua/5.1/?/init.lua;;" \
+          LUA_CPATH=".rocks/lib/lua/5.1/?.so;.rocks/lib/lua/5.1/?.dll;;" \
+            luajit -e 'require("cjson") require("lpeg") print("cjson and lpeg load")'
+
       - name: Help works without the native provider
         shell: bash
         run: |
           ./bin/nupp --help
           test ! -f build/lib/nupp_native
 
-      # Diagnostic only, and Windows only, because that is where they differ.
-      # `check` reaches the project through `project.check`; `build` reaches it
-      # through `project.build`. On a cold tree both compile the compiler first,
-      # so this asks whether the 624 belong to the wrapper or to what follows it.
-      - name: Check before build
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          mkdir -p diag
-          # Its own verdict, recorded. `continue-on-error` reports a step that
-          # failed as a success in the API, which has now hidden two readings.
-          if ./bin/nupp check > diag/check-before-build.txt 2>&1; then
-            echo "VERDICT pass" >> diag/check-before-build.txt
-          else
-            echo "VERDICT fail" >> diag/check-before-build.txt
-          fi
-          tail -3 diag/check-before-build.txt
-
-      # Separated from `check` so a build that does not finish is attributable
-      # to itself rather than read backwards from whatever the checker then said
+      # Separated from `check` so a build that does not finish is attributable to
+      # itself rather than read backwards from whatever the checker then said
       # about a half-emitted tree.
       - name: Build
         shell: bash
         run: ./bin/nupp build
 
-      # Stage 0 in check-only mode, with the real provider and without the
-      # launcher. The incremental path is clean on Windows at every stage, so
-      # what is left between it and a failing build is the driver around it and
-      # the provider-backed filesystem underneath. Only the cache is removed, so
-      # the provider beside it survives and this is still a cold check.
-      - name: Stage zero check, no launcher
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p diag
-          test -f build/lib/nupp_native || {
-            echo "no provider staged; nothing to read" | tee diag/stage0-check.txt
-            exit 0
-          }
-          rm -rf build/cache
-          LUA_ROOT="$PWD"
-          if ( pwd -W ) >/dev/null 2>&1; then LUA_ROOT="$(pwd -W)"; fi
-          ROCKS="$LUA_ROOT/.rocks"
-          if LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;;" \
-             LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;$ROCKS/lib/lua/5.1/?.dll;;" \
-             NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native" \
-             NUPP_COMPILER_ROOT="$LUA_ROOT" \
-               luajit bootstrap/nupp.lua check > diag/stage0-check.txt 2>&1; then
-            echo "VERDICT pass" >> diag/stage0-check.txt
-          else
-            echo "VERDICT fail" >> diag/stage0-check.txt
-          fi
-          head -6 diag/stage0-check.txt
-          tail -2 diag/stage0-check.txt
-
       - name: Check
         shell: bash
         run: ./bin/nupp check
-
-      # Diagnostic only, to be removed once the platforms agree. It runs after
-      # the steps above whatever they did, because the provider it needs is
-      # theirs to produce, and it reads the compiler out of the tracked stage-0
-      # bundle rather than out of a build that may not have finished.
-      # Diagnostic only, to be removed once the platforms agree.
-      #
-      # `project.check` under both bundle identities, in a fresh process each
-      # time with the cache cleared between. The chunk label a bundle is loaded
-      # under decides which branch the toolchain fingerprint takes, so two
-      # readings that differ only in that label are not comparable and one of
-      # them was not testing the failing path at all.
-      - name: Check under both bundle identities
-        if: always()
-        shell: bash
-        run: |
-          mkdir -p diag
-          LUA_ROOT="$PWD"
-          if ( pwd -W ) >/dev/null 2>&1; then LUA_ROOT="$(pwd -W)"; fi
-          ROCKS="$LUA_ROOT/.rocks"
-          export LUA_PATH="$ROCKS/share/lua/5.1/?.lua;$ROCKS/share/lua/5.1/?/init.lua;;"
-          export LUA_CPATH="$ROCKS/lib/lua/5.1/?.so;$ROCKS/lib/lua/5.1/?.dll;;"
-          export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/nupp_native"
-          export NUPP_COMPILER_ROOT="$LUA_ROOT"
-
-          # Does the staged provider load, and under which spelling? A path with
-          # a separator reaches the platform loader unchanged, so an
-          # extensionless name is not on its own a reason to fail; a dependency
-          # that will not resolve reports the same error.
-          luajit scripts/diagnose-provider.lua > diag/provider.txt 2>&1 \
-            || echo "probe exited $?" >> diag/provider.txt
-          echo "--- provider ---"
-          cat diag/provider.txt
-
-          # The CLI passes "." rather than an absolute path, so both spellings
-          # are run: identity and project root are two differences, not one.
-          for mode in stage0 bootstrap; do
-            for spelling in dot absolute; do
-              rm -rf build/cache
-              luajit scripts/diagnose-discovery.lua "$mode" "$spelling" \
-                  > "diag/check-$mode-$spelling.txt" 2>&1 \
-                || echo "probe exited $?" >> "diag/check-$mode-$spelling.txt"
-              echo "--- $mode $spelling ---"
-              grep -v '^listFiles' "diag/check-$mode-$spelling.txt" | head -10
-            done
-          done
-          ls -R build/nupp/compiler > diag/emitted.txt 2>&1 || true
-
-      - name: Keep the generated surfaces for comparison
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: surfaces-${{ matrix.os }}
-          if-no-files-found: warn
-          path: |
-            diag/
-            build/nupp/compiler/types.lua
-            build/nupp/compiler/cli/spec.lua
-            build/lib/
 
       - name: Test
         shell: bash
