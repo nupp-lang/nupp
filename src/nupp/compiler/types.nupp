@@ -2282,6 +2282,16 @@ function types.tostring(t: types.Type): string
                 parts[j] = type(part) == "string" and part or "${" .. types.tostring(part as types.Type) .. "}"
             end
             return "`" .. table.concat(parts) .. "`"
+        elseif t.op == "typeError" then
+            return "typeerror<" .. types.tostring(t.subject as types.Type) .. ">"
+        elseif t.op == "tupleConcat" then
+            local prefix = t.subject as types.Tuple
+            local parts = {}
+            for j, elem in ipairs(prefix.elems) do
+                parts[j] = types.tostring(elem)
+            end
+            parts[#parts + 1] = "unpackof " .. types.tostring(t.key as types.Type)
+            return "{" .. table.concat(parts, ", ") .. "}"
         elseif t.op == "match" then
             local arms = {}
             for _, arm in ipairs(t.matchArms or {}) do

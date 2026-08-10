@@ -1077,8 +1077,14 @@ as a success case.
   undecidable neutral term; reject every other concrete result at the call.
 - Admit `{T,}` as the one-slot tuple spelling, distinct from the homogeneous
   array `{T}`.
+- Let `{Head, unpackof Tail}` recursively assemble computed tuples, and treat
+  the uninhabited `{never}` array as the empty expansion.
+- Carry deliberate reduction failures with `typeerror<Message>` so a concrete
+  consumer reports the authored message without leaking reducer vocabulary.
 - Use the bridge in the prelude once: `string.format` scans literal formats into
   its trailing parameter pack while dynamic `string` formats retain `...any`.
+  Its state machine mirrors LuaJIT's accepted flags, two-digit width and
+  precision fields, conversions, and invalid-directive boundary.
 - Keep the runtime call untouched. This is signature specialization, not
   function-body monomorphization or compile-time value evaluation.
 

@@ -4,6 +4,7 @@
 local name = 'Ada'
 local count = string.format('%s has %d messages', name, 3)
 local point = string.format('%s=(%.2f, %.2f)', 'point', 1.5, 2.5)
+local hexadecimal = string.format('%#08x / %a', 255, 1.5)
 local escaped = string.format('100%% ready')
 
 -- A runtime format cannot determine a static parameter list, so it deliberately
@@ -15,6 +16,7 @@ local gradual = string.format(dynamic, name)
 -- string.format('%d', 'three') -- argument 2: string is not a number
 -- string.format('%d') -- omitted argument 2 supplies nil, not number
 -- string.format('%d', 1, 2) -- too many arguments (expected 2, got 3)
--- string.format('%z', 1) -- unsupported format directive %z
+-- string.format('%z', 1) -- invalid string.format directive starting at "%z"
+-- string.format('%*d', 4, 1) -- LuaJIT does not support dynamic widths
 
-print(count, point, escaped, gradual)
+print(count, point, hexadecimal, escaped, gradual)

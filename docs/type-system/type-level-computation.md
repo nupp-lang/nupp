@@ -152,13 +152,21 @@ Wrong, missing, surplus, and unsupported arguments report on the call:
 NUPP2006: argument 3: string is not a number
 NUPP2006: omitted argument 3 supplies nil, not number
 NUPP2007: too many arguments (expected 2, got 3)
-NUPP2006: unpackof type must reduce to a tuple or array, got
-{readonly formatError: "unsupported format directive %z"}
+NUPP2006: invalid string.format directive starting at "%z"
 ```
 
-The checker understands `%%`, `%s`, `%q`, numeric conversion letters, flags,
-width, and precision, with a bounded maximum of eight consumed arguments.
-`%s` and `%q` accept `any`, matching LuaJIT's conversion behavior. A nonliteral
-format cannot determine a finite parameter list, so it retains the gradual
-`...any` contract. The return type remains `string`: this checks a runtime call;
-it does not manufacture or promise an exact result value.
+The checker mirrors LuaJIT's format parser: `%%`; the `-`, `+`, space, `#`, and
+`0` flags; zero to two width digits; zero to two precision digits; numeric
+`a`, `A`, `c`, `d`, `i`, `o`, `u`, `x`, `X`, `e`, `E`, `f`, `g`, and `G`;
+and object conversions `p`, `q`, and `s`. Numeric conversions require `number`;
+the object conversions accept `any`, matching LuaJIT's conversion behavior.
+
+This is LuaJIT formatting, not every ISO C `printf` facility: dynamic `*`
+widths and precisions, length modifiers, `%n`, positional arguments, and the
+rest of C's platform-dependent surface are intentionally rejected because the
+runtime rejects them. There is no format-specific arity ceiling; ordinary
+type-reduction depth and result-size budgets remain the safety boundary.
+
+A nonliteral format cannot determine a finite parameter list, so it retains the
+gradual `...any` contract. The return type remains `string`: this checks a
+runtime call; it does not manufacture or promise an exact result value.

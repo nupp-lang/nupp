@@ -272,6 +272,9 @@ function resolve.install(c: state.Checker): nil
         elseif kind == "tarray" then
             return T.matchPattern("array", nil, nil, {compilePattern(node.element, binders)})
         elseif kind == "ttuple" then
+            if node.tail then
+                c.diag("NUPP2132", node.tail, "unpackof is not valid in a tuple pattern")
+            end
             local children = {}
             for j, child in ipairs(node.types) do
                 children[j] = compilePattern(child, binders)
@@ -704,6 +707,8 @@ function resolve.install(c: state.Checker): nil
                 c.diag("NUPP2130", node, reductionError)
             end
             return reduced
+        elseif kind == "ttypeerror" then
+            return T.neutral("typeError", c.resolveType(node.message))
         elseif kind == "tmember" then
             local subject, key = c.resolveType(node.object), c.resolveType(node.key)
             local term = T.neutral("member", subject, key, "read")
@@ -870,7 +875,19 @@ function resolve.install(c: state.Checker): nil
             for j, e in ipairs(node.types) do
                 elems[j] = c.resolveType(e)
             end
-            return T.tuple(elems)
+            local prefix = T.tuple(elems)
+            if not node.tail then
+                return prefix
+            end
+            local term = T.neutral("tupleConcat", prefix, c.resolveType(node.tail))
+            if T.hasTypevar(term) then
+                return term
+            end
+            local reduced, reductionError = generics.reduce(term, {}, c.reducerMemo)
+            if reductionError then
+                c.diag("NUPP2132", node.tail, reductionError)
+            end
+            return reduced
         elseif kind == "tpack" or kind == "tpackUnion" then
             c.diag("NUPP2121", node, "a type pack may only appear in a value-sequence position")
             return T.any

@@ -40,6 +40,13 @@ local function clean(source)
    assertEq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
+local function oneDiagnostic(source, code, message)
+   local found = diagnostics(source)
+   assertEq(#found, 1, "one diagnostic for:\n" .. source)
+   assertEq(found[1].code, code)
+   assertEq(found[1].msg, message)
+end
+
 local function typeDump(typeSource)
    local parsed = parser.parse("local value: " .. typeSource, "test.g.nupp")
    assertEq(#parsed.errors, 0)
@@ -65,6 +72,10 @@ function M.finiteTypeOperatorSyntaxRoundTrips()
       "(tfunc function (generics < F is (tname string) >) ( "
          .. "(tfuncParam fmt : (tname F)) , (tfuncParam ... : "
          .. "(tpack unpackof (tname Args < (tname F) >))) ) : (tname string))")
+   dump = typeDump("{string, unpackof Tail}")
+   assertEq(dump, "(ttuple { (tname string) , unpackof (tname Tail) })")
+   dump = typeDump("typeerror<'broken'>")
+   assertEq(dump, "(ttypeerror typeerror < (tliteral 'broken') >)")
 end
 
 function M.computedPackSyntaxFormatsIdempotently()
@@ -72,6 +83,8 @@ function M.computedPackSyntaxFormatsIdempotently()
       "local function apply<F is string>(...:unpackof Args<F>):nil",
       "end",
       "local value:{string,}",
+      "local type More<T> = {string,unpackof T}",
+      "local type Failure = typeerror<\"broken\">",
    }, "\n")
    local once, errors = fmt.format(source)
    assertEq(#errors, 0)
@@ -80,6 +93,8 @@ function M.computedPackSyntaxFormatsIdempotently()
       "end",
       "",
       "local value: {string,}",
+      "local type More<T> = {string, unpackof T}",
+      "local type Failure = typeerror<\"broken\">",
    }, "\n") .. "\n")
    local twice, again = fmt.format(once)
    assertEq(#again, 0)
@@ -321,6 +336,15 @@ function M.computedTypesExpandIntoCallablePacks()
       "local function apply(...: unpackof {string,}): nil end",
       "apply(1)",
    }, "\n")), "NUPP2006")
+   clean(table.concat({
+      "local type AddHead<Tail> = {string, unpackof Tail}",
+      "local function apply(...: unpackof AddHead<{number, boolean}>): nil end",
+      "apply('x', 1, true)",
+   }, "\n"))
+   oneDiagnostic(table.concat({
+      "local function apply(...: unpackof typeerror<'computed contract failed'>): nil end",
+      "apply()",
+   }, "\n"), "NUPP2006", "computed contract failed")
 end
 
 function M.stringFormatDerivesArgumentsFromLiteralFormats()
@@ -330,15 +354,37 @@ function M.stringFormatDerivesArgumentsFromLiteralFormats()
       "local percent = string.format('100%% ready')",
       "local decimal = string.format('%.2f', 1.5)",
       "local method = ('%d'):format(3)",
+      "local extended = string.format(" ..
+         "'%a %A %c %d %i %o %u %x %X %e %E %f %g %G %p %q %s', " ..
+         "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, {}, true, 'text')",
+      "local flags = string.format('%-+#09.2f', 1.5)",
+      "local many = string.format('%d%d%d%d%d%d%d%d%d', 1, 2, 3, 4, 5, 6, 7, 8, 9)",
       "local dynamic: string = '%s'",
       "local gradual = string.format(dynamic, {}, false, 3)",
-      "print(count, percent, decimal, method, gradual)",
+      "print(count, percent, decimal, method, extended, flags, many, gradual)",
    }, "\n"))
-   assertEq(codes("local bad = string.format('%d', 'three')\nprint(bad)"), "NUPP2006")
-   assertEq(codes("local bad = string.format('%d')\nprint(bad)"), "NUPP2006")
-   assertEq(codes("local bad = string.format('%d', 1, 2)\nprint(bad)"), "NUPP2007")
-   assertEq(codes("local bad = string.format('%z', 1)\nprint(bad)"), "NUPP2006")
-   assertEq(codes("local bad = ('%d'):format('three')\nprint(bad)"), "NUPP2006")
+   oneDiagnostic("local bad = string.format('%d', 'three')\nprint(bad)",
+      "NUPP2006", "argument 2: string is not a number")
+   oneDiagnostic("local bad = string.format('%d')\nprint(bad)",
+      "NUPP2006", "omitted argument 2 supplies nil, not number")
+   oneDiagnostic("local bad = string.format('%d', 1, 2)\nprint(bad)",
+      "NUPP2007", "too many arguments (expected 2, got 3)")
+   oneDiagnostic("local bad = string.format('plain', 1)\nprint(bad)",
+      "NUPP2007", "too many arguments (expected 1, got 2)")
+   oneDiagnostic("local bad = string.format('%z', 1)\nprint(bad)",
+      "NUPP2006", 'invalid string.format directive starting at "%z"')
+   oneDiagnostic("local bad = string.format('%..f', 1)\nprint(bad)",
+      "NUPP2006", 'invalid string.format directive starting at "%..f"')
+   oneDiagnostic("local bad = string.format('%100d', 1)\nprint(bad)",
+      "NUPP2006", 'invalid string.format directive starting at "%100"')
+   oneDiagnostic("local bad = string.format('%*d', 1)\nprint(bad)",
+      "NUPP2006", 'invalid string.format directive starting at "%*d"')
+   oneDiagnostic("local bad = string.format('%F', 1)\nprint(bad)",
+      "NUPP2006", 'invalid string.format directive starting at "%F"')
+   oneDiagnostic("local bad = string.format('%.100f', 1)\nprint(bad)",
+      "NUPP2006", 'invalid string.format directive starting at "%.100"')
+   oneDiagnostic("local bad = ('%d'):format('three')\nprint(bad)",
+      "NUPP2006", "argument 1: string is not a number")
 end
 
 function M.templateConstructionAndOneSegmentExtractionAreFinite()

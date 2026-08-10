@@ -1985,87 +1985,144 @@ local _VERSION: string
 -- `string.format` derives its trailing parameter pack from a literal first argument.
 -- These aliases are deliberately private implementation vocabulary: the public
 -- surface is the ordinary function below, and a nonliteral format reduces to `any`.
-local type __NuppFormatError<Message> = {readonly formatError: Message}
+local type __NuppFormatError<Seen, Rest> =
+    typeerror<`invalid string.format directive starting at "%${Seen}${Rest}"`>
 
 local type __NuppFormatBuild<State> = match State
-    when {'scan', infer Format, infer Args} then
+    when {'scan', infer Format} then
         match Format
             when `${infer _}%${infer Rest}` then
-                __NuppFormatBuild<{'directive', Rest, Args}>
-            else __NuppFormatBuild<{'finish', Args}>
+                __NuppFormatBuild<{'flags', Rest, ''}>
+            else {never}
         end
-    when {'directive', infer Rest, infer Args} then
+    when {'flags', infer Rest, infer Seen} then
         match Rest
-            when `%${infer Tail}` then __NuppFormatBuild<{'scan', Tail, Args}>
-            when `s${infer Tail}` then __NuppFormatBuild<{'push', Tail, any, Args}>
-            when `q${infer Tail}` then __NuppFormatBuild<{'push', Tail, any, Args}>
-            when `c${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `d${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `i${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `o${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `u${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `x${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `X${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `e${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `E${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `f${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `g${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `G${infer Tail}` then __NuppFormatBuild<{'push', Tail, number, Args}>
-            when `-${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `+${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when ` ${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `#${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `0${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `1${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `2${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `3${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `4${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `5${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `6${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `7${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `8${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `9${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            when `.${infer Tail}` then __NuppFormatBuild<{'directive', Tail, Args}>
-            else __NuppFormatError<`unsupported format directive %${Rest}`>
+            when `%${infer Tail}` then
+                match Seen
+                    when '' then __NuppFormatBuild<{'scan', Tail}>
+                    else __NuppFormatError<Seen, Rest>
+                end
+            when `-${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}-`}>
+            when `+${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}+`}>
+            when ` ${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen} `}>
+            when `#${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}#`}>
+            when `0${infer Tail}` then __NuppFormatBuild<{'flags', Tail, `${Seen}0`}>
+            else __NuppFormatBuild<{'width', Rest, Seen}>
         end
-    when {'push', infer Tail, infer Expected, infer Args} then
-        match Args
-            when {'zero'} then __NuppFormatBuild<{'scan', Tail, {'one', Expected}}>
-            when {'one', infer A} then
-                __NuppFormatBuild<{'scan', Tail, {'two', A, Expected}}>
-            when {'two', infer A, infer B} then
-                __NuppFormatBuild<{'scan', Tail, {'three', A, B, Expected}}>
-            when {'three', infer A, infer B, infer C} then
-                __NuppFormatBuild<{'scan', Tail, {'four', A, B, C, Expected}}>
-            when {'four', infer A, infer B, infer C, infer D} then
-                __NuppFormatBuild<{'scan', Tail, {'five', A, B, C, D, Expected}}>
-            when {'five', infer A, infer B, infer C, infer D, infer E} then
-                __NuppFormatBuild<{'scan', Tail, {'six', A, B, C, D, E, Expected}}>
-            when {'six', infer A, infer B, infer C, infer D, infer E, infer F} then
-                __NuppFormatBuild<{'scan', Tail, {'seven', A, B, C, D, E, F, Expected}}>
-            when {'seven', infer A, infer B, infer C, infer D, infer E, infer F, infer G} then
-                __NuppFormatBuild<{'scan', Tail, {'eight', A, B, C, D, E, F, G, Expected}}>
-            else __NuppFormatError<'format checker supports at most eight arguments'>
+    when {'width', infer Rest, infer Seen} then
+        match Rest
+            when `1${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'width-one', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'precision', Rest, Seen}>
         end
-    when {'finish', infer Args} then
-        match Args
-            when {'zero'} then {never}
-            when {'one', infer A} then {A,}
-            when {'two', infer A, infer B} then {A, B}
-            when {'three', infer A, infer B, infer C} then {A, B, C}
-            when {'four', infer A, infer B, infer C, infer D} then {A, B, C, D}
-            when {'five', infer A, infer B, infer C, infer D, infer E} then {A, B, C, D, E}
-            when {'six', infer A, infer B, infer C, infer D, infer E, infer F} then {A, B, C, D, E, F}
-            when {'seven', infer A, infer B, infer C, infer D, infer E, infer F, infer G} then {A, B, C, D, E, F, G}
-            when {'eight', infer A, infer B, infer C, infer D, infer E, infer F, infer G, infer H} then
-                {A, B, C, D, E, F, G, H}
-            else __NuppFormatError<'invalid format argument accumulator'>
+    when {'width-one', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}0`}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'width-two', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'precision', Rest, Seen}>
         end
-    else __NuppFormatError<'invalid format parser state'>
+    when {'width-two', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer _}` then __NuppFormatError<`${Seen}0`, ''>
+            when `1${infer _}` then __NuppFormatError<`${Seen}1`, ''>
+            when `2${infer _}` then __NuppFormatError<`${Seen}2`, ''>
+            when `3${infer _}` then __NuppFormatError<`${Seen}3`, ''>
+            when `4${infer _}` then __NuppFormatError<`${Seen}4`, ''>
+            when `5${infer _}` then __NuppFormatError<`${Seen}5`, ''>
+            when `6${infer _}` then __NuppFormatError<`${Seen}6`, ''>
+            when `7${infer _}` then __NuppFormatError<`${Seen}7`, ''>
+            when `8${infer _}` then __NuppFormatError<`${Seen}8`, ''>
+            when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''>
+            else __NuppFormatBuild<{'precision', Rest, Seen}>
+        end
+    when {'precision', infer Rest, infer Seen} then
+        match Rest
+            when `.${infer Tail}` then __NuppFormatBuild<{'precision-zero', Tail, `${Seen}.`}>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'precision-zero', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}0`}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'precision-one', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'precision-one', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}0`}>
+            when `1${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}1`}>
+            when `2${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}2`}>
+            when `3${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}3`}>
+            when `4${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}4`}>
+            when `5${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}5`}>
+            when `6${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}6`}>
+            when `7${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}7`}>
+            when `8${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}8`}>
+            when `9${infer Tail}` then __NuppFormatBuild<{'precision-two', Tail, `${Seen}9`}>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'precision-two', infer Rest, infer Seen} then
+        match Rest
+            when `0${infer _}` then __NuppFormatError<`${Seen}0`, ''>
+            when `1${infer _}` then __NuppFormatError<`${Seen}1`, ''>
+            when `2${infer _}` then __NuppFormatError<`${Seen}2`, ''>
+            when `3${infer _}` then __NuppFormatError<`${Seen}3`, ''>
+            when `4${infer _}` then __NuppFormatError<`${Seen}4`, ''>
+            when `5${infer _}` then __NuppFormatError<`${Seen}5`, ''>
+            when `6${infer _}` then __NuppFormatError<`${Seen}6`, ''>
+            when `7${infer _}` then __NuppFormatError<`${Seen}7`, ''>
+            when `8${infer _}` then __NuppFormatError<`${Seen}8`, ''>
+            when `9${infer _}` then __NuppFormatError<`${Seen}9`, ''>
+            else __NuppFormatBuild<{'conversion', Rest, Seen}>
+        end
+    when {'conversion', infer Rest, infer Seen} then
+        match Rest
+            when `a${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `A${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `c${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `d${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `i${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `o${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `u${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `x${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `X${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `e${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `E${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `f${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `g${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `G${infer Tail}` then {number, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `p${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `q${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            when `s${infer Tail}` then {any, unpackof __NuppFormatBuild<{'scan', Tail}>}
+            else __NuppFormatError<Seen, Rest>
+        end
+    else typeerror<'invalid string.format parser state'>
 end
 
 local type __NuppFormatArguments<Format> = match Format
-    when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal, {'zero'}}>
+    when `${infer Literal}` then __NuppFormatBuild<{'scan', Literal}>
     else any
 end
 
@@ -2105,8 +2162,8 @@ local string: {
     --- @return the index where the match ends
     find: nosuspend function(s: string, pat: string, init: number?, plain: boolean?): (integer?, integer?),
 
-    --- Formats the arguments into `fmt`, which takes the C `printf` directives plus
-    --- `%q` for a string quoted so Lua can read it back.
+    --- Formats the arguments into `fmt` using LuaJIT's bounded-width `printf` subset,
+    --- plus `%q` quoting, `%p` object identity, and hexadecimal floats with `%a`/`%A`.
     ---
     --- @param fmt the format string
     --- @param ... the values that the directives consume

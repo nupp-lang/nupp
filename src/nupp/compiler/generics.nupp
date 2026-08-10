@@ -838,6 +838,55 @@ local function reduceTemplate(t: T.Neutral, memo: ReductionMemo, budget: Reducti
     return T.union(out)
 end
 
+--- Keeps a type-level failure as data while reducing its message. A consumer that
+--- requires a concrete type decides where to report it.
+local function reduceTypeError(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local message, err = normalize(t.subject as Type, memo, budget)
+    if err then
+        return T.any, err
+    end
+    return T.neutral("typeError", message)
+end
+
+--- Appends a computed tuple to a fixed prefix. `{never}` is the canonical empty
+--- sequence because an array whose element type is uninhabited can contain no values.
+local function reduceTupleConcat(t: T.Neutral, memo: ReductionMemo, budget: ReductionBudget): Type, string?
+    local prefix, prefixError = normalize(t.subject as Type, memo, budget)
+    if prefixError then
+        return T.any, prefixError
+    end
+    local tail, tailError = normalize(t.key as Type, memo, budget)
+    if tailError then
+        return T.any, tailError
+    end
+    if prefix.tag == "neutral" and prefix.op == "typeError" then
+        return prefix
+    end
+    if tail.tag == "neutral" and tail.op == "typeError" then
+        return tail
+    end
+    if prefix.tag ~= "tuple" then
+        return T.any, "tuple unpack prefix did not reduce to a tuple"
+    end
+    if tail.tag == "tuple" then
+        local elems = {}
+        for _, elem in ipairs(prefix.elems) do
+            elems[#elems + 1] = elem
+        end
+        for _, elem in ipairs(tail.elems) do
+            elems[#elems + 1] = elem
+        end
+        return T.tuple(elems)
+    end
+    if tail.tag == "array" and tail.elem == T.never then
+        return prefix
+    end
+    if T.hasTypevar(tail) or tail.tag == "neutral" then
+        return T.neutral("tupleConcat", prefix, tail)
+    end
+    return T.any, ("tuple unpack must reduce to a tuple, got %s"):format(T.tostring(tail))
+end
+
 local function bindPattern(binder: T.TypeVar?, actual: Type, captures: Bindings): boolean
     if not binder then
         return true
@@ -1259,6 +1308,8 @@ local function reduceAlias(t: T.Neutral, memo: ReductionMemo, budget: ReductionB
             memberCount = #out.members
         elseif out.tag == "shape" then
             memberCount = #out.fields
+        elseif out.tag == "tuple" then
+            memberCount = #out.elems
         end
         if memberCount > MAX_RECURSIVE_RESULT_MEMBERS then
             err = (
@@ -1297,6 +1348,10 @@ normalize = function(t: Type, memo: ReductionMemo, budget: ReductionBudget): Typ
             out, err = reduceMapped(t, memo, budget)
         elseif t.op == "template" then
             out, err = reduceTemplate(t, memo, budget)
+        elseif t.op == "typeError" then
+            out, err = reduceTypeError(t, memo, budget)
+        elseif t.op == "tupleConcat" then
+            out, err = reduceTupleConcat(t, memo, budget)
         elseif t.op == "match" then
             out, err = reduceMatch(t, memo, budget)
         elseif t.op == "alias" then
@@ -1506,7 +1561,20 @@ function generics.expandComputedPack(pack: T.Pack): T.Pack, string?
         return T.pack(head, nil, modes)
     end
     if computed.tag == "array" then
+        if computed.elem == T.never then
+            return T.pack(pack.head, nil, pack.modes)
+        end
         return T.pack(pack.head, {kind = "homogeneous", type = computed.elem}, pack.modes)
+    end
+    if computed.tag == "neutral" and computed.op == "typeError" then
+        local message, messageError = generics.reduce(computed.subject as Type)
+        if messageError then
+            return pack, messageError
+        end
+        if message.tag == "literal" and message.base == T.string then
+            return pack, message.constant as string
+        end
+        return pack, "type-level error: " .. T.tostring(message)
     end
     if computed == T.any or computed == T.unknown or computed.tag == "neutral" or computed.tag == "typevar" then
         return T.pack(pack.head, {kind = "unknown", type = T.any}, pack.modes)

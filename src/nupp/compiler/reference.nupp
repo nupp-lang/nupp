@@ -359,6 +359,11 @@ expands in an argument, assignment, or return list; parentheses project one
 value. The explicit `...value` field projection described above is resolved
 before that adjustment.
 
+Inside a computed tuple, `{Head, unpackof Tail}` appends the tuple produced by
+`Tail`; an array of `never` contributes no slots. `typeerror<Message>` carries a
+deliberate failure out of a reducer. When `unpackof` needs that result, it reports
+the authored message directly.
+
 Whole-pack unions preserve relationships between results. This is why testing
 the boolean returned by `pcall` narrows its sibling values to the callback's
 results or the failure value together. Discarding an affine slot while adjusting

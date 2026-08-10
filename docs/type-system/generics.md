@@ -60,6 +60,24 @@ result becomes `...any`. The trailing comma distinguishes the one-slot tuple
 `{T,}` from the array `{T}`. A concrete result of any other shape is rejected at
 the call.
 
+Computed tuples can be assembled recursively with the same operator inside a
+tuple: `{Head, unpackof Tail}`. When `Tail` reduces to a tuple, its slots are
+appended; `{never}`, the array that cannot contain an element, contributes zero
+slots. This permits a recursive reducer to build a parameter list without an
+arbitrary arity ladder.
+
+`typeerror<Message>` is the failure result for a type-level computation. Its
+message must become concrete before a consumer such as `unpackof` needs the
+result. The consumer reports that message directly instead of exposing the
+intermediate type used to carry it:
+
+```nupp
+local type Checked<T> = match T
+    when string then {T,}
+    else typeerror<`expected string, got ${T}`>
+end
+```
+
 ## Constraints use `is`
 
 ```nupp

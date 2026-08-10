@@ -528,6 +528,14 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             n.inner = add(n, parseTypePrimary())
             return n
         end
+        if kind == "name" and cur().text == "typeerror" and tokens[i + 1] and tokens[i + 1].kind == "<" then
+            local n = new cst.Ttypeerror {kind = "ttypeerror"}
+            add(n, advance()).contextualOp = true
+            add(n, advance()).generic = true
+            n.message = add(n, parseType())
+            add(n, expect(">", "to close typeerror message")).generic = true
+            return n
+        end
         if kind == "name" and cur().text == "writeof" and startsType(
             tokens[i + 1]
         ) and tokens[i + 1].line == cur().line then
@@ -717,6 +725,13 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     while cur().kind == "," do
                         add(n, advance())
                         if cur().kind == "}" then
+                            break
+                        end
+                        if cur().kind == "name" and cur().text == "unpackof" and startsType(
+                            tokens[i + 1]
+                        ) and tokens[i + 1].line == cur().line then
+                            add(n, advance()).contextualOp = true
+                            n.tail = add(n, parseType())
                             break
                         end
                         n.types[#n.types + 1] = add(n, parseType())
