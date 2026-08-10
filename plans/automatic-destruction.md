@@ -48,8 +48,9 @@ only source-visible opt-in to protected cleanup. That made the cost of emulating
 `finally` on LuaJIT visible, and the checker still made forgetting cleanup a
 compile error.
 
-The hardened ownership model changes the trade-off. The compiler now already
-knows, for every value slot:
+This proposal starts from the implemented baseline in
+[ownership-hardening.md](ownership-hardening.md). Automatic destruction
+requires the compiler to know, for every value slot:
 
 - whether an obligation is live, moved, discharged, retained, or opaque;
 - the producer-specific ordered cleanup operations;
@@ -57,6 +58,13 @@ knows, for every value slot:
 - capability transport through generics, packs, narrowing, fields, modules,
   and foreign results; and
 - which suspension and boundary operations can abandon the continuation.
+
+Those facts are prerequisites, not work that this plan silently recreates.
+Current `main` supplies them through the hardening plan's semantic
+`Capability` / `ValueSlot` model and its completed transport and boundary
+stages. A port of this plan to a compiler version without that hardening must
+land the dependencies below first; it must not substitute payload-type or
+syntax-based cleanup inference.
 
 Requiring the programmer to restate the final cleanup no longer supplies proof
 the compiler lacks. It supplies only cleanup timing. The Rust mental model is
@@ -106,6 +114,34 @@ protocol transitions rather than for the ordinary case.
   native crash, or deliberate `intoRaw` abandonment.
 - Making arbitrary typestate a destructor problem. Ownership tokens continue
   to represent token-shaped protocol states only.
+
+## Dependency on ownership hardening
+
+Stage labels in this file use the `AD-` prefix. References such as `OH-S5`
+mean the correspondingly numbered section of
+[ownership-hardening.md](ownership-hardening.md). This avoids treating two
+different plans' bare `S2` labels as the same milestone.
+
+The hardening plan is marked implemented on current `main`, so these are
+satisfied prerequisites rather than pending work in this rollout:
+
+| Automatic-destruction work | Required hardening baseline | Why |
+| --- | --- | --- |
+| `AD-S1` shared cleanup plan | `OH-S1` capability / `ValueSlot` model | Cleanup entries must carry semantic capability identity and the exact producer-specific discharge list. |
+| `AD-S2` ordinary cleanup facts | `OH-S1`, `OH-S2`, and `OH-S3` | Moves, generic forwarding, narrowing, packs, projections, and module transport must preserve the same obligation. |
+| `AD-S2` aggregate cleanup | `OH-S5` | Optional and partially moved aggregate exits need path-sensitive affine-field state. |
+| `AD-S3` handled cancellation | the proof-closure kernel of `OH-S8` | A parked continuation needs checked eventual resume or cancellation before lexical cleanup can be promised. |
+| Final integration regressions | `OH-S6` and `OH-S12` | `ResourceSet.adopt` and deterministic ownership-audit output must compose with automatic cleanup. |
+
+The deferred `OH-S8` structured-child capability is not a prerequisite.
+Automatic destruction cleans a continuation when the implemented handler
+resumes or cancels it; it does not make an unjoined child borrowing a parent
+scope safe. Likewise, `ResourceSet` is needed for the final composition test,
+not for the erased representation or common lowering of an ordinary owner.
+
+If any prerequisite is absent on another branch, the dependent `AD-` stage is
+blocked there. Do not partially enable automatic destruction with a local
+fallback representation or omit the corresponding transport path.
 
 ## Surface semantics
 
@@ -536,7 +572,7 @@ The new acceptance rule must remain behind an internal feature gate until
 exceptional exits work. Landing “fallthrough auto-drop” first would accept
 programs that leak precisely when a body raises.
 
-### S0: Freeze semantics and cost
+### AD-S0: Freeze semantics and cost
 
 - Add paired fixtures for explicit `with` and equivalent automatic locals.
 - Record generated output, cleanup order, failure shape, allocations, and
@@ -547,7 +583,7 @@ programs that leak precisely when a body raises.
 - Add the proposed audit schema before compiler work depends on ad hoc debug
   prints.
 
-### S1: Extract the shared cleanup plan
+### AD-S1: Extract the shared cleanup plan
 
 - Represent `with` acquisitions, activation, cleanup order, exits, and failure
   aggregation in one semantic plan.
@@ -557,16 +593,16 @@ programs that leak precisely when a body raises.
 
 This stage changes architecture, not language behavior.
 
-### S2: Compute automatic cleanup facts
+### AD-S2: Compute automatic cleanup facts
 
 - Mark disposable owners at lexical boundaries instead of reporting them.
 - Cover fallthrough, return, loop control, outward `goto`, and function
   parameters received with `takes`.
 - Deactivate entries on every existing transfer operation.
 - Support optional owners and partially moved affine records.
-- Keep the feature gated until S3 handles raised edges.
+- Keep the feature gated until `AD-S3` handles raised edges.
 
-### S3: Protect raised exits
+### AD-S3: Protect raised exits
 
 - Extend cleanup intervals across every may-raise call and expression.
 - Register only successful acquisitions.
@@ -575,9 +611,9 @@ This stage changes architecture, not language behavior.
 - Add bootstrap and generated-module regressions before enabling the syntax
   change.
 
-At the end of S3, ordinary automatic destruction may become the default.
+At the end of `AD-S3`, ordinary automatic destruction may become the default.
 
-### S4: Fuse and elide regions
+### AD-S4: Fuse and elide regions
 
 - Fuse overlapping compatible intervals.
 - Preserve inner lexical cleanup boundaries and observable nested failure
@@ -586,7 +622,7 @@ At the end of S3, ordinary automatic destruction may become the default.
 - Elide protection for proven non-raising intervals and immediate transfers.
 - Add optimizer remarks and audit output.
 
-### S5: Tooling, documentation, and migration
+### AD-S5: Tooling, documentation, and migration
 
 - Update the reference, ownership guide, `with` guide, diagnostics, and LSP
   actions.
