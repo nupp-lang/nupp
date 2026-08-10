@@ -45,7 +45,10 @@ async function boot() {
     local check = require("nupp.compiler.check")
     local tree = require("nupp.compiler.lsp.tree")
     local T = require("nupp.compiler.types")
-    local env = require("nupp.compiler.env").new(".")
+    -- The browser has no filesystem, so its cache cannot persist. Disabling it
+    -- also keeps environment startup from reaching the compiler fingerprint's
+    -- process-backed directory walk.
+    local env = require("nupp.compiler.env").new(".", {cache = false})
 
     -- Set at the end of a successful __playground_check, read by
     -- __playground_hover. Hover reuses the last check rather than
