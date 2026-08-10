@@ -430,4 +430,45 @@ function M.aCoroutineMayInstallItsOwn()
    assertEq(afterSeen, true, "and the inherited one comes back after")
 end
 
+function M.releasingCancelsAParkTheHandlerLeftOutstanding()
+   -- The abandonment the resource rules exist to prevent. A handler that parks a wait
+   -- and then lets its extent end has left a library waiting for a resumption nobody
+   -- will send; the release cancels it so the library unwinds and its cleanup runs.
+   local cancelled = false
+   local escaped = nil
+   local handler = {
+      park = function(_self, waiting)
+         -- Deliberately returns without resuming: a scheduler that gave up.
+         escaped = waiting.operation
+      end,
+   }
+   local installation = suspension.install(handler)
+   local ok = pcall(suspension.suspend, "waiting", function()
+      return function()
+         cancelled = true
+      end
+   end)
+   installation:release()
+   assertEq(ok, false, "the suspension failed rather than returning a value nobody sent")
+   assertEq(escaped, "waiting", "the handler saw it")
+   assertEq(cancelled, true, "and the release cancelled what it left behind")
+end
+
+function M.aFinishedParkIsNotCancelledLater()
+   local cancels = 0
+   local handler = {
+      park = function(_self, _waiting, _cancel)
+      end,
+   }
+   local installation = suspension.install(handler)
+   pcall(suspension.suspend, "waiting", function(resume)
+      resume(1)
+      return function()
+         cancels = cancels + 1
+      end
+   end)
+   installation:release()
+   assertEq(cancels, 0, "a subscription that completed has nothing to cancel")
+end
+
 return M

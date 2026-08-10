@@ -112,10 +112,48 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argStr = argsNode.str
             argTable = argsNode.table
         end
-        if baseName == "coroutine" and memberName == "yield" then
-            local obligation = c.liveSuspensionObligation()
-            if obligation then
-                c.diag("NUPP2603", node, ("cannot suspend while temporal obligation %q is live"):format(obligation))
+        -- A raw yield has nobody responsible for it: the coroutine may never be resumed
+        -- and the cleanup would never run. A *handled* suspension is different -- a
+        -- handler took the resume and the cancellation, and its contract is to do one
+        -- or
+        -- the other -- which is why this refuses the first and says nothing about the
+        -- second.
+        --
+        -- By definition rather than by spelling: a local named `coroutine` is somebody
+        -- else's table, and refusing a call through it would be refusing the wrong
+        -- thing while a genuinely raw yield through an alias went unnoticed.
+        if memberName == "yield" and callee and callee.kind == "dotIndex" then
+            local base = callee.obj
+            local baseTok = base and base.kind == "name" and base.token or nil
+            local coroutineGlobal = c.env and c.env.globals and c.env.globals.coroutine or nil
+            local resolved = baseTok and c.lookupEntry(baseTok.text) or nil
+            -- The same table, however it was reached: the global itself, or a local
+            -- bound to it. A local named `coroutine` that is somebody else's table
+            -- resolves to a different entry and is left alone.
+            local isCoroutine = false
+            if baseTok and coroutineGlobal then
+                if resolved ~= nil then
+                    isCoroutine = resolved == coroutineGlobal or (
+                        resolved.definition ~= nil and resolved.definition == coroutineGlobal.definition
+                    )
+                else
+                    isCoroutine = baseTok.text == "coroutine"
+                end
+            end
+            if isCoroutine then
+                local obligation = c.liveSuspensionObligation()
+                if obligation then
+                    c.diag(
+                        "NUPP2603",
+                        node,
+                        ("cannot suspend while temporal obligation %q is live"):format(obligation),
+                        nil,
+                        {
+                            help = "suspend inside a `handle suspension` region, where a "
+                            .. "handler is responsible for resuming or cancelling it",
+                        }
+                    )
+                end
             end
         end
         local intrinsic = ownershipIntrinsic(c, callee)

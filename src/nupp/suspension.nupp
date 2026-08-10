@@ -102,6 +102,25 @@ record suspension.Handler
     shutdown: function(suspension.Handler): nil
 end
 
+-- Parks a handler has accepted and not yet seen finish, per handler. Weak-keyed on the
+-- handler so a discarded one takes its bookkeeping with it.
+--
+-- The point is `Installed:release`: an extent that ends while a park is outstanding has
+-- to cancel it, because the library waiting on it will otherwise wait for a resumption
+-- nobody is going to send. Recording the parks is what lets the release do that rather
+-- than hope the handler did.
+local parks = setmetatable({}, {__mode = "k"})
+
+local function parksOf(handler: any): any
+    local held = parks[handler]
+    if held == nil then
+        held = {}
+        parks[handler] = held
+    end
+
+    return held
+end
+
 -- The handler in force, per coroutine.
 --
 -- Weak-keyed so a finished coroutine's entry goes with it. The main thread has no
@@ -302,6 +321,11 @@ function suspension.suspend<
 
     -- Only now is there anything to show a handler. The view reads the upvalues rather
     -- than a copy of them, so resumption still has exactly one path.
+    -- Registered against the handler that accepted it, so an extent ending with a park
+    -- still outstanding is a fact the runtime holds rather than one nobody recorded.
+    local outstanding = handler and parksOf(handler) or nil
+    local ticket = nil
+
     local waiting = setmetatable({operation = operation, isReady = function()
         return resumed
     end, setWaker = function(wake)
@@ -313,10 +337,20 @@ function suspension.suspend<
     -- are not, so the failure is caught here and told what it was doing. LuaJIT's own
     -- message names neither the operation nor the boundary.
     local ok, err
+    if outstanding then
+        ticket = {cancel = cancel, operation = operation}
+        outstanding[ticket] = true
+    end
     if handler then
         ok, err = pcall(handler.park, handler, waiting as suspension.Waiting, cancel as function(): nil)
     else
         ok, err = pcall(blockingPark, waiting)
+    end
+    -- Deregistered only once it actually finished. A handler that returned without
+    -- resuming has left the subscription live, and forgetting the park here would mean
+    -- nothing cancels it.
+    if outstanding and ticket and resumed then
+        outstanding[ticket] = nil
     end
     if not ok then
         local text = tostring(err)
@@ -327,6 +361,13 @@ function suspension.suspend<
         error(err, 0)
     end
     if not resumed then
+        -- The subscription is still live and nobody is going to answer it. Cancelled
+        -- here rather than left for the extent to end, because the failure is already
+        -- known and the library should unwind now.
+        if outstanding and ticket then
+            outstanding[ticket] = nil
+        end
+        pcall(cancel)
         error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)
     end
 
@@ -354,10 +395,21 @@ record suspension.Installed
         else
             installed[self.co] = self.previous
         end
-        -- Told the extent ended, so a handler holding parks or pumps abandons them at
-        -- a point it can see rather than at collection.
+        -- Told the extent ended, so a handler holding pumps abandons them at a point it
+        -- can see rather than at collection.
         if self.handler.shutdown then
             self.handler.shutdown(self.handler)
+        end
+        -- Anything the handler accepted and did not finish is cancelled here. A library
+        -- parked on a resumption nobody is going to send would otherwise wait for it
+        -- forever, and its cleanup would never run -- which is the abandonment the
+        -- resource rules exist to prevent.
+        local held = parks[self.handler]
+        if held then
+            parks[self.handler] = nil
+            for ticket in pairs(held) do
+                pcall(ticket.cancel)
+            end
         end
     end
 end

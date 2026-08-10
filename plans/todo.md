@@ -122,9 +122,28 @@ work makes sense in.
         metamethod contract: without it a comparator cannot call `tostring`,
         which is most comparators, and the compiler's own `build/cache.nupp`
         was the first thing the check refused.
-  - [ ] S4: permit handled suspension while a resource obligation is live,
+  - [x] S4: permit handled suspension while a resource obligation is live,
         keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
         park and its shutdown cancels and unwinds all parks before succeeding.
+
+        Landed, and narrower than the plan feared. NUPP2603 already fired only
+        on a raw `coroutine.yield`, so a handled suspension was permitted --
+        but by omission rather than by design. It is now deliberate, resolved
+        through the scope so a local named `coroutine` is no longer wrongly
+        refused, and the diagnostic points at `handle suspension` as the way
+        to do it responsibly.
+
+        A handler owns every park it accepts: the runtime registers each
+        against the handler, deregisters it only once resumed, and
+        `Installed:release` cancels whatever is left so a library parked on a
+        resumption nobody will send unwinds and runs its cleanup. A handler
+        that returns without resuming has its subscription cancelled on the
+        spot rather than at the end of the extent.
+
+        Known gap, tested so it is visible: a raw yield reached through an
+        alias -- `local co = coroutine; co.yield()` -- is not caught, because
+        nothing tracks that the local came from the global. Closing it wants
+        the alias analysis `plans/optimizations.md` calls half-built.
   - [ ] S5: `nupp.io.Process`. tecs's API surface — `communicate`, the
         Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32
         platform layer, since theirs is 48 SDL calls and Nupp cannot link SDL
