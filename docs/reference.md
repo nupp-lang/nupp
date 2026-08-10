@@ -1182,7 +1182,7 @@ return m
 
 Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`, `NUPP2414`, `NUPP2415`, `NUPP2416`. `nupp explain <code>` says more.
 
-### Static PEG matchers
+### PEG matchers
 
 `nupp.peg` builds byte-oriented parsing expressions inside a `comptime` block.
 `compile` returns an opaque blueprint, so the declaration initialized by the
@@ -1221,17 +1221,39 @@ lists, and simple nested delimiters; unsupported graphs retain the machine.
 Backend selection changes only regenerated runtime code, never the canonical
 comptime blueprint or the matcher's public type and behavior.
 
+`nupp.peg.re` provides an LPeg-re-style textual frontend to the same matcher
+semantics. `re.pattern(source)` is comptime-only: pass its result to
+`nupp.peg.compile`, retain a precise `Matcher<R>` type, and let the materializer
+select the specialized or VM backend. `re.compile(source, actions)` accepts a
+runtime string, validates and compiles it to the general VM, and returns
+`Matcher<any>`. Runtime programs cache the compiled bytecode by grammar text.
+They cannot use the static specializer because their grammar is not known when
+the module is built.
+
+The notation supports quoted byte strings, `.`, byte classes and ranges,
+predefined ASCII classes such as `%a`, `%d`, `%s`, and `%w`, sequence, ordered
+choice `/`, predicates `&` and `!`, suffixes `+`, `*`, `?`, `^n`, `^+n`, and
+`^-n`, substring captures `{ p }`, position captures `{}`, collections
+`{| p |}`, and recursive `name <- p` rules. `!.` is end of input. The Nupp
+suffixes `=> name` and `-> name` bind a named runtime action slot. This is the
+byte-oriented LPeg-re floor, not full compatibility with every capture and
+definition facility in LPeg's `re` module.
+
 ```nupp
 local m = {}
 
 const Identifier: nupp.Peg.Matcher<integer> = comptime do
-    const head = nupp.peg.range("az", "AZ") + nupp.peg.literal("_")
-    const tail = head + nupp.peg.range("09")
-    return nupp.peg.compile(head * tail^0 * nupp.peg.eof())
+    return nupp.peg.compile(nupp.peg.re.pattern([[
+        [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]]))
 end
 
 function m.identifier(text: string): integer?
     return Identifier(text)
+end
+
+function m.matcher(grammar: string): nupp.Peg.Matcher<any>
+    return nupp.peg.re.compile(grammar)
 end
 
 return m

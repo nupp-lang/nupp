@@ -65,6 +65,8 @@ return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
    assertEq(called, 3, "the matcher call contract reaches the same machine")
    local code = compile(source)
    assert(code:find("nupp.peg.specialized", 1, true), code)
+   assertEq(code:find("__nuppPegReInstall", 1, true), nil,
+      "ordinary static PEG excludes the runtime frontend")
    assert(not code:find("require(\"lpeg\")", 1, true), code)
 end
 
@@ -319,6 +321,110 @@ return Identifier
       assertEq(matcher(subject), lpeg.match(reference, subject),
          "LPeg differential subject " .. subject)
    end
+end
+
+function M.compilesReNotationAtComptime()
+   local source = [==[
+const Identifier: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.re.pattern([[
+        [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]]))
+end
+return Identifier("_name9"), Identifier("9name"), Identifier("name!")
+]==]
+   local matched, badHead, badTail = run(source)
+   assertEq(matched, 7, "re notation static match")
+   assertEq(badHead, nil, "re notation static head rejection")
+   assertEq(badTail, nil, "re notation static eof rejection")
+   local code = compile(source)
+   assert(code:find("nupp.peg.specialized", 1, true), code)
+   assertEq(code:find("__nuppPegReInstall", 1, true), nil,
+      "static re grammar excludes the runtime frontend")
+end
+
+function M.compilesTheSameReNotationAtRuntime()
+   local static, dynamic = run([==[
+const Static: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.re.pattern([[
+        ('GET' / 'POST') ' ' [a-z/0-9]+ !.
+    ]]))
+end
+local grammar: string = "('GET' / 'POST') ' ' [a-z/0-9]+ !."
+local Dynamic = nupp.peg.re.compile(grammar)
+return Static, Dynamic
+]==])
+   for _, subject in ipairs({"GET /users/42", "POST /items", "PUT /items", "GET /Users"}) do
+      assertEq(dynamic(subject), static(subject), "static/runtime re parity for " .. subject)
+   end
+end
+
+function M.supportsRuntimeReCapturesCollectionsAndActions()
+   local words, number = run([==[
+local words = nupp.peg.re.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
+local number = nupp.peg.re.compile("%d+ => number !.", {
+    number = function(text: string): any
+        return tonumber(text)
+    end,
+})
+return words("one,two,three"), number("1234")
+]==])
+   assertEq(table.concat(words, ":"), "one:two:three", "runtime re collection")
+   assertEq(number, 1234, "runtime re action")
+end
+
+function M.supportsRuntimeRecursiveReGrammars()
+   local staticMatched, dynamicMatched, staticMissed, dynamicMissed = run([==[
+const Static: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.re.pattern([[
+        value <- 'x' / '(' value ')'
+    ]]))
+end
+local grammar: string = [[
+    value <- 'x' / '(' value ')'
+]]
+local Dynamic = nupp.peg.re.compile(grammar)
+return Static("(((x)))"), Dynamic("(((x)))"), Static("((x)"), Dynamic("((x)")
+]==])
+   assertEq(staticMatched, 8, "static recursive re match")
+   assertEq(dynamicMatched, staticMatched, "recursive re phase parity")
+   assertEq(staticMissed, nil, "static recursive re rejection")
+   assertEq(dynamicMissed, staticMissed, "recursive re rejection parity")
+end
+
+function M.rejectsUnsafeRuntimeReGrammars()
+   local nullable, leftRecursive, undefined = run([==[
+local function rejected(source: string): boolean
+    return not pcall(function()
+        nupp.peg.re.compile(source)
+    end)
+end
+return rejected("('')*"), rejected("value <- value / 'x'"), rejected("value <- missing")
+]==])
+   assertEq(nullable, true, "runtime nullable repetition rejection")
+   assertEq(leftRecursive, true, "runtime left recursion rejection")
+   assertEq(undefined, true, "runtime undefined rule rejection")
+end
+
+function M.reportsReSyntaxLocationsAtBothPhases()
+   local codes, diagnostics = errorsOf([==[
+const Broken: nupp.Peg.Matcher<integer> = comptime do
+    return nupp.peg.compile(nupp.peg.re.pattern([[
+        'ok'
+        [z-a]
+    ]]))
+end
+]==])
+   assertEq(codes[1], "NUPP2417", "static re diagnostic code")
+   assert(diagnostics[1].msg:find("line 2, column", 1, true), diagnostics[1].msg)
+
+   local ok, why = run([==[
+local ok, why = pcall(function()
+    nupp.peg.re.compile("'ok'\n[z-a]")
+end)
+return ok, tostring(why)
+]==])
+   assertEq(ok, false, "runtime re syntax rejection")
+   assert(why:find("line 2, column", 1, true), why)
 end
 
 function M.agreesBetweenSpecializedAndGeneralBackends()

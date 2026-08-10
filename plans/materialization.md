@@ -9,6 +9,12 @@ backend expressions, versions provider/helper/emitter/runtime-expression ABIs,
 reports bounded observations from JSON builds, and enforces evaluator, call,
 wall-clock, result, protocol, IR and provider limits.
 
+PEG now also has one LPeg-re-style textual notation at both phases.
+`nupp.peg.re.pattern` parses a constant grammar into the existing opaque graph,
+so static code retains typed results and specialization.
+`nupp.peg.re.compile` validates a runtime grammar and compiles it to the same
+general pure-Lua VM contract, with cached bytecode and a dynamic result type.
+
 The later anchored-recognition comparison with Rust `regex` now also clears
 every named workload. On the recorded LuaJIT run, PEG reached 1.09x for short
 identifiers, 1.59x for long identifiers, 1.61x for fixed dates and 1.20x for
@@ -551,8 +557,7 @@ not merely LPeg's compiler renamed.
 
 ### API floor
 
-The first PEG surface is static, byte-oriented and deliberately smaller than
-LPeg:
+The PEG surface is byte-oriented and deliberately smaller than LPeg:
 
 - literal, any byte, range and set;
 - sequence, ordered choice and difference;
@@ -562,8 +567,11 @@ LPeg:
 - substring, position, group and explicit collection captures;
 - named runtime action slots through a factory.
 
-Match-time captures, locale-dependent classes, dynamic pattern inputs and
-arbitrary Lua values are deferred. Match-time captures are last because their
+The same floor is available as LPeg-re-style text. Constant text passes through
+`nupp.peg.re.pattern` to the opaque graph and static materializer; runtime text
+passes through `nupp.peg.re.compile` to the general VM and returns
+`Matcher<any>`. Match-time captures, locale-dependent classes and arbitrary Lua
+pattern values remain deferred. Match-time captures are last because their
 callback can decide success and move the subject position; they are not merely
 post-match value conversion.
 

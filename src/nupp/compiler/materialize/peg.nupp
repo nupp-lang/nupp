@@ -9,6 +9,7 @@ pools. No live handle, source fragment, or lexical binding crosses the worker.
 
 local hash = require("nupp.compiler.build.hash")
 local T = require("nupp.compiler.types")
+local pegRe = require("nupp.compiler.materialize.peg_re")
 
 type peg.Failure = {
     readonly code: string,
@@ -247,6 +248,65 @@ function peg.installEvaluator(state: any, env: any, newOpaque: any, provenance: 
 
         return newOpaque("peg", "Blueprint", {pattern = args[1]}, provenance(at, "nupp.peg.compile"))
     end)
+
+    intrinsic("rePattern", function(args, at)
+        if args.n ~= 1 or type(args[1]) ~= "string" then
+            return nil, failure("NUPP2417", "nupp.peg.re.pattern needs one string")
+        end
+        local make = {literal = function(text)
+            return node("literal", nil, text, at)
+        end, set = function(text)
+            return node("set", nil, sortedBytes(text), at)
+        end, anyByte = function()
+            return node("any", nil, nil, at)
+        end, sequence = function(children)
+            return node("sequence", children, nil, at)
+        end, choice = function(children)
+            return node("choice", children, nil, at)
+        end, zeroOrMore = function(pattern)
+            return node("zeroOrMore", {pattern}, nil, at)
+        end, oneOrMore = function(pattern)
+            return node("oneOrMore", {pattern}, nil, at)
+        end, optional = function(pattern)
+            return node("optional", {pattern}, nil, at)
+        end, andPredicate = function(pattern)
+            return node("and", {pattern}, nil, at)
+        end, notPredicate = function(pattern)
+            local entry = patternEntry(state, pattern)
+            if entry and entry.payload.op == "any" then
+                return node("eof", nil, nil, at)
+            end
+
+            return node("not", {pattern}, nil, at)
+        end, capture = function(pattern)
+            return node("capture", {pattern}, nil, at)
+        end, collect = function(pattern)
+            return node("collect", {pattern}, nil, at)
+        end, position = function()
+            return node("position", nil, nil, at)
+        end, action = function(pattern, name)
+            return node("action", {pattern}, name, at)
+        end, reference = function(name)
+            return node("reference", nil, name, at)
+        end, define = function(name, pattern)
+            return newOpaque(
+                "peg",
+                "Definition",
+                {name = name, pattern = pattern},
+                provenance(at, "nupp.peg.re.pattern")
+            )
+        end, grammar = function(start, definitions)
+            return node("grammar", definitions, start, at)
+        end,}
+        local pattern, why = pegRe.parse(args[1], make)
+        if not pattern then
+            return nil, failure("NUPP2417", why and why.message or "invalid PEG re grammar")
+        end
+
+        return pattern
+    end)
+    library.re = {pattern = library.rePattern}
+    library.rePattern = nil
 
     env.nupp = env.nupp or {}
     env.nupp.peg = library

@@ -262,6 +262,7 @@ function gen.generate(
     local curLine = 1
     local atLineStart = true
     local diags = {}
+    local emittedFeatureEffects = {}
     local tempCounter = 0
     local usedNames = {}
     for _, tok in ipairs(result.tokens or {}) do
@@ -432,7 +433,8 @@ function gen.generate(
     local newTabName, clearTabName, cloneTabName
     local needsCleanupRegions = false
     local cleanupPackName, cleanupIdName, cleanupFailureName
-    -- Generated cleanup regions call library functions by name, so those names are bound
+    -- Generated cleanup regions call library functions by name, so those names are
+    -- bound
     -- as locals on the hoisted first line: a user local called `unpack` or `error`
     -- would otherwise shadow them at the point of use.
     local cleanupGlobals
@@ -1043,7 +1045,8 @@ function gen.generate(
 
     -- `...` cannot cross the protected region's function boundary, so a body that reads
     -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
-    -- Nested cleanup bodies are searched too, so an inner region's varargs are forwarded down
+    -- Nested cleanup bodies are searched too, so an inner region's varargs are
+    -- forwarded down
     -- through every enclosing region; nested functions are not, because they bind their
     -- own `...`.
     local function usesVararg(block)
@@ -1087,12 +1090,9 @@ function gen.generate(
             if node.kind == "name" and node.token and node.token.definition then
                 local definition = node.token.definition
                 local token = definition.token
-                if not localBindings[definition]
-                    and token
-                    and firstOffset
-                    and token.offset < firstOffset
-                    and token.line ~= 0
-                then
+                if not localBindings[
+                    definition
+                ] and token and firstOffset and token.offset < firstOffset and token.line ~= 0 then
                     captured = true
                     return
                 end
@@ -1101,6 +1101,7 @@ function gen.generate(
                 walk(child)
             end
         end
+
         walk(block)
 
         return captured
@@ -1173,9 +1174,7 @@ function gen.generate(
                     end
                 end
                 local simple = #(stat.names or {}) == 1 and #(stat.exprs or {}) == 1
-                sequence[#sequence + 1] = simple
-                    and {bindings = group}
-                    or {declaration = stat, bindings = group}
+                sequence[#sequence + 1] = simple and {bindings = group} or {declaration = stat, bindings = group}
             else
                 sequence[#sequence + 1] = {stat = stat}
                 bodyStats[#bodyStats + 1] = stat
@@ -1185,7 +1184,9 @@ function gen.generate(
             -- The checker keeps unsupported declaration shapes diagnosed rather than
             -- allowing an owner the generator cannot protect. Reaching this branch is
             -- therefore recovery-only; preserve the original source emission.
-            for _, item in ipairs(sequence) do emit(item.stat) end
+            for _, item in ipairs(sequence) do
+                emit(item.stat)
+            end
             return
         end
         local body: any = {kind = "block", stats = bodyStats}
@@ -1233,12 +1234,16 @@ function gen.generate(
 
     local function automaticSlot(move)
         local owner = move and (move.owner or move) or nil
-        if not owner then return nil end
+        if not owner then
+            return nil
+        end
         for index = #cleanupStack, 1, -1 do
             local ctx = cleanupStack[index]
             if ctx.functionDepth == emitDepth.fn then
                 local state = ctx.automaticMap and ctx.automaticMap[owner]
-                if state then return state.slot end
+                if state then
+                    return state.slot
+                end
             end
         end
 
@@ -1390,6 +1395,9 @@ function gen.generate(
         if x.folded then
             e(x.folded, sourceLine(x))
             return
+        end
+        if x.compilerFeatureEffect then
+            emittedFeatureEffects[x.compilerFeatureEffect] = true
         end
         if kind == "dotIndex" and x.overloadMember then
             emit(x.obj)
@@ -2225,10 +2233,7 @@ function gen.generate(
             end
             return
 
-        elseif (kind == "call" or kind == "methodCall")
-            and x.automaticOwnerMoves
-            and not x.resourceAdoptCleanups
-        then
+        elseif (kind == "call" or kind == "methodCall") and x.automaticOwnerMoves and not x.resourceAdoptCleanups then
             -- Evaluate the complete callee/receiver and argument list before ending
             -- the caller's cleanup responsibility. Once the wrapper body begins the
             -- callee is about to receive every `takes` value, so a raise belongs to
@@ -2296,7 +2301,8 @@ function gen.generate(
                 local call = protectedCleanupCall(cleanup, "__p", "pcall")
                 if call then
                     e(
-                        "do local __ok,__reason=" .. call
+                        "do local __ok,__reason="
+                        .. call
                         .. "; if not __ok then if __first==nil then __first=__reason "
                         .. "else __suppressed=__suppressed+1 end end end; "
                     )
@@ -2578,11 +2584,7 @@ function gen.generate(
                     for _, field in ipairs(fieldActiveOrder[j]) do
                         fieldActive[j][field] = nextTemp()
                     end
-                    automaticMap[automatic] = {
-                        whole = active[j],
-                        fields = fieldActive[j],
-                        slot = owners[j],
-                    }
+                    automaticMap[automatic] = {whole = active[j], fields = fieldActive[j], slot = owners[j],}
                 end
             end
             local variadic = usesVararg(x.body)
@@ -2595,14 +2597,14 @@ function gen.generate(
             }
             -- A body that resolves nothing from an enclosing scope produces a region
             -- with no upvalues, so one region can serve every execution. That is what
-            -- lets a loop around an automatic owner compile at all: building a closure per
+            -- lets a loop around an automatic owner compile at all: building a closure
+            -- per
             -- execution is `NYI: bytecode FNEW` and aborts the enclosing trace whether
             -- or not it captures. Acquisition moves out of the protected region because
             -- a lone binding that fails to acquire leaves nothing to clean up.
-            local shared = not x.capturesEnclosing
-                and #(x.bindings or {}) == 1
-                and not active[1]
-                and not x.automaticComplex
+            local shared = not x.capturesEnclosing and #(
+                x.bindings or {}
+            ) == 1 and not active[1] and not x.automaticComplex
             if shared then
                 cleanupCacheSites = cleanupCacheSites + 1
                 local slot = cleanupCacheSites
@@ -2622,7 +2624,15 @@ function gen.generate(
                 e(
                     (
                         "; local %s=%s[%d]; if not %s then %s=function(%s%s)"
-                    ):format(region, cleanupCacheName, slot, region, region, binding.name.text, variadic and ",..." or "")
+                    ):format(
+                        region,
+                        cleanupCacheName,
+                        slot,
+                        region,
+                        region,
+                        binding.name.text,
+                        variadic and ",..." or ""
+                    )
                 )
                 cleanupStack[#cleanupStack + 1] = ctx
                 e("do")
@@ -2674,6 +2684,7 @@ function gen.generate(
                         e(")")
                     end
                 end
+
                 local function activateValue(j, binding, value)
                     e(("%s="):format(owners[j]), sourceLine(binding.expr))
                     e(value)
@@ -2685,6 +2696,7 @@ function gen.generate(
                         e((" %s=true;"):format(fieldActive[j][field]))
                     end
                 end
+
                 local function activationCondition(binding)
                     local alternatives = binding.automaticOwner and binding.automaticOwner.activation or nil
                     if not alternatives then
@@ -2696,9 +2708,9 @@ function gen.generate(
                         for _, test in ipairs(tests) do
                             local name = binding.automaticOwner.correlation.names[test.index]
                             local constant = test.constant
-                            local literal = type(constant) == "string" and ("%q"):format(constant)
-                                or constant == nil and "nil"
-                                or tostring(constant)
+                            local literal = type(
+                                constant
+                            ) == "string" and ("%q"):format(constant) or constant == nil and "nil" or tostring(constant)
                             parts[#parts + 1] = ("%s==%s"):format(name, literal)
                         end
                         clauses[#clauses + 1] = "(" .. table.concat(parts, " and ") .. ")"
@@ -2706,6 +2718,7 @@ function gen.generate(
 
                     return table.concat(clauses, " or ")
                 end
+
                 local function activate(j, binding, deferName)
                     local value = nextTemp()
                     e(("const %s="):format(value), sourceLine(binding.expr))
@@ -2713,13 +2726,10 @@ function gen.generate(
                     e(";")
                     activateValue(j, binding, value)
                     if not deferName then
-                        e((" %s %s=%s;"):format(
-                            binding.isConst and "const" or "local",
-                            binding.name.text,
-                            owners[j]
-                        ))
+                        e((" %s %s=%s;"):format(binding.isConst and "const" or "local", binding.name.text, owners[j]))
                     end
                 end
+
                 if x.automaticSequence then
                     local bindingIndex = {}
                     for j, binding in ipairs(x.bindings or {}) do
@@ -2742,10 +2752,7 @@ function gen.generate(
                                     emitAcquired(bySlot[exprIndex], expr)
                                     e(");")
                                     for nameIndex = exprIndex, #names do
-                                        staged[nameIndex] = ("%s[%d]"):format(
-                                            packed,
-                                            nameIndex - exprIndex + 1
-                                        )
+                                        staged[nameIndex] = ("%s[%d]"):format(packed, nameIndex - exprIndex + 1)
                                     end
                                 else
                                     local value = nextTemp()
@@ -2769,12 +2776,16 @@ function gen.generate(
                             end
                             e(stat.isConst and " const " or " local ")
                             for nameIndex, name in ipairs(names) do
-                                if nameIndex > 1 then e(",") end
+                                if nameIndex > 1 then
+                                    e(",")
+                                end
                                 e(name.text)
                             end
                             e("=")
                             for nameIndex = 1, #names do
-                                if nameIndex > 1 then e(",") end
+                                if nameIndex > 1 then
+                                    e(",")
+                                end
                                 e(staged[nameIndex] or "nil")
                             end
                             e(";")
@@ -2783,10 +2794,7 @@ function gen.generate(
                                     local j = bindingIndex[binding]
                                     activateValue(j, binding, staged[binding.declarationIndex])
                                     if active[j] then
-                                        e((" %s=%s;"):format(
-                                            active[j],
-                                            activationCondition(binding) or "false"
-                                        ))
+                                        e((" %s=%s;"):format(active[j], activationCondition(binding) or "false"))
                                     end
                                 end
                             end
@@ -2799,11 +2807,15 @@ function gen.generate(
                                 activate(bindingIndex[binding], binding, true)
                             end
                             for _, binding in ipairs(item.bindings) do
-                                e((" %s %s=%s;"):format(
-                                    binding.isConst and "const" or "local",
-                                    binding.name.text,
-                                    owners[bindingIndex[binding]]
-                                ))
+                                e(
+                                    (
+                                        " %s %s=%s;"
+                                    ):format(
+                                        binding.isConst and "const" or "local",
+                                        binding.name.text,
+                                        owners[bindingIndex[binding]]
+                                    )
+                                )
                             end
                         elseif item.stat then
                             emit(item.stat)
@@ -2827,27 +2839,17 @@ function gen.generate(
                 local present = binding.automaticOwner and binding.automaticOwner.optional
                 if active[j] then
                     e(
-                        ("if %s>=%d and %s%s then "):format(
-                            count,
-                            j,
-                            active[j],
-                            present and (" and " .. owners[j] .. "~=nil") or ""
-                        )
+                        (
+                            "if %s>=%d and %s%s then "
+                        ):format(count, j, active[j], present and (" and " .. owners[j] .. "~=nil") or "")
                     )
                 else
-                    e(
-                        ("if %s>=%d%s then "):format(
-                            count,
-                            j,
-                            present and (" and " .. owners[j] .. "~=nil") or ""
-                        )
-                    )
+                    e(("if %s>=%d%s then "):format(count, j, present and (" and " .. owners[j] .. "~=nil") or ""))
                 end
                 for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    local fieldName = cleanup.kind == "field"
-                        and fieldActive[j]
-                        and fieldActive[j][cleanup.field]
-                        or nil
+                    local fieldName = cleanup.kind == "field" and fieldActive[
+                        j
+                    ] and fieldActive[j][cleanup.field] or nil
                     if fieldName then
                         e(("if %s then "):format(fieldName))
                     end
@@ -3177,7 +3179,14 @@ function gen.generate(
     end
     -- `nupp` is an ambient namespace, not a module the application must require. A
     -- feature only adds its bootstrap in modules that resolved it.
-    local nativeBootstrap = native.bootstrap(result.effects)
+    local runtimeEffects = {}
+    for effect, value in pairs(result.effects or {}) do
+        local feature = native.feature(effect)
+        if not feature or not feature.emittedOnly or emittedFeatureEffects[effect] then
+            runtimeEffects[effect] = value
+        end
+    end
+    local nativeBootstrap = native.bootstrap(runtimeEffects)
     if nativeBootstrap ~= "" then
         code = nativeBootstrap .. code
     else
@@ -3249,10 +3258,9 @@ function gen.generate(
             .. code
     end
     if needsCArrayIndex then
-        code = ("local function %s(i,n) if i%%1~=0 or i<0 or i>=n then ")
-            :format(carrayIndexName)
-            .. "error('C array index out of bounds',2) end return i end; "
-            .. code
+        code = (
+            "local function %s(i,n) if i%%1~=0 or i<0 or i>=n then "
+        ):format(carrayIndexName) .. "error('C array index out of bounds',2) end return i end; " .. code
     end
     if needsLibs then
         code = "const __nuppLibCache = {}; const function __nuppLib(n) "

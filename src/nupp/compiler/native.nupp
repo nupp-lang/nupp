@@ -82,6 +82,12 @@ local FEATURES: {
     name = "peg",
     globals = {"nupp.peg"},
 }, [
+    "stdlib.peg.re"
+] = {
+    name = "peg_re",
+    globals = {"nupp.peg.re"},
+    emittedOnly = true,
+}, [
     "stdlib.fieldcodec"
 ] = {
     name = "fieldcodec",
