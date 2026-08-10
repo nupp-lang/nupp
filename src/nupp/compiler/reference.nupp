@@ -1287,20 +1287,74 @@ return m
 accepts LPeg-re-style byte grammar text at either phase and emits a pure-Lua
 matcher with no LPeg dependency. A call inside `comptime` returns an opaque
 blueprint, so its declaration writes the runtime type explicitly as
-`nupp.Peg.Matcher<R>`. An ordinary runtime call returns `Matcher<any>`.
+`nupp.peg.Peg<R>`. An ordinary runtime call returns `nupp.peg.Peg<any>` because
+the checker cannot derive a result type from a string that does not exist yet.
+`Backend`, `Action`, `Actions`, and `CompileOptions` are also direct types on
+the `nupp.peg` module.
+
+Calling a recognizer returns the 1-based byte position after its match; failure
+returns nil. `peg(subject, init)` and `peg:match(subject, init)` are equivalent.
+The default `init` is 1 and negative positions count from the end. Matching is
+not implicitly anchored, so append `!.` when the pattern must consume the whole
+subject.
+
+### Writing expressions
+
+The notation is byte-oriented. Whitespace is ignored between expressions and
+`--` comments run to the end of their line. Its precedence from tightest to
+loosest is primary expressions, suffixes, predicates, sequence, then ordered
+choice.
+
+| Form | Meaning |
+| --- | --- |
+| `'text'`, `"text"` | exact literal bytes |
+| `.` | any one byte |
+| `[a-z_]`, `[^0-9]` | one byte inside or outside a class |
+| `%a`, `%d`, `%s`, `%w`, `%x` | ASCII letter, digit, space, alphanumeric, or hexadecimal byte |
+| `p q` | sequence |
+| `p / q` | ordered choice, trying `p` before `q` |
+| `p?`, `p*`, `p+` | optional, zero or more, or one or more |
+| `p^n`, `p^+n`, `p^-n` | exactly, at least, or at most `n` repetitions |
+| `&p`, `!p` | positive or negative predicate without consumption |
+| `{ p }` | substring capture |
+| `{}` | current byte-position capture |
+| `{| p |}` | collect the captures made by `p` into an array |
+| `p => name`, `p -> name` | transform the matched substring with action `name` |
+| `name <- p` | rule definition; the first rule is the start rule |
+| `name`, `<name>` | rule reference inside a grammar |
+| `!.` | end-of-input assertion |
+
+Quoted strings contain literal bytes and do not process backslash escapes. A
+class may contain ranges and predefined classes. The long predefined names are
+`%alpha`, `%cntrl`, `%digit`, `%graph`, `%lower`, `%nl`, `%punct`, `%space`,
+`%upper`, `%alnum`, and `%xdigit`; an uppercase one-letter form such as `%D`
+means the complement of its lowercase class.
+
+PEG choice is ordered rather than symmetric. Put a longer literal before its
+prefix: `'integer' / 'in'`, not `'in' / 'integer'`. Repetition is possessive
+and its body must consume input whenever it succeeds, so nullable expressions
+such as `('')*` are rejected. Parentheses group an expression before a suffix
+or make precedence explicit.
+
+### Captures and actions
 
 A capture `{ p }` returns its matched substring, `{}` returns the current byte
 position, and `{| p |}` makes several captures one explicit array result. The
 static matcher result type must agree: recognition and positions use `integer`,
-a substring uses `string`, and a homogeneous collection uses `{T}`.
+a substring uses `string`, an action uses the callback return type, and a
+homogeneous collection uses `{T}`. A matcher produces one top-level result;
+wrap multiple or repeated captures in a collection. Every ordered-choice arm
+must have the same capture shape.
 
 `p => name` or `p -> name` leaves a named callback open until runtime. For a
 static grammar the materialization boundary is a factory type,
-`function(Actions): nupp.Peg.Matcher<R>`. `Actions` must be a closed record or
+`function(Actions): nupp.peg.Peg<R>`. `Actions` must be a closed record or
 shape containing exactly the named slots, each with type `function(string): T`.
 The compiler binds those callbacks once when the factory is called. It invokes
 them only after the complete match succeeds, so PEG backtracking cannot cause
 user-code side effects.
+
+### Rules and validation
 
 Recursive grammars use `name <- p` definitions and `name` or `<name>`
 references. Every reference must resolve, repetitions may not contain a
@@ -1308,6 +1362,8 @@ nullable expression, ordered-choice capture shapes must agree, and left
 recursion is rejected. Those invalid grammars are **NUPP2417** while the common
 materialization boundary and size diagnostics remain **NUPP2414** through
 **NUPP2416**.
+
+### Compilation and backends
 
 Both phases lower to the same optimized plan and instantiate the same matcher
 factories. `auto`, the default backend, selects measured straight-line matchers
@@ -1324,21 +1380,24 @@ hosts that prefer predictable setup. Runtime action callbacks go in
 `{actions = callbacks}`. Static action callbacks remain factory inputs because
 comptime cannot capture runtime values.
 
-The notation supports quoted byte strings, `.`, byte classes and ranges,
-predefined ASCII classes such as `%a`, `%d`, `%s`, and `%w`, sequence, ordered
-choice `/`, predicates `&` and `!`, suffixes `+`, `*`, `?`, `^n`, `^+n`, and
-`^-n`, substring captures `{ p }`, position captures `{}`, collections
-`{| p |}`, and recursive `name <- p` rules. `!.` is end of input. The Nupp
-suffixes `=> name` and `-> name` bind a named runtime action slot. This is the
-byte-oriented LPeg-re floor, not full compatibility with every capture and
-definition facility in LPeg's `re` module.
+Runtime compilation parses data and builds a plan; it does not call
+`loadstring` or allocate native executable memory. This is the byte-oriented
+LPeg-re floor, not full compatibility with every capture, match-time operation,
+locale definition, or external-definition facility in LPeg's `re` module. See
+`docs/peg.md` and `examples/peg.nupp` for the full syntax guide and recipes.
 ]=],
         example = [=[
 local m = {}
 
-const Identifier: nupp.Peg.Matcher<integer> = comptime do
+const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]])
+end
+
+const Fields: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile([[
+        {| { [a-z]+ } (',' { [a-z]+ })* |} !.
     ]])
 end
 
@@ -1346,8 +1405,12 @@ function m.identifier(text: string): integer?
     return Identifier(text)
 end
 
-function m.matcher(grammar: string): nupp.Peg.Matcher<any>
+function m.matcher(grammar: string): nupp.peg.Peg<any>
     return nupp.peg.compile(grammar)
+end
+
+function m.fields(text: string): {string}?
+    return Fields(text)
 end
 
 return m

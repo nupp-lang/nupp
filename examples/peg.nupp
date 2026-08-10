@@ -1,0 +1,79 @@
+-- peg.nupp: recognition, captures, actions, rules, and runtime compilation.
+--
+-- Nupp PEG expressions are byte-oriented and use ordered choice. Compile constant
+-- grammars in `comptime` when possible: the checker validates the expression and the
+-- generated program starts with an already-materialized matcher.
+
+-- A matcher without captures returns the 1-based byte position after the match.
+-- `!.` anchors the pattern at the end of the subject.
+const Identifier: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[
+        [a-zA-Z_] [a-zA-Z_0-9]* !.
+    ]])
+end
+
+assert(Identifier("user_42") == 8)
+assert(Identifier("42_user") == nil)
+
+-- `{ p }` captures the substring consumed by p. `{| p |}` groups every capture
+-- made by p into one array result, which makes repetition unambiguous and typed.
+const CommaSeparatedWords: nupp.peg.Peg<{string}> = comptime do
+    return nupp.peg.compile([[
+        {| { [a-z]+ } (',' { [a-z]+ })* |} !.
+    ]])
+end
+
+local colors = assert(CommaSeparatedWords("red,green,blue"))
+assert(#colors == 3 and colors[2] == "green")
+
+-- A grammar begins with rule definitions when its first name is followed by `<-`.
+-- The first definition is the start rule. Rules can refer to themselves recursively,
+-- but left recursion is rejected; recursion must consume input before recurring.
+const NestedValue: nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile([[
+        start <- value !.
+        value <- 'x' / '(' value ')'
+    ]])
+end
+
+assert(NestedValue("(((x)))") == 8)
+assert(NestedValue("((x))") == 6)
+assert(NestedValue("(()x)") == nil)
+
+-- `=> name` and `-> name` create action slots. A static action grammar becomes a
+-- typed factory because runtime callbacks cannot be captured during `comptime`.
+local record IntegerActions
+    integer: function(string): integer
+end
+
+const IntegerFactory:
+    function(IntegerActions): nupp.peg.Peg<integer> = comptime do
+    return nupp.peg.compile("[0-9]+ => integer !.")
+end
+
+local Integer = IntegerFactory(new IntegerActions {
+    integer = function(text: string): integer
+        return assert(tonumber(text)) as integer
+    end,
+})
+
+assert(Integer("2048") == 2048)
+
+-- Runtime strings use the same parser and matcher implementations. Their result type
+-- is `any` because the checker cannot inspect a string that does not exist yet.
+local function runtimePeg(grammar: string): nupp.peg.Peg<any>
+    return nupp.peg.compile(grammar)
+end
+
+local Word = runtimePeg("{ [a-z]+ }")
+assert(Word("first second", 7) == "second")
+
+-- `auto` is the default backend. Force the general bytecode VM when stable setup and
+-- backend selection matter more than specialization.
+local Portable: nupp.peg.Peg<any> = nupp.peg.compile(
+    "('yes' / 'no') !.",
+    {backend = "vm"}
+)
+assert(Portable("yes") ~= nil and Portable("maybe") == nil)
+
+print("PEG example passed")

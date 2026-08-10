@@ -172,7 +172,7 @@ function M.persistsVersionedMaterializationProductsAndObservations()
 return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
 ]],
       ["src/main.nupp"] = [[
-const Matcher: nupp.Peg.Matcher<integer> = comptime do
+const Matcher: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("'ok'")
 end
 return Matcher("ok")

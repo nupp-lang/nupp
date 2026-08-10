@@ -15,15 +15,15 @@ local ROUNDS = 7
 local ITERATIONS = 250000
 
 local pegSetupStarted = os.clock()
-local Identifier: nupp.Peg.Matcher<integer> = comptime do
+local Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 
-local Date: nupp.Peg.Matcher<integer> = comptime do
+local Date: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[0-9]^4 '-' [0-9]^2 '-' [0-9]^2 !.")
 end
 
-local Route: nupp.Peg.Matcher<integer> = comptime do
+local Route: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
         [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.

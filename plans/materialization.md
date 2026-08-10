@@ -138,14 +138,14 @@ A materialized block needs a runtime type written on the declaration that owns
 the expression:
 
 ```nupp
-const Identifier: nupp.peg.Matcher<integer> = comptime do
+const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 ```
 
-The checker resolves `nupp.peg.Matcher<integer>` before evaluating the block.
+The checker resolves `nupp.peg.Peg<integer>` before evaluating the block.
 The evaluator internally returns a sealed blueprint. The expression's runtime
-type is the written `Matcher<integer>`, and generated Lua constructs that value
+type is the written `Peg<integer>`, and generated Lua constructs that value
 directly. A blueprint with runtime action slots materializes as a factory;
 these internal graph and blueprint types are not part of the public PEG API.
 
@@ -178,7 +178,7 @@ local record NumberActions
 end
 
 const buildNumber:
-        function(NumberActions): nupp.peg.Matcher<number> = comptime do
+        function(NumberActions): nupp.peg.Peg<number> = comptime do
     return nupp.peg.compile("[0-9]+ => number !.")
 end
 
@@ -210,9 +210,9 @@ possible, then validate its finalized result and slot schema afterward.
 PEG declares exactly these relations initially:
 
 ```text
-Blueprint<R> -> Matcher<R>
+Blueprint<R> -> Peg<R>
 
-FactoryBlueprint<R, S> -> function(A): Matcher<R>
+FactoryBlueprint<R, S> -> function(A): Peg<R>
     when A is a resolved nominal record
     and fields(A) are exactly slots(S), by name and function type
 ```
@@ -241,10 +241,10 @@ multiple-return surface by accident. Its first version produces one declared
 result:
 
 ```text
-Matcher<integer>       recognition position
-Matcher<string>        one substring capture
-Matcher<User>          one action-produced value
-Matcher<{Token}>       an explicit collection
+Peg<integer>       recognition position
+Peg<string>        one substring capture
+Peg<User>          one action-produced value
+Peg<{Token}>       an explicit collection
 ```
 
 Providers may deliberately expose a gradual result where their domain needs
@@ -351,7 +351,7 @@ diagnostic and hover summarizers
 ```
 
 Selection uses resolved nominal identity and checked type structure, never a
-spelled type name. A project cannot shadow `nupp.peg.Matcher` with an unrelated
+spelled type name. A project cannot shadow `nupp.peg.Peg` with an unrelated
 record and select the PEG provider. Generic arguments and a factory action
 record are passed as immutable semantic descriptors, not mutable checker
 tables.
@@ -561,7 +561,7 @@ The PEG surface is byte-oriented and deliberately smaller than LPeg:
 This floor is available only as LPeg-re-style text through
 `nupp.peg.compile`. Constant text passes to the opaque graph and static
 materializer; runtime text produces the same optimized plan contract and
-returns `Matcher<any>`. Match-time captures, locale-dependent classes and
+returns `Peg<any>`. Match-time captures, locale-dependent classes and
 arbitrary Lua pattern values remain deferred. Match-time captures are last
 because their callback can decide success and move the subject position; they
 are not merely post-match value conversion.
@@ -752,7 +752,7 @@ check, build, LSP and fixpoint retain their invariants.
 
 ### M5: factories and action slots
 
-- Add `function(A): Matcher<R>` selection over immutable record descriptors.
+- Add `function(A): Peg<R>` selection over immutable record descriptors.
 - Validate exact slot names and signatures.
 - Bind action fields once when the factory runs.
 - Add action failures, backtracking and capture rollback tests.

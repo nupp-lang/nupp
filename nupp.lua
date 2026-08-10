@@ -468,6 +468,11 @@ nupp lsp            # start the language server]],
                   title = "Regular expressions",
                   source = "docs/regex.md",
                },
+               {
+                  path = "standard-library/peg",
+                  title = "Parsing-expression grammars",
+                  source = "docs/peg.md",
+               },
 
                -- The same handwritten pages, again as overviews on the
                -- @namespace-synthesized module routes, so a reader who
@@ -492,6 +497,11 @@ nupp lsp            # start the language server]],
                   path = "modules/nupp/regex",
                   title = "Module: nupp.regex",
                   source = "docs/regex.md",
+               },
+               {
+                  path = "modules/nupp/peg",
+                  title = "Module: nupp.peg",
+                  source = "docs/peg.md",
                },
 
                {

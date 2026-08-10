@@ -386,6 +386,53 @@ function M.standardIOApiHasCompleteDocumentation()
    assert(not uri.signature:find("    record Library", 1, true), uri.signature)
 end
 
+function M.standardPegApiDocumentsItsTypesExpressionsAndExamples()
+   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
+   local module, errors = doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   local peg
+   for _, item in ipairs(module.items) do
+      if item.name == "peg" then peg = item end
+   end
+   assert(peg, "the prelude did not document nupp.peg")
+   assert(peg.doc.text:find("Expression quick reference", 1, true),
+      "nupp.peg has no expression guide")
+   assert(peg.doc.text:find("const Identifier: nupp.peg.Peg<integer>", 1, true),
+      "nupp.peg has no static matcher example")
+   assert(peg.doc.text:find("function(NumberActions): nupp.peg.Peg<integer>", 1, true),
+      "nupp.peg has no action factory example")
+
+   local expected = {
+      Backend = true,
+      Action = true,
+      Actions = true,
+      CompileOptions = true,
+      Peg = true,
+      compile = true,
+   }
+   for _, member in ipairs(peg.members) do
+      if expected[member.name] then
+         assert(member.text ~= "", "nupp.peg." .. member.name .. " has no documentation")
+         expected[member.name] = nil
+      end
+      if member.name == "Peg" then
+         assert(peg.signature:find("match: function", 1, true),
+            "nupp.peg.Peg does not expose match")
+      elseif member.name == "compile" then
+         assert(#member.params == 2, "nupp.peg.compile lost its parameters")
+         assert(member.params[1].text ~= "" and member.params[2].text ~= "",
+            "nupp.peg.compile parameters need documentation")
+         assert(#member.returns == 1 and member.returns[1].text ~= "",
+            "nupp.peg.compile return needs documentation")
+      end
+   end
+   for name in pairs(expected) do
+      error("the prelude did not document nupp.peg." .. name)
+   end
+end
+
 function M.standardLibraryBackingRecordsStayInternal()
    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
    local module, errors, extra = doc.extract(source,
@@ -398,6 +445,7 @@ function M.standardLibraryBackingRecordsStayInternal()
       ["nupp.io.Path"] = "new",
       ["nupp.io.URI"] = "new",
       ["nupp.math.vec2"] = "add",
+      ["nupp.peg"] = "compile",
       ["nupp.regex"] = "compile",
    }
    for _, child in ipairs(extra or {}) do
@@ -447,7 +495,7 @@ function M.standardLibraryBackingRecordsStayInternal()
       end
    end
    assert(topLevelLibraries == 3, "private docs lost top-level backing records")
-   assert(nestedLibraries == 6, "private docs lost nested backing records")
+   assert(nestedLibraries == 5, "private docs lost nested backing records")
 end
 
 function M.standardMathApiHasCompleteDocumentation()

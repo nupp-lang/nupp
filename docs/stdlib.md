@@ -16,6 +16,7 @@ Its namespaces are deliberately small:
 - [`nupp.io.Path` and `nupp.io.URI`](path-uri.md) model paths and resource names.
 - [`nupp.math`](math.md) owns scalar and two-dimensional vector helpers.
 - [`nupp.regex`](regex.md) provides compiled Rust regular expressions.
+- [`nupp.peg`](peg.md) compiles byte-oriented parsing-expression grammars.
 
 ## Availability, detection and lazy loading
 
@@ -56,5 +57,5 @@ arguments and malformed programmer-owned values raise at the call site. Buffers 
 views implement `close` and report use after release; readers and writers return a
 reason after they have been closed.
 
-Continue with [data and text](data.md), [byte I/O](io.md), or
-[paths and URIs](path-uri.md).
+Continue with [data and text](data.md), [byte I/O](io.md),
+[paths and URIs](path-uri.md), or [parsing-expression grammars](peg.md).

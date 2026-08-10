@@ -194,6 +194,12 @@ end
 --- precise as spelling the ambient path directly.
 function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
     local effects = {}
+    local function decorate(owner: any, member: string, effect: string): nil
+        if owner then
+            effects[owner] = effects[owner] or {}
+            effects[owner][member] = effect
+        end
+    end
     for path, effect in pairs(byGlobal) do
         local parts = {}
         for part in path:gmatch("[^.]+") do
@@ -203,8 +209,14 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         local t = entry and entry.t
         for index = 2, #parts do
             if index == #parts and t then
-                effects[t] = effects[t] or {}
-                effects[t][parts[index]] = effect
+                decorate(t, parts[index], effect)
+                -- A qualified nominal such as `record nupp.peg` also binds its
+                -- declaration table under the dotted prefix. Source reaches that
+                -- metatable value even when the ambient `nupp` shape describes the
+                -- same path as a nominal instance, so both identities carry the
+                -- member's feature effect.
+                local qualified = globals[table.concat(parts, ".", 1, index - 1)]
+                decorate(qualified and qualified.t, parts[index], effect)
             end
             t = t and t.byname and t.byname[parts[index]] or nil
         end

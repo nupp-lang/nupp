@@ -50,9 +50,25 @@ end
 
 local M = {}
 
+function M.exposesMatcherAndSupportTypesOnTheRuntimeModule()
+   local value = run([[
+local backend: nupp.peg.Backend = "vm"
+local action: nupp.peg.Action = function(text: string): any return text:upper() end
+local actions: nupp.peg.Actions = {upper = action}
+local options: nupp.peg.CompileOptions = {backend = backend, actions = actions}
+local library = nupp.peg
+local matcher: nupp.peg.Peg<any> = library.compile("[a-z]+ => upper !.", options)
+return matcher("hello")
+]])
+   assertEq(value, "HELLO", "module-level PEG types")
+
+   local codes = errorsOf("local old: nupp.Peg.Matcher<integer> = nil as any")
+   assert(#codes > 0, "the old nupp.Peg namespace must not remain public")
+end
+
 function M.matchesAStaticIdentifierWithoutLPegAtRuntime()
    local source = [[
-const Identifier: nupp.Peg.Matcher<integer> = comptime do
+const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 return Identifier:match("_name9"), Identifier:match("9name"), Identifier("ok")
@@ -70,7 +86,7 @@ end
 
 function M.returnsATypedSubstringCapture()
    local value = run([[
-const Word: nupp.Peg.Matcher<string> = comptime do
+const Word: nupp.peg.Peg<string> = comptime do
     return nupp.peg.compile("{ [a-zA-Z]+ } !.")
 end
 return Word("Hello")
@@ -80,7 +96,7 @@ end
 
 function M.collectsRepeatedCapturesExplicitly()
    local values = run([[
-const Words: nupp.Peg.Matcher<{string}> = comptime do
+const Words: nupp.peg.Peg<{string}> = comptime do
     return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 end
 return Words("one,two,three")
@@ -91,7 +107,7 @@ end
 
 function M.groupsRepeatedCapturesExplicitly()
    local values = run([[
-local matcher: nupp.Peg.Matcher<{string}> = comptime do
+local matcher: nupp.peg.Peg<{string}> = comptime do
     return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 end
 return matcher("one,two,three")
@@ -110,7 +126,7 @@ local record NumberActions
     number: function(text: string): integer
 end
 
-const Number: function(NumberActions): nupp.Peg.Matcher<integer> = comptime do
+const Number: function(NumberActions): nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[0-9]+ => number !.")
 end
 
@@ -132,7 +148,7 @@ function M.defersActionsUntilTheWholeMatchSucceeds()
 local record Actions
     text: function(value: string): string
 end
-const Build: function(Actions): nupp.Peg.Matcher<string> = comptime do
+const Build: function(Actions): nupp.peg.Peg<string> = comptime do
     return nupp.peg.compile("(('a' => text) 'z' / ('ab' => text)) !.")
 end
 local calls = 0
@@ -154,7 +170,7 @@ local record Actions
     number: function(value: string): integer
 end
 
-const Build: function(Actions): nupp.Peg.Matcher<{integer}> = comptime do
+const Build: function(Actions): nupp.peg.Peg<{integer}> = comptime do
     return nupp.peg.compile("{| ([0-9]+ => number) (',' ([0-9]+ => number))* |} !.")
 end
 
@@ -172,7 +188,7 @@ end
 function M.requiresTheExactActionSlotRecord()
    local missing = errorsOf([[
 local record Empty end
-const Build: function(Empty): nupp.Peg.Matcher<string> = comptime do
+const Build: function(Empty): nupp.peg.Peg<string> = comptime do
     return nupp.peg.compile("'x' => text")
 end
 ]])
@@ -182,7 +198,7 @@ end
 local record Actions
     text: function(value: integer): string
 end
-const Build: function(Actions): nupp.Peg.Matcher<string> = comptime do
+const Build: function(Actions): nupp.peg.Peg<string> = comptime do
     return nupp.peg.compile("'x' => text")
 end
 ]])
@@ -191,7 +207,7 @@ end
 
 function M.matchesARecursiveGrammar()
    local source = [[
-const Nested: nupp.Peg.Matcher<integer> = comptime do
+const Nested: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'")
 end
 return Nested("(((x)))"), Nested("((x)")
@@ -203,7 +219,7 @@ end
 
 function M.runsDeepGrammarRecursionOnTheExplicitVMStack()
    local matched = run([[
-const Nested: nupp.Peg.Matcher<integer> = comptime do
+const Nested: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("start <- value !. value <- 'x' / '(' value ')'", {backend = "vm"})
 end
 local depth = 2000
@@ -215,7 +231,7 @@ end
 
 function M.supportsPositionAnyAndOptionalOpcodes()
    local empty, byte, tooLong = run([[
-const Located: nupp.Peg.Matcher<integer> = comptime do
+const Located: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("{} .? !.")
 end
 return Located(""), Located("x"), Located("xy")
@@ -234,7 +250,7 @@ end
 
 function M.supportsDifferenceAndPredicates()
    local good, keyword, digit = run([[
-const Name: nupp.Peg.Matcher<integer> = comptime do
+const Name: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("!('if' !.) &[a-z] [a-z]+ !.")
 end
 return Name("item"), Name("if"), Name("7")
@@ -246,10 +262,10 @@ end
 
 function M.usesLpegExponentSemantics()
    local twice, once, thrice, capped = run([[
-const AtLeastTwo: nupp.Peg.Matcher<integer> = comptime do
+const AtLeastTwo: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("'a'^+2 !.")
 end
-const AtMostTwo: nupp.Peg.Matcher<integer> = comptime do
+const AtMostTwo: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("'a'^-2 !.")
 end
 return AtLeastTwo("aa"), AtLeastTwo("a"), AtLeastTwo("aaa"), AtMostTwo("aa")
@@ -263,7 +279,7 @@ end
 function M.agreesWithLpegOnTheOverlappingFloor()
    local lpeg = require("lpeg")
    local matcher = run([[
-const Identifier: nupp.Peg.Matcher<integer> = comptime do
+const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 return Identifier
@@ -278,7 +294,7 @@ end
 
 function M.compilesReNotationAtComptime()
    local source = [==[
-const Identifier: nupp.Peg.Matcher<integer> = comptime do
+const Identifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         [a-zA-Z_] [a-zA-Z_0-9]* !.
     ]])
@@ -297,7 +313,7 @@ end
 
 function M.compilesTheSameReNotationAtRuntime()
    local static, dynamic = run([==[
-const Static: nupp.Peg.Matcher<integer> = comptime do
+const Static: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         ('GET' / 'POST') ' ' [a-z/0-9]+ !.
     ]])
@@ -313,7 +329,7 @@ end
 
 function M.reusesTheStaticMatcherTemplateAtRuntime()
    local staticResult, dynamicResult, vmResult, sameTemplate, vmDiffers = run([==[
-const Static: nupp.Peg.Matcher<integer> = comptime do
+const Static: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
 local grammar: string = "[a-zA-Z_] [a-zA-Z_0-9]* !."
@@ -349,7 +365,7 @@ end
 
 function M.supportsRuntimeRecursiveReGrammars()
    local staticMatched, dynamicMatched, staticMissed, dynamicMissed = run([==[
-const Static: nupp.Peg.Matcher<integer> = comptime do
+const Static: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         value <- 'x' / '(' value ')'
     ]])
@@ -382,7 +398,7 @@ end
 
 function M.reportsReSyntaxLocationsAtBothPhases()
    local codes, diagnostics = errorsOf([==[
-const Broken: nupp.Peg.Matcher<integer> = comptime do
+const Broken: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         'ok'
         [z-a]
@@ -404,16 +420,16 @@ end
 
 function M.agreesBetweenSpecializedAndGeneralBackends()
    local source = [[
-const FastIdentifier: nupp.Peg.Matcher<integer> = comptime do
+const FastIdentifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.")
 end
-const RefIdentifier: nupp.Peg.Matcher<integer> = comptime do
+const RefIdentifier: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[a-zA-Z_] [a-zA-Z_0-9]* !.", {backend = "vm"})
 end
-const FastList: nupp.Peg.Matcher<{string}> = comptime do
+const FastList: nupp.peg.Peg<{string}> = comptime do
     return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.")
 end
-const RefList: nupp.Peg.Matcher<{string}> = comptime do
+const RefList: nupp.peg.Peg<{string}> = comptime do
     return nupp.peg.compile("{| { [a-z]+ } (',' { [a-z]+ })* |} !.", {backend = "vm"})
 end
 return FastIdentifier, RefIdentifier, FastList, RefList
@@ -433,7 +449,7 @@ end
 
 function M.emitsAndRunsFixedWidthRecognitionPrograms()
    local source = [[
-const Date: nupp.Peg.Matcher<integer> = comptime do
+const Date: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("[0-9]^4 '-' [0-9]^2 '-' [0-9]^2 !.")
 end
 return Date("2026-08-10"), Date("2026/08/10"), Date:match("x2026-08-10", 2)
@@ -448,7 +464,7 @@ end
 
 function M.emitsAndRunsPackedPrefixScanPrograms()
    local source = [==[
-const Route: nupp.Peg.Matcher<integer> = comptime do
+const Route: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile([[
         ('GET' / 'POST' / 'PUT' / 'PATCH' / 'DELETE') ' '
         [a-z0-9/_-]+ ' HTTP/1.' ('0' / '1') !.
@@ -469,10 +485,10 @@ end
 
 function M.fallsBackForScanProgramsOutsideThePackedShape()
    local longMatched, longMissed, separatorMatched, separatorMissed = run([[
-const Command: nupp.Peg.Matcher<integer> = comptime do
+const Command: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("('OPTIONS' / 'CONNECT') ' ' [a-z]+ '!' !.")
 end
-const Label: nupp.Peg.Matcher<integer> = comptime do
+const Label: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("('GET' / 'PUT') '::' [a-z]+ '!' !.")
 end
 return Command("OPTIONS value!"), Command("OPTION value!"),
@@ -486,7 +502,7 @@ end
 
 function M.rejectsNullableRepetition()
    local codes = errorsOf([[
-const Bad: nupp.Peg.Matcher<integer> = comptime do
+const Bad: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("('')*")
 end
 ]])
@@ -495,7 +511,7 @@ end
 
 function M.rejectsLeftRecursion()
    local codes = errorsOf([[
-const Bad: nupp.Peg.Matcher<integer> = comptime do
+const Bad: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("value <- value / 'x'")
 end
 ]])
@@ -504,7 +520,7 @@ end
 
 function M.rejectsAMatcherResultTypeMismatch()
    local codes = errorsOf([[
-const Bad: nupp.Peg.Matcher<integer> = comptime do
+const Bad: nupp.peg.Peg<integer> = comptime do
     return nupp.peg.compile("{ 'x' }")
 end
 ]])

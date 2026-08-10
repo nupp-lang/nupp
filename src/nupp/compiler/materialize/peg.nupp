@@ -1520,14 +1520,14 @@ end
 
 function peg.lower(envelope: any, expected: any, env: any): any, peg.Failure?, any
     if not expected then
-        return nil, failure("NUPP2414", "a PEG blueprint needs a directly declared nupp.peg.Matcher result type")
+        return nil, failure("NUPP2414", "a PEG blueprint needs a directly declared nupp.peg.Peg result type")
     end
     local validated, why = validateEnvelope(envelope)
     if not validated then
         return nil, failure("NUPP2415", why as string)
     end
-    local pegTypes = env and env.globalTypes and env.globalTypes["nupp.Peg"]
-    local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Matcher
+    local pegTypes = env and env.globalTypes and env.globalTypes["nupp.peg"]
+    local matcher = pegTypes and pegTypes.nestedTypes and pegTypes.nestedTypes.Peg
     local resultType, actionReturns
     if #validated.slots == 0 then
         resultType = matcherResult(expected, matcher)

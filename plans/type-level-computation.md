@@ -237,7 +237,7 @@ local function action<A, B>(
 ): Pattern<B>
 ```
 
-The planned PEG materializer threads `Blueprint<R> -> Matcher<R>` through
+The planned PEG materializer threads `Blueprint<R> -> Peg<R>` through
 ordinary generic types. A type-level reducer does not inspect the opaque graph
 to discover `R`, and materialization does not invoke the reducer to generate a
 type.
