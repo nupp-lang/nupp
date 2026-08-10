@@ -189,6 +189,7 @@ local struct Allocation
 
    @drop
    function close(self)
+      -- The C declaration cannot prove this allocator/value pairing.
       unsafe do
          ctx_free(self.ctx, self.value)
       end
