@@ -355,15 +355,6 @@ interface cst.Hints
     --- Whether the generator must pass the pinned pointer rather than the handle.
     passPinnedPointer: boolean?
 
-    --- The type a `with` binding acquired.
-    acquiredType: any
-
-    --- The `with` binding a name resolved to.
-    withBinding: any
-
-    --- Whether a `with` body captures its enclosing scope.
-    capturesEnclosing: boolean?
-
     --- Whether `@dispose` was written on this declaration.
     disposeContract: boolean?
 
@@ -438,11 +429,10 @@ record cst.EmptyStmt is
     kind: 'emptyStmt'
 end
 
---- An explicit resource scope, `with r = acquire() do ... end`.
 --- `handle suspension with h do ... end`: a scope in which `h` answers suspensions.
 ---
---- Elaborates to a `with` over `suspension.install`, and additionally marks its body a
---- checked handled-suspension region. The mark is the point rather than the sugar: a
+--- Installs a suspension handler and additionally marks its body a checked
+--- handled-suspension region. The mark is the point rather than the sugar: a
 --- suspension inside one is known to have somebody responsible for it, which is what
 --- lets the resource rules treat it differently from a raw coroutine yield.
 record cst.HandleStmt is
@@ -466,50 +456,6 @@ record cst.HandleStmt is
 
     --- The `end`.
     endTok: lexer.Token?
-end
-
-record cst.WithStmt is
-    cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'withStmt'
-
-    --- The contextual `with`.
-    withTok: lexer.Token?
-
-    --- The acquisitions, left to right.
-    bindings: {cst.WithBinding}
-
-    --- The `do` opening the protected body.
-    doTok: lexer.Token?
-
-    --- The protected block.
-    body: cst.Node?
-
-    --- The `end` closing it.
-    endTok: lexer.Token?
-end
-
---- One acquisition of a `with` scope.
-record cst.WithBinding is
-    cst.Hints
-    {cst.Node | lexer.Token}
-
-    --- Names the production this node stands for.
-    kind: 'withBinding'
-
-    --- The name the resource is bound to.
-    name: lexer.Token?
-
-    --- Its declared type, when one was written.
-    type: cst.Node?
-
-    --- The `=` before the acquisition.
-    eq: lexer.Token?
-
-    --- The expression that acquires the resource.
-    expr: cst.Node?
 end
 
 --- An `if` and everything that belongs to it.
@@ -2190,7 +2136,7 @@ end
 --- A node of the concrete syntax tree: one of the productions above, told apart by its
 --- `kind`. Reading a field that belongs to another kind is an error, which is what
 --- makes a dispatch loop check.
-type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.WithStmt | cst.WithBinding | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tkeyof | cst.Twriteof | cst.Tinfer | cst.TmatchArm | cst.Tmatch | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Tmapped | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tmember | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
+type cst.Node = cst.Chunk | cst.Block | cst.EmptyStmt | cst.HandleStmt | cst.IfStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.WhileStmt | cst.DoStmt | cst.UnsafeStmt | cst.NoSuspendStmt | cst.FornumStmt | cst.ForinStmt | cst.RepeatStmt | cst.FuncStmt | cst.Funcname | cst.LocalFuncStmt | cst.LocalStmt | cst.LabelStmt | cst.GotoStmt | cst.BreakStmt | cst.ContinueStmt | cst.ReturnStmt | cst.CompoundAssign | cst.AssignStmt | cst.CallStmt | cst.ErrorStmt | cst.PragmaStmt | cst.AnnotationApply | cst.AnnotationArg | cst.TypeAlias | cst.RecordDecl | cst.ExpansionDecl | cst.WhereClause | cst.FieldDecl | cst.IndexerDecl | cst.ArrayPart | cst.InlineMethod | cst.MetamethodDecl | cst.CdefFunc | cst.CdefStruct | cst.Generics | cst.Param | cst.Funcbody | cst.NameExpr | cst.NumberLit | cst.StringLit | cst.NilExpr | cst.TrueExpr | cst.FalseExpr | cst.Vararg | cst.Paren | cst.ComptimeExpr | cst.NewExpr | cst.ConstructorDecl | cst.MatchesDecl | cst.ErrorExpr | cst.DotIndex | cst.BracketIndex | cst.MethodCall | cst.SafeIndex | cst.SafeBracket | cst.SafeCall | cst.Call | cst.Args | cst.NamedArg | cst.ExpandArg | cst.TableExpr | cst.FieldBracket | cst.FieldNamed | cst.FieldItem | cst.Shortfn | cst.Istring | cst.FuncExpr | cst.Unop | cst.Binop | cst.CastExpr | cst.IsExpr | cst.Ternary | cst.Tconst | cst.Tkeyof | cst.Twriteof | cst.Tinfer | cst.TmatchArm | cst.Tmatch | cst.Tliteral | cst.Tname | cst.Tparen | cst.Tmap | cst.Tshape | cst.TshapeField | cst.Tmapped | cst.Ttuple | cst.Tarray | cst.Tfunc | cst.Tpack | cst.TpackUnion | cst.TfuncParam | cst.Topt | cst.Tptr | cst.Tcarray | cst.Tmember | cst.Tunion | cst.Tintersection | cst.ErrorType | cst.Tpredicate | cst.Tborrows | cst.Tpreserves
 
 --- What a node holds: another node, or a token.
 type cst.Child = cst.Node | lexer.Token
@@ -2202,9 +2148,8 @@ type cst.Declaration = cst.TypeAlias | cst.RecordDecl
 --- What may take a generic parameter clause.
 type cst.Generic = cst.Funcbody | cst.Tfunc | cst.TypeAlias | cst.RecordDecl
 
---- What a `with` scope, an `unsafe do` and the loops and blocks have in common: a body
---- block the pass walks into.
-type cst.Bodied = cst.WithStmt | cst.UnsafeStmt | cst.DoStmt | cst.WhileStmt | cst.RepeatStmt | cst.FornumStmt | cst.ForinStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.Funcbody | cst.Shortfn
+--- Statements and expressions whose nested block a pass walks into.
+type cst.Bodied = cst.UnsafeStmt | cst.DoStmt | cst.WhileStmt | cst.RepeatStmt | cst.FornumStmt | cst.ForinStmt | cst.IfClause | cst.ElseifClause | cst.ElseClause | cst.Funcbody | cst.Shortfn
 
 --- True when `x` is a token rather than a node, which narrows it for the caller. Tokens
 --- are told apart by carrying trivia; this is the one place that test is asserted

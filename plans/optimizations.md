@@ -236,8 +236,8 @@ Each entry is tagged with where its win lands:
   the benchmark gate below; not worth building.
 - `core` **Pin elision.** Drop `pinned<T>` machinery where the checker
   proves no GC point falls between the pin and the use.
-- `core` **`with`-scope pooling.** Deterministic reuse of `@owned`
-  resources across entries to the same scope (plans/with.md).
+- `core` **cleanup-region pooling.** Deterministic reuse of automatic `@owned`
+  cleanup machinery across entries to the same lexical scope.
 
 ### Trace awareness
 

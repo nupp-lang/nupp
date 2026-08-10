@@ -198,7 +198,7 @@ record state.Checker
     --- Nonzero while checking an inline closure passed to a scoped callback slot.
     scopedCaptureDepth: integer
 
-    --- Whether a `with` body has reached out of its own scope, per open scope.
+    --- Whether an analyzed cleanup body has reached out of its own scope.
     captureWatches: {any}
 
     --- Whether a function written inside a loop had to be written there. See

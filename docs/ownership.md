@@ -66,7 +66,6 @@ occasional use-after-free.
 | `nupp.fromRaw(x, cleanup...)` | In `unsafe`, assert fresh ownership of a raw value. |
 | `nupp.borrowFrom(raw, source)` | In `unsafe`, assert raw provenance from a named source. |
 | `nupp.pin(pointer, anchor)` | Bind a managed pointer to the Lua object keeping it valid. |
-| `with x = acquire() do ... end` | Deterministically clean an owner on every exit. |
 | `local x = acquire()` | Keep a movable owner and destroy it at its lexical boundary unless transferred. |
 | `sets.new(): ResourceSet` | A checked dynamic collection that reifies per-owner discharge. |
 | `unsafe do ... end` | Permit operations whose lifetime proof is deliberately abandoned. |
@@ -406,7 +405,7 @@ nupp.dispose(value)               -- valid after the borrow's scope
 ```
 
 Most calls do not need `nupp.borrow(...)`: passing an owner to a `borrows`
-parameter and binding a resource inside `with` borrow implicitly.
+parameter borrows it implicitly for the call.
 
 Borrows may be read, mutated stably, and reborrowed. They may not be returned
 without a result contract, stored in a table or field, assigned to an outer
@@ -513,7 +512,7 @@ C pointer parameter. Give the C parameter a truthful `borrows`, `exclusive`,
 
 `unsafe` grants permission for unproved pointer operations. It does **not**
 suppress affine obligations or turn off the checker. Owners still must be
-discharged, borrows still cannot escape, and `with` still runs cleanup:
+discharged, borrows still cannot escape, and lexical cleanup still runs:
 
 ```nupp
 local value = widget_new()
@@ -628,24 +627,24 @@ unsafe do
 end
 ```
 
-## Structured `with` scopes
+## Automatic lexical cleanup
 
-`with` is the exact-extent cleanup construct. It takes each acquisition,
-exposes a borrow in the body, and runs recorded cleanup on every exit:
+An ordinary owned local runs its recorded cleanup at its lexical boundary:
 
 ```nupp
-with file = openFile() do
+do
+   local file = openFile()
    print(file.closed)
 end
 ```
 
 Acquisitions occur left to right and cleanup occurs right to left. Cleanup also
-runs for early return, loop control, and errors. Ordinary local owners use the
-same cleanup machinery but remain movable. Use `with` when the body must see
-only a non-escaping borrow, `dispose` for early release, and an explicit
-terminal operation when successful completion has protocol meaning. If the
-body and cleanup both fail, Nupp preserves the body failure as the primary
-error and reports the cleanup failure with it.
+runs for early return, loop control, and errors. The local remains movable;
+moving, returning, or explicitly disposing it deactivates automatic cleanup
+exactly once. Use `dispose` for early release and an explicit terminal operation
+when successful completion has protocol meaning. If the body and cleanup both
+fail, Nupp preserves the body failure as the primary error and reports the
+cleanup failure with it.
 
 Every cleanup function and `@dispose` body must be non-suspending. A foreign or
 bodyless cleanup makes this trusted promise; a visible body is checked from its
@@ -723,7 +722,8 @@ table storage remains rejected.
 ```nupp
 local sets = require("nupp.resource_set")
 
-with resources = sets.new("request") do
+do
+   local resources = sets.new("request")
    local input = resources:adopt(openFile("in"))
    local output = resources:adopt(openFile("out"))
    copy(input, output)
@@ -751,8 +751,8 @@ arithmetic remain inside the smallest possible `unsafe` block.
 ## Coroutines
 
 Raw coroutines may be abandoned forever, and LuaJIT has no general static join
-or cancellation guarantee. Suspending with a live owner, borrow, pin, retained
-handle, or `with` cleanup pending is therefore rejected:
+or cancellation guarantee. Suspending with a live owner, borrow, pin, or
+retained handle is therefore rejected:
 
 ```nupp
 local function task()
@@ -826,8 +826,8 @@ Use this order when binding an API:
    and require callers to pin managed memory.
 5. Name the source of every borrowed return or output.
 6. Keep raw operations in the smallest possible `unsafe do` block.
-7. Use ordinary locals for movable lexical owners, `with` for exact borrowed
-   extents, and explicit operations for early release or meaningful terminals.
+7. Use ordinary locals for lexical owners and explicit operations for early
+   release or meaningful terminals.
 
 This surface makes the common path short while preserving annotations exactly
 where inference cannot originate or where a stable public contract is useful.

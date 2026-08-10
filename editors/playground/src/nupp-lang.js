@@ -10,7 +10,7 @@ const NUPP_KEYWORDS = new Set([
   "exclusive", "from", "global", "interface", "is", "matches",
   "metamethod", "new", "out", "readonly", "record", "releases",
   "resumes", "retains", "struct", "takes", "type", "unsafe",
-  "where", "with", "writeonly", "yields",
+  "where", "writeonly", "yields",
 ]);
 
 const NUPP_TYPES = new Set([

@@ -1,7 +1,6 @@
--- `@owned(cleanup)` says a result carries a cleanup obligation. It has to be discharged
--- before it leaves scope, and forgetting is a compile error rather than a leak. `with`
--- is the one place Nupp closes something for you: on fallthrough, on return, on loop
--- control, and on an error raised inside.
+-- `@owned(cleanup)` says a result carries a cleanup obligation. An ordinary local is
+-- closed automatically on fallthrough, return, loop control, and errors unless its
+-- ownership moves elsewhere first.
 
 local function closeFile(file: LuaFile)
     file:close()
@@ -23,7 +22,8 @@ local function open(path: string): LuaFile
 end
 
 local function lineCount(path: string): number
-    with file = open(path) do
+    do
+        local file = open(path)
         local count = 0
         for _ in file:lines() do
             count = count + 1
@@ -34,5 +34,5 @@ end
 
 print(lineCount("README.md"))
 
--- try breaking it: swap the `with` for `local file = open(path)` and the checker names
--- the handle that never gets closed
+-- try returning `file` without an owning result contract; the checker rejects the
+-- ownership escape

@@ -430,7 +430,8 @@ function M.defaultDisposerSurvivesRepeatedModuleChecks()
       ["main.nupp"] = [[
 local res = require("res")
 
-with file = res.open() do
+do
+    local file = res.open()
     print(file.closed)
 end
 ]],
@@ -479,7 +480,7 @@ end
 -- A free cleanup is resolved where the producer declares it, registered there, and
 -- linked lazily where the consumer discharges it. The private spelling never has to be
 -- visible in the consumer.
-function M.aPrivateCleanupCrossesIntoAWith()
+function M.aPrivateCleanupCrossesIntoAnAutomaticLocal()
    withProject({
       ["nupp.lua"] = "return { include = { 'src' } }\n",
       ["input.txt"] = "hello\n",
@@ -514,7 +515,8 @@ local res = require("res")
 local use = {}
 
 function use.slurp(path: string): string
-    with file = res.open(path) do
+    do
+        local file = res.open(path)
         return file:read("*a")
     end
 end
@@ -527,7 +529,7 @@ return use
       local command = ("cd '%s' && '%s/bin/nupp' run main.nupp "
          .. "> '%s' 2> '%s'"):format(dir, ROOT, output, errors)
       assertEq(os.execute(command), 0,
-         "cross-module with cleanup: " .. readFile(errors))
+         "cross-module automatic cleanup: " .. readFile(errors))
       assertEq(readFile(output), "hello\n\t1\n", "the private cleanup ran")
    end)
 end

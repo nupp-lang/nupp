@@ -256,14 +256,15 @@ cdef function buffer_free(takes buffer: nativeBuffer*) from "mini"
 @owned(buffer_free)
 cdef function buffer_create(size: uint64): nativeBuffer* from "mini"
 
-with buffer = buffer_create(4096) do
+do
+   local buffer = buffer_create(4096)
    print(buffer.size)
 end
 ```
 
 `@owned(buffer_free)` says the caller receives one cleanup obligation.
-`takes` says `buffer_free` consumes it. `with` guarantees cleanup across
-fallthrough, errors, and structured control flow.
+`takes` says `buffer_free` consumes it. The lexical owner guarantees cleanup
+across fallthrough, errors, and structured control flow.
 
 Use `borrows` when C only observes a resource for the duration of a call, and
 `exclusive` when the call needs sole access for its duration. Use `retains` and

@@ -305,9 +305,8 @@ return wrong
    os.execute("rm -rf '" .. dir .. "'")
 end
 
--- Typed is not enough on its own: the `@owned` contract has to cross too, or a
--- `with` cannot acquire what the library hands back and an ordinary local
--- cannot arrange automatic cleanup.
+-- Typed is not enough on its own: the `@owned` contract has to cross too, or an
+-- ordinary local cannot arrange automatic cleanup.
 function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
    local dir = tempProject({
       ["nupp.lua"] = STD_MANIFEST,
@@ -315,7 +314,8 @@ function M.theStandardLibraryCarriesItsOwnershipOutsideThisTree()
       ["acquire.nupp"] = [[
 local resources = require("nupp.resources")
 
-with file = resources.openFile("input.txt", "r") do
+do
+    local file = resources.openFile("input.txt", "r")
     print(file:read("*a"))
 end
 ]],

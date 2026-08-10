@@ -84,17 +84,16 @@ Nupp puts the obligation in the type:
 
 ```nupp
 local file = resources.openFile("in.txt", "r")
--- error: NUPP2603: owned value "file" leaves scope without being
--- consumed, disposed, returned, or converted with intoRaw
+print(file:read("*a"))
+-- file is destroyed automatically here, including when read raises
 ```
 
-Discharge it by disposing, transferring it to a `takes` parameter, returning it
-from an `@owned` function — or by scoping it:
+Dispose early, transfer it to a `takes` parameter, or return it from an
+`@owned` function when automatic lexical destruction is not the desired end:
 
 ```nupp
-with file = resources.openFile("in.txt", "r") do
-    print(file:read("*a"))
-end
+local file = resources.openFile("in.txt", "r")
+submit(file) -- takes file; automatic destruction is deactivated
 ```
 
 Cleanup runs on fallthrough, errors, and every structured exit. The checker

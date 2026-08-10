@@ -1527,12 +1527,6 @@ function calls.install(c: state.Checker): calls.Ops
                 c.checkMetatableLiteral(argNodes[j], ats[j], params[j])
             end
             if mode == "takes" then
-                local withBorrow = c.ownershipKind(
-                    ats[j]
-                ) == "borrowed" and not cst.isToken(argNodes[j]) and argNodes[j].withBinding
-                if withBorrow then
-                    c.diag("NUPP2614", argNodes[j], "a visible 'with' borrow cannot be consumed")
-                end
                 local conditional = node.kind == "safeCall" or node.kind == "methodCall" and (
                     node.safeObj ~= nil or node.safeMethod ~= nil
                 )
@@ -1542,7 +1536,7 @@ function calls.install(c: state.Checker): calls.Ops
                         argNodes[j] or node,
                         "a conditional call cannot take ownership; narrow the callee or receiver first"
                     )
-                elseif not withBorrow then
+                else
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
                     c.moveExpression(
                         movedNode,

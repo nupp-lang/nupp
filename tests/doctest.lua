@@ -565,7 +565,8 @@ function M.highlightsLjppWithTheNativeLexer()
       "   writeonly replacement: Point",
       "   point: Point",
       "end",
-      "with box = openBox() do",
+      "do",
+      "   local box = openBox()",
       "   inspect(box)",
       "end",
       "local function make(point: Point): Point",
@@ -581,7 +582,7 @@ function M.highlightsLjppWithTheNativeLexer()
    assert(html:find("keyword-record", 1, true), html)
    assert(html:find("keyword-readonly", 1, true), html)
    assert(html:find("keyword-writeonly", 1, true), html)
-   assert(html:find("keyword-with", 1, true), html)
+   assert(html:find("keyword-local", 1, true), html)
    assert(html:find('href="#math.Point"', 1, true))
 end
 
@@ -1004,8 +1005,9 @@ function M.siteMatchesTheNuppdocPageModel()
          "::: code-group",
          "```nupp [Nupp]",
          "local record Resource end",
-         "with resource = openResource() do",
-         "   dispose(resource)",
+         "do",
+         "   local resource = openResource()",
+         "   inspect(resource)",
          "end",
          "```",
          "",
@@ -1114,7 +1116,7 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(guide:find(">Nupp</label>", 1, true), guide)
    assert(guide:find(">Generated Lua</label>", 1, true), guide)
    assert(guide:find("keyword-record", 1, true), guide)
-   assert(guide:find("keyword-with", 1, true), guide)
+   assert(guide:find("keyword-local", 1, true), guide)
    assert(guide:find('href="../modules/math/index.html#math.Point"', 1, true),
       "custom-page Nupp example did not link to the API reference")
    assert(guide:find('href="../reference/details/index.html"', 1, true),

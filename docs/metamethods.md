@@ -318,7 +318,7 @@ did not come across. Nothing depends on it; a metamethod that ignores its
 third argument behaves identically under both.
 
 `__gc` and `__close` are not static operation contracts. Deterministic cleanup
-uses affine ownership and `with` scopes instead. `__pairs` is not used to type
+uses affine ownership and automatic lexical cleanup instead. `__pairs` is not used to type
 `pairs`; LuaJIT's ordinary `pairs` accepts nominal record tables directly.
 
 Declaration-only struct metamethods are rejected. LuaJIT FFI metatypes must be

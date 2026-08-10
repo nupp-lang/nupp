@@ -4,7 +4,7 @@ The statements that branch, repeat, and leave.
 Control flow is where narrowing is made and unmade: a condition proves something
 on each side of itself, a loop body may run zero times, and joining the branches
 of an `if` keeps only what every path agreed on. It is also where an affine value
-can escape — by being returned, or by outliving the `with` scope that owns it —
+can escape — by being returned, stored, or captured past its lexical source —
 so the ownership questions are asked here too.
 ]]
 
@@ -16,7 +16,6 @@ local state = require("nupp.compiler.check.state")
 
 local isA = relations.isA
 local packIsA = relations.packIsA
-local rawType = T.unwrapOwnership
 local memberSet = narrowing.memberSet
 
 local control = {}
@@ -104,7 +103,7 @@ end
 function control.install(c: state.Checker): state.StatHandlers
     local own, facts = c.own, c.facts
     local mergeFacts, snapshotNarrowed = facts.mergeFacts, facts.snapshotNarrowed
-    local optionalOwned, provenanceOwners = own.optionalOwned, own.provenanceOwners
+    local provenanceOwners = own.provenanceOwners
     local alwaysExits = c.alwaysExits
     local analyzeCond, applyFacts = c.analyzeCond, c.applyFacts
     local borrowRoot, moveExpression = c.borrowRoot, c.moveExpression
@@ -145,19 +144,15 @@ function control.install(c: state.Checker): state.StatHandlers
                     c.diag("NUPP2619", stat.exprs[j] or stat, "cannot prove all declared borrowed-result sources")
                 end
             end
-            if ownershipKind(
-                valueT
-            ) == "borrowed" and not (
-                j == 1 and c.borrowReturnStack[#c.borrowReturnStack] and not (stat.exprs[j] or stat).withBinding
+            if ownershipKind(valueT) == "borrowed" and not (
+                j == 1 and c.borrowReturnStack[#c.borrowReturnStack]
             ) then
                 local expr = stat.exprs[j] or stat
                 local ownCode = c.ownReturnStack[#c.ownReturnStack] and "NUPP2616" or nil
                 c.diag(
-                    expr.withBinding and "NUPP2612" or ownCode or "NUPP2603",
+                    ownCode or "NUPP2603",
                     expr,
-                    expr.withBinding
-                    and "a visible 'with' borrow cannot be returned"
-                    or ownCode
+                    ownCode
                     and "an owning result cannot retain an input borrow"
                     or "borrowed value cannot be returned"
                 )
@@ -317,63 +312,6 @@ function control.install(c: state.Checker): state.StatHandlers
                 c.diag("NUPP2010", stat, "returned values do not preserve the declared generic pack")
             end
         end
-    end
-
-    handlers.withStmt = function(stat: cst.WithStmt)
-        c.pushScope()
-        for _, binding in ipairs(stat.bindings or {}) do
-            -- Error recovery can leave an acquisition without its name. The value is
-            -- still checked, so what it holds is still reported; only the scope entry,
-            -- which has nothing to be called, is skipped.
-            local nameTok = binding.name
-            local acquired = c.infer(binding.expr as cst.Node)
-            local cleanups = acquired.tag == "owned" and acquired.cleanups or {}
-            binding.acquiredType = acquired
-            binding.ownerCleanups = cleanups
-            if ownershipKind(acquired) ~= "owned" or optionalOwned(acquired) then
-                c.diag("NUPP2610", binding.expr, "a 'with' acquisition must be a non-optional owned value")
-            elseif #cleanups == 0 then
-                c.diag(
-                    "NUPP2611",
-                    binding.expr,
-                    "a 'with' acquisition needs @owned cleanup functions",
-                    nil,
-                    {help = "declare an inherited @dispose operation or name " .. "the cleanup in @owned(cleanup)"}
-                )
-            end
-            if binding.type then
-                local declared = c.resolveType(binding.type)
-                local ok, why = isA(rawType(acquired), declared)
-                if not ok then
-                    c.diag(
-                        "NUPP2001",
-                        binding.expr,
-                        ("cannot initialize %s: %s"):format(nameTok and nameTok.text or "acquisition", why)
-                    )
-                end
-            end
-            -- The contract was resolved and validated where it was written. A resource
-            -- scope only has to take ownership of the acquired value; code generation
-            -- carries the resolved cleanup reference across module boundaries.
-            if ownershipKind(acquired) == "owned" then
-                moveExpression(binding.expr, acquired, "with acquisition")
-            end
-            local visible = ownershipKind(acquired) == "owned" and T.borrowed(rawType(acquired)) or T.any
-            if nameTok then
-                c.bindVar(nameTok.text, visible, binding.type ~= nil, nameTok)
-                local entry = c.scope.vars[nameTok.text]
-                if entry then
-                    entry.withBinding = binding
-                end
-            end
-        end
-        -- The bindings live in this scope, so a body reference to one of them resolves
-        -- at this depth and is not a capture: the generator passes them as parameters.
-        c.captureWatches[#c.captureWatches + 1] = {depth = c.scope.depth, captured = false}
-        c.checkBlock(stat.body, true)
-        stat.capturesEnclosing = c.captureWatches[#c.captureWatches].captured
-        c.captureWatches[#c.captureWatches] = nil
-        c.popScope()
     end
 
     handlers.ifStmt = function(stat: cst.IfStmt)
@@ -598,7 +536,7 @@ function control.install(c: state.Checker): state.StatHandlers
         end
         -- The body lowers to a protected closure, so control leaving it would return
         -- from that closure rather than from the function around it -- silently. Until
-        -- the lowering reuses what `with` does for the same problem, leaving is refused
+        -- cleanup lowering handles the same problem, so leaving is refused
         -- rather than mis-compiled.
         local function escapes(node: any, insideLoop: boolean)
             if not node or cst.isToken(node) then

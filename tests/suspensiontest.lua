@@ -16,7 +16,7 @@ local function assertTrue(cond, label)
    if not cond then error(label or "expected true", 2) end
 end
 
--- The scope, as `with` would discharge it. Written out here because the tests are Lua.
+-- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
    local installation = suspension.install(handler)
    local answers = {pcall(body, ...)}
@@ -469,7 +469,7 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
             unsubscribed = true
          end
       end)
-      -- Standing in for what a `with` would discharge on the way out.
+      -- Standing in for what lexical cleanup discharges on the way out.
       cleanedUp = true
       raised = not ok and tostring(err) or nil
    end)

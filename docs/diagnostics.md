@@ -93,7 +93,6 @@ The domain references describe `NUPP2xxx` diagnostics in context:
 - [modules and project names](modules.md#diagnostics);
 - [metamethods and contracts](metamethods.md#diagnostics);
 - [ownership and unsafe operations](ownership.md);
-- [`with` resource scopes](with.md#diagnostics);
 - [lints, configuration, and suppression](lints.md).
 
 ## Repairs
@@ -101,7 +100,7 @@ The domain references describe `NUPP2xxx` diagnostics in context:
 Checker-provided fixes cover misspelled variables, type names, fields,
 methods, and metamethods; missing module qualifications and `require`
 statements; declaration visibility; and explicit casts for intended lossy
-narrowing. The LSP also offers safe `with` wrap/unwrap transformations.
+narrowing.
 
 A diagnostic gives help rather than an edit when the compiler cannot choose a
 program on the author's behalf. Enum exhaustiveness cannot invent branch

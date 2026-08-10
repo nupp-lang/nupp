@@ -332,9 +332,6 @@ function expr.install(c: state.Checker): nil
                 )
             end
             node.immutablePath = entry and entry.constant == true or false
-            if entry and entry.withBinding then
-                node.withBinding = entry.withBinding
-            end
             if entry and entry.borrowOwner then
                 node.borrowOwner = entry.borrowOwner
             end
@@ -363,11 +360,10 @@ function expr.install(c: state.Checker): nil
                     -- The branch above is what proves it has one.
                     local capturedKind = c.ownershipKind(entry.t) as string
                     if not node.ownershipCaptureReported then
-                        c.diag(
-                            entry.withBinding and "NUPP2612" or "NUPP2603",
-                            node,
-                            ("%s value %q cannot be captured by a closure"):format(capturedKind, nameText)
-                        )
+                        c.diag("NUPP2603", node, ("%s value %q cannot be captured by a closure"):format(
+                            capturedKind,
+                            nameText
+                        ))
                         node.ownershipCaptureReported = true
                     end
                 end
@@ -691,7 +687,7 @@ function expr.install(c: state.Checker): nil
                     return
                 end
                 c.diag(
-                    value.withBinding and "NUPP2612" or "NUPP2603",
+                    "NUPP2603",
                     value,
                     (c.ownershipKind(valueT) as string) .. " value cannot be stored in a table"
                 )

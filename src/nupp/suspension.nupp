@@ -503,7 +503,7 @@ record suspension.Installed
         -- shutdown raises would otherwise strand every park it accepted.
         --
         -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
-        -- suspended stack resumes, `suspend` raises, and every `with` between there and
+        -- suspended stack resumes, `suspend` raises, and every cleanup region between there and
         -- the park runs its cleanup.
         for ticket in pairs(self.parks or {}) do
             attempt(ticket.abandon, "the handled extent ended")
@@ -559,9 +559,10 @@ end
 --- a
 --- closure boundary -- which costs the caller its multi-value results and puts the
 --- resource model's closure rules in the way of something that has nothing to do with
---- them -- so this hands back the obligation instead and `with` discharges it:
+--- them -- so this hands back the obligation and lexical cleanup discharges it:
 ---
----     with handling = suspension.install(scheduler) do
+---     do
+---         local handling = suspension.install(scheduler)
 ---         runFrame()
 ---     end
 ---

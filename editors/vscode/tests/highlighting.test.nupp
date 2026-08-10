@@ -227,8 +227,9 @@ unsafe do
 --                 ^^^^^ support.type.builtin.nupp
 end
 
-with resource = makeResource() do
+do
 -- <- keyword.control.nupp
+   local resource = makeResource()
    use(resource)
 end
 
@@ -239,8 +240,9 @@ local function peek(borrows p: Widget): Widget borrows p
 --                  ^^^^^^^ storage.modifier.ownership.nupp
 --                                             ^^^^^^^ storage.modifier.ownership.nupp
 
-with handle: Widget = makeResource() do
+do
 -- <- keyword.control.nupp
+   local handle: Widget = makeResource()
    use(handle)
 end
 

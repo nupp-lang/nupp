@@ -200,7 +200,7 @@ default disposal operation. A disposal contract must take its resource, and a
 bare `@owned` result is rejected unless exactly one default applies. See
 [Ownership and FFI safety](ownership.md) for the complete model and examples.
 
-`with` scopes use `@owned` producers with arbitrary return types; the returned
+Automatic lexical cleanup uses `@owned` producers with arbitrary return types; the returned
 type does not need to implement a cleanup interface. The annotation belongs to
 the producer, not the type, so different producers of the same type may carry
 different cleanup contracts.

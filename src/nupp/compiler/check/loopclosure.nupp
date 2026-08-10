@@ -11,7 +11,7 @@ in the source costs nothing and reads better. See `docs/lints.md`.
 The judgement is a scope-depth comparison, which is exactly the question being
 asked rather than an approximation of it: a name bound at or inside the loop
 belongs to the iteration, a name bound before it is the same name every pass.
-Name resolution already reports through `captureWatches` for `with` regions, so
+Name resolution already reports through `captureWatches` for cleanup regions, so
 this rides along and costs one integer compare per lookup.
 
 Two shapes are excused because the function is built once whatever the loop

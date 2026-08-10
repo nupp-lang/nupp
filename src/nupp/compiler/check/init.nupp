@@ -546,7 +546,7 @@ function checkMod.check(
         }
     end
 
-    -- A `with` body that resolves a name declared outside itself makes the generated
+    -- A cleanup body that resolves a name declared outside itself makes the generated
     -- region a closure over that binding, and a region with upvalues cannot be shared
     -- across executions. Every name resolution goes through lookupEntry, so watching it
     -- there is enough; the stack keeps nested scopes independent, and an inner capture
@@ -620,7 +620,7 @@ function checkMod.check(
                 end
                 for i = #c.captureWatches, 1, -1 do
                     -- A watch asks about the scopes between its floor and itself.
-                    -- `with` sets no floor and so hears about every outward resolution;
+                    -- A cleanup region sets no floor and hears every outward resolution;
                     -- a closure being judged for hoisting sets the floor at its loop,
                     -- because a name that was already bound before the loop is the same
                     -- name on every iteration.
@@ -1463,59 +1463,6 @@ function checkMod.check(
         end
     end
 
-    -- A goto may leave a resource scope (the lowering cleans before re-dispatch), but
-    -- it may not enter one and bypass acquisition.
-    local function auditWithGotos(block)
-        local labels, gotos = {}, {}
-        local function walk(node, regions)
-            if not node or cst.isToken(node) then
-                return
-            end
-            if node.kind == "funcbody" then
-                if node.body then
-                    auditWithGotos(node.body)
-                end
-                return
-            end
-            if node.kind == "shortfn" then
-                if node.body then
-                    auditWithGotos(node.body)
-                end
-                return
-            end
-            local active = regions
-            if node.kind == "withStmt" then
-                active = {}
-                for region in pairs(regions) do
-                    active[region] = true
-                end
-                active[node] = true
-            elseif node.kind == "labelStmt" and node.name then
-                labels[node.name.text] = labels[node.name.text] or {}
-                labels[node.name.text][#labels[node.name.text] + 1] = {node = node, regions = active,}
-            elseif node.kind == "gotoStmt" and node.name then
-                gotos[#gotos + 1] = {node = node, regions = active}
-            end
-            for _, child in ipairs(node) do
-                walk(child, active)
-            end
-        end
-
-        walk(block, {})
-        for _, jump in ipairs(gotos) do
-            local targets = labels[jump.node.name.text]
-            local target = targets and targets[1]
-            if target then
-                for region in pairs(target.regions) do
-                    if not jump.regions[region] then
-                        c.diag("NUPP2617", jump.node, "goto cannot enter a 'with' resource scope")
-                        break
-                    end
-                end
-            end
-        end
-    end
-
     -- Said once, before anything is checked, so the answer does not depend on how far
     -- checking got.
     if filename and filename:match("%.lua$") then
@@ -1528,7 +1475,6 @@ function checkMod.check(
     -- can export them and module return types resolve.
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
-        auditWithGotos(block)
     end
     auditScope(c.rootScope)
 

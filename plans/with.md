@@ -1,16 +1,11 @@
 # Explicit resource scopes — design record
 
-> **Ownership-default decision superseded.** The implementation and
-> [automatic-destruction.md](automatic-destruction.md) now make locally
-> disposable ordinary owners destroy automatically at lexical scope exit.
-> This document remains authoritative for `with` as an exact borrowed extent;
-> the decision below records the earlier baseline.
+> **Historical design; syntax removed.** Automatic lexical destruction made
+> the standalone `with owner = acquire() do ... end` construct redundant, so
+> it is no longer part of the grammar. This file records the former design and
+> is not a language reference.
 
-The reference for using `with` is [docs/with.md](../docs/with.md). This file
-records why it is shaped the way it is, what was rejected, and what is
-deferred.
-
-Status: implemented language design. Result provenance, affine owned fields,
+Status: removed language design. Result provenance, affine owned fields,
 default `@dispose` contracts, and suspension checks now share the same resource
 model. Named lifetimes, stored borrowed fields, and the other items under
 [Open questions](#open-questions) remain deferred.

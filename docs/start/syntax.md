@@ -53,7 +53,7 @@ cdef function usleep(usec: uint32): int32
 @owned(closeFile)                                 -- annotations
 local function open(path: string): File end
 
-with f = open("x") do end                         -- resource scope
+do local f = open("x") end                        -- lexical owner scope
 unsafe do end                                     -- unproved operations
 local n = value as integer                        -- unchecked assertion
 if v is Point then end                            -- checked test
@@ -82,7 +82,7 @@ Type syntax:
 ## Keywords are contextual
 
 None of the level-1 introducers is reserved. `type`, `record`, `interface`,
-`struct`, `const`, `cdef`, `from`, `unsafe`, `with`, `continue`,
+`struct`, `const`, `cdef`, `from`, `unsafe`, `continue`,
 `global`, `as`, `is`, `metamethod`, `takes`, `borrows`, `exclusive`, `retains`,
 `releases`, and `out` all keep their Lua meaning wherever a declaration cannot
 start:
@@ -180,8 +180,8 @@ rest the same way the original did.
 
 Generated code does not run on stock Lua 5.1 in general. Three things stop it:
 
-- any passed-through extension is a 5.1 parse error, as is the `goto` that the
-  `with` lowering emits;
+- any passed-through extension is a 5.1 parse error, as is the `goto` that
+  automatic cleanup lowering emits;
 - `require("ffi")` is injected for any struct, `cdef`, `ffi.*` call, `carray`,
   or `cheader`;
 - `require("table.new")` or `require("table.clear")` is injected when its

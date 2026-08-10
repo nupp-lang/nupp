@@ -14,9 +14,7 @@ resources are affine: `@owned(...)` records deterministic cleanup obligations,
 `takes` calls move them, borrows cannot escape, and
 `pinned<T>` handles keep Lua-managed pointers alive across declared
 `retains`/`releases` C calls. Raw-pointer reconstruction is confined to
-explicit `unsafe do` blocks. See
-[docs/ownership.md](docs/ownership.md) and explicit
-[`with` resource scopes](docs/with.md). A
+explicit `unsafe do` blocks. See [docs/ownership.md](docs/ownership.md). A
 trace-aware checker (types that know what the JIT will compile) is on the
 roadmap ([plans/todo.md](plans/todo.md)).
 
@@ -134,8 +132,8 @@ interface. Ordinary Lua assignments and functions keep
 their normal `_G` behavior; `global` is only contextual before typed
 declarations.
 
-Deterministic resource scopes consume any value returned by an `@owned`
-producer and expose a borrow inside the body:
+Ordinary lexical bindings automatically destroy values returned by an `@owned`
+producer unless ownership moves elsewhere:
 
     @owned(closeFile)
     function files.open(path: string): LuaFile
@@ -144,14 +142,15 @@ producer and expose a borrow inside the body:
         return file
     end
 
-    with file = files.open("input.txt") do
+    do
+        local file = files.open("input.txt")
         print(file:read("*a"))
     end
 
 Cleanup runs on fallthrough, errors, and structured control flow. Suspending a
 raw coroutine while the cleanup obligation is live is rejected because the
-coroutine may never resume. See [docs/with.md](docs/with.md) for ordering,
-failure, and lifetime rules.
+coroutine may never resume. See [docs/ownership.md](docs/ownership.md) for
+ordering, failure, and lifetime rules.
 
 ## Profiling
 
@@ -355,8 +354,7 @@ rewriting byte-identical generated files.
 
 The extension in `editors/vscode` provides `.nupp` syntax and semantic
 highlighting, diagnostics, navigation, hover, completion, signature help,
-rename, references, formatting, and code actions — quick fixes carried by the
-diagnostics themselves, plus `with` scope wrap and unwrap refactorings.
+rename, references, formatting, and diagnostic quick fixes.
 Install its client dependency, open the
 repository root in VS Code, and run the `Run Nupp extension` launch
 configuration:

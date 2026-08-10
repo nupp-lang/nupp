@@ -258,7 +258,7 @@ end
 function M.refusesControlLeavingAHandleRegion()
    -- The body lowers to a protected closure, so a `return` inside it would return from
    -- that closure and the function around it would carry on -- silently. Refused until
-   -- the lowering reuses what `with` does for the same problem.
+   -- the lowering reuses the ordinary cleanup-region machinery.
    local _, diags = diagnose(table.concat({
       "local h = {park = function() end}",
       "local function f(): integer",

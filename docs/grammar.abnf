@@ -38,7 +38,6 @@ stat           = ";"
                / funcstat
                / localstat
                / conststat
-               / withstat
                / label
                / "break"
                / continuestat
@@ -72,10 +71,6 @@ conststat      = %s"const" ("function" Name funcbody
                              / ["..."] fieldvar "=" explist)
                                                         ; soft keyword [CS-5]
 fieldvar       = Name "." Name *("." Name)
-
-withstat       = %s"with" withbinding *("," withbinding)
-                 "do" block "end"                    ; soft keyword [CS-17]
-withbinding    = bindname "=" exp
 
 label          = "::" Name "::"
 gotostat       = "goto" Name
@@ -570,11 +565,6 @@ packunion      = typepack 1*("|" typepack)
 ;   argument, exactly as writing `arg is type` there would. The body is
 ;   trusted, which is the point: it is where a test the checker cannot see
 ;   through gets declared once instead of cast at every use.
-;
-; [CS-17] Explicit resource scopes. "with" begins this production only at
-;   statement position when followed by Name and then "=" or ":". The
-;   parser commits after that bounded lookahead. Unlike CS-5 declarations,
-;   the first binding may begin on the following line.
 ;
 ; [CS-18] Borrowing returns. `borrows` is already a soft keyword for a
 ;   parameter mode; after a return type it names one parameter, or a

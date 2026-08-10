@@ -114,7 +114,7 @@ work makes sense in.
 
         The runtime has landed (`src/nupp/suspension.nupp`): `suspend`, the
         handler interface with `canPark` and `shutdown`, per-coroutine
-        installation as an affine `Installed` owner discharged by `with`,
+        installation as an affine `Installed` owner discharged lexically,
         identity-keyed readiness sources with release handles, and the built-in
         blocking handler. 202ns and 416 bytes against tecs's 349 and 568
         (`bench/suspension-baseline.lua`).
@@ -128,7 +128,7 @@ work makes sense in.
 
         One limitation, refused rather than mis-compiled: the body lowers to a
         protected closure, so `return` or an unbound `break` leaving the region
-        is NUPP2706. Removing that means reusing what `with` already does for
+        is NUPP2706. Removing that means reusing what cleanup regions already do for
         the same problem instead of the simpler lowering here.
         (b) landed, and smaller than budgeted. `suspension.create` inherits the
         handler in force where the coroutine was made; there is no `resume` or
@@ -184,7 +184,7 @@ work makes sense in.
 
         Cancellation unwinds rather than merely unsubscribing: abandoning a
         park wakes the parked continuation with a cancellation, so the stack
-        resumes and every `with` between there and the park runs its cleanup.
+        resumes and every lexical owner between there and the park runs its cleanup.
         A ticket is only taken off when its `suspend` returns, so a scheduler
         that answers a wake by enqueueing cannot let release report a closed
         scope while a coroutine is still suspended inside it -- release drives

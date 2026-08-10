@@ -265,7 +265,8 @@ function M.resourceSetsReifyCleanupOwnersAtOneAuditedBoundary()
    local source = table.concat({
       RESOURCE,
       "local sets = require('nupp.resource_set')",
-      "with resources = sets.new('requests') do",
+      "do",
+      "   local resources = sets.new('requests')",
       "   local value = resources:adopt(resource_new())",
       "   print(value.value)",
       "end",
@@ -286,7 +287,8 @@ function M.resourceSetsRequireAWitnessForOpaqueOwners()
       "end",
       "@owned(opaque = true)",
       "local function beginRequest(): Request return new Request {value = 1} end",
-      "with resources = sets.new('requests') do",
+      "do",
+      "   local resources = sets.new('requests')",
       "   local request = resources:adopt(beginRequest())",
       "end",
    }, "\n")), "NUPP2602")
@@ -296,7 +298,8 @@ function M.resourceSetsCanTransferARegistrationBackOutExactlyOnce()
    assertClean(table.concat({
       RESOURCE,
       "local sets = require('nupp.resource_set')",
-      "with resources = sets.new('requests') do",
+      "do",
+      "   local resources = sets.new('requests')",
       "   local borrowed = resources:adopt(resource_new())",
       "   local returned = resources:remove(borrowed)",
       "   dispose(returned)",
@@ -320,7 +323,8 @@ function M.aReifiedWitnessAttemptsEveryCleanupStep()
       "@owned(first, second)",
       "local function open(): Resource return new Resource {} end",
       "local ok = pcall(function()",
-      "   with resources = sets.new('test') do",
+      "   do",
+      "      local resources = sets.new('test')",
       "      local value = resources:adopt(open())",
       "      print(value)",
       "   end",
@@ -347,7 +351,8 @@ function M.spansCarryBoundsRootsAndAnAffineWriteExtent()
       "local byte: uint8 = part:get(1)",
       "print(byte)",
       "local storage: uint8[?] = ffi.new('uint8_t[4]') as any",
-      "with writable = spans.write_carray(storage, 4) do",
+      "do",
+      "   local writable = spans.write_carray(storage, 4)",
       "   writable:set(1, 65)",
       "end",
    }, "\n"))
@@ -429,13 +434,12 @@ function M.aBorrowedResultIsReleasedWithItsScope()
    }, "\n"))
 end
 
--- The container case reaches the pool through a `with` binding, which is
--- itself a borrow, so this only works if borrowing a borrow is allowed.
-function M.anElementCanBeBorrowedThroughAWithBinding()
+function M.anElementCanBeBorrowedThroughAnAutomaticOwner()
    assertClean(POOL .. table.concat({
       "",
       "local function use(): string",
-      "   with pool = open_pool() do",
+      "   do",
+      "      local pool = open_pool()",
       "      local item = pool:get(1)",
       "      return item.name",
       "   end",
@@ -447,7 +451,8 @@ function M.aBorrowedResultCannotOutliveItsSource()
    assertEq(codes(POOL .. table.concat({
       "",
       "local function leak(): Pool",
-      "   with pool = open_pool() do",
+      "   do",
+      "      local pool = open_pool()",
       "      return peek(pool)",
       "   end",
       "end",
@@ -534,14 +539,15 @@ function M.theHeldSourceCannotBeReleasedFirst()
    }, "\n")), "NUPP2602")
 end
 
--- The layered case a `with` was always meant to express. Reverse cleanup
--- already releases the session before the socket, which is exactly the order
--- the borrow requires.
+-- Reverse automatic cleanup releases the session before the socket, which is exactly
+-- the order the borrow requires.
 function M.layeredResourcesHoldTogetherInAScope()
    assertClean(LAYERED .. table.concat({
       "",
       "local function use()",
-      "   with sock = open_socket(), tls = open_tls(sock) do",
+      "   do",
+      "      local sock = open_socket()",
+      "      local tls = open_tls(sock)",
       "      print(tls.s.fd)",
       "   end",
       "end",
@@ -698,7 +704,7 @@ function M.defaultDisposersAreInheritedFromInterfaces()
       "local function openFile(): File",
       "   return new File {closed = false}",
       "end",
-      "with file = openFile() do print(file.closed) end",
+      "do local file = openFile(); print(file.closed) end",
    }, "\n"))
 end
 
@@ -1760,7 +1766,7 @@ function M.aQualifiedFunctionIsTypedAtItsCallSite()
       "both the result and the argument are checked")
 end
 
-function M.aQualifiedFunctionAcquiresIntoAWith()
+function M.aQualifiedFunctionAcquiresIntoAnAutomaticLocal()
    assertClean(table.concat({
       "local m = {}",
       "local function closeFile(file: LuaFile)",
@@ -1773,7 +1779,8 @@ function M.aQualifiedFunctionAcquiresIntoAWith()
       "   return file",
       "end",
       "function m.slurp(path: string): string",
-      "   with file = m.open(path) do",
+      "   do",
+      "      local file = m.open(path)",
       "      return file:read('*a')",
       "   end",
       "end",

@@ -1,8 +1,9 @@
 # Automatic destruction for ordinary owners
 
-> **Status: implemented.** This plan reverses the ordinary-local cleanup
-> decision in [with.md](with.md) while preserving `with` itself. Locally
-> disposable ordinary owners now auto-destroy at lexical scope exit.
+> **Status: implemented.** Locally disposable ordinary owners auto-destroy at
+> lexical scope exit. The standalone resource `with` syntax discussed in the
+> historical stages below was subsequently removed because `do` plus an
+> ordinary owner provides the same cleanup boundary with one ownership model.
 
 ## Decision
 

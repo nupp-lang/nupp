@@ -3,10 +3,10 @@ Owning wrappers for Lua's file handles.
 
 `io.open` hands back a borrowed handle, which means nothing has to close it and
 nothing complains when nobody does. These are the same calls annotated as owners,
-so the checker knows a handle must be discharged and a `with` scope can do it —
+so the checker knows a handle must be discharged and lexical cleanup can do it —
 on fallthrough, on error, and on structured control flow alike.
 
-See `docs/ownership.md` and `docs/with.md`.
+See `docs/ownership.md`.
 ]]
 
 local resources = {}
@@ -20,7 +20,7 @@ end
 
 --- Opens a file and transfers responsibility for closing it to the caller.
 ---
---- The returned handle can be bound by `with`, which closes it on every exit path.
+--- The returned handle closes automatically at its lexical boundary.
 ---
 --- @export
 --- @param path the path of the file to open
@@ -39,7 +39,7 @@ end
 
 --- Starts a process and transfers responsibility for closing its pipe to the caller.
 ---
---- The returned handle can be bound by `with`, which closes it on every exit path.
+--- The returned handle closes automatically at its lexical boundary.
 ---
 --- @export
 --- @param command the shell command to run
@@ -58,7 +58,7 @@ end
 
 --- Creates a temporary file owned by the caller.
 ---
---- The returned handle can be bound by `with`, which closes it on every exit path.
+--- The returned handle closes automatically at its lexical boundary.
 ---
 --- @export
 --- @return the open temporary file handle, owned by the caller

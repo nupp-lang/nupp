@@ -54,6 +54,18 @@ local PRELUDE = table.concat({
 
 local M = {}
 
+function M.withIsOnlyAnOrdinaryIdentifierNow()
+   local ordinary = parser.parse(
+      "local with = function(value) return value end\nreturn with(1)",
+      "automatic-destruction-test.g.nupp")
+   assertEq(#ordinary.errors, 0)
+
+   local removed = parser.parse(
+      "with value = acquire() do print(value) end",
+      "automatic-destruction-test.g.nupp")
+   assert(#removed.errors > 0, "the removed resource-scope syntax must not parse")
+end
+
 function M.fallthroughDestroysAnOrdinaryOwner()
    local chunk = compile(PRELUDE .. table.concat({
       "",
@@ -298,7 +310,8 @@ function M.resourceSetAdoptionTransfersAutomaticResponsibility()
    local chunk = compile(PRELUDE .. table.concat({
       "",
       "local sets = require('nupp.resource_set')",
-      "with resources = sets.new('automatic') do",
+      "do",
+      "   local resources = sets.new('automatic')",
       "   local value = open_resource('q')",
       "   local borrowed = resources:adopt(value)",
       "   print(borrowed.name)",
@@ -333,7 +346,7 @@ function M.structuredExitsRunCleanup()
    assertEq(calls, "r12g")
 end
 
-function M.cleanupFailuresUseTheWithAggregationContract()
+function M.cleanupFailuresUseTheSharedAggregationContract()
    local chunk = compile(table.concat({
       "local calls = ''",
       "local function bad(value: table) calls = calls .. 'b'; error('bad') end",

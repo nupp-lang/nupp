@@ -58,7 +58,6 @@ local COVERAGE_STATEMENTS = {
     breakStmt = true,
     continueStmt = true,
     gotoStmt = true,
-    withStmt = true,
     unsafeStmt = true,
     noSuspendStmt = true,
 }
@@ -431,17 +430,17 @@ function gen.generate(
     local cleanupResolverOrder = {}
     local cleanupRegisterValueName
     local newTabName, clearTabName, cloneTabName
-    local needsWith = false
-    local withPackName, withIdName, withFailureName
-    -- Generated `with` code calls library functions by name, so those names are bound
+    local needsCleanupRegions = false
+    local cleanupPackName, cleanupIdName, cleanupFailureName
+    -- Generated cleanup regions call library functions by name, so those names are bound
     -- as locals on the hoisted first line: a user local called `unpack` or `error`
     -- would otherwise shadow them at the point of use.
-    local withGlobals
+    local cleanupGlobals
     -- One table holds every shareable region, each site owning an index, so the count
-    -- of `with` statements in a file cannot exhaust Lua's limit on locals per function.
-    local withCacheName
-    local withCacheSites = 0
-    local withStack = {}
+    -- of cleanup sites in a file cannot exhaust Lua's limit on locals per function.
+    local cleanupCacheName
+    local cleanupCacheSites = 0
+    local cleanupStack = {}
     local emitDepth = {loop = 0, fn = 0}
     local coverageOn = coverage == true or type(coverage) == "table"
     local coveragePath = coverageOn and (
@@ -1026,7 +1025,7 @@ function gen.generate(
             if n.kind == "funcbody" then
                 return
             end
-            if n.kind == "withStmt" then
+            if n.kind == "cleanupRegion" then
                 return
             end
             if n.kind == "labelStmt" and n.name then
@@ -1044,7 +1043,7 @@ function gen.generate(
 
     -- `...` cannot cross the protected region's function boundary, so a body that reads
     -- it makes the region variadic and the varargs are forwarded through xpcall. Nested
-    -- `with` bodies are searched too, so an inner region's varargs are forwarded down
+    -- Nested cleanup bodies are searched too, so an inner region's varargs are forwarded down
     -- through every enclosing region; nested functions are not, because they bind their
     -- own `...`.
     local function usesVararg(block)
@@ -1107,8 +1106,8 @@ function gen.generate(
         return captured
     end
 
-    -- Turns the owner declarations in one lexical block into the same semantic region
-    -- `with` lowers. The checker supplied the exact cleanup entries; this pass never
+    -- Turns the owner declarations in one lexical block into a semantic cleanup region.
+    -- The checker supplied the exact cleanup entries; this pass never
     -- guesses from a type name or a method spelling. Activations retain their source
     -- positions inside the protected body, so staggered acquisitions fuse without
     -- moving intervening work or extending an inner block's lifetime.
@@ -1161,11 +1160,10 @@ function gen.generate(
                         local exprs = stat.exprs or {}
                         local expr = exprs[j] or exprs[#exprs]
                         local binding = {
-                            kind = "withBinding",
+                            kind = "cleanupBinding",
                             name = stat.names[j],
                             expr = expr,
                             declarationIndex = j,
-                            acquiredType = owner.type,
                             ownerCleanups = owner.cleanups,
                             automaticOwner = owner,
                             isConst = stat.isConst,
@@ -1195,8 +1193,8 @@ function gen.generate(
             body[#body + 1] = stat
         end
         local region: any = {
-            kind = "withStmt",
-            withTok = bindings[1].name,
+            kind = "cleanupRegion",
+            startTok = bindings[1].name,
             doTok = bindings[1].name,
             endTok = cst.lastToken(block),
             bindings = bindings,
@@ -1211,8 +1209,8 @@ function gen.generate(
 
     local function activeWith(move)
         local owner = move and (move.owner or move) or nil
-        for index = #withStack, 1, -1 do
-            local ctx = withStack[index]
+        for index = #cleanupStack, 1, -1 do
+            local ctx = cleanupStack[index]
             if ctx.functionDepth == emitDepth.fn then
                 if owner then
                     local state = ctx.automaticMap and ctx.automaticMap[owner]
@@ -1236,8 +1234,8 @@ function gen.generate(
     local function automaticSlot(move)
         local owner = move and (move.owner or move) or nil
         if not owner then return nil end
-        for index = #withStack, 1, -1 do
-            local ctx = withStack[index]
+        for index = #cleanupStack, 1, -1 do
+            local ctx = cleanupStack[index]
             if ctx.functionDepth == emitDepth.fn then
                 local state = ctx.automaticMap and ctx.automaticMap[owner]
                 if state then return state.slot end
@@ -1259,9 +1257,9 @@ function gen.generate(
         end
         local packed = #actives > 0 and nextTemp() or nil
         if packed then
-            e(("do const %s=%s("):format(packed, withPackName), sourceLine(x))
+            e(("do const %s=%s("):format(packed, cleanupPackName), sourceLine(x))
         else
-            e(("return \"return\",%s("):format(withPackName), sourceLine(x))
+            e(("return \"return\",%s("):format(cleanupPackName), sourceLine(x))
         end
         for j, expr in ipairs(x.exprs or {}) do
             if j > 1 then
@@ -2510,11 +2508,8 @@ function gen.generate(
             return
 
         elseif kind == "handleStmt" then
-            -- Elaborates to what `with` does for one owner: acquire, run the body
-            -- protected, discharge on every exit, re-raise what the body raised.
-            -- Written
-            -- out here rather than by building a `with` node, because the acquisition
-            -- is
+            -- Acquire, run the body protected, discharge on every exit, and re-raise
+            -- what the body raised. This is written out because the acquisition is
             -- a call to a module this file may never have required and only codegen
             -- knows the name it bound.
             local installed = nextTemp()
@@ -2536,14 +2531,14 @@ function gen.generate(
                 x.endTok and x.endTok.line or nil
             )
 
-        elseif kind == "withStmt" then
-            needsWith = true
-            if not withPackName then
-                withPackName = nextTemp()
-                withIdName = nextTemp()
-                withFailureName = nextTemp()
-                withCacheName = nextTemp()
-                withGlobals = {}
+        elseif kind == "cleanupRegion" then
+            needsCleanupRegions = true
+            if not cleanupPackName then
+                cleanupPackName = nextTemp()
+                cleanupIdName = nextTemp()
+                cleanupFailureName = nextTemp()
+                cleanupCacheName = nextTemp()
+                cleanupGlobals = {}
                 for _, name in ipairs({
                     "pcall",
                     "xpcall",
@@ -2554,7 +2549,7 @@ function gen.generate(
                     "tostring",
                     "ipairs"
                 }) do
-                    withGlobals[name] = nextTemp()
+                    cleanupGlobals[name] = nextTemp()
                 end
             end
             local count = nextTemp()
@@ -2600,7 +2595,7 @@ function gen.generate(
             }
             -- A body that resolves nothing from an enclosing scope produces a region
             -- with no upvalues, so one region can serve every execution. That is what
-            -- lets a loop around a `with` compile at all: building a closure per
+            -- lets a loop around an automatic owner compile at all: building a closure per
             -- execution is `NYI: bytecode FNEW` and aborts the enclosing trace whether
             -- or not it captures. Acquisition moves out of the protected region because
             -- a lone binding that fails to acquire leaves nothing to clean up.
@@ -2609,11 +2604,11 @@ function gen.generate(
                 and not active[1]
                 and not x.automaticComplex
             if shared then
-                withCacheSites = withCacheSites + 1
-                local slot = withCacheSites
+                cleanupCacheSites = cleanupCacheSites + 1
+                local slot = cleanupCacheSites
                 local region = nextTemp()
                 local binding = x.bindings[1]
-                e("do const ", x.withTok and x.withTok.line or sourceLine(x))
+                e("do const ", x.startTok and x.startTok.line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 local move = binding.expr and binding.expr.automaticOwnerMove or nil
                 local movedActive = move and activeWith(move) or nil
@@ -2627,14 +2622,14 @@ function gen.generate(
                 e(
                     (
                         "; local %s=%s[%d]; if not %s then %s=function(%s%s)"
-                    ):format(region, withCacheName, slot, region, region, binding.name.text, variadic and ",..." or "")
+                    ):format(region, cleanupCacheName, slot, region, region, binding.name.text, variadic and ",..." or "")
                 )
-                withStack[#withStack + 1] = ctx
+                cleanupStack[#cleanupStack + 1] = ctx
                 e("do")
                 if x.body then
                     emit(x.body)
                 end
-                e(("end; return \"normal\" end; %s[%d]=%s end;"):format(withCacheName, slot, region))
+                e(("end; return \"normal\" end; %s[%d]=%s end;"):format(cleanupCacheName, slot, region))
                 e(
                     (
                         "const %s,%s,%s=%s(%s,%s,%s%s);"
@@ -2642,17 +2637,17 @@ function gen.generate(
                         ok,
                         tag,
                         payload,
-                        withGlobals.xpcall,
+                        cleanupGlobals.xpcall,
                         region,
-                        withIdName,
+                        cleanupIdName,
                         owners[1],
                         variadic and ",..." or ""
                     )
                 )
-                withStack[#withStack] = nil
+                cleanupStack[#cleanupStack] = nil
                 e(("const %s=1;"):format(count))
             else
-                e(("do local %s=0; local "):format(count), x.withTok and x.withTok.line or sourceLine(x))
+                e(("do local %s=0; local "):format(count), x.startTok and x.startTok.line or sourceLine(x))
                 e(table.concat(owners, ","))
                 for j = 1, #(x.bindings or {}) do
                     if active[j] then
@@ -2665,9 +2660,9 @@ function gen.generate(
                 e(
                     (
                         "; const %s,%s,%s=%s(function(%s)"
-                    ):format(ok, tag, payload, withGlobals.xpcall, variadic and "..." or "")
+                    ):format(ok, tag, payload, cleanupGlobals.xpcall, variadic and "..." or "")
                 )
-                withStack[#withStack + 1] = ctx
+                cleanupStack[#cleanupStack + 1] = ctx
                 local function emitAcquired(binding, expr)
                     local move = expr and expr.automaticOwnerMove or nil
                     local movedActive = move and activeWith(move) or nil
@@ -2743,7 +2738,7 @@ function gen.generate(
                             for exprIndex, expr in ipairs(exprs) do
                                 if exprIndex == #exprs and #names > #exprs then
                                     local packed = nextTemp()
-                                    e(("const %s=%s("):format(packed, withPackName), sourceLine(expr))
+                                    e(("const %s=%s("):format(packed, cleanupPackName), sourceLine(expr))
                                     emitAcquired(bySlot[exprIndex], expr)
                                     e(");")
                                     for nameIndex = exprIndex, #names do
@@ -2823,8 +2818,8 @@ function gen.generate(
                         emit(x.body)
                     end
                 end
-                e(("end; return \"normal\" end,%s%s);"):format(withIdName, variadic and ",..." or ""))
-                withStack[#withStack] = nil
+                e(("end; return \"normal\" end,%s%s);"):format(cleanupIdName, variadic and ",..." or ""))
+                cleanupStack[#cleanupStack] = nil
             end
             e(("const %s={}; local %s=0;"):format(cleanupError, hasCleanupError), x.endTok and x.endTok.line or nil)
             for j = #(x.bindings or {}), 1, -1 do
@@ -2856,7 +2851,7 @@ function gen.generate(
                     if fieldName then
                         e(("if %s then "):format(fieldName))
                     end
-                    local call = protectedCleanupCall(cleanup, owners[j], withGlobals.pcall)
+                    local call = protectedCleanupCall(cleanup, owners[j], cleanupGlobals.pcall)
                     if call then
                         local cok, cerr = nextTemp(), nextTemp()
                         e(("const %s,%s=%s;"):format(cok, cerr, call))
@@ -2878,11 +2873,11 @@ function gen.generate(
                 ):format(
                     ok,
                     hasCleanupError,
-                    withGlobals.error,
-                    withFailureName,
+                    cleanupGlobals.error,
+                    cleanupFailureName,
                     tag,
                     cleanupError,
-                    withGlobals.error,
+                    cleanupGlobals.error,
                     tag
                 )
             )
@@ -2892,20 +2887,20 @@ function gen.generate(
                 ):format(
                     hasCleanupError,
                     hasCleanupError,
-                    withGlobals.error,
-                    withFailureName,
+                    cleanupGlobals.error,
+                    cleanupFailureName,
                     cleanupError,
                     cleanupError,
-                    withGlobals.error,
+                    cleanupGlobals.error,
                     cleanupError
                 )
             )
-            local parent = withStack[#withStack]
+            local parent = cleanupStack[#cleanupStack]
             e(("if %s==\"return\" then "):format(tag))
             if parent then
                 e(("return \"return\",%s"):format(payload))
             else
-                e(("return %s(%s,1,%s.n)"):format(withGlobals.unpack, payload, payload))
+                e(("return %s(%s,1,%s.n)"):format(cleanupGlobals.unpack, payload, payload))
             end
             e(" end;")
             if ctx.breakExit then
@@ -3188,16 +3183,16 @@ function gen.generate(
     else
         code = "_G.nupp=_G.nupp or {};" .. code
     end
-    if needsWith then
+    if needsCleanupRegions then
         local names, values = {}, {}
         for _, name in ipairs({"pcall", "xpcall", "error", "unpack", "select", "setmetatable", "tostring", "ipairs"}) do
-            names[#names + 1] = withGlobals[name]
+            names[#names + 1] = cleanupGlobals[name]
             values[#values + 1] = name
         end
         code = (
             "const %s={}; "
         ):format(
-            withCacheName
+            cleanupCacheName
         ) .. (
             "const %s=%s; "
         ):format(
@@ -3206,31 +3201,31 @@ function gen.generate(
         ) .. (
             "const function %s(...) return "
         ):format(
-            withPackName
+            cleanupPackName
         ) .. (
             "{n=%s(\"#\",...),...} end; "
         ):format(
-            withGlobals.select
+            cleanupGlobals.select
         ) .. (
             "const function %s(value) return value end; "
         ):format(
-            withIdName
+            cleanupIdName
         ) .. (
             "const function %s(primary,errors,start) "
         ):format(
-            withFailureName
+            cleanupFailureName
         ) .. "const secondary={} for i=start,#errors do " .. (
             "secondary[#secondary+1]=errors[i] end return %s("
         ):format(
-            withGlobals.setmetatable
+            cleanupGlobals.setmetatable
         ) .. "{primary=primary,suppressed=secondary},{__tostring=function(v) " .. (
             "local text=%s(v.primary) for _,reason in %s("
         ):format(
-            withGlobals.tostring,
-            withGlobals.ipairs
+            cleanupGlobals.tostring,
+            cleanupGlobals.ipairs
         ) .. (
             "v.suppressed) do text=text..\"\\ncleanup: \"..%s(reason) "
-        ):format(withGlobals.tostring) .. "end return text end}) end; " .. code
+        ):format(cleanupGlobals.tostring) .. "end return text end}) end; " .. code
     end
     -- A project global is created by the module that declares it, so naming one means
     -- that module has to have been loaded. Nothing is bound: the declaration assigned

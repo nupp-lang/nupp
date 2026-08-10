@@ -6,7 +6,7 @@ what it came from; a pinned handle pairs a pointer with the Lua anchor keeping i
 alive. Tracking that is a concern of its own: it asks where a value came from and
 what has already happened to it, not what type an expression has.
 
-See `docs/ownership.md` and `docs/with.md`.
+See `docs/ownership.md`.
 ]]
 
 local T = require("nupp.compiler.types")
@@ -38,7 +38,7 @@ type ownership.Ops = {
     --- Whether values of this type are pointers at run time.
     pointerShaped: function(t: Type): boolean,
 
-    --- Whether an owner may also be nil, which `with` has to see narrowed first.
+    --- Whether an owner may also be nil, so cleanup is conditional.
     optionalOwned: function(t: Type?): boolean,
 
     --- Checks that a value's declared cleanups exist and take it.

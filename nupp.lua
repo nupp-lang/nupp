@@ -217,7 +217,8 @@ local native = cheader("native/library.h")]],
                         details = "Ownership, borrowing, pinning, and deterministic cleanup make "
                            .. "the important rules at a C boundary explicit—and make leaks and "
                            .. "use-after-move errors reportable.",
-                        code = [[with file = resources.openFile("report.txt", "r") do
+                        code = [[do
+    local file = resources.openFile("report.txt", "r")
     local contents = file:read("*a")
     send(borrows contents)
 end -- the file is closed on every structured exit]],
@@ -246,7 +247,8 @@ end]],
                            .. "cross back, and ownership guarantees every worker is joined.",
                         code = [[local workers = require("nupp.workers")
 
-with hasher = workers.spawn("workers.hash") do
+do
+    local hasher = workers.spawn("workers.hash")
     local answer = hasher:call({
         name = "level1",
         bytes = contents,
@@ -570,11 +572,6 @@ nupp lsp            # start the language server]],
                   path = "reference/ownership",
                   title = "Ownership",
                   source = "docs/ownership.md",
-               },
-               {
-                  path = "reference/with",
-                  title = "Resource scopes",
-                  source = "docs/with.md",
                },
                {
                   path = "reference/c-interop",

@@ -1,11 +1,12 @@
 -- Select-all and delete, then start over. The buffer passes through empty,
--- through a lone `end` with nothing to close, and through a `with` scope
--- missing its body — states where every position a request could name has gone.
+-- through a lone `end` with nothing to close, and through an incomplete lexical
+-- scope — states where every position a request could name has gone.
 local FULL = table.concat({
     "local files = {}",
     "",
     "function files.readAll(path: string): string",
-    "    with handle = io.open(path, 'r') do",
+    "    do",
+    "        local handle = io.open(path, 'r')",
     "        return handle:read('*a')",
     "    end",
     "end",

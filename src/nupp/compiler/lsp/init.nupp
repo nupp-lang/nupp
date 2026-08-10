@@ -30,12 +30,10 @@ local wire = require("nupp.compiler.lsp.wire")
 local symbols = require("nupp.compiler.lsp.symbols")
 local complete = require("nupp.compiler.lsp.complete")
 local semantic = require("nupp.compiler.lsp.semantic")
-local actions = require("nupp.compiler.lsp.actions")
 
 local documentationAt = tree.documentationAt
 local enclosingChain = tree.enclosingChain
 local functionSignature = tree.functionSignature
-local innermostAt = tree.innermostAt
 local lineHunks = text.lineHunks
 local lineStarts = text.lineStarts
 local memberOccurrences = tree.memberOccurrences
@@ -45,16 +43,13 @@ local splitLines = text.splitLines
 local symbolKey = tree.symbolKey
 local tokenAt = tree.tokenAt
 local tokenRange = text.tokenRange
-local QUICKFIX = actions.QUICKFIX
-local REFACTOR = actions.REFACTOR
+local QUICKFIX = "quickfix"
 local SYMBOL_KINDS = symbols.SYMBOL_KINDS
 local documentSymbols = symbols.documentSymbols
 local foldableSpans = symbols.foldableSpans
 local semanticModifiers = semantic.semanticModifiers
 local semanticTypes = semantic.semanticTypes
 local signatureAt = complete.signatureAt
-local unwrapWith = actions.unwrapWith
-local wrapInWith = actions.wrapInWith
 local uriToPath = text.uriToPath
 
 type lsp.Session = {
@@ -196,7 +191,7 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             full = {delta = true},
             range = true,
         }, documentFormattingProvider = true, documentRangeFormattingProvider = true, documentSymbolProvider = true, workspaceSymbolProvider = true, documentHighlightProvider = true, foldingRangeProvider = true, selectionRangeProvider = true, codeActionProvider = {
-            codeActionKinds = wire.array({QUICKFIX, REFACTOR}),
+            codeActionKinds = wire.array({QUICKFIX}),
         }, workspace = {
             workspaceFolders = {supported = true, changeNotifications = true,},
         },}, serverInfo = {name = "nupp-lsp", version = "0.1"},})
@@ -626,31 +621,6 @@ function lsp.newSession(rootDir: string?, emit: function(any)): lsp.Session
             end
         end
 
-        local root = doc.result.root
-        local scope = innermostAt(root, {withStmt = true}, from, to)
-        if scope then
-            offer(REFACTOR, "Unwrap 'with' into explicit disposals", unwrapWith(doc.text, scope))
-        end
-        local binding = innermostAt(root, {localStmt = true}, from, to)
-        if binding then
-            -- The same rewrite, reported against the live-owner diagnostic when there
-            -- is one: an owner that never gets disposed is exactly what an enclosing
-            -- `with` fixes, and the editor should say so where the author is already
-            -- looking rather than only under Refactor.
-            local reported = nil
-            local nameTok = (binding.names or {})[1]
-            for _, e in ipairs(diagnostics) do
-                if e.code == "NUPP2603" and nameTok and e.offset == nameTok.offset then
-                    reported = toLspDiagnostics({e}, doc.text)[1]
-                end
-            end
-            offer(
-                reported and QUICKFIX or REFACTOR,
-                "Wrap in a 'with' scope",
-                wrapInWith(doc.text, root, binding),
-                reported
-            )
-        end
         respond(id, offers)
     end
 

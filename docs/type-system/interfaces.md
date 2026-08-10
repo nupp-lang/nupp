@@ -243,7 +243,7 @@ later fulfillment point.
 The bit-operator contracts (`__band`, `__bor`, `__bxor`, `__bnot`, `__shl`,
 `__shr`, `__sar`) and `__idiv` are rejected: the LuaJIT 2.1 backport does not
 dispatch them. `__gc` and `__close` are not contracts either — deterministic
-cleanup is [ownership](../ownership.md) and `with`.
+cleanup is [ownership](../ownership.md).
 
 [The metamethod reference](../metamethods.md) covers generic indexing, runtime
 fulfillment, `metatable<T>`, and the full set of exclusions.

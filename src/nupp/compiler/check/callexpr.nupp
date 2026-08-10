@@ -234,13 +234,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 if #args ~= 1 then
                     c.diag("NUPP2602", node, "dispose expects one owned value")
                 end
-                local withBorrow = args[1] and args[1].withBinding
-                if withBorrow then
-                    c.diag("NUPP2614", args[1], "a visible 'with' borrow cannot be disposed")
-                end
-                if not withBorrow then
-                    c.moveExpression(args[1] or node, valueT, "dispose", nil, true)
-                end
+                c.moveExpression(args[1] or node, valueT, "dispose", nil, true)
                 if c.ownershipKind(valueT) == "owned" and #(disposed.cleanups or {}) == 0 then
                     c.diag(
                         "NUPP2602",

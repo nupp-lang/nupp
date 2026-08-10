@@ -75,18 +75,6 @@ token carrying the diagnostic rather than only at its first byte.
 A spelling fix refuses on a tie rather than picking one. A missing require
 offers one fix per candidate module rather than guessing between them.
 
-Two refactorings come from the server itself:
-
-- **Wrap in a 'with' scope** — offered on a `local` binding one owned value with
-  at least one cleanup. It is a quick fix when NUPP2603 sits on the binding, and
-  a refactoring otherwise. It is refused for a `const` binding, a transfer-only
-  owner with nothing to call, and an owner the block returns.
-- **Unwrap 'with' into explicit disposals** — refused when the body leaves by
-  `return`, `break`, `continue`, or `goto`, because `with` closes its owners on
-  those paths and a trailing `dispose` would not.
-
-Both reindent by one level, so the result is already formatted.
-
 ## Command-line operations
 
 Each runs the same in-process session — there is no subprocess — which makes

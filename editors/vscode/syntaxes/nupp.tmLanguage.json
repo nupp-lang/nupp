@@ -303,10 +303,6 @@
         },
         {
           "name": "keyword.control.nupp",
-          "match": "\\bwith\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s*(?::[^=]+)?=)"
-        },
-        {
-          "name": "keyword.control.nupp",
           "match": "\\bnew\\b(?=\\s+[A-Za-z_][A-Za-z0-9_.]*\\s*(?:\\(|\\{|\"|'))"
         },
         {

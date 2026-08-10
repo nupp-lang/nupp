@@ -75,8 +75,7 @@ nupp explain NUPP2119
 `nupp lsp serve` speaks LSP over stdio. It provides diagnostics, hover,
 completion, signature help, go-to-definition, references, rename, document and
 workspace symbols, semantic tokens, folding, selection ranges, formatting, and
-code actions — the checker's own quick fixes plus `with` wrap and unwrap
-refactorings.
+the checker's code-action quick fixes.
 
 The same operations are available without an editor, which is what makes them
 usable from a script or an agent:

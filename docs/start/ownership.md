@@ -5,12 +5,11 @@ carries that obligation in its type. The checker finds the missing cleanup, the
 double free, and the use-after-move before the program runs.
 
 The model is deliberately smaller than Rust's: no named lifetimes, no
-typestate, no borrow checker over arbitrary object graphs, and no automatic
-destruction when an ordinary scope ends. It is aimed at the failures that
+typestate, and no borrow checker over arbitrary object graphs. It is aimed at the failures that
 happen at a C boundary, and it costs one annotation on the producer.
 
 This page is the working subset. The [ownership reference](../ownership.md) has
-the complete model, and [resource scopes](../with.md) covers `with` in detail.
+the complete model.
 
 ## Declaring a resource
 
@@ -60,29 +59,22 @@ A disposer must `takes` its resource. That is what makes it consuming.
 
 ## Discharging the obligation
 
-Once you hold an owner, every path has to get rid of it exactly once:
+Once you bind an owner, its exact cleanup runs automatically at the binding's
+lexical boundary:
 
 ```nupp
 local f = openFile()
--- error: NUPP2603: owned value "f" leaves scope without being consumed,
--- disposed, returned, or converted with intoRaw
+print(f.closed)
+-- close runs here, including when code above raises
 ```
 
-There are four ordinary ways out.
+There are three ways to end or transfer the obligation before that boundary.
 
 **Dispose it** at the point you choose:
 
 ```nupp
 local f = openFile()
 nupp.dispose(f)
-```
-
-**Scope it**, which is the usual answer:
-
-```nupp
-with f = openFile() do
-    print(f.closed)
-end
 ```
 
 **Hand it on** to a parameter that takes it:
@@ -133,34 +125,23 @@ A borrow may be read, mutated, and reborrowed. It may not be returned without a
 contract, stored in a table or field, assigned to an outer binding, or captured
 by a closure.
 
-## What `with` does
-
-```nupp
-with f = openFile() do
-    print(f.closed)
-end
-```
-
-The owner moves into a slot your code cannot name, and the visible binding is a
-borrow of it. Because the owner is unreachable, the compiler always knows
-cleanup is still owed, and no runtime "already closed" flag is needed.
+## Lexical destruction
 
 Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving
-the body, and an error raised anywhere inside. Several resources share one
-scope; they are acquired left to right and released right to left.
+the block, and an error raised anywhere inside. Several resources are acquired
+left to right and released right to left.
 
 ```nupp
-with
-    input = openFile(),
-    output = openFile()
 do
+    local input = openFile()
+    local output = openFile()
     print(input.closed, output.closed)
 end
 ```
 
-`with` is the only construct that cleans up on your behalf. An ordinary local
-owner is not released because its scope ended — forgetting is an error, which
-is the part `try`-with-resources and context managers leave out.
+The bindings remain owners: they may be moved, returned under an owning
+contract, or explicitly disposed early. Each successful transfer deactivates
+automatic cleanup exactly once.
 
 ## Records that hold resources
 
@@ -198,7 +179,7 @@ end
 `unsafe do` grants permission for pointer operations the checker cannot prove —
 raw dereference, `intoRaw`, `fromRaw`, `borrowFrom`. It grants nothing else:
 owners still have to be discharged inside one, borrows still cannot escape, and
-`with` still runs its cleanup.
+ordinary lexical cleanup still runs.
 
 The trusted parts are written down. Whether a C function really consumes,
 retains, or releases a pointer comes from its declaration, because a header has
@@ -210,5 +191,4 @@ auditable edges; everything inside them is checked.
 
 - [The ownership reference](../ownership.md) — the complete model, C output
   parameters, pinning, and the proved-versus-trusted table.
-- [Resource scopes](../with.md) — `with` ordering, failure behavior, and cost.
 - [C interop](../c-interop.md) — parameter modes at a C boundary.

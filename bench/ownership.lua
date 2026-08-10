@@ -1,14 +1,13 @@
--- Ownership lowering spike: measures the runtime cost of every way an NUPP
--- program can release a C allocation, before plans/with.md steps 5-7 commit to
--- a lowering. Run: luajit bench/ownership.lua
+-- Ownership lowering benchmark: measures the runtime cost of the cleanup
+-- regions automatic lexical destruction emits. Run: luajit bench/ownership.lua
 --
 -- The arms are hand-written compiler OUTPUT, the same approach reification.lua
 -- takes. Nothing here needs an unimplemented feature:
 --
 --   ffi.gc          what a LuaJIT programmer writes today
 --   dispose         what @owned + dispose lowers to (a direct free call)
---   with (upvalue)  naive `with` lowering: fresh closure, owner in an upvalue
---   with (args)     `with` lowering using xpcall's extra arguments and a
+--   region (upvalue) naive lowering: fresh closure, owner in an upvalue
+--   region (args)    cleanup lowering using xpcall's extra arguments and a
 --                   per-execution slot table instead of a closure
 --
 -- Granularity matters more than any single number: total body work is held
@@ -69,9 +68,9 @@ local function armDispose(n, work)
    return sum
 end
 
--- Naive `with` lowering: the protected region is a fresh closure per
+-- Naive cleanup lowering: the protected region is a fresh closure per
 -- execution and the hidden owner slot is one of its upvalues.
-local function armWithUpvalue(n, work)
+local function armCleanupUpvalue(n, work)
    local sum = 0
    for i = 1, n do
       local slot = nil
@@ -85,7 +84,7 @@ local function armWithUpvalue(n, work)
    return sum
 end
 
--- `with` lowering that hoists the region and passes state through xpcall's
+-- Cleanup lowering that hoists the region and passes state through xpcall's
 -- extra arguments. The hidden owner still needs to survive an error, so it
 -- lives in a per-execution slot table rather than an upvalue.
 local function region(slot, i, work)
@@ -95,7 +94,7 @@ local function region(slot, i, work)
    return sum
 end
 
-local function armWithArgs(n, work)
+local function armCleanupArgs(n, work)
    local sum = 0
    for i = 1, n do
       local slot = {}
@@ -171,14 +170,14 @@ end
 local ARMS = {
    {name = "ffi.gc", fn = armGc},
    {name = "dispose (direct free)", fn = armDispose},
-   {name = "with (upvalue closure)", fn = armWithUpvalue},
-   {name = "with (xpcall args)", fn = armWithArgs},
+   {name = "region (upvalue closure)", fn = armCleanupUpvalue},
+   {name = "region (xpcall args)", fn = armCleanupArgs},
    {name = "probe: closure, no xpcall", fn = armClosureOnly},
    {name = "probe: xpcall, no upvalue", fn = armXpcallOnly},
 }
 
 -- Total body work is held constant while the work covered by ONE resource
--- grows. If `with` only costs at the boundary its overhead should amortize
+-- grows. If cleanup only costs at the boundary its overhead should amortize
 -- away down the table; if the protected region also slows the body, it will
 -- not.
 local TOTAL = 1600000

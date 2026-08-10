@@ -20,14 +20,8 @@ a choice made on your behalf:
   written where the file already keeps them.
 - **NUPP2101** — a type name some module exports: spell it through that module,
   adding the require in the same edit when there is none.
-- **NUPP2603** — an owner that leaves scope undisposed: wrap it in a `with`
-  scope.
-
-Refactorings are offered wherever they apply, whether or not anything is wrong
-with the file: **Wrap in a 'with' scope** on an owned local, and **Unwrap
-'with' into explicit disposals** on a `with` statement. Neither is offered
-where the rewrite would change what the program does — see
-[docs/with.md](../../docs/with.md#editor-rewrites).
+- **NUPP2603** — an ownership obligation that cannot be automatically
+  discharged: apply one of the diagnostic's explicit terminal fixes.
 
 ## Development
 

@@ -444,8 +444,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 end
                 if entry and entry.constant then
                     c.diag("NUPP2008", target, ("cannot assign to const variable %s"):format(targetName))
-                elseif entry and entry.withBinding then
-                    c.diag("NUPP2613", target, ("cannot assign to 'with' binding %q"):format(targetName))
                 elseif entry and entry.ann and et then
                     local declared = entry.decl or entry.t
                     local ok, why = isA(et, declared)
@@ -479,11 +477,7 @@ function bindings.install(c: state.Checker): state.StatHandlers
                     entry.t, entry.ownership = et, incomingKind
                     entryState.t, entryState.ownership, entryState.moved = et, incomingKind, false
                 elseif et and ownershipKind(et) == "borrowed" and written then
-                    c.diag(
-                        written.withBinding and "NUPP2612" or "NUPP2603",
-                        written,
-                        "borrowed value cannot escape through assignment"
-                    )
+                    c.diag("NUPP2603", written, "borrowed value cannot escape through assignment")
                 end
             elseif not wasConstModuleField then
                 target.writeContext = true
@@ -612,9 +606,6 @@ function bindings.install(c: state.Checker): state.StatHandlers
         if targetTok then
             local targetName = targetTok.text
             local entry = c.lookupEntry(targetName)
-            if entry and entry.withBinding then
-                c.diag("NUPP2613", assignTarget, ("cannot assign to 'with' binding %q"):format(targetName))
-            end
             if entry and entry.constant then
                 c.diag("NUPP2008", assignTarget, ("cannot assign to const variable %s"):format(targetName))
                 return

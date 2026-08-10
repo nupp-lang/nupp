@@ -268,20 +268,7 @@ local function annotate(root)
             markFunctionEnd(n)
         end
 
-        local openIdx, closeIdx
-        if kind == "withStmt" then
-            for idx, child in ipairs(n) do
-                if child == n.withTok then
-                    openIdx = idx
-                end
-                if child == n.doTok then
-                    closeIdx = idx
-                    child.withHeaderClose = true
-                end
-            end
-        else
-            openIdx, closeIdx = groupBounds(n)
-        end
+        local openIdx, closeIdx = groupBounds(n)
         local inner = group
         if openIdx then
             local openTok, closeTok = n[openIdx], n[closeIdx]
@@ -742,7 +729,7 @@ local function computeIndents(lines)
                 g = g.parent
             end
             depth = depth + hang
-            if hang == 0 and not tok.startsStat and not CLOSERS[tok.kind] and not tok.withHeaderClose then
+            if hang == 0 and not tok.startsStat and not CLOSERS[tok.kind] then
                 depth = depth + 1 -- continuation of the previous line
             end
             line.indent = depth

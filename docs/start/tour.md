@@ -202,19 +202,18 @@ end
 ```
 
 `@dispose` marks the operation that consumes the resource; `@owned` marks the
-function that produces one. Now the checker will not let the result be dropped,
-and `with` discharges it:
+function that produces one. An ordinary local is destroyed automatically:
 
 ```nupp
-with session = openSession() do
+do
+    local session = openSession()
     print(session.closed)
 end
 ```
 
-`with` releases on fallthrough, `return`, `break`, `continue`, a `goto` leaving
-the body, and an error raised anywhere inside. It is the only construct that
-closes something for you; an ordinary local owner has to be disposed,
-transferred, or returned, and forgetting is a compile error.
+Cleanup runs on fallthrough, `return`, `break`, `continue`, a `goto` leaving
+the block, and an error raised anywhere inside. Moving, returning, or explicitly
+disposing the owner deactivates its automatic cleanup exactly once.
 
 [Ownership](ownership.md) starts from here; the
 [ownership reference](../ownership.md) has the whole model.

@@ -159,9 +159,6 @@ type lexer.Token = {
     --- Which output line it landed on.
     lineIdx: integer?,
 
-    --- The `)` closing a `with` header, which stays with it.
-    withHeaderClose: boolean?,
-
     --- Left out of the output: an annotation argument the canonical single-value
     --- spelling makes implicit.
     formatOmit: boolean?,
