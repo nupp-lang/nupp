@@ -305,12 +305,6 @@ than beneath it.
 
 ## Risks
 
-- **The buffer is string-backed and appends quadratically.**
-  `Buffer:setString` in `stdlib.nupp` rebuilds the whole string per call, so
-  `Writer:write` in a loop is O(n²). Reading a large file through the existing
-  `Reader`/`Writer` path would be unusable. F1 has to back `Buffer` with
-  LuaJIT's `string.buffer` before any file transfer runs through it, and that
-  is a change to a shipped facility rather than new code.
 - **Cancellation of a partial write.** A cancelled read discards bytes nobody
   saw. A cancelled write may have already written some. The lane must report
   the distinction rather than answering a bare "canceled", and `writeAtomic`
@@ -348,9 +342,12 @@ answers in its usual time.
 
 - `File`, `DirectoryStream`, `TemporaryPath` as owners, over the existing
   `Reader`/`Writer` contracts.
-- `Buffer` backed by `string.buffer`, with the existing byte-I/O tests
-  unchanged.
 - `docs/files.md`, and `nupp.io.files` listed in `stdlib.md`.
+
+`Buffer` is already backed by an FFI byte array, so a transfer through it is
+linear and a native read has somewhere to write bytes into. Handing the lane a
+pointer into that array, rather than copying through a Lua string, is F2's to
+decide.
 
 Exit test: a file round-trips through `Reader:transferTo(writer)`; a 256 MiB
 file transfers in linear time; a `File` bound outside `with` and not disposed

@@ -217,9 +217,9 @@ work makes sense in.
         renames and temporaries over `std::fs`. No suspension, and it deletes
         the shell-out in `fs.nupp` on its own.
   - [ ] F1: `File`, `DirectoryStream` and `TemporaryPath` as owners over the
-        existing contracts. Blocked on backing `Buffer` with `string.buffer`:
-        `setString` rebuilds the whole string, so writing a file through the
-        current writer is quadratic.
+        existing contracts. The storage this needed has landed: `nupp.io`'s
+        buffer holds an FFI byte array rather than rebuilding a Lua string per
+        write, so a transfer is linear and a native read has somewhere to land.
   - [ ] F2: the bounded submit/poll request lane in Rust, ported from tecs's
         `fileasync.rs` with SDL removed, `writeAtomic` among its request kinds.
   - [ ] F3: the readiness source and the `suspend` call sites, with the

@@ -262,6 +262,30 @@ function M.compilerProvidedPureLibraries()
    assert(ok, problem)
 end
 
+function M.bufferAppendsInAmortizedConstantTime()
+   local bootstrap = native.bootstrap({["stdlib.io"] = true})
+   local previous = rawget(_G, "nupp")
+   _G.nupp = nil
+   local chunk = assert(loadstring(bootstrap .. [[
+      local buffer = nupp.io.newBuffer()
+      local writer = buffer:newWriter()
+      local piece = string.rep("x", 64)
+      for _ = 1, 100000 do assert(writer:write(piece)) end
+      assert(buffer:length() == 6400000, "every write landed")
+      assert(buffer:capacity() >= buffer:length(), "capacity covers the length")
+      assert(buffer:getString(6399936, 64) == piece, "the last write is intact")
+      buffer:clear()
+      assert(buffer:length() == 0 and buffer:capacity() >= 6400000,
+         "clearing keeps the reserved bytes")
+      buffer:setString("tail", 6)
+      assert(buffer:getString() == string.char(0):rep(6) .. "tail",
+         "a gap past the length reads as zeros, not as stale bytes")
+   ]]))
+   local ok, problem = pcall(chunk)
+   _G.nupp = previous
+   assert(ok, problem)
+end
+
 function M.hiddenDataDependenciesLoadLazily()
    local previous = rawget(_G, "nupp")
    _G.nupp = nil

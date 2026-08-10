@@ -1,8 +1,8 @@
 # Byte buffers, readers and writers
 
-`nupp.io` supplies in-memory byte I/O without requiring a stream framework. The core is
-pure generated Lua, so using it adds no native dependency. Files, sockets, processes and
-asynchronous streams are intentionally separate future layers.
+`nupp.io` supplies in-memory byte I/O without requiring a stream framework. A buffer
+holds its bytes in a LuaJIT FFI array, so using it adds no native dependency. Files,
+sockets, processes and asynchronous streams are intentionally separate future layers.
 
 ## Buffers
 
@@ -24,6 +24,11 @@ Buffer offsets are zero-based. `getString(offset, count)` copies a range. `setSt
 overwrites from an offset and grows the buffer as needed; a gap is filled with zero
 bytes. `clear` sets the length to zero without discarding capacity. `resize` truncates or
 zero-fills.
+
+Capacity is the allocation, not a recorded number. Growing at least doubles it, so
+appending through a writer costs amortized constant time per byte and `capacity()`
+reports bytes that are actually held. `ensureCapacity` reserves at least the minimum
+asked for.
 
 `close()` releases the buffer, is safe to call repeatedly, and makes later operations
 raise. `isReleased()` reports that state.
