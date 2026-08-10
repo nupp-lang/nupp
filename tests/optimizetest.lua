@@ -220,6 +220,21 @@ function M.propagatesConstBindings()
       "propagated arithmetic result")
 end
 
+function M.propagatesScalarComptimeConstants()
+   local src = [[
+const banner = comptime do
+   local parts = {"nupp", "compiles", "this", "once"}
+   return table.concat(parts, " "):upper() .. " " .. string.rep("=", 8)
+end
+return banner
+]]
+   local code = compile(src)
+   assertTrue(code:find('return "NUPP COMPILES THIS ONCE ========"', 1, true) ~= nil,
+      "a scalar comptime const is propagated: " .. code)
+   assertEq(run(src), "NUPP COMPILES THIS ONCE ========",
+      "propagated comptime string")
+end
+
 function M.propagatesNestedConstFields()
    local src = table.concat({
       "local M = {}",

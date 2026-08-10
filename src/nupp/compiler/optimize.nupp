@@ -623,6 +623,35 @@ local function stringLiteral(node)
     return literal("string", value, string.format("%q", value))
 end
 
+-- A comptime result is already canonical Lua source, not source supplied by the
+-- program. Re-read the scalar forms `quoteValue` emits so an immutable binding to a
+-- comptime result participates in the same propagation as one initialized by an
+-- ordinary literal. Tables intentionally remain out: recreating one at each use would
+-- change its identity.
+local function comptimeLiteral(node)
+    local code = node and node.comptimeValue
+    if code == "nil" then
+        return literal("nil", nil, "nil")
+    elseif code == "true" or code == "false" then
+        return literal("boolean", code == "true", code)
+    elseif code and code:match("^-?%d+$") then
+        local value = tonumber(code)
+        if value and math.abs(value) <= MAX_EXACT_INTEGER then
+            return literal("number", value, code)
+        end
+    elseif code and code:sub(1, 1) == '"' then
+        local chunk = loadstring("return " .. code)
+        if chunk then
+            local ok, value = pcall(chunk)
+            if ok and type(value) == "string" then
+                return literal("string", value, string.format("%q", value))
+            end
+        end
+    end
+
+    return nil
+end
+
 local function truthy(value)
     return value.kind ~= "nil" and not (value.kind == "boolean" and not value.value)
 end
@@ -756,6 +785,8 @@ local function foldExpr(node, current)
         local value = kind == "trueExpr"
         node.folded = tostring(value)
         return literal("boolean", value, node.folded)
+    elseif kind == "comptimeExpr" then
+        return comptimeLiteral(node)
     elseif kind == "name" and node.token then
         local value = lookupConstant(current, node.token.text)
         if value then
