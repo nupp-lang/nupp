@@ -30,6 +30,7 @@ permissions:
 
 env:
   LUAJIT_REF: v2.1
+  LUA_VERSION: "5.4.8"
   LUAROCKS_VERSION: "3.11.1"
 
 jobs:
@@ -106,6 +107,22 @@ jobs:
           LUA_PATH=".rocks/share/lua/5.1/?.lua;.rocks/share/lua/5.1/?/init.lua;;" \
             luajit -e 'require("jit.zone") print("jit.zone loads")'
 
+      # LuaJIT cannot load LuaRocks.org's root manifest now that the generated
+      # chunk holds more than 65,536 constants. LuaRocks itself runs under stock
+      # Lua; the commands below still compile every rock against LuaJIT.
+      - name: Build Lua for LuaRocks (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          curl -fsSL "https://www.lua.org/ftp/lua-$LUA_VERSION.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP"
+          target=linux
+          if [ "$RUNNER_OS" = "macOS" ]; then target=macosx; fi
+          make -C "$RUNNER_TEMP/lua-$LUA_VERSION" \
+            -j"$(getconf _NPROCESSORS_ONLN)" "$target"
+          make -C "$RUNNER_TEMP/lua-$LUA_VERSION" install \
+            INSTALL_TOP="$RUNNER_TEMP/lua"
+
       - name: Install LuaRocks (unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -114,7 +131,7 @@ jobs:
             | tar xz -C "$RUNNER_TEMP"
           cd "$RUNNER_TEMP/luarocks-$LUAROCKS_VERSION"
           ./configure --prefix="$RUNNER_TEMP/luarocks" \
-            --with-lua="$RUNNER_TEMP/luajit" --lua-version=5.1
+            --with-lua="$RUNNER_TEMP/lua" --lua-version=5.4
           make
           make install
           echo "$RUNNER_TEMP/luarocks/bin" >> "$GITHUB_PATH"
@@ -137,8 +154,10 @@ jobs:
         shell: bash
         run: |
           luarocks --version
-          luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lua-cjson 2.1.0.10-1
-          luarocks --tree "$PWD/.rocks" --lua-version 5.1 install lpeg
+          luarocks --lua-dir "$RUNNER_TEMP/luajit" --tree "$PWD/.rocks" \
+            --lua-version 5.1 install lua-cjson 2.1.0.10-1
+          luarocks --lua-dir "$RUNNER_TEMP/luajit" --tree "$PWD/.rocks" \
+            --lua-version 5.1 install lpeg
 
       # A step gets a fresh process, so the MSVC environment used to build
       # LuaJIT is not present here unless it is installed again.
@@ -157,6 +176,18 @@ jobs:
           LUA_PATH=".rocks/share/lua/5.1/?.lua;.rocks/share/lua/5.1/?/init.lua;;" \
           LUA_CPATH=".rocks/lib/lua/5.1/?.so;.rocks/lib/lua/5.1/?.dll;;" \
             luajit -e 'require("cjson") require("lpeg") print("cjson and lpeg load")'
+
+      # Nupp invokes LuaRocks again for configured dependencies. Keep those
+      # builds aimed at the rolling LuaJIT even though the LuaRocks program on
+      # Unix is hosted by stock Lua.
+      - name: Record the rock target
+        shell: bash
+        run: |
+          lua_root="$RUNNER_TEMP/luajit"
+          if ( cd "$lua_root" && pwd -W ) >/dev/null 2>&1; then
+            lua_root="$(cd "$lua_root" && pwd -W)"
+          fi
+          echo "NUPP_LUA_DIR=$lua_root" >> "$GITHUB_ENV"
 
       - name: Help works without the native provider
         shell: bash
