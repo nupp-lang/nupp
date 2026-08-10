@@ -218,6 +218,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
       "}",
       "",
       "--- Scalar helpers.",
+      "--- @internal",
       "record lib.MathLibrary",
       "   --- Vector helpers.",
       "   --- @namespace",
@@ -227,6 +228,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
       "end",
       "",
       "--- Vector helpers.",
+      "--- @internal",
       "record lib.Vec2Library",
       "   --- Computes a length.",
       "   length: function(x: number, y: number): number",
@@ -234,8 +236,7 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    }, "\n")
    local module, errors, extra = doc.extract(source, "src/lib.d.nupp", "lib", {includeAll = true})
    assert(module, errors and errors[1] and errors[1].msg)
-   assert(#module.items == 2, "the records stay ordinary items")
-   assert(module.items[1].name == "MathLibrary", module.items[1].name)
+   assert(#module.items == 0, "internal backing records leaked into public docs")
    assert(extra and #extra == 3, extra and #extra)
    local byName = {}
    for _, mod in ipairs(extra) do
@@ -251,6 +252,12 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    assert(byName["lib.math.vec2"], "a tagged field becomes a nested module")
    assert(byName["lib.math.vec2"].text == "Vector helpers.")
    assert(byName["lib.math.vec2"].items[1].name == "length")
+
+   local private = assert(doc.extract(source, "src/lib.d.nupp", "lib", {
+      includeAll = true,
+      includePrivate = true,
+   }))
+   assert(#private.items == 2, "private docs must retain internal declarations")
 end
 
 function M.standardDataApiHasCompleteDocumentation()
@@ -355,14 +362,68 @@ function M.standardIOApiHasCompleteDocumentation()
       assert(found[name], "the prelude did not document nupp." .. name)
    end
    assert(path, "the prelude did not document nupp.Path")
-   assert(path.signature:sub(1, #"record nupp.Path\n    record Library")
-      == "record nupp.Path\n    record Library", path.signature)
+   assert(path.signature:sub(1, #"record nupp.Path\n    toString:")
+      == "record nupp.Path\n    toString:", path.signature)
+   assert(not path.signature:find("record Library", 1, true), path.signature)
    assert(path.signature:sub(-#"    isRelative: function(self: nupp.Path): boolean\nend")
       == "    isRelative: function(self: nupp.Path): boolean\nend", path.signature)
    assert(not path.signature:find("---", 1, true), path.signature)
    assert(uri, "the prelude did not document nupp.URI")
    assert(uri.signature:find("    record Components", 1, true), uri.signature)
-   assert(uri.signature:find("    record Library", 1, true), uri.signature)
+   assert(not uri.signature:find("    record Library", 1, true), uri.signature)
+end
+
+function M.standardLibraryBackingRecordsStayInternal()
+   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
+   local module, errors, extra = doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   local expected = {
+      ["nupp.data.utf8"] = "length",
+      ["nupp.io.Path"] = "new",
+      ["nupp.io.URI"] = "new",
+      ["nupp.math.vec2"] = "add",
+      ["nupp.regex"] = "compile",
+   }
+   for _, child in ipairs(extra or {}) do
+      local member = expected[child.name]
+      if member then
+         local found = false
+         for _, item in ipairs(child.items) do
+            if item.name == member then found = true end
+         end
+         assert(found, child.name .. " did not inherit " .. member)
+         expected[child.name] = nil
+      end
+   end
+   for name in pairs(expected) do
+      error("the prelude did not synthesize " .. name)
+   end
+
+   for _, item in ipairs(module.items) do
+      assert(not item.name:match("Library$"), "nupp." .. item.name
+         .. " leaked its backing record")
+      if item.name == "Path" or item.name == "URI" or item.name == "Regex" then
+         assert(not item.signature:find("record Library", 1, true), item.signature)
+         for _, member in ipairs(item.members) do
+            assert(member.name ~= "Library", item.path .. ".Library leaked into public docs")
+         end
+      end
+   end
+
+   local private = assert(doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude",
+      {includePrivate = true}))
+   local topLevelLibraries, nestedLibraries = 0, 0
+   for _, item in ipairs(private.items) do
+      if item.name:match("Library$") then topLevelLibraries = topLevelLibraries + 1 end
+      for _, member in ipairs(item.members) do
+         if member.name == "Library" then nestedLibraries = nestedLibraries + 1 end
+      end
+   end
+   assert(topLevelLibraries == 3, "private docs lost top-level backing records")
+   assert(nestedLibraries == 3, "private docs lost nested backing records")
 end
 
 function M.standardMathApiHasCompleteDocumentation()

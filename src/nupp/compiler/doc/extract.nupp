@@ -113,7 +113,7 @@ end
 -- Documentation is rendered beside the code block, so omit `---` trivia while
 -- preserving ordinary comments and every syntax token, then let the language's own
 -- formatter decide indentation and line breaks.
-local function structureSignature(node)
+local function structureSignature(node, includePrivate)
     local parts: {string} = {}
     local function walk(child)
         if cst.isToken(child) then
@@ -140,11 +140,18 @@ local function structureSignature(node)
             parts[#parts + 1] = triviaText
             parts[#parts + 1] = child.text
         else
+            if child ~= node and child.kind == "recordDecl" and not includePrivate then
+                local info = docblock.parse(docblock.linesOf(child))
+                if info.tags.internal then
+                    return
+                end
+            end
             for _, nested in ipairs(child) do
                 walk(nested)
             end
         end
     end
+
     walk(node)
     local source = trim(table.concat(parts))
     local formatted, errors = formatter.format(source, "documentation-signature.nupp")
@@ -155,7 +162,8 @@ local function structureSignature(node)
     return trim(formatted)
 end
 
--- The `---` run and its tags are read by nupp.compiler.docblock, because the checker reads
+-- The `---` run and its tags are read by nupp.compiler.docblock, because the checker
+-- reads
 -- the
 -- same run to ask whether a function that raises documented it.
 local docLines, parseDoc = docblock.linesOf, docblock.parse
@@ -295,14 +303,15 @@ end
 -- One field of a shape type or a record, read as the top-level item a synthesized
 -- namespace module holds it as. Shares its shape with `declarationItem`'s own field and
 -- record-entry handling, but produces a full `extract.Item` rather than a lighter
--- `extract.Member`: a synthesized module's fields are what a reader scrolls to, the same
+-- `extract.Member`: a synthesized module's fields are what a reader scrolls to, the
+-- same
 -- as an ordinary module's functions and values.
 local function fieldItem(field, childModuleName, includePrivate)
     local name = field.name.text
-    if not (includePrivate or not privateName(name)) then
+    local info = parseDoc(docLines(field))
+    if not (includePrivate or (not privateName(name) and not info.tags.internal)) then
         return nil
     end
-    local info = parseDoc(docLines(field))
     local item = {
         name = name,
         kind = "variable",
@@ -330,14 +339,36 @@ local function fieldItem(field, childModuleName, includePrivate)
 end
 
 -- A named type this file also declares, for a field spelled by reference rather than
--- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`. Documenting
+-- inline — `math: nupp.MathLibrary` beside `record nupp.MathLibrary ... end`.
+-- Documenting
 -- never resolves a type the way the checker does, so the only reference this can follow
 -- is one this same file answers itself.
 local function recordNamed(blocks, targetName)
+    local function find(stat, prefix)
+        if stat.kind ~= "recordDecl" then
+            return nil
+        end
+        local name = prefix and prefix .. "." .. stat.name.text or declaredName(stat)
+        if name == targetName then
+            return stat
+        end
+        if targetName:sub(1, #name + 1) == name .. "." then
+            for _, entry in ipairs(stat.entries or {}) do
+                local found = find(entry, name)
+                if found then
+                    return found
+                end
+            end
+        end
+
+        return nil
+    end
+
     for _, block in ipairs(blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
-            if stat.kind == "recordDecl" and declaredName(stat) == targetName then
-                return stat
+            local found = find(stat, nil)
+            if found then
+                return found
             end
         end
     end
@@ -360,6 +391,7 @@ end
 
 local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     local modules = {}
+    local expanding: {[any]: boolean} = {}
     local function entriesOf(field)
         if field.type and field.type.kind == "tshape" then
             return field.type.fields
@@ -373,9 +405,10 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
 
     local function addModule(field, parentName)
         local entries = entriesOf(field)
-        if not entries then
+        if not entries or expanding[entries] then
             return
         end
+        expanding[entries] = true
         local childName = parentName .. "." .. field.name.text
         local items = {}
         for _, entry in ipairs(entries) do
@@ -392,12 +425,8 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
             end
         end
         table.sort(items, byKindThenName)
-        modules[#modules + 1] = {
-            name = childName,
-            path = path,
-            text = parseDoc(docLines(field)).text,
-            items = items,
-        }
+        modules[#modules + 1] = {name = childName, path = path, text = parseDoc(docLines(field)).text, items = items,}
+        expanding[entries] = nil
     end
 
     for _, field in ipairs(shape.fields or {}) do
@@ -439,7 +468,7 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
     elseif stat.kind == "recordDecl" then
         name, kind = stat.name.text, stat.declKind
         public = public or stat.visibility == "module" or stat.visibility == "global"
-        signature = structureSignature(stat)
+        signature = structureSignature(stat, includePrivate)
     elseif stat.kind == "cdefStruct" then
         name, kind, public = stat.name.text, "struct", true
         signature = "cdef struct " .. name
@@ -460,6 +489,9 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
     end
     if info.tags["local"] then
         public = includeAll
+    end
+    if info.tags.internal and not includePrivate then
+        public = false
     end
     if kind == "method" and privateName(name) and not includePrivate then
         public = false
@@ -506,10 +538,11 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
         item.params, item.returns = details.params, details.returns
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
         for _, entry in ipairs(stat.entries or {}) do
-            if (
-                entry.kind == "fieldDecl" or entry.kind == "metamethodDecl"
-            ) and (includePrivate or not privateName(entry.name.text)) then
-                local fieldInfo = parseDoc(docLines(entry))
+            local entryInfo = parseDoc(docLines(entry))
+            local entryName = entry.name and entry.name.text or ""
+            local entryVisible = includePrivate or (not privateName(entryName) and not entryInfo.tags.internal)
+            if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
+                local fieldInfo = entryInfo
                 local member = {
                     name = entry.name.text,
                     type = syntax(entry.type),
@@ -529,8 +562,8 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
                     member.isMetamethod = true
                 end
                 item.members[#item.members + 1] = member
-            elseif entry.kind == "inlineMethod" and (includePrivate or not privateName(entry.name.text)) then
-                local methodInfo = parseDoc(docLines(entry))
+            elseif entry.kind == "inlineMethod" and entryVisible then
+                local methodInfo = entryInfo
                 local details = functionDetails(entry, methodInfo)
                 item.members[
                     #item.members + 1
@@ -544,13 +577,13 @@ local function declarationItem(stat, moduleName, includeAll, declarationFile, in
                     raises = methodInfo.raises,
                     isFunction = true,
                 }
-            elseif entry.name and (includePrivate or not privateName(entry.name.text)) then
+            elseif entry.name and entryVisible then
                 item.members[
                     #item.members + 1
                 ] = {
                     name = entry.name.text,
                     type = entry.kind,
-                    text = parseDoc(docLines(entry)).text,
+                    text = entryInfo.text,
                     path = item.path .. "." .. entry.name.text,
                     params = {},
                     returns = {},
@@ -634,14 +667,19 @@ function extract.extract(
             end
             -- `@namespace` replaces one declaration with the modules its own fields
             -- imply, for a shape with no file of its own to be documented from — the
-            -- prelude's ambient globals, not an ordinary declaration. Public by the same
+            -- prelude's ambient globals, not an ordinary declaration. Public by the
+            -- same
             -- rule as any other declaration, so a private `local` stays out unless
             -- `--all` asks for it too.
-            local shape = stat.kind == "localStmt" and #(stat.names or {}) == 1
-                and stat.types[1] and stat.types[1].kind == "tshape" and stat.types[1] or nil
+            local shape = stat.kind == "localStmt" and #(
+                stat.names or {}
+            ) == 1 and stat.types[1] and stat.types[1].kind == "tshape" and stat.types[1] or nil
             local shapePublic = opts.includeAll or declarationFile or info.tags.export or info.tags.public
             if info.tags["local"] then
                 shapePublic = opts.includeAll
+            end
+            if info.tags.internal and not opts.includePrivate then
+                shapePublic = false
             end
             if shape and info.tags.namespace and shapePublic then
                 local prefix = info.tags.namespace == true and name or info.tags.namespace
@@ -681,7 +719,8 @@ end
 ---
 --- The nearest ancestor decides, rather than the immediate one, so that no module goes
 --- unlisted when a name between it and the root documents nothing. A site fills those
---- names in with [](nupp.compiler.doc.extract.namespaces) and the two rules agree, but a
+--- names in with [](nupp.compiler.doc.extract.namespaces) and the two rules agree, but
+--- a
 --- caller reaching this directly with the modules it happens to hold gets the same
 --- guarantee without having to.
 ---

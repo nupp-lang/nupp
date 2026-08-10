@@ -297,6 +297,7 @@ local nupp: {
         encodeIndent: function(indent: string?): string,
 
         --- UTF-8 codepoint operations over strings and byte views.
+        --- @namespace
         utf8: nupp.UTF8Library,
 
         --- Generates a random version 4 UUID.
@@ -344,9 +345,11 @@ local nupp: {
         newStringReader: function(text: string): nupp.Reader,
 
         --- Constructors and platform operations for immutable filesystem paths.
+        --- @namespace
         Path: nupp.Path.Library,
 
         --- Parsing and inspection operations for immutable absolute URIs.
+        --- @namespace
         URI: nupp.URI.Library
     },
 
@@ -465,6 +468,7 @@ interface nupp.JSON
 end
 
 --- UTF-8 codepoint operations over strings and immutable byte views.
+--- @internal
 record nupp.UTF8Library
     length: function(value: string | nupp.ByteView): integer
     decodeAt: function(value: string | nupp.ByteView, byteOffset: integer): (integer?, integer)
@@ -664,6 +668,7 @@ end
 --- An immutable platform-native UTF-8 filesystem path.
 record nupp.Path
     --- Constructors and platform operations for immutable filesystem paths.
+    --- @internal
     record Library
         --- Creates a path by joining one or more components.
         --- @param first the first path component
@@ -793,6 +798,7 @@ record nupp.URI
     end
 
     --- Parsing and inspection operations for immutable absolute URIs.
+    --- @internal
     record Library
         --- Parses and normalizes an absolute URI.
         --- @param value URI text or its individual components
@@ -930,7 +936,7 @@ record nupp.URI
 end
 
 --- Two-dimensional vector operations on number pairs.
---- @local
+--- @internal
 record nupp.Vec2Library
     --- Adds two vectors.
     --- @param ax the first vector's x component
@@ -1079,7 +1085,7 @@ record nupp.Vec2Library
 end
 
 --- Scalar angle helpers and two-dimensional vector operations.
---- @local
+--- @internal
 record nupp.MathLibrary
     --- Two-dimensional vector operations over `(x, y)` number pairs.
     --- @namespace
@@ -1136,12 +1142,14 @@ record nupp.Regex
         --- The number of explicit groups, including groups that did not match.
         groupCount: integer
 
-        -- Capture names are pattern-defined, so dot access cannot be enumerated statically.
+        -- Capture names are pattern-defined, so dot access cannot be enumerated
+        -- statically.
         -- It remains gradual while numbered groups stay precise.
         named: any
     end
 
     --- The compiler-provided regular-expression library.
+    --- @internal
     record Library
         --- Compiles a UTF-8 pattern using Rust regex syntax.
         ---

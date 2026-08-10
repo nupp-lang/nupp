@@ -966,8 +966,9 @@ documentation. On `init.nupp`, it also hides every descendant module; private
 documentation builds include the complete tree.
 
 An adjacent `---` run documents the declaration under it. `@param`, `@return`,
-`@field`, `@typearg`, `@local` and `@export` are understood, and `nupp doc`
-renders them.
+`@field`, `@typearg`, `@local`, `@internal` and `@export` are understood. An
+`@internal` declaration stays out of public output but remains in private documentation
+builds. `nupp doc` renders them.
 
 `@raises` says what makes a function raise, one line per condition. It is the one
 docblock tag the checker reads as well as renders: a documented function that
