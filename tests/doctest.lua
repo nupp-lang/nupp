@@ -1234,7 +1234,9 @@ function M.siteMatchesTheNuppdocPageModel()
    assert(css:find("clip%-path:circle%(50%% at 50%% 50%%%)"), css)
    assert(css:find("filter:drop%-shadow"), css)
    -- one mechanism clears the sticky header; two would stack into twice the gap
-   assert(css:find("scroll%-margin%-top:calc%(var%(%-%-nuppdoc%-header%-height%)"), css)
+   assert(css:find(
+      "scroll-margin-top:calc(var(--nuppdoc-header-height) + 1.4rem)",
+      1, true), css)
    assert(not css:find("scroll-padding-top", 1, true), css)
 
    local legacy = readFile(dir .. "/site/modules/math.html")
