@@ -149,7 +149,7 @@ jobs:
       # the steps above whatever they did, because the provider it needs is
       # theirs to produce, and it reads the compiler out of the tracked stage-0
       # bundle rather than out of a build that may not have finished.
-      - name: Discovery diagnostics
+      - name: Header diagnostics
         if: always()
         shell: bash
         run: |
@@ -164,7 +164,7 @@ jobs:
             luajit scripts/diagnose-discovery.lua > "diag/discovery.txt" 2>&1 \
             || echo "probe exited $?" >> "diag/discovery.txt"
           ls -R build/nupp/compiler > "diag/emitted.txt" 2>&1 || true
-          head -8 "diag/discovery.txt"
+          head -12 "diag/discovery.txt"
 
       - name: Keep the generated surfaces for comparison
         if: always()

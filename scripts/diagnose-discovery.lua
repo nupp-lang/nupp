@@ -1,13 +1,17 @@
--- What the compiler discovers and what it calls each thing.
+-- What the project index learns from a source file, on this platform.
 --
--- Diagnostic only, to be removed once the platforms agree. It exists to compare
--- one platform's answer against another's, and it writes rather than asserts:
--- the comparison is the point, not a verdict.
+-- Diagnostic only, to be removed once the platforms agree.
 --
--- The modules come from the tracked stage-0 bundle rather than from `build/`,
--- because the thing being diagnosed is a build that does not finish. A probe
--- that needs the build it is investigating reports nothing on the platform that
--- matters, which is what the first version of this did.
+-- `envMod.projectHeader` answers an empty declaration list when the parse it is
+-- given carries any error, and says nothing about it. A module whose header is
+-- empty still resolves and still publishes its values; what it stops publishing
+-- is its module-qualified records. That is the boundary the missing
+-- `AssociatedReached`, `Handler` and CST records sit on, so this reads the three
+-- files, parses them, and records what the header made of them.
+--
+-- It deliberately does not use `nupp.compiler.fs`: listing a directory needs the
+-- native provider, and needing the thing under investigation is what made the
+-- previous two probes report nothing on the platform that mattered.
 local root = os.getenv("NUPP_COMPILER_ROOT") or "."
 
 -- The bundle registers every compiler module in `package.preload` and then
@@ -22,8 +26,7 @@ local function loadBundle(path)
         lines[#lines + 1] = line
     end
     for index = #lines, 1, -1 do
-        local line = lines[index]
-        if line:find("os%s*%.%s*exit") then
+        if lines[index]:find("os%s*%.%s*exit") then
             for drop = #lines, index, -1 do
                 lines[drop] = nil
             end
@@ -35,7 +38,7 @@ end
 
 loadBundle(root .. "/bootstrap/nupp.lua")
 
-local fs = require("nupp.compiler.fs")
+local parser = require("nupp.compiler.parser")
 local envMod = require("nupp.compiler.env")
 
 local lines = {}
@@ -47,30 +50,53 @@ say("root", root)
 say("separator", package.config:sub(1, 1))
 say("jit.os", (jit and jit.os) or "?")
 
-local files = fs.listFiles(root .. "/src")
-say("listFiles-count", tostring(#files))
+-- Read separately from the probe's own work, so a provider that is missing is
+-- reported rather than fatal.
+local listing = io.popen and io.popen("ls -l " .. root .. "/build/lib 2>&1")
+if listing then
+    for line in listing:lines() do say("build/lib", line) end
+    listing:close()
+end
 
--- Whether each file the failures name was discovered, and what module name it
--- was given. A missing name is how a file stops contributing its exports
--- without anything failing loudly.
 local env = envMod.new(root)
-local present = {}
-for _, file in ipairs(files) do present[file] = true end
+
 for _, relative in ipairs({
     "src/nupp/compiler/cst.nupp",
     "src/nupp/compiler/types.nupp",
     "src/nupp/compiler/cli/spec.nupp",
 }) do
-    local full = root .. "/" .. relative
-    local named = envMod.moduleNameForPath and envMod.moduleNameForPath(env, full)
-    say("target", relative, "discovered=" .. tostring(present[full] or false),
-        "module=" .. tostring(named))
-end
+    local path = root .. "/" .. relative
+    local handle = io.open(path, "rb")
+    if not handle then
+        say("file", relative, "unreadable")
+    else
+        local source = handle:read("*a")
+        handle:close()
 
--- The whole list, relative, so two platforms diff rather than being eyeballed.
-local prefix = "^" .. root:gsub("%p", "%%%0")
-for _, file in ipairs(files) do
-    say("file", (file:gsub(prefix, "")))
+        -- Byte-level, because a checkout that converted line endings is the
+        -- first thing that would make one platform parse what another cannot.
+        local crlf = select(2, source:gsub("\r\n", ""))
+        local lf = select(2, source:gsub("\n", ""))
+        say("file", relative, "bytes=" .. #source,
+            "crlf=" .. crlf, "lf=" .. lf, "cr-only=" .. (select(2, source:gsub("\r", "")) - crlf))
+
+        local parsed = parser.parse(source, path)
+        say("parse", relative, "errors=" .. #parsed.errors)
+        for index = 1, math.min(#parsed.errors, 3) do
+            local e = parsed.errors[index]
+            say("parse-error", relative, tostring(e.line) .. ":" .. tostring(e.col),
+                tostring(e.msg))
+        end
+
+        local header = envMod.projectHeader(env, path, parsed)
+        say("header", relative, "module=" .. tostring(header.moduleName),
+            "moduleLocal=" .. tostring(header.moduleLocal),
+            "declarations=" .. #header.declarations)
+        for _, declaration in ipairs(header.declarations) do
+            say("decl", relative, declaration.name, tostring(declaration.kind),
+                tostring(declaration.visibility))
+        end
+    end
 end
 
 io.write(table.concat(lines, "\n"), "\n")
