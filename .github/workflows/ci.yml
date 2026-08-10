@@ -134,9 +134,36 @@ jobs:
           ./bin/nupp --help
           test ! -f build/lib/nupp_native
 
+      # Diagnostic only, and to be removed once the platforms agree. `check` on
+      # Windows reports missing exported types for modules whose value surfaces
+      # arrived, and the first thing worth comparing is what each platform
+      # discovered and what it named it.
+      - name: Discovery diagnostics
+        shell: bash
+        continue-on-error: true
+        run: |
+          mkdir -p diag
+          LUA_PATH="$PWD/build/?.lua;$PWD/.rocks/share/lua/5.1/?.lua;$PWD/.rocks/share/lua/5.1/?/init.lua;;" \
+          LUA_CPATH="$PWD/.rocks/lib/lua/5.1/?.so;$PWD/.rocks/lib/lua/5.1/?.dll;;" \
+          NUPP_NATIVE_LIBRARY="$PWD/build/lib/nupp_native" \
+          NUPP_COMPILER_ROOT="$PWD" \
+            luajit scripts/diagnose-discovery.lua > "diag/discovery.txt" 2>&1
+          head -8 "diag/discovery.txt"
+
       - name: Check
         shell: bash
         run: ./bin/nupp check
+
+      - name: Keep the generated surfaces for comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surfaces-${{ matrix.os }}
+          if-no-files-found: warn
+          path: |
+            diag/discovery.txt
+            build/nupp/compiler/types.lua
+            build/nupp/compiler/cli/spec.lua
 
       - name: Test
         shell: bash
