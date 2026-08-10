@@ -212,6 +212,47 @@ function M.namespaceTagSynthesizesModulesFromAShapesFields()
    assert(byName["lib.math"].items[1].params[1].name == "a")
 end
 
+function M.standardDataApiHasCompleteDocumentation()
+   local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
+   local module, errors, extra = doc.extract(source,
+      "src/nupp/compiler/decls/prelude.d.nupp", "nupp.compiler.decls.prelude")
+   assert(module, errors and errors[1] and errors[1].msg)
+
+   local data
+   for _, candidate in ipairs(extra or {}) do
+      if candidate.name == "nupp.data" then data = candidate end
+   end
+   assert(data, "the prelude did not synthesize nupp.data")
+   for _, item in ipairs(data.items) do
+      assert(item.doc.text ~= "", "nupp.data." .. item.name .. " has no documentation")
+      for _, param in ipairs(item.params) do
+         assert(param.text ~= "", "nupp.data." .. item.name .. " parameter "
+            .. param.name .. " has no documentation")
+      end
+      for index, result in ipairs(item.returns) do
+         assert(result.text ~= "", "nupp.data." .. item.name .. " return "
+            .. index .. " has no documentation")
+      end
+   end
+
+   local json
+   for _, item in ipairs(module.items) do
+      if item.name == "JSON" then json = item end
+   end
+   assert(json, "the prelude did not document nupp.JSON")
+   for _, member in ipairs(json.members) do
+      assert(member.text ~= "", "nupp.JSON." .. member.name .. " has no documentation")
+      for _, param in ipairs(member.params) do
+         assert(param.text ~= "", "nupp.JSON." .. member.name .. " parameter "
+            .. param.name .. " has no documentation")
+      end
+      for index, result in ipairs(member.returns) do
+         assert(result.text ~= "", "nupp.JSON." .. member.name .. " return "
+            .. index .. " has no documentation")
+      end
+   end
+end
+
 function M.hidesPrivateMembersUnlessExplicitlyIncluded()
    local source = table.concat({
       "record Public",
