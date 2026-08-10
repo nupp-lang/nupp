@@ -892,7 +892,7 @@ record cst.AnnotationArg is
     expr: cst.Node?
 end
 
---- `type Name = Type`.
+--- `type Name = Type`, or `associated type Name` and its answers.
 record cst.TypeAlias is
     cst.Hints
     {cst.Node | lexer.Token}
@@ -909,6 +909,13 @@ record cst.TypeAlias is
     --- The `local` or `global` before it, when one was written.
     modifier: lexer.Token?
 
+    --- The contextual `associated` before `type`, when one was written. It makes the
+    --- member a contract rather than a static alias: an interface declares one that an
+    --- implementor has to name, and the implementor names it. A plain nested alias is
+    --- lexically scoped and not inherited, which is why the two are told apart here
+    --- rather than by what they are used for.
+    associatedKeyword: lexer.Token?
+
     --- The declared name.
     name: lexer.Token?
 
@@ -918,7 +925,12 @@ record cst.TypeAlias is
     --- Its generic parameters, when it has any.
     generics: cst.Node?
 
-    --- The type it names.
+    --- The bound written after `is`, when an associated declaration said what may
+    --- answer it.
+    bound: cst.Node?
+
+    --- The type it names. Absent on an associated declaration that states a
+    --- requirement and leaves answering it to an implementor.
     value: cst.Node?
 end
 

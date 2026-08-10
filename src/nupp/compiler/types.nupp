@@ -366,8 +366,31 @@ record types.Nominal
     --- Metamethod protocol contracts, deliberately separate from value members.
     metamethods: {[string]: types.Type}
 
-    --- Nested declarations addressable through this nominal namespace.
+    --- Nested declarations addressable through this nominal namespace. An answered
+    --- associated type lands here too, so reaching one by path costs no new lookup.
     nestedTypes: {[string]: types.Type}
+
+    --- Associated types this declaration states as requirements, in declaration order.
+    --- An interface states them; whatever takes the contract answers them.
+    associatedOrder: {string}?
+
+    --- What may answer each requirement. A name in `associatedOrder` with no entry
+    --- here was declared without a bound and accepts anything.
+    associatedBounds: {[string]: types.Type}?
+
+    --- Requirements this declaration answered with a default, so an implementor that
+    --- says nothing still answers and one that says something replaces rather than
+    --- collides.
+    associatedDefaults: {[string]: boolean}?
+
+    --- Which nested names arrived through `associated type` rather than `type`. A
+    --- plain nested alias answers nothing and is not inherited, so the two cannot be
+    --- told apart by what they hold.
+    associatedAnswers: {[string]: boolean}?
+
+    --- Declaration sites of the associated members, for go-to-definition and for
+    --- saying where an unanswered requirement was stated.
+    associatedDefs: any
 
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?

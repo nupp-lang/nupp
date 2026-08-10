@@ -333,6 +333,32 @@ local ENTRIES: {
     related = {"NUPP2125", "NUPP2208"},
     docs = "docs/type-system/intersections.md#overload-selection",
 }, {
+    code = "NUPP2127",
+    summary = "A declaration leaves an associated type unnamed",
+    rule = "An interface may state a type it does not name, and whatever takes "
+    .. "that contract has to name it. A default on the interface answers it, so "
+    .. "only a requirement nothing named is reported.",
+    wrong = "local interface Reader\n    associated type Item\nend\n\n"
+    .. "local record Lines is Reader\nend\n\nreturn Lines\n",
+    right = "local interface Reader\n    associated type Item\nend\n\n"
+    .. "local record Lines is Reader\n    associated type Item = string\n"
+    .. "end\n\nreturn Lines\n",
+    related = {"NUPP2131", "NUPP2116"},
+    docs = "docs/type-system/associated-types.md",
+}, {
+    code = "NUPP2131",
+    summary = "An associated type answers no contract",
+    rule = "`associated type` states a requirement on an interface and answers "
+    .. "one everywhere else. Only an interface can be inherited from, so a "
+    .. "record or struct cannot state one, and answering a name no contract it "
+    .. "takes declares means the name is private -- which is what a plain "
+    .. "nested `type` alias already is.",
+    wrong = "local record Box\n    associated type Item = string\nend\n\n"
+    .. "return Box\n",
+    right = "local record Box\n    type Item = string\nend\n\nreturn Box\n",
+    related = {"NUPP2127", "NUPP2117"},
+    docs = "docs/type-system/associated-types.md",
+}, {
     code = "NUPP2202",
     summary = "A declaration is built with 'new'",
     rule = "Records and structs are constructed with `new`. Calling a "

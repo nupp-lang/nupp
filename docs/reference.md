@@ -490,6 +490,48 @@ return m
 
 Reports: `NUPP2118`. `nupp explain <code>` says more.
 
+### Associated types
+
+An interface may state a type it does not name. Whatever takes the contract names
+it, and the name is reached through whatever answered it: `T.Item` on a type
+parameter, `Lines.Item` on a declaration, `self.Item` inside a body.
+
+A parameter is an input the caller chooses, so one declaration could take
+`Reader<string>` and `Reader<integer>` both and inference would have nothing to
+go on. An associated type is an output the implementor chooses, so it is a
+function of the argument. Write a parameter when the caller chooses.
+
+`associated type` is contextual and `type` has to follow it on the same line. A
+bound after `is` says what may answer, and a `=` answers it -- stating a default
+on an interface, and answering the requirement anywhere else. There is no
+`@override`, because a type member has no body to replace.
+
+A plain nested `type` alias is a different member: lexically scoped, reachable by
+path, and not inherited. Leaving a requirement unanswered is **NUPP2127**;
+answering one no contract declares, or stating a requirement anywhere but an
+interface, is **NUPP2131**.
+
+```nupp
+local m = {}
+
+interface m.Reader
+    associated type Item
+    associated type Error = string
+end
+
+record m.Lines is m.Reader
+    associated type Item = string
+end
+
+function m.describe(line: m.Lines.Item): string
+    return line
+end
+
+return m
+```
+
+Reports: `NUPP2127`, `NUPP2131`, `NUPP2116`. `nupp explain <code>` says more.
+
 ### Refinements
 
 An interface may carry a `matches` block, which names the runtime test that
@@ -1151,6 +1193,8 @@ Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`. `nupp explain <code>` s
 | NUPP2124 | An intersection is provably uninhabited |
 | NUPP2125 | No overload accepts a call |
 | NUPP2126 | Several overloads accept a call |
+| NUPP2127 | A declaration leaves an associated type unnamed |
+| NUPP2131 | An associated type answers no contract |
 | NUPP2202 | A declaration is built with 'new' |
 | NUPP2206 | Only a record or a struct can be constructed |
 | NUPP2207 | A binding is read before it holds a value |

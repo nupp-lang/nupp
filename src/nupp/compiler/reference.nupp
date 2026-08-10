@@ -568,6 +568,49 @@ return m
     },
 
     new reference.Section {
+        title = "Associated types",
+        codes = {"NUPP2127", "NUPP2131", "NUPP2116"},
+        body = [=[
+An interface may state a type it does not name. Whatever takes the contract names
+it, and the name is reached through whatever answered it: `T.Item` on a type
+parameter, `Lines.Item` on a declaration, `self.Item` inside a body.
+
+A parameter is an input the caller chooses, so one declaration could take
+`Reader<string>` and `Reader<integer>` both and inference would have nothing to
+go on. An associated type is an output the implementor chooses, so it is a
+function of the argument. Write a parameter when the caller chooses.
+
+`associated type` is contextual and `type` has to follow it on the same line. A
+bound after `is` says what may answer, and a `=` answers it -- stating a default
+on an interface, and answering the requirement anywhere else. There is no
+`@override`, because a type member has no body to replace.
+
+A plain nested `type` alias is a different member: lexically scoped, reachable by
+path, and not inherited. Leaving a requirement unanswered is **NUPP2127**;
+answering one no contract declares, or stating a requirement anywhere but an
+interface, is **NUPP2131**.
+]=],
+        example = [=[
+local m = {}
+
+interface m.Reader
+    associated type Item
+    associated type Error = string
+end
+
+record m.Lines is m.Reader
+    associated type Item = string
+end
+
+function m.describe(line: m.Lines.Item): string
+    return line
+end
+
+return m
+]=],
+    },
+
+    new reference.Section {
         title = "Refinements",
         codes = {"NUPP2122"},
         body = [=[
