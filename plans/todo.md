@@ -300,6 +300,16 @@ work makes sense in.
         invocation and a `NUPP_NATIVE_LIBRARY` export, since the staged
         `build/lib/nupp_native` is on neither path the generated loader tries.
 
+        Third, and found by taking the Cargo decision and going: the compiler
+        still does not check itself, because `ffi.C` is typed from the running
+        process's ctype table rather than from what the checked program
+        declared (`cNamespaceType` -> `cheader.declaredFunctions` ->
+        `cdecl.declaredFunctions`, which walks live ctype ids). Loading the file
+        provider while listing sources moves that set, and `ansi.nupp` stopped
+        seeing the `_isatty` it declares itself. Not the 8192-id window, and not
+        yet understood beyond that. Typing `ffi.C` from the program's own
+        declarations is the fix, and is its own change.
+
         tecs is Teal, which the milestone did not account for: `nupp.io.files`
         is an ambient global installed by a generated chunk, not a module a
         `.tl` file can require. It needs the bootstrap chunk in tecs's runtime,

@@ -498,8 +498,37 @@ Cargo invocation and a `NUPP_NATIVE_LIBRARY` export, since the staged
 decision about what the project depends on rather than a cleanup, and it is what
 F0 declined to take on its own authority.
 
-The shell-out is still worth deleting and the reason has not changed. What is
-missing is a decision, not an implementation.
+The shell-out is still worth deleting and the reason has not changed.
+
+**And under that sits a defect in how `ffi.C` is typed.** With the Cargo
+prerequisite accepted, the launcher wired to build and name the provider, and
+the bootstrap primed, the compiler still does not check itself:
+
+```
+src/nupp/compiler/ansi.nupp:131: error: NUPP2004: no field "_isatty" in
+  {nuppBytesData: ..., nuppFilesList: ..., nuppFsSubmitRead: ..., ...}
+```
+
+`ffi.C`'s type comes from `cNamespaceType`, which calls
+`cheader.declaredFunctions`, which walks **the running process's ctype table**
+rather than the declarations the checked program made. The set therefore depends
+on what has been `cdef`'d in the compiler's own process, and when. Loading the
+file provider while listing sources moves it — and here the compiler's own
+`_isatty`, which `ansi.nupp` declares and calls, was not in what came back.
+
+The window is not the cause: `MAX_CTYPE_ID` is 8192 and the provider adds about
+fifty symbols. What was *not* established is why the program's own declarations
+dropped out, only that the set the checker believes in moved when the load order
+did. That is the part to understand before changing anything.
+
+The fix is to type `ffi.C` from what the program declared, which is what the
+comment above `cNamespaceType` already claims it does. Until then a program that
+declares its own C functions cannot also use an FFI-backed standard facility —
+a limit worth knowing independently of this milestone.
+
+So the first half is blocked on three things, and only the first was a decision:
+the Cargo prerequisite (taken), the bootstrap regeneration (mechanical), and
+this (a defect, and not one this milestone should fix on the way past).
 
 **tecs is Teal, which this milestone did not account for.** "Swaps its imports"
 assumed a Nupp consumer. `tecs.io.files` is `.tl`, and `nupp.io.files` is an
