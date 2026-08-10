@@ -384,6 +384,26 @@ record types.Projection
     name: string
 end
 
+--- One associated type a declaration states as a requirement.
+---
+--- An identity rather than a name. Two contracts may choose the same name without
+--- meaning the same thing, and one contract reached twice through a diamond is one
+--- requirement -- neither of which a name can tell apart, and both of which change
+--- whether an answer is owed once or twice.
+record types.AssociatedRequirement
+    --- What the member is called.
+    name: string
+
+    --- What may answer it, when the requirement said.
+    bound: types.Type?
+
+    --- The `self` binder the bound was written under, when it mentions one.
+    selfBinder: types.Type?
+
+    --- Where it was stated, for saying which contract is owed an answer.
+    definition: any
+end
+
 --- One answer to an associated type: what it stands for, and enough about where it was
 --- written to rebind it later.
 ---
@@ -445,12 +465,10 @@ record types.Nominal
     --- declaration checking once that lands; until then only tests write it.
     associatedAnswers: {[string]: types.AssociatedAnswer}?
 
-    --- Associated types stated as requirements here, in declaration order.
-    associatedOrder: {string}?
-
-    --- What may answer each requirement. A name in `associatedOrder` with no entry
-    --- here was stated without a bound and accepts anything.
-    associatedBounds: {[string]: types.Type}?
+    --- Associated types stated as requirements here, in declaration order. Each entry
+    --- is its own identity, so a diamond deduplicates by requirement rather than by
+    --- name and two contracts choosing one name stay two requirements.
+    associatedRequirements: {types.AssociatedRequirement}?
 
     --- Declared contract parents from `is`, in source order.
     supertypes: {types.Type}?

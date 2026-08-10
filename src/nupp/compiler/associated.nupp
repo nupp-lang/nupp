@@ -1,0 +1,305 @@
+--[[
+Associated type lookup: the one semantic answer about a projection.
+
+Given a head and a member name, this says which requirements the head reaches, what
+an answer would have to satisfy, what answers it, and -- when the projection is not
+usable -- why. Nothing here diagnoses. A reason is a fact about the types; which
+source position is at fault, and whether it is worth reporting, belongs to the
+resolver and to declaration checking, which both consume this rather than each
+working it out again.
+
+Requirements carry identity. A name cannot tell "the same contract reached twice
+through a diamond" from "two contracts chose the same name", and those differ in
+whether one answer is owed or two, and in what it has to satisfy.
+]]
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.relations")
+local generics = require("nupp.compiler.generics")
+
+local associated = {}
+
+local type Type = T.Type
+
+--- One requirement a head reaches, with the contract that stated it.
+type associated.Reached = {
+    requirement: T.AssociatedRequirement,
+
+    --- The declaration the requirement was found on.
+    from: Type
+}
+
+--- Why a projection is not usable. Absent when it is.
+---
+--- `unprojectable` -- the head carries no contracts to project through: an unbounded
+--- binder, a shape, a primitive. `unknown` -- it carries some, and none states this
+--- name. `incomplete` -- a union alternative does not state it. `missing` -- the
+--- requirement is there and nothing answers it. `conflict` -- several contracts
+--- default it differently, so the answer has to be written. `unfit` -- the answer
+--- does not satisfy every bound.
+type associated.Reason = 'unprojectable' | 'unknown' | 'incomplete' | 'missing' | 'conflict' | 'unfit'
+
+--- What a projection through a head, for one name, resolves to.
+type associated.Lookup = {
+    --- Every distinct requirement of that name, deduplicated by identity.
+    requirements: {associated.Reached},
+
+    --- What one answer has to satisfy: every non-empty bound intersected, or united
+    --- across the alternatives of a union head. Absent when nothing constrained it.
+    bound: Type?,
+
+    --- What answers it, once explicit answers and defaults have been settled.
+    answer: T.AssociatedAnswer?,
+
+    --- The distinct defaults in play, when no explicit answer settled it. More than
+    --- one is a conflict rather than a choice.
+    defaults: {T.AssociatedAnswer},
+
+    --- The answer's type with its own `self` rebound to this head, which is the type
+    --- a projection reduces to. Absent when nothing answers.
+    resolved: Type?,
+
+    --- Set when the head was gradual. A projection only reaches that state by having
+    --- been valid and then materialized, so it is not a reason -- it is the feature
+    --- declining to say anything.
+    gradual: boolean?,
+
+    reason: associated.Reason?
+}
+
+--- The answer's type as the head reads it. `= self` means whatever answered, so the
+--- binder travels with the answer and is rebound here.
+local function resolvedType(answer: T.AssociatedAnswer, head: Type): Type
+    if not answer.selfBinder then
+        return answer.type
+    end
+
+    return generics.rebind(answer.type, {[answer.selfBinder] = head})
+end
+
+--- Every requirement a nominal reaches, its own first and then its contracts'.
+---
+--- Deduplicated by requirement identity, so a diamond contributes one entry and two
+--- contracts that chose the same name contribute two.
+local function reachRequirements(head: Type, name: string, into: {associated.Reached}, seen: {[any]: boolean}): nil
+    if head.tag ~= "nominal" or seen[head] then
+        return
+    end
+    seen[head] = true
+    for _, requirement in ipairs((head as T.Nominal).associatedRequirements or {}) do
+        if requirement.name == name and not seen[requirement] then
+            seen[requirement] = true
+            into[#into + 1] = {requirement = requirement, from = head}
+        end
+    end
+    for _, super in ipairs((head as T.Nominal).supertypes or {}) do
+        reachRequirements(super, name, into, seen)
+    end
+end
+
+--- The nearest answer for `name`, own before inherited, explicit before default.
+local function reachAnswers(
+    head: Type,
+    name: string,
+    explicit: {T.AssociatedAnswer},
+    defaults: {T.AssociatedAnswer},
+    seen: {[any]: boolean}
+): nil
+    if head.tag ~= "nominal" or seen[head] then
+        return
+    end
+    seen[head] = true
+    local answers = (head as T.Nominal).associatedAnswers
+    local entry = answers and answers[name] or nil
+    if entry and not seen[entry] then
+        seen[entry] = true
+        if entry.isDefault then
+            defaults[#defaults + 1] = entry
+        else
+            explicit[#explicit + 1] = entry
+        end
+    end
+    for _, super in ipairs((head as T.Nominal).supertypes or {}) do
+        reachAnswers(super, name, explicit, defaults, seen)
+    end
+end
+
+--- The bound every reached requirement agrees on: all of them at once, since one
+--- answer has to satisfy every contract that asked.
+local function intersectBounds(reached: {associated.Reached}, head: Type): Type?
+    local bounds: {Type} = {}
+    for _, one in ipairs(reached) do
+        local bound = one.requirement.bound
+        if bound then
+            if one.requirement.selfBinder then
+                bound = generics.rebind(bound, {[one.requirement.selfBinder] = head})
+            end
+            bounds[#bounds + 1] = bound
+        end
+    end
+    if #bounds == 0 then
+        return nil
+    end
+    if #bounds == 1 then
+        return bounds[1]
+    end
+
+    return T.intersection(bounds)
+end
+
+local lookupInto: function(head: Type, name: string): associated.Lookup
+
+--- Settles the answer once requirements and candidates are in hand.
+local function settle(result: associated.Lookup, head: Type): associated.Lookup
+    if #result.requirements == 0 then
+        result.reason = "unknown"
+
+        return result
+    end
+    local answer = result.answer
+    if not answer then
+        if #result.defaults == 0 then
+            result.reason = "missing"
+
+            return result
+        end
+        -- Several defaults are one answer when they agree once each has been read as
+        -- this head. Two interfaces defaulting `= self` converge here, which is the
+        -- common case and not a conflict.
+        local first = resolvedType(result.defaults[1], head)
+        for j = 2, #result.defaults do
+            if resolvedType(result.defaults[j], head) ~= first then
+                result.reason = "conflict"
+
+                return result
+            end
+        end
+        answer = result.defaults[1]
+        result.answer = answer
+    end
+    local resolved = resolvedType(answer, head)
+    result.resolved = resolved
+    if result.bound and not relations.isA(resolved, result.bound) then
+        result.reason = "unfit"
+    end
+
+    return result
+end
+
+--- What projecting `name` through `head` resolves to.
+---
+--- @param head what the projection is reached through
+--- @param name the associated member
+function associated.lookup(head: Type, name: string): associated.Lookup
+    return lookupInto(head, name)
+end
+
+lookupInto = function(head: Type, name: string): associated.Lookup
+    local result: associated.Lookup = {requirements = {}, defaults = {}}
+    if head == T.any then
+        -- Gradual rather than invalid. A projection reaches this only by having been
+        -- valid where it was written and then losing its head to inference.
+        result.gradual = true
+
+        return result
+    end
+    if head.tag == "typevar" then
+        local bound = (head as T.TypeVar).bound
+        if not bound then
+            -- Nothing to project through. An unbounded binder is the source-level
+            -- mistake this exists to catch, and it is not the gradual case above.
+            result.reason = "unprojectable"
+
+            return result
+        end
+
+        return lookupInto(bound, name)
+    end
+    if head.tag == "projection" then
+        -- Chained. What the first projection is bounded by is what the second is
+        -- allowed to name.
+        local inner = lookupInto((head as T.Projection).of, (head as T.Projection).name)
+        if inner.resolved then
+            return lookupInto(inner.resolved, name)
+        end
+        if inner.bound then
+            return lookupInto(inner.bound, name)
+        end
+        result.reason = inner.reason or "unprojectable"
+
+        return result
+    end
+    if head.tag == "intersection" then
+        -- Every constituent's contracts apply at once, so their requirements coalesce
+        -- exactly as two supertypes of one declaration would.
+        local seen: {[any]: boolean} = {}
+        local explicit: {T.AssociatedAnswer} = {}
+        for _, member in ipairs((head as T.Intersection).members) do
+            reachRequirements(member, name, result.requirements, seen)
+        end
+        local answerSeen: {[any]: boolean} = {}
+        for _, member in ipairs((head as T.Intersection).members) do
+            reachAnswers(member, name, explicit, result.defaults, answerSeen)
+        end
+        result.answer = explicit[1]
+        result.bound = intersectBounds(result.requirements, head)
+
+        return settle(result, head)
+    end
+    if head.tag == "union" then
+        -- Every alternative has to state it, since the value is one of them and the
+        -- projection has to mean something whichever it is. The bounds unite: an
+        -- answer only has to satisfy the alternative it came from.
+        local bounds: {Type} = {}
+        for _, member in ipairs((head as T.Union).members) do
+            local arm = lookupInto(member, name)
+            if #arm.requirements == 0 then
+                result.reason = "incomplete"
+
+                return result
+            end
+            for _, one in ipairs(arm.requirements) do
+                result.requirements[#result.requirements + 1] = one
+            end
+            if arm.bound then
+                bounds[#bounds + 1] = arm.bound
+            end
+        end
+        if #bounds > 0 then
+            result.bound = T.union(bounds)
+        end
+        -- A union answers nothing of its own; the alternatives do, and they need not
+        -- agree. What the projection stands for is settled per alternative.
+        result.reason = "missing"
+
+        return result
+    end
+    if head.tag ~= "nominal" then
+        result.reason = "unprojectable"
+
+        return result
+    end
+    local seen: {[any]: boolean} = {}
+    reachRequirements(head, name, result.requirements, seen)
+    local explicit: {T.AssociatedAnswer} = {}
+    reachAnswers(head, name, explicit, result.defaults, {})
+    result.answer = explicit[1]
+    result.bound = intersectBounds(result.requirements, head)
+
+    return settle(result, head)
+end
+
+--- Whether a projection of `name` through `head` is usable as written.
+---
+--- The narrow question the resolver asks: is this a type at all? Whether anything
+--- answers it is a separate question, and an opaque projection is a normal form.
+---
+--- @param head what the projection is reached through
+--- @param name the associated member
+function associated.projectable(head: Type, name: string): boolean
+    local result = lookupInto(head, name)
+
+    return result.gradual == true or #result.requirements > 0
+end
+
+return associated

@@ -19,8 +19,15 @@ local function declaring(name, params, spec)
    local n = T.nominal(name, "interface")
    n.typeParams = params
    n.selfType = T.typevar("self", name .. ":self")
-   n.associatedOrder = spec.order
-   n.associatedBounds = spec.bounds
+   if spec.order then
+      n.associatedRequirements = {}
+      for j, member in ipairs(spec.order) do
+         n.associatedRequirements[j] = {
+            name = member,
+            bound = spec.bounds and spec.bounds[member] or nil,
+         }
+      end
+   end
    n.associatedAnswers = spec.answers
    return n
 end
@@ -107,8 +114,12 @@ function M.everyPieceOfMetadataSurvivesInstantiation()
       },
    })
    local instance = generics.instantiate(full, {[param] = T.integer})
-   assertEq(table.concat(instance.associatedOrder, ","), "Value,Error", "order")
-   assertEq(instance.associatedBounds.Value, named, "bound")
+   local order = {}
+   for j, requirement in ipairs(instance.associatedRequirements) do
+      order[j] = requirement.name
+   end
+   assertEq(table.concat(order, ","), "Value,Error", "order")
+   assertEq(instance.associatedRequirements[1].bound, named, "bound")
    assertEq(T.tostring(instance.associatedAnswers.Value.type), "integer", "answer")
    assertEq(instance.associatedAnswers.Error.isDefault, true, "default marker")
    assertEq(instance.associatedAnswers.Value.definition, site, "definition")

@@ -509,16 +509,20 @@ function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
             complete[binder] = T.any
         end
     end
-    if n.associatedOrder then
-        inst.associatedOrder = {}
-        for j, name in ipairs(n.associatedOrder) do
-            inst.associatedOrder[j] = name
-        end
-    end
-    if n.associatedBounds then
-        inst.associatedBounds = {}
-        for name, bound in pairs(n.associatedBounds) do
-            inst.associatedBounds[name] = generics.rebind(bound, complete)
+    if n.associatedRequirements then
+        inst.associatedRequirements = {}
+        for j, requirement in ipairs(n.associatedRequirements) do
+            -- A fresh entry per instantiation, because its bound follows the
+            -- arguments. The binder and the site do not: what a requirement means and
+            -- where it was stated are the declaration's, not this application's.
+            inst.associatedRequirements[
+                j
+            ] = new T.AssociatedRequirement {
+                name = requirement.name,
+                bound = requirement.bound and generics.rebind(requirement.bound, complete) or nil,
+                selfBinder = requirement.selfBinder,
+                definition = requirement.definition,
+            }
         end
     end
     if n.associatedAnswers then
