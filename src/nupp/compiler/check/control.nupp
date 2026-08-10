@@ -588,6 +588,57 @@ function control.install(c: state.Checker): state.StatHandlers
         c.popScope()
     end
 
+    handlers.handleStmt = function(stat: cst.HandleStmt)
+        -- The handler is an ordinary expression, checked as one. What it has to satisfy
+        -- is `suspension.Handler`, and a file that never required the module cannot
+        -- name that type, so this reports nothing about its shape: an installation that
+        -- is not a handler fails where it is installed, which is one call away.
+        if stat.handler then
+            c.infer(stat.handler as cst.Node)
+        end
+        -- The body lowers to a protected closure, so control leaving it would return
+        -- from that closure rather than from the function around it -- silently. Until
+        -- the lowering reuses what `with` does for the same problem, leaving is refused
+        -- rather than mis-compiled.
+        local function escapes(node: any, insideLoop: boolean)
+            if not node or cst.isToken(node) then
+                return
+            end
+            local kind = node.kind
+            if kind == "funcExpr" or kind == "shortfn" or kind == "localFuncStmt" or kind == "funcStmt" then
+                return
+            end
+            if kind == "returnStmt" or (kind == "breakStmt" and not insideLoop) then
+                c.diag(
+                    "NUPP2706",
+                    node,
+                    "control cannot leave a `handle suspension` region yet",
+                    nil,
+                    {help = "put the value in a local declared outside the region, and " .. "leave after it"}
+                )
+                return
+            end
+            local loops = insideLoop
+                or kind == "whileStmt"
+                or kind == "repeatStmt"
+                or kind == "fornumStmt"
+                or kind == "forinStmt"
+            for _, child in ipairs(node.stats or {}) do
+                escapes(child, loops)
+            end
+            for _, child in ipairs(node) do
+                escapes(child, loops)
+            end
+        end
+
+        escapes(stat.body, false)
+        c.handledDepth = c.handledDepth + 1
+        c.pushScope()
+        c.checkBlock(stat.body as cst.Node, true)
+        c.popScope()
+        c.handledDepth = c.handledDepth - 1
+    end
+
     handlers.noSuspendStmt = function(stat: cst.NoSuspendStmt)
         c.noSuspendDepth = c.noSuspendDepth + 1
         c.pushScope()

@@ -179,6 +179,12 @@ record state.Checker
     --- The `nosuspend` region check, which judges after inference settles.
     nosuspend: any
 
+    --- How many `handle suspension` regions enclose the statement being checked. A
+    --- suspension inside one has somebody responsible for resuming or cancelling it,
+    --- which is the fact the resource rules will rest on rather than an ambient
+    --- run-time one.
+    handledDepth: integer
+
     --- How many `nosuspend` regions enclose the statement being checked. A call whose
     --- callee may suspend is refused while this is above zero.
     noSuspendDepth: integer

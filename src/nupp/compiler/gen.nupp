@@ -420,6 +420,8 @@ function gen.generate(
     local bufferName
     local needsLayout = false
     local layoutName
+    local needsSuspension = false
+    local suspensionName
     local needsCleanupRegistry = false
     local cleanupRegistryName
     local cleanupResolvers = {}
@@ -470,6 +472,16 @@ function gen.generate(
         needsBuffer = true
         bufferName = bufferName or reservedName("__nuppBuffer")
         return bufferName
+    end
+
+    -- The suspension runtime, bound once per module that installs a handler, the way
+    -- `string.buffer` is. A file that never writes `handle suspension` requires
+    -- nothing.
+    local function suspensionModule()
+        needsSuspension = true
+        suspensionName = suspensionName or reservedName("__nuppSuspension")
+
+        return suspensionName
     end
 
     local function tableIntrinsicName(name)
@@ -1824,6 +1836,33 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
 
+        elseif kind == "handleStmt" then
+            -- Elaborates to what `with` does for one owner: acquire, run the body
+            -- protected, discharge on every exit, re-raise what the body raised.
+            -- Written
+            -- out here rather than by building a `with` node, because the acquisition
+            -- is
+            -- a call to a module this file may never have required and only codegen
+            -- knows the name it bound.
+            local installed = nextTemp()
+            local ok = nextTemp()
+            local err = nextTemp()
+            e(
+                ("do const %s = %s.install("):format(installed, suspensionModule()),
+                x.handleTok and x.handleTok.line or nil
+            )
+            if x.handler then
+                emit(x.handler)
+            end
+            e((("); const %s, %s = pcall(function()"):format(ok, err)), x.doTok and x.doTok.line or nil)
+            if x.body then
+                emit(x.body)
+            end
+            e(
+                ("end); %s:release(); if not %s then error(%s, 0) end end"):format(installed, ok, err),
+                x.endTok and x.endTok.line or nil
+            )
+
         elseif kind == "withStmt" then
             needsWith = true
             if not withPackName then
@@ -2218,33 +2257,35 @@ function gen.generate(
     if needsCleanupRegistry then
         local linked = {
             ("local %s=_G.__nuppCleanupRegistry;"):format(cleanupRegistryName),
-            ("if %s==nil then %s={};_G.__nuppCleanupRegistry=%s end;"):format(
-                cleanupRegistryName,
-                cleanupRegistryName,
-                cleanupRegistryName
-            ),
+            (
+                "if %s==nil then %s={};_G.__nuppCleanupRegistry=%s end;"
+            ):format(cleanupRegistryName, cleanupRegistryName, cleanupRegistryName),
         }
         for _, resolver in ipairs(cleanupResolverOrder) do
             local cleanup = resolver.cleanup
             linked[
                 #linked + 1
-            ] = ("local %s;%s=function(value) local cleanup=%s[%q];"):format(
+            ] = (
+                "local %s;%s=function(value) local cleanup=%s[%q];"
+            ):format(
                 resolver.name,
                 resolver.name,
                 cleanupRegistryName,
                 cleanup.key
-            ) .. ("if cleanup==nil then return _G.error(%q) end;"):format(
+            ) .. (
+                "if cleanup==nil then return _G.error(%q) end;"
+            ):format(
                 "Nupp cleanup provider is not loaded: " .. cleanup.key
             ) .. ("%s=cleanup;return cleanup(value) end;"):format(resolver.name)
         end
         if cleanupRegisterValueName then
             linked[
                 #linked + 1
-            ] = ("local function %s(value,...) for i=1,_G.select('#',...),2 do "):format(
+            ] = (
+                "local function %s(value,...) for i=1,_G.select('#',...),2 do "
+            ):format(
                 cleanupRegisterValueName
-            ) .. ("%s[_G.select(i,...)]=_G.select(i+1,...) end return value end;"):format(
-                cleanupRegistryName
-            )
+            ) .. ("%s[_G.select(i,...)]=_G.select(i+1,...) end return value end;"):format(cleanupRegistryName)
         end
         code = table.concat(linked) .. code
     end
@@ -2401,6 +2442,9 @@ function gen.generate(
             .. "cache[ct] = layout return layout end end)(); "
         ):format(layoutName) .. code
         needsFfi = true
+    end
+    if needsSuspension then
+        code = ("const %s = require(\"nupp.suspension\"); "):format(suspensionName) .. code
     end
     if needsBuffer then
         code = ("const %s = require(\"string.buffer\"); "):format(bufferName) .. code

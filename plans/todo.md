@@ -82,10 +82,16 @@ work makes sense in.
         (`bench/suspension-baseline.lua`).
 
         Two items remain, cleanly separated:
-        (a) `handle suspension with h do ... end`, which elaborates to that
-        `with` *and* marks its body a checked handled-suspension region. The
-        mark is the point rather than the sugar: S4's resource permission rests
-        on a lexical fact, not on an ambient run-time one.
+        (a) landed. `handle suspension with h do ... end` elaborates to
+        installing an `Installed` owner, running the body protected, and
+        discharging on every exit, with the body marked a checked
+        handled-suspension region (`c.handledDepth`) for S4 to rest on.
+        Contextual in both words. Line count preserved.
+
+        One limitation, refused rather than mis-compiled: the body lowers to a
+        protected closure, so `return` or an unbound `break` leaving the region
+        is NUPP2706. Removing that means reusing what `with` already does for
+        the same problem instead of the simpler lowering here.
         (b) coroutine handler inheritance across `create`, `resume` and `wrap`,
         with the save/switch/restore benchmarked per resumed task. Today a new
         coroutine inherits nothing, which is tested and safe but is not the

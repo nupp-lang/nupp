@@ -215,4 +215,94 @@ function M.theModifierSurvivesGenericSubstitution()
    assertEq(concrete.params[1], T.string, "and the substitution happened")
 end
 
+function M.aHandleRegionInstallsAndRestores()
+   local src = table.concat({
+      'local s = require("nupp.suspension")',
+      "local h = {park = function() end}",
+      "local before = s.handled()",
+      "local inside = false",
+      "handle suspension with h do",
+      "    inside = s.handled()",
+      "end",
+      "return before, inside, s.handled()",
+   }, "\n")
+   local refusals, diags, result = diagnose(src)
+   assertEq(#refusals, 0, "no region check here")
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.severity == "warning" or diag.severity == "note",
+         "it checks: " .. diag.code .. " " .. diag.msg)
+   end
+   local code = gen.generate(result, "test")
+   assertTrue(code:find("install", 1, true) ~= nil,
+      "it elaborates to installing a handler: " .. code)
+   assertTrue(code:find("release", 1, true) ~= nil,
+      "and to discharging it: " .. code)
+   assertEq(code:find("handle suspension", 1, true), nil,
+      "with nothing of the construct surviving: " .. code)
+end
+
+function M.aHandleRegionPreservesTheLineCount()
+   local src = "local h = {park = function() end}\nhandle suspension with h do\n"
+      .. "    local n = 1\n    print(n)\nend\n"
+   local _, _, result = diagnose(src)
+   local code = gen.generate(result, "test")
+   local function lines(text)
+      local n = 1
+      for _ in text:gmatch("\n") do n = n + 1 end
+      return n
+   end
+   assertEq(lines(code), lines(src), "attribution holds: " .. code)
+end
+
+function M.refusesControlLeavingAHandleRegion()
+   -- The body lowers to a protected closure, so a `return` inside it would return from
+   -- that closure and the function around it would carry on -- silently. Refused until
+   -- the lowering reuses what `with` does for the same problem.
+   local _, diags = diagnose(table.concat({
+      "local h = {park = function() end}",
+      "local function f(): integer",
+      "    handle suspension with h do",
+      "        return 1",
+      "    end",
+      "    return 0",
+      "end",
+      "return f",
+   }, "\n"))
+   local found = nil
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2706" then found = diag end
+   end
+   assertTrue(found ~= nil, "leaving the region is refused rather than mis-compiled")
+end
+
+function M.allowsABreakInsideALoopInAHandleRegion()
+   -- A `break` bound by a loop inside the region never crosses the closure boundary.
+   local _, diags = diagnose(table.concat({
+      "local h = {park = function() end}",
+      "handle suspension with h do",
+      "    for index = 1, 3 do",
+      "        if index == 2 then",
+      "            break",
+      "        end",
+      "    end",
+      "end",
+   }, "\n"))
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.code ~= "NUPP2706",
+         "a loop's own break is not leaving the region")
+   end
+end
+
+function M.handleIsContextualInBothWords()
+   local _, diags = diagnose(table.concat({
+      "local handle = 1",
+      "local suspension = 2",
+      "return handle + suspension",
+   }, "\n"))
+   for _, diag in ipairs(diags) do
+      assertTrue(diag.severity == "warning" or diag.severity == "note",
+         "both stay ordinary names: " .. diag.code)
+   end
+end
+
 return M
