@@ -1111,20 +1111,32 @@ process address, so it would differ between two builds of one file; the
 `tostring` provided answers for scalars and refuses the rest. `pairs` iterates in
 sorted order for the same reason.
 
+Reusable helpers are file-private local functions annotated `@comptime`. They
+are typechecked like ordinary functions, may call one another and recurse under
+the same step and call-depth budgets as their caller, and are erased from the
+generated module. They may be called only from a comptime block or another
+`@comptime` helper; using one as a runtime value is **NUPP2415**. Generic,
+variadic and cross-module comptime helpers are not yet available. A helper may
+accept `TypeInfo` and pass it to a sealed reflection consumer.
+
 Comptime is not a macro system: it produces data, never declarations or source
-text. Reusable `@comptime` helpers, type reflection, and layout intrinsics are
-specified but not yet built; declaring a function inside a block is NUPP2411
-today.
+text. Declaring a function inside a block remains **NUPP2411**; reusable helpers
+are declared outside the block so their normal types and source identities stay
+part of the file.
 
 ```nupp
 local m = {}
+
+@comptime local function step(acc: integer): integer
+    return acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+end
 
 const CRC32 = comptime do
     const entries = {}
     for byte = 0, 255 do
         local acc = byte
         for _ = 1, 8 do
-            acc = acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+            acc = step(acc)
         end
         entries[byte + 1] = acc
     end

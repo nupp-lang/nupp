@@ -385,6 +385,8 @@ function checkMod.check(
     -- being lexically inside one function. See nupp.compiler.check.state.
     local c = new state.Checker {result = result, filename = filename, env = env, opts = opts,
         comptimeDepth = 0,
+        comptimeFunctionDepth = 0,
+        comptimeFunctions = {},
         -- A declaration file describes an interface it does not own, so its bare
         -- declarations are that interface and have no table of the file's own to attach
         -- to. Bundled declarations are checked under their module name rather than a

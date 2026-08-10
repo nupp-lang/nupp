@@ -143,6 +143,37 @@ function pragma.install(c: state.Checker): state.StatHandlers
             end
             return
 
+        elseif written == "comptime" then
+            if valid and target and target.kind == "localFuncStmt" and target.name and target.body then
+                local helper = target as cst.LocalFuncStmt
+                local body = helper.body as cst.Funcbody
+                if body.generics then
+                    c.diag(
+                        "NUPP2411",
+                        body.generics,
+                        "generic @comptime functions are not yet available"
+                    )
+                end
+                for _, rawParam in ipairs(body.params or {}) do
+                    local param = rawParam as cst.Param
+                    if param.namedVararg or not param.name then
+                        c.diag("NUPP2411", rawParam, "@comptime functions cannot be variadic")
+                    end
+                end
+                helper.comptimeFunction = true
+                local helperName = helper.name
+                local markedName = helperName as any
+                markedName.comptimeFunction = true
+                stat.eraseComptimeFunction = true
+                c.comptimeFunctions[markedName.text] = helper
+                c.comptimeFunctionDepth = c.comptimeFunctionDepth + 1
+                c.checkStat(helper)
+                c.comptimeFunctionDepth = c.comptimeFunctionDepth - 1
+            elseif stat.stat then
+                c.checkStat(stat.stat)
+            end
+            return
+
         elseif written == "effects" then
             if valid and target then
                 local contract = effectContract(stat)

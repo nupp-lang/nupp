@@ -186,7 +186,7 @@ local BUILTINS = {
     {name = "effects", arguments = "effects", targets = {"function", "c-function", "local-binding"},},
     {name = "relax", arguments = "names", targets = {"function"},},
     {name = "jit", arguments = "none", targets = {"function"}, reserved = "the trace checker",},
-    {name = "comptime", arguments = "none", targets = {"local-function"}, reserved = "compile-time evaluation",},
+    {name = "comptime", arguments = "none", targets = {"local-function"},},
 }
 
 function annotations.new(withBuiltins: boolean?): annotations.Registry

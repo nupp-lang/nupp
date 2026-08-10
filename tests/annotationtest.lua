@@ -199,7 +199,7 @@ end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
     assertEq(diagsOf("@jit local function f() end"), "NUPP2113")
-    assertEq(diagsOf("@comptime const function f() end"), "NUPP2113")
+    assertEq(diagsOf("@comptime const function f() end"), "")
 end
 
 function M.attachmentTargetsAreChecked()

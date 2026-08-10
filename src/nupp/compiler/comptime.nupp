@@ -24,8 +24,8 @@ local T = require("nupp.compiler.types")
 local materializeProviders = require("nupp.compiler.materialize.providers")
 
 local record comptime
-    evaluateDirect: function(cst.Node, cst.Node?, any): (string?, T.Type?, any, any)
-    evaluate: function(cst.Node, cst.Node?, any): (string?, T.Type?, any, any)
+    evaluateDirect: function(cst.Node, cst.Node?, any, any): (string?, T.Type?, any, any)
+    evaluate: function(cst.Node, cst.Node?, any, any): (string?, T.Type?, any, any)
 end
 
 local isToken = cst.isToken
@@ -34,6 +34,7 @@ local isToken = cst.isToken
 --- a double holds these and reads them back unchanged.
 local MAX_EXACT_INTEGER = 9007199254740991
 local MAX_STEPS = 100000
+local MAX_CALL_DEPTH = 128
 
 -- A raised evaluation failure. Errors travel as a table so a `pcall` boundary can tell
 -- one of ours from a genuine evaluator bug, which should not be reported as the user's
@@ -336,7 +337,17 @@ local RETURN = {}
 
 --- One evaluation in progress: the scopes, the budget, and the answer.
 local function newState()
-    return {env = {}, libraries = {}, result = nil, steps = 0, opaque = {}, intrinsics = {}, reflections = {}}
+    return {
+        env = {},
+        libraries = {},
+        result = nil,
+        steps = 0,
+        opaque = {},
+        intrinsics = {},
+        reflections = {},
+        comptimeFunctions = {},
+        callDepth = 0,
+    }
 end
 
 local function step(state, node)
@@ -394,6 +405,65 @@ local function pack(...)
 end
 
 local function callValues(state, node, callee, args)
+    local helper = state.comptimeFunctions[callee]
+    if helper then
+        local body = helper.node and helper.node.body or nil
+        local params = body and body.params or {}
+        if args.n ~= #params then
+            fail(
+                "NUPP2412",
+                node,
+                ("@comptime function %s expects %d argument%s, got %d"):format(
+                    helper.name,
+                    #params,
+                    #params == 1 and "" or "s",
+                    args.n
+                )
+            )
+        end
+        if state.callDepth >= MAX_CALL_DEPTH then
+            fail(
+                "NUPP2412",
+                node,
+                ("@comptime call depth exceeded %d frames"):format(MAX_CALL_DEPTH),
+                "make the recursion shallower or move the unbounded work to run time"
+            )
+        end
+        local savedScope, savedResult, savedReturned = state.scope, state.result, state.returned
+        state.scope, state.result, state.returned = scope(nil), nil, false
+        for index, param in ipairs(params) do
+            declare(state.scope, param.name and param.name.text or "", args[index])
+        end
+        state.callDepth = state.callDepth + 1
+        local ok, err = pcall(execBlock, state, body and body.body)
+        state.callDepth = state.callDepth - 1
+        local result, returned = state.result, state.returned
+        state.scope, state.result, state.returned = savedScope, savedResult, savedReturned
+        if not ok and err ~= RETURN then
+            if type(err) == "table" and err[FAILURE] then
+                local at = cst.firstToken(node)
+                local origin = helper.origin or cst.firstToken(helper.node)
+                err.message = tostring(err.message)
+                    .. ("\n  called %s at %d:%d; defined at %d:%d"):format(
+                        helper.name,
+                        at and at.line or 1,
+                        at and at.col or 1,
+                        origin and origin.line or helper.line or 1,
+                        origin and origin.col or helper.column or 1
+                    )
+            end
+            error(err, 0)
+        end
+        if not returned then
+            fail(
+                "NUPP2412",
+                node,
+                ("@comptime function %s completed without returning"):format(helper.name)
+            )
+        end
+
+        return {n = 1, result}
+    end
     local intrinsic = state.intrinsics[callee]
     if intrinsic then
         local value, failure = intrinsic(node, args)
@@ -417,6 +487,27 @@ local function callValues(state, node, callee, args)
     end
 
     return values
+end
+
+--- Installs checked, file-private helper bodies as evaluator-only callables. The token
+--- functions are never invoked by Lua; `callValues` recognizes their identities before
+--- the ordinary allowlisted-call path.
+local function installComptimeFunctions(state, env, helpers)
+    for name, supplied in pairs(helpers or {}) do
+        local node = supplied.node or supplied
+        if type(name) == "string" and node and node.kind == "localFuncStmt"
+            and node.name and node.body then
+            local token = function() return name end
+            state.comptimeFunctions[token] = {
+                name = name,
+                node = node,
+                origin = supplied.origin,
+                line = supplied.line,
+                column = supplied.column,
+            }
+            env[name] = token
+        end
+    end
 end
 
 --- Whether an expression yields a whole value sequence rather than one value, which is
@@ -1116,11 +1207,17 @@ type comptime.Failure = {
 --- @param block its body
 --- @return the result as canonical Lua source, its type, then the failure if there was
 ---   one
-function comptime.evaluateDirect(node: cst.Node, block: cst.Node?, reflections: any): string?, T.Type?, comptime.Failure?, any
+function comptime.evaluateDirect(
+    node: cst.Node,
+    block: cst.Node?,
+    reflections: any,
+    helpers: any
+): string?, T.Type?, comptime.Failure?, any
     local state = newState()
     state.reflections = reflections or {}
     local env, libraries = buildEnvironment(state)
     state.env, state.libraries = env, libraries
+    installComptimeFunctions(state, env, helpers)
     state.scope = scope(nil)
     local ok, err = pcall(execBlock, state, block)
     if not ok and err ~= RETURN then
@@ -1168,13 +1265,18 @@ end
 --- checkout. Unit embedders without a compiler root retain the same bounded direct
 --- evaluator; the private worker command itself sets the child marker to prevent a
 --- recursive spawn.
-function comptime.evaluate(node: cst.Node, block: cst.Node?, reflections: any): string?, T.Type?, comptime.Failure?, any
+function comptime.evaluate(
+    node: cst.Node,
+    block: cst.Node?,
+    reflections: any,
+    helpers: any
+): string?, T.Type?, comptime.Failure?, any
     local root = os.getenv("NUPP_COMPILER_ROOT")
     if root and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require("nupp.compiler.comptime_worker") as {
-            evaluate: function(string, string, any): (string?, any, any)
+            evaluate: function(string, string, any, any): (string?, any, any)
         }
-        local quoted, failure, envelope = worker.evaluate(cst.textOf(node), root, reflections)
+        local quoted, failure, envelope = worker.evaluate(cst.textOf(node), root, reflections, helpers)
         if failure then
             return nil, nil, {
                 code = failure.code,
@@ -1206,7 +1308,7 @@ function comptime.evaluate(node: cst.Node, block: cst.Node?, reflections: any): 
         return quoted, typeOf(value), nil
     end
 
-    return comptime.evaluateDirect(node, block, reflections)
+    return comptime.evaluateDirect(node, block, reflections, helpers)
 end
 
 return comptime

@@ -18,7 +18,7 @@ type worker.Failure = {
 
 local record worker
     main: function({string}): integer
-    evaluate: function(string, string, any): (string?, worker.Failure?, any)
+    evaluate: function(string, string, any, any): (string?, worker.Failure?, any)
 end
 
 cjson.encode_empty_table_as_object(false)
@@ -63,6 +63,23 @@ local function findComptime(node)
     return nil
 end
 
+local function findLocalFunction(node)
+    if type(node) ~= "table" then
+        return nil
+    end
+    if node.kind == "localFuncStmt" then
+        return node
+    end
+    for _, child in ipairs(node) do
+        local found = findLocalFunction(child)
+        if found then
+            return found
+        end
+    end
+
+    return nil
+end
+
 --- Child entry point. The request file contains only the exact comptime expression.
 function worker.main(argv: {string}): integer
     local requestPath = argv[1]
@@ -95,10 +112,42 @@ function worker.main(argv: {string}): integer
         return 0
     end
 
+    local helpers = {}
+    for name, descriptor in pairs(request.helpers or {}) do
+        if type(name) ~= "string" or type(descriptor) ~= "table"
+            or type(descriptor.source) ~= "string" then
+            io.write(cjson.encode({ok = false, code = "NUPP2412", message = "invalid comptime helper request"}), "\n")
+            return 0
+        end
+        local helperParse = require("nupp.compiler.parser").parse(
+            descriptor.source,
+            "=comptime-helper-" .. name
+        )
+        local helper = #(helperParse.errors or {}) == 0 and findLocalFunction(helperParse.root) or nil
+        if not helper or not helper.name or helper.name.text ~= name then
+            io.write(cjson.encode({
+                ok = false,
+                code = "NUPP2412",
+                message = "the comptime worker could not parse checked helper " .. name,
+            }), "\n")
+            return 0
+        end
+        helpers[name] = {
+            node = helper,
+            line = descriptor.line,
+            column = descriptor.column,
+        }
+    end
+
     local comptime = require("nupp.compiler.comptime") as {
-        evaluateDirect: function(any, any, any): (string?, any, any, any)
+        evaluateDirect: function(any, any, any, any): (string?, any, any, any)
     }
-    local quoted, _, failure, envelope = comptime.evaluateDirect(node, node.body, request.reflections)
+    local quoted, _, failure, envelope = comptime.evaluateDirect(
+        node,
+        node.body,
+        request.reflections,
+        helpers
+    )
     if failure then
         io.write(cjson.encode({
             ok = false,
@@ -117,9 +166,30 @@ end
 
 --- Parent entry point. A valid response is the only successful completion; truncated
 --- output, a non-JSON crash message and a killed worker are all local failures.
-function worker.evaluate(source: string, root: string, reflections: any): string?, worker.Failure?, any
+function worker.evaluate(
+    source: string,
+    root: string,
+    reflections: any,
+    helpers: any
+): string?, worker.Failure?, any
     local requestPath = os.tmpname()
-    local wrote, writeErr = write(requestPath, cjson.encode({source = source, reflections = reflections or {}}))
+    local serializedHelpers = {}
+    for name, supplied in pairs(helpers or {}) do
+        local node = supplied.node or supplied
+        local token = node and node.name
+        if node and node.kind == "localFuncStmt" and token then
+            serializedHelpers[name] = {
+                source = require("nupp.compiler.cst").textOf(node),
+                line = token.line,
+                column = token.col,
+            }
+        end
+    end
+    local wrote, writeErr = write(requestPath, cjson.encode({
+        source = source,
+        reflections = reflections or {},
+        helpers = serializedHelpers,
+    }))
     if not wrote then
         return nil, {code = "NUPP2412", message = "cannot create comptime worker request: " .. tostring(writeErr)}
     end

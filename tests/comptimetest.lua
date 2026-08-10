@@ -347,6 +347,62 @@ return made.value, made.nodes
       "the factory is emitted through hygienic expression IR: " .. code)
 end
 
+function M.callsTypedComptimeHelpersAndErasesThem()
+   local src = [[
+@comptime local function double(value: integer): integer
+    return value * 2
+end
+@comptime local function addDouble(left: integer, right: integer): integer
+    return left + double(right)
+end
+const ANSWER: integer = comptime do
+    return addDouble(2, 20)
+end
+return ANSWER
+]]
+   assertEq(run(src), 42, "comptime helpers compose")
+   local code, diags = compile(src)
+   assertEq(#diags, 0, "typed helpers check")
+   assertEq(code:find("function double", 1, true), nil,
+      "a comptime helper has no runtime declaration")
+   assertTrue(code:find("42", 1, true) ~= nil, "the computed result remains")
+end
+
+function M.recursesWithinTheSharedEvaluationBudget()
+   local src = [[
+@comptime local function factorial(value: number): number
+    if value <= 1 then return 1 end
+    return value * factorial(value - 1)
+end
+return comptime do return factorial(6) end
+]]
+   assertEq(run(src), 720, "recursive comptime helper")
+end
+
+function M.keepsComptimeHelpersOutOfRuntimeValues()
+   local codes = errorsOf([[
+@comptime local function answer(): integer return 42 end
+local escaped = answer
+return escaped()
+]])
+   assertEq(codes[1], "NUPP2415", "a comptime helper cannot escape to runtime")
+end
+
+function M.reportsAComptimeCallStack()
+   local _, diags = compile([[
+@comptime local function explode(value: integer): integer
+    return error("builder failed")
+end
+return comptime do return explode(1) end
+]])
+   local message
+   for _, diag in ipairs(diags) do
+      if diag.code == "NUPP2412" then message = diag.msg end
+   end
+   assertTrue(message and message:find("called explode", 1, true),
+      "the failure retains its comptime call frame: " .. tostring(message))
+end
+
 function M.requiresAnExplicitTypeForAnOpaqueResult()
    local codes = errorsOf([[
 const graph = comptime do

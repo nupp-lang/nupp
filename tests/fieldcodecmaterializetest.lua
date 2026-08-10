@@ -69,6 +69,26 @@ return {x = encoded["x"], y = encoded["y"], fingerprint = PositionCodec.fingerpr
    assertEq(code:find("reflect", 1, true), nil, "reflection erased")
 end
 
+function M.passesReflectionThroughATypedComptimeHelper()
+   local src = [[
+local record Point
+    x: number
+    y: number
+end
+@comptime local function keyed(info: TypeInfo): nupp.FieldCodec.Blueprint
+    return nupp.fieldcodec.compile(info)
+end
+const Codec: nupp.FieldCodec.KeyedCodec<Point> = comptime do
+    return keyed(reflect(Point))
+end
+local encoded = Codec:encode(new Point {x = 3, y = 4})
+return {x = encoded.x, y = encoded.y}
+]]
+   local encoded = run(src)
+   assertEq(encoded.x, 3, "the reflected helper selects x")
+   assertEq(encoded.y, 4, "the reflected helper selects y")
+end
+
 function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
    local codes = errorsOf([[
 local record Position x: number end

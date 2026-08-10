@@ -507,6 +507,12 @@ record state.Checker
     --- Nonzero while checking the body of a `comptime` expression.
     comptimeDepth: integer
 
+    --- Nonzero while checking a function declared with `@comptime`.
+    comptimeFunctionDepth: integer
+
+    --- File-private comptime helper declarations visible so far, by name.
+    comptimeFunctions: {[string]: any}
+
     --- The ownership modes a body's parameters are used with, when it declared none.
     inferredParameterModes: function(body: any): any
 end

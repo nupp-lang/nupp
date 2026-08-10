@@ -114,6 +114,12 @@ interface cst.Hints
 
     reflectedTypeKey: string?
 
+    --- A file-private helper that exists only in the comptime evaluator.
+    comptimeFunction: boolean?
+
+    --- The annotation wrapper for an erased comptime helper.
+    eraseComptimeFunction: boolean?
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 

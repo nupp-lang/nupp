@@ -21,7 +21,7 @@ local index = require("nupp.compiler.check.index")
 local callexpr = require("nupp.compiler.check.callexpr")
 local state = require("nupp.compiler.check.state")
 local comptime = require("nupp.compiler.comptime") as {
-    evaluate: function(any, any, any): (string?, any, any, any)
+    evaluate: function(any, any, any, any): (string?, any, any, any)
 }
 local materializeProviders = require("nupp.compiler.materialize.providers") as {
     lower: function(any, any, any): (any, any)
@@ -194,7 +194,8 @@ function expr.install(c: state.Checker): nil
         local quoted, resultType, failure, envelope = comptime.evaluate(
             untypedNode,
             node.body,
-            reflections
+            reflections,
+            c.comptimeFunctions
         )
         if failure then
             c.diag(
@@ -298,6 +299,16 @@ function expr.install(c: state.Checker): nil
             end
             local nameText = nameTok.text
             local entry = c.lookupEntry(nameText)
+            if entry and entry.definition and entry.definition.comptimeFunction
+                and (c.comptimeDepth or 0) == 0 and (c.comptimeFunctionDepth or 0) == 0 then
+                c.diag(
+                    "NUPP2415",
+                    node,
+                    ("@comptime function %q has no runtime value"):format(nameText),
+                    nil,
+                    {help = "call it from a comptime block or another @comptime function"}
+                )
+            end
             node.immutablePath = entry and entry.constant == true or false
             if entry and entry.withBinding then
                 node.withBinding = entry.withBinding

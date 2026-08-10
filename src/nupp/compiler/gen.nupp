@@ -2539,6 +2539,9 @@ function gen.generate(
             emitFunctionDepth = emitFunctionDepth - 1
 
         elseif kind == "pragmaStmt" then
+            if x.eraseComptimeFunction then
+                return
+            end
             for _, registration in ipairs(x.cleanupRegistrations or {}) do
                 if not registration.after then
                     local cleanup = registration.cleanup

@@ -850,6 +850,12 @@ function functions.install(c: state.Checker): state.StatHandlers
         end
         -- bind the name before checking for recursion; refine after
         c.bindVar(nameTok.text, T.any, false, nameTok, "function", stat.isConst)
+        if stat.comptimeFunction then
+            local entry = c.scope.vars[nameTok.text]
+            if entry and entry.definition then
+                entry.definition.comptimeFunction = true
+            end
+        end
         local ft = c.checkFuncbody(body)
         c.bindVar(nameTok.text, ft)
         -- After the refining bind, so the entry registered is the one that survives.
