@@ -38,6 +38,11 @@ See `plans/suspension.md`.
 
 local suspension = {}
 
+--- How many times a release drives the readiness pumps waiting for an abandoned park to
+--- finish unwinding. A handler that has not finished by then is not going to: the point
+--- is to give a scheduler its chance, not to spin.
+local MAX_DRAIN_PASSES = 64
+
 --- A readiness pump, and the handle that owns its lifetime.
 ---
 --- Returned rather than named, so two libraries registering "io" do not collide and
@@ -121,11 +126,17 @@ local running = coroutine.running
 -- accepted it and two extents may share one handler.
 local function effectiveInstallation()
     local co = running()
-    if co == nil then
-        return mainInstalled
+    local current = co == nil and mainInstalled or installed[co]
+    -- A coroutine created under an extent may not start until after that extent has
+    -- ended. Using its handler then would add parks to bookkeeping nobody will ever
+    -- release, so a released installation is stepped over in favour of whatever it
+    -- restored -- which is what the coroutine would have inherited had it been made a
+    -- moment later.
+    while current ~= nil and current.released do
+        current = current.previous
     end
 
-    return installed[co]
+    return current
 end
 
 local function effective()
@@ -311,7 +322,13 @@ function suspension.suspend<
     end
 
     local context = setmetatable({handler = handler, owned = nil}, ContextMT)
-    local cancel = subscribe(resume, context as suspension.Context)
+    -- Protected, because a subscription that registers a pump and *then* raises would
+    -- otherwise leave that pump polling for a wait nobody is doing.
+    local subscribed, cancel = pcall(subscribe, resume, context as suspension.Context)
+    if not subscribed then
+        releaseOwned(context)
+        error(cancel, 0)
+    end
     if state.resumed then
         -- The subscription answered during the call. Nothing was parked and no handler
         -- was woken; any pump it registered has served its purpose.
@@ -344,15 +361,16 @@ function suspension.suspend<
             -- being torn down. Then wake the park with a cancellation, which is what
             -- actually unwinds it -- a subscription that is merely unsubscribed leaves
             -- the coroutine suspended inside `park` forever, and its cleanup unrun.
-            pcall(cancel)
+            cancel()
             state.cancelled, state.reason = true, reason
             local wake = state.waker
             if wake then
                 state.waker = nil
-                -- Resuming here runs the parked stack to its unwinding. When the waker
-                -- is synchronous -- a scheduler resuming the coroutine -- unwinding has
-                -- finished by the time this returns.
-                pcall(wake)
+                -- A synchronous waker unwinds before this returns. A scheduler that
+                -- only enqueues does not, which is why the ticket stays registered
+                -- until `suspend` itself takes it off: acknowledgement is the park
+                -- finishing, never the wake being delivered.
+                wake()
             end
         end
 
@@ -375,6 +393,9 @@ function suspension.suspend<
     else
         ok, err = pcall(blockingPark, waiting)
     end
+    -- The acknowledgement. Reaching here is what "this park finished" means, whether it
+    -- resumed, was cancelled, or failed; until then the ticket stays registered so a
+    -- releasing extent can see it is still outstanding.
     if ticket and current then
         current.parks[ticket] = nil
     end
@@ -383,9 +404,11 @@ function suspension.suspend<
         error(("nupp: %s was cancelled: %s"):format(operation, state.reason or "the extent ended"), 0)
     end
     if not ok then
+        -- Every failed park unsubscribes. A park that raised left the subscription live
+        -- and nobody else is going to take it down.
+        pcall(cancel)
         local text = tostring(err)
         if text:find("C%-call boundary") or text:find("attempt to yield across") then
-            pcall(cancel)
             error(("nupp: %s cannot suspend: non-yieldable C code is on the stack"):format(operation), 0)
         end
         error(err, 0)
@@ -424,23 +447,64 @@ record suspension.Installed
         else
             installed[self.co] = self.previous
         end
-        -- Cancellation happens before shutdown, and outside its failure. A handler
-        -- whose shutdown raises would otherwise leave every park it accepted parked
-        -- forever, which is the one outcome this whole section exists to prevent.
-        --
-        -- Abandoning a park unsubscribes it *and* wakes it with a cancellation, so the
-        -- suspended stack resumes, `suspend` raises, and every `with` between there and
-        -- the park runs its cleanup. Unsubscribing alone would leave the coroutine
-        -- suspended inside `park` with its obligations undischarged.
-        local held = self.parks
-        self.parks = {}
-        for ticket in pairs(held or {}) do
-            pcall(ticket.abandon, "the handled extent ended")
+        -- Every step below is attempted and the first failure is reported at the end.
+        -- Stopping at the first one would leave the rest of the parks abandoned in the
+        -- literal sense, which is what this exists to prevent; swallowing them all
+        -- would
+        -- close the scope on a lie.
+        local firstError = nil
+        local function attempt(fn: any, argument: any): nil
+            local ok, err = pcall(fn, argument)
+            if not ok and firstError == nil then
+                firstError = err
+            end
         end
+
+        -- Cancellation before shutdown, and outside its failure: a handler whose
+        -- shutdown raises would otherwise strand every park it accepted.
+        --
+        -- Abandoning unsubscribes *and* wakes the park with a cancellation, so the
+        -- suspended stack resumes, `suspend` raises, and every `with` between there and
+        -- the park runs its cleanup.
+        for ticket in pairs(self.parks or {}) do
+            attempt(ticket.abandon, "the handled extent ended")
+        end
+        -- Shutdown is also how a handler *drives* what it only enqueued. A scheduler
+        -- that answers a wake by queueing the coroutine has not unwound anything yet;
+        -- this is its opportunity to run the queue down.
         if self.handler.shutdown then
-            -- Protected too: a shutdown that raises is the handler's problem, not a
-            -- reason for the scope to fail to close.
-            pcall(self.handler.shutdown, self.handler)
+            attempt(self.handler.shutdown, self.handler)
+        end
+        -- And the pumps, in case unwinding is waiting on one.
+        local remaining = next(self.parks or {})
+        local passes = 0
+        while remaining ~= nil and passes < MAX_DRAIN_PASSES do
+            passes = passes + 1
+            attempt(suspension.poll, nil)
+            remaining = next(self.parks or {})
+        end
+
+        -- A ticket comes off when its `suspend` returns, so anything still here is a
+        -- park that was told to abandon and has not finished doing so. Returning
+        -- successfully would report a scope closed while a coroutine is still suspended
+        -- inside it with its obligations undischarged.
+        if remaining ~= nil then
+            local names = {}
+            for ticket in pairs(self.parks or {}) do
+                names[#names + 1] = ticket.operation
+            end
+            table.sort(names)
+            self.parks = {}
+            error(
+                (
+                    "nupp: the handled extent ended with %d park(s) unfinished: %s"
+                ):format(#names, table.concat(names, ", ")),
+                0
+            )
+        end
+        self.parks = {}
+        if firstError ~= nil then
+            error(firstError, 0)
         end
     end
 end

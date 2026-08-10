@@ -387,19 +387,32 @@ function M.inheritanceIsFixedAtCreationNotResumption()
    local outer = {park = function() end}
    local other = {park = function() end}
    local seen = nil
-   local co
-   handled(outer, function()
-      co = suspension.create(function()
-         seen = suspension.handled()
-      end)
-      return nil
+   local outerInstallation = suspension.install(outer)
+   local co = suspension.create(function()
+      seen = suspension.handled()
    end)
-   -- Created under a handler, resumed under a different one, and resumed outside any.
+   -- Resumed under a different handler, while the creating extent is still live.
    handled(other, function()
       coroutine.resume(co)
       return nil
    end)
+   outerInstallation:release()
    assertEq(seen, true, "it kept what it was created with")
+end
+
+function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
+   -- A coroutine may start long after the extent it was created under has closed.
+   -- Using that handler then would add parks to bookkeeping nobody will release, so
+   -- the released installation is stepped over.
+   local handler = {park = function() end}
+   local seen = nil
+   local installation = suspension.install(handler)
+   local co = suspension.create(function()
+      seen = suspension.handled()
+   end)
+   installation:release()
+   coroutine.resume(co)
+   assertEq(seen, false, "a closed extent no longer answers for it")
 end
 
 function M.creatingOutsideAnyHandlerInheritsNothing()
@@ -518,6 +531,105 @@ function M.aFinishedParkIsNotCancelledLater()
    end)
    installation:release()
    assertEq(cancels, 0, "a subscription that completed has nothing to cancel")
+end
+
+function M.releaseRefusesToSucceedWithAParkStillUnfinished()
+   -- A scheduler that answers a wake by enqueueing has unwound nothing yet. Release
+   -- drives what it can and then refuses to report a closed scope while a coroutine is
+   -- still suspended inside it.
+   local handler = {
+      park = function(_self, waiting)
+         -- Registers a waker that does nothing: the wake is "delivered" and the park
+         -- never finishes, which is exactly the enqueue-without-draining case.
+         waiting:onResume(function()
+         end)
+         coroutine.yield()
+      end,
+   }
+   local installation = suspension.install(handler)
+   local parked = suspension.create(function()
+      pcall(suspension.suspend, "stuck", function()
+         return function()
+         end
+      end)
+   end)
+   coroutine.resume(parked)
+   local ok, err = pcall(installation.release, installation)
+   assertEq(ok, false, "closing the scope on an unfinished park would be a lie")
+   assertTrue(tostring(err):find("unfinished", 1, true) ~= nil,
+      "and it names them: " .. tostring(err))
+   assertTrue(tostring(err):find("stuck", 1, true) ~= nil,
+      "by operation: " .. tostring(err))
+end
+
+function M.releaseAttemptsEveryCleanupBeforeReporting()
+   -- One failing cancellation must not stop the rest: abandoning is what unwinds, and
+   -- stopping early would leave the remainder parked.
+   local cancelled = 0
+   local handler = {
+      park = function(_self, waiting)
+         waiting:onResume(function()
+         end)
+      end,
+      shutdown = function()
+         error("shutdown blew up", 0)
+      end,
+   }
+   local installation = suspension.install(handler)
+   pcall(suspension.suspend, "first", function()
+      return function()
+         cancelled = cancelled + 1
+         error("cancel blew up", 0)
+      end
+   end)
+   pcall(suspension.suspend, "second", function()
+      return function()
+         cancelled = cancelled + 1
+      end
+   end)
+   -- Both parks already finished -- the handler returned without resuming, so each
+   -- `suspend` cancelled its own subscription and raised. What is left for release is
+   -- the shutdown, which fails, and that failure has to surface rather than vanish.
+   assertEq(cancelled, 2, "each suspend took its own subscription down")
+   local ok, err = pcall(installation.release, installation)
+   assertEq(ok, false, "the shutdown failure is reported rather than swallowed")
+   assertTrue(tostring(err):find("shutdown blew up", 1, true) ~= nil,
+      "and it is the one that failed: " .. tostring(err))
+end
+
+function M.aFailingParkStillUnsubscribes()
+   local unsubscribed = false
+   local handler = {
+      park = function()
+         error("park blew up", 0)
+      end,
+   }
+   local installation = suspension.install(handler)
+   local ok = pcall(suspension.suspend, "waiting", function()
+      return function()
+         unsubscribed = true
+      end
+   end)
+   installation:release()
+   assertEq(ok, false, "the park failed")
+   assertEq(unsubscribed, true,
+      "and the subscription was taken down rather than left live")
+end
+
+function M.aSubscriptionThatRaisesReleasesItsPumps()
+   -- A subscription may register a pump and then fail. Leaving it registered would
+   -- have the blocking handler polling for a wait nobody is doing.
+   local polls = 0
+   local ok = pcall(suspension.suspend, "waiting", function(_resume, context)
+      context:source("leaky", 1, function()
+         polls = polls + 1
+         return 0
+      end)
+      error("subscribe blew up", 0)
+   end)
+   assertEq(ok, false, "the subscription failed")
+   suspension.poll()
+   assertEq(polls, 0, "and its pump went with it")
 end
 
 return M

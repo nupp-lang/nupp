@@ -131,35 +131,31 @@ work makes sense in.
         metamethod contract: without it a comparator cannot call `tostring`,
         which is most comparators, and the compiler's own `build/cache.nupp`
         was the first thing the check refused.
-  - [~] S4: permit handled suspension while a resource obligation is live,
+  - [x] S4: permit handled suspension while a resource obligation is live,
         keeping NUPP2603 for raw coroutine yields. A handler owns every accepted
         park and its shutdown cancels and unwinds all parks before succeeding.
 
-        Mostly landed, and **not complete**. A handled suspension may cross a
-        live obligation, deliberately rather than by omission, and the
-        diagnostic points at `handle suspension` as the way to do it
-        responsibly.
+        Landed. A handled suspension may cross a live obligation,
+        deliberately rather than by omission, and the diagnostic points at
+        `handle suspension` as the way to do it responsibly. A raw yield is
+        still NUPP2603 -- through the global, through `local co = coroutine`,
+        and through a chain of those, because the binding records the fact on
+        the definition a later use resolves back to. The check had to move
+        after the callee is inferred: before that, the name token carries no
+        definition, which is what four earlier attempts kept missing.
 
-        Cancellation now actually unwinds. Abandoning a park unsubscribes the
-        library *and* wakes the parked continuation with a cancellation, so the
-        suspended stack resumes, `suspend` raises, and every `with` between
-        there and the park runs its cleanup -- unsubscribing alone left the
-        coroutine suspended inside `park` forever with its obligations
-        undischarged. Parks are held per *installation*, so a nested extent
-        sharing a handler cannot abandon the enclosing one's waits;
-        cancellation runs before `shutdown` and outside its failure, so a
-        handler whose shutdown raises does not strand every park it accepted;
-        and pumps a subscription registered through its context are released on
-        every path out.
-
-        **Blocking**: a raw yield reached through an alias -- `local co =
-        coroutine; co.yield()` -- is not refused. That is common enough to be a
-        hole anyone falls into by accident, so S4 is not done while it is open.
-        Closing it wants the binding to record that a local came from the
-        coroutine global; an attempt at that did not resolve, because a prelude
-        global does not come back from `c.lookupEntry` and the entry the check
-        later resolves is not the one the binding wrote to. Worth an hour with
-        the scope code rather than another guess.
+        Cancellation unwinds rather than merely unsubscribing: abandoning a
+        park wakes the parked continuation with a cancellation, so the stack
+        resumes and every `with` between there and the park runs its cleanup.
+        A ticket is only taken off when its `suspend` returns, so a scheduler
+        that answers a wake by enqueueing cannot let release report a closed
+        scope while a coroutine is still suspended inside it -- release drives
+        shutdown and the pumps, then refuses, naming the operations. Every
+        cleanup step is attempted and the first failure reported. Parks are
+        held per installation; a released installation is stepped over, so a
+        coroutine that starts after its extent ended does not add parks nobody
+        will abandon; every failed park path unsubscribes; and a subscription
+        that raises after registering a pump releases it.
 
   - [ ] S5: `nupp.io.Process`. tecs's API surface — `communicate`, the
         Reader/Writer vocabulary, `Exit:succeeded` — over a new POSIX/Win32
