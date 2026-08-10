@@ -55,7 +55,7 @@ function M.intersectionsCanonicalizeAndRenderWithPrecedence()
    assertEq(T.intersection({T.unknown, T.string}), T.string)
    assertEq(T.intersection({T.never, T.string}), T.never)
    local tv = T.typevar("T", "intersection-test")
-   assertEq(T.tostring(require("nupp.compiler.generics").subst(
+   assertEq(T.tostring(require("nupp.compiler.generics").materialize(
       T.intersection({tv, T.string}), {[tv] = T.literal("ok", T.string)})),
       '"ok" & string')
 end

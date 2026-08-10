@@ -23,7 +23,9 @@ local state = require("nupp.compiler.check.state")
 local declare = {}
 
 local isA = relations.isA
-local substType = generics.subst
+-- Inheritance rebinds `self` to the inheriting declaration and names no other
+-- binder, so an inherited member's own type parameters have to survive it.
+local substType = generics.rebind
 local addSelf = generics.addSelf
 local dropSelf = generics.dropSelf
 

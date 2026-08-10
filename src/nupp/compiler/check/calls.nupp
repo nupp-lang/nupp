@@ -19,8 +19,10 @@ local calls = {}
 
 local isA = relations.isA
 local rawType = T.unwrapOwnership
-local substType = generics.subst
-local substPack = generics.substPack
+-- A call site has run inference: a binder nothing reached becomes `any`, which
+-- leaves the application gradual rather than leaking a binder into the caller.
+local substType = generics.materialize
+local substPack = generics.materializePack
 local unify = generics.unify
 local unifyPack = generics.unifyPack
 local instantiateNominal = generics.instantiate

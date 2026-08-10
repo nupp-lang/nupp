@@ -126,7 +126,7 @@ function resolve.install(c: state.Checker): nil
                 end
             end
             c.validateTypeBounds(t.typeParams, t.typeBounds, map, node)
-            return generics.subst(t.body, map)
+            return generics.materialize(t.body, map)
         end
         if not (t and t.tag == "nominal" and t.typeParams and node.typeArgs) then
             return t

@@ -211,7 +211,7 @@ function M.theModifierSurvivesGenericSubstitution()
    local generics = require("nupp.compiler.generics")
    local tv = T.typevar("T")
    local safe = T.withYields(T.func({tv}, {tv}), false)
-   local concrete = generics.subst(safe, {[tv] = T.string})
+   local concrete = generics.materialize(safe, {[tv] = T.string})
    assertEq(concrete.noYield, true, "substitution rewrites types, not effects")
    assertEq(concrete.params[1], T.string, "and the substitution happened")
 end

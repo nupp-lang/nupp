@@ -893,7 +893,7 @@ local function check(a: Type, b: Type): boolean, string?
             for j, tv in ipairs(a.typeParams or {}) do
                 local bound = a.typeBounds and a.typeBounds[j]
                 local actual = map[tv]
-                if bound and actual and not isA(actual, generic.subst(bound, map)) then
+                if bound and actual and not isA(actual, generic.materialize(bound, map)) then
                     return false, ("type argument %s does not satisfy %s"):format(T.tostring(actual), T.tostring(bound))
                 end
             end
