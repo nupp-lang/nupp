@@ -386,16 +386,37 @@ Exit test met: a file round-trips through `Reader:transferTo(writer)`; a 300 KiB
 payload streams through a fixed window; the generated Lua for an unbound `File`
 carries its `close`; the existing `nupp.io` tests are untouched.
 
-### F2: the request lane
+### F2: the request lane — done
 
 - The submit/poll exports and the worker pool in Rust, with the bounded-lane
   accounting ported from tecs.
-- `writeAtomic` as a request kind.
-- No Nupp-side waiting yet: F2's Lua side polls to completion.
+- `writeAtomic` and `copy` as request kinds.
+- No Nupp-side waiting yet: F2's Lua side waits on `nuppFsWait` to completion.
 
-Exit test: a hundred concurrent reads settle; the request cap refuses the
-hundred-and-first with a reason rather than queueing it; a cancelled request
-releases its handle and its bytes; no worker touches a `lua_State`.
+Whole-file `read`, `write`, `append`, `writeAtomic` and `copy` submit to the
+lane; the four synchronous exports they used to call are gone rather than left
+beside it. The cursor operations on an open `File` stay direct, because
+scheduling a transfer costs more than a cursor read costs to run.
+
+Two details the tecs port did not carry over. The lane prices a read by sizing
+the file **on the submitting thread**, since a lane that cannot price a
+transfer cannot bound itself, and SDL leaves the same lookup synchronous for
+the same reason. And a `Slot`'s `Drop` returns the budget, so a charge is
+released once the caller and the worker have both let go rather than when
+either did — a cancelled transfer whose worker is still reading has not given
+its bytes back yet, and saying otherwise is how a bound stops binding.
+
+`nuppFsWait` reads the arrival count under the same lock a worker raises it
+under. Without that, a settlement landing between the status check and the
+sleep is slept through, which is a 25ms stall per transfer and invisible to a
+test that only checks the answer.
+
+The Rust unit tests this needs cannot run from the Lua suite, so `nupp task
+native-test` runs them.
+
+Exit test met: 24 concurrent transfers settle and return their slots; the
+request cap refuses rather than queueing; a cancelled transfer reaches
+`STATUS_CANCELED` and is refunded on destroy; no worker touches a `lua_State`.
 
 ### F3: suspension
 

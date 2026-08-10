@@ -870,111 +870,12 @@ pub mod files {
         missing("no unused temporary name was found")
     }
 
-    /// Reads a whole file.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesRead(data: *const u8, length: usize) -> *mut NuppBytes {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return missing(error),
-        };
-        match fs::read(path) {
-            Ok(bytes) => output_bytes(bytes),
-            Err(error) => missing(error),
-        }
-    }
-
     unsafe fn borrowed<'a>(data: *const u8, length: usize) -> &'a [u8] {
         if length == 0 {
             &[]
         } else {
             unsafe { slice::from_raw_parts(data, length) }
         }
-    }
-
-    /// Writes a whole file, replacing its contents or extending them.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesWrite(
-        data: *const u8,
-        length: usize,
-        bytes: *const u8,
-        bytes_length: usize,
-        append: bool,
-    ) -> bool {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        if bytes.is_null() && bytes_length != 0 {
-            return refused("file contents are null");
-        }
-        let contents = unsafe { borrowed(bytes, bytes_length) };
-        if !append {
-            return settled(fs::write(path, contents));
-        }
-        use std::io::Write;
-        let opened = fs::OpenOptions::new().append(true).create(true).open(path);
-        match opened {
-            Ok(mut file) => settled(file.write_all(contents)),
-            Err(error) => refused(error),
-        }
-    }
-
-    /// Writes a whole file through a temporary beside it, so an interrupted
-    /// write leaves the destination as it was rather than half replaced.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesWriteAtomic(
-        data: *const u8,
-        length: usize,
-        bytes: *const u8,
-        bytes_length: usize,
-    ) -> bool {
-        let path = match unsafe { at(data, length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        if bytes.is_null() && bytes_length != 0 {
-            return refused("file contents are null");
-        }
-        let contents = unsafe { borrowed(bytes, bytes_length) };
-        let directory = path.parent().unwrap_or(Path::new("."));
-        let stamp = RandomState::new().build_hasher().finish();
-        let temporary = directory.join(format!(".nupp-write-{stamp:016x}"));
-        use std::io::Write;
-        let written = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .and_then(|mut file| {
-                file.write_all(contents)?;
-                file.sync_all()
-            })
-            .and_then(|()| fs::rename(&temporary, path));
-        match written {
-            Ok(()) => true,
-            Err(error) => {
-                let _ = fs::remove_file(&temporary);
-                refused(error)
-            }
-        }
-    }
-
-    /// Copies a file's contents and permission bits over a destination.
-    #[no_mangle]
-    pub unsafe extern "C" fn nuppFilesCopy(
-        from: *const u8,
-        from_length: usize,
-        to: *const u8,
-        to_length: usize,
-    ) -> bool {
-        let from = match unsafe { at(from, from_length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        let to = match unsafe { at(to, to_length) } {
-            Ok(value) => value,
-            Err(error) => return refused(error),
-        };
-        settled(fs::copy(from, to))
     }
 
     /// An open file. Owned by the caller, which is what makes closing it a
@@ -1136,6 +1037,436 @@ pub mod files {
         true
     }
 
+    /// Whole-file transfers, off the calling thread.
+    ///
+    /// A transfer is submitted, settles on a worker, and is observed by polling.
+    /// Nothing here calls Lua and nothing here blocks the submitter, which is
+    /// what lets one caller wait by sleeping and another wait by parking a task
+    /// and pumping this from its frame.
+    ///
+    /// The lane is bounded in three directions — how many transfers may be live,
+    /// how many bytes they may hold between them, and how large one may be —
+    /// because a queue that grows with its callers eventually takes the process
+    /// with it.
+    pub mod lane {
+        use super::*;
+        use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+        use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+        use std::sync::{Arc, Condvar, Mutex, OnceLock};
+        use std::thread;
+        use std::time::Duration;
+
+        pub const STATUS_PENDING: i32 = 0;
+        pub const STATUS_READY: i32 = 1;
+        pub const STATUS_FAILED: i32 = 2;
+        pub const STATUS_CANCELED: i32 = 3;
+
+        const WORKERS: usize = 4;
+        const QUEUE_DEPTH: usize = 256;
+        const MAX_REQUESTS: usize = 128;
+        const MAX_BYTES: usize = 256 * 1024 * 1024;
+        const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
+
+        static REQUESTS: AtomicUsize = AtomicUsize::new(0);
+        static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+        static SETTLED: AtomicUsize = AtomicUsize::new(0);
+
+        fn arrivals() -> &'static (Mutex<usize>, Condvar) {
+            static ARRIVALS: OnceLock<(Mutex<usize>, Condvar)> = OnceLock::new();
+            ARRIVALS.get_or_init(|| (Mutex::new(0), Condvar::new()))
+        }
+
+        enum Outcome {
+            Waiting,
+            Ready(Vec<u8>),
+            Failed(CString),
+        }
+
+        /// One transfer's shared state. Its `Drop` returns the lane's budget, so
+        /// the charge is released when the caller and the worker have both let
+        /// go rather than when either did.
+        pub struct Slot {
+            status: AtomicI32,
+            outcome: Mutex<Outcome>,
+            charged: usize,
+        }
+
+        impl Drop for Slot {
+            fn drop(&mut self) {
+                REQUESTS.fetch_sub(1, Ordering::AcqRel);
+                IN_FLIGHT.fetch_sub(self.charged, Ordering::AcqRel);
+            }
+        }
+
+        /// The caller's handle on a transfer.
+        pub struct NuppRequest {
+            slot: Arc<Slot>,
+        }
+
+        enum Work {
+            Read(PathBuf),
+            Write {
+                path: PathBuf,
+                contents: Vec<u8>,
+                mode: u32,
+            },
+            Copy {
+                from: PathBuf,
+                to: PathBuf,
+            },
+        }
+
+        struct Job {
+            slot: Arc<Slot>,
+            work: Work,
+        }
+
+        fn settle(slot: &Arc<Slot>, outcome: Outcome, status: i32) {
+            // A canceled transfer keeps its verdict: the work finished, but
+            // nobody is left who asked for it, so the bytes go nowhere.
+            if slot
+                .status
+                .compare_exchange(
+                    STATUS_PENDING,
+                    status,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                *slot.outcome.lock().expect("outcome mutex") = outcome;
+            }
+            SETTLED.fetch_add(1, Ordering::AcqRel);
+            let (count, waiters) = arrivals();
+            *count.lock().expect("arrivals mutex") += 1;
+            waiters.notify_all();
+        }
+
+        fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+            use std::io::Write;
+            let directory = path.parent().unwrap_or(Path::new("."));
+            let stamp = RandomState::new().build_hasher().finish();
+            let temporary = directory.join(format!(".nupp-write-{stamp:016x}"));
+            let written = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+                .and_then(|mut file| {
+                    file.write_all(contents)?;
+                    file.sync_all()
+                })
+                .and_then(|()| fs::rename(&temporary, path));
+            if written.is_err() {
+                let _ = fs::remove_file(&temporary);
+            }
+            written
+        }
+
+        fn perform(work: Work) -> std::io::Result<Vec<u8>> {
+            use std::io::Write;
+            match work {
+                Work::Read(path) => fs::read(path),
+                Work::Write {
+                    path,
+                    contents,
+                    mode,
+                } => match mode {
+                    2 => write_atomic(&path, &contents).map(|()| Vec::new()),
+                    1 => fs::OpenOptions::new()
+                        .append(true)
+                        .create(true)
+                        .open(&path)
+                        .and_then(|mut file| file.write_all(&contents))
+                        .map(|()| Vec::new()),
+                    _ => fs::write(&path, &contents).map(|()| Vec::new()),
+                },
+                Work::Copy { from, to } => fs::copy(from, to).map(|_| Vec::new()),
+            }
+        }
+
+        fn worker(jobs: Arc<Mutex<Receiver<Job>>>) {
+            loop {
+                let job = {
+                    let queue = jobs.lock().expect("job queue mutex");
+                    match queue.recv() {
+                        Ok(job) => job,
+                        Err(_) => return,
+                    }
+                };
+                match perform(job.work) {
+                    Ok(bytes) => settle(&job.slot, Outcome::Ready(bytes), STATUS_READY),
+                    Err(error) => {
+                        let text = error.to_string().replace('\0', "\\0");
+                        let text = CString::new(text).expect("NUL bytes were replaced");
+                        settle(&job.slot, Outcome::Failed(text), STATUS_FAILED)
+                    }
+                }
+            }
+        }
+
+        fn queue() -> &'static SyncSender<Job> {
+            static QUEUE: OnceLock<SyncSender<Job>> = OnceLock::new();
+            QUEUE.get_or_init(|| {
+                let (sender, receiver) = sync_channel(QUEUE_DEPTH);
+                let shared = Arc::new(Mutex::new(receiver));
+                for _ in 0..WORKERS {
+                    let jobs = Arc::clone(&shared);
+                    thread::Builder::new()
+                        .name("nupp-files".to_owned())
+                        .spawn(move || worker(jobs))
+                        .expect("file worker thread");
+                }
+                sender
+            })
+        }
+
+        fn admit(charge: usize) -> Result<(), String> {
+            if charge > MAX_REQUEST_BYTES {
+                return Err(format!(
+                    "the transfer is larger than the {MAX_REQUEST_BYTES}-byte limit"
+                ));
+            }
+            let live = REQUESTS.fetch_add(1, Ordering::AcqRel) + 1;
+            if live > MAX_REQUESTS {
+                REQUESTS.fetch_sub(1, Ordering::AcqRel);
+                return Err(format!("more than {MAX_REQUESTS} transfers are in flight"));
+            }
+            let held = IN_FLIGHT.fetch_add(charge, Ordering::AcqRel) + charge;
+            if held > MAX_BYTES {
+                IN_FLIGHT.fetch_sub(charge, Ordering::AcqRel);
+                REQUESTS.fetch_sub(1, Ordering::AcqRel);
+                return Err(format!(
+                    "transfers in flight would hold more than {MAX_BYTES} bytes"
+                ));
+            }
+            Ok(())
+        }
+
+        fn submit(work: Work, charge: usize) -> *mut NuppRequest {
+            if let Err(reason) = admit(charge) {
+                set_error(reason);
+                return ptr::null_mut();
+            }
+            let slot = Arc::new(Slot {
+                status: AtomicI32::new(STATUS_PENDING),
+                outcome: Mutex::new(Outcome::Waiting),
+                charged: charge,
+            });
+            let job = Job {
+                slot: Arc::clone(&slot),
+                work,
+            };
+            if queue().send(job).is_err() {
+                set_error("the file worker queue is gone");
+                return ptr::null_mut();
+            }
+            Box::into_raw(Box::new(NuppRequest { slot }))
+        }
+
+        /// Submits a whole-file read. The file is sized on this thread, because
+        /// a lane that cannot price a transfer cannot bound itself.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsSubmitRead(
+            data: *const u8,
+            length: usize,
+        ) -> *mut NuppRequest {
+            let path = match unsafe { at(data, length) } {
+                Ok(value) => value.to_path_buf(),
+                Err(error) => {
+                    set_error(error);
+                    return ptr::null_mut();
+                }
+            };
+            let charge = match fs::metadata(&path) {
+                Ok(metadata) => metadata.len() as usize,
+                Err(error) => {
+                    set_error(error);
+                    return ptr::null_mut();
+                }
+            };
+            submit(Work::Read(path), charge)
+        }
+
+        /// Submits a whole-file write. `mode` replaces, appends, or writes
+        /// through a temporary beside the destination, in that order.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsSubmitWrite(
+            data: *const u8,
+            length: usize,
+            bytes: *const u8,
+            bytes_length: usize,
+            mode: u32,
+        ) -> *mut NuppRequest {
+            let path = match unsafe { at(data, length) } {
+                Ok(value) => value.to_path_buf(),
+                Err(error) => {
+                    set_error(error);
+                    return ptr::null_mut();
+                }
+            };
+            if bytes.is_null() && bytes_length != 0 {
+                set_error("file contents are null");
+                return ptr::null_mut();
+            }
+            if mode > 2 {
+                set_error("unknown write mode");
+                return ptr::null_mut();
+            }
+            let contents = unsafe { borrowed(bytes, bytes_length) }.to_vec();
+            submit(
+                Work::Write {
+                    path,
+                    contents,
+                    mode,
+                },
+                bytes_length,
+            )
+        }
+
+        /// Submits a copy. The bytes never reach this process, so the lane
+        /// charges the transfer a slot rather than a size.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsSubmitCopy(
+            from: *const u8,
+            from_length: usize,
+            to: *const u8,
+            to_length: usize,
+        ) -> *mut NuppRequest {
+            let from = match unsafe { at(from, from_length) } {
+                Ok(value) => value.to_path_buf(),
+                Err(error) => {
+                    set_error(error);
+                    return ptr::null_mut();
+                }
+            };
+            let to = match unsafe { at(to, to_length) } {
+                Ok(value) => value.to_path_buf(),
+                Err(error) => {
+                    set_error(error);
+                    return ptr::null_mut();
+                }
+            };
+            submit(Work::Copy { from, to }, 0)
+        }
+
+        fn slot_of<'a>(request: *const NuppRequest) -> Option<&'a Arc<Slot>> {
+            if request.is_null() {
+                None
+            } else {
+                Some(&unsafe { &*request }.slot)
+            }
+        }
+
+        /// Answers whether a transfer is pending, ready, failed, or canceled.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsStatus(request: *const NuppRequest) -> i32 {
+            match slot_of(request) {
+                Some(slot) => slot.status.load(Ordering::Acquire),
+                None => STATUS_FAILED,
+            }
+        }
+
+        /// Answers a settled read's bytes. Valid until the transfer is
+        /// destroyed.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsData(request: *const NuppRequest) -> *const u8 {
+            match slot_of(request) {
+                Some(slot) => match &*slot.outcome.lock().expect("outcome mutex") {
+                    Outcome::Ready(bytes) => bytes.as_ptr(),
+                    _ => ptr::null(),
+                },
+                None => ptr::null(),
+            }
+        }
+
+        /// Answers a settled read's byte count.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsLength(request: *const NuppRequest) -> usize {
+            match slot_of(request) {
+                Some(slot) => match &*slot.outcome.lock().expect("outcome mutex") {
+                    Outcome::Ready(bytes) => bytes.len(),
+                    _ => 0,
+                },
+                None => 0,
+            }
+        }
+
+        /// Copies a failed transfer's reason into the shared error slot and
+        /// answers it, so every failure is read the same way.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsError(request: *const NuppRequest) -> *const c_char {
+            if let Some(slot) = slot_of(request) {
+                if let Outcome::Failed(text) = &*slot.outcome.lock().expect("outcome mutex") {
+                    set_error(text.to_string_lossy());
+                }
+            }
+            nuppNativeError()
+        }
+
+        /// Abandons a pending transfer. The work still finishes; its result is
+        /// dropped, because a worker already reading cannot be recalled.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsCancel(request: *mut NuppRequest) -> bool {
+            match slot_of(request) {
+                Some(slot) => slot
+                    .status
+                    .compare_exchange(
+                        STATUS_PENDING,
+                        STATUS_CANCELED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_ok(),
+                None => false,
+            }
+        }
+
+        /// Releases the caller's handle and its share of the lane's budget.
+        #[no_mangle]
+        pub unsafe extern "C" fn nuppFsDestroy(request: *mut NuppRequest) {
+            if !request.is_null() {
+                drop(unsafe { Box::from_raw(request) });
+            }
+        }
+
+        /// Answers how many transfers settled since the last poll, without
+        /// waiting. This is the readiness pump a scheduler drives.
+        #[no_mangle]
+        pub extern "C" fn nuppFsPoll() -> usize {
+            let (count, _) = arrivals();
+            let mut guard = count.lock().expect("arrivals mutex");
+            *guard = 0;
+            SETTLED.swap(0, Ordering::AcqRel)
+        }
+
+        /// The same, sleeping up to a deadline for the first settlement. This is
+        /// what keeps a program with no scheduler from spinning on a status.
+        ///
+        /// The count is read under the same lock a worker raises it under, so a
+        /// settlement that lands between the check and the sleep is seen rather
+        /// than slept through.
+        #[no_mangle]
+        pub extern "C" fn nuppFsWait(milliseconds: u64) -> usize {
+            let (count, waiters) = arrivals();
+            let mut guard = count.lock().expect("arrivals mutex");
+            if *guard == 0 {
+                let (settled, _) = waiters
+                    .wait_timeout(guard, Duration::from_millis(milliseconds))
+                    .expect("arrivals condvar");
+                guard = settled;
+            }
+            *guard = 0;
+            drop(guard);
+            SETTLED.swap(0, Ordering::AcqRel)
+        }
+
+        /// How many transfers the caller still holds.
+        #[no_mangle]
+        pub extern "C" fn nuppFsPending() -> usize {
+            REQUESTS.load(Ordering::Acquire)
+        }
+    }
+
     /// Answers the process's current working directory.
     #[no_mangle]
     pub extern "C" fn nuppFilesCurrentDirectory() -> *mut NuppBytes {
@@ -1191,6 +1522,110 @@ pub mod files {
 mod tests {
     use super::*;
     use std::ffi::CStr;
+
+    // The lane's accounting is process-global, so its cases share one test
+    // rather than racing each other for the budget they are each about.
+    #[cfg(feature = "files")]
+    #[test]
+    fn the_lane_settles_bounds_and_refunds_transfers() {
+        use files::lane::*;
+        use std::hash::{BuildHasher, Hasher, RandomState};
+
+        let stamp = RandomState::new().build_hasher().finish();
+        let root = std::env::temp_dir().join(format!("nupp-lane-{stamp:016x}"));
+        std::fs::create_dir_all(&root).expect("test directory");
+        let submit = |name: &str, contents: &[u8], mode: u32| {
+            let path = root.join(name);
+            let text = path.to_str().expect("utf-8 path").to_owned();
+            unsafe {
+                nuppFsSubmitWrite(
+                    text.as_ptr(),
+                    text.len(),
+                    contents.as_ptr(),
+                    contents.len(),
+                    mode,
+                )
+            }
+        };
+        let await_settled = |request: *mut NuppRequest| {
+            while unsafe { nuppFsStatus(request) } == STATUS_PENDING {
+                nuppFsWait(200);
+            }
+            unsafe { nuppFsStatus(request) }
+        };
+
+        // Many transfers settle concurrently, and the budget comes back.
+        let before = nuppFsPending();
+        let mut writes = Vec::new();
+        for index in 0..32 {
+            let request = submit(&format!("file-{index}.bin"), b"payload", 0);
+            assert!(!request.is_null(), "the lane accepted the transfer");
+            writes.push(request);
+        }
+        for request in &writes {
+            assert_eq!(await_settled(*request), STATUS_READY);
+        }
+        for request in writes {
+            unsafe { nuppFsDestroy(request) };
+        }
+        assert_eq!(nuppFsPending(), before, "settled transfers return their slot");
+
+        // A read carries the bytes the worker found.
+        let path = root.join("file-0.bin");
+        let text = path.to_str().expect("utf-8 path").to_owned();
+        let read = unsafe { nuppFsSubmitRead(text.as_ptr(), text.len()) };
+        assert!(!read.is_null());
+        assert_eq!(await_settled(read), STATUS_READY);
+        let bytes = unsafe {
+            slice::from_raw_parts(nuppFsData(read), nuppFsLength(read))
+        };
+        assert_eq!(bytes, b"payload");
+        unsafe { nuppFsDestroy(read) };
+
+        // A failure carries a reason rather than an empty success.
+        let missing = root.join("absent").join("deep.bin");
+        let text = missing.to_str().expect("utf-8 path").to_owned();
+        let failed = unsafe {
+            nuppFsSubmitWrite(text.as_ptr(), text.len(), b"x".as_ptr(), 1, 0)
+        };
+        assert!(!failed.is_null(), "a write to a missing directory is submitted");
+        assert_eq!(await_settled(failed), STATUS_FAILED);
+        let reason = unsafe { CStr::from_ptr(nuppFsError(failed)) };
+        assert!(!reason.to_bytes().is_empty(), "a failure names itself");
+        unsafe { nuppFsDestroy(failed) };
+
+        // A cancelled transfer stops being the caller's, and gives the slot
+        // back when the handle goes.
+        let cancelled = submit("cancelled.bin", b"payload", 0);
+        assert!(!cancelled.is_null());
+        unsafe { nuppFsCancel(cancelled) };
+        while nuppFsWait(50) == 0 && unsafe { nuppFsStatus(cancelled) } == STATUS_PENDING {}
+        assert_eq!(unsafe { nuppFsStatus(cancelled) }, STATUS_CANCELED);
+        unsafe { nuppFsDestroy(cancelled) };
+        assert_eq!(nuppFsPending(), before, "a cancelled transfer is refunded");
+
+        // The request cap refuses rather than queueing without limit.
+        let mut held = Vec::new();
+        let mut refused = false;
+        for index in 0..200 {
+            let request = submit(&format!("held-{index}.bin"), b"x", 0);
+            if request.is_null() {
+                refused = true;
+                break;
+            }
+            held.push(request);
+        }
+        assert!(refused, "the lane refuses past its request cap");
+        for request in held {
+            while unsafe { nuppFsStatus(request) } == STATUS_PENDING {
+                nuppFsWait(200);
+            }
+            unsafe { nuppFsDestroy(request) };
+        }
+        assert_eq!(nuppFsPending(), before, "the refused run leaks no slots");
+
+        std::fs::remove_dir_all(&root).expect("test cleanup");
+    }
 
     #[cfg(feature = "sha256")]
     #[test]

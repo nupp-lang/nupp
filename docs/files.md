@@ -195,6 +195,21 @@ and loaded on first use. A program that never reaches it links nothing and
 initializes nothing, which is the rule for every
 [standard facility](stdlib.md#availability-detection-and-lazy-loading).
 
+A whole-file `read`, `write`, `append`, `writeAtomic` or `copy` settles on a
+worker thread rather than on yours. The call still answers the result and today
+still waits for it — sleeping rather than spinning — but the transfer is off the
+calling thread, which is what will let the same call park a task instead of
+blocking a program.
+
+The lane those workers run is bounded three ways: how many transfers may be
+live, how many bytes they may hold between them, and how large one may be. Past
+any of the three a submission answers a reason rather than queueing, because a
+queue that grows with its callers eventually takes the process with it.
+`pendingTransfers` answers what the lane is holding.
+
+Metadata, listings and cursor reads through an open `File` do not use the lane.
+Scheduling a transfer costs more than those cost to run.
+
 ## Next
 
 - [docs/io.md](io.md) — the buffer, reader and writer contracts a file

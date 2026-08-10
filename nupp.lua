@@ -624,6 +624,19 @@ nupp lsp            # start the language server]],
             .. "until stopped",
          argv = { "node", "scripts/docs-serve.mjs" },
       },
+      -- The Lua suite reaches the native providers through their ABI, which is
+      -- the level a program sees them at. What it cannot reach is what only the
+      -- provider knows: the file lane's budget, its refusals, and what a
+      -- cancelled transfer gives back.
+      ["native-test"] = {
+         description = "Run the Rust providers' own unit tests",
+         argv = {
+            "cargo", "test",
+            "--manifest-path", "runtime/native/Cargo.toml",
+            "--no-default-features",
+            "--features", "files,path,uri,uuid,sha256",
+         },
+      },
    },
 
    selfHost = {

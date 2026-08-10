@@ -241,6 +241,32 @@ function M.wholeFilesAreReadWrittenAndCopied()
    assert(type(reason) == "string")
 end
 
+function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
+   local files = ready()
+   assert(files.createDirectory(inRoot("lane")))
+   test.equal(files.pendingTransfers(), 0, "the lane starts idle")
+
+   local payload = ("lane"):rep(50000)
+   for index = 1, 24 do
+      assert(files.write(inRoot("lane/" .. index .. ".bin"), payload))
+   end
+   for index = 1, 24 do
+      test.equal(#assert(files.read(inRoot("lane/" .. index .. ".bin"))), #payload)
+   end
+   test.equal(files.pendingTransfers(), 0,
+      "every settled transfer gave its slot back")
+
+   local missing, reason = files.read(inRoot("lane/absent"))
+   test.equal(missing, nil)
+   assert(type(reason) == "string" and #reason > 0)
+   test.equal(files.pendingTransfers(), 0, "a refused transfer holds nothing")
+
+   local written, why = files.write(inRoot("lane/absent/deep.bin"), "x")
+   assert(not written and type(why) == "string",
+      "a write that fails on the worker carries its reason back")
+   test.equal(files.pendingTransfers(), 0)
+end
+
 function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
    local files = ready()
    assert(files.createDirectory(inRoot("atomic")))

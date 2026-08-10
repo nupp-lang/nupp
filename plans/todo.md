@@ -246,8 +246,23 @@ work makes sense in.
         `suspend` without moving the surface. `DirectoryStream` did not land —
         `list` answers a table, and streaming a directory belongs with the
         request lane rather than ahead of it.
-  - [ ] F2: the bounded submit/poll request lane in Rust, ported from tecs's
+  - [x] F2: the bounded submit/poll request lane in Rust, ported from tecs's
         `fileasync.rs` with SDL removed, `writeAtomic` among its request kinds.
+
+        Done. Whole-file read, write, append, atomic write and copy submit to
+        a four-worker lane bounded by live transfers, by bytes held between
+        them, and by the size of one; past any of the three a submission
+        answers a reason rather than queueing. The Lua side still waits to
+        completion — F3 is what makes the same call park.
+
+        A read is priced by sizing the file on the submitting thread, because
+        a lane that cannot price a transfer cannot bound itself. The budget is
+        returned by the slot's `Drop`, so a cancelled transfer whose worker is
+        still reading has not given its bytes back yet.
+
+        `nupp task native-test` runs the provider's own unit tests, which the
+        Lua suite cannot reach: the lane's budget, its refusals, and what a
+        cancelled transfer refunds are only visible from inside.
   - [ ] F3: the readiness source and the `suspend` call sites, with the
         immediate-completion early return the cost model requires.
   - [ ] F4: adoption — `fs.nupp` loses its fallbacks, tecs swaps its imports.

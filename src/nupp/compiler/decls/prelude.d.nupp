@@ -1223,6 +1223,15 @@ record nupp.Files
         --- @return a failure reason, when unsuccessful
         currentDirectory: function(): (string?, string?)
 
+        --- How many whole-file transfers this program is still holding.
+        ---
+        --- Whole-file reads, writes and copies settle on worker threads, and
+        --- the lane that runs them is bounded. This answers what it holds,
+        --- which is what a program that submitted more than it consumed needs
+        --- to see.
+        --- @return the number of live transfers
+        pendingTransfers: function(): integer
+
         --- Answers a well-known user folder.
         --- @param which the folder to locate
         --- @return the folder, or nil when the platform has no such folder
