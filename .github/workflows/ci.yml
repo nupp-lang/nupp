@@ -1,0 +1,124 @@
+name: CI
+
+# What a checkout has to be able to do, on the platforms it claims to support:
+# check itself, pass its suite, and rebuild itself byte for byte.
+#
+# LuaJIT is built from source on every platform rather than installed, because
+# the floor is a rolling 2.1 build (2.1.1784535649) and distribution packages
+# are routinely older. lua-cjson comes the same way: the compiler requires it at
+# startup, and building the three C files it is made of is more predictable than
+# arranging LuaRocks on three operating systems.
+#
+# Cargo is a build prerequisite since the compiler lists its own sources through
+# a native provider. The runners ship a Rust toolchain; the job proves it is
+# there rather than assuming it.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LUAJIT_REF: v2.1
+
+jobs:
+  verify:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report the toolchain
+        shell: bash
+        run: |
+          cargo --version
+          rustc --version
+
+      - name: Build LuaJIT (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          git clone --depth 1 --branch "$LUAJIT_REF" \
+            https://github.com/LuaJIT/LuaJIT.git "$RUNNER_TEMP/luajit"
+          # LuaJIT's makefile refuses to guess this, and says so rather than
+          # building something that will not load.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export MACOSX_DEPLOYMENT_TARGET="$(sw_vers -productVersion | cut -d. -f1).0"
+          fi
+          make -C "$RUNNER_TEMP/luajit" -j"$(getconf _NPROCESSORS_ONLN)"
+          echo "$RUNNER_TEMP/luajit/src" >> "$GITHUB_PATH"
+
+      - name: Build LuaJIT (windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          git clone --depth 1 --branch %LUAJIT_REF% https://github.com/LuaJIT/LuaJIT.git "%RUNNER_TEMP%\luajit"
+          call "%GITHUB_WORKSPACE%\.github\workflows\msvc.cmd" || exit /b 1
+          cd /d "%RUNNER_TEMP%\luajit\src"
+          call msvcbuild.bat || exit /b 1
+          echo %RUNNER_TEMP%\luajit\src>>%GITHUB_PATH%
+
+      - name: Check the interpreter meets the floor
+        shell: bash
+        run: luajit -v
+
+      - name: Build lua-cjson (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          git clone --depth 1 https://github.com/openresty/lua-cjson.git \
+            "$RUNNER_TEMP/lua-cjson"
+          cd "$RUNNER_TEMP/lua-cjson"
+          shared="-shared"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            shared="-bundle -undefined dynamic_lookup"
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.rocks/lib/lua/5.1"
+          cc -O2 -fPIC $shared -I"$RUNNER_TEMP/luajit/src" \
+            lua_cjson.c strbuf.c fpconv.c \
+            -o "$GITHUB_WORKSPACE/.rocks/lib/lua/5.1/cjson.so"
+
+      - name: Build lua-cjson (windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          git clone --depth 1 https://github.com/openresty/lua-cjson.git "%RUNNER_TEMP%\lua-cjson"
+          call "%GITHUB_WORKSPACE%\.github\workflows\msvc.cmd" || exit /b 1
+          cd /d "%RUNNER_TEMP%\lua-cjson"
+          mkdir "%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1" 2>nul
+          cl /nologo /O2 /LD /I "%RUNNER_TEMP%\luajit\src" lua_cjson.c strbuf.c fpconv.c ^
+            /link "%RUNNER_TEMP%\luajit\src\lua51.lib" ^
+            /out:"%GITHUB_WORKSPACE%\.rocks\lib\lua\5.1\cjson.dll"
+
+      # `bin/nupp` puts .rocks on the interpreter's path itself, so the tree
+      # above is all the placement this needs.
+      - name: Help works without the native provider
+        shell: bash
+        run: |
+          ./bin/nupp --help
+          test ! -f build/lib/nupp_native
+
+      - name: Check
+        shell: bash
+        run: ./bin/nupp check
+
+      - name: Test
+        shell: bash
+        run: ./bin/nupp test
+
+      - name: Fixpoint
+        shell: bash
+        run: ./bin/nupp fixpoint
+
+      - name: Native provider tests
+        shell: bash
+        run: ./bin/nupp task native-test
