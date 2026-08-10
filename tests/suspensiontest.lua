@@ -16,6 +16,15 @@ local function assertTrue(cond, label)
    if not cond then error(label or "expected true", 2) end
 end
 
+-- The scope, as `with` would discharge it. Written out here because the tests are Lua.
+local function handled(handler, body, ...)
+   local installation = suspension.install(handler)
+   local answers = {pcall(body, ...)}
+   installation:release()
+   if not answers[1] then error(answers[2], 0) end
+   return unpack(answers, 2, table.maxn(answers))
+end
+
 local M = {}
 
 function M.answersASynchronousSubscriptionDirectly()
@@ -43,7 +52,7 @@ function M.doesNotConsultAHandlerWhenTheSubscriptionIsReady()
          asked = true
       end,
    }
-   local answer = suspension.handle(handler, function()
+   local answer = handled(handler, function()
       return suspension.suspend("test", function(resume)
          resume(1)
          return nil
@@ -54,26 +63,28 @@ function M.doesNotConsultAHandlerWhenTheSubscriptionIsReady()
 end
 
 function M.parksThroughAnInstalledHandler()
-   local parked = nil
+   -- The handler is given no way to supply the value: it holds the wait open, and the
+   -- library's own resumption is the only path a value takes.
+   local parked, deferred = nil, nil
    local handler = {
-      park = function(_self, operation, state)
-         parked = operation
-         state.resumed, state.value = true, "from the handler"
+      park = function(_self, waiting)
+         parked = waiting.operation
+         deferred()
       end,
    }
-   local answer = suspension.handle(handler, function()
-      return suspension.suspend("waiting", function()
-         return function()
-         end
+   local answer = handled(handler, function()
+      return suspension.suspend("waiting", function(resume)
+         deferred = function() resume("from the library") end
+         return function() end
       end)
    end)
    assertEq(parked, "waiting", "the handler was told what it was waiting for")
-   assertEq(answer, "from the handler", "and its answer came back")
+   assertEq(answer, "from the library", "and the value came through resume")
 end
 
 function M.blocksThroughASourceWhenNoHandlerIsInstalled()
    local pending = nil
-   suspension.source("test", 10, function()
+   local source = suspension.source("test", 10, function()
       if pending then
          local resume = pending
          pending = nil
@@ -87,8 +98,104 @@ function M.blocksThroughASourceWhenNoHandlerIsInstalled()
       return function()
       end
    end)
-   suspension.removeSource("test")
+   source:release()
    assertEq(answer, "settled", "the built-in handler drove the source")
+end
+
+function M.keepsPollingWhileSourcesAnswerZero()
+   -- The bug this replaces: one unsuccessful poll was read as "nothing can progress",
+   -- which rejected every ordinary asynchronous wait.
+   local passes = 0
+   local pending = nil
+   local source = suspension.source("slow", 1, function()
+      passes = passes + 1
+      if passes >= 4 and pending then
+         local resume = pending
+         pending = nil
+         resume("eventually")
+         return 1
+      end
+      return 0
+   end)
+   local answer = suspension.suspend("waiting", function(resume)
+      pending = resume
+      return function() end
+   end)
+   source:release()
+   assertEq(answer, "eventually", "three quiet passes did not stop it")
+   assertTrue(passes >= 4, "it kept polling: " .. passes)
+end
+
+function M.requiresACancellationForARealPark()
+   -- A park nobody can abandon is a park a handler cannot give up on.
+   local ok, err = pcall(suspension.suspend, "waiting", function()
+      return nil
+   end)
+   assertEq(ok, false, "an uncancellable park is refused")
+   assertTrue(tostring(err):find("no cancellation", 1, true) ~= nil,
+      "and says why: " .. tostring(err))
+end
+
+function M.refusesToParkWhereTheHandlerForbidsIt()
+   local cancelled = false
+   local handler = {
+      park = function()
+      end,
+      canPark = function()
+         return false
+      end,
+   }
+   local ok, err = pcall(handled, handler, function()
+      return suspension.suspend("waiting", function()
+         return function()
+            cancelled = true
+         end
+      end)
+   end)
+   assertEq(ok, false, "a barrier refuses the park")
+   assertEq(cancelled, true, "and the subscription is cancelled rather than left live")
+   assertTrue(tostring(err):find("cannot suspend here", 1, true) ~= nil,
+      "and says so: " .. tostring(err))
+end
+
+function M.tellsAHandlerItsExtentEnded()
+   local shutdowns = 0
+   local handler = {
+      park = function()
+      end,
+      shutdown = function()
+         shutdowns = shutdowns + 1
+      end,
+   }
+   handled(handler, function()
+      return nil
+   end)
+   assertEq(shutdowns, 1, "the handler was told, so it can abandon what it owns")
+end
+
+function M.givesTheSubscriptionTheContextBeforeItSubscribes()
+   -- A library registers its pump with whoever is handling suspensions, which means it
+   -- has to know who that is while subscribing rather than afterwards.
+   local sawContext = false
+   local handler = {park = function() end, canPark = function() return true end}
+   handled(handler, function()
+      return suspension.suspend("waiting", function(resume, context)
+         sawContext = context ~= nil and context.source ~= nil
+         resume(1)
+         return nil
+      end)
+   end)
+   assertTrue(sawContext, "the context arrived with the subscription")
+end
+
+function M.keepsEveryResultOfAHandledBody()
+   local handler = {park = function() end}
+   local a, b, c = handled(handler, function()
+      return 1, 2, 3
+   end)
+   assertEq(a, 1, "first")
+   assertEq(b, 2, "second")
+   assertEq(c, 3, "third, which a single-value wrapper would have dropped")
 end
 
 function M.refusesASecondResume()
@@ -107,7 +214,7 @@ function M.reportsAHandlerThatReturnsWithoutResuming()
       park = function()
       end,
    }
-   local ok, err = pcall(suspension.handle, handler, function()
+   local ok, err = pcall(handled, handler, function()
       return suspension.suspend("waiting", function()
          return function()
          end
@@ -120,12 +227,8 @@ end
 
 function M.restoresTheHandlerOnTheWayOut()
    assertEq(suspension.handled(), false, "nothing installed to begin with")
-   local handler = {
-      park = function(_self, _operation, state)
-         state.resumed = true
-      end,
-   }
-   suspension.handle(handler, function()
+   local handler = {park = function() end}
+   handled(handler, function()
       assertTrue(suspension.handled(), "installed inside")
       return nil
    end)
@@ -134,7 +237,7 @@ end
 
 function M.restoresTheHandlerAfterAnError()
    local handler = {park = function() end}
-   pcall(suspension.handle, handler, function()
+   pcall(handled, handler, function()
       error("boom", 0)
    end)
    assertEq(suspension.handled(), false,
@@ -142,16 +245,20 @@ function M.restoresTheHandlerAfterAnError()
 end
 
 function M.nestsHandlers()
-   local outer = {park = function(_s, _o, state) state.resumed, state.value = true, "outer" end}
-   local inner = {park = function(_s, _o, state) state.resumed, state.value = true, "inner" end}
+   local pending
+   local function waker(tag)
+      return function() pending(tag) end
+   end
+   local outer = {park = function() waker("outer")() end}
+   local inner = {park = function() waker("inner")() end}
    local function wait()
-      return suspension.suspend("waiting", function()
-         return function()
-         end
+      return suspension.suspend("waiting", function(resume)
+         pending = resume
+         return function() end
       end)
    end
-   local answer = suspension.handle(outer, function()
-      local nested = suspension.handle(inner, wait)
+   local answer = handled(outer, function()
+      local nested = handled(inner, wait)
       assertEq(nested, "inner", "the innermost handler answers")
       return wait()
    end)
@@ -161,12 +268,12 @@ end
 function M.doesNotLeakBetweenCoroutines()
    -- The extent is per-coroutine: a handler installed on one must not answer for a
    -- suspension performed on another.
-   local handler = {park = function(_s, _o, state) state.resumed, state.value = true, "handled" end}
+   local handler = {park = function() end}
    local seen = nil
    local other = coroutine.create(function()
       seen = suspension.handled()
    end)
-   suspension.handle(handler, function()
+   handled(handler, function()
       coroutine.resume(other)
       return nil
    end)
@@ -175,16 +282,16 @@ end
 
 function M.ordersSourcesByPriority()
    local order = {}
-   suspension.source("late", 20, function()
+   local late = suspension.source("late", 20, function()
       order[#order + 1] = "late"
       return 0
    end)
-   suspension.source("early", 5, function()
+   local early = suspension.source("early", 5, function()
       order[#order + 1] = "early"
       return 0
    end)
    local pending = nil
-   suspension.source("settle", 30, function()
+   local settle = suspension.source("settle", 30, function()
       if pending then
          local resume = pending
          pending = nil
@@ -198,20 +305,51 @@ function M.ordersSourcesByPriority()
       return function()
       end
    end)
-   suspension.removeSource("late")
-   suspension.removeSource("early")
-   suspension.removeSource("settle")
+   late:release()
+   early:release()
+   settle:release()
    assertEq(order[1], "early", "lowest priority runs first")
    assertEq(order[2], "late", "then the rest")
 end
 
+function M.releasingASourceIsIdempotent()
+   local source = suspension.source("twice", 1, function()
+      return 0
+   end)
+   source:release()
+   source:release()
+   assertEq(suspension.poll(), 0, "a released source is not polled")
+end
+
+function M.sourcesDoNotCollideByName()
+   -- Two libraries may both call theirs "io"; neither may unregister the other's.
+   local first, second = 0, 0
+   local a = suspension.source("io", 1, function()
+      first = first + 1
+      return 0
+   end)
+   local b = suspension.source("io", 1, function()
+      second = second + 1
+      return 0
+   end)
+   suspension.poll()
+   a:release()
+   suspension.poll()
+   b:release()
+   assertEq(first, 1, "the released one stopped")
+   assertEq(second, 2, "the other kept going")
+end
+
 function M.reportsAWaitNothingCanComplete()
+   -- With no pump registered and no synchronous resumption, nothing in this process can
+   -- complete the wait. A quiet *pass* is not the same thing and must not stop the
+   -- loop: a source answering zero means "not ready yet".
    local ok, err = pcall(suspension.suspend, "waiting", function()
       return function()
       end
    end)
    assertEq(ok, false, "nothing can make this progress")
-   assertTrue(tostring(err):find("nothing is left", 1, true) ~= nil,
+   assertTrue(tostring(err):find("no readiness source", 1, true) ~= nil,
       "and it says so rather than hanging: " .. tostring(err))
 end
 

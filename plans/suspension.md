@@ -371,26 +371,29 @@ What S2 must therefore avoid on the synchronous path is a **gate or retained
 park state**. "Allocate nothing" was never available and should not be the bar.
 
 The runtime built to that bar (`src/nupp/suspension.nupp`) measures, against the
-same harness and the same shape of caller:
+same harness and the same shape of caller — the rows are in
+`bench/suspension-baseline.lua` so the gate is reproducible rather than recorded:
 
 ```
  path                     ns/op  bytes/op
  ──────────────────────   ─────  ────────
- tecs handled-ready       348.3     568.1
- nupp suspend, ready      150.5     304.0
- …with the subscription   136.2     264.0
+ tecs handled-ready       349.3     568.1
+ nupp-ready               201.6     416.0
+ …with the subscription   177.2     376.0
    hoisted out of the loop
 ```
 
-2.3x the speed and half the allocation, which clears parity rather than
-approaching it. The mechanism is the early return: `resume` writes upvalues, and
-a subscription that has already answered when `subscribe` returns never builds a
-park state, never reads the handler slot, and never reaches a handler at all.
+1.7x the speed and about three quarters the allocation, which clears parity
+rather than approaching it. The mechanism is the early return: `resume` writes
+upvalues, and a subscription that has already answered when `subscribe` returns
+never builds the waiting view, never wakes a handler, and has nothing to cancel.
 
-The third row separates the runtime's own cost from the closure a caller
-allocates per call, which both this and the baseline do. 264 bytes for one
-closure over three cells is more than it should be, so there is headroom left
-here rather than a floor.
+What the ready path still pays is the context — a library is entitled to see who
+is handling suspensions *while* it subscribes, because registering a readiness
+pump is part of subscribing rather than something to do afterwards, and that
+costs a table on every wait including the ones that never park. Pooling it per
+coroutine would remove that, at the price of a context a subscription could
+capture and outlive. Headroom, with a hazard attached, rather than a floor.
 
 For tecs the cooperative slow path replaces `waitMode`/`checkWait` with the
 context read and then reaches the same gate, scheduler, and readiness pump it

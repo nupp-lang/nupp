@@ -254,11 +254,42 @@ if task then
    end, format("%d parks, each with a scheduler round trip", PARKS), PARKS)
 end
 
+-- Nupp's own rows, so the acceptance gate is reproducible rather than recorded. The
+-- caller's subscription closure is allocated per call in both this and the tecs rows
+-- above, so the comparison is like for like; the hoisted variant separates the runtime's
+-- own cost from it.
+local nuppOk, nupp = pcall(require, "nupp.suspension")
+if nuppOk then
+   bench("nupp-ready", function(n)
+      for _ = 1, n do
+         payload(nupp.suspend("bench", function(resume)
+            resume(1)
+
+            return nil
+         end))
+      end
+   end, "suspend, subscription ready in the call")
+
+   local hoisted = function(resume)
+      resume(1)
+
+      return nil
+   end
+   bench("nupp-ready-h", function(n)
+      for _ = 1, n do
+         payload(nupp.suspend("bench", hoisted))
+      end
+   end, "the same, subscription hoisted out")
+end
+
 print(format("suspension baselines: %d operations, median of %d samples; "
    .. "allocation sampled over %d with the collector stopped",
    OPERATIONS, SAMPLES, ALLOC_OPERATIONS))
 if not task then
    print("tecs rows skipped: set TECS_LUA to a compiled tecs Lua tree")
+end
+if not nuppOk then
+   print("nupp rows skipped: run with build/ on the path, or via `nupp test`")
 end
 print("")
 print(format(" %-14s %10s %10s  %s", "path", "ns/op", "bytes/op", "what it measures"))
@@ -273,3 +304,6 @@ print("")
 print("`direct` and `task-direct` are traced loops rather than calls: read them as the")
 print("floor of the apparatus, and compare `handled-ready` against `task-direct` and")
 print("`gate-only`, which share its context and differ from it by one protocol each.")
+print("")
+print("The gate S2 is held to: `nupp-ready` against `handled-ready`, which is the same")
+print("work reached through the same shape of caller.")

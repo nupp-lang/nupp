@@ -3,63 +3,114 @@ Waiting, as an operation with an installable handler.
 
 A library that must wait performs `suspend`, and does not decide how waiting
 happens. Where a handler is installed -- a scheduler, a game frame -- the handler
-answers; where none is, the built-in one blocks. One call site, no `async`
-colouring, and no policy parameter threaded through an API that did not want it.
+answers; where none is, the built-in one drives the registered sources. One call
+site, no `async` colouring, and no policy parameter threaded through an API that
+did not want one.
 
 The shape is tecs's, whose `taskruntime` has done this by hand inside one library
 for years: subscribe for a resumption, be resumed once, be cancellable. What is
 different is that the seam is the language's, so every library gets it rather
 than each re-implementing the dispatch or being unusable inside a frame.
 
+Three properties the protocol is built to keep, each because losing it is a
+silent bug rather than a loud one:
+
+- **Resumption has one path.** A handler is given no writable state. It parks,
+  it is woken, and it returns; the value only ever arrives through the one-shot
+  `resume` the runtime made, so the guard against a second resumption cannot be
+  walked around.
+- **A park is always cancellable.** A subscription that did not resume during
+  the call must answer a cancellation, because a handler that has to abandon a
+  wait -- a cancelled task, a shutdown -- otherwise has no way to tell the
+  library. Only a subscription that already completed may answer nil, having
+  nothing left to cancel.
+- **The context is available before subscribing.** A library registers its
+  readiness pump with whoever is handling suspensions, which means it has to
+  know who that is at subscription time rather than after.
+
 Measured against tecs's own numbers (`bench/suspension-baseline.lua`), the row
 that matters is the *ready* path -- an await whose subscription completes during
 the call, which is most of the cost of waiting even when waiting really happens.
-So the fast path here allocates no gate and no park state: one closure and its
-upvalues, and an early return the moment the subscription has already answered.
-A gate is built only when the call is actually going to wait.
+That path allocates no park and never wakes a handler.
 
 See `plans/suspension.md`.
 ]]
 
 local suspension = {}
 
---- What a host installs to answer suspensions.
+--- A readiness pump, and the handle that owns its lifetime.
 ---
---- `park` is the whole of the obligation: given an operation's name and a state the
---- runtime has already prepared, block or suspend until it is resumed, and answer what
---- it was resumed with. A handler that returns without the state being resumed is a
---- handler that broke its contract; `suspend` reports that rather than inventing a
---- value.
---- The state a park is resumed through. A handler waits until `resumed` is set and
---- reads `value`; the runtime writes both.
-record suspension.Park
-    resumed: boolean
-    value: unknown
+--- Returned rather than named, so two libraries registering "io" do not collide and
+--- neither has to invent a unique string. Releasing is idempotent.
+record suspension.Source
+    --- Stops the pump being polled. Idempotent.
+    release: function(suspension.Source): nil
+
+    --- What this is, for diagnostics and for ordering ties.
+    name: string
+
+    --- Where in a pass it runs, lowest first.
+    priority: integer
 end
 
---- `park` is given the handler, the operation's name, a state to resume through, and
---- the subscription's cancellation when it has one. It returns once the state is
---- resumed; returning without that is a broken handler and `suspend` says so.
+--- What a library is handed while it subscribes: who is handling suspensions here, and
+--- how to give them a readiness pump.
+---
+--- Available *before* the subscription runs, because registering a pump is part of
+--- subscribing rather than something to do afterwards.
+record suspension.Context
+    --- Registers a pump this wait needs driven. Answers the handle that stops it.
+    source: function(suspension.Context, string, integer, function(): integer): suspension.Source
+
+    --- Whether a suspension may happen here at all. A host with regions of its own --
+    --- tecs's barriers -- answers false inside them.
+    canPark: function(suspension.Context): boolean
+end
+
+--- What a park exposes to the handler driving it.
+---
+--- Deliberately no writable fields. A handler waits and is woken; it never supplies the
+--- value, because the value has exactly one path and that path is guarded.
+record suspension.Waiting
+    --- Whether the subscription has resumed.
+    ready: function(suspension.Waiting): boolean
+
+    --- Registers what to run when it does. One waker; the handler installing a second
+    --- replaces the first, which is what re-parking means.
+    onResume: function(suspension.Waiting, function(): nil): nil
+
+    --- What is being waited for, which is what a stuck host reports.
+    operation: string
+end
+
+--- What a host installs to answer suspensions.
 record suspension.Handler
-    --- Waits until the park is resumed. The first argument is the handler itself, so a
-    --- handler may be written with method syntax and carry its own state.
-    park: function(suspension.Handler, string, suspension.Park, (function()?)): nil
+    --- Waits until `waiting:ready()`. Returning before that is a broken handler and
+    --- `suspend` reports it rather than handing back a value nobody produced.
+    ---
+    --- `cancel` abandons the subscription. A handler that gives up on a park -- a
+    --- cancelled task, a shutdown -- must call it, and must then raise rather than
+    --- return.
+    park: function(suspension.Handler, suspension.Waiting, function(): nil): nil
+
+    --- Whether a suspension may happen here. False inside a host's own barrier, which
+    --- is the run-time backstop for what `nosuspend` checks while compiling.
+    canPark: function(suspension.Handler): boolean
+
+    --- Told when a handled extent ends, so a handler owning parks or pumps can abandon
+    --- them deterministically rather than at collection.
+    shutdown: function(suspension.Handler): nil
 end
 
 -- The handler in force, per coroutine.
 --
 -- Weak-keyed so a finished coroutine's entry goes with it. The main thread has no
--- coroutine object in LuaJIT, so it gets its own slot rather than a sentinel key: one
--- branch, and no pretending the main thread is a coroutine.
+-- coroutine object in LuaJIT, so it gets its own slot rather than a sentinel key.
 local installed = setmetatable({}, {__mode = "k"})
 local mainInstalled = nil
 
 local running = coroutine.running
 
---- The handler that answers here, or nil for the blocking one.
----
---- One hash read and a branch. The baseline says a wait-mode check of this shape costs
---- about 1.5ns, which is why this is not where the design spends its care.
 local function effective()
     local co = running()
     if co == nil then
@@ -69,137 +120,253 @@ local function effective()
     return installed[co]
 end
 
---- The built-in handler: waits by driving the registered sources until something
---- settles.
----
---- This is what a CLI, a build and the compiler itself get, and it is deliberately not
---- a scheduler. It runs the pumps and re-checks; it does not decide what else could
---- have run instead, because in a process with no scheduler there is nothing else.
-local sources = {}
+-- Sources, held by identity rather than by name: two libraries may both call theirs
+-- "io", and neither should be able to unregister the other's.
+local sources: {any} = {}
 
-local sourceOrder = {}
-
-local function blockingPark(operation: string, state: suspension.Park): nil
-    while not state.resumed do
-        local settled = 0
-        for index = 1, #sourceOrder do
-            local source = sources[sourceOrder[index]]
-            if source then
-                settled = settled + (source.poll() or 0)
-            end
-        end
-        if settled == 0 and not state.resumed then
-            -- Nothing moved and nothing is going to. Returning here would hand back a
-            -- value nobody produced, so this says so instead.
-            error(("nupp: %s cannot complete: nothing is left to make progress"):format(operation), 0)
-        end
-    end
-end
-
---- Registers a readiness pump the blocking handler drives.
----
---- A library with pending work retains one of these; a handler with no way to make
---- progress can only wait for something that will never happen. Priority orders the
---- pumps within one pass, lowest first, which is what lets a host put its own work
---- ahead of a library's.
----
---- @param name what this source is, used to replace or remove it
---- @param priority where in a pass it runs, lowest first
---- @param poll answers how many things it settled
-function suspension.source(name: string, priority: integer, poll: function(): integer): nil
-    sources[name] = {priority = priority, poll = poll}
-    sourceOrder = {}
-    for key in pairs(sources) do
-        sourceOrder[#sourceOrder + 1] = key
-    end
-    table.sort(sourceOrder, function(a, b)
-        local pa, pb = sources[a].priority, sources[b].priority
-        if pa == pb then
-            return a < b
+local function sortSources()
+    table.sort(sources, function(a, b)
+        if a.priority == b.priority then
+            return a.name < b.name
         end
 
-        return pa < pb
+        return a.priority < b.priority
     end)
 end
 
---- Removes a source. A library with nothing outstanding should not be polled.
----
---- @param name the source to remove
-function suspension.removeSource(name: string): nil
-    if sources[name] == nil then
+local SourceMT = {}
+SourceMT.__index = SourceMT
+
+function SourceMT.release(self: any): nil
+    if self.released then
         return
     end
-    sources[name] = nil
-    local kept = {}
-    for _, key in ipairs(sourceOrder) do
-        if key ~= name then
-            kept[#kept + 1] = key
+    self.released = true
+    for index = 1, #sources do
+        if sources[index] == self then
+            table.remove(sources, index)
+            break
         end
     end
-    sourceOrder = kept
+end
+
+local function addSource(name: string, priority: integer, poll: function(): integer): any
+    local source = setmetatable({name = name, priority = priority, poll = poll, released = false}, SourceMT)
+    sources[#sources + 1] = source
+    sortSources()
+
+    return source
+end
+
+--- Registers a readiness pump outside any subscription.
+---
+--- Inside one, prefer the context's `source`: a pump registered there belongs to the
+--- handler answering that wait, and a handler that owns its pumps can shut them down.
+---
+--- @param name what this is, for diagnostics and ordering ties
+--- @param priority where in a pass it runs, lowest first
+--- @param poll answers how many things it settled
+--- @return the handle that stops it
+function suspension.source(name: string, priority: integer, poll: function(): integer): suspension.Source
+    return addSource(name, priority, poll) as suspension.Source
+end
+
+--- Drives every registered pump once. Answers how many things settled.
+---
+--- Public because a host with its own loop drives the same pumps rather than a private
+--- copy of them.
+function suspension.poll(): integer
+    local settled = 0
+    -- Copied, because a pump may register or release one while it runs.
+    local pass = {}
+    for index = 1, #sources do
+        pass[index] = sources[index]
+    end
+    for index = 1, #pass do
+        local source = pass[index]
+        if not source.released then
+            settled = settled + (source.poll() or 0)
+        end
+    end
+
+    return settled as integer
+end
+
+-- The built-in handler: drives the sources until the wait completes.
+--
+-- A pump answering zero means "not ready yet", not "never will be", so a quiet pass is
+-- no reason to stop. What is a reason is having nothing to drive at all: with no pump
+-- registered and no synchronous resumption, nothing in this process can complete the
+-- wait, and saying so beats hanging.
+local function blockingPark(waiting: any): nil
+    while not waiting:ready() do
+        if #sources == 0 then
+            error(("nupp: %s cannot complete: no readiness source is registered"):format(waiting.operation), 0)
+        end
+        suspension.poll()
+    end
+end
+
+local WaitingMT = {}
+WaitingMT.__index = WaitingMT
+
+function WaitingMT.ready(self: any): boolean
+    return self.isReady()
+end
+
+function WaitingMT.onResume(self: any, waker: function(): nil): nil
+    self.setWaker(waker)
+end
+
+local ContextMT = {}
+ContextMT.__index = ContextMT
+
+function ContextMT.source(self: any, name: string, priority: integer, poll: function(): integer): any
+    local source = addSource(name, priority, poll)
+    -- Built on first use. Most waits register no pump at all, and a list allocated for
+    -- every one of them would be paid on the path this design exists to keep cheap.
+    local owned = self.owned
+    if owned == nil then
+        owned = {}
+        self.owned = owned
+    end
+    owned[#owned + 1] = source
+
+    return source
+end
+
+function ContextMT.canPark(self: any): boolean
+    local handler = self.handler
+    if handler == nil then
+        return true
+    end
+    if handler.canPark == nil then
+        return true
+    end
+
+    return handler.canPark(handler) ~= false
 end
 
 --- Performs a suspension.
 ---
---- `subscribe` is handed a one-shot `resume` and answers a cancellation, or nil when
---- the
---- subscription already completed -- a subscription that resumed during the call has
---- nothing left to cancel, and requiring a closure for it would be requiring an
---- allocation for a case that never waits.
+--- `subscribe` is handed a one-shot `resume` and the context of whoever is handling
+--- suspensions here, and answers a cancellation. It may answer nil only when it resumed
+--- during the call, having nothing left to cancel; otherwise a cancellation is
+--- required,
+--- because a handler that has to abandon the wait needs a way to say so.
 ---
 --- @param operation what is being waited for, which is what a stuck host reports
---- @param subscribe hands over the resumption and answers a cancellation
+--- @param subscribe hands over the resumption and the context, answers a cancellation
 --- @return whatever `resume` was given
---- @raises when the subscription resumes twice, or a handler returns without resuming
-function suspension.suspend<T>(operation: string, subscribe: function(function(T)): (function()?)): T
-    -- The ready path's whole cost is here: one closure over three cells. No table, no
-    -- metatable, no gate. A park allocates its state only once parking is certain.
-    local resumed, value, park = false, nil, nil
+--- @raises when the subscription resumes twice, answers no cancellation for a real
+---   park, suspends where the handler forbids it, or is handled by one that returns
+---   without resuming
+function suspension.suspend<
+    T
+    >(operation: string, subscribe: function(function(T), suspension.Context): (function()?)): T
+    local handler = effective()
+    -- The ready path's cost: one closure over three cells, and the context the
+    -- subscription is entitled to see. No waiting view, no owned list, no park.
+    local resumed, value, waker = false, nil, nil
 
     local function resume(answer: T): nil
         if resumed then
             error(("nupp: %s was resumed twice"):format(operation), 0)
         end
         resumed, value = true, answer
-        -- Written through only when a park is waiting on it, which is the case the
-        -- early return below exists to avoid reaching.
-        if park then
-            park.resumed, park.value = true, answer
+        local wake = waker
+        if wake then
+            waker = nil
+            wake()
         end
     end
 
-    local cancel = subscribe(resume)
+    local context = setmetatable({handler = handler, owned = nil}, ContextMT)
+    local cancel = subscribe(resume, context as suspension.Context)
     if resumed then
-        return value
+        -- The subscription answered during the call. Nothing was parked, no handler was
+        -- woken, and there is nothing left to cancel.
+        return value as T
     end
 
-    -- Now it is going to wait, and only now is there anything to build.
-    park = new suspension.Park {resumed = false, value = nil}
-    local handler = effective()
-    if handler then
-        handler.park(handler, operation, park, cancel)
-    else
-        blockingPark(operation, park)
+    if not cancel then
+        error(
+            ("nupp: %s did not resume and answered no cancellation, so it could never be abandoned"):format(operation),
+            0
+        )
     end
-    if not park.resumed then
+    if not ContextMT.canPark(context) then
+        cancel()
+        error(("nupp: %s cannot suspend here"):format(operation), 0)
+    end
+
+    -- Only now is there anything to show a handler. The view reads the upvalues rather
+    -- than a copy of them, so resumption still has exactly one path.
+    local waiting = setmetatable({operation = operation, isReady = function()
+        return resumed
+    end, setWaker = function(wake)
+        waker = wake
+    end,}, WaitingMT)
+    if handler then
+        handler.park(handler, waiting as suspension.Waiting, cancel as function(): nil)
+    else
+        blockingPark(waiting)
+    end
+    if not resumed then
         error(("nupp: %s: the handler returned without resuming it"):format(operation), 0)
     end
 
-    return park.value as T
+    return value as T
 end
 
---- Runs `body` with `handler` answering every suspension inside it.
+--- An installed handler, and the obligation to put back what it displaced.
+record suspension.Installed
+    co: any
+    previous: any
+    handler: suspension.Handler
+    released: boolean
+
+    --- Restores the previous handler and shuts this one down. Idempotent, because a
+    --- scope that ended twice is a scope that ended.
+    @dispose
+
+    function release(self: suspension.Installed): nil
+        if self.released then
+            return
+        end
+        self.released = true
+        if self.co == nil then
+            mainInstalled = self.previous
+        else
+            installed[self.co] = self.previous
+        end
+        -- Told the extent ended, so a handler holding parks or pumps abandons them at
+        -- a point it can see rather than at collection.
+        if self.handler.shutdown then
+            self.handler.shutdown(self.handler)
+        end
+    end
+end
+
+--- Installs `handler` for suspensions performed on this coroutine.
+---
+--- A scope rather than a callback, deliberately. Wrapping a body would make the extent
+--- a
+--- closure boundary -- which costs the caller its multi-value results and puts the
+--- resource model's closure rules in the way of something that has nothing to do with
+--- them -- so this hands back the obligation instead and `with` discharges it:
+---
+---     with handling = suspension.install(scheduler) do
+---         runFrame()
+---     end
 ---
 --- The extent is dynamic and per-coroutine: a suspension at any depth, through any
 --- library, reaches the innermost handler installed on the coroutine performing it.
---- Restored on the way out whatever happened, since a handler left installed after an
---- error would answer for code that never asked for it.
 ---
---- @param handler what answers suspensions inside
---- @param body what to run
---- @return whatever `body` answered
---- @raises whatever `body` raises, after the previous handler is restored
-function suspension.handle<T>(handler: suspension.Handler, body: function(): T): T
+--- @param handler what answers suspensions inside the scope
+--- @return the installation, which must be released
+@owned
+function suspension.install(handler: suspension.Handler): suspension.Installed
     local co = running()
     local previous
     if co == nil then
@@ -207,23 +374,27 @@ function suspension.handle<T>(handler: suspension.Handler, body: function(): T):
     else
         previous, installed[co] = installed[co], handler
     end
-    local ok, answer = pcall(body)
-    if co == nil then
-        mainInstalled = previous
-    else
-        installed[co] = previous
-    end
-    if not ok then
-        error(answer, 0)
-    end
 
-    return answer as T
+    return new suspension.Installed {co = co, previous = previous, handler = handler, released = false,}
 end
 
---- Whether a handler is installed here, which is what `blocking` versus `cooperative`
---- means to a caller that wants to know before it commits to waiting.
+--- Whether a handler is installed here, which is what `blocking` against `cooperative`
+--- means to a caller deciding before it commits to waiting.
 function suspension.handled(): boolean
     return effective() ~= nil
+end
+
+--- Whether a suspension performed here would be permitted, handler barriers included.
+---
+--- The run-time backstop for what `nosuspend` checks while compiling, for the calls
+--- static analysis could not see.
+function suspension.canSuspend(): boolean
+    local handler = effective()
+    if handler == nil or handler.canPark == nil then
+        return true
+    end
+
+    return handler.canPark(handler) ~= false
 end
 
 return suspension
