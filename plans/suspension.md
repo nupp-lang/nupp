@@ -462,6 +462,37 @@ argument for taking the trade is that the alternative is not safety but
 uselessness: a suspension that may not cross a `with` cannot be used by a
 library that opens a pipe, which is every library this feature exists for.
 
+### The region is what makes the trade narrow
+
+How much is trusted depends on a detail of S2's syntax, and it is worth stating
+because the difference is large.
+
+`handle suspension with h do ... end` elaborates to installing an `Installed`
+owner and discharging it with `with`. If that were all, "is this suspension
+handled" would be an ambient run-time fact, and permitting a live obligation
+across one would rest entirely on the contract above.
+
+It is not all. The construct additionally marks its body as a **checked
+handled-suspension region**, which is a lexical fact the checker owns. So the
+permission is not ambient:
+
+```
+ question                                    answered by
+ ──────────────────────────────────────────  ──────────────────────
+ is this suspension handled at all           the region, statically
+ is it a handled suspension or a raw yield    the construct, statically
+ does the handler eventually resume or cancel the contract, trusted
+```
+
+Only the third line is trust, and it is the one line no static system on LuaJIT
+could take. `coroutine.yield` inside such a region is still NUPP2603 — a raw
+yield has nobody responsible for it wherever it appears, which is exactly the
+distinction the region exists to draw.
+
+That is also why S2's syntax is not merely sugar over `suspension.install`. The
+function is the mechanism; the construct is the mechanism plus a fact about the
+extent, and S4 rests on the fact rather than on the mechanism.
+
 ## The C boundary
 
 The hard constraint, and the one that should shape the design rather than be

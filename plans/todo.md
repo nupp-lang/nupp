@@ -73,6 +73,23 @@ work makes sense in.
         coroutine-local handler inheritance, `handle ... with ... do`, and the
         built-in blocking fast path. tecs must retain its ready-path and frame
         performance.
+
+        The runtime has landed (`src/nupp/suspension.nupp`): `suspend`, the
+        handler interface with `canPark` and `shutdown`, per-coroutine
+        installation as an affine `Installed` owner discharged by `with`,
+        identity-keyed readiness sources with release handles, and the built-in
+        blocking handler. 202ns and 416 bytes against tecs's 349 and 568
+        (`bench/suspension-baseline.lua`).
+
+        Two items remain, cleanly separated:
+        (a) `handle suspension with h do ... end`, which elaborates to that
+        `with` *and* marks its body a checked handled-suspension region. The
+        mark is the point rather than the sugar: S4's resource permission rests
+        on a lexical fact, not on an ambient run-time one.
+        (b) coroutine handler inheritance across `create`, `resume` and `wrap`,
+        with the save/switch/restore benchmarked per resumed task. Today a new
+        coroutine inherits nothing, which is tested and safe but is not the
+        eventual semantics.
   - [ ] S3: the C-call boundary — implicit `nosuspend` at known non-yieldable
         FFI and standard-library callback invocations, with safe metamethod and
         generic-loop suspension left alone and a named run-time failure for
