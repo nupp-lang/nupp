@@ -150,13 +150,24 @@ end
 
 indexState("initial")
 
+-- The same two steps `buildModules` takes: list the source files, then keep
+-- only those `moduleNameForPath` names. It answers nil for a project
+-- declaration file, so a build never checks one; a probe that skips this filter
+-- checks eleven files the build does not and stops on the first that will not
+-- parse as a module.
 local ordered = envMod.listSourceFiles(inc.env, false)
-say("sourceFiles", tostring(#ordered))
+local seeded = {}
+for _, path in ipairs(ordered) do
+    if envMod.moduleNameForPath(inc.env, path) then
+        seeded[#seeded + 1] = path
+    end
+end
+say("sourceFiles", tostring(#ordered), "seeded=" .. #seeded)
 
 -- `main` first, the way a build reaches it, then everything else in order.
 local first = root .. "/src/nupp/compiler/main.nupp"
 local queue = {first}
-for _, path in ipairs(ordered) do
+for _, path in ipairs(seeded) do
     if path ~= first then queue[#queue + 1] = path end
 end
 
