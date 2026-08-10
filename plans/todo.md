@@ -677,6 +677,24 @@ What is left, in the order the numbers justify:
 
 ## Testing and CI
 
+- [ ] **One LuaJIT segfault, seen once, cause not fully settled.** A full suite
+      crashed inside LuaJIT's string interning while two `nupp_native` libraries
+      were loaded and four `nupp-files` workers from the file suite's own staged
+      provider were alive. Two causes were found and fixed: the file suite named
+      its temporary directory from the clock and a clock-seeded generator, so
+      two runs starting in the same second shared one directory and each removed
+      the other's provider while it was loaded; and several suites were running
+      concurrently, some from other worktrees.
+
+      What remains unproven is whether a program can safely hold two builds of
+      the provider at once, and what the request lane's worker threads do when
+      the library they belong to is unloaded underneath them. Three concurrent
+      file suites pass since the directory fix, which is evidence and not a
+      proof: the crash was seen once in five runs before it.
+
+      Reproducing it wants an idle machine, which was not available while this
+      was investigated.
+
 - [ ] **Complete the operator-contract matrix.** Only `__add` has a direct
       contract test (`tests/checktest.lua:200`); no test anywhere mentions
       `__unm`, `__sub`, `__mul`, `__div`, `__mod`, `__pow`, `__lt`, `__le`,
