@@ -43624,6 +43624,9 @@ local MATERIALIZE = "materialize"
 
 
 
+
+
+
 local reduceProjection
 
 
@@ -43745,6 +43748,12 @@ end
 return T . intersection ( members )
 elseif tag == "ptr" then
 return T . ptr ( substWith ( t . elem , map , unmapped , norm ) )
+elseif tag == "carray" then
+return T . carray ( substWith ( t . elem , map , unmapped , norm ) , t . count )
+elseif tag == "const" then
+return T . constOf ( substWith ( t . inner , map , unmapped , norm ) )
+elseif tag == "ctype" then
+return T . ctype ( substWith ( t . of , map , unmapped , norm ) )
 elseif tag == "owned" then
 return T . owned ( substWith ( t . inner , map , unmapped , norm ) , t . cleanups )
 elseif tag == "borrowed" then
@@ -43806,9 +43815,17 @@ end
 
 
 local answers = ( head ) . associatedAnswers
-local answer = answers and answers [ name ] or nil
-if not answer then
+local entry = answers and answers [ name ] or nil
+if not entry then
 return T . projection ( head , name )
+end
+local answer = entry . type
+if entry . selfBinder then
+
+
+
+
+answer = generics . rebind ( answer , { [ entry . selfBinder ] = head } )
 end
 local key = head . id .. "." .. name
 local label = T . tostring ( head ) .. "." .. name
@@ -43820,13 +43837,13 @@ if not norm . cycle then
 local loop = { }
 local from = nil
 for j , seen in ipairs ( norm . path ) do
-if seen == label then
+if seen . key == key then
 from = j
 break
 end
 end
 for j = from or # norm . path , # norm . path do
-loop [ # loop + 1 ] = norm . path [ j ]
+loop [ # loop + 1 ] = norm . path [ j ] . label
 end
 loop [ # loop + 1 ] = label
 norm . cycle = loop
@@ -43835,7 +43852,7 @@ end
 return T . projection ( head , name )
 end
 norm . active [ key ] = true
-norm . path [ # norm . path + 1 ] = label
+norm . path [ # norm . path + 1 ] = { key = key , label = label }
 
 
 local reduced = substWith ( answer , map , unmapped , norm )
@@ -44046,6 +44063,48 @@ inst . staticByname [ name ] = substWith ( ft , map , PRESERVE , nil )
 end
 for name , ft in pairs ( n . staticWriteByname or { } ) do
 inst . staticWriteByname [ name ] = substWith ( ft , map , PRESERVE , nil )
+end
+
+
+
+
+
+local complete = { }
+for binder , stands in pairs ( map ) do
+complete [ binder ] = stands
+end
+for _ , binder in ipairs ( n . typeParams or { } ) do
+if complete [ binder ] == nil then
+complete [ binder ] = T . any
+end
+end
+if n . associatedOrder then
+inst . associatedOrder = { }
+for j , name in ipairs ( n . associatedOrder ) do
+inst . associatedOrder [ j ] = name
+end
+end
+if n . associatedBounds then
+inst . associatedBounds = { }
+for name , bound in pairs ( n . associatedBounds ) do
+inst . associatedBounds [ name ] = generics . rebind ( bound , complete )
+end
+end
+if n . associatedAnswers then
+inst . associatedAnswers = { }
+for name , entry in pairs ( n . associatedAnswers ) do
+
+
+
+inst . associatedAnswers [
+name
+] = setmetatable( {
+type = generics . rebind ( entry . type , complete ) ,
+selfBinder = entry . selfBinder ,
+isDefault = entry . isDefault ,
+definition = entry . definition ,
+} , T.AssociatedAnswer)
+end
 end
 inst . overloadedMethods = { }
 inst . overloadedStatics = { }
@@ -58672,7 +58731,36 @@ types.Projection = {} types.Projection.__index = types.Projection
 
 
 
+
+
+
+
+
+types.AssociatedAnswer = {} types.AssociatedAnswer.__index = types.AssociatedAnswer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 types.Nominal = {} types.Nominal.__index = types.Nominal
+
+
+
+
+
+
+
 
 
 
