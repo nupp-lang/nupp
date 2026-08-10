@@ -626,6 +626,190 @@ function gen.generate(
         return nil
     end
 
+    -- Value expansion promises that a dotted operand is evaluated once. Calls in
+    -- statement-root position receive these bindings as ordinary generated locals;
+    -- calls nested in another expression use a local wrapper at their exact evaluation
+    -- point. Both forms use the same plan and therefore the same argument ordering.
+    -- Keep the emitter's expansion dependencies behind one upvalue. LuaJIT caps a
+    -- function at 60 upvalues, and this generator deliberately sits close to that
+    -- boundary because emit handles every syntax kind.
+    local expansion = {
+        plans = {},
+        statementActive = {},
+    }
+
+    local function dottedExpansionParts(node): string?, {string}?
+        if not node or cst.isToken(node) then
+            return nil, nil
+        end
+        if node.kind == "name" then
+            return node.token and node.token.text or nil, {}
+        end
+        if node.kind ~= "dotIndex" or not node.name then
+            return nil, nil
+        end
+        local root, parts = dottedExpansionParts(node.obj)
+        if not root or not parts then
+            return nil, nil
+        end
+        parts[#parts + 1] = node.name.text
+
+        return root, parts
+    end
+
+    local function ordinaryExpansionCall(call): boolean
+        if call.kind == "methodCall" then
+            return not call.safeObj and not call.safeMethod and call.obj ~= nil and call.name ~= nil
+        end
+
+        return call.kind == "call" and not call.staticCallee
+            and not call.callableBindings
+            and not call.tableIntrinsic
+            and not call.ffiOutContracts
+            and not call.ownershipIntrinsic
+            and not call.ffiIntrinsic
+            and not call.carrayElem
+            and not call.cheaderCdef
+            and not call.constructorCall
+            and not call.recordConstruct
+            and not call.layoutOf
+            and not call.passPinnedPointer
+    end
+
+    function expansion.callPlan(call): any
+        if not ordinaryExpansionCall(call) or not call.obj or not call.args or not call.args.loweredArgs then
+            return nil
+        end
+        local hasDotted = false
+        for _, argument in ipairs(call.args.loweredArgs) do
+            if argument.generatedKind == "field" and argument.source and argument.source.kind == "dotIndex" then
+                hasDotted = true
+                break
+            end
+        end
+        if not hasDotted then
+            return nil
+        end
+
+        local plan = {steps = {}, pathAliases = {}, argAliases = {}}
+        if call.kind == "methodCall" then
+            plan.receiverAlias = nextTemp()
+            plan.steps[
+                #plan.steps + 1
+            ] = {kind = "expr", name = plan.receiverAlias, expr = call.obj, at = call.obj}
+            plan.calleeAlias = nextTemp()
+            plan.steps[
+                #plan.steps + 1
+            ] = {
+                kind = "field",
+                name = plan.calleeAlias,
+                base = plan.receiverAlias,
+                field = call.overloadMember or call.name.text,
+                at = call,
+            }
+        else
+            plan.calleeAlias = nextTemp()
+            plan.steps[
+                #plan.steps + 1
+            ] = {kind = "expr", name = plan.calleeAlias, expr = call.obj, at = call.obj}
+        end
+
+        local function bindPath(source): string?
+            local root, parts = dottedExpansionParts(source)
+            if not root or not parts then
+                return nil
+            end
+            local base = root
+            local key = root
+            for _, field in ipairs(parts) do
+                key = key .. "\0" .. field
+                local alias = plan.pathAliases[key]
+                if not alias then
+                    alias = nextTemp()
+                    plan.pathAliases[key] = alias
+                    plan.steps[
+                        #plan.steps + 1
+                    ] = {kind = "field", name = alias, base = base, field = field, at = source}
+                end
+                base = alias
+            end
+
+            return base
+        end
+
+        for _, argument in ipairs(call.args.loweredArgs) do
+            if argument.generatedKind == "field" then
+                local base
+                if argument.source and argument.source.kind == "name" then
+                    base = argument.source.token and argument.source.token.text or nil
+                else
+                    base = bindPath(argument.source)
+                end
+                if base then
+                    local alias = nextTemp()
+                    plan.argAliases[argument] = alias
+                    plan.steps[
+                        #plan.steps + 1
+                    ] = {kind = "field", name = alias, base = base, field = argument.name, at = argument.source}
+                end
+            elseif argument.generatedKind == "expr" and not argument.pack then
+                local alias = nextTemp()
+                plan.argAliases[argument] = alias
+                plan.steps[#plan.steps + 1] = {kind = "expr", name = alias, expr = argument.expr, at = argument.expr}
+            end
+        end
+
+        return plan
+    end
+
+    function expansion.emitSteps(plan)
+        for _, step in ipairs(plan.steps) do
+            e("const " .. step.name .. "=", sourceLine(step.at))
+            if step.kind == "field" then
+                e(step.base .. "." .. step.field)
+            else
+                emit(step.expr)
+            end
+            e(";")
+        end
+    end
+
+    function expansion.directCall(statement)
+        local kind = statement.kind
+        if kind == "callStmt" then
+            return statement.expr
+        elseif (
+            kind == "returnStmt" or kind == "localStmt" or kind == "assignStmt"
+        ) and statement.exprs and #statement.exprs == 1 then
+            return statement.exprs[1]
+        end
+
+        return nil
+    end
+
+    function expansion.emitArgument(argument, owner)
+        local alias = expansion.argumentAliases and expansion.argumentAliases[argument]
+        if alias then
+            e(alias, sourceLine(argument.expr or argument.source or owner))
+        elseif argument.generatedKind == "field" then
+            emit(argument.source)
+            e("." .. argument.name, sourceLine(argument.source))
+        elseif argument.generatedKind == "nil" then
+            e("nil", sourceLine(owner))
+        else
+            emit(argument.expr)
+        end
+    end
+
+    function expansion.emitArgs(args)
+        for j, argument in ipairs(args.loweredArgs or {}) do
+            if j > 1 then
+                e(",")
+            end
+            expansion.emitArgument(argument, args)
+        end
+    end
+
     local function coverageRuntime()
         coverageName = coverageName or reservedName("__nuppCoverage")
         return coverageName
@@ -799,21 +983,56 @@ function gen.generate(
             -- A declaration-directed field projection is type metadata only.
             return
         end
+        if not expansion.statementActive[x] then
+            local direct = expansion.directCall(x)
+            local plan = direct and expansion.callPlan(direct) or nil
+            if plan then
+                expansion.statementActive[x] = true
+                expansion.emitSteps(plan)
+                local priorAliases = expansion.argumentAliases
+                expansion.argumentAliases = plan.argAliases
+                expansion.plans[direct] = plan
+                emit(x)
+                expansion.plans[direct] = nil
+                expansion.argumentAliases = priorAliases
+                expansion.statementActive[x] = nil
+                return
+            end
+        end
+        if kind == "call" or kind == "methodCall" then
+            local activePlan = expansion.plans[x]
+            if activePlan then
+                if activePlan.receiverAlias then
+                    e(activePlan.calleeAlias .. "(" .. activePlan.receiverAlias, sourceLine(x))
+                    if x.args and #(x.args.loweredArgs or {}) > 0 then
+                        e(",")
+                        expansion.emitArgs(x.args)
+                    end
+                    e(")")
+                else
+                    e(activePlan.calleeAlias, sourceLine(x))
+                    emit(x.args)
+                end
+                return
+            end
+            local plan = expansion.callPlan(x)
+            if plan then
+                e("(function()", sourceLine(x))
+                expansion.emitSteps(plan)
+                e("return")
+                local priorAliases = expansion.argumentAliases
+                expansion.argumentAliases = plan.argAliases
+                expansion.plans[x] = plan
+                emit(x)
+                expansion.plans[x] = nil
+                expansion.argumentAliases = priorAliases
+                e("end)()")
+                return
+            end
+        end
         if kind == "args" and x.loweredArgs then
             e("(", sourceLine(x))
-            for j, argument in ipairs(x.loweredArgs) do
-                if j > 1 then
-                    e(",")
-                end
-                if argument.generatedKind == "field" then
-                    emit(argument.source)
-                    e("." .. argument.name, sourceLine(argument.source))
-                elseif argument.generatedKind == "nil" then
-                    e("nil", sourceLine(x))
-                else
-                    emit(argument.expr)
-                end
-            end
+            expansion.emitArgs(x)
             e(")")
             return
         end

@@ -1110,7 +1110,9 @@ function calls.install(c: state.Checker): calls.Ops
                                 copy.types[#copy.types + 1] = argument.type
                                 copy.nodes[#copy.nodes + 1] = argument.node
                             end
-                            copy.lowered[#copy.lowered + 1] = {generatedKind = "expr", expr = argument.node}
+                            copy.lowered[
+                                #copy.lowered + 1
+                            ] = {generatedKind = "expr", expr = argument.node, pack = argument.pack}
                             nextStates[#nextStates + 1] = copy
                         end
                     else

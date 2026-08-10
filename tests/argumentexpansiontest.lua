@@ -97,11 +97,105 @@ function M.dottedPlaceExpansionLowersThroughEmbeddedRecords()
       "return draw(...entity.body.position, color = 'r')",
    }, "\n"))
    assertEq(answer, "12r")
-   assert(code:find(
-      "draw ( entity . body . position .x , entity . body . position .y , 'r' )",
-      1,
-      true
-   ), code)
+   assertEq(select(2, code:gsub("entity%.body", "")), 1,
+      "the shared path is read once:\n" .. code)
+   local positionTemp = code:match(
+      "const (__nuppT%d+)= __nuppT%d+%.position")
+   assert(positionTemp, code)
+   assert(code:find(positionTemp .. ".x", 1, true), code)
+   assert(code:find(positionTemp .. ".y", 1, true), code)
+end
+
+function M.sharedPrefixesAndArgumentsAreEvaluatedOnceInSourceOrder()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Body",
+      "   position: Vec3",
+      "   velocity: Vec3",
+      "end",
+      "local record Entity",
+      "   body: Body",
+      "end",
+      "local events = ''",
+      "local function note(value: string): nil events = events .. value end",
+      "local position = setmetatable({}, {__index = function(_, key)",
+      "   note(key == 'x' and 'x' or 'y')",
+      "   return key == 'x' and 1 or 2",
+      "end}) as Vec3",
+      "local velocity = setmetatable({}, {__index = function(_, key)",
+      "   note(key == 'x' and 'X' or 'Y')",
+      "   return key == 'x' and 3 or 4",
+      "end}) as Vec3",
+      "local body = setmetatable({}, {__index = function(_, key)",
+      "   note(key == 'position' and 'P' or 'V')",
+      "   return key == 'position' and position or velocity",
+      "end}) as Body",
+      "local entity = setmetatable({}, {__index = function(_, _)",
+      "   note('B')",
+      "   return body",
+      "end}) as Entity",
+      "local function head(): string note('H') return 'h' end",
+      "local function tail(): string note('T') return 't' end",
+      "local function update(head: string, px: number, py: number,",
+      "   vx: number, vy: number, tail: string): nil",
+      "   note('U')",
+      "end",
+      "update(head(), ...entity.body.position, ...entity.body.velocity, tail = tail())",
+      "return events",
+   }, "\n"))
+   assertEq(answer, "HBPxyVXYTU")
+   assertEq(select(2, code:gsub("entity%.body", "")), 1,
+      "the common entity.body prefix is bound once:\n" .. code)
+   assert(not code:find("(function()", 1, true),
+      "a statement call should use locals, not a wrapper:\n" .. code)
+end
+
+function M.nestedExpansionStaysAtItsShortCircuitEvaluationPoint()
+   local answer, code = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local reads = 0",
+      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local entity = setmetatable({}, {__index = function(_, _)",
+      "   reads = reads + 1",
+      "   return position",
+      "end}) as Entity",
+      "local function draw(x: number, y: number): boolean return true end",
+      "local enabled = false",
+      "local skipped = enabled and draw(...entity.position)",
+      "enabled = true",
+      "local called = enabled and draw(...entity.position)",
+      "return reads",
+   }, "\n"))
+   assertEq(answer, 1)
+   assert(code:find("(function()", 1, true),
+      "a nested expansion needs an expression-local wrapper:\n" .. code)
+end
+
+function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
+   local answer = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local record Drawer",
+      "   function draw(self, x: number, y: number): nil end",
+      "end",
+      "local receiverReads = 0",
+      "local positionReads = 0",
+      "local drawer = new Drawer {}",
+      "local position = new Vec3 {x = 1, y = 2, z = 3}",
+      "local entity = setmetatable({}, {__index = function(_, _)",
+      "   positionReads = positionReads + 1",
+      "   return position",
+      "end}) as Entity",
+      "local function getDrawer(): Drawer",
+      "   receiverReads = receiverReads + 1",
+      "   return drawer",
+      "end",
+      "getDrawer():draw(...entity.position)",
+      "return receiverReads * 10 + positionReads",
+   }, "\n"))
+   assertEq(answer, 11)
 end
 
 function M.expansionRejectsEffectfulAndComputedPlaceOperands()
@@ -151,6 +245,22 @@ function M.aTrailingOrdinaryCallStillExpandsItsResultPack()
       "return total(...position, pair())",
    }, "\n"))
    assertEq(answer, 10)
+end
+
+function M.aNestedExpansionPreservesItsTrailingResultPack()
+   local answer = run(vector .. "\n" .. table.concat({
+      "local record Entity",
+      "   position: Vec3",
+      "end",
+      "local function pair(): number, number return 3, 4 end",
+      "local function total(a: number, b: number, c: number, d: number): number",
+      "   return a + b + c + d",
+      "end",
+      "local position = new Vec3 {x = 1, y = 2, z = 9}",
+      "local entity = new Entity {position = position}",
+      "return tostring(total(...entity.position, pair()))",
+   }, "\n"))
+   assertEq(answer, "10")
 end
 
 function M.interfacesExposeInheritedExpansionCapabilitiesToGenerics()

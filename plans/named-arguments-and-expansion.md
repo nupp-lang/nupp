@@ -64,9 +64,11 @@ An expansion operand is required to be a stable value path: a local or other
 name followed by zero or more ordinary dotted field accesses. This covers both
 `...position` and flattened embedded values such as
 `...entity.transform.position`. Calls, safe navigation, computed indexing, and
-other producing expressions are rejected because lowering reads the path once
-for every projected field. A later lowering IR may admit arbitrary expressions
-by introducing a temporary without changing this design.
+other producing expressions are rejected. Lowering evaluates each dotted
+operand once and shares common dotted prefixes across expansions in the same
+call. Projected fields and ordinary arguments are then captured in source order;
+a final ordinary multi-result call remains in the expanding position. A later
+lowering may admit arbitrary operand expressions without changing these rules.
 
 ## Selection
 
@@ -136,14 +138,29 @@ container explicitly until that state exists.
 Both constructs are erased:
 
 ```nupp
-draw(...position, color = choose())
+update(
+    ...entity.body.position,
+    ...entity.body.velocity,
+    dt = delta
+)
 ```
 
-generates the equivalent positional Lua call:
+generates ordinary locals and a positional Lua call, conceptually:
 
 ```lua
-draw(position.x, position.y, choose())
+local body = entity.body
+local position = body.position
+local px, py = position.x, position.y
+local velocity = body.velocity
+local vx, vy = velocity.x, velocity.y
+update(px, py, vx, vy, delta)
 ```
+
+Generated names are collision-free. A call that is itself a statement, return,
+initializer, or assignment receives locals directly. When a call is nested
+inside another expression, its bindings stay at that exact evaluation point so
+short-circuiting remains lazy. Neither form allocates an argument table or
+performs runtime arity selection.
 
 `expands` declarations generate no runtime member. Formatting preserves
 `...value` without a space and formats named arguments with spaces around `=`.

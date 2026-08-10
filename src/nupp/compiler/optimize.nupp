@@ -1137,6 +1137,14 @@ local function directImmutableCall(stat)
     then
         return nil
     end
+    -- Declaration-directed expansion owns the call's evaluation plan: it binds dotted
+    -- operands and their shared prefixes in source order. Letting OPT-4 claim the call
+    -- first would make its generated callee alias a dependency of that plan.
+    for _, argument in ipairs(call.args and call.args.loweredArgs or {}) do
+        if argument.generatedKind == "field" and argument.source and argument.source.kind == "dotIndex" then
+            return nil
+        end
+    end
     local callee = call.obj
     local t = callee and callee.resolvedType
     if not callee or callee.kind ~= "dotIndex" or not callee.immutablePath or not t or t.tag ~= "func" then
