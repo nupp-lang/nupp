@@ -18,7 +18,7 @@ type worker.Failure = {
 
 local record worker
     main: function({string}): integer
-    evaluate: function(string, string): (string?, worker.Failure?)
+    evaluate: function(string, string): (string?, worker.Failure?, any)
 end
 
 cjson.encode_empty_table_as_object(false)
@@ -91,9 +91,9 @@ function worker.main(argv: {string}): integer
     end
 
     local comptime = require("nupp.compiler.comptime") as {
-        evaluateDirect: function(any, any): (string?, any, any)
+        evaluateDirect: function(any, any): (string?, any, any, any)
     }
-    local quoted, _, failure = comptime.evaluateDirect(node, node.body)
+    local quoted, _, failure, envelope = comptime.evaluateDirect(node, node.body)
     if failure then
         io.write(cjson.encode({
             ok = false,
@@ -101,6 +101,8 @@ function worker.main(argv: {string}): integer
             message = failure.message,
             help = failure.help,
         }), "\n")
+    elseif envelope then
+        io.write(cjson.encode({ok = true, materialized = envelope}), "\n")
     else
         io.write(cjson.encode({ok = true, quoted = quoted}), "\n")
     end
@@ -110,7 +112,7 @@ end
 
 --- Parent entry point. A valid response is the only successful completion; truncated
 --- output, a non-JSON crash message and a killed worker are all local failures.
-function worker.evaluate(source: string, root: string): string?, worker.Failure?
+function worker.evaluate(source: string, root: string): string?, worker.Failure?, any
     local requestPath = os.tmpname()
     local wrote, writeErr = write(requestPath, source)
     if not wrote then
@@ -139,7 +141,11 @@ function worker.evaluate(source: string, root: string): string?, worker.Failure?
         return nil, {code = response.code or "NUPP2412", message = response.message or "comptime evaluation failed", help = response.help}
     end
 
-    return response.quoted, nil
+    if response.materialized then
+        return nil, nil, response.materialized
+    end
+
+    return response.quoted, nil, nil
 end
 
 return worker

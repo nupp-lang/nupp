@@ -1085,6 +1085,17 @@ that read back unchanged, strings, and acyclic tables of those with no
 metatable. A table reachable by two paths is **NUPP2413** rather than two
 tables; NaN and the infinities have no literal spelling.
 
+A sealed compiler provider may instead return an opaque description that has no
+literal spelling. It materializes only when the block directly initializes a
+declaration with an explicit provider-owned runtime type. An inferred binding or
+opaque value hidden in an ordinary table is **NUPP2414**. A declared type for
+which the opaque result has no registered materialization relation, or a worker
+payload that fails the provider's schema and fingerprint checks, is
+**NUPP2415**. A finalized blueprint or generated runtime expression over its
+provider limit is **NUPP2416**. Providers return a closed structured expression;
+they cannot return source, declarations, imports, or references to source
+bindings.
+
 A block reads only its own locals and the compile-time environment. A runtime
 local, an upvalue, module state, or a global is **NUPP2410**, and it may not
 write to one either. The environment is an allowlist: `assert`, `error`,
@@ -1131,7 +1142,7 @@ end
 return m
 ```
 
-Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`. `nupp explain <code>` says more.
+Reports: `NUPP2410`, `NUPP2411`, `NUPP2412`, `NUPP2413`, `NUPP2414`, `NUPP2415`, `NUPP2416`. `nupp explain <code>` says more.
 
 ### Built-in lints
 

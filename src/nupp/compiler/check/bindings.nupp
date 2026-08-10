@@ -43,9 +43,18 @@ function bindings.install(c: state.Checker): state.StatHandlers
 
     handlers.localStmt = function(stat: cst.LocalStmt)
         local initializers = stat.exprs or {}
+        local annotations = {}
+        for index, typeNode in ipairs(stat.types or {}) do
+            local annotation = c.resolveType(typeNode)
+            annotations[index] = annotation
+            local initializer = initializers[index]
+            if initializer and initializer.kind == "comptimeExpr" then
+                initializer.materializationExpected = annotation
+            end
+        end
         local inferred = inferList(stat.exprs, #stat.names)
         for j, nameTok in ipairs(stat.names) do
-            local ann = stat.types[j] and c.resolveType(stat.types[j]) or nil
+            local ann = annotations[j]
             if c.opts and c.opts.strict and ann and inferred[j] then
                 local NARROW = {int8 = 1, uint8 = 1, int16 = 2, uint16 = 2, int32 = 4, uint32 = 4,}
                 local width = NARROW[ann.tag]

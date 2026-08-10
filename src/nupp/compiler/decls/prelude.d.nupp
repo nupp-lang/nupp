@@ -357,8 +357,46 @@ local nupp: {
     math: nupp.MathLibrary,
 
     --- Compiled Rust regular expressions.
-    regex: nupp.Regex.Library
+    regex: nupp.Regex.Library,
+
+    --- Compiler-internal materialization conformance surface.
+    --- @internal
+    __materializationTest: nupp.__MaterializationTestAPI
 }
+
+--- A compile-time-only graph handle used by the compiler's materialization tests.
+--- @internal
+record nupp.__MaterializationBlueprint
+    link: function(
+        self: nupp.__MaterializationBlueprint,
+        child: nupp.__MaterializationBlueprint
+    ): nupp.__MaterializationBlueprint
+end
+
+--- A compile-time-only factory handle used by the compiler's conformance provider.
+--- @internal
+record nupp.__MaterializationFactoryBlueprint
+end
+
+--- The runtime value produced by the compiler's materialization test provider.
+--- @internal
+record nupp.__MaterializedTest
+    value: integer
+    nodes: integer
+end
+
+--- The ordinary runtime input accepted by the conformance provider's factory.
+--- @internal
+record nupp.__MaterializationTestInput
+    value: integer
+end
+
+--- Compiler-internal constructors for the materialization conformance provider.
+--- @internal
+record nupp.__MaterializationTestAPI
+    node: function(value: integer): nupp.__MaterializationBlueprint
+    factory: function(): nupp.__MaterializationFactoryBlueprint
+end
 
 --- One independently configured JSON encoder and decoder.
 interface nupp.JSON

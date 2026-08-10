@@ -1173,6 +1173,15 @@ function gen.generate(
             e(x.comptimeValue, sourceLine(x))
             return
         end
+        if x.materializedIR then
+            local materializeIR = require("nupp.compiler.materialize.ir")
+            local rendered, failure = materializeIR.render(x.materializedIR)
+            if not rendered then
+                error("checked materialization IR failed during generation: " .. tostring(failure and failure.message))
+            end
+            e(rendered, sourceLine(x))
+            return
+        end
         if x.folded then
             e(x.folded, sourceLine(x))
             return

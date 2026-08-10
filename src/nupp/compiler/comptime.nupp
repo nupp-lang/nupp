@@ -21,8 +21,12 @@ description of one. See `plans/comptime.md`.
 
 local cst = require("nupp.compiler.cst")
 local T = require("nupp.compiler.types")
+local materializeProviders = require("nupp.compiler.materialize.providers")
 
-local comptime = {}
+local record comptime
+    evaluateDirect: function(cst.Node, cst.Node?): (string?, T.Type?, any, any)
+    evaluate: function(cst.Node, cst.Node?): (string?, T.Type?, any, any)
+end
 
 local isToken = cst.isToken
 
@@ -121,7 +125,7 @@ end
 --- program means without saying so; refusing leaves the author a decision to make
 --- rather
 --- than a difference to discover.
-local function quote(value, node, seen)
+local function quote(value, node, seen, state)
     local kind = type(value)
     if value == nil then
         return "nil"
@@ -133,6 +137,13 @@ local function quote(value, node, seen)
         return ("%q"):format(value)
     elseif kind ~= "table" then
         fail("NUPP2413", node, ("a %s is not a quotable result"):format(kind))
+    end
+    if materializeProviders.isOpaque(state, value) then
+        fail(
+            "NUPP2414",
+            node,
+            "an opaque comptime value needs a directly declared materialization boundary"
+        )
     end
     if seen[value] then
         fail(
@@ -149,7 +160,7 @@ local function quote(value, node, seen)
     local parts = {}
     local count = arrayLength(value)
     for index = 1, count do
-        parts[#parts + 1] = quote(value[index], node, seen)
+        parts[#parts + 1] = quote(value[index], node, seen, state)
     end
     for _, key in ipairs(sortedKeys(value)) do
         local skip = type(key) == "number" and key == math.floor(key) and key >= 1 and key <= count
@@ -158,9 +169,9 @@ local function quote(value, node, seen)
             if type(key) == "string" and key:find("^[%a_][%w_]*$") then
                 keyText = key
             else
-                keyText = "[" .. quote(key, node, seen) .. "]"
+                keyText = "[" .. quote(key, node, seen, state) .. "]"
             end
-            parts[#parts + 1] = keyText .. " = " .. quote(value[key], node, seen)
+            parts[#parts + 1] = keyText .. " = " .. quote(value[key], node, seen, state)
         end
     end
     -- A table is written on one logical line. Attribution is what the generated file
@@ -171,8 +182,8 @@ local function quote(value, node, seen)
 end
 
 --- Quotes a finished value, or raises saying why it cannot be written down.
-local function quoteValue(value, node)
-    return quote(value, node, {})
+local function quoteValue(value, node, state)
+    return quote(value, node, {}, state)
 end
 
 -- The library surface, named function by function.
@@ -189,18 +200,27 @@ end
 -- between two runs of the same compiler over the same input, so a block using it would
 -- break repeated-build byte identity. What replaces it answers for the scalars and
 -- refuses everything else.
-local function buildEnvironment()
+local function buildEnvironment(state)
     local env = {}
 
     env.assert = assert
     env.error = error
     env.select = select
     env.tonumber = tonumber
-    env.type = type
+    env.type = function(value)
+        if materializeProviders.isOpaque(state, value) then
+            error("type is unavailable for an opaque comptime value", 0)
+        end
+
+        return type(value)
+    end
 
     --- Conversion that cannot leak an address: the scalars answer, and a table or a
     --- function is an error rather than a hexadecimal surprise.
     env.tostring = function(value)
+        if materializeProviders.isOpaque(state, value) then
+            error("tostring is unavailable for an opaque comptime value", 0)
+        end
         local kind = type(value)
         if kind == "string" then
             return value
@@ -217,6 +237,9 @@ local function buildEnvironment()
     --- Iteration in the one order the serializer also uses, so that walking a table and
     --- writing it down cannot disagree, and neither depends on the allocator.
     env.pairs = function(t)
+        if materializeProviders.isOpaque(state, t) then
+            error("pairs is unavailable for an opaque comptime value", 0)
+        end
         if type(t) ~= "table" then
             error("pairs expects a table", 0)
         end
@@ -300,6 +323,8 @@ local function buildEnvironment()
     -- is not missing, it is deliberately absent.
     local libraries = {[env.math] = "math", [env.string] = "string", [env.table] = "table", [env.bit] = "bit",}
 
+    materializeProviders.installEvaluator(state, env)
+
     return env, libraries
 end
 
@@ -310,8 +335,8 @@ local BREAK = {}
 local RETURN = {}
 
 --- One evaluation in progress: the scopes, the budget, and the answer.
-local function newState(env, libraries)
-    return {env = env, libraries = libraries, result = nil, steps = 0}
+local function newState()
+    return {env = {}, libraries = {}, result = nil, steps = 0, opaque = {}, intrinsics = {}}
 end
 
 local function step(state, node)
@@ -369,6 +394,15 @@ local function pack(...)
 end
 
 local function callValues(state, node, callee, args)
+    local intrinsic = state.intrinsics[callee]
+    if intrinsic then
+        local value, failure = intrinsic(node, args)
+        if failure then
+            fail(failure.code, node, failure.message, failure.help)
+        end
+
+        return {n = 1, value}
+    end
     if type(callee) ~= "function" then
         fail("NUPP2411", node, ("a %s is not callable at comptime"):format(type(callee)))
     end
@@ -467,6 +501,9 @@ evalExpr = function(state, node)
         end
     elseif kind == "unop" then
         local operand = evalExpr(state, node.operand)
+        if materializeProviders.isOpaque(state, operand) then
+            fail("NUPP2411", node, "this operator is unavailable for an opaque comptime value")
+        end
         local op = node.op and node.op.kind
         if op == "not" then
             answer = not operand
@@ -500,6 +537,9 @@ evalExpr = function(state, node)
             end
         else
             local left, right = evalExpr(state, node.lhs), evalExpr(state, node.rhs)
+            if materializeProviders.isOpaque(state, left) or materializeProviders.isOpaque(state, right) then
+                fail("NUPP2411", node, "this operator is unavailable for opaque comptime values")
+            end
             if op == "+" then
                 answer = left + right
             elseif op == "-" then
@@ -593,6 +633,9 @@ evalExpr = function(state, node)
         if object == nil and kind == "safeIndex" then
             answer = nil
         else
+            if materializeProviders.isOpaque(state, object) then
+                fail("NUPP2411", node, "an opaque comptime value exposes only its declared intrinsic methods")
+            end
             if type(object) ~= "table" then
                 fail("NUPP2412", node, ("a %s cannot be indexed"):format(type(object)))
             end
@@ -613,6 +656,9 @@ evalExpr = function(state, node)
         if object == nil and kind == "safeBracket" then
             answer = nil
         else
+            if materializeProviders.isOpaque(state, object) then
+                fail("NUPP2411", node, "an opaque comptime value cannot be indexed dynamically")
+            end
             if type(object) ~= "table" then
                 fail("NUPP2412", node, ("a %s cannot be indexed"):format(type(object)))
             end
@@ -646,6 +692,19 @@ evalMulti = function(state, node)
         local object = evalExpr(state, node.obj)
         if object == nil and node.safeObj then
             values = {n = 0}
+        elseif materializeProviders.isOpaque(state, object) then
+            local args = evalArgs(state, node.args)
+            local value, failure = materializeProviders.method(
+                state,
+                object,
+                node.name and node.name.text or "",
+                args,
+                node
+            )
+            if failure then
+                fail(failure.code, node, failure.message, failure.help)
+            end
+            values = {n = 1, value}
         else
             if type(object) ~= "table" and type(object) ~= "string" then
                 fail("NUPP2412", node, ("a %s has no methods at comptime"):format(type(object)))
@@ -693,12 +752,18 @@ local function assign(state, target, value)
         slot.value = value
     elseif target.kind == "dotIndex" then
         local object = evalExpr(state, target.obj)
+        if materializeProviders.isOpaque(state, object) then
+            fail("NUPP2411", target, "an opaque comptime value cannot be assigned through")
+        end
         if type(object) ~= "table" then
             fail("NUPP2412", target, ("a %s cannot be assigned through"):format(type(object)))
         end
         object[target.name and target.name.text or ""] = value
     elseif target.kind == "bracketIndex" then
         local object = evalExpr(state, target.obj)
+        if materializeProviders.isOpaque(state, object) then
+            fail("NUPP2411", target, "an opaque comptime value cannot be assigned through")
+        end
         if type(object) ~= "table" then
             fail("NUPP2412", target, ("a %s cannot be assigned through"):format(type(object)))
         end
@@ -997,9 +1062,10 @@ type comptime.Failure = {
 --- @param block its body
 --- @return the result as canonical Lua source, its type, then the failure if there was
 ---   one
-function comptime.evaluateDirect(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?
-    local env, libraries = buildEnvironment()
-    local state = newState(env, libraries)
+function comptime.evaluateDirect(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?, any
+    local state = newState()
+    local env, libraries = buildEnvironment(state)
+    state.env, state.libraries = env, libraries
     state.scope = scope(nil)
     local ok, err = pcall(execBlock, state, block)
     if not ok and err ~= RETURN then
@@ -1017,8 +1083,21 @@ function comptime.evaluateDirect(node: cst.Node, block: cst.Node?): string?, T.T
             help = "every path out of the block needs a `return`",
         } as comptime.Failure
     end
+    if materializeProviders.isOpaque(state, state.result) then
+        local envelope, failure = materializeProviders.finalize(state, state.result)
+        if failure then
+            return nil, nil, {
+                code = failure.code,
+                node = node,
+                message = failure.message,
+                help = failure.help,
+            } as comptime.Failure
+        end
+
+        return nil, nil, nil, envelope
+    end
     local quoted
-    ok, quoted = pcall(quoteValue, state.result, node)
+    ok, quoted = pcall(quoteValue, state.result, node, state)
     if not ok then
         if type(quoted) == "table" and quoted[FAILURE] then
             return nil, nil, quoted as comptime.Failure
@@ -1034,13 +1113,13 @@ end
 --- checkout. Unit embedders without a compiler root retain the same bounded direct
 --- evaluator; the private worker command itself sets the child marker to prevent a
 --- recursive spawn.
-function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?
+function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, comptime.Failure?, any
     local root = os.getenv("NUPP_COMPILER_ROOT")
     if root and not os.getenv("NUPP_COMPTIME_WORKER_CHILD") then
         local worker = require("nupp.compiler.comptime_worker") as {
-            evaluate: function(string, string): (string?, any)
+            evaluate: function(string, string): (string?, any, any)
         }
-        local quoted, failure = worker.evaluate(cst.textOf(node), root)
+        local quoted, failure, envelope = worker.evaluate(cst.textOf(node), root)
         if failure then
             return nil, nil, {
                 code = failure.code,
@@ -1048,6 +1127,9 @@ function comptime.evaluate(node: cst.Node, block: cst.Node?): string?, T.Type?, 
                 message = failure.message,
                 help = failure.help,
             } as comptime.Failure
+        end
+        if envelope then
+            return nil, nil, nil, envelope
         end
         local chunk, loadErr = loadstring("return " .. tostring(quoted), "=comptime-result")
         if not chunk then

@@ -310,6 +310,95 @@ function M.recoversWhenTheWorkerCrashes()
       "the parent converts a worker crash into one failure")
 end
 
+function M.materializesACyclicOpaqueGraphAtAnExplicitBoundary()
+   local src = [[
+const graph: nupp.__MaterializedTest = comptime do
+    const first = nupp.__materializationTest.node(7)
+    const second = nupp.__materializationTest.node(11)
+    first:link(second)
+    second:link(first)
+    return first
+end
+return graph.value, graph.nodes
+]]
+   local value, nodes = run(src)
+   assertEq(value, 18, "the provider lowers its canonical payload")
+   assertEq(nodes, 2, "the cyclic graph crosses the worker as flat data")
+   local code = compile(src)
+   assertTrue(code:find("{value=18,nodes=2}", 1, true) ~= nil,
+      "the generator renders validated IR: " .. code)
+   assertEq(code:find("__materializationTest", 1, true), nil,
+      "no opaque construction reaches runtime")
+end
+
+function M.materializesAFactoryWithOrdinaryRuntimeInputs()
+   local src = [[
+const build: function(nupp.__MaterializationTestInput): nupp.__MaterializedTest = comptime do
+    return nupp.__materializationTest.factory()
+end
+const made = build({value = 37} as nupp.__MaterializationTestInput)
+return made.value, made.nodes
+]]
+   local value, nodes = run(src)
+   assertEq(value, 37, "the generated factory reads its declared runtime input")
+   assertEq(nodes, 1, "the generated result keeps its provider data")
+   local code = compile(src)
+   assertTrue(code:find("function(_nupp_m1)", 1, true) ~= nil,
+      "the factory is emitted through hygienic expression IR: " .. code)
+end
+
+function M.requiresAnExplicitTypeForAnOpaqueResult()
+   local codes = errorsOf([[
+const graph = comptime do
+    return nupp.__materializationTest.node(1)
+end
+]])
+   assertEq(codes[1], "NUPP2414", "an inferred binding is not a materialization boundary")
+end
+
+function M.rejectsAnUnregisteredOpaqueTypePair()
+   local codes = errorsOf([[
+const graph: table = comptime do
+    return nupp.__materializationTest.node(1)
+end
+]])
+   assertEq(codes[1], "NUPP2415", "the expected type selects a closed provider relation")
+end
+
+function M.rejectsOpaqueValuesNestedInOrdinaryTables()
+   local codes = errorsOf([[
+const graph = comptime do
+    return {nupp.__materializationTest.node(1)}
+end
+]])
+   assertEq(codes[1], "NUPP2414", "an opaque handle cannot escape through quoted data")
+end
+
+function M.fingerprintsEquivalentOpaqueGraphsIdentically()
+   local worker = require("nupp.compiler.comptime_worker")
+   local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
+   local first = [[comptime do
+       const a = nupp.__materializationTest.node(1)
+       const b = nupp.__materializationTest.node(2)
+       a:link(b)
+       b:link(a)
+       return a
+   end]]
+   local second = [[comptime do
+       const b = nupp.__materializationTest.node(2)
+       const a = nupp.__materializationTest.node(1)
+       b:link(a)
+       a:link(b)
+       return a
+   end]]
+   local _, failureA, envelopeA = worker.evaluate(first, root)
+   local _, failureB, envelopeB = worker.evaluate(second, root)
+   assertEq(failureA, nil, "first graph finalizes")
+   assertEq(failureB, nil, "second graph finalizes")
+   assertEq(envelopeA.fingerprint, envelopeB.fingerprint,
+      "construction order does not enter the fingerprint")
+end
+
 function M.requiresAResult()
    local codes = errorsOf("return comptime do local a = 1 end")
    assertEq(codes[1], "NUPP2412", "a block with no return is refused")

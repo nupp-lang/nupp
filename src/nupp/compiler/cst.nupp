@@ -100,6 +100,15 @@ interface cst.Hints
     --- tokens still reprint and only `gen` reads the result.
     comptimeValue: string?
 
+    --- Structured runtime-expression IR selected for an opaque comptime result.
+    materializedIR: any
+
+    --- The resolved type written directly on the declaration owning this expression.
+    materializationExpected: any
+
+    --- The finalized provider envelope retained for hover and build observations.
+    materializationEnvelope: any
+
     --- A complete `@effects` contract, normalized by the checker.
     effectContract: any
 

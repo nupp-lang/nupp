@@ -20,7 +20,15 @@ local operators = require("nupp.compiler.check.operators")
 local index = require("nupp.compiler.check.index")
 local callexpr = require("nupp.compiler.check.callexpr")
 local state = require("nupp.compiler.check.state")
-local comptime = require("nupp.compiler.comptime")
+local comptime = require("nupp.compiler.comptime") as {
+    evaluate: function(any, any): (string?, any, any, any)
+}
+local materializeProviders = require("nupp.compiler.materialize.providers") as {
+    lower: function(any, any, any): (any, any)
+}
+local materializeIR = require("nupp.compiler.materialize.ir") as {
+    render: function(any): (string?, any)
+}
 
 local expr = {}
 
@@ -168,7 +176,7 @@ function expr.install(c: state.Checker): nil
         c.retStack[#c.retStack] = nil
         c.popScope()
 
-        local quoted, resultType, failure = comptime.evaluate(untypedNode, node.body)
+        local quoted, resultType, failure, envelope = comptime.evaluate(untypedNode, node.body)
         if failure then
             c.diag(
                 failure.code,
@@ -178,6 +186,32 @@ function expr.install(c: state.Checker): nil
                 failure.help and {help = failure.help} or nil
             )
             return T.any
+        end
+        if envelope then
+            local lowered, lowerFailure = materializeProviders.lower(
+                envelope,
+                node.materializationExpected,
+                c.env
+            )
+            if lowerFailure then
+                c.diag(
+                    lowerFailure.code,
+                    node,
+                    lowerFailure.message,
+                    nil,
+                    lowerFailure.help and {help = lowerFailure.help} or nil
+                )
+                return T.any
+            end
+            local _, renderFailure = materializeIR.render(lowered)
+            if renderFailure then
+                c.diag("NUPP2416", node, renderFailure.message)
+                return T.any
+            end
+            node.materializedIR = lowered
+            node.materializationEnvelope = envelope
+
+            return node.materializationExpected or T.any
         end
         node.comptimeValue = quoted
 
