@@ -13,14 +13,17 @@ local M = {}
 local root, provider, buffers, previous
 local unavailable
 
+-- `os.tmpname` is unique per process. Naming a directory from the clock and a
+-- seeded generator was not: two suites starting in the same second seeded the
+-- same value, drew the same number, and shared one directory, so each removed
+-- the other's provider while it was loaded.
 local function temporaryRoot()
-   local base = os.getenv("TMPDIR") or "/tmp"
-   return (base:gsub("/$", "")) .. "/nupp-files-test-" .. tostring(os.time())
-      .. "-" .. tostring(math.random(1, 1e9))
+   local name = os.tmpname()
+   os.remove(name)
+   return name
 end
 
 function M.beforeAll()
-   math.randomseed(os.time())
    root = temporaryRoot()
    os.execute("mkdir -p '" .. root .. "'")
    local staged, problem = nativeStage.build(root, "out", {["native.files"] = true})
