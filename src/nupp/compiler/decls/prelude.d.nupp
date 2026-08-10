@@ -347,7 +347,7 @@ local nupp: {
         Path: nupp.PathLibrary,
 
         --- Parsing and inspection operations for immutable absolute URIs.
-        URI: nupp.URILibrary
+        URI: nupp.URI.Library
     },
 
     --- Scalar helpers and two-dimensional vectors.
@@ -768,6 +768,50 @@ end
 
 --- An immutable normalized absolute URI.
 record nupp.URI
+    --- Components accepted when constructing an absolute URI.
+    record Components
+        --- The required URI scheme.
+        scheme: string
+
+        --- Optional user information, including a password when needed.
+        userInfo: string?
+
+        --- The optional host name or address.
+        host: string?
+
+        --- The optional port from 0 through 65535.
+        port: integer?
+
+        --- The path, or an empty path when omitted.
+        path: string?
+
+        --- The optional query without its leading `?`.
+        query: string?
+
+        --- The optional fragment without its leading `#`.
+        fragment: string?
+    end
+
+    --- Parsing and inspection operations for immutable absolute URIs.
+    record Library
+        --- Parses and normalizes an absolute URI.
+        --- @param value URI text or its individual components
+        --- @return the parsed URI, or nil on failure
+        --- @return a failure reason, when unsuccessful
+        new: function(value: string | Components): (URI?, string?)
+
+        --- Checks whether text is a valid absolute URI without retaining an object.
+        --- @param text the URI text to validate
+        --- @return whether the text is valid
+        --- @return a failure reason, when invalid
+        validate: function(text: string): (boolean, string?)
+
+        --- Reports whether a value is a URI object.
+        --- @param value the value to inspect
+        --- @return whether the value is a URI
+        isURI: function(value: any): boolean
+    end
+
     --- Returns the complete normalized URI text.
     --- @param self this URI
     --- @return the URI text
@@ -883,50 +927,6 @@ record nupp.URI
     --- @return the resolved URI, or nil on failure
     --- @return a failure reason, when unsuccessful
     resolve: function(self: nupp.URI, reference: string): (nupp.URI?, string?)
-end
-
---- Components accepted when constructing an absolute URI.
-record nupp.URIComponents
-    --- The required URI scheme.
-    scheme: string
-
-    --- Optional user information, including a password when needed.
-    userInfo: string?
-
-    --- The optional host name or address.
-    host: string?
-
-    --- The optional port from 0 through 65535.
-    port: integer?
-
-    --- The path, or an empty path when omitted.
-    path: string?
-
-    --- The optional query without its leading `?`.
-    query: string?
-
-    --- The optional fragment without its leading `#`.
-    fragment: string?
-end
-
---- Parsing and inspection operations for immutable absolute URIs.
-record nupp.URILibrary
-    --- Parses and normalizes an absolute URI.
-    --- @param value URI text or its individual components
-    --- @return the parsed URI, or nil on failure
-    --- @return a failure reason, when unsuccessful
-    new: function(value: string | nupp.URIComponents): (nupp.URI?, string?)
-
-    --- Checks whether text is a valid absolute URI without retaining an object.
-    --- @param text the URI text to validate
-    --- @return whether the text is valid
-    --- @return a failure reason, when invalid
-    validate: function(text: string): (boolean, string?)
-
-    --- Reports whether a value is a URI object.
-    --- @param value the value to inspect
-    --- @return whether the value is a URI
-    isURI: function(value: any): boolean
 end
 
 --- Two-dimensional vector operations on number pairs.

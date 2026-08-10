@@ -109,8 +109,9 @@ local uri = assert(URI.new({
 }))
 ```
 
-Components are URI text, not filesystem paths. Use [Path](#paths) for filesystem
-semantics and URI for network/resource identity.
+The input record type is `nupp.URI.Components`. Components are URI text, not
+filesystem paths. Use [Path](#paths) for filesystem semantics and URI for
+network/resource identity.
 
 | URI member | Result |
 | --- | --- |

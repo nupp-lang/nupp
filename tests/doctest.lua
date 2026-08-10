@@ -312,16 +312,17 @@ function M.standardIOApiHasCompleteDocumentation()
       PathLibrary = true,
       Reader = true,
       URI = true,
-      URIComponents = true,
-      URILibrary = true,
       Writer = true,
    }
    local found = {}
-   local path
+   local path, uri
    for _, item in ipairs(module.items) do
+      assert(item.name ~= "URIComponents" and item.name ~= "URILibrary",
+         "URI support types must be nested under nupp.URI")
       if expected[item.name] then
          found[item.name] = true
          if item.name == "Path" then path = item end
+         if item.name == "URI" then uri = item end
          local prefix = "nupp." .. item.name
          assert(item.doc.text ~= "", prefix .. " has no documentation")
          for _, member in ipairs(item.members) do
@@ -347,6 +348,9 @@ function M.standardIOApiHasCompleteDocumentation()
    assert(path.signature:sub(-#"    isRelative: function(self: nupp.Path): boolean\nend")
       == "    isRelative: function(self: nupp.Path): boolean\nend", path.signature)
    assert(not path.signature:find("---", 1, true), path.signature)
+   assert(uri, "the prelude did not document nupp.URI")
+   assert(uri.signature:find("    record Components", 1, true), uri.signature)
+   assert(uri.signature:find("    record Library", 1, true), uri.signature)
 end
 
 function M.standardMathApiHasCompleteDocumentation()

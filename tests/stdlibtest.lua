@@ -187,6 +187,12 @@ function M.nativeFeaturesAreResolvedEffects()
       assertEq(count, 1, source .. " records only its own facility")
    end
 
+   assertClean(table.concat({
+      "local library: nupp.URI.Library = nupp.io.URI",
+      "local components: nupp.URI.Components = nil as any",
+      "local uri: nupp.URI? = library.new(components)",
+   }, "\n"))
+
    local aliased = effectsOf(table.concat({
       "local data = nupp.data",
       "local digest = data.sha256",
